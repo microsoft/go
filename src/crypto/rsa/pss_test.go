@@ -168,9 +168,10 @@ func TestPSSGolden(t *testing.T) {
 // the default options. OpenSSL sets the salt length to be maximal.
 func TestPSSOpenSSL(t *testing.T) {
 	hash := crypto.SHA256
+	hashed := []byte("testing")
 	h := hash.New()
-	h.Write([]byte("testing"))
-	hashed := h.Sum(nil)
+	h.Write(hashed)
+	hashed = h.Sum(nil)
 
 	// Generated with `echo -n testing | openssl dgst -sign key.pem -sigopt rsa_padding_mode:pss -sha256 > sig`
 	sig := []byte{

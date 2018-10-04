@@ -31,7 +31,7 @@ const urandomDevice = "/dev/urandom"
 // This is sufficient on Linux, OS X, and FreeBSD.
 
 func init() {
-	if boring.Enabled {
+	if boring.Enabled() {
 		Reader = boring.RandReader
 		return
 	}

@@ -2,8 +2,9 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-// +build linux,amd64
+// +build linux
 // +build !android
+// +build !no_openssl
 // +build !cmd_go_bootstrap
 // +build !msan
 
@@ -12,6 +13,7 @@ package boring
 // #include "goboringcrypto.h"
 import "C"
 import (
+	"crypto"
 	"encoding/asn1"
 	"errors"
 	"math/big"
@@ -40,11 +42,12 @@ func (k *PublicKeyECDSA) finalize() {
 }
 
 var errUnknownCurve = errors.New("boringcrypto: unknown elliptic curve")
+var errUnsupportedCurve = errors.New("boringcrypto: unsupported elliptic curve")
 
 func curveNID(curve string) (C.int, error) {
 	switch curve {
 	case "P-224":
-		return C.GO_NID_secp224r1, nil
+		return 0, errUnsupportedCurve
 	case "P-256":
 		return C.GO_NID_X9_62_prime256v1, nil
 	case "P-384":
@@ -76,13 +79,13 @@ func newECKey(curve string, X, Y *big.Int) (*C.GO_EC_KEY, error) {
 	}
 	key := C._goboringcrypto_EC_KEY_new_by_curve_name(nid)
 	if key == nil {
-		return nil, fail("EC_KEY_new_by_curve_name")
+		return nil, NewOpenSSLError("EC_KEY_new_by_curve_name failed")
 	}
 	group := C._goboringcrypto_EC_KEY_get0_group(key)
 	pt := C._goboringcrypto_EC_POINT_new(group)
 	if pt == nil {
 		C._goboringcrypto_EC_KEY_free(key)
-		return nil, fail("EC_POINT_new")
+		return nil, NewOpenSSLError("EC_POINT_new failed")
 	}
 	bx := bigToBN(X)
 	by := bigToBN(Y)
@@ -97,7 +100,7 @@ func newECKey(curve string, X, Y *big.Int) (*C.GO_EC_KEY, error) {
 	C._goboringcrypto_EC_POINT_free(pt)
 	if !ok {
 		C._goboringcrypto_EC_KEY_free(key)
-		return nil, fail("EC_POINT_set_affine_coordinates_GFp")
+		return nil, NewOpenSSLError("EC_POINT_free failed")
 	}
 	return key, nil
 }
@@ -114,7 +117,7 @@ func NewPrivateKeyECDSA(curve string, X, Y *big.Int, D *big.Int) (*PrivateKeyECD
 	}
 	if !ok {
 		C._goboringcrypto_EC_KEY_free(key)
-		return nil, fail("EC_KEY_set_private_key")
+		return nil, NewOpenSSLError("EC_KEY_set_private_key failed")
 	}
 	k := &PrivateKeyECDSA{key}
 	// Note: Because of the finalizer, any time k.key is passed to cgo,
@@ -125,12 +128,12 @@ func NewPrivateKeyECDSA(curve string, X, Y *big.Int, D *big.Int) (*PrivateKeyECD
 	return k, nil
 }
 
-func SignECDSA(priv *PrivateKeyECDSA, hash []byte) (r, s *big.Int, err error) {
+func SignECDSA(priv *PrivateKeyECDSA, hash []byte, h crypto.Hash) (r, s *big.Int, err error) {
 	// We could use ECDSA_do_sign instead but would need to convert
 	// the resulting BIGNUMs to *big.Int form. If we're going to do a
 	// conversion, converting the ASN.1 form is more convenient and
 	// likely not much more expensive.
-	sig, err := SignMarshalECDSA(priv, hash)
+	sig, err := SignMarshalECDSA(priv, hash, h)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -141,18 +144,29 @@ func SignECDSA(priv *PrivateKeyECDSA, hash []byte) (r, s *big.Int, err error) {
 	return esig.R, esig.S, nil
 }
 
-func SignMarshalECDSA(priv *PrivateKeyECDSA, hash []byte) ([]byte, error) {
+func SignMarshalECDSA(priv *PrivateKeyECDSA, hash []byte, h crypto.Hash) ([]byte, error) {
 	size := C._goboringcrypto_ECDSA_size(priv.key)
 	sig := make([]byte, size)
-	var sigLen C.uint
-	if C._goboringcrypto_ECDSA_sign(0, base(hash), C.size_t(len(hash)), (*C.uint8_t)(unsafe.Pointer(&sig[0])), &sigLen, priv.key) == 0 {
-		return nil, fail("ECDSA_sign")
+	var sigLen C.size_t
+	if h == crypto.Hash(0) {
+		ok := C._goboringcrypto_internal_ECDSA_sign(0, base(hash), C.size_t(len(hash)), (*C.uint8_t)(unsafe.Pointer(&sig[0])), &sigLen, priv.key) > 0
+		if !ok {
+			return nil, NewOpenSSLError(("ECDSA_sign failed"))
+		}
+	} else {
+		md := cryptoHashToMD(h)
+		if md == nil {
+			panic("boring: invalid hash")
+		}
+		if C._goboringcrypto_ECDSA_sign(md, base(hash), C.size_t(len(hash)), (*C.uint8_t)(unsafe.Pointer(&sig[0])), &sigLen, priv.key) == 0 {
+			return nil, NewOpenSSLError("ECDSA_sign failed")
+		}
 	}
 	runtime.KeepAlive(priv)
 	return sig[:sigLen], nil
 }
 
-func VerifyECDSA(pub *PublicKeyECDSA, hash []byte, r, s *big.Int) bool {
+func VerifyECDSA(pub *PublicKeyECDSA, msg []byte, r, s *big.Int, h crypto.Hash) bool {
 	// We could use ECDSA_do_verify instead but would need to convert
 	// r and s to BIGNUM form. If we're going to do a conversion, marshaling
 	// to ASN.1 is more convenient and likely not much more expensive.
@@ -160,7 +174,15 @@ func VerifyECDSA(pub *PublicKeyECDSA, hash []byte, r, s *big.Int) bool {
 	if err != nil {
 		return false
 	}
-	ok := C._goboringcrypto_ECDSA_verify(0, base(hash), C.size_t(len(hash)), (*C.uint8_t)(unsafe.Pointer(&sig[0])), C.size_t(len(sig)), pub.key) != 0
+	if h == crypto.Hash(0) {
+		ok := C._goboringcrypto_internal_ECDSA_verify(0, base(msg), C.size_t(len(msg)), (*C.uint8_t)(unsafe.Pointer(&sig[0])), C.size_t(len(sig)), pub.key) > 0
+		return ok
+	}
+	md := cryptoHashToMD(h)
+	if md == nil {
+		panic("boring: invalid hash")
+	}
+	ok := C._goboringcrypto_ECDSA_verify(md, base(msg), C.size_t(len(msg)), (*C.uint8_t)(unsafe.Pointer(&sig[0])), C.size_t(len(sig)), pub.key) > 0
 	runtime.KeepAlive(pub)
 	return ok
 }
@@ -172,30 +194,30 @@ func GenerateKeyECDSA(curve string) (X, Y, D *big.Int, err error) {
 	}
 	key := C._goboringcrypto_EC_KEY_new_by_curve_name(nid)
 	if key == nil {
-		return nil, nil, nil, fail("EC_KEY_new_by_curve_name")
+		return nil, nil, nil, NewOpenSSLError("EC_KEY_new_by_curve_name failed")
 	}
 	defer C._goboringcrypto_EC_KEY_free(key)
-	if C._goboringcrypto_EC_KEY_generate_key_fips(key) == 0 {
-		return nil, nil, nil, fail("EC_KEY_generate_key_fips")
+	if C._goboringcrypto_EC_KEY_generate_key(key) == 0 {
+		return nil, nil, nil, NewOpenSSLError("EC_KEY_generate_key failed")
 	}
 	group := C._goboringcrypto_EC_KEY_get0_group(key)
 	pt := C._goboringcrypto_EC_KEY_get0_public_key(key)
 	bd := C._goboringcrypto_EC_KEY_get0_private_key(key)
 	if pt == nil || bd == nil {
-		return nil, nil, nil, fail("EC_KEY_get0_private_key")
+		return nil, nil, nil, NewOpenSSLError("EC_KEY_get0_private_key failed")
 	}
 	bx := C._goboringcrypto_BN_new()
 	if bx == nil {
-		return nil, nil, nil, fail("BN_new")
+		return nil, nil, nil, NewOpenSSLError("BN_new failed")
 	}
 	defer C._goboringcrypto_BN_free(bx)
 	by := C._goboringcrypto_BN_new()
 	if by == nil {
-		return nil, nil, nil, fail("BN_new")
+		return nil, nil, nil, NewOpenSSLError("BN_new failed")
 	}
 	defer C._goboringcrypto_BN_free(by)
 	if C._goboringcrypto_EC_POINT_get_affine_coordinates_GFp(group, pt, bx, by, nil) == 0 {
-		return nil, nil, nil, fail("EC_POINT_get_affine_coordinates_GFp")
+		return nil, nil, nil, NewOpenSSLError("EC_POINT_get_affine_coordinates_GFp failed")
 	}
 	return bnToBig(bx), bnToBig(by), bnToBig(bd), nil
 }

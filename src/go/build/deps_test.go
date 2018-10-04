@@ -386,7 +386,7 @@ var depsRules = `
 	NET, log
 	< net/mail;
 
-	NONE < crypto/internal/boring/sig;
+
 	sync/atomic < crypto/internal/boring/fipstls;
 
 	encoding/binary, golang.org/x/sys/cpu, hash,

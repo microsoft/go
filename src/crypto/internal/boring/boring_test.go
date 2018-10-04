@@ -15,7 +15,7 @@ func TestInit(t *testing.T) {}
 // Test that Unreachable panics.
 func TestUnreachable(t *testing.T) {
 	defer func() {
-		if Enabled {
+		if Enabled() {
 			if err := recover(); err == nil {
 				t.Fatal("expected Unreachable to panic")
 			}

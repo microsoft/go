@@ -2,7 +2,7 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-// +build !linux !amd64 !cgo android cmd_go_bootstrap msan
+// +build !linux !cgo android cmd_go_bootstrap msan no_openssl
 
 package boring
 
@@ -14,7 +14,7 @@ import (
 	"math/big"
 )
 
-const available = false
+var enabled = false
 
 // Unreachable marks code that should be unreachable
 // when BoringCrypto is in use. It is a no-op without BoringCrypto.
@@ -28,6 +28,9 @@ func Unreachable() {
 // UnreachableExceptTests marks code that should be unreachable
 // when BoringCrypto is in use. It is a no-op without BoringCrypto.
 func UnreachableExceptTests() {}
+
+// This is a noop withotu BoringCrytpo.
+func PanicIfStrictFIPS(v interface{}) {}
 
 type randReader int
 
@@ -57,13 +60,13 @@ func NewPrivateKeyECDSA(curve string, X, Y, D *big.Int) (*PrivateKeyECDSA, error
 func NewPublicKeyECDSA(curve string, X, Y *big.Int) (*PublicKeyECDSA, error) {
 	panic("boringcrypto: not available")
 }
-func SignECDSA(priv *PrivateKeyECDSA, hash []byte) (r, s *big.Int, err error) {
+func SignECDSA(priv *PrivateKeyECDSA, hash []byte, h crypto.Hash) (r, s *big.Int, err error) {
 	panic("boringcrypto: not available")
 }
-func SignMarshalECDSA(priv *PrivateKeyECDSA, hash []byte) ([]byte, error) {
+func SignMarshalECDSA(priv *PrivateKeyECDSA, hash []byte, h crypto.Hash) ([]byte, error) {
 	panic("boringcrypto: not available")
 }
-func VerifyECDSA(pub *PublicKeyECDSA, hash []byte, r, s *big.Int) bool {
+func VerifyECDSA(pub *PublicKeyECDSA, hash []byte, r, s *big.Int, h crypto.Hash) bool {
 	panic("boringcrypto: not available")
 }
 
@@ -95,13 +98,13 @@ func NewPrivateKeyRSA(N, E, D, P, Q, Dp, Dq, Qinv *big.Int) (*PrivateKeyRSA, err
 	panic("boringcrypto: not available")
 }
 func NewPublicKeyRSA(N, E *big.Int) (*PublicKeyRSA, error) { panic("boringcrypto: not available") }
-func SignRSAPKCS1v15(priv *PrivateKeyRSA, h crypto.Hash, hashed []byte) ([]byte, error) {
+func SignRSAPKCS1v15(priv *PrivateKeyRSA, h crypto.Hash, hashed []byte, msgHashed bool) ([]byte, error) {
 	panic("boringcrypto: not available")
 }
 func SignRSAPSS(priv *PrivateKeyRSA, h crypto.Hash, hashed []byte, saltLen int) ([]byte, error) {
 	panic("boringcrypto: not available")
 }
-func VerifyRSAPKCS1v15(pub *PublicKeyRSA, h crypto.Hash, hashed, sig []byte) error {
+func VerifyRSAPKCS1v15(pub *PublicKeyRSA, h crypto.Hash, hashed, sig []byte, msgHashed bool) error {
 	panic("boringcrypto: not available")
 }
 func VerifyRSAPSS(pub *PublicKeyRSA, h crypto.Hash, hashed, sig []byte, saltLen int) error {

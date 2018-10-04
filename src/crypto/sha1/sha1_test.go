@@ -79,7 +79,7 @@ func TestGolden(t *testing.T) {
 				io.WriteString(c, g.in[len(g.in)/2:])
 				sum = c.Sum(nil)
 			case 3:
-				if boring.Enabled {
+				if boring.Enabled() {
 					continue
 				}
 				io.WriteString(c, g.in[0:len(g.in)/2])
@@ -146,7 +146,7 @@ func TestBlockSize(t *testing.T) {
 
 // Tests that blockGeneric (pure Go) and block (in assembly for some architectures) match.
 func TestBlockGeneric(t *testing.T) {
-	if boring.Enabled {
+	if boring.Enabled() {
 		t.Skip("BoringCrypto doesn't expose digest")
 	}
 	for i := 1; i < 30; i++ { // arbitrary factor

@@ -80,16 +80,6 @@ var hmacTests = []hmacTest{
 		sha1.BlockSize,
 	},
 
-	// Test from Plan 9.
-	{
-		md5.New,
-		[]byte("Jefe"),
-		[]byte("what do ya want for nothing?"),
-		"750c783e6ab0b503eaa86e310a5db738",
-		md5.Size,
-		md5.BlockSize,
-	},
-
 	// Tests from RFC 4231
 	{
 		sha256.New,

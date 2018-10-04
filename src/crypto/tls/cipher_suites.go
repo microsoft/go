@@ -427,7 +427,7 @@ func macSHA1(key []byte) hash.Hash {
 	h := sha1.New
 	// The BoringCrypto SHA1 does not have a constant-time
 	// checksum function, so don't try to use it.
-	if !boring.Enabled {
+	if !boring.Enabled() {
 		h = newConstantTimeHash(h)
 	}
 	return hmac.New(h, key)

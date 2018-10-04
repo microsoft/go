@@ -9,13 +9,12 @@ package rsa
 import (
 	"bytes"
 	"crypto"
+	"crypto/internal/boring"
 	"errors"
 	"hash"
 	"io"
 	"math/big"
 )
-
-import "crypto/internal/boring"
 
 // Per RFC 8017, Section 9.1
 //
@@ -216,7 +215,7 @@ func signPSSWithSalt(rand io.Reader, priv *PrivateKey, hash crypto.Hash, hashed,
 		return nil, err
 	}
 
-	if boring.Enabled {
+	if boring.Enabled() {
 		bkey, err := boringPrivateKey(priv)
 		if err != nil {
 			return nil, err
@@ -291,7 +290,11 @@ func SignPSS(rand io.Reader, priv *PrivateKey, hash crypto.Hash, digest []byte, 
 		saltLength = hash.Size()
 	}
 
-	if boring.Enabled && rand == boring.RandReader {
+	if opts != nil && opts.Hash != 0 {
+		hash = opts.Hash
+	}
+
+	if boring.Enabled() {
 		bkey, err := boringPrivateKey(priv)
 		if err != nil {
 			return nil, err
@@ -313,7 +316,7 @@ func SignPSS(rand io.Reader, priv *PrivateKey, hash crypto.Hash, digest []byte, 
 // argument may be nil, in which case sensible defaults are used. opts.Hash is
 // ignored.
 func VerifyPSS(pub *PublicKey, hash crypto.Hash, digest []byte, sig []byte, opts *PSSOptions) error {
-	if boring.Enabled {
+	if boring.Enabled() {
 		bkey, err := boringPublicKey(pub)
 		if err != nil {
 			return err
@@ -323,6 +326,7 @@ func VerifyPSS(pub *PublicKey, hash crypto.Hash, digest []byte, sig []byte, opts
 		}
 		return nil
 	}
+	boring.UnreachableExceptTests()
 	if len(sig) != pub.Size() {
 		return ErrVerification
 	}

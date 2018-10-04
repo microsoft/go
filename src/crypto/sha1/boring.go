@@ -7,6 +7,7 @@
 // have to maintain changes to cmd/dist's deps graph.
 
 // +build !cmd_go_bootstrap
+// +build !no_openssl
 
 package sha1
 
@@ -15,7 +16,9 @@ import (
 	"hash"
 )
 
-const boringEnabled = boring.Enabled
+func boringEnabled() bool {
+	return boring.Enabled()
+}
 
 func boringNewSHA1() hash.Hash { return boring.NewSHA1() }
 

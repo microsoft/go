@@ -32,11 +32,8 @@ import (
 	"math"
 	"math/big"
 
-	"crypto/internal/randutil"
-)
-
-import (
 	"crypto/internal/boring"
+	"crypto/internal/randutil"
 	"unsafe"
 )
 
@@ -265,7 +262,7 @@ func GenerateKey(random io.Reader, bits int) (*PrivateKey, error) {
 func GenerateMultiPrimeKey(random io.Reader, nprimes int, bits int) (*PrivateKey, error) {
 	randutil.MaybeReadByte(random)
 
-	if boring.Enabled && random == boring.RandReader && nprimes == 2 && (bits == 2048 || bits == 3072) {
+	if boring.Enabled() && nprimes == 2 && (bits == 2048 || bits == 3072) {
 		N, E, D, P, Q, Dp, Dq, Qinv, err := boring.GenerateKeyRSA(bits)
 		if err != nil {
 			return nil, err
@@ -453,7 +450,7 @@ func EncryptOAEP(hash hash.Hash, random io.Reader, pub *PublicKey, msg []byte, l
 		return nil, ErrMessageTooLong
 	}
 
-	if boring.Enabled && random == boring.RandReader {
+	if boring.Enabled() {
 		bkey, err := boringPublicKey(pub)
 		if err != nil {
 			return nil, err
@@ -482,7 +479,7 @@ func EncryptOAEP(hash hash.Hash, random io.Reader, pub *PublicKey, msg []byte, l
 	mgf1XOR(db, hash, seed)
 	mgf1XOR(seed, hash, db)
 
-	if boring.Enabled {
+	if boring.Enabled() {
 		var bkey *boring.PublicKeyRSA
 		bkey, err = boringPublicKey(pub)
 		if err != nil {
@@ -660,7 +657,7 @@ func DecryptOAEP(hash hash.Hash, random io.Reader, priv *PrivateKey, ciphertext 
 		return nil, ErrDecryption
 	}
 
-	if boring.Enabled {
+	if boring.Enabled() {
 		bkey, err := boringPrivateKey(priv)
 		if err != nil {
 			return nil, err

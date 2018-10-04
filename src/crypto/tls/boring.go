@@ -90,11 +90,11 @@ func isBoringCertificate(c *x509.Certificate) bool {
 	default:
 		return false
 	case *rsa.PublicKey:
-		if size := k.N.BitLen(); size != 2048 && size != 3072 {
+		if size := k.N.BitLen(); size < 2048 || (size%512) != 0 {
 			return false
 		}
 	case *ecdsa.PublicKey:
-		if name := k.Curve.Params().Name; name != "P-256" && name != "P-384" {
+		if name := k.Curve.Params().Name; name != "P-256" && name != "P-384" && name != "P-521" {
 			return false
 		}
 	}

@@ -119,7 +119,7 @@ func (d *digest) Reset() {
 // implements encoding.BinaryMarshaler and encoding.BinaryUnmarshaler to
 // marshal and unmarshal the internal state of the hash.
 func New() hash.Hash {
-	if boringEnabled {
+	if boringEnabled() {
 		return boringNewSHA1()
 	}
 	d := new(digest)
@@ -264,7 +264,7 @@ func (d *digest) constSum() [Size]byte {
 
 // Sum returns the SHA-1 checksum of the data.
 func Sum(data []byte) [Size]byte {
-	if boringEnabled {
+	if boringEnabled() {
 		h := New()
 		h.Write(data)
 		var ret [Size]byte

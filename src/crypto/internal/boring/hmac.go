@@ -2,8 +2,9 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-// +build linux,amd64
+// +build linux
 // +build !android
+// +build !no_openssl
 // +build !cmd_go_bootstrap
 // +build !msan
 
@@ -69,14 +70,25 @@ func NewHMAC(h func() hash.Hash, key []byte) hash.Hash {
 		return nil
 	}
 
-	// Note: Could hash down long keys here using EVP_Digest.
-	hkey := make([]byte, len(key))
-	copy(hkey, key)
+	var hkey []byte
+	if key != nil && len(key) > 0 {
+		// Note: Could hash down long keys here using EVP_Digest.
+		hkey = make([]byte, len(key))
+		copy(hkey, key)
+	} else {
+		// This is supported in BoringSSL/Standard lib and as such
+		// we must support it here. When using HMAC with a null key
+		// HMAC_Init will try and reuse the key from the ctx. This is
+		// not the bahavior previously implemented, so as a workaround
+		// we pass an "empty" key.
+		hkey = make([]byte, C.EVP_MAX_MD_SIZE)
+	}
 	hmac := &boringHMAC{
 		md:        md,
 		size:      ch.Size(),
 		blockSize: ch.BlockSize(),
 		key:       hkey,
+		ctx:       C._goboringcrypto_HMAC_CTX_new(),
 	}
 	hmac.Reset()
 	return hmac
@@ -84,8 +96,8 @@ func NewHMAC(h func() hash.Hash, key []byte) hash.Hash {
 
 type boringHMAC struct {
 	md          *C.GO_EVP_MD
-	ctx         C.GO_HMAC_CTX
-	ctx2        C.GO_HMAC_CTX
+	ctx         *C.GO_HMAC_CTX
+	ctx2        *C.GO_HMAC_CTX
 	size        int
 	blockSize   int
 	key         []byte
@@ -94,9 +106,7 @@ type boringHMAC struct {
 }
 
 func (h *boringHMAC) Reset() {
-	if h.needCleanup {
-		C._goboringcrypto_HMAC_CTX_cleanup(&h.ctx)
-	} else {
+	if !h.needCleanup {
 		h.needCleanup = true
 		// Note: Because of the finalizer, any time h.ctx is passed to cgo,
 		// that call must be followed by a call to runtime.KeepAlive(h),
@@ -104,13 +114,13 @@ func (h *boringHMAC) Reset() {
 		// call returns.
 		runtime.SetFinalizer(h, (*boringHMAC).finalize)
 	}
-	C._goboringcrypto_HMAC_CTX_init(&h.ctx)
+	C._goboringcrypto_HMAC_CTX_reset(h.ctx)
 
-	if C._goboringcrypto_HMAC_Init(&h.ctx, unsafe.Pointer(base(h.key)), C.int(len(h.key)), h.md) == 0 {
+	if C._goboringcrypto_HMAC_Init_ex(h.ctx, unsafe.Pointer(base(h.key)), C.int(len(h.key)), h.md, nil) == 0 {
 		panic("boringcrypto: HMAC_Init failed")
 	}
-	if int(C._goboringcrypto_HMAC_size(&h.ctx)) != h.size {
-		println("boringcrypto: HMAC size:", C._goboringcrypto_HMAC_size(&h.ctx), "!=", h.size)
+	if int(C._goboringcrypto_HMAC_size(h.ctx)) != h.size {
+		println("boringcrypto: HMAC size:", C._goboringcrypto_HMAC_size(h.ctx), "!=", h.size)
 		panic("boringcrypto: HMAC size mismatch")
 	}
 	runtime.KeepAlive(h) // Next line will keep h alive too; just making doubly sure.
@@ -118,12 +128,12 @@ func (h *boringHMAC) Reset() {
 }
 
 func (h *boringHMAC) finalize() {
-	C._goboringcrypto_HMAC_CTX_cleanup(&h.ctx)
+	C._goboringcrypto_HMAC_CTX_free(h.ctx)
 }
 
 func (h *boringHMAC) Write(p []byte) (int, error) {
 	if len(p) > 0 {
-		C._goboringcrypto_HMAC_Update(&h.ctx, (*C.uint8_t)(unsafe.Pointer(&p[0])), C.size_t(len(p)))
+		C._goboringcrypto_HMAC_Update(h.ctx, (*C.uint8_t)(unsafe.Pointer(&p[0])), C.size_t(len(p)))
 	}
 	runtime.KeepAlive(h)
 	return len(p), nil
@@ -146,11 +156,11 @@ func (h *boringHMAC) Sum(in []byte) []byte {
 	// that Sum has no effect on the underlying stream.
 	// In particular it is OK to Sum, then Write more, then Sum again,
 	// and the second Sum acts as if the first didn't happen.
-	C._goboringcrypto_HMAC_CTX_init(&h.ctx2)
-	if C._goboringcrypto_HMAC_CTX_copy_ex(&h.ctx2, &h.ctx) == 0 {
+	h.ctx2 = C._goboringcrypto_HMAC_CTX_new()
+	if C._goboringcrypto_HMAC_CTX_copy_ex(h.ctx2, h.ctx) == 0 {
 		panic("boringcrypto: HMAC_CTX_copy_ex failed")
 	}
-	C._goboringcrypto_HMAC_Final(&h.ctx2, (*C.uint8_t)(unsafe.Pointer(&h.sum[0])), nil)
-	C._goboringcrypto_HMAC_CTX_cleanup(&h.ctx2)
+	C._goboringcrypto_HMAC_Final(h.ctx2, (*C.uint8_t)(unsafe.Pointer(&h.sum[0])), nil)
+	C._goboringcrypto_HMAC_CTX_free(h.ctx2)
 	return append(in, h.sum...)
 }

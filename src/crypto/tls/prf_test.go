@@ -5,6 +5,7 @@
 package tls
 
 import (
+	"crypto/internal/boring"
 	"encoding/hex"
 	"testing"
 )
@@ -46,6 +47,9 @@ type testKeysFromTest struct {
 }
 
 func TestKeysFromPreMasterSecret(t *testing.T) {
+	if boring.Enabled() {
+		t.Skip("unsupprted TLS versions used for FIPS mode")
+	}
 	for i, test := range testKeysFromTests {
 		in, _ := hex.DecodeString(test.preMasterSecret)
 		clientRandom, _ := hex.DecodeString(test.clientRandom)

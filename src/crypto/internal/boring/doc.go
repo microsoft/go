@@ -7,8 +7,8 @@
 // If BoringCrypto is not available, the functions in this package all panic.
 package boring
 
-// Enabled reports whether BoringCrypto is available.
-// When enabled is false, all functions in this package panic.
-//
-// BoringCrypto is only available on linux/amd64 systems.
-const Enabled = available
+// Enabled returns whether or not the boring package is enabled. When
+// the boring package is enabled that means FIPS mode is enabled.
+func Enabled() bool {
+	return enabled
+}

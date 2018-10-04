@@ -23,7 +23,7 @@ func Force() {
 // If called from a non-test binary, it panics.
 func Abandon() {
 	// Note: Not using boring.UnreachableExceptTests because we want
-	// this test to happen even when boring.Enabled = false.
+	// this test to happen even when boring.Enabled() = false.
 	name := runtime_arg0()
 	// Allow _test for Go command, .test for Bazel,
 	// NaClMain for NaCl (where all binaries run as NaClMain),

@@ -16,6 +16,15 @@
 // The generation of the checking program depends on the declaration
 // forms used below (one line for most, multiline for enums).
 
+// Always include our header file, drop the rest.
+// This could also be done with an ifdef and a
+// flag set during link, but this is simpler since
+// we will always want this and can compile it out in
+// other ways already.
+#if 1
+#include "goopenssl.h"
+#else
+
 #include <stdlib.h> // size_t
 #include <stdint.h> // uint8_t
 
@@ -235,3 +244,5 @@ int _goboringcrypto_EVP_PKEY_CTX_set_rsa_pss_saltlen(GO_EVP_PKEY_CTX*, int);
 int _goboringcrypto_EVP_PKEY_sign_init(GO_EVP_PKEY_CTX*);
 int _goboringcrypto_EVP_PKEY_verify_init(GO_EVP_PKEY_CTX*);
 int _goboringcrypto_EVP_PKEY_sign(GO_EVP_PKEY_CTX*, uint8_t*, size_t*, const uint8_t*, size_t);
+
+#endif
