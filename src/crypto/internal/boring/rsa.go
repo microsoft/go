@@ -89,14 +89,18 @@ func NewPrivateKeyRSA(N, E, D, P, Q, Dp, Dq, Qinv *big.Int) (*PrivateKeyRSA, err
 	n = bigToBN(N)
 	e = bigToBN(E)
 	d = bigToBN(D)
-	p = bigToBN(P)
-	q = bigToBN(Q)
-	dp = bigToBN(Dp)
-	dq = bigToBN(Dq)
-	qinv = bigToBN(Qinv)
 	C._goboringcrypto_RSA_set0_key(key, n, e, d)
-	C._goboringcrypto_RSA_set0_factors(key, p, q)
-	C._goboringcrypto_RSA_set0_crt_params(key, dp, dq, qinv)
+	if P != nil && Q != nil {
+		p = bigToBN(P)
+		q = bigToBN(Q)
+		C._goboringcrypto_RSA_set0_factors(key, p, q)
+	}
+	if Dp != nil && Dq != nil && Qinv != nil {
+		dp = bigToBN(Dp)
+		dq = bigToBN(Dq)
+		qinv = bigToBN(Qinv)
+		C._goboringcrypto_RSA_set0_crt_params(key, dp, dq, qinv)
+	}
 	k := &PrivateKeyRSA{_key: key}
 	runtime.SetFinalizer(k, (*PrivateKeyRSA).finalize)
 	return k, nil
@@ -158,7 +162,7 @@ func setupRSA(withKey func(func(*C.GO_RSA) C.int) C.int,
 			return nil, nil, NewOpenSSLError("EVP_PKEY_set_rsa_oaep_md failed")
 		}
 		// ctx takes ownership of label, so malloc a copy for BoringCrypto to free.
-		clabel := (*C.uint8_t)(C._goboringcrypto_OPENSSL_malloc(C.size_t(len(label))))
+		clabel := (*C.uint8_t)(C.malloc(C.size_t(len(label))))
 		if clabel == nil {
 			return nil, nil, fail("OPENSSL_malloc")
 		}

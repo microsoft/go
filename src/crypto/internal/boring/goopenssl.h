@@ -211,7 +211,6 @@ DEFINEFUNC(int, HMAC_Init_ex,
 DEFINEFUNC(int, HMAC_Update, (GO_HMAC_CTX * arg0, const uint8_t *arg1, size_t arg2), (arg0, arg1, arg2))
 DEFINEFUNC(int, HMAC_Final, (GO_HMAC_CTX * arg0, uint8_t *arg1, unsigned int *arg2), (arg0, arg1, arg2))
 DEFINEFUNC(size_t, HMAC_CTX_copy, (GO_HMAC_CTX *dest, GO_HMAC_CTX *src), (dest, src))
-DEFINEFUNC(void*, OPENSSL_malloc, (size_t n), (n))
 
 DEFINEFUNCINTERNAL(void, HMAC_CTX_free, (GO_HMAC_CTX * arg0), (arg0))
 static inline void
