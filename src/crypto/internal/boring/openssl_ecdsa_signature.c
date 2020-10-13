@@ -7,7 +7,7 @@
 #include "goboringcrypto.h"
 
 int
-_goboringcrypto_ECDSA_sign(EVP_MD* md, const uint8_t *msg, size_t msgLen, uint8_t *sig, size_t *slen, GO_EC_KEY *eckey)
+_goboringcrypto_ECDSA_sign(EVP_MD* md, const uint8_t *msg, size_t msgLen, uint8_t *sig, unsigned int *slen, GO_EC_KEY *eckey)
 {
     EVP_PKEY *key = _goboringcrypto_EVP_PKEY_new();
     if (!_goboringcrypto_EVP_PKEY_assign_EC_KEY(key, eckey))
@@ -16,7 +16,7 @@ _goboringcrypto_ECDSA_sign(EVP_MD* md, const uint8_t *msg, size_t msgLen, uint8_
 }
 
 int
-_goboringcrypto_ECDSA_verify(EVP_MD* md, const uint8_t *msg, size_t msgLen, const uint8_t *sig, size_t slen, GO_EC_KEY *eckey)
+_goboringcrypto_ECDSA_verify(EVP_MD* md, const uint8_t *msg, size_t msgLen, const uint8_t *sig, unsigned int slen, GO_EC_KEY *eckey)
 {
 
     EVP_PKEY *key = _goboringcrypto_EVP_PKEY_new();

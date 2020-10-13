@@ -7,7 +7,7 @@
 #include "goboringcrypto.h"
 
 int
-_goboringcrypto_EVP_sign(EVP_MD* md, EVP_PKEY_CTX *ctx, const uint8_t *msg, size_t msgLen, uint8_t *sig, size_t *slen, EVP_PKEY *key) {
+_goboringcrypto_EVP_sign(EVP_MD* md, EVP_PKEY_CTX *ctx, const uint8_t *msg, size_t msgLen, uint8_t *sig, unsigned int *slen, EVP_PKEY *key) {
     EVP_MD_CTX *mdctx = NULL;
     int ret = 0;
 
@@ -38,7 +38,7 @@ err:
 }
 
 int
-_goboringcrypto_EVP_verify(EVP_MD* md, EVP_PKEY_CTX *ctx, const uint8_t *msg, size_t msgLen, const uint8_t *sig, size_t slen, EVP_PKEY *key) {
+_goboringcrypto_EVP_verify(EVP_MD* md, EVP_PKEY_CTX *ctx, const uint8_t *msg, size_t msgLen, const uint8_t *sig, unsigned int slen, EVP_PKEY *key) {
     EVP_MD_CTX *mdctx = NULL;
     int ret = 0;
 
