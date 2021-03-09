@@ -1,0 +1,30 @@
+# Copyright (c) Microsoft Corporation.
+# Licensed under the MIT License.
+
+# Shallow checkout sources on Unix
+steps:
+  - checkout: none
+
+  - script: |
+      set -x
+
+      git init
+      git remote add origin "$(Build.Repository.Uri)"
+
+      shallow_fetch() {
+        git "$@" fetch --progress --no-tags --depth=1 origin "$(Build.SourceVersion)"
+      }
+
+      if [ "$FETCH_BEARER_TOKEN" ]; then
+        shallow_fetch -c http.extraheader="AUTHORIZATION: bearer $FETCH_BEARER_TOKEN"
+      else
+        shallow_fetch
+      fi
+
+      git checkout "$(Build.SourceVersion)"
+    env:
+      # If non-public, use access token to fetch from repo. If public, don't use the access token,
+      # because anonymous auth is fine.
+      ${{ if ne(variables['System.TeamProject'], 'public') }}:
+        FETCH_BEARER_TOKEN: $(System.AccessToken)
+    displayName: Shallow Checkout
