@@ -1,14 +1,18 @@
-# Project
+# The Go Programming Language
 
-> This repo has been populated by an initial template to help get you started. Please
-> make sure to update the content to build a great experience for community-building.
+Go is an open source programming language that makes it easy to build simple,
+reliable, and efficient software.
 
-As the maintainer of this project, please make a few updates:
+This repository, https://github.com/microsoft/go, contains the source for Go and
+the infrastructure used by Microsoft to build Go.
 
-- Improving this README.MD file to provide a great experience
-- Updating SUPPORT.MD with content about this project's support experience
-- Understanding the security reporting process in SECURITY.MD
-- Remove this section from the README
+![Gopher image](https://golang.org/doc/gopher/fiveyears.jpg)
+*Gopher image by [Renee French][rf], licensed under [Creative Commons 3.0 Attributions license][cc3-by].*
+
+The canonical Git repository is located at https://go.googlesource.com/go.
+
+Unless otherwise noted, the Go source files are distributed under the
+BSD-style license found in the LICENSE file.
 
 ## Contributing
 
