@@ -271,7 +271,7 @@ func short() string {
 // defaults as later arguments in the command line.
 func (t *tester) goTest() []string {
 	return []string{
-		"go", "test", "-short=" + short(), "-count=1", "-v", t.tags(), t.runFlag(""),
+		"go", "test", "-short=" + short(), "-count=1", t.tags(), t.runFlag(""),
 	}
 }
 
@@ -351,7 +351,6 @@ func (t *tester) registerStdTest(pkg string, useG3 bool) {
 			args := []string{
 				"test",
 				"-short=" + short(),
-				"-v",
 				t.tags(),
 				t.timeout(timeoutSec),
 				"-gcflags=all=" + gcflags,
@@ -390,7 +389,6 @@ func (t *tester) registerRaceBenchTest(pkg string) {
 			args := []string{
 				"test",
 				"-short=" + short(),
-				"-v",
 				"-race",
 				t.timeout(1200), // longer timeout for race with benchmarks
 				"-run=^$",       // nothing. only benchmarks.
