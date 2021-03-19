@@ -21,6 +21,7 @@ scriptroot="$( cd -P "$( dirname "$source" )" && pwd )"
 build=1
 test=
 pack=
+long=
 
 # Print usage information and exit 0 if no error message is provided.
 # $1: An error message to display. If provided, this function will exit 1.
@@ -38,10 +39,11 @@ usage() {
   echo "This script is used by CI for PR validation and building rolling builds, and can be used to reproduce issues in those environments. It downloads and installs a local copy of Go to ensure a consistent version."
   echo ""
   echo "Options:"
-  echo "  --skip-build  Disable building Go."
-  echo "  --test        Enable running tests."
-  echo "  --pack        Enable creating a tar.gz file similar to the official Go binary release."
-  echo "  -h|--help     Print this help message and exit."
+  echo "  --skip-build    Disable building Go."
+  echo "  --test          Enable running tests."
+  echo "  --pack          Enable creating a tar.gz file similar to the official Go binary release."
+  echo "  --long          Make long-running tests run."
+  echo "  -h|--help       Print this help message and exit."
   echo ""
   echo "Example: Perform a build, run tests on it, and produce a tar.gz file:"
   echo "  $0 --test --pack"
@@ -59,6 +61,9 @@ while [[ $# > 0 ]]; do
       ;;
     --pack)
       pack=1
+      ;;
+    --long)
+      long=1
       ;;
     -h|--help)
       usage
@@ -131,6 +136,11 @@ fi
 
   if [ "$test" ]; then
     echo "Running tests..."
+
+    if [ "$long" ]; then
+      export GO_TEST_SHORT=false
+    fi
+
     ./run.bash --no-rebuild
   fi
 
