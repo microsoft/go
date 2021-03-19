@@ -24,21 +24,24 @@ fi
 eval $(../bin/go env)
 export GOROOT   # The api test requires GOROOT to be set, so set it to match ../bin/go.
 
-# When running short tests, make sure we don't use the user's GOPATH. For long tests, allow it,
-# because they depend on GOPATH being usable. The Go dashboard/coordinator creates a custom 'go tool
-# dist test' command that doesn't seem to include setting GOPATH to a nonexistent dir.
-#
-# Example failure due to dependency:
-#
-# go: downloading github.com/docker/distribution v0.0.0-20150410205453-85de3967aa93
-# go: downloading github.com/fishy/gcsbucket v0.0.0-20180217031846-618d60fe84e0
-# --- FAIL: TestConvertLegacyConfig (73.55s)
-#     --- FAIL: TestConvertLegacyConfig/github.com_docker_distribution_v0.0.0-20150410205453-85de3967aa93 (2.73s)
-#         convert_test.go:166: github.com/docker/distribution@v0.0.0-20150410205453-85de3967aa93: verifying module: github.com/docker/distribution@v0.0.0-20150410205453-85de3967aa93: open /nonexist-gopath/pkg/sumdb/sum.golang.org/latest: no such file or directory
-# FAIL
-# FAIL	cmd/go/internal/modconv	73.620s
-# FAIL
-if [ "$GO_TEST_SHORT" != 'false' ]; then
+if [ "$GO_TEST_SHORT" == 'false' ]; then
+	# Long tests are long; give a long timeout.
+	export GO_TEST_TIMEOUT_SCALE=5
+else
+	# When running short tests, make sure we don't use the user's GOPATH. For long tests, allow it,
+	# because they depend on GOPATH being usable. The Go dashboard/coordinator creates a custom 'go tool
+	# dist test' command that doesn't seem to include setting GOPATH to a nonexistent dir.
+	#
+	# Example failure due to dependency:
+	#
+	# go: downloading github.com/docker/distribution v0.0.0-20150410205453-85de3967aa93
+	# go: downloading github.com/fishy/gcsbucket v0.0.0-20180217031846-618d60fe84e0
+	# --- FAIL: TestConvertLegacyConfig (73.55s)
+	#     --- FAIL: TestConvertLegacyConfig/github.com_docker_distribution_v0.0.0-20150410205453-85de3967aa93 (2.73s)
+	#         convert_test.go:166: github.com/docker/distribution@v0.0.0-20150410205453-85de3967aa93: verifying module: github.com/docker/distribution@v0.0.0-20150410205453-85de3967aa93: open /nonexist-gopath/pkg/sumdb/sum.golang.org/latest: no such file or directory
+	# FAIL
+	# FAIL	cmd/go/internal/modconv	73.620s
+	# FAIL
 	export GOPATH=/nonexist-gopath
 fi
 
