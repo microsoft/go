@@ -139,6 +139,7 @@ fi
 
     if [ "$long" ]; then
       export GO_TEST_SHORT=false
+      export GO_BUILDER_NAME=linux-amd64
     fi
 
     ./run.bash --no-rebuild
