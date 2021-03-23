@@ -8,7 +8,7 @@ pr:
 - microsoft/*
 
 jobs:
-- job: Build
+- job: Build_linux_amd64
   pool:
     # The VM image of the Docker host. This doesn't need to match the container image, but it may
     # give slightly better coverage by matching the kernel version.
@@ -31,6 +31,80 @@ jobs:
     displayName: Pack
 
   - publish: microsoft/artifacts
-    artifact: Binaries
+    artifact: Binaries linux_amd64
     displayName: Pipeline publish
     condition: succeededOrFailed()
+
+- ${{ if and(ne(variables['System.TeamProject'], 'public'), ne(variables['Build.Reason'], 'PullRequest')) }}:
+  - job: Sign
+    # Depend on all build jobs that produced artifacts that need signing.
+    dependsOn:
+    - Build_linux_amd64
+    pool:
+      name: NetCoreInternal-Pool
+      queue: buildpool.windows.10.amd64.vs2019
+    variables:
+    - name: TeamName
+      value: golang
+    workspace:
+      clean: all
+    steps:
+    - template: pipeline/checkout-windows-task.yml
+
+    - task: MicroBuildSigningPlugin@2
+      displayName: 'Install MicroBuild Signing Plugin'
+      inputs:
+        feedSource: 'https://dnceng.pkgs.visualstudio.com/_packaging/MicroBuildToolset/nuget/v3/index.json'
+
+    # Download all assets that need signing. (As of writing, only linux-amd64.)
+    - download: current
+      artifact: Binaries linux_amd64
+      displayName: 'Download: Binaries linux_amd64'
+
+    - task: CopyFiles@2
+      displayName: Copy files to sign to shared dir
+      inputs:
+        SourceFolder: $(Pipeline.Workspace)
+        Contents: |
+          Binaries linux_amd64/*
+        TargetFolder: $(Build.StagingDirectory)/ToSign
+        CleanTargetFolder: true
+
+    - task: DotNetCoreCLI@2
+      displayName: 'Install Arcade SignTool'
+      inputs:
+        command: restore
+        projects: '$(Build.SourcesDirectory)/microsoft/signing/SignLinuxPackages.proj'
+        feedsToUse: config
+        nugetConfigPath: '$(Build.SourcesDirectory)/microsoft/signing/NuGet.config'
+
+    - task: DotNetCoreCLI@2
+      displayName: 'Sign Files'
+      inputs:
+        command: custom
+        projects: '$(Build.SourcesDirectory)/microsoft/signing/SignLinuxPackages.proj'
+        custom: msbuild
+        arguments: >-
+          /t:SignGoFiles
+          /p:SignFilesDir=$(Build.StagingDirectory)/ToSign
+          /p:SigningType=$(SigningType)
+          /bl:SignFiles.binlog
+
+    - publish: $(Build.StagingDirectory)/ToSign
+      artifact: Binaries Signed
+      displayName: Publish Binaries Signed
+      condition: always()
+
+    - publish: microsoft\signing
+      artifact: SigningDetails
+      displayName: Publish SigningDetails
+      condition: always()
+
+    - publish: 'SignFiles.binlog'
+      artifact: SigningBinlog
+      displayName: Publish SigningBinlog
+      condition: always()
+
+    - task: MicroBuildCleanup@1
+      displayName: 'Clean up MicroBuild'
+      condition: always()

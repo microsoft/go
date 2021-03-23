@@ -1,0 +1,71 @@
+<!-- Copyright (c) Microsoft Corporation. Use of this source code is governed by a BSD-style license that can be found in the LICENSE file. -->
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net5.0</TargetFramework>
+
+    <MicrosoftDotNetSignToolVersion>5.0.0-beta.21112.3</MicrosoftDotNetSignToolVersion>
+    <VSWhereVersion>2.8.4</VSWhereVersion>
+    <MicroBuildCoreVersion>0.3.0</MicroBuildCoreVersion>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.DotNet.SignTool" Version="$(MicrosoftDotNetSignToolVersion)" />
+    <PackageReference Include="vswhere" Version="$(VSWhereVersion)" />
+    <PackageReference Include="MicroBuild.Core" Version="$(MicroBuildCoreVersion)" />
+  </ItemGroup>
+
+  <Target Name="SignGoFiles">
+    <Error Condition="'$(SigningType)' != 'real' AND '$(SigningType)' != 'test'" Text="Unexpected SigningType '$(SigningType)'" />
+    <PropertyGroup>
+      <IsTestSign>true</IsTestSign>
+      <IsTestSign Condition="'$(SigningType)' == 'real'">false</IsTestSign>
+    </PropertyGroup>
+
+    <Error Condition="'$(SignFilesDir)' == ''" Text="'SignFilesDir' required." />
+    <Message Text="Signing files in $(SignFilesDir)." Importance="high" />
+
+    <ItemGroup>
+      <GoFile Include="$([MSBuild]::NormalizeDirectory('$(SignFilesDir)'))**/go" />
+      <GoFile Include="$([MSBuild]::NormalizeDirectory('$(SignFilesDir)'))**/gofmt" />
+      <GoFile Include="$([MSBuild]::NormalizeDirectory('$(SignFilesDir)'))**/go.*.tar.gz" />
+
+      <!--
+        A copy of the file with ".sig" extension. The signing process sends this file to get a
+        signature, then replaces this file's content with the result. We need to preemptively make a
+        renamed copy of the file so we end up with both the original file and sig on the machine for
+        publishing.
+      -->
+      <GoSigFile Include="@(GoFile -> '%(Identity).sig')" />
+
+      <ItemsToSign Include="@(GoSigFile)" />
+
+      <FileExtensionSignInfo Include=".sig" CertificateName="LinuxSign" />
+    </ItemGroup>
+
+    <Error Condition="'@(ItemsToSign)' == ''" Text="No files found to be signed." />
+
+    <Copy SourceFiles="@(GoFile)" DestinationFiles="@(GoSigFile)" />
+
+    <!-- Find .NET Framework MSBuild. -->
+    <Exec
+      Command='"$(NuGetPackageRoot)vswhere\$(VSWhereVersion)\tools\vswhere.exe" -latest -prerelease -property installationPath -requires Microsoft.Component.MSBuild'
+      ConsoleToMsBuild="true"
+      StandardErrorImportance="high">
+      <Output TaskParameter="ConsoleOutput" PropertyName="_VSInstallDir" />
+    </Exec>
+
+    <Microsoft.DotNet.SignTool.SignToolTask
+      DryRun="false"
+      TestSign="$(IsTestSign)"
+      DoStrongNameCheck="false"
+      TempDir="$(MSBuildProjectDirectory)\signing-temp"
+      LogDir="$(MSBuildProjectDirectory)\signing-log"
+      ItemsToSign="@(ItemsToSign)"
+      MSBuildPath="$(_VSInstallDir)\MSBuild\Current\Bin\msbuild.exe"
+      FileSignInfo="@(FileSignInfo)"
+      FileExtensionSignInfo="@(FileExtensionSignInfo)"
+      MicroBuildCorePath="$(NuGetPackageRoot)microbuild.core\$(MicroBuildCoreVersion)"/>
+  </Target>
+
+</Project>
