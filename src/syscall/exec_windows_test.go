@@ -52,7 +52,7 @@ func TestChangingProcessParent(t *testing.T) {
 	if os.Getenv("GO_WANT_HELPER_PROCESS") == "parent" {
 		// in parent process
 
-		// Parent does nothign. It is just used as a parent of a child process.
+		// Parent does nothing. It is just used as a parent of a child process.
 		time.Sleep(time.Minute)
 		os.Exit(0)
 	}
@@ -108,7 +108,7 @@ func TestChangingProcessParent(t *testing.T) {
 	}
 	childOutput, err = ioutil.ReadFile(childDumpPath)
 	if err != nil {
-		t.Fatalf("reading child ouput failed: %v", err)
+		t.Fatalf("reading child output failed: %v", err)
 	}
 	if got, want := string(childOutput), fmt.Sprintf("%d", parent.Process.Pid); got != want {
 		t.Fatalf("child output: want %q, got %q", want, got)

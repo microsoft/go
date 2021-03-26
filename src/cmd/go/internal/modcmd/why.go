@@ -68,10 +68,11 @@ func runWhy(ctx context.Context, cmd *base.Command, args []string) {
 	modload.RootMode = modload.NeedRoot
 
 	loadOpts := modload.PackageOpts{
-		Tags:          imports.AnyTags(),
-		LoadTests:     !*whyVendor,
-		SilenceErrors: true,
-		UseVendorAll:  *whyVendor,
+		Tags:                     imports.AnyTags(),
+		VendorModulesInGOROOTSrc: true,
+		LoadTests:                !*whyVendor,
+		SilenceErrors:            true,
+		UseVendorAll:             *whyVendor,
 	}
 
 	if *whyM {
@@ -83,7 +84,12 @@ func runWhy(ctx context.Context, cmd *base.Command, args []string) {
 				base.Fatalf("go mod why: module query not allowed")
 			}
 		}
-		mods := modload.ListModules(ctx, args, listU, listVersions, listRetractions)
+
+		mods, err := modload.ListModules(ctx, args, listU, listVersions, listRetractions)
+		if err != nil {
+			base.Fatalf("go mod why: %v", err)
+		}
+
 		byModule := make(map[module.Version][]string)
 		_, pkgs := modload.LoadPackages(ctx, loadOpts, "all")
 		for _, path := range pkgs {

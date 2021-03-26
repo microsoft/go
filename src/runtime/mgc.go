@@ -207,17 +207,22 @@ func readgogc() int32 {
 	return 100
 }
 
+// Temporary in order to enable register ABI work.
+// TODO(register args): convert back to local chan in gcenabled, passed to "go" stmts.
+var gcenable_setup chan int
+
 // gcenable is called after the bulk of the runtime initialization,
 // just before we're about to start letting user code run.
 // It kicks off the background sweeper goroutine, the background
 // scavenger goroutine, and enables GC.
 func gcenable() {
 	// Kick off sweeping and scavenging.
-	c := make(chan int, 2)
-	go bgsweep(c)
-	go bgscavenge(c)
-	<-c
-	<-c
+	gcenable_setup = make(chan int, 2)
+	go bgsweep()
+	go bgscavenge()
+	<-gcenable_setup
+	<-gcenable_setup
+	gcenable_setup = nil
 	memstats.enablegc = true // now that runtime is initialized, GC is okay
 }
 
@@ -2229,14 +2234,12 @@ func gcSweep(mode gcMode) {
 //
 //go:systemstack
 func gcResetMarkState() {
-	// This may be called during a concurrent phase, so make sure
+	// This may be called during a concurrent phase, so lock to make sure
 	// allgs doesn't change.
-	lock(&allglock)
-	for _, gp := range allgs {
+	forEachG(func(gp *g) {
 		gp.gcscandone = false // set to true in gcphasework
 		gp.gcAssistBytes = 0
-	}
-	unlock(&allglock)
+	})
 
 	// Clear page marks. This is just 1MB per 64GB of heap, so the
 	// time here is pretty trivial.
