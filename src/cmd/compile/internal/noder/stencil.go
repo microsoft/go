@@ -18,10 +18,25 @@ import (
 	"strings"
 )
 
-// stencil scans functions for instantiated generic function calls and
-// creates the required stencils for simple generic functions.
+// For catching problems as we add more features
+// TODO(danscales): remove assertions or replace with base.FatalfAt()
+func assert(p bool) {
+	if !p {
+		panic("assertion failed")
+	}
+}
+
+// stencil scans functions for instantiated generic function calls and creates the
+// required instantiations for simple generic functions. It also creates
+// instantiated methods for all fully-instantiated generic types that have been
+// encountered already or new ones that are encountered during the stenciling
+// process.
 func (g *irgen) stencil() {
 	g.target.Stencils = make(map[*types.Sym]*ir.Func)
+
+	// Instantiate the methods of instantiated generic types that we have seen so far.
+	g.instantiateMethods()
+
 	// Don't use range(g.target.Decls) - we also want to process any new instantiated
 	// functions that are created during this loop, in order to handle generic
 	// functions calling other generic functions.
@@ -58,14 +73,14 @@ func (g *irgen) stencil() {
 				// immediately called.
 				foundFuncInst = true
 			}
-			if n.Op() != ir.OCALLFUNC || n.(*ir.CallExpr).X.Op() != ir.OFUNCINST {
+			if n.Op() != ir.OCALL || n.(*ir.CallExpr).X.Op() != ir.OFUNCINST {
 				return
 			}
 			// We have found a function call using a generic function
 			// instantiation.
 			call := n.(*ir.CallExpr)
 			inst := call.X.(*ir.InstExpr)
-			st := g.getInstantiation(inst)
+			st := g.getInstantiationForNode(inst)
 			// Replace the OFUNCINST with a direct reference to the
 			// new stenciled function
 			call.X = st.Nname
@@ -80,6 +95,9 @@ func (g *irgen) stencil() {
 				copy(withRecv[1:], call.Args)
 				call.Args = withRecv
 			}
+			// Transform the Call now, which changes OCALL
+			// to OCALLFUNC and does typecheckaste/assignconvfn.
+			transformCall(call)
 			modified = true
 		})
 
@@ -94,7 +112,7 @@ func (g *irgen) stencil() {
 			var edit func(ir.Node) ir.Node
 			edit = func(x ir.Node) ir.Node {
 				if x.Op() == ir.OFUNCINST {
-					st := g.getInstantiation(x.(*ir.InstExpr))
+					st := g.getInstantiationForNode(x.(*ir.InstExpr))
 					return st.Nname
 				}
 				ir.EditChildren(x, edit)
@@ -105,27 +123,65 @@ func (g *irgen) stencil() {
 		if base.Flag.W > 1 && modified {
 			ir.Dump(fmt.Sprintf("\nmodified %v", decl), decl)
 		}
+		// We may have seen new fully-instantiated generic types while
+		// instantiating any needed functions/methods in the above
+		// function. If so, instantiate all the methods of those types
+		// (which will then lead to more function/methods to scan in the loop).
+		g.instantiateMethods()
 	}
 
 }
 
-// getInstantiation gets the instantiated function corresponding to inst. If the
-// instantiated function is not already cached, then it calls genericStub to
-// create the new instantiation.
-func (g *irgen) getInstantiation(inst *ir.InstExpr) *ir.Func {
-	var sym *types.Sym
-	if meth, ok := inst.X.(*ir.SelectorExpr); ok {
-		// Write the name of the generic method, including receiver type
-		sym = makeInstName(meth.Selection.Nname.Sym(), inst.Targs)
-	} else {
-		sym = makeInstName(inst.X.(*ir.Name).Name().Sym(), inst.Targs)
+// instantiateMethods instantiates all the methods of all fully-instantiated
+// generic types that have been added to g.instTypeList.
+func (g *irgen) instantiateMethods() {
+	for i := 0; i < len(g.instTypeList); i++ {
+		typ := g.instTypeList[i]
+		// Get the base generic type by looking up the symbol of the
+		// generic (uninstantiated) name.
+		baseSym := typ.Sym().Pkg.Lookup(genericTypeName(typ.Sym()))
+		baseType := baseSym.Def.(*ir.Name).Type()
+		for j, m := range typ.Methods().Slice() {
+			name := m.Nname.(*ir.Name)
+			targs := make([]ir.Node, len(typ.RParams()))
+			for k, targ := range typ.RParams() {
+				targs[k] = ir.TypeNode(targ)
+			}
+			baseNname := baseType.Methods().Slice()[j].Nname.(*ir.Name)
+			name.Func = g.getInstantiation(baseNname, targs, true)
+		}
 	}
-	//fmt.Printf("Found generic func call in %v to %v\n", f, s)
+	g.instTypeList = nil
+
+}
+
+// genericSym returns the name of the base generic type for the type named by
+// sym. It simply returns the name obtained by removing everything after the
+// first bracket ("[").
+func genericTypeName(sym *types.Sym) string {
+	return sym.Name[0:strings.Index(sym.Name, "[")]
+}
+
+// getInstantiationForNode returns the function/method instantiation for a
+// InstExpr node inst.
+func (g *irgen) getInstantiationForNode(inst *ir.InstExpr) *ir.Func {
+	if meth, ok := inst.X.(*ir.SelectorExpr); ok {
+		return g.getInstantiation(meth.Selection.Nname.(*ir.Name), inst.Targs, true)
+	} else {
+		return g.getInstantiation(inst.X.(*ir.Name), inst.Targs, false)
+	}
+}
+
+// getInstantiation gets the instantiantion of the function or method nameNode
+// with the type arguments targs. If the instantiated function is not already
+// cached, then it calls genericSubst to create the new instantiation.
+func (g *irgen) getInstantiation(nameNode *ir.Name, targs []ir.Node, isMeth bool) *ir.Func {
+	sym := makeInstName(nameNode.Sym(), targs, isMeth)
 	st := g.target.Stencils[sym]
 	if st == nil {
 		// If instantiation doesn't exist yet, create it and add
 		// to the list of decls.
-		st = g.genericSubst(sym, inst)
+		st = g.genericSubst(sym, nameNode, targs, isMeth)
 		g.target.Stencils[sym] = st
 		g.target.Decls = append(g.target.Decls, st)
 		if base.Flag.W > 1 {
@@ -135,11 +191,29 @@ func (g *irgen) getInstantiation(inst *ir.InstExpr) *ir.Func {
 	return st
 }
 
-// makeInstName makes the unique name for a stenciled generic function, based on
-// the name of the function and the targs.
-func makeInstName(fnsym *types.Sym, targs []ir.Node) *types.Sym {
-	b := bytes.NewBufferString("#")
-	b.WriteString(fnsym.Name)
+// makeInstName makes the unique name for a stenciled generic function or method,
+// based on the name of the function fy=nsym and the targs. It replaces any
+// existing bracket type list in the name. makeInstName asserts that fnsym has
+// brackets in its name if and only if hasBrackets is true.
+// TODO(danscales): remove the assertions and the hasBrackets argument later.
+//
+// Names of declared generic functions have no brackets originally, so hasBrackets
+// should be false. Names of generic methods already have brackets, since the new
+// type parameter is specified in the generic type of the receiver (e.g. func
+// (func (v *value[T]).set(...) { ... } has the original name (*value[T]).set.
+//
+// The standard naming is something like: 'genFn[int,bool]' for functions and
+// '(*genType[int,bool]).methodName' for methods
+func makeInstName(fnsym *types.Sym, targs []ir.Node, hasBrackets bool) *types.Sym {
+	b := bytes.NewBufferString("")
+	name := fnsym.Name
+	i := strings.Index(name, "[")
+	assert(hasBrackets == (i >= 0))
+	if i >= 0 {
+		b.WriteString(name[0:i])
+	} else {
+		b.WriteString(name)
+	}
 	b.WriteString("[")
 	for i, targ := range targs {
 		if i > 0 {
@@ -148,60 +222,64 @@ func makeInstName(fnsym *types.Sym, targs []ir.Node) *types.Sym {
 		b.WriteString(targ.Type().String())
 	}
 	b.WriteString("]")
+	if i >= 0 {
+		i2 := strings.Index(name[i:], "]")
+		assert(i2 >= 0)
+		b.WriteString(name[i+i2+1:])
+	}
 	return typecheck.Lookup(b.String())
 }
 
 // Struct containing info needed for doing the substitution as we create the
 // instantiation of a generic function with specified type arguments.
 type subster struct {
-	g       *irgen
-	newf    *ir.Func // Func node for the new stenciled function
-	tparams []*types.Field
-	targs   []ir.Node
+	g        *irgen
+	isMethod bool     // If a method is being instantiated
+	newf     *ir.Func // Func node for the new stenciled function
+	tparams  []*types.Field
+	targs    []ir.Node
 	// The substitution map from name nodes in the generic function to the
 	// name nodes in the new stenciled function.
 	vars map[*ir.Name]*ir.Name
-	seen map[*types.Type]*types.Type
 }
 
-// genericSubst returns a new function with the specified name. The function is an
-// instantiation of a generic function or method with type params, as specified by
-// inst. For a method with a generic receiver, it returns an instantiated function
-// type where the receiver becomes the first parameter. Otherwise the instantiated
-// method would still need to be transformed by later compiler phases.
-func (g *irgen) genericSubst(name *types.Sym, inst *ir.InstExpr) *ir.Func {
-	var nameNode *ir.Name
+// genericSubst returns a new function with name newsym. The function is an
+// instantiation of a generic function or method specified by namedNode with type
+// args targs. For a method with a generic receiver, it returns an instantiated
+// function type where the receiver becomes the first parameter. Otherwise the
+// instantiated method would still need to be transformed by later compiler
+// phases.
+func (g *irgen) genericSubst(newsym *types.Sym, nameNode *ir.Name, targs []ir.Node, isMethod bool) *ir.Func {
 	var tparams []*types.Field
-	if selExpr, ok := inst.X.(*ir.SelectorExpr); ok {
+	if isMethod {
 		// Get the type params from the method receiver (after skipping
 		// over any pointer)
-		nameNode = ir.AsNode(selExpr.Selection.Nname).(*ir.Name)
-		recvType := selExpr.Type().Recv().Type
-		if recvType.IsPtr() {
-			recvType = recvType.Elem()
-		}
-		tparams = make([]*types.Field, len(recvType.RParams))
-		for i, rparam := range recvType.RParams {
+		recvType := nameNode.Type().Recv().Type
+		recvType = deref(recvType)
+		tparams = make([]*types.Field, len(recvType.RParams()))
+		for i, rparam := range recvType.RParams() {
 			tparams[i] = types.NewField(src.NoXPos, nil, rparam)
 		}
 	} else {
-		nameNode = inst.X.(*ir.Name)
 		tparams = nameNode.Type().TParams().Fields().Slice()
 	}
 	gf := nameNode.Func
-	newf := ir.NewFunc(inst.Pos())
-	newf.Nname = ir.NewNameAt(inst.Pos(), name)
+	// Pos of the instantiated function is same as the generic function
+	newf := ir.NewFunc(gf.Pos())
+	newf.Nname = ir.NewNameAt(gf.Pos(), newsym)
 	newf.Nname.Func = newf
 	newf.Nname.Defn = newf
-	name.Def = newf.Nname
+	newsym.Def = newf.Nname
+
+	assert(len(tparams) == len(targs))
 
 	subst := &subster{
-		g:       g,
-		newf:    newf,
-		tparams: tparams,
-		targs:   inst.Targs,
-		vars:    make(map[*ir.Name]*ir.Name),
-		seen:    make(map[*types.Type]*types.Type),
+		g:        g,
+		isMethod: isMethod,
+		newf:     newf,
+		tparams:  tparams,
+		targs:    targs,
+		vars:     make(map[*ir.Name]*ir.Name),
 	}
 
 	newf.Dcl = make([]*ir.Name, len(gf.Dcl))
@@ -213,7 +291,7 @@ func (g *irgen) genericSubst(name *types.Sym, inst *ir.InstExpr) *ir.Func {
 	// Ugly: we have to insert the Name nodes of the parameters/results into
 	// the function type. The current function type has no Nname fields set,
 	// because it came via conversion from the types2 type.
-	oldt := inst.X.Type()
+	oldt := nameNode.Type()
 	// We also transform a generic method type to the corresponding
 	// instantiated function type where the receiver is the first parameter.
 	newt := types.NewSignature(oldt.Pkg(), nil, nil,
@@ -251,8 +329,13 @@ func (subst *subster) node(n ir.Node) ir.Node {
 				m.SetIsClosureVar(true)
 			}
 			t := x.Type()
-			newt := subst.typ(t)
-			m.SetType(newt)
+			if t == nil {
+				assert(name.BuiltinOp != 0)
+			} else {
+				newt := subst.typ(t)
+				m.SetType(newt)
+			}
+			m.BuiltinOp = name.BuiltinOp
 			m.Curfn = subst.newf
 			m.Class = name.Class
 			m.Func = name.Func
@@ -273,7 +356,8 @@ func (subst *subster) node(n ir.Node) ir.Node {
 				// an error.
 				_, isCallExpr := m.(*ir.CallExpr)
 				_, isStructKeyExpr := m.(*ir.StructKeyExpr)
-				if !isCallExpr && !isStructKeyExpr {
+				if !isCallExpr && !isStructKeyExpr && x.Op() != ir.OPANIC &&
+					x.Op() != ir.OCLOSE {
 					base.Fatalf(fmt.Sprintf("Nil type for %v", x))
 				}
 			} else if x.Op() != ir.OCLOSURE {
@@ -282,39 +366,110 @@ func (subst *subster) node(n ir.Node) ir.Node {
 		}
 		ir.EditChildren(m, edit)
 
-		if x.Op() == ir.OXDOT {
-			// A method value/call via a type param will have been left as an
-			// OXDOT. When we see this during stenciling, finish the
-			// typechecking, now that we have the instantiated receiver type.
-			// We need to do this now, since the access/selection to the
-			// method for the real type is very different from the selection
-			// for the type param.
-			m.SetTypecheck(0)
-			// m will transform to an OCALLPART
-			typecheck.Expr(m)
-		}
-		if x.Op() == ir.OCALL {
-			call := m.(*ir.CallExpr)
-			if call.X.Op() == ir.OTYPE {
-				// Do typechecking on a conversion, now that we
-				// know the type argument.
-				m.SetTypecheck(0)
-				m = typecheck.Expr(m)
-			} else if call.X.Op() == ir.OCALLPART {
-				// Redo the typechecking, now that we know the method
-				// value is being called.
-				call.X.(*ir.SelectorExpr).SetOp(ir.OXDOT)
-				call.X.SetTypecheck(0)
-				call.X.SetType(nil)
-				typecheck.Callee(call.X)
-				m.SetTypecheck(0)
-				typecheck.Call(m.(*ir.CallExpr))
+		if x.Typecheck() == 3 {
+			// These are nodes whose transforms were delayed until
+			// their instantiated type was known.
+			m.SetTypecheck(1)
+			if typecheck.IsCmp(x.Op()) {
+				transformCompare(m.(*ir.BinaryExpr))
 			} else {
-				base.FatalfAt(call.Pos(), "Expecting OCALLPART or OTYPE with CALL")
+				switch x.Op() {
+				case ir.OSLICE, ir.OSLICE3:
+					transformSlice(m.(*ir.SliceExpr))
+
+				case ir.OADD:
+					m = transformAdd(m.(*ir.BinaryExpr))
+
+				case ir.OINDEX:
+					transformIndex(m.(*ir.IndexExpr))
+
+				case ir.OAS2:
+					as2 := m.(*ir.AssignListStmt)
+					transformAssign(as2, as2.Lhs, as2.Rhs)
+
+				case ir.OAS:
+					as := m.(*ir.AssignStmt)
+					lhs, rhs := []ir.Node{as.X}, []ir.Node{as.Y}
+					transformAssign(as, lhs, rhs)
+
+				case ir.OASOP:
+					as := m.(*ir.AssignOpStmt)
+					transformCheckAssign(as, as.X)
+
+				default:
+					base.Fatalf("Unexpected node with Typecheck() == 3")
+				}
 			}
 		}
 
-		if x.Op() == ir.OCLOSURE {
+		switch x.Op() {
+		case ir.OLITERAL:
+			t := m.Type()
+			if t != x.Type() {
+				// types2 will give us a constant with a type T,
+				// if an untyped constant is used with another
+				// operand of type T (in a provably correct way).
+				// When we substitute in the type args during
+				// stenciling, we now know the real type of the
+				// constant. We may then need to change the
+				// BasicLit.val to be the correct type (e.g.
+				// convert an int64Val constant to a floatVal
+				// constant).
+				m.SetType(types.UntypedInt) // use any untyped type for DefaultLit to work
+				m = typecheck.DefaultLit(m, t)
+			}
+
+		case ir.OXDOT:
+			// A method value/call via a type param will have been
+			// left as an OXDOT. When we see this during stenciling,
+			// finish the transformation, now that we have the
+			// instantiated receiver type. We need to do this now,
+			// since the access/selection to the method for the real
+			// type is very different from the selection for the type
+			// param. m will be transformed to an OCALLPART node. It
+			// will be transformed to an ODOTMETH or ODOTINTER node if
+			// we find in the OCALL case below that the method value
+			// is actually called.
+			transformDot(m.(*ir.SelectorExpr), false)
+			m.SetTypecheck(1)
+
+		case ir.OCALL:
+			call := m.(*ir.CallExpr)
+			if call.X.Op() == ir.OTYPE {
+				// Transform the conversion, now that we know the
+				// type argument.
+				m = transformConvCall(m.(*ir.CallExpr))
+			} else if call.X.Op() == ir.OCALLPART {
+				// Redo the transformation of OXDOT, now that we
+				// know the method value is being called. Then
+				// transform the call.
+				call.X.(*ir.SelectorExpr).SetOp(ir.OXDOT)
+				transformDot(call.X.(*ir.SelectorExpr), true)
+				transformCall(call)
+			} else if call.X.Op() == ir.ODOT || call.X.Op() == ir.ODOTPTR {
+				// An OXDOT for a generic receiver was resolved to
+				// an access to a field which has a function
+				// value. Transform the call to that function, now
+				// that the OXDOT was resolved.
+				transformCall(call)
+			} else if name := call.X.Name(); name != nil {
+				switch name.BuiltinOp {
+				case ir.OMAKE, ir.OREAL, ir.OIMAG, ir.OLEN, ir.OCAP, ir.OAPPEND:
+					// Transform these builtins now that we
+					// know the type of the args.
+					m = transformBuiltin(call)
+				default:
+					base.FatalfAt(call.Pos(), "Unexpected builtin op")
+				}
+
+			} else if call.X.Op() != ir.OFUNCINST {
+				// A call with an OFUNCINST will get typechecked
+				// in stencil() once we have created & attached the
+				// instantiation to be called.
+				base.FatalfAt(call.Pos(), "Expecting OCALLPART or OTYPE or OFUNCINST or builtin with CALL")
+			}
+
+		case ir.OCLOSURE:
 			x := x.(*ir.ClosureExpr)
 			// Need to save/duplicate x.Func.Nname,
 			// x.Func.Nname.Ntype, x.Func.Dcl, x.Func.ClosureVars, and
@@ -326,7 +481,9 @@ func (subst *subster) node(n ir.Node) ir.Node {
 			}
 			newfn.SetIsHiddenClosure(true)
 			m.(*ir.ClosureExpr).Func = newfn
-			newsym := makeInstName(oldfn.Nname.Sym(), subst.targs)
+			// Closure name can already have brackets, if it derives
+			// from a generic method
+			newsym := makeInstName(oldfn.Nname.Sym(), subst.targs, subst.isMethod)
 			newfn.Nname = ir.NewNameAt(oldfn.Nname.Pos(), newsym)
 			newfn.Nname.Func = newfn
 			newfn.Nname.Defn = newfn
@@ -343,6 +500,7 @@ func (subst *subster) node(n ir.Node) ir.Node {
 			// Set Ntype for now to be compatible with later parts of compiler
 			newfn.Nname.Ntype = subst.node(oldfn.Nname.Ntype).(ir.Ntype)
 			typed(subst.typ(oldfn.Nname.Type()), newfn.Nname)
+			typed(newfn.Nname.Type(), m)
 			newfn.SetTypecheck(1)
 			subst.g.target.Decls = append(subst.g.target.Decls, newfn)
 		}
@@ -375,13 +533,24 @@ func (subst *subster) list(l []ir.Node) []ir.Node {
 }
 
 // tstruct substitutes type params in types of the fields of a structure type. For
-// each field, if Nname is set, tstruct also translates the Nname using subst.vars, if
-// Nname is in subst.vars.
-func (subst *subster) tstruct(t *types.Type) *types.Type {
+// each field, if Nname is set, tstruct also translates the Nname using
+// subst.vars, if Nname is in subst.vars. To always force the creation of a new
+// (top-level) struct, regardless of whether anything changed with the types or
+// names of the struct's fields, set force to true.
+func (subst *subster) tstruct(t *types.Type, force bool) *types.Type {
 	if t.NumFields() == 0 {
+		if t.HasTParam() {
+			// For an empty struct, we need to return a new type,
+			// since it may now be fully instantiated (HasTParam
+			// becomes false).
+			return types.NewStruct(t.Pkg(), nil)
+		}
 		return t
 	}
 	var newfields []*types.Field
+	if force {
+		newfields = make([]*types.Field, t.NumFields())
+	}
 	for i, f := range t.Fields().Slice() {
 		t2 := subst.typ(f.Type)
 		if (t2 != f.Type || f.Nname != nil) && newfields == nil {
@@ -391,12 +560,21 @@ func (subst *subster) tstruct(t *types.Type) *types.Type {
 			}
 		}
 		if newfields != nil {
+			// TODO(danscales): make sure this works for the field
+			// names of embedded types (which should keep the name of
+			// the type param, not the instantiated type).
 			newfields[i] = types.NewField(f.Pos, f.Sym, t2)
 			if f.Nname != nil {
 				// f.Nname may not be in subst.vars[] if this is
 				// a function name or a function instantiation type
 				// that we are translating
-				newfields[i].Nname = subst.vars[f.Nname.(*ir.Name)]
+				v := subst.vars[f.Nname.(*ir.Name)]
+				// Be careful not to put a nil var into Nname,
+				// since Nname is an interface, so it would be a
+				// non-nil interface.
+				if v != nil {
+					newfields[i].Nname = v
+				}
 			}
 		}
 	}
@@ -407,7 +585,32 @@ func (subst *subster) tstruct(t *types.Type) *types.Type {
 
 }
 
-// instTypeName creates a name for an instantiated type, based on the type args
+// tinter substitutes type params in types of the methods of an interface type.
+func (subst *subster) tinter(t *types.Type) *types.Type {
+	if t.Methods().Len() == 0 {
+		return t
+	}
+	var newfields []*types.Field
+	for i, f := range t.Methods().Slice() {
+		t2 := subst.typ(f.Type)
+		if (t2 != f.Type || f.Nname != nil) && newfields == nil {
+			newfields = make([]*types.Field, t.NumFields())
+			for j := 0; j < i; j++ {
+				newfields[j] = t.Methods().Slice()[j]
+			}
+		}
+		if newfields != nil {
+			newfields[i] = types.NewField(f.Pos, f.Sym, t2)
+		}
+	}
+	if newfields != nil {
+		return types.NewInterface(t.Pkg(), newfields)
+	}
+	return t
+}
+
+// instTypeName creates a name for an instantiated type, based on the name of the
+// generic type and the type args
 func instTypeName(name string, targs []*types.Type) string {
 	b := bytes.NewBufferString(name)
 	b.WriteByte('[')
@@ -423,27 +626,84 @@ func instTypeName(name string, targs []*types.Type) string {
 
 // typ computes the type obtained by substituting any type parameter in t with the
 // corresponding type argument in subst. If t contains no type parameters, the
-// result is t; otherwise the result is a new type.
-// It deals with recursive types by using a map and TFORW types.
-// TODO(danscales) deal with recursion besides ptr/struct cases.
+// result is t; otherwise the result is a new type. It deals with recursive types
+// by using TFORW types and finding partially or fully created types via sym.Def.
 func (subst *subster) typ(t *types.Type) *types.Type {
 	if !t.HasTParam() {
 		return t
 	}
-	if subst.seen[t] != nil {
-		// We've hit a recursive type
-		return subst.seen[t]
-	}
 
-	var newt *types.Type
-	switch t.Kind() {
-	case types.TTYPEPARAM:
+	if t.Kind() == types.TTYPEPARAM {
 		for i, tp := range subst.tparams {
 			if tp.Type == t {
 				return subst.targs[i].Type()
 			}
 		}
-		return t
+		// If t is a simple typeparam T, then t has the name/symbol 'T'
+		// and t.Underlying() == t.
+		//
+		// However, consider the type definition: 'type P[T any] T'. We
+		// might use this definition so we can have a variant of type T
+		// that we can add new methods to. Suppose t is a reference to
+		// P[T]. t has the name 'P[T]', but its kind is TTYPEPARAM,
+		// because P[T] is defined as T. If we look at t.Underlying(), it
+		// is different, because the name of t.Underlying() is 'T' rather
+		// than 'P[T]'. But the kind of t.Underlying() is also TTYPEPARAM.
+		// In this case, we do the needed recursive substitution in the
+		// case statement below.
+		if t.Underlying() == t {
+			// t is a simple typeparam that didn't match anything in tparam
+			return t
+		}
+		// t is a more complex typeparam (e.g. P[T], as above, whose
+		// definition is just T).
+		assert(t.Sym() != nil)
+	}
+
+	var newsym *types.Sym
+	var neededTargs []*types.Type
+	var forw *types.Type
+
+	if t.Sym() != nil {
+		// Translate the type params for this type according to
+		// the tparam/targs mapping from subst.
+		neededTargs = make([]*types.Type, len(t.RParams()))
+		for i, rparam := range t.RParams() {
+			neededTargs[i] = subst.typ(rparam)
+		}
+		// For a named (defined) type, we have to change the name of the
+		// type as well. We do this first, so we can look up if we've
+		// already seen this type during this substitution or other
+		// definitions/substitutions.
+		genName := genericTypeName(t.Sym())
+		newsym = t.Sym().Pkg.Lookup(instTypeName(genName, neededTargs))
+		if newsym.Def != nil {
+			// We've already created this instantiated defined type.
+			return newsym.Def.Type()
+		}
+
+		// In order to deal with recursive generic types, create a TFORW type
+		// initially and set its Def field, so it can be found if this type
+		// appears recursively within the type.
+		forw = types.New(types.TFORW)
+		forw.SetSym(newsym)
+		newsym.Def = ir.TypeNode(forw)
+		//println("Creating new type by sub", newsym.Name, forw.HasTParam())
+		forw.SetRParams(neededTargs)
+	}
+
+	var newt *types.Type
+
+	switch t.Kind() {
+	case types.TTYPEPARAM:
+		if t.Sym() == newsym {
+			// The substitution did not change the type.
+			return t
+		}
+		// Substitute the underlying typeparam (e.g. T in P[T], see
+		// the example describing type P[T] above).
+		newt = subst.typ(t.Underlying())
+		assert(newt != t)
 
 	case types.TARRAY:
 		elem := t.Elem()
@@ -454,17 +714,10 @@ func (subst *subster) typ(t *types.Type) *types.Type {
 
 	case types.TPTR:
 		elem := t.Elem()
-		// In order to deal with recursive generic types, create a TFORW
-		// type initially and store it in the seen map, so it can be
-		// accessed if this type appears recursively within the type.
-		forw := types.New(types.TFORW)
-		subst.seen[t] = forw
 		newelem := subst.typ(elem)
 		if newelem != elem {
-			forw.SetUnderlying(types.NewPtr(newelem))
-			newt = forw
+			newt = types.NewPtr(newelem)
 		}
-		delete(subst.seen, t)
 
 	case types.TSLICE:
 		elem := t.Elem()
@@ -474,58 +727,104 @@ func (subst *subster) typ(t *types.Type) *types.Type {
 		}
 
 	case types.TSTRUCT:
-		forw := types.New(types.TFORW)
-		subst.seen[t] = forw
-		newt = subst.tstruct(t)
-		if newt != t {
-			forw.SetUnderlying(newt)
-			newt = forw
+		newt = subst.tstruct(t, false)
+		if newt == t {
+			newt = nil
 		}
-		delete(subst.seen, t)
 
 	case types.TFUNC:
-		newrecvs := subst.tstruct(t.Recvs())
-		newparams := subst.tstruct(t.Params())
-		newresults := subst.tstruct(t.Results())
+		newrecvs := subst.tstruct(t.Recvs(), false)
+		newparams := subst.tstruct(t.Params(), false)
+		newresults := subst.tstruct(t.Results(), false)
 		if newrecvs != t.Recvs() || newparams != t.Params() || newresults != t.Results() {
+			// If any types have changed, then the all the fields of
+			// of recv, params, and results must be copied, because they have
+			// offset fields that are dependent, and so must have an
+			// independent copy for each new signature.
 			var newrecv *types.Field
 			if newrecvs.NumFields() > 0 {
+				if newrecvs == t.Recvs() {
+					newrecvs = subst.tstruct(t.Recvs(), true)
+				}
 				newrecv = newrecvs.Field(0)
 			}
-			newt = types.NewSignature(t.Pkg(), newrecv, nil, newparams.FieldSlice(), newresults.FieldSlice())
+			if newparams == t.Params() {
+				newparams = subst.tstruct(t.Params(), true)
+			}
+			if newresults == t.Results() {
+				newresults = subst.tstruct(t.Results(), true)
+			}
+			newt = types.NewSignature(t.Pkg(), newrecv, t.TParams().FieldSlice(), newparams.FieldSlice(), newresults.FieldSlice())
 		}
 
-		// TODO: case TCHAN
-		// TODO: case TMAP
-		// TODO: case TINTER
+	case types.TINTER:
+		newt = subst.tinter(t)
+		if newt == t {
+			newt = nil
+		}
+
+	case types.TMAP:
+		newkey := subst.typ(t.Key())
+		newval := subst.typ(t.Elem())
+		if newkey != t.Key() || newval != t.Elem() {
+			newt = types.NewMap(newkey, newval)
+		}
+
+	case types.TCHAN:
+		elem := t.Elem()
+		newelem := subst.typ(elem)
+		if newelem != elem {
+			newt = types.NewChan(newelem, t.ChanDir())
+			if !newt.HasTParam() {
+				// TODO(danscales): not sure why I have to do this
+				// only for channels.....
+				types.CheckSize(newt)
+			}
+		}
 	}
-	if newt != nil {
-		if t.Sym() != nil {
-			// Since we've substituted types, we also need to change
-			// the defined name of the type, by removing the old types
-			// (in brackets) from the name, and adding the new types.
+	if newt == nil {
+		// Even though there were typeparams in the type, there may be no
+		// change if this is a function type for a function call (which will
+		// have its own tparams/targs in the function instantiation).
+		return t
+	}
 
-			// Translate the type params for this type according to
-			// the tparam/targs mapping of the function.
-			neededTargs := make([]*types.Type, len(t.RParams))
-			for i, rparam := range t.RParams {
-				neededTargs[i] = subst.typ(rparam)
-			}
-			oldname := t.Sym().Name
-			i := strings.Index(oldname, "[")
-			oldname = oldname[:i]
-			sym := t.Sym().Pkg.Lookup(instTypeName(oldname, neededTargs))
-			if sym.Def != nil {
-				// We've already created this instantiated defined type.
-				return sym.Def.Type()
-			}
-			newt.SetSym(sym)
-			sym.Def = ir.TypeNode(newt)
-		}
+	if t.Sym() == nil {
+		// Not a named type, so there was no forwarding type and there are
+		// no methods to substitute.
+		assert(t.Methods().Len() == 0)
 		return newt
 	}
 
-	return t
+	forw.SetUnderlying(newt)
+	newt = forw
+
+	if t.Kind() != types.TINTER && t.Methods().Len() > 0 {
+		// Fill in the method info for the new type.
+		var newfields []*types.Field
+		newfields = make([]*types.Field, t.Methods().Len())
+		for i, f := range t.Methods().Slice() {
+			t2 := subst.typ(f.Type)
+			oldsym := f.Nname.Sym()
+			newsym := makeInstName(oldsym, subst.targs, true)
+			var nname *ir.Name
+			if newsym.Def != nil {
+				nname = newsym.Def.(*ir.Name)
+			} else {
+				nname = ir.NewNameAt(f.Pos, newsym)
+				nname.SetType(t2)
+				newsym.Def = nname
+			}
+			newfields[i] = types.NewField(f.Pos, f.Sym, t2)
+			newfields[i].Nname = nname
+		}
+		newt.Methods().Set(newfields)
+		if !newt.HasTParam() {
+			// Generate all the methods for a new fully-instantiated type.
+			subst.g.instTypeList = append(subst.g.instTypeList, newt)
+		}
+	}
+	return newt
 }
 
 // fields sets the Nname field for the Field nodes inside a type signature, based
@@ -553,4 +852,12 @@ func (subst *subster) fields(class ir.Class, oldfields []*types.Field, dcl []*ir
 		i++
 	}
 	return newfields
+}
+
+// defer does a single defer of type t, if it is a pointer type.
+func deref(t *types.Type) *types.Type {
+	if t.IsPtr() {
+		return t.Elem()
+	}
+	return t
 }
