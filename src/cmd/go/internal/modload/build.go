@@ -50,17 +50,18 @@ func findStandardImportPath(path string) string {
 // a given package. If modules are not enabled or if the package is in the
 // standard library or if the package was not successfully loaded with
 // LoadPackages or ImportFromFiles, nil is returned.
-func PackageModuleInfo(pkgpath string) *modinfo.ModulePublic {
+func PackageModuleInfo(ctx context.Context, pkgpath string) *modinfo.ModulePublic {
 	if isStandardImportPath(pkgpath) || !Enabled() {
 		return nil
 	}
-	m, ok := findModule(pkgpath)
+	m, ok := findModule(loaded, pkgpath)
 	if !ok {
 		return nil
 	}
-	fromBuildList := true
+
+	rs := LoadModFile(ctx)
 	listRetracted := false
-	return moduleInfo(context.TODO(), m, fromBuildList, listRetracted)
+	return moduleInfo(ctx, rs, m, listRetracted)
 }
 
 func ModuleInfo(ctx context.Context, path string) *modinfo.ModulePublic {
@@ -71,23 +72,36 @@ func ModuleInfo(ctx context.Context, path string) *modinfo.ModulePublic {
 	listRetracted := false
 	if i := strings.Index(path, "@"); i >= 0 {
 		m := module.Version{Path: path[:i], Version: path[i+1:]}
-		fromBuildList := false
-		return moduleInfo(ctx, m, fromBuildList, listRetracted)
+		return moduleInfo(ctx, nil, m, listRetracted)
 	}
 
-	for _, m := range buildList {
-		if m.Path == path {
-			fromBuildList := true
-			return moduleInfo(ctx, m, fromBuildList, listRetracted)
+	rs := LoadModFile(ctx)
+
+	var (
+		v  string
+		ok bool
+	)
+	if go117LazyTODO {
+		v, ok = rs.rootSelected(path)
+	}
+	if !ok {
+		mg, err := rs.Graph(ctx)
+		if err != nil {
+			base.Fatalf("go: %v", err)
+		}
+		v = mg.Selected(path)
+	}
+
+	if v == "none" {
+		return &modinfo.ModulePublic{
+			Path: path,
+			Error: &modinfo.ModuleError{
+				Err: "module not in current build",
+			},
 		}
 	}
 
-	return &modinfo.ModulePublic{
-		Path: path,
-		Error: &modinfo.ModuleError{
-			Err: "module not in current build",
-		},
-	}
+	return moduleInfo(ctx, rs, module.Version{Path: path, Version: v}, listRetracted)
 }
 
 // addUpdate fills in m.Update if an updated version is available.
@@ -113,7 +127,11 @@ func addVersions(ctx context.Context, m *modinfo.ModulePublic, listRetracted boo
 	if listRetracted {
 		allowed = CheckExclusions
 	}
-	m.Versions, _ = versions(ctx, m.Path, allowed)
+	var err error
+	m.Versions, err = versions(ctx, m.Path, allowed)
+	if err != nil && m.Error == nil {
+		m.Error = &modinfo.ModuleError{Err: err.Error()}
+	}
 }
 
 // addRetraction fills in m.Retracted if the module was retracted by its author.
@@ -136,19 +154,24 @@ func addRetraction(ctx context.Context, m *modinfo.ModulePublic) {
 	}
 }
 
-func moduleInfo(ctx context.Context, m module.Version, fromBuildList, listRetracted bool) *modinfo.ModulePublic {
+// moduleInfo returns information about module m, loaded from the requirements
+// in rs (which may be nil to indicate that m was not loaded from a requirement
+// graph).
+func moduleInfo(ctx context.Context, rs *Requirements, m module.Version, listRetracted bool) *modinfo.ModulePublic {
 	if m == Target {
 		info := &modinfo.ModulePublic{
 			Path:    m.Path,
 			Version: m.Version,
 			Main:    true,
 		}
+		if v, ok := rawGoVersion.Load(Target); ok {
+			info.GoVersion = v.(string)
+		} else {
+			panic("internal error: GoVersion not set for main module")
+		}
 		if HasModRoot() {
 			info.Dir = ModRoot()
 			info.GoMod = ModFilePath()
-			if modFile.Go != nil {
-				info.GoVersion = modFile.Go.Version
-			}
 		}
 		return info
 	}
@@ -156,7 +179,7 @@ func moduleInfo(ctx context.Context, m module.Version, fromBuildList, listRetrac
 	info := &modinfo.ModulePublic{
 		Path:     m.Path,
 		Version:  m.Version,
-		Indirect: fromBuildList && loaded != nil && !loaded.direct[m.Path],
+		Indirect: rs != nil && !rs.direct[m.Path],
 	}
 	if v, ok := rawGoVersion.Load(m); ok {
 		info.GoVersion = v.(string)
@@ -164,7 +187,10 @@ func moduleInfo(ctx context.Context, m module.Version, fromBuildList, listRetrac
 
 	// completeFromModCache fills in the extra fields in m using the module cache.
 	completeFromModCache := func(m *modinfo.ModulePublic) {
-		mod := module.Version{Path: m.Path, Version: m.Version}
+		checksumOk := func(suffix string) bool {
+			return rs == nil || m.Version == "" || cfg.BuildMod == "mod" ||
+				modfetch.HaveSum(module.Version{Path: m.Path, Version: m.Version + suffix})
+		}
 
 		if m.Version != "" {
 			if q, err := Query(ctx, m.Path, m.Version, "", nil); err != nil {
@@ -173,31 +199,40 @@ func moduleInfo(ctx context.Context, m module.Version, fromBuildList, listRetrac
 				m.Version = q.Version
 				m.Time = &q.Time
 			}
+		}
+		mod := module.Version{Path: m.Path, Version: m.Version}
 
-			gomod, err := modfetch.CachePath(mod, "mod")
-			if err == nil {
-				if info, err := os.Stat(gomod); err == nil && info.Mode().IsRegular() {
-					m.GoMod = gomod
+		if m.GoVersion == "" && checksumOk("/go.mod") {
+			// Load the go.mod file to determine the Go version, since it hasn't
+			// already been populated from rawGoVersion.
+			if summary, err := rawGoModSummary(mod); err == nil && summary.goVersionV != "" {
+				m.GoVersion = summary.goVersionV[1:]
+			}
+		}
+
+		if m.Version != "" {
+			if checksumOk("/go.mod") {
+				gomod, err := modfetch.CachePath(mod, "mod")
+				if err == nil {
+					if info, err := os.Stat(gomod); err == nil && info.Mode().IsRegular() {
+						m.GoMod = gomod
+					}
 				}
 			}
-			dir, err := modfetch.DownloadDir(mod)
-			if err == nil {
-				m.Dir = dir
+			if checksumOk("") {
+				dir, err := modfetch.DownloadDir(mod)
+				if err == nil {
+					m.Dir = dir
+				}
 			}
 
 			if listRetracted {
 				addRetraction(ctx, m)
 			}
 		}
-
-		if m.GoVersion == "" {
-			if summary, err := rawGoModSummary(mod); err == nil && summary.goVersionV != "" {
-				m.GoVersion = summary.goVersionV[1:]
-			}
-		}
 	}
 
-	if !fromBuildList {
+	if rs == nil {
 		// If this was an explicitly-versioned argument to 'go mod download' or
 		// 'go list -m', report the actual requested version, not its replacement.
 		completeFromModCache(info) // Will set m.Error in vendor mode.
@@ -255,11 +290,11 @@ func PackageBuildInfo(path string, deps []string) string {
 		return ""
 	}
 
-	target := mustFindModule(path, path)
+	target := mustFindModule(loaded, path, path)
 	mdeps := make(map[module.Version]bool)
 	for _, dep := range deps {
 		if !isStandardImportPath(dep) {
-			mdeps[mustFindModule(path, dep)] = true
+			mdeps[mustFindModule(loaded, path, dep)] = true
 		}
 	}
 	var mods []module.Version
@@ -298,8 +333,8 @@ func PackageBuildInfo(path string, deps []string) string {
 //
 // TODO(jayconrod): remove this. Callers should use findModule and return
 // errors instead of relying on base.Fatalf.
-func mustFindModule(target, path string) module.Version {
-	pkg, ok := loaded.pkgCache.Get(path).(*loadPkg)
+func mustFindModule(ld *loader, target, path string) module.Version {
+	pkg, ok := ld.pkgCache.Get(path).(*loadPkg)
 	if ok {
 		if pkg.err != nil {
 			base.Fatalf("build %v: cannot load %v: %v", target, path, pkg.err)
@@ -318,8 +353,8 @@ func mustFindModule(target, path string) module.Version {
 // findModule searches for the module that contains the package at path.
 // If the package was loaded, its containing module and true are returned.
 // Otherwise, module.Version{} and false are returend.
-func findModule(path string) (module.Version, bool) {
-	if pkg, ok := loaded.pkgCache.Get(path).(*loadPkg); ok {
+func findModule(ld *loader, path string) (module.Version, bool) {
+	if pkg, ok := ld.pkgCache.Get(path).(*loadPkg); ok {
 		return pkg.mod, pkg.mod != module.Version{}
 	}
 	if path == "command-line-arguments" {

@@ -1338,7 +1338,7 @@ func WriteTabs() {
 		o = objw.Uint32(i.lsym, o, types.TypeHash(i.t)) // copy of type hash
 		o += 4                                          // skip unused field
 		for _, fn := range genfun(i.t, i.itype) {
-			o = objw.SymPtr(i.lsym, o, fn, 0) // method pointer for each method
+			o = objw.SymPtrWeak(i.lsym, o, fn, 0) // method pointer for each method
 		}
 		// Nothing writes static itabs, so they are read only.
 		objw.Global(i.lsym, int32(o), int16(obj.DUPOK|obj.RODATA))
@@ -1525,7 +1525,7 @@ func dgcptrmask(t *types.Type) *obj.LSym {
 
 // fillptrmask fills in ptrmask with 1s corresponding to the
 // word offsets in t that hold pointers.
-// ptrmask is assumed to fit at least typeptrdata(t)/Widthptr bits.
+// ptrmask is assumed to fit at least types.PtrDataSize(t)/PtrSize bits.
 func fillptrmask(t *types.Type, ptrmask []byte) {
 	for i := range ptrmask {
 		ptrmask[i] = 0
@@ -1546,8 +1546,9 @@ func fillptrmask(t *types.Type, ptrmask []byte) {
 }
 
 // dgcprog emits and returns the symbol containing a GC program for type t
-// along with the size of the data described by the program (in the range [typeptrdata(t), t.Width]).
-// In practice, the size is typeptrdata(t) except for non-trivial arrays.
+// along with the size of the data described by the program (in the range
+// [types.PtrDataSize(t), t.Width]).
+// In practice, the size is types.PtrDataSize(t) except for non-trivial arrays.
 // For non-trivial arrays, the program describes the full t.Width size.
 func dgcprog(t *types.Type) (*obj.LSym, int64) {
 	types.CalcSize(t)
@@ -1833,7 +1834,7 @@ func MarkUsedIfaceMethod(n *ir.CallExpr) {
 	tsym := TypeLinksym(ityp)
 	r := obj.Addrel(ir.CurFunc.LSym)
 	r.Sym = tsym
-	// dot.Xoffset is the method index * Widthptr (the offset of code pointer
+	// dot.Xoffset is the method index * PtrSize (the offset of code pointer
 	// in itab).
 	midx := dot.Offset() / int64(types.PtrSize)
 	r.Add = InterfaceMethodOffset(ityp, midx)

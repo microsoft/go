@@ -541,6 +541,30 @@ func atomicAllGIndex(ptr **g, i uintptr) *g {
 	return *(**g)(add(unsafe.Pointer(ptr), i*sys.PtrSize))
 }
 
+// forEachG calls fn on every G from allgs.
+//
+// forEachG takes a lock to exclude concurrent addition of new Gs.
+func forEachG(fn func(gp *g)) {
+	lock(&allglock)
+	for _, gp := range allgs {
+		fn(gp)
+	}
+	unlock(&allglock)
+}
+
+// forEachGRace calls fn on every G from allgs.
+//
+// forEachGRace avoids locking, but does not exclude addition of new Gs during
+// execution, which may be missed.
+func forEachGRace(fn func(gp *g)) {
+	ptr, length := atomicAllG()
+	for i := uintptr(0); i < length; i++ {
+		gp := atomicAllGIndex(ptr, i)
+		fn(gp)
+	}
+	return
+}
+
 const (
 	// Number of goroutine ids to grab from sched.goidgen to local per-P cache at once.
 	// 16 seems to provide enough amortization, but other than that it's mostly arbitrary number.
@@ -1294,7 +1318,7 @@ func mstart1() {
 		throw("bad runtime·mstart")
 	}
 
-	// Set up m.g0.sched as a label returning returning to just
+	// Set up m.g0.sched as a label returning to just
 	// after the mstart1 call in mstart0 above, for use by goexit0 and mcall.
 	// We're never coming back to mstart1 after we call schedule,
 	// so other calls can reuse the current frame.
@@ -1858,6 +1882,10 @@ func needm() {
 
 	// Store the original signal mask for use by minit.
 	mp.sigmask = sigmask
+
+	// Install TLS on some platforms (previously setg
+	// would do this if necessary).
+	osSetupTLS(mp)
 
 	// Install g (= m->g0) and set the stack bounds
 	// to match the current stack. We don't actually know
@@ -4969,11 +4997,9 @@ func checkdead() {
 	}
 
 	grunning := 0
-	lock(&allglock)
-	for i := 0; i < len(allgs); i++ {
-		gp := allgs[i]
+	forEachG(func(gp *g) {
 		if isSystemGoroutine(gp, false) {
-			continue
+			return
 		}
 		s := readgstatus(gp)
 		switch s &^ _Gscan {
@@ -4986,8 +5012,7 @@ func checkdead() {
 			print("runtime: checkdead: find g ", gp.goid, " in status ", s, "\n")
 			throw("checkdead: runnable g")
 		}
-	}
-	unlock(&allglock)
+	})
 	if grunning == 0 { // possible if main goroutine calls runtime·Goexit()
 		unlock(&sched.lock) // unlock so that GODEBUG=scheddetail=1 doesn't hang
 		throw("no goroutines (main called runtime.Goexit) - deadlock!")
@@ -5390,9 +5415,7 @@ func schedtrace(detailed bool) {
 		print("  M", mp.id, ": p=", id1, " curg=", id2, " mallocing=", mp.mallocing, " throwing=", mp.throwing, " preemptoff=", mp.preemptoff, ""+" locks=", mp.locks, " dying=", mp.dying, " spinning=", mp.spinning, " blocked=", mp.blocked, " lockedg=", id3, "\n")
 	}
 
-	lock(&allglock)
-	for gi := 0; gi < len(allgs); gi++ {
-		gp := allgs[gi]
+	forEachG(func(gp *g) {
 		mp := gp.m
 		lockedm := gp.lockedm.ptr()
 		id1 := int64(-1)
@@ -5404,8 +5427,7 @@ func schedtrace(detailed bool) {
 			id2 = lockedm.id
 		}
 		print("  G", gp.goid, ": status=", readgstatus(gp), "(", gp.waitreason.String(), ") m=", id1, " lockedm=", id2, "\n")
-	}
-	unlock(&allglock)
+	})
 	unlock(&sched.lock)
 }
 
@@ -6009,7 +6031,10 @@ func setMaxThreads(in int) (out int) {
 }
 
 func haveexperiment(name string) bool {
-	x := sys.Goexperiment
+	// GOEXPERIMENT is a comma-separated list of enabled
+	// experiments. It's not the raw environment variable, but a
+	// pre-processed list from cmd/internal/objabi.
+	x := sys.GOEXPERIMENT
 	for x != "" {
 		xname := ""
 		i := bytealg.IndexByteString(x, ',')
@@ -6020,9 +6045,6 @@ func haveexperiment(name string) bool {
 		}
 		if xname == name {
 			return true
-		}
-		if len(xname) > 2 && xname[:2] == "no" && xname[2:] == name {
-			return false
 		}
 	}
 	return false
