@@ -8,6 +8,7 @@ package syscall
 
 import (
 	errorspkg "errors"
+	"internal/itoa"
 	"internal/oserror"
 	"internal/race"
 	"internal/unsafeheader"
@@ -132,7 +133,7 @@ func (e Errno) Error() string {
 	if err != nil {
 		n, err = formatMessage(flags, 0, uint32(e), 0, b, nil)
 		if err != nil {
-			return "winapi error #" + itoa(int(e))
+			return "winapi error #" + itoa.Itoa(int(e))
 		}
 	}
 	// trim terminating \r and \n
@@ -286,7 +287,7 @@ func NewCallbackCDecl(fn interface{}) uintptr {
 //sys	CreateHardLink(filename *uint16, existingfilename *uint16, reserved uintptr) (err error) [failretval&0xff==0] = CreateHardLinkW
 //sys	initializeProcThreadAttributeList(attrlist *_PROC_THREAD_ATTRIBUTE_LIST, attrcount uint32, flags uint32, size *uintptr) (err error) = InitializeProcThreadAttributeList
 //sys	deleteProcThreadAttributeList(attrlist *_PROC_THREAD_ATTRIBUTE_LIST) = DeleteProcThreadAttributeList
-//sys	updateProcThreadAttribute(attrlist *_PROC_THREAD_ATTRIBUTE_LIST, flags uint32, attr uintptr, value uintptr, size uintptr, prevvalue uintptr, returnedsize *uintptr) (err error) = UpdateProcThreadAttribute
+//sys	updateProcThreadAttribute(attrlist *_PROC_THREAD_ATTRIBUTE_LIST, flags uint32, attr uintptr, value unsafe.Pointer, size uintptr, prevvalue unsafe.Pointer, returnedsize *uintptr) (err error) = UpdateProcThreadAttribute
 
 // syscall interface implementation for other packages
 
@@ -1152,7 +1153,7 @@ func (s Signal) String() string {
 			return str
 		}
 	}
-	return "signal " + itoa(int(s))
+	return "signal " + itoa.Itoa(int(s))
 }
 
 func LoadCreateSymbolicLink() error {
@@ -1256,6 +1257,7 @@ func newProcThreadAttributeList(maxAttrCount uint32) (*_PROC_THREAD_ATTRIBUTE_LI
 		}
 		return nil, err
 	}
+	// size is guaranteed to be ≥1 by initializeProcThreadAttributeList.
 	al := (*_PROC_THREAD_ATTRIBUTE_LIST)(unsafe.Pointer(&make([]byte, size)[0]))
 	err = initializeProcThreadAttributeList(al, maxAttrCount, 0, &size)
 	if err != nil {

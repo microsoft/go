@@ -29,7 +29,11 @@ import (
 // module-module "all" pattern no longer closes over the dependencies of
 // tests outside of the main module.
 const narrowAllVersionV = "v1.16"
-const go116EnableNarrowAll = true
+
+// go1117LazyTODO is a constant that exists only until lazy loading is
+// implemented. Its use indicates a condition that will need to change if the
+// main module is lazy.
+const go117LazyTODO = false
 
 var modFile *modfile.File
 
@@ -134,10 +138,7 @@ func CheckRetractions(ctx context.Context, m module.Version) error {
 		// We load the raw file here: the go.mod file may have a different module
 		// path that we expect if the module or its repository was renamed.
 		// We still want to apply retractions to other aliases of the module.
-		rm := module.Version{Path: path, Version: rev.Version}
-		if repl := Replacement(rm); repl.Path != "" {
-			rm = repl
-		}
+		rm := resolveReplacement(module.Version{Path: path, Version: rev.Version})
 		summary, err := rawGoModSummary(rm)
 		if err != nil {
 			return &entry{nil, err}
@@ -243,6 +244,15 @@ func Replacement(mod module.Version) module.Version {
 	return module.Version{}
 }
 
+// resolveReplacement returns the module actually used to load the source code
+// for m: either m itself, or the replacement for m (iff m is replaced).
+func resolveReplacement(m module.Version) module.Version {
+	if r := Replacement(m); r.Path != "" {
+		return r
+	}
+	return m
+}
+
 // indexModFile rebuilds the index of modFile.
 // If modFile has been changed since it was first read,
 // modFile.Cleanup must be called before indexModFile.
@@ -257,10 +267,13 @@ func indexModFile(data []byte, modFile *modfile.File, needsFix bool) *modFileInd
 	}
 
 	i.goVersionV = ""
-	if modFile.Go != nil {
+	if modFile.Go == nil {
+		rawGoVersion.Store(Target, "")
+	} else {
 		// We're going to use the semver package to compare Go versions, so go ahead
 		// and add the "v" prefix it expects once instead of every time.
 		i.goVersionV = "v" + modFile.Go.Version
+		rawGoVersion.Store(Target, modFile.Go.Version)
 	}
 
 	i.require = make(map[module.Version]requireMeta, len(modFile.Require))
@@ -297,9 +310,6 @@ func indexModFile(data []byte, modFile *modfile.File, needsFix bool) *modFileInd
 // (Otherwise — as in Go 1.16+ — the "all" pattern includes only the packages
 // transitively *imported by* the packages and tests in the main module.)
 func (i *modFileIndex) allPatternClosesOverTests() bool {
-	if !go116EnableNarrowAll {
-		return true
-	}
 	if i != nil && semver.Compare(i.goVersionV, narrowAllVersionV) < 0 {
 		// The module explicitly predates the change in "all" for lazy loading, so
 		// continue to use the older interpretation. (If i == nil, we not in any
@@ -442,10 +452,7 @@ func goModSummary(m module.Version) (*modFileSummary, error) {
 		return summary, nil
 	}
 
-	actual := Replacement(m)
-	if actual.Path == "" {
-		actual = m
-	}
+	actual := resolveReplacement(m)
 	if HasModRoot() && cfg.BuildMod == "readonly" && actual.Version != "" {
 		key := module.Version{Path: actual.Path, Version: actual.Version + "/go.mod"}
 		if !modfetch.HaveSum(key) {

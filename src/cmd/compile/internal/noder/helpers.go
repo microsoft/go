@@ -54,8 +54,11 @@ func Nil(pos src.XPos, typ *types.Type) ir.Node {
 // Expressions
 
 func Addr(pos src.XPos, x ir.Node) *ir.AddrExpr {
-	// TODO(mdempsky): Avoid typecheck.Expr. Probably just need to set OPTRLIT when appropriate.
-	n := typecheck.Expr(typecheck.NodAddrAt(pos, x)).(*ir.AddrExpr)
+	n := typecheck.NodAddrAt(pos, x)
+	switch x.Op() {
+	case ir.OARRAYLIT, ir.OMAPLIT, ir.OSLICELIT, ir.OSTRUCTLIT:
+		n.SetOp(ir.OPTRLIT)
+	}
 	typed(types.NewPtr(x.Type()), n)
 	return n
 }
@@ -64,44 +67,73 @@ func Assert(pos src.XPos, x ir.Node, typ *types.Type) ir.Node {
 	return typed(typ, ir.NewTypeAssertExpr(pos, x, nil))
 }
 
-func Binary(pos src.XPos, op ir.Op, x, y ir.Node) ir.Node {
+func Binary(pos src.XPos, op ir.Op, typ *types.Type, x, y ir.Node) ir.Node {
 	switch op {
 	case ir.OANDAND, ir.OOROR:
 		return typed(x.Type(), ir.NewLogicalExpr(pos, op, x, y))
 	case ir.OADD:
-		if x.Type().IsString() {
-			// TODO(mdempsky): Construct OADDSTR directly.
-			return typecheck.Expr(ir.NewBinaryExpr(pos, op, x, y))
+		n := ir.NewBinaryExpr(pos, op, x, y)
+		if x.Type().HasTParam() || y.Type().HasTParam() {
+			// Delay transformAdd() if either arg has a type param,
+			// since it needs to know the exact types to decide whether
+			// to transform OADD to OADDSTR.
+			n.SetType(typ)
+			n.SetTypecheck(3)
+			return n
 		}
-		fallthrough
+		typed(typ, n)
+		return transformAdd(n)
 	default:
 		return typed(x.Type(), ir.NewBinaryExpr(pos, op, x, y))
 	}
 }
 
 func Call(pos src.XPos, typ *types.Type, fun ir.Node, args []ir.Node, dots bool) ir.Node {
-	// TODO(mdempsky): This should not be so difficult.
+	n := ir.NewCallExpr(pos, ir.OCALL, fun, args)
+	n.IsDDD = dots
+
 	if fun.Op() == ir.OTYPE {
 		// Actually a type conversion, not a function call.
-		n := ir.NewCallExpr(pos, ir.OCALL, fun, args)
-		if fun.Type().Kind() == types.TTYPEPARAM {
+		if fun.Type().HasTParam() || args[0].Type().HasTParam() {
 			// For type params, don't typecheck until we actually know
 			// the type.
 			return typed(typ, n)
 		}
-		return typecheck.Expr(n)
+		typed(typ, n)
+		return transformConvCall(n)
 	}
 
 	if fun, ok := fun.(*ir.Name); ok && fun.BuiltinOp != 0 {
-		// Call to a builtin function.
-		n := ir.NewCallExpr(pos, ir.OCALL, fun, args)
-		n.IsDDD = dots
+		// For Builtin ops, we currently stay with using the old
+		// typechecker to transform the call to a more specific expression
+		// and possibly use more specific ops. However, for a bunch of the
+		// ops, we delay doing the old typechecker if any of the args have
+		// type params, for a variety of reasons:
+		//
+		// OMAKE: hard to choose specific ops OMAKESLICE, etc. until arg type is known
+		// OREAL/OIMAG: can't determine type float32/float64 until arg type know
+		// OLEN/OCAP: old typechecker will complain if arg is not obviously a slice/array.
+		// OAPPEND: old typechecker will complain if arg is not obviously slice, etc.
+		//
+		// We will eventually break out the transforming functionality
+		// needed for builtin's, and call it here or during stenciling, as
+		// appropriate.
 		switch fun.BuiltinOp {
-		case ir.OCLOSE, ir.ODELETE, ir.OPANIC, ir.OPRINT, ir.OPRINTN:
-			return typecheck.Stmt(n)
-		default:
-			return typecheck.Expr(n)
+		case ir.OMAKE, ir.OREAL, ir.OIMAG, ir.OLEN, ir.OCAP, ir.OAPPEND:
+			hasTParam := false
+			for _, arg := range args {
+				if arg.Type().HasTParam() {
+					hasTParam = true
+					break
+				}
+			}
+			if hasTParam {
+				return typed(typ, n)
+			}
 		}
+
+		typed(typ, n)
+		return transformBuiltin(n)
 	}
 
 	// Add information, now that we know that fun is actually being called.
@@ -121,11 +153,13 @@ func Call(pos src.XPos, typ *types.Type, fun ir.Node, args []ir.Node, dots bool)
 		}
 	}
 
-	n := ir.NewCallExpr(pos, ir.OCALL, fun, args)
-	n.IsDDD = dots
+	n.Use = ir.CallUseExpr
+	if fun.Type().NumResults() == 0 {
+		n.Use = ir.CallUseStmt
+	}
 
 	if fun.Op() == ir.OXDOT {
-		if fun.(*ir.SelectorExpr).X.Type().Kind() != types.TTYPEPARAM {
+		if !fun.(*ir.SelectorExpr).X.Type().HasTParam() {
 			base.FatalfAt(pos, "Expecting type param receiver in %v", fun)
 		}
 		// For methods called in a generic function, don't do any extra
@@ -135,41 +169,30 @@ func Call(pos src.XPos, typ *types.Type, fun ir.Node, args []ir.Node, dots bool)
 		return n
 	}
 	if fun.Op() != ir.OFUNCINST {
-		// If no type params, still do normal typechecking, since we're
-		// still missing some things done by tcCall below (mainly
-		// typecheckargs and typecheckaste).
-		typecheck.Call(n)
+		// If no type params, do the normal call transformations. This
+		// will convert OCALL to OCALLFUNC.
+		typed(typ, n)
+		transformCall(n)
 		return n
 	}
 
-	n.Use = ir.CallUseExpr
-	if fun.Type().NumResults() == 0 {
-		n.Use = ir.CallUseStmt
-	}
-
-	// Rewrite call node depending on use.
-	switch fun.Op() {
-	case ir.ODOTINTER:
-		n.SetOp(ir.OCALLINTER)
-
-	case ir.ODOTMETH:
-		n.SetOp(ir.OCALLMETH)
-
-	default:
-		n.SetOp(ir.OCALLFUNC)
-	}
-
+	// Leave the op as OCALL, which indicates the call still needs typechecking.
 	typed(typ, n)
 	return n
 }
 
 func Compare(pos src.XPos, typ *types.Type, op ir.Op, x, y ir.Node) ir.Node {
 	n := ir.NewBinaryExpr(pos, op, x, y)
-	if !types.Identical(x.Type(), y.Type()) {
-		// TODO(mdempsky): Handle subtleties of constructing mixed-typed comparisons.
-		n = typecheck.Expr(n).(*ir.BinaryExpr)
+	if x.Type().HasTParam() || y.Type().HasTParam() {
+		// Delay transformCompare() if either arg has a type param, since
+		// it needs to know the exact types to decide on any needed conversions.
+		n.SetType(typ)
+		n.SetTypecheck(3)
+		return n
 	}
-	return typed(typ, n)
+	typed(typ, n)
+	transformCompare(n)
+	return n
 }
 
 func Deref(pos src.XPos, x ir.Node) *ir.StarExpr {
@@ -238,18 +261,35 @@ func method(typ *types.Type, index int) *types.Field {
 	return types.ReceiverBaseType(typ).Methods().Index(index)
 }
 
-func Index(pos src.XPos, x, index ir.Node) ir.Node {
-	// TODO(mdempsky): Avoid typecheck.Expr (which will call tcIndex)
-	return typecheck.Expr(ir.NewIndexExpr(pos, x, index))
+func Index(pos src.XPos, typ *types.Type, x, index ir.Node) ir.Node {
+	n := ir.NewIndexExpr(pos, x, index)
+	if x.Type().HasTParam() {
+		// transformIndex needs to know exact type
+		n.SetType(typ)
+		n.SetTypecheck(3)
+		return n
+	}
+	typed(typ, n)
+	// transformIndex will modify n.Type() for OINDEXMAP.
+	transformIndex(n)
+	return n
 }
 
-func Slice(pos src.XPos, x, low, high, max ir.Node) ir.Node {
+func Slice(pos src.XPos, typ *types.Type, x, low, high, max ir.Node) ir.Node {
 	op := ir.OSLICE
 	if max != nil {
 		op = ir.OSLICE3
 	}
-	// TODO(mdempsky): Avoid typecheck.Expr.
-	return typecheck.Expr(ir.NewSliceExpr(pos, op, x, low, high, max))
+	n := ir.NewSliceExpr(pos, op, x, low, high, max)
+	if x.Type().HasTParam() {
+		// transformSlice needs to know if x.Type() is a string or an array or a slice.
+		n.SetType(typ)
+		n.SetTypecheck(3)
+		return n
+	}
+	typed(typ, n)
+	transformSlice(n)
+	return n
 }
 
 func Unary(pos src.XPos, op ir.Op, x ir.Node) ir.Node {
@@ -271,7 +311,7 @@ func Unary(pos src.XPos, op ir.Op, x ir.Node) ir.Node {
 
 var one = constant.MakeInt64(1)
 
-func IncDec(pos src.XPos, op ir.Op, x ir.Node) ir.Node {
-	x = typecheck.AssignExpr(x)
+func IncDec(pos src.XPos, op ir.Op, x ir.Node) *ir.AssignOpStmt {
+	assert(x.Type() != nil)
 	return ir.NewAssignOpStmt(pos, op, x, typecheck.DefaultLit(ir.NewBasicLit(pos, one), x.Type()))
 }
