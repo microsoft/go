@@ -27,11 +27,6 @@ func (g *irgen) stmts(stmts []syntax.Stmt) []ir.Node {
 }
 
 func (g *irgen) stmt(stmt syntax.Stmt) ir.Node {
-	// TODO(mdempsky): Remove dependency on typecheck.
-	return typecheck.Stmt(g.stmt0(stmt))
-}
-
-func (g *irgen) stmt0(stmt syntax.Stmt) ir.Node {
 	switch stmt := stmt.(type) {
 	case nil, *syntax.EmptyStmt:
 		return nil
@@ -46,30 +41,75 @@ func (g *irgen) stmt0(stmt syntax.Stmt) ir.Node {
 		}
 		return x
 	case *syntax.SendStmt:
-		return ir.NewSendStmt(g.pos(stmt), g.expr(stmt.Chan), g.expr(stmt.Value))
+		n := ir.NewSendStmt(g.pos(stmt), g.expr(stmt.Chan), g.expr(stmt.Value))
+		transformSend(n)
+		n.SetTypecheck(1)
+		return n
 	case *syntax.DeclStmt:
 		return ir.NewBlockStmt(g.pos(stmt), g.decls(stmt.DeclList))
 
 	case *syntax.AssignStmt:
 		if stmt.Op != 0 && stmt.Op != syntax.Def {
 			op := g.op(stmt.Op, binOps[:])
+			var n *ir.AssignOpStmt
 			if stmt.Rhs == nil {
-				return IncDec(g.pos(stmt), op, g.expr(stmt.Lhs))
+				n = IncDec(g.pos(stmt), op, g.expr(stmt.Lhs))
+			} else {
+				n = ir.NewAssignOpStmt(g.pos(stmt), op, g.expr(stmt.Lhs), g.expr(stmt.Rhs))
 			}
-			return ir.NewAssignOpStmt(g.pos(stmt), op, g.expr(stmt.Lhs), g.expr(stmt.Rhs))
+			if n.X.Typecheck() == 3 {
+				n.SetTypecheck(3)
+				return n
+			}
+			transformAsOp(n)
+			n.SetTypecheck(1)
+			return n
 		}
 
 		names, lhs := g.assignList(stmt.Lhs, stmt.Op == syntax.Def)
 		rhs := g.exprList(stmt.Rhs)
 
+		// We must delay transforming the assign statement if any of the
+		// lhs or rhs nodes are also delayed, since transformAssign needs
+		// to know the types of the left and right sides in various cases.
+		delay := false
+		for _, e := range lhs {
+			if e.Typecheck() == 3 {
+				delay = true
+				break
+			}
+		}
+		for _, e := range rhs {
+			if e.Typecheck() == 3 {
+				delay = true
+				break
+			}
+		}
+
 		if len(lhs) == 1 && len(rhs) == 1 {
 			n := ir.NewAssignStmt(g.pos(stmt), lhs[0], rhs[0])
 			n.Def = initDefn(n, names)
+
+			if delay {
+				n.SetTypecheck(3)
+				return n
+			}
+
+			lhs, rhs := []ir.Node{n.X}, []ir.Node{n.Y}
+			transformAssign(n, lhs, rhs)
+			n.X, n.Y = lhs[0], rhs[0]
+			n.SetTypecheck(1)
 			return n
 		}
 
 		n := ir.NewAssignListStmt(g.pos(stmt), ir.OAS2, lhs, rhs)
 		n.Def = initDefn(n, names)
+		if delay {
+			n.SetTypecheck(3)
+			return n
+		}
+		transformAssign(n, n.Lhs, n.Rhs)
+		n.SetTypecheck(1)
 		return n
 
 	case *syntax.BranchStmt:
@@ -77,13 +117,19 @@ func (g *irgen) stmt0(stmt syntax.Stmt) ir.Node {
 	case *syntax.CallStmt:
 		return ir.NewGoDeferStmt(g.pos(stmt), g.tokOp(int(stmt.Tok), callOps[:]), g.expr(stmt.Call))
 	case *syntax.ReturnStmt:
-		return ir.NewReturnStmt(g.pos(stmt), g.exprList(stmt.Results))
+		n := ir.NewReturnStmt(g.pos(stmt), g.exprList(stmt.Results))
+		transformReturn(n)
+		n.SetTypecheck(1)
+		return n
 	case *syntax.IfStmt:
 		return g.ifStmt(stmt)
 	case *syntax.ForStmt:
 		return g.forStmt(stmt)
 	case *syntax.SelectStmt:
-		return g.selectStmt(stmt)
+		n := g.selectStmt(stmt)
+		transformSelect(n.(*ir.SelectStmt))
+		n.SetTypecheck(1)
+		return n
 	case *syntax.SwitchStmt:
 		return g.switchStmt(stmt)
 
