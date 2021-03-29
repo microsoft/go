@@ -100,7 +100,7 @@ func TestPackagesAndErrors(ctx context.Context, p *Package, cover *TestCover) (p
 	defer pre.flush()
 	allImports := append([]string{}, p.TestImports...)
 	allImports = append(allImports, p.XTestImports...)
-	pre.preloadImports(allImports, p.Internal.Build)
+	pre.preloadImports(ctx, allImports, p.Internal.Build)
 
 	var ptestErr, pxtestErr *PackageError
 	var imports, ximports []*Package
@@ -290,10 +290,12 @@ func TestPackagesAndErrors(ctx context.Context, p *Package, cover *TestCover) (p
 			seen[p1] = true
 		}
 		for _, p1 := range cover.Pkgs {
-			if !seen[p1] {
-				seen[p1] = true
-				pmain.Internal.Imports = append(pmain.Internal.Imports, p1)
+			if seen[p1] {
+				// Don't add duplicate imports.
+				continue
 			}
+			seen[p1] = true
+			pmain.Internal.Imports = append(pmain.Internal.Imports, p1)
 		}
 	}
 
