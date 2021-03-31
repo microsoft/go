@@ -137,12 +137,12 @@ func (p *parser) declare(decl, data interface{}, scope *ast.Scope, kind ast.ObjK
 	}
 }
 
-func (p *parser) shortVarDecl(decl *ast.AssignStmt, list []ast.Expr) {
+func (p *parser) shortVarDecl(decl *ast.AssignStmt) {
 	// Go spec: A short variable declaration may redeclare variables
 	// provided they were originally declared in the same block with
 	// the same type, and at least one of the non-blank variables is new.
 	n := 0 // number of new variables
-	for _, x := range list {
+	for _, x := range decl.Lhs {
 		if ident, isIdent := x.(*ast.Ident); isIdent {
 			assert(ident.Obj == nil, "identifier already declared or resolved")
 			obj := ast.NewObj(ast.Var, ident.Name)
@@ -161,7 +161,7 @@ func (p *parser) shortVarDecl(decl *ast.AssignStmt, list []ast.Expr) {
 		}
 	}
 	if n == 0 && p.mode&DeclarationErrors != 0 {
-		p.error(list[0].Pos(), "no new variables on left side of :=")
+		p.error(decl.Lhs[0].Pos(), "no new variables on left side of :=")
 	}
 }
 
@@ -181,7 +181,10 @@ func (p *parser) tryResolve(x ast.Expr, collectUnresolved bool) {
 	if ident == nil {
 		return
 	}
-	assert(ident.Obj == nil, fmt.Sprintf("identifier %s already declared or resolved", ident.Name))
+	// Don't use assert here, to avoid needless formatting of the message below.
+	if ident.Obj != nil {
+		panic(fmt.Sprintf("identifier %s already declared or resolved", ident.Name))
+	}
 	if ident.Name == "_" {
 		return
 	}
@@ -651,7 +654,7 @@ func (p *parser) parseQualifiedIdent(ident *ast.Ident) ast.Expr {
 	}
 
 	typ := p.parseTypeName(ident)
-	if p.tok == token.LBRACK && p.mode&ParseTypeParams != 0 {
+	if p.tok == token.LBRACK && p.mode&parseTypeParams != 0 {
 		typ = p.parseTypeInstance(typ)
 	}
 
@@ -712,7 +715,7 @@ func (p *parser) parseArrayFieldOrTypeInstance(x *ast.Ident) (*ast.Ident, ast.Ex
 	// TODO(rfindley): consider changing parseRhsOrType so that this function variable
 	// is not needed.
 	argparser := p.parseRhsOrType
-	if p.mode&ParseTypeParams == 0 {
+	if p.mode&parseTypeParams == 0 {
 		argparser = p.parseRhs
 	}
 	if p.tok != token.RBRACK {
@@ -742,13 +745,13 @@ func (p *parser) parseArrayFieldOrTypeInstance(x *ast.Ident) (*ast.Ident, ast.Ex
 			// x [P]E
 			return x, &ast.ArrayType{Lbrack: lbrack, Len: args[0], Elt: elt}
 		}
-		if p.mode&ParseTypeParams == 0 {
+		if p.mode&parseTypeParams == 0 {
 			p.error(rbrack, "missing element type in array type expression")
 			return nil, &ast.BadExpr{From: args[0].Pos(), To: args[0].End()}
 		}
 	}
 
-	if p.mode&ParseTypeParams == 0 {
+	if p.mode&parseTypeParams == 0 {
 		p.error(firstComma, "expected ']', found ','")
 		return x, &ast.BadExpr{From: args[0].Pos(), To: args[len(args)-1].End()}
 	}
@@ -1045,7 +1048,7 @@ func (p *parser) parseParameters(scope *ast.Scope, acceptTParams bool) (tparams,
 		defer un(trace(p, "Parameters"))
 	}
 
-	if p.mode&ParseTypeParams != 0 && acceptTParams && p.tok == token.LBRACK {
+	if p.mode&parseTypeParams != 0 && acceptTParams && p.tok == token.LBRACK {
 		opening := p.pos
 		p.next()
 		// [T any](params) syntax
@@ -1119,7 +1122,7 @@ func (p *parser) parseMethodSpec(scope *ast.Scope) *ast.Field {
 	x := p.parseTypeName(nil)
 	if ident, _ := x.(*ast.Ident); ident != nil {
 		switch {
-		case p.tok == token.LBRACK && p.mode&ParseTypeParams != 0:
+		case p.tok == token.LBRACK && p.mode&parseTypeParams != 0:
 			// generic method or embedded instantiated type
 			lbrack := p.pos
 			p.next()
@@ -1171,7 +1174,7 @@ func (p *parser) parseMethodSpec(scope *ast.Scope) *ast.Field {
 	} else {
 		// embedded, possibly instantiated type
 		typ = x
-		if p.tok == token.LBRACK && p.mode&ParseTypeParams != 0 {
+		if p.tok == token.LBRACK && p.mode&parseTypeParams != 0 {
 			// embedded instantiated interface
 			typ = p.parseTypeInstance(typ)
 		}
@@ -1193,7 +1196,7 @@ func (p *parser) parseInterfaceType() *ast.InterfaceType {
 	lbrace := p.expect(token.LBRACE)
 	scope := ast.NewScope(nil) // interface scope
 	var list []*ast.Field
-	for p.tok == token.IDENT || p.mode&ParseTypeParams != 0 && p.tok == token.TYPE {
+	for p.tok == token.IDENT || p.mode&parseTypeParams != 0 && p.tok == token.TYPE {
 		if p.tok == token.IDENT {
 			list = append(list, p.parseMethodSpec(scope))
 		} else {
@@ -1289,7 +1292,7 @@ func (p *parser) tryIdentOrType() ast.Expr {
 	switch p.tok {
 	case token.IDENT:
 		typ := p.parseTypeName(nil)
-		if p.tok == token.LBRACK && p.mode&ParseTypeParams != 0 {
+		if p.tok == token.LBRACK && p.mode&parseTypeParams != 0 {
 			typ = p.parseTypeInstance(typ)
 		}
 		return typ
@@ -1552,7 +1555,7 @@ func (p *parser) parseIndexOrSliceOrInstance(x ast.Expr) ast.Expr {
 		return &ast.IndexExpr{X: x, Lbrack: lbrack, Index: index[0], Rbrack: rbrack}
 	}
 
-	if p.mode&ParseTypeParams == 0 {
+	if p.mode&parseTypeParams == 0 {
 		p.error(firstComma, "expected ']' or ':', found ','")
 		return &ast.BadExpr{From: args[0].Pos(), To: args[len(args)-1].End()}
 	}
@@ -1801,6 +1804,11 @@ func (p *parser) parsePrimaryExpr(lhs bool) (x ast.Expr) {
 				p.error(t.Pos(), "cannot parenthesize type in composite literal")
 				// already progressed, no need to advance
 			}
+			if lhs {
+				// An error has already been reported above, but try to resolve the 'T'
+				// in (T){...} anyway.
+				p.resolve(t)
+			}
 			x = p.parseLiteralValue(x)
 		default:
 			return
@@ -1979,7 +1987,7 @@ func (p *parser) parseSimpleStmt(mode int) (ast.Stmt, bool) {
 		}
 		as := &ast.AssignStmt{Lhs: x, TokPos: pos, Tok: tok, Rhs: y}
 		if tok == token.DEFINE {
-			p.shortVarDecl(as, x)
+			p.shortVarDecl(as)
 		}
 		return as, isRange
 	}
@@ -2374,7 +2382,7 @@ func (p *parser) parseCommClause() *ast.CommClause {
 				rhs := p.parseRhs()
 				as := &ast.AssignStmt{Lhs: lhs, TokPos: pos, Tok: tok, Rhs: []ast.Expr{rhs}}
 				if tok == token.DEFINE {
-					p.shortVarDecl(as, lhs)
+					p.shortVarDecl(as)
 				}
 				comm = as
 			} else {
@@ -2696,7 +2704,7 @@ func (p *parser) parseTypeSpec(doc *ast.CommentGroup, _ token.Pos, _ token.Token
 			p.exprLev++
 			x := p.parseExpr(true) // we don't know yet if we're a lhs or rhs expr
 			p.exprLev--
-			if name0, _ := x.(*ast.Ident); p.mode&ParseTypeParams != 0 && name0 != nil && p.tok != token.RBRACK {
+			if name0, _ := x.(*ast.Ident); p.mode&parseTypeParams != 0 && name0 != nil && p.tok != token.RBRACK {
 				// generic type [T any];
 				p.parseGenericType(spec, lbrack, name0, token.RBRACK)
 			} else {
