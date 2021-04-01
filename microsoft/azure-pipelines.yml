@@ -61,15 +61,21 @@ jobs:
       artifact: Binaries linux_amd64
       displayName: 'Download: Binaries linux_amd64'
 
-    - task: CopyFiles@2
-      displayName: Copy files to sign to shared dir
-      inputs:
-        SourceFolder: $(Pipeline.Workspace)
-        Contents: |
-          Binaries linux_amd64/*
-        TargetFolder: $(Build.StagingDirectory)/ToSign
-        CleanTargetFolder: true
-        flattenFolders: true
+    - powershell: |
+        cd "$(Pipeline.Workspace)"
+
+        $flatDir = "$(Build.StagingDirectory)/ToSign"
+        mkdir $flatDir
+
+        ls -Recurse -File -Path @(
+          'Binaries linux_amd64'
+        ) | %{
+          if (Test-Path "$flatDir\$($_.Name)") {
+            throw "Duplicate filename, unable to flatten: $($_.FullName)"
+          }
+          Copy-Item $_.FullName $flatDir
+        }
+      displayName: Copy files to sign to flat dir
 
     - task: DotNetCoreCLI@2
       displayName: 'Install Arcade SignTool'
