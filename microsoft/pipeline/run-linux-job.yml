@@ -1,93 +1,91 @@
 parameters:
-  # [] of { os, arch, config }
-  builders: []
+  # { os, arch, config }
+  builder: {}
 
-jobs:
-  - ${{ each builder in parameters.builders }}:
-    - job: Build_${{ builder.os }}_${{ builder.arch }}_${{ builder.config }}
-      pool:
-        # The VM image of the Docker host. This doesn't need to match the container image, but it may
-        # give slightly better coverage by matching the kernel version.
-        vmImage: ubuntu-18.04
-      # The image used for the container this job runs in.
-      container: mcr.microsoft.com/dotnet-buildtools/prereqs:ubuntu-18.04-20210223192210-047508b
-      workspace:
-        clean: all
-      steps:
-        - template: pipeline/checkout-unix-task.yml
+- job: Build_${{ builder.os }}_${{ builder.arch }}_${{ builder.config }}
+  pool:
+    # The VM image of the Docker host. This doesn't need to match the container image, but it may
+    # give slightly better coverage by matching the kernel version.
+    vmImage: ubuntu-18.04
+  # The image used for the container this job runs in.
+  container: mcr.microsoft.com/dotnet-buildtools/prereqs:ubuntu-18.04-20210223192210-047508b
+  workspace:
+    clean: all
+  steps:
+    - template: checkout-unix-task.yml
 
-        # Install extra prereqs for long test (non '-short').
-        # TODO: Include in Docker image. https://github.com/microsoft/go/issues/5
-        - ${{ if eq(builder.config, 'longtest') }}:
-          - script: |
-              set -ex
+    # Install extra prereqs for long test (non '-short').
+    # TODO: Include in Docker image. https://github.com/microsoft/go/issues/5
+    - ${{ if eq(builder.config, 'longtest') }}:
+      - script: |
+          set -ex
 
-              fetch() {
-                out=$1
-                url=$2
-                sum=$3
-                curl -SL --output "$out" "$url" \
-                  && echo "$sum  $out" | sha256sum -c -
-              }
+          fetch() {
+            out=$1
+            url=$2
+            sum=$3
+            curl -SL --output "$out" "$url" \
+              && echo "$sum  $out" | sha256sum -c -
+          }
 
-              # Install mercurial to test Go integration.
-              fetch mercurial.deb 'http://security.ubuntu.com/ubuntu/pool/universe/m/mercurial/mercurial_4.5.3-1ubuntu2.1_amd64.deb' b78465669b0e3acdebead196881a617091b0acbc0fac488220361225db8642d8
-              fetch mercurial-common.deb 'http://security.ubuntu.com/ubuntu/pool/universe/m/mercurial/mercurial-common_4.5.3-1ubuntu2.1_all.deb' 537693dae1c193c724da306e3669f8561cff5cf594863b8746c3b44f66a28616
-              sudo apt install ./mercurial.deb ./mercurial-common.deb
+          # Install mercurial to test Go integration.
+          fetch mercurial.deb 'http://security.ubuntu.com/ubuntu/pool/universe/m/mercurial/mercurial_4.5.3-1ubuntu2.1_amd64.deb' b78465669b0e3acdebead196881a617091b0acbc0fac488220361225db8642d8
+          fetch mercurial-common.deb 'http://security.ubuntu.com/ubuntu/pool/universe/m/mercurial/mercurial-common_4.5.3-1ubuntu2.1_all.deb' 537693dae1c193c724da306e3669f8561cff5cf594863b8746c3b44f66a28616
+          sudo apt install ./mercurial.deb ./mercurial-common.deb
 
-        - script: |
-            set -ex
-            microsoft/build.sh
-          displayName: Build
+    - script: |
+        set -ex
+        microsoft/build.sh
+      displayName: Build
 
-        - script: |
-            set -ex
-            config='${{ builder.config }}'
+    - script: |
+        set -ex
+        config='${{ builder.config }}'
 
-            if [ "$config" == 'buildandpack' ]; then
-              # No testing, just pack.
-              microsoft/pack.sh
-            else if [ "$config" == 'devscript' ]; then
-              # This is a special config (not from upstream) where we run tests using
-              # 'microsoft/build.sh'. This in turn means we run tests through 'src/run.bash'. This
-              # makes sure build and test still works locally, when we aren't using GO_BUILDER_NAME.
-              microsoft/build.sh --skip-build --test
-            else
-              # Recreate input environment variables and command line that would be created by
-              # https://github.com/golang/build/blob/master/dashboard/builders.go
-              export GO_BUILDER_NAME='${{ builder.os }}_${{ builder.arch }}'
+        if [ "$config" == 'buildandpack' ]; then
+          # No testing, just pack.
+          microsoft/pack.sh
+        else if [ "$config" == 'devscript' ]; then
+          # This is a special config (not from upstream) where we run tests using
+          # 'microsoft/build.sh'. This in turn means we run tests through 'src/run.bash'. This
+          # makes sure build and test still works locally, when we aren't using GO_BUILDER_NAME.
+          microsoft/build.sh --skip-build --test
+        else
+          # Recreate input environment variables and command line that would be created by
+          # https://github.com/golang/build/blob/master/dashboard/builders.go
+          export GO_BUILDER_NAME='${{ builder.os }}_${{ builder.arch }}'
 
-              if [ "$config" ]; then
-                GO_BUILDER_NAME="$GO_BUILDER_NAME-$config"
-              fi
+          if [ "$config" ]; then
+            GO_BUILDER_NAME="$GO_BUILDER_NAME-$config"
+          fi
 
-              case "$config" in
-                longtest)
-                  export GO_TEST_SHORT=false
-                  export GO_TEST_TIMEOUT_SCALE=5
-                  ;;
-                nocgo)
-                  export CGO_ENABLED=0
-                  ;;
-                *)
-                  echo "Unknown builder config: $config"
-                  exit 1
-                  ;;
-              esac
+          case "$config" in
+            longtest)
+              export GO_TEST_SHORT=false
+              export GO_TEST_TIMEOUT_SCALE=5
+              ;;
+            nocgo)
+              export CGO_ENABLED=0
+              ;;
+            *)
+              echo "Unknown builder config: $config"
+              exit 1
+              ;;
+          esac
 
-              # 'sudo': Run under root user so we have zero UID. If UID is nonzero, Go makes the
-              # tree read-only while initializing tests. This breaks some long tests that need to
-              # open go.mod files with write permissions. Upstream doesn't appear to have coverage
-              # for non-root long tests on a Linux builder.
-              #
-              # 'bin/go dist test': Use the dist test command directly, because 'src/run.bash' isn't
-              # compatible with longtest. It sets 'GOPATH=/nonexist-gopath', which breaks modconv
-              # tests that download modules.
-              sudo bin/go dist test
-            fi
-          displayName: Run ${{ builder.config }}
+          # 'sudo': Run under root user so we have zero UID. If UID is nonzero, Go makes the
+          # tree read-only while initializing tests. This breaks some long tests that need to
+          # open go.mod files with write permissions. Upstream doesn't appear to have coverage
+          # for non-root long tests on a Linux builder.
+          #
+          # 'bin/go dist test': Use the dist test command directly, because 'src/run.bash' isn't
+          # compatible with longtest. It sets 'GOPATH=/nonexist-gopath', which breaks modconv
+          # tests that download modules.
+          sudo bin/go dist test
+        fi
+      displayName: Run ${{ builder.config }}
 
-        - publish: microsoft/artifacts
-          artifact: Binaries ${{ builder.os }}_${{ builder.arch }}_${{ builder.config }}
-          displayName: Pipeline publish
-          condition: succeededOrFailed()
+    - publish: microsoft/artifacts
+      artifact: Binaries ${{ builder.os }}_${{ builder.arch }}_${{ builder.config }}
+      displayName: Pipeline publish
+      condition: succeededOrFailed()
