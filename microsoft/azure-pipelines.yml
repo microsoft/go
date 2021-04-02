@@ -1,5 +1,6 @@
 # Copyright (c) Microsoft Corporation.
-# Licensed under the MIT License.
+# Use of this source code is governed by a BSD-style
+# license that can be found in the LICENSE file.
 
 trigger:
   - microsoft/*
@@ -7,51 +8,109 @@ pr:
   - microsoft/*
 
 jobs:
-  - template: pipeline/matrix.yml
-    parameters:
-      builders:
-        - { os: linux, arch: amd64 }
-        - { os: linux, arch: amd64, config: longtest }
-        - { os: linux, arch: amd64, config: race }
-  - job: Build
+- template: pipeline/matrix.yml
+  parameters:
+    builders:
+      - { os: linux, arch: amd64 }
+      - { os: linux, arch: amd64, config: longtest }
+      - { os: linux, arch: amd64, config: race }
+- job: Build_linux_amd64
+  pool:
+    # The VM image of the Docker host. This doesn't need to match the container image, but it may
+    # give slightly better coverage by matching the kernel version.
+    vmImage: ubuntu-18.04
+  # The image used for the container this job runs in.
+  container: mcr.microsoft.com/dotnet-buildtools/prereqs:ubuntu-18.04-20210223192210-047508b
+  workspace:
+    clean: all
+  steps:
+  - template: pipeline/checkout-unix-task.yml
+
+  - script: |
+      set -ex
+      microsoft/build.sh --test
+    displayName: Build and Test
+
+  - script: |
+      set -ex
+      microsoft/pack.sh
+    displayName: Pack
+
+  - publish: microsoft/artifacts
+    artifact: Binaries linux_amd64
+    displayName: Pipeline publish
+    condition: succeededOrFailed()
+
+- ${{ if and(ne(variables['System.TeamProject'], 'public'), ne(variables['Build.Reason'], 'PullRequest')) }}:
+  - job: Sign
+    # Depend on all build jobs that produced artifacts that need signing.
+    dependsOn:
+    - Build_linux_amd64
     pool:
-      # The VM image of the Docker host. This doesn't need to match the container image, but it may
-      # give slightly better coverage by matching the kernel version.
-      vmImage: ubuntu-18.04
-    # The image used for the container this job runs in.
-    container: mcr.microsoft.com/dotnet-buildtools/prereqs:ubuntu-18.04-20210223192210-047508b
+      name: NetCoreInternal-Pool
+      queue: buildpool.windows.10.amd64.vs2019
+    variables:
+    - name: TeamName
+      value: golang
     workspace:
       clean: all
     steps:
-    - template: pipeline/checkout-unix-task.yml
+    - template: pipeline/checkout-windows-task.yml
 
-    - script: |
-        set -ex
+    - task: MicroBuildSigningPlugin@2
+      displayName: 'Install MicroBuild Signing Plugin'
+      inputs:
+        feedSource: 'https://dnceng.pkgs.visualstudio.com/_packaging/MicroBuildToolset/nuget/v3/index.json'
 
-        fetch() {
-          out=$1
-          url=$2
-          sum=$3
-          curl -SL --output "$out" "$url" \
-            && echo "$sum  $out" | sha256sum -c -
-        }
+    # Download all assets that need signing. (As of writing, only linux-amd64.)
+    - download: current
+      artifact: Binaries linux_amd64
+      displayName: 'Download: Binaries linux_amd64'
 
-        # Install mercurial to test Go integration.
-        fetch mercurial.deb 'http://security.ubuntu.com/ubuntu/pool/universe/m/mercurial/mercurial_4.5.3-1ubuntu2.1_amd64.deb' b78465669b0e3acdebead196881a617091b0acbc0fac488220361225db8642d8
-        fetch mercurial-common.deb 'http://security.ubuntu.com/ubuntu/pool/universe/m/mercurial/mercurial-common_4.5.3-1ubuntu2.1_all.deb' 537693dae1c193c724da306e3669f8561cff5cf594863b8746c3b44f66a28616
-        sudo apt install ./mercurial.deb ./mercurial-common.deb
+    - task: CopyFiles@2
+      displayName: Copy files to sign to shared dir
+      inputs:
+        SourceFolder: $(Pipeline.Workspace)
+        Contents: |
+          Binaries linux_amd64/*
+        TargetFolder: $(Build.StagingDirectory)/ToSign
+        CleanTargetFolder: true
 
-    - script: |
-        set -ex
-        microsoft/build.sh
-      displayName: Build
+    - task: DotNetCoreCLI@2
+      displayName: 'Install Arcade SignTool'
+      inputs:
+        command: restore
+        projects: '$(Build.SourcesDirectory)/microsoft/signing/SignLinuxPackages.proj'
+        feedsToUse: config
+        nugetConfigPath: '$(Build.SourcesDirectory)/microsoft/signing/NuGet.config'
 
-    - script: |
-        set -ex
-        sudo microsoft/build.sh --skip-build --test --long --destructive-builder-name linux-amd64
-      displayName: Test
+    - task: DotNetCoreCLI@2
+      displayName: 'Sign Files'
+      inputs:
+        command: custom
+        projects: '$(Build.SourcesDirectory)/microsoft/signing/SignLinuxPackages.proj'
+        custom: msbuild
+        arguments: >-
+          /t:SignGoFiles
+          /p:SignFilesDir=$(Build.StagingDirectory)/ToSign
+          /p:SigningType=$(SigningType)
+          /bl:SignFiles.binlog
 
-    - publish: microsoft/artifacts
-      artifact: Binaries
-      displayName: Pipeline publish
-      condition: succeededOrFailed()
+    - publish: $(Build.StagingDirectory)/ToSign
+      artifact: Binaries Signed
+      displayName: Publish Binaries Signed
+      condition: always()
+
+    - publish: microsoft\signing
+      artifact: SigningDetails
+      displayName: Publish SigningDetails
+      condition: always()
+
+    - publish: 'SignFiles.binlog'
+      artifact: SigningBinlog
+      displayName: Publish SigningBinlog
+      condition: always()
+
+    - task: MicroBuildCleanup@1
+      displayName: 'Clean up MicroBuild'
+      condition: always()

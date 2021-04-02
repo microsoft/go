@@ -1,18 +1,28 @@
 # Copyright (c) Microsoft Corporation.
-# Licensed under the MIT License.
+# Use of this source code is governed by a BSD-style
+# license that can be found in the LICENSE file.
 
 # Shallow checkout sources on Unix
 steps:
-  - checkout: none
+  # If this is a PR to a private GitHub repo, AzDO needs to know so it can generate a token with
+  # GitHub access. This workaround can be removed once our GitHub repo is public. The condition
+  # automatically deactivates when we create a fresh pipeline for public GitHub PR validation, so
+  # removal doesn't need to happen in sync with the switch to public.
+  - ${{ if eq(variables['Build.DefinitionName'], 'microsoft-go-private-github') }}:
+    - checkout: self
+      fetchDepth: 1
+
+  - ${{ if ne(variables['Build.DefinitionName'], 'microsoft-go-private-github') }}:
+    - checkout: none
 
   - script: |
       set -x
 
       git init
-      git remote add origin "$(Build.Repository.Uri)"
+      git remote add ci-origin "$(Build.Repository.Uri)"
 
       shallow_fetch() {
-        git "$@" fetch --progress --no-tags --depth=1 origin "$(Build.SourceVersion)"
+        git "$@" fetch --progress --no-tags --depth=1 ci-origin "$(Build.SourceVersion)"
       }
 
       if [ "$FETCH_BEARER_TOKEN" ]; then
