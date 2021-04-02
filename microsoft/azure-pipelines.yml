@@ -2,50 +2,56 @@
 # Licensed under the MIT License.
 
 trigger:
-- microsoft/*
+  - microsoft/*
 pr:
-- microsoft/*
+  - microsoft/*
 
 jobs:
-- job: Build
-  pool:
-    # The VM image of the Docker host. This doesn't need to match the container image, but it may
-    # give slightly better coverage by matching the kernel version.
-    vmImage: ubuntu-18.04
-  # The image used for the container this job runs in.
-  container: mcr.microsoft.com/dotnet-buildtools/prereqs:ubuntu-18.04-20210223192210-047508b
-  workspace:
-    clean: all
-  steps:
-  - template: pipeline/checkout-unix-task.yml
+  - template: pipeline/matrix.yml
+    parameters:
+      builders:
+        - { os: linux, arch: amd64 }
+        - { os: linux, arch: amd64, config: longtest }
+        - { os: linux, arch: amd64, config: race }
+  - job: Build
+    pool:
+      # The VM image of the Docker host. This doesn't need to match the container image, but it may
+      # give slightly better coverage by matching the kernel version.
+      vmImage: ubuntu-18.04
+    # The image used for the container this job runs in.
+    container: mcr.microsoft.com/dotnet-buildtools/prereqs:ubuntu-18.04-20210223192210-047508b
+    workspace:
+      clean: all
+    steps:
+    - template: pipeline/checkout-unix-task.yml
 
-  - script: |
-      set -ex
+    - script: |
+        set -ex
 
-      fetch() {
-        out=$1
-        url=$2
-        sum=$3
-        curl -SL --output "$out" "$url" \
-          && echo "$sum  $out" | sha256sum -c -
-      }
+        fetch() {
+          out=$1
+          url=$2
+          sum=$3
+          curl -SL --output "$out" "$url" \
+            && echo "$sum  $out" | sha256sum -c -
+        }
 
-      # Install mercurial to test Go integration.
-      fetch mercurial.deb 'http://security.ubuntu.com/ubuntu/pool/universe/m/mercurial/mercurial_4.5.3-1ubuntu2.1_amd64.deb' b78465669b0e3acdebead196881a617091b0acbc0fac488220361225db8642d8
-      fetch mercurial-common.deb 'http://security.ubuntu.com/ubuntu/pool/universe/m/mercurial/mercurial-common_4.5.3-1ubuntu2.1_all.deb' 537693dae1c193c724da306e3669f8561cff5cf594863b8746c3b44f66a28616
-      sudo apt install ./mercurial.deb ./mercurial-common.deb
+        # Install mercurial to test Go integration.
+        fetch mercurial.deb 'http://security.ubuntu.com/ubuntu/pool/universe/m/mercurial/mercurial_4.5.3-1ubuntu2.1_amd64.deb' b78465669b0e3acdebead196881a617091b0acbc0fac488220361225db8642d8
+        fetch mercurial-common.deb 'http://security.ubuntu.com/ubuntu/pool/universe/m/mercurial/mercurial-common_4.5.3-1ubuntu2.1_all.deb' 537693dae1c193c724da306e3669f8561cff5cf594863b8746c3b44f66a28616
+        sudo apt install ./mercurial.deb ./mercurial-common.deb
 
-  - script: |
-      set -ex
-      microsoft/build.sh
-    displayName: Build
+    - script: |
+        set -ex
+        microsoft/build.sh
+      displayName: Build
 
-  - script: |
-      set -ex
-      sudo microsoft/build.sh --skip-build --test --long --destructive-builder-name linux-amd64
-    displayName: Test
+    - script: |
+        set -ex
+        sudo microsoft/build.sh --skip-build --test --long --destructive-builder-name linux-amd64
+      displayName: Test
 
-  - publish: microsoft/artifacts
-    artifact: Binaries
-    displayName: Pipeline publish
-    condition: succeededOrFailed()
+    - publish: microsoft/artifacts
+      artifact: Binaries
+      displayName: Pipeline publish
+      condition: succeededOrFailed()
