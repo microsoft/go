@@ -30,7 +30,7 @@ jobs:
       microsoft/pack.sh
     displayName: Pack
 
-  - publish: microsoft/artifacts
+  - publish: microsoft/artifacts/bin
     artifact: Binaries linux_amd64
     displayName: Pipeline publish
     condition: succeededOrFailed()
@@ -61,14 +61,21 @@ jobs:
       artifact: Binaries linux_amd64
       displayName: 'Download: Binaries linux_amd64'
 
-    - task: CopyFiles@2
-      displayName: Copy files to sign to shared dir
-      inputs:
-        SourceFolder: $(Pipeline.Workspace)
-        Contents: |
-          Binaries linux_amd64/*
-        TargetFolder: $(Build.StagingDirectory)/ToSign
-        CleanTargetFolder: true
+    - powershell: |
+        cd "$(Pipeline.Workspace)"
+
+        $flatDir = "$(Build.StagingDirectory)/ToSign"
+        mkdir $flatDir
+
+        ls -Recurse -File -Path @(
+          'Binaries linux_amd64'
+        ) | %{
+          if (Test-Path "$flatDir\$($_.Name)") {
+            throw "Duplicate filename, unable to flatten: $($_.FullName)"
+          }
+          Copy-Item $_.FullName $flatDir
+        }
+      displayName: Copy files to sign to flat dir
 
     - task: DotNetCoreCLI@2
       displayName: 'Install Arcade SignTool'
@@ -108,3 +115,24 @@ jobs:
     - task: MicroBuildCleanup@1
       displayName: 'Clean up MicroBuild'
       condition: always()
+
+  - job: Publish
+    dependsOn:
+    - Sign
+    pool:
+      vmImage: ubuntu-20.04
+    steps:
+    - checkout: none
+
+    - download: current
+      artifact: Binaries Signed
+      displayName: 'Download: Binaries Signed'
+
+    - task: AzureCLI@2
+      displayName: Upload to blob storage
+      inputs:
+        azureSubscription: GoLang
+        scriptType: bash
+        scriptLocation: inlineScript
+        inlineScript: |
+          az storage copy -s "$(Pipeline.Workspace)/Binaries Signed/*" -d "https://golangartifacts.blob.core.windows.net/microsoft/$(Build.SourceBranchName)/$(Build.BuildNumber)"
