@@ -7,35 +7,40 @@ trigger:
 pr:
   - microsoft/*
 
-jobs:
-- template: pipeline/matrix.yml
-  parameters:
-    builders:
-      - { os: linux, arch: amd64, config: buildandpack }
-      - { os: linux, arch: amd64, config: devscript }
-      - { os: linux, arch: amd64, config: test }
-      - { os: linux, arch: amd64, config: longtest }
-      - { os: linux, arch: amd64, config: race }
-      - { os: linux, arch: amd64, config: nocgo }
+stages:
+  - stage: Build
+    jobs:
+      - template: pipeline/matrix.yml
+        parameters:
+          builders:
+            - { os: linux, arch: amd64, config: buildandpack }
+            - { os: linux, arch: amd64, config: devscript }
+            - { os: linux, arch: amd64, config: test }
+            - { os: linux, arch: amd64, config: longtest }
+            - { os: linux, arch: amd64, config: race }
+            - { os: linux, arch: amd64, config: nocgo }
 
-- ${{ if and(ne(variables['System.TeamProject'], 'public'), ne(variables['Build.Reason'], 'PullRequest')) }}:
-  - job: Publish
-    dependsOn:
-    - Sign
-    pool:
-      vmImage: ubuntu-20.04
-    steps:
-    - checkout: none
+  - ${{ if and(ne(variables['System.TeamProject'], 'public'), ne(variables['Build.Reason'], 'PullRequest')) }}:
+    - stage: Publish
+      dependsOn: Build
+      jobs:
+        - job: Publish
+          dependsOn:
+          - Sign
+          pool:
+            vmImage: ubuntu-20.04
+          steps:
+          - checkout: none
 
-    - download: current
-      artifact: Binaries Signed
-      displayName: 'Download: Binaries Signed'
+          - download: current
+            artifact: Binaries Signed
+            displayName: 'Download: Binaries Signed'
 
-    - task: AzureCLI@2
-      displayName: Upload to blob storage
-      inputs:
-        azureSubscription: GoLang
-        scriptType: bash
-        scriptLocation: inlineScript
-        inlineScript: |
-          az storage copy -s "$(Pipeline.Workspace)/Binaries Signed/*" -d "https://golangartifacts.blob.core.windows.net/microsoft/$(Build.SourceBranchName)/$(Build.BuildNumber)"
+          - task: AzureCLI@2
+            displayName: Upload to blob storage
+            inputs:
+              azureSubscription: GoLang
+              scriptType: bash
+              scriptLocation: inlineScript
+              inlineScript: |
+                az storage copy -s "$(Pipeline.Workspace)/Binaries Signed/*" -d "https://golangartifacts.blob.core.windows.net/microsoft/$(Build.SourceBranchName)/$(Build.BuildNumber)"
