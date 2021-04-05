@@ -16,3 +16,25 @@ jobs:
       - { os: linux, arch: amd64, config: test }
       - { os: linux, arch: amd64, config: longtest }
       - { os: linux, arch: amd64, config: race }
+
+- ${{ if and(ne(variables['System.TeamProject'], 'public'), ne(variables['Build.Reason'], 'PullRequest')) }}:
+  - job: Publish
+    dependsOn:
+    - Sign
+    pool:
+      vmImage: ubuntu-20.04
+    steps:
+    - checkout: none
+
+    - download: current
+      artifact: Binaries Signed
+      displayName: 'Download: Binaries Signed'
+
+    - task: AzureCLI@2
+      displayName: Upload to blob storage
+      inputs:
+        azureSubscription: GoLang
+        scriptType: bash
+        scriptLocation: inlineScript
+        inlineScript: |
+          az storage copy -s "$(Pipeline.Workspace)/Binaries Signed/*" -d "https://golangartifacts.blob.core.windows.net/microsoft/$(Build.SourceBranchName)/$(Build.BuildNumber)"
