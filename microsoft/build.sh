@@ -22,8 +22,6 @@ scriptroot="$( cd -P "$( dirname "$source" )" && pwd )"
 build=1
 test=
 pack=
-long=
-destructive_builder_name=
 
 # Print usage information and exit 0 if no error message is provided.
 # $1: An error message to display. If provided, this function will exit 1.
@@ -46,10 +44,6 @@ usage() {
   echo "  --pack        Enable creating a tar.gz file similar to the official Go binary release."
   echo "  -h|--help     Print this help message and exit."
   echo ""
-  echo "Test runner configuration:"
-  echo "  --long                                Make long-running tests run."
-  echo "  --destructive-builder-name <builder>  Run tests using the specified GO_BUILDER_NAME. This will set all files in the repo to read-only."
-  echo ""
   echo "Example: Perform a build, run tests on it, and produce a tar.gz file:"
   echo "  $0 --test --pack"
 
@@ -66,13 +60,6 @@ while [[ $# > 0 ]]; do
       ;;
     --pack)
       pack=1
-      ;;
-    --long)
-      long=1
-      ;;
-    --destructive-builder-name)
-      shift
-      destructive_builder_name=$1
       ;;
     -h|--help)
       usage
@@ -145,15 +132,6 @@ fi
 
   if [ "$test" ]; then
     echo "Running tests..."
-
-    if [ "$long" ]; then
-      export GO_TEST_SHORT=false
-    fi
-
-    if [ "$destructive_builder_name" ]; then
-      export GO_BUILDER_NAME=$destructive_builder_name
-    fi
-
     ./run.bash --no-rebuild
   fi
 

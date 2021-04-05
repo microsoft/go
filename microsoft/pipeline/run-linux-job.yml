@@ -15,81 +15,12 @@ jobs:
   steps:
     - template: checkout-unix-task.yml
 
-    # Install extra prereqs for long test (non '-short').
-    # TODO: Include in Docker image. https://github.com/microsoft/go/issues/5
-    - ${{ if eq(parameters.builder.config, 'longtest') }}:
-      - script: |
-          set -ex
-
-          fetch() {
-            out=$1
-            url=$2
-            sum=$3
-            curl -SL --output "$out" "$url" \
-              && echo "$sum  $out" | sha256sum -c -
-          }
-
-          # Install mercurial to test Go integration.
-          fetch mercurial.deb 'http://security.ubuntu.com/ubuntu/pool/universe/m/mercurial/mercurial_4.5.3-1ubuntu2.1_amd64.deb' b78465669b0e3acdebead196881a617091b0acbc0fac488220361225db8642d8
-          fetch mercurial-common.deb 'http://security.ubuntu.com/ubuntu/pool/universe/m/mercurial/mercurial-common_4.5.3-1ubuntu2.1_all.deb' 537693dae1c193c724da306e3669f8561cff5cf594863b8746c3b44f66a28616
-          sudo apt install ./mercurial.deb ./mercurial-common.deb
-
     - script: |
         set -ex
-        microsoft/build.sh
-      displayName: Build
 
-    - script: |
-        set -ex
-        config='${{ parameters.builder.config }}'
-
-        if [ "$config" == 'buildandpack' ]; then
-          # No testing, just pack.
-          microsoft/pack.sh
-        elif [ "$config" == 'devscript' ]; then
-          # This is a special config (not from upstream) where we run tests using
-          # 'microsoft/build.sh'. This in turn means we run tests through 'src/run.bash'. This
-          # makes sure build and test still works locally, when we aren't using GO_BUILDER_NAME.
-          microsoft/build.sh --skip-build --test
-        else
-          # Recreate input environment variables and command line that would be created by
-          # https://github.com/golang/build/blob/master/dashboard/builders.go
-          export GO_BUILDER_NAME='${{ parameters.builder.os }}_${{ parameters.builder.arch }}'
-
-          # 'test' is just a name we use to make the job ID make sense. It isn't included in the
-          # builder name used by upstream.
-          if [ "$config" != 'test' ]; then
-            GO_BUILDER_NAME="$GO_BUILDER_NAME-$config"
-          fi
-
-          case "$config" in
-            longtest)
-              export GO_TEST_SHORT=false
-              export GO_TEST_TIMEOUT_SCALE=5
-              ;;
-            nocgo)
-              export CGO_ENABLED=0
-              ;;
-            race)
-              ;;
-            test)
-              ;;
-            *)
-              echo "Unknown builder config: $config"
-              exit 1
-              ;;
-          esac
-
-          # 'sudo': Run under root user so we have zero UID. If UID is nonzero, Go makes the
-          # tree read-only while initializing tests. This breaks some long tests that need to
-          # open go.mod files with write permissions. Upstream doesn't appear to have coverage
-          # for non-root long tests on a Linux builder.
-          #
-          # 'bin/go tool dist test': Use the dist test command directly, because 'src/run.bash' isn't
-          # compatible with longtest. It sets 'GOPATH=/nonexist-gopath', which breaks modconv
-          # tests that download modules.
-          sudo --preserve-env bin/go tool dist test
-        fi
+        . microsoft/init-stage0.sh
+        "$stage0_dir/go/bin/go" run microsoft/run-builder.go \
+          -builder '${{ parameters.builder.os }}-${{ parameters.builder.arch }}-${{ parameters.builder.config }}'
       displayName: Run ${{ parameters.builder.config }}
 
     - ${{ if eq(parameters.builder.config, 'buildandpack' ) }}:
