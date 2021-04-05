@@ -64,6 +64,12 @@ func main() {
 		run("microsoft/workaround-install-mercurial.sh")
 	}
 
+	// Handle configs that need to change build, not just tests.
+	switch config {
+	case "nocgo":
+		env("CGO_ENABLED", "0")
+	}
+
 	run("microsoft/build.sh")
 
 	if config == "buildandpack" {
@@ -89,8 +95,6 @@ func main() {
 		case "longtest":
 			env("GO_TEST_SHORT", "false")
 			env("GO_TEST_TIMEOUT_SCALE", "5")
-		case "nocgo":
-			env("CGO_ENABLED", "0")
 		}
 
 		// 'sudo': Run under root user so we have zero UID. If UID is nonzero, Go makes the tree

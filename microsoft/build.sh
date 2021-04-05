@@ -82,9 +82,12 @@ done
     echo "Running main build..."
     ./make.bash
 
-    # Build race detection runtime. It's included with the official Go binary distribution.
-    echo "Building race runtime..."
-    ../bin/go install -race -a std
+    # Build race detection runtime. It's included with the official Go binary distribution. It
+    # requires cgo to build.
+    if [ "${CGO_ENABLED:-}" != '0' ]; then
+      echo "Building race runtime..."
+      ../bin/go install -race -a std
+    fi
   fi
 
   if [ "$test" ]; then
