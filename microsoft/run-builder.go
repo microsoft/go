@@ -97,10 +97,12 @@ func main() {
 			env("GO_TEST_TIMEOUT_SCALE", "5")
 		}
 
-		// 'sudo': Run under root user so we have zero UID. If UID is nonzero, Go makes the tree
-		// read-only while initializing tests. This breaks some long tests that need to open go.mod
-		// files with write permissions. Upstream doesn't appear to have coverage for non-root long
-		// tests on a Linux builder.
+		// 'sudo': Run under root user so we have zero UID. As of writing, all upstream builders
+		// using a non-WSL Linux host run tests as root. We encounter at least one issue if we run
+		// as non-root on Linux in our reimplementation: if the test infra detects non-zero UID, Go
+		// makes the tree read-only while initializing tests, breaking 'longtest' tests that need to
+		// open go.mod files with write permissions. https://github.com/microsoft/go/issues/53
+		// tracks making tests run as non-root where possible.
 		//
 		// '--preserve-env': Keep the testing configuration we've set up. Sudo normally reloads env.
 		//
