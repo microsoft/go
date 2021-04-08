@@ -68,7 +68,7 @@ func main() {
 	// need extra env variables set up. Some of these take effect during the Go build.
 	switch config {
 	case "clang":
-		env("CC", "/usr/bin/clang")
+		env("CC", "/usr/bin/clang-3.9")
 	case "longtest":
 		env("GO_TEST_SHORT", "false")
 		env("GO_TEST_TIMEOUT_SCALE", "5")
