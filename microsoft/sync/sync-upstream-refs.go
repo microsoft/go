@@ -393,6 +393,8 @@ type branch struct {
 	name        string
 	mergeTarget string
 
+	// fileDiff starts empty. It's filled in after the sync performs the merge. It contains a
+	// file-level diff between the upstream branch and the merge target.
 	fileDiff string
 }
 
