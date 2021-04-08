@@ -64,10 +64,24 @@ func main() {
 		run("microsoft/workaround-install-mercurial.sh")
 	}
 
-	// Handle configs that need to change build, not just tests.
+	// Tests usually use the builder name to decide what to do. However, some configurations also
+	// need extra env variables set up. Some of these take effect during the Go build.
 	switch config {
+	case "clang":
+		env("CC", "/usr/bin/clang")
+	case "longtest":
+		env("GO_TEST_SHORT", "false")
+		env("GO_TEST_TIMEOUT_SCALE", "5")
 	case "nocgo":
 		env("CGO_ENABLED", "0")
+	case "noopt":
+		env("GO_GCFLAGS", "-N -l")
+	case "regabi":
+		env("GOEXPERIMENT", "regabi")
+	case "ssacheck":
+		env("GO_GCFLAGS", "-d=ssa/check/on,dclstack")
+	case "staticlockranking":
+		env("GOEXPERIMENT", "staticlockranking")
 	}
 
 	run("microsoft/build.sh")
@@ -88,13 +102,6 @@ func main() {
 		// "linux-amd64" builder from upstream.
 		if config == "test" {
 			env("GO_BUILDER_NAME", goos+"-"+goarch)
-		}
-
-		// Some configs also need some extra env variables.
-		switch config {
-		case "longtest":
-			env("GO_TEST_SHORT", "false")
-			env("GO_TEST_TIMEOUT_SCALE", "5")
 		}
 
 		// 'sudo': Run under root user so we have zero UID. As of writing, all upstream builders
