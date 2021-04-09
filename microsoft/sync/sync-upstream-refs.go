@@ -87,16 +87,10 @@ func main() {
 		return
 	}
 
-	githubUser, err := getUsername(*githubPAT)
-	if err != nil {
-		panic(err)
-	}
+	githubUser := getUsernameOrPanic(*githubPAT)
 	fmt.Printf("User for github-pat is: %v\n", githubUser)
 
-	githubReviewerUser, err := getUsername(*githubPATReviewer)
-	if err != nil {
-		panic(err)
-	}
+	githubReviewerUser := getUsernameOrPanic(*githubPATReviewer)
 	fmt.Printf("User for github-pat-reviewer is: %v\n", githubReviewerUser)
 
 	originParts := strings.FieldsFunc(*origin, func(r rune) bool { return r == '/' || r == ':' })
@@ -468,10 +462,10 @@ func sendJsonRequestSuccessful(request *http.Request, response interface{}) erro
 	return nil
 }
 
-func getUsername(pat string) (string, error) {
+func getUsernameOrPanic(pat string) string {
 	request, err := http.NewRequest("GET", "https://api.github.com/user", nil)
 	if err != nil {
-		return "", err
+		panic(err)
 	}
 	request.SetBasicAuth("", pat)
 
@@ -480,10 +474,10 @@ func getUsername(pat string) (string, error) {
 	}{}
 
 	if err := sendJsonRequestSuccessful(request, response); err != nil {
-		return "", err
+		panic(err)
 	}
 
-	return response.Login, nil
+	return response.Login
 }
 
 type prRequest struct {
