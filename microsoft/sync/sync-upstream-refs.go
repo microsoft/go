@@ -41,24 +41,24 @@ var autoResolveOurFiles = []string{
 	"SUPPORT.md",
 }
 
-var branchNames []string
-
-var to = flag.String("to", "https://github.com/microsoft-golang-bot/go", "Push synced refs to this Git repository.")
-var upstream = flag.String("upstream", "https://go.googlesource.com/go", "Get upstream Git data from this repo.")
-var origin = flag.String("origin", "https://github.com/microsoft/go", "Get latest 'microsoft/*' branches from this repo, and push sync PR to this repo.")
 var dryRun = flag.Bool("n", false, "Enable dry run: do not push, do not submit PR.")
 var tempGitDir = flag.String("temp-git-dir", filepath.Join(getwdOrPanic(), "microsoft", "artifacts", "sync-upstream-temp-repo"), "Location to create the temporary Git repo. Must not exist.")
-
-var githubPAT = flag.String("github-pat", "", "Submit the PR with this GitHub PAT.")
-var githubPATReviewer = flag.String("github-pat-reviewer", "", "Approve the PR and turn on auto-merge with this PAT.")
-
-var help = flag.Bool("h", false, "Print this help message.")
 
 var client = http.Client{
 	Timeout: time.Second * 30,
 }
 
 func main() {
+	var to = flag.String("to", "https://github.com/microsoft-golang-bot/go", "Push synced refs to this Git repository.")
+	var origin = flag.String("origin", "https://github.com/microsoft/go", "Get latest 'microsoft/*' branches from this repo, and push sync PR to this repo.")
+	var upstream = flag.String("upstream", "https://go.googlesource.com/go", "Get upstream Git data from this repo.")
+
+	var githubPAT = flag.String("github-pat", "", "Submit the PR with this GitHub PAT.")
+	var githubPATReviewer = flag.String("github-pat-reviewer", "", "Approve the PR and turn on auto-merge with this PAT.")
+
+	var help = flag.Bool("h", false, "Print this help message.")
+
+	var branchNames []string
 	flag.Func(
 		"b",
 		"Sync this upstream branch. Specify multiple times to sync multiple branches.",
@@ -68,15 +68,22 @@ func main() {
 		})
 
 	flag.Usage = func() {
-		fmt.Fprintf(flag.CommandLine.Output(), "Usage of sync.go:\n")
+		fmt.Fprintf(flag.CommandLine.Output(), "Usage of sync-upstream-refs.go:\n")
 		flag.PrintDefaults()
 		fmt.Fprintf(flag.CommandLine.Output(), "%s\n", description)
 	}
 
 	flag.Parse()
 
-	if *help || len(branchNames) == 0 || len(flag.Args()) == 0 {
+	if len(flag.Args()) > 0 {
+		fmt.Printf("Non-flag argument(s) provided but not accepted: %v\n", flag.Args())
 		flag.Usage()
+		os.Exit(1)
+	}
+
+	if *help || len(branchNames) == 0 {
+		flag.Usage()
+		// Exit 0: script is successful, even though it didn't do anything except print usage info.
 		return
 	}
 
@@ -379,7 +386,7 @@ func newGitPushCommand(remote string, force bool, refspecs []string) *exec.Cmd {
 	if force {
 		c.Args = append(c.Args, "--force")
 	}
-	c.Args = append(c.Args, *to)
+	c.Args = append(c.Args, remote)
 	for _, r := range refspecs {
 		c.Args = append(c.Args, r)
 	}
