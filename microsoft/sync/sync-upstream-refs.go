@@ -42,7 +42,7 @@ var autoResolveOurFiles = []string{
 }
 
 var dryRun = flag.Bool("n", false, "Enable dry run: do not push, do not submit PR.")
-var tempGitDir = flag.String("temp-git-dir", filepath.Join(getwdOrPanic(), "microsoft", "artifacts", "sync-upstream-temp-repo"), "Location to create the temporary Git repo. Must not exist.")
+var tempGitDir = flag.String("temp-git-dir", filepath.Join(getwd(), "microsoft", "artifacts", "sync-upstream-temp-repo"), "Location to create the temporary Git repo. Must not exist.")
 
 var client = http.Client{
 	Timeout: time.Second * 30,
@@ -118,7 +118,7 @@ func main() {
 		for _, b := range branches {
 			c.Args = append(c.Args, b.upstreamFetchRefspec())
 		}
-		runOrPanic(c)
+		run(c)
 	}
 
 	{
@@ -126,12 +126,12 @@ func main() {
 		for _, b := range branches {
 			c.Args = append(c.Args, b.originFetchRefspec())
 		}
-		runOrPanic(c)
+		run(c)
 	}
 
 	for _, b := range branches {
-		runOrPanic(newLoggedGitCommand("checkout", "auto-merge/"+b.mergeTarget))
-		runOrPanic(newLoggedGitCommand("merge", "--no-ff", "--no-commit", "auto-sync/"+b.name))
+		run(newLoggedGitCommand("checkout", "auto-merge/"+b.mergeTarget))
+		run(newLoggedGitCommand("merge", "--no-ff", "--no-commit", "auto-sync/"+b.name))
 
 		// Automatically resolve conflicts in specific project doc files. These files are used by
 		// GitHub, so we needed to change them directly rather than use patch files. Use
@@ -140,12 +140,12 @@ func main() {
 		{
 			c := newLoggedGitCommand("checkout", "--no-overlay", "HEAD", "--")
 			c.Args = append(c.Args, autoResolveOurFiles...)
-			runOrPanic(c)
+			run(c)
 		}
 
 		// If we still have unmerged files, 'git commit' will exit non-zero, causing the script to exit.
 		// This prevents the script from pushing a bad merge.
-		runOrPanic(newLoggedGitCommand("commit", "-m", "Merge upstream branch '"+b.name+"' into "+b.mergeTarget))
+		run(newLoggedGitCommand("commit", "-m", "Merge upstream branch '"+b.name+"' into "+b.mergeTarget))
 
 		// Show a summary of which files are in our branch vs. upstream. This is just informational. CI
 		// is a better place to *enforce* a low diff: it's more visible, can be fixed up more easily, and
@@ -168,7 +168,7 @@ func main() {
 	for _, b := range branches {
 		mirrorPushRefspecs = append(mirrorPushRefspecs, b.mirrorPushRefspec())
 	}
-	runOrPanic(newGitPushCommand(*to, false, mirrorPushRefspecs))
+	run(newGitPushCommand(*to, false, mirrorPushRefspecs))
 
 	// Force push the merge branches. If an auto-PR is closed rather than accepted, or if an auto-PR
 	// doesn't ever get completed, the branch may contain a stale commit that we can't FF from.
@@ -176,7 +176,7 @@ func main() {
 	for _, b := range branches {
 		mergePushRefspecs = append(mergePushRefspecs, b.mergePushRefspec())
 	}
-	runOrPanic(newGitPushCommand(*to, true, mergePushRefspecs))
+	run(newGitPushCommand(*to, true, mergePushRefspecs))
 
 	var prFailed bool
 
@@ -204,7 +204,7 @@ func main() {
 
 		// Lazily get username once for all branches.
 		if githubUser == "" {
-			githubUser = getUsernameOrPanic(*githubPAT)
+			githubUser = getUsername(*githubPAT)
 			fmt.Printf("User for github-pat is: %v\n", githubUser)
 		}
 
@@ -362,8 +362,8 @@ func main() {
 	fmt.Println("Success.")
 }
 
-// getwdOrPanic gets the current working dir or panics, for easy use in expressions.
-func getwdOrPanic() string {
+// getwd gets the current working dir or panics, for easy use in expressions.
+func getwd() string {
 	wd, err := os.Getwd()
 	if err != nil {
 		panic(err)
@@ -371,7 +371,7 @@ func getwdOrPanic() string {
 	return wd
 }
 
-func runOrPanic(c *exec.Cmd) {
+func run(c *exec.Cmd) {
 	fmt.Printf("Running command: %v %v\n", c.Path, c.Args)
 	if err := c.Run(); err != nil {
 		panic(err)
@@ -478,7 +478,7 @@ func sendJsonRequestSuccessful(request *http.Request, response interface{}) erro
 	return nil
 }
 
-func getUsernameOrPanic(pat string) string {
+func getUsername(pat string) string {
 	request, err := http.NewRequest("GET", "https://api.github.com/user", nil)
 	if err != nil {
 		panic(err)
