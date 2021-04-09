@@ -100,12 +100,7 @@ func main() {
 		panic("temp Git dir already exists: " + *tempGitDir)
 	}
 
-	fmt.Printf("Initializing %v\n", *tempGitDir)
-	out, err := exec.Command("git", "init", *tempGitDir).CombinedOutput()
-	if err != nil {
-		fmt.Println(out)
-		panic(err)
-	}
+	run(exec.Command("git", "init", *tempGitDir))
 
 	var branches []*branch = make([]*branch, 0, len(branchNames))
 	for _, b := range branchNames {
@@ -114,7 +109,7 @@ func main() {
 	}
 
 	{
-		c := newLoggedGitCommand("fetch", "--no-tags", *upstream)
+		c := newGitCommand("fetch", "--no-tags", *upstream)
 		for _, b := range branches {
 			c.Args = append(c.Args, b.upstreamFetchRefspec())
 		}
@@ -122,7 +117,7 @@ func main() {
 	}
 
 	{
-		c := newLoggedGitCommand("fetch", "--no-tags", *origin)
+		c := newGitCommand("fetch", "--no-tags", *origin)
 		for _, b := range branches {
 			c.Args = append(c.Args, b.originFetchRefspec())
 		}
@@ -130,22 +125,22 @@ func main() {
 	}
 
 	for _, b := range branches {
-		run(newLoggedGitCommand("checkout", "auto-merge/"+b.mergeTarget))
-		run(newLoggedGitCommand("merge", "--no-ff", "--no-commit", "auto-sync/"+b.name))
+		run(newGitCommand("checkout", "auto-merge/"+b.mergeTarget))
+		run(newGitCommand("merge", "--no-ff", "--no-commit", "auto-sync/"+b.name))
 
 		// Automatically resolve conflicts in specific project doc files. These files are used by
 		// GitHub, so we needed to change them directly rather than use patch files. Use
 		// '--no-overlay' to make sure we keep out any new files in '.github/' that are in upstream
 		// but don't exist locally.
 		{
-			c := newLoggedGitCommand("checkout", "--no-overlay", "HEAD", "--")
+			c := newGitCommand("checkout", "--no-overlay", "HEAD", "--")
 			c.Args = append(c.Args, autoResolveOurFiles...)
 			run(c)
 		}
 
 		// If we still have unmerged files, 'git commit' will exit non-zero, causing the script to exit.
 		// This prevents the script from pushing a bad merge.
-		run(newLoggedGitCommand("commit", "-m", "Merge upstream branch '"+b.name+"' into "+b.mergeTarget))
+		run(newGitCommand("commit", "-m", "Merge upstream branch '"+b.name+"' into "+b.mergeTarget))
 
 		// Show a summary of which files are in our branch vs. upstream. This is just informational. CI
 		// is a better place to *enforce* a low diff: it's more visible, can be fixed up more easily, and
@@ -371,8 +366,11 @@ func getwd() string {
 	return wd
 }
 
+// run sets up the command so it logs directly to our stdout/stderr streams, then runs it.
 func run(c *exec.Cmd) {
-	fmt.Printf("Running command: %v %v\n", c.Path, c.Args)
+	fmt.Printf("---- Running command: %v %v\n", c.Path, c.Args)
+	c.Stdout = os.Stdout
+	c.Stderr = os.Stderr
 	if err := c.Run(); err != nil {
 		panic(err)
 	}
@@ -384,15 +382,8 @@ func newGitCommand(args ...string) *exec.Cmd {
 	return c
 }
 
-func newLoggedGitCommand(args ...string) *exec.Cmd {
-	c := newGitCommand(args...)
-	c.Stdout = os.Stdout
-	c.Stderr = os.Stderr
-	return c
-}
-
 func newGitPushCommand(remote string, force bool, refspecs []string) *exec.Cmd {
-	c := newLoggedGitCommand("push")
+	c := newGitCommand("push")
 	if force {
 		c.Args = append(c.Args, "--force")
 	}
