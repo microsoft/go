@@ -29,9 +29,9 @@ A 'sync' is a few steps:
 3. Push each corresponding branch into the target repo. ('Merge from upstream.')
 4. Push each branch into the target repo. ('Mirror from upstream.')
 
-This script creates a temporary copy of the repository in 'artifacts/'.
-Otherwise, the script could be deleted mid-execution by a 'git checkout'. It
-also avoids trampling changes in the user's clone.`
+This script creates a temporary copy of the repository in 'artifacts/' by
+default. Otherwise, the script could be deleted mid-execution by a
+'git checkout'. It also avoids trampling changes in the user's clone.`
 
 var autoResolveOurFiles = []string{
 	".github/",
@@ -47,7 +47,7 @@ var to = flag.String("to", "https://github.com/microsoft-golang-bot/go", "Push s
 var upstream = flag.String("upstream", "https://go.googlesource.com/go", "Get upstream Git data from this repo.")
 var origin = flag.String("origin", "https://github.com/microsoft/go", "Get latest 'microsoft/*' branches from this repo, and push sync PR to this repo.")
 var dryRun = flag.Bool("n", false, "Enable dry run: do not push, do not submit PR.")
-var tempGitDir = flag.String("temp-git-dir", filepath.Join(getwdOrPanic(), "microsoft", "artifacts"), "Location to create the temporary Git repo.")
+var tempGitDir = flag.String("temp-git-dir", filepath.Join(getwdOrPanic(), "microsoft", "artifacts", "sync-upstream-temp-repo"), "Location to create the temporary Git repo. Must not exist.")
 
 var githubPAT = flag.String("github-pat", "", "Submit the PR with this GitHub PAT.")
 var githubPATReviewer = flag.String("github-pat-reviewer", "", "Approve the PR and turn on auto-merge with this PAT.")
@@ -101,11 +101,11 @@ func main() {
 	originOwnerSlashRepo := strings.Join(originOwnerRepo, "/")
 	fmt.Printf("From origin repo URL %v, detected %v for the PR target.\n", *origin, originOwnerSlashRepo)
 
-	fmt.Printf("Cleaning and reinitializing %v\n", *tempGitDir)
-	if err := os.RemoveAll(*tempGitDir); err != nil {
-		panic("Couldn't remove temp Git dir " + *tempGitDir)
+	if _, err := os.Stat(*tempGitDir); !os.IsNotExist(err) {
+		panic("temp Git dir already exists: " + *tempGitDir)
 	}
 
+	fmt.Printf("Initializing %v\n", *tempGitDir)
 	out, err := exec.Command("git", "init", *tempGitDir).CombinedOutput()
 	if err != nil {
 		fmt.Println(out)
