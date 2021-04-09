@@ -87,12 +87,6 @@ func main() {
 		return
 	}
 
-	githubUser := getUsernameOrPanic(*githubPAT)
-	fmt.Printf("User for github-pat is: %v\n", githubUser)
-
-	githubReviewerUser := getUsernameOrPanic(*githubPATReviewer)
-	fmt.Printf("User for github-pat-reviewer is: %v\n", githubReviewerUser)
-
 	originParts := strings.FieldsFunc(*origin, func(r rune) bool { return r == '/' || r == ':' })
 	if len(originParts) < 3 {
 		fmt.Println("Failed to find 3 parts of 'origin' url. Expected a string separated with '/' or ':', like https://github.com/microsoft/go or git@github.com:microsoft/go")
@@ -186,16 +180,38 @@ func main() {
 
 	var prFailed bool
 
+	var githubUser string
+
 	for _, b := range branches {
+		var skipReason string
+		switch {
+		case *dryRun:
+			skipReason = "Dry run"
+
+		case *githubPAT == "":
+			skipReason = "github-pat not provided"
+
+		case *githubPATReviewer == "":
+			// In theory, if we have githubPAT but no reviewer, we can submit the PR but skip
+			// reviewing it/enabling auto-merge. However, this doesn't seem very useful.
+			skipReason = "github-pat-reviewer not provided"
+		}
+
+		if skipReason != "" {
+			fmt.Printf("%s: skipping submitting PR for %v -> %v\n", skipReason, b.name, b.mergeTarget)
+			continue
+		}
+
+		// Lazily get username once for all branches.
+		if githubUser == "" {
+			githubUser = getUsernameOrPanic(*githubPAT)
+			fmt.Printf("User for github-pat is: %v\n", githubUser)
+		}
+
 		// Use anonymous function to simplify returning errors in the body. We need to handle the
 		// error in a special way to avoid blocking other branches, and this lets us centralize it.
 		// Using a closure rather than calling a named function keeps var access simple.
 		err := func() error {
-			if *dryRun {
-				fmt.Printf("Dry run: skipping submitting PR for %v -> %v\n", b.name, b.mergeTarget)
-				return nil
-			}
-
 			fmt.Printf("PR for %v -> %v: Submitting...\n", b.name, b.mergeTarget)
 
 			// POST the PR. This is considered successful if the PR is created or if we receive a
