@@ -11,7 +11,6 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
-	"io/ioutil"
 	"mime"
 	"mime/multipart"
 	"net"
@@ -379,11 +378,7 @@ func mustRemoveAll(dir string) {
 
 func TestFileServerImplicitLeadingSlash(t *testing.T) {
 	defer afterTest(t)
-	tempDir, err := os.MkdirTemp("", "")
-	if err != nil {
-		t.Fatalf("TempDir: %v", err)
-	}
-	defer mustRemoveAll(tempDir)
+	tempDir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(tempDir, "foo.txt"), []byte("Hello world"), 0644); err != nil {
 		t.Fatalf("WriteFile: %v", err)
 	}
@@ -593,7 +588,7 @@ func TestServeIndexHtml(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				b, err := ioutil.ReadAll(res.Body)
+				b, err := io.ReadAll(res.Body)
 				if err != nil {
 					t.Fatal("reading Body:", err)
 				}
