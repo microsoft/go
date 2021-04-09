@@ -68,9 +68,9 @@ func main() {
 		})
 
 	flag.Usage = func() {
-		fmt.Fprintf(flag.CommandLine.Output(), "Usage of sync-upstream-refs.go:\n")
+		fmt.Fprintf(flag.CommandLine.Output(), "\nUsage of sync-upstream-refs.go:\n")
 		flag.PrintDefaults()
-		fmt.Fprintf(flag.CommandLine.Output(), "%s\n", description)
+		fmt.Fprintf(flag.CommandLine.Output(), "%s\n\n", description)
 	}
 
 	flag.Parse()
