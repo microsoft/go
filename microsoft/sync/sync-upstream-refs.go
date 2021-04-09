@@ -75,7 +75,7 @@ func main() {
 
 	flag.Parse()
 
-	if *help || len(branchNames) == 0 {
+	if *help || len(branchNames) == 0 || len(flag.Args()) == 0 {
 		flag.Usage()
 		return
 	}
@@ -169,7 +169,7 @@ func main() {
 
 	// Mirroring should always be FF: fail if not. This indicates upstream did some kind of a force
 	// push, so the merging probably wouldn't work anyway.
-	var mirrorPushRefspecs []string
+	mirrorPushRefspecs := make([]string, 0, len(branches))
 	for _, b := range branches {
 		mirrorPushRefspecs = append(mirrorPushRefspecs, b.mirrorPushRefspec())
 	}
@@ -177,7 +177,7 @@ func main() {
 
 	// Force push the merge branches. If an auto-PR is closed rather than accepted, or if an auto-PR
 	// doesn't ever get completed, the branch may contain a stale commit that we can't FF from.
-	var mergePushRefspecs []string
+	mergePushRefspecs := make([]string, 0, len(branches))
 	for _, b := range branches {
 		mergePushRefspecs = append(mergePushRefspecs, b.mergePushRefspec())
 	}
