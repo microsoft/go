@@ -29,11 +29,12 @@ CAUTION: Some builders may be destructive! For example, it might set all files
 in your repository to read-only.
 `
 
-var builder = flag.String("builder", "", "[Required] Specify a builder to run. Note, this may be destructive!")
 var dryRun = flag.Bool("n", false, "Enable dry run: print the commands that would be run, but do not run them.")
-var help = flag.Bool("h", false, "Print this help message.")
 
 func main() {
+	var builder = flag.String("builder", "", "[Required] Specify a builder to run. Note, this may be destructive!")
+	var help = flag.Bool("h", false, "Print this help message.")
+
 	flag.Usage = func() {
 		fmt.Fprintf(flag.CommandLine.Output(), "Usage of run-builder.go:\n")
 		flag.PrintDefaults()
@@ -128,11 +129,11 @@ func run(name string, arg ...string) {
 	c.Stderr = os.Stderr
 
 	if *dryRun {
-		fmt.Printf("++ Dry run. Would have run command: %v\n", c.Args)
+		fmt.Printf("---- Dry run. Would have run command: %v\n", c.Args)
 		return
 	}
 
-	fmt.Printf("+++ Running command: %v\n", c.Args)
+	fmt.Printf("---- Running command: %v\n", c.Args)
 
 	if err := c.Run(); err != nil {
 		panic(err)
