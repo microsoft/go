@@ -21,17 +21,25 @@ import (
 const description = `
 Example: A sync operation dry run from upstream master to microsoft/go:
 
-  go run microsoft/sync.go -b master -n
+  go run microsoft/sync/sync-upstream-refs.go -b master -n
 
-A 'sync' is a few steps:
-1. Fetch every branch from upstream.
-2. Merge each branch 'b' into the corresponding 'microsoft/b'.
-3. Push each corresponding branch into the target repo. ('Merge from upstream.')
-4. Push each branch into the target repo. ('Mirror from upstream.')
+It may be useful to specify Git addresses like 'git@github.com:microsoft/go' to
+use SSH authentication.
 
-This script creates a temporary copy of the repository in 'artifacts/' by
-default. Otherwise, the script could be deleted mid-execution by a
-'git checkout'. It also avoids trampling changes in the user's clone.`
+A 'sync' is a few steps to run "merge from upstream" and "mirror from upstream":
+
+1. Fetch every 'branch' from 'upstream'.
+2. Fetch each 'microsoft/{branch}' from 'origin'.
+3. Merge each upstream branch 'b' into corresponding 'microsoft/b'.
+4. Push each merge commit to 'to' as 'auto-merge/microsoft/{branch}'.
+5. Create a PR in 'origin' that merges the auto-merge branch.
+   - This PR is the "merge from upstream".
+6. Push each branch from 'upstream' to 'to' with the exact same name.
+   - This push is the "mirror from upstream".
+   - We may change this to push to 'origin' in the future. See https://github.com/microsoft/go/issues/4
+
+This script creates a temporary copy of the repository in 'microsoft/artifacts/'
+by default. This avoids trampling changes in the user's clone.`
 
 var autoResolveOurFiles = []string{
 	".github/",
@@ -49,19 +57,20 @@ var client = http.Client{
 }
 
 func main() {
-	var to = flag.String("to", "https://github.com/microsoft-golang-bot/go", "Push synced refs to this Git repository.")
-	var origin = flag.String("origin", "https://github.com/microsoft/go", "Get latest 'microsoft/*' branches from this repo, and push sync PR to this repo.")
-	var upstream = flag.String("upstream", "https://go.googlesource.com/go", "Get upstream Git data from this repo.")
+	var to = flag.String("to", "https://github.com/microsoft-golang-bot/go", "Push synced refs to this Git repository.\n[Need push Git permission.]")
+	var origin = flag.String("origin", "https://github.com/microsoft/go", "Get latest 'microsoft/*' branches from this repo, and submit sync PR to this repo.\n[Need fetch Git permission.]")
+	var upstream = flag.String("upstream", "https://go.googlesource.com/go", "Get upstream Git data from this repo.\n[Need fetch Git permission.]")
 
-	var githubPAT = flag.String("github-pat", "", "Submit the PR with this GitHub PAT.")
-	var githubPATReviewer = flag.String("github-pat-reviewer", "", "Approve the PR and turn on auto-merge with this PAT.")
+	var githubPAT = flag.String("github-pat", "", "Submit the PR with this GitHub PAT, if specified.")
+	var githubPATReviewer = flag.String("github-pat-reviewer", "", "Approve the PR and turn on auto-merge with this PAT, if specified. Required, if github-pat specified.")
 
 	var help = flag.Bool("h", false, "Print this help message.")
 
 	var branchNames []string
 	flag.Func(
 		"b",
-		"Sync this upstream branch. Specify multiple times to sync multiple branches.",
+		"Sync this upstream branch. Specify multiple times to sync multiple branches.\n"+
+			"This must be the branch name as it's known by GitHub, like 'master'.",
 		func(arg string) error {
 			branchNames = append(branchNames, arg)
 			return nil
