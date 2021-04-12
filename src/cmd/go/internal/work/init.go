@@ -18,7 +18,6 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
-	"strings"
 )
 
 func BuildInit() {
@@ -52,14 +51,9 @@ func BuildInit() {
 	// build tag with the same name but prefixed by "goexperiment." which can be
 	// used for compiling alternative files for the experiment. This allows
 	// changes for the experiment, like extra struct fields in the runtime,
-	// without affecting the base non-experiment code at all. [2:] strips the
-	// leading "X:" from objabi.Expstring().
-	exp := objabi.Expstring()[2:]
-	if exp != "none" {
-		experiments := strings.Split(exp, ",")
-		for _, expt := range experiments {
-			cfg.BuildContext.BuildTags = append(cfg.BuildContext.BuildTags, "goexperiment."+expt)
-		}
+	// without affecting the base non-experiment code at all.
+	for _, expt := range objabi.EnabledExperiments() {
+		cfg.BuildContext.BuildTags = append(cfg.BuildContext.BuildTags, "goexperiment."+expt)
 	}
 }
 

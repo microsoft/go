@@ -123,79 +123,10 @@ func Getgoextlinkenabled() string {
 	return envOr("GO_EXTLINK_ENABLED", defaultGO_EXTLINK_ENABLED)
 }
 
-func init() {
-	for _, f := range strings.Split(goexperiment, ",") {
-		if f != "" {
-			addexp(f)
-		}
-	}
-
-	// regabi is only supported on amd64.
-	if GOARCH != "amd64" {
-		Regabi_enabled = 0
-	}
-}
-
-// Note: must agree with runtime.framepointer_enabled.
-var Framepointer_enabled = GOARCH == "amd64" || GOARCH == "arm64"
-
-func addexp(s string) {
-	// Could do general integer parsing here, but the runtime copy doesn't yet.
-	v := 1
-	name := s
-	if len(name) > 2 && name[:2] == "no" {
-		v = 0
-		name = name[2:]
-	}
-	for i := 0; i < len(exper); i++ {
-		if exper[i].name == name {
-			if exper[i].val != nil {
-				*exper[i].val = v
-			}
-			return
-		}
-	}
-
-	fmt.Printf("unknown experiment %s\n", s)
-	os.Exit(2)
-}
-
-var (
-	Fieldtrack_enabled        int
-	Preemptibleloops_enabled  int
-	Staticlockranking_enabled int
-	Regabi_enabled            int
-)
-
-// Toolchain experiments.
-// These are controlled by the GOEXPERIMENT environment
-// variable recorded when the toolchain is built.
-// This list is also known to cmd/gc.
-var exper = []struct {
-	name string
-	val  *int
-}{
-	{"fieldtrack", &Fieldtrack_enabled},
-	{"preemptibleloops", &Preemptibleloops_enabled},
-	{"staticlockranking", &Staticlockranking_enabled},
-	{"regabi", &Regabi_enabled},
-}
-
-var defaultExpstring = Expstring()
-
-func DefaultExpstring() string {
-	return defaultExpstring
-}
-
-func Expstring() string {
-	buf := "X"
-	for i := range exper {
-		if *exper[i].val != 0 {
-			buf += "," + exper[i].name
-		}
-	}
-	if buf == "X" {
-		buf += ",none"
-	}
-	return "X:" + buf[2:]
+// HeaderString returns the toolchain configuration string written in
+// Go object headers. This string ensures we don't attempt to import
+// or link object files that are incompatible with each other. This
+// string always starts with "go object ".
+func HeaderString() string {
+	return fmt.Sprintf("go object %s %s %s X:%s\n", GOOS, GOARCH, Version, strings.Join(EnabledExperiments(), ","))
 }

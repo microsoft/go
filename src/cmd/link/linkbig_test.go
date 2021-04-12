@@ -14,7 +14,6 @@ import (
 	"fmt"
 	"internal/testenv"
 	"io/ioutil"
-	"os"
 	"os/exec"
 	"testing"
 )
@@ -27,12 +26,11 @@ func TestLargeText(t *testing.T) {
 
 	var w bytes.Buffer
 	const FN = 4
-	tmpdir, err := ioutil.TempDir("", "bigtext")
-	if err != nil {
-		t.Fatalf("can't create temp directory: %v\n", err)
-	}
+	tmpdir := t.TempDir()
 
-	defer os.RemoveAll(tmpdir)
+	if err := ioutil.WriteFile(tmpdir+"/go.mod", []byte("module big_test\n"), 0666); err != nil {
+		t.Fatal(err)
+	}
 
 	// Generate the scenario where the total amount of text exceeds the
 	// limit for the jmp/call instruction, on RISC architectures like ppc64le,
@@ -79,32 +77,34 @@ func TestLargeText(t *testing.T) {
 	fmt.Fprintf(&w, "\t}\n")
 	fmt.Fprintf(&w, "\tfmt.Printf(\"PASS\\n\")\n")
 	fmt.Fprintf(&w, "}")
-	err = ioutil.WriteFile(tmpdir+"/bigfn.go", w.Bytes(), 0666)
+	err := ioutil.WriteFile(tmpdir+"/bigfn.go", w.Bytes(), 0666)
 	if err != nil {
 		t.Fatalf("can't write output: %v\n", err)
 	}
 
 	// Build and run with internal linking.
-	os.Chdir(tmpdir)
 	cmd := exec.Command(testenv.GoToolPath(t), "build", "-o", "bigtext")
+	cmd.Dir = tmpdir
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("Build failed for big text program with internal linking: %v, output: %s", err, out)
 	}
-	cmd = exec.Command(tmpdir + "/bigtext")
+	cmd = exec.Command("./bigtext")
+	cmd.Dir = tmpdir
 	out, err = cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("Program built with internal linking failed to run with err %v, output: %s", err, out)
 	}
 
 	// Build and run with external linking
-	os.Chdir(tmpdir)
 	cmd = exec.Command(testenv.GoToolPath(t), "build", "-o", "bigtext", "-ldflags", "'-linkmode=external'")
+	cmd.Dir = tmpdir
 	out, err = cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("Build failed for big text program with external linking: %v, output: %s", err, out)
 	}
-	cmd = exec.Command(tmpdir + "/bigtext")
+	cmd = exec.Command("./bigtext")
+	cmd.Dir = tmpdir
 	out, err = cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("Program built with external linking failed to run with err %v, output: %s", err, out)
