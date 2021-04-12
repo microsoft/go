@@ -98,7 +98,7 @@ func main() {
 
 	originParts := strings.FieldsFunc(*origin, func(r rune) bool { return r == '/' || r == ':' })
 	if len(originParts) < 3 {
-		fmt.Println("Failed to find 3 parts of 'origin' url. Expected a string separated with '/' or ':', like https://github.com/microsoft/go or git@github.com:microsoft/go")
+		fmt.Println("Error: Failed to find 3 parts of 'origin' url. Expected a string separated with '/' or ':', like https://github.com/microsoft/go or git@github.com:microsoft/go")
 		os.Exit(1)
 	}
 	originOwnerRepo := originParts[len(originParts)-2:]
@@ -106,7 +106,8 @@ func main() {
 	fmt.Printf("From origin repo URL %v, detected %v for the PR target.\n", *origin, originOwnerSlashRepo)
 
 	if _, err := os.Stat(*tempGitDir); !os.IsNotExist(err) {
-		panic("temp Git dir already exists: " + *tempGitDir)
+		fmt.Printf("Error: Temporary Git dir already exists: %v\n", *tempGitDir)
+		os.Exit(1)
 	}
 
 	run(exec.Command("git", "init", *tempGitDir))
