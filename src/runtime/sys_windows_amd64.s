@@ -11,7 +11,7 @@
 #define maxargs 16
 
 // void runtime·asmstdcall(void *c);
-TEXT runtime·asmstdcall(SB),NOSPLIT|NOFRAME,$0
+TEXT runtime·asmstdcall<ABIInternal>(SB),NOSPLIT|NOFRAME,$0
 	// asmcgocall will put first argument into CX.
 	PUSHQ	CX			// save for later
 	MOVQ	libcall_fn(CX), AX
@@ -190,32 +190,32 @@ done:
 
 	RET
 
-TEXT runtime·exceptiontramp(SB),NOSPLIT|NOFRAME,$0
+TEXT runtime·exceptiontramp<ABIInternal>(SB),NOSPLIT|NOFRAME,$0
 	MOVQ	$runtime·exceptionhandler(SB), AX
 	JMP	sigtramp<>(SB)
 
-TEXT runtime·firstcontinuetramp(SB),NOSPLIT|NOFRAME,$0-0
+TEXT runtime·firstcontinuetramp<ABIInternal>(SB),NOSPLIT|NOFRAME,$0-0
 	MOVQ	$runtime·firstcontinuehandler(SB), AX
 	JMP	sigtramp<>(SB)
 
-TEXT runtime·lastcontinuetramp(SB),NOSPLIT|NOFRAME,$0-0
+TEXT runtime·lastcontinuetramp<ABIInternal>(SB),NOSPLIT|NOFRAME,$0-0
 	MOVQ	$runtime·lastcontinuehandler(SB), AX
 	JMP	sigtramp<>(SB)
 
-TEXT runtime·ctrlhandler(SB),NOSPLIT|NOFRAME,$8
+TEXT runtime·ctrlhandler<ABIInternal>(SB),NOSPLIT|NOFRAME,$8
 	MOVQ	CX, 16(SP)		// spill
 	MOVQ	$runtime·ctrlhandler1(SB), CX
 	MOVQ	CX, 0(SP)
-	CALL	runtime·externalthreadhandler(SB)
+	CALL	runtime·externalthreadhandler<ABIInternal>(SB)
 	RET
 
-TEXT runtime·profileloop(SB),NOSPLIT|NOFRAME,$8
+TEXT runtime·profileloop<ABIInternal>(SB),NOSPLIT|NOFRAME,$8
 	MOVQ	$runtime·profileloop1(SB), CX
 	MOVQ	CX, 0(SP)
-	CALL	runtime·externalthreadhandler(SB)
+	CALL	runtime·externalthreadhandler<ABIInternal>(SB)
 	RET
 
-TEXT runtime·externalthreadhandler(SB),NOSPLIT|NOFRAME|TOPFRAME,$0
+TEXT runtime·externalthreadhandler<ABIInternal>(SB),NOSPLIT|NOFRAME|TOPFRAME,$0
 	PUSHQ	BP
 	MOVQ	SP, BP
 	PUSHQ	BX
@@ -287,7 +287,7 @@ TEXT runtime·callbackasm1(SB),NOSPLIT,$0
 	ADDQ	$8, SP
 
 	// determine index into runtime·cbs table
-	MOVQ	$runtime·callbackasm(SB), DX
+	MOVQ	$runtime·callbackasm<ABIInternal>(SB), DX
 	SUBQ	DX, AX
 	MOVQ	$0, DX
 	MOVQ	$5, CX	// divide by 5 because each call instruction in runtime·callbacks is 5 bytes long
@@ -320,7 +320,7 @@ TEXT runtime·callbackasm1(SB),NOSPLIT,$0
 	// Call cgocallback, which will call callbackWrap(frame).
 	MOVQ	$0, 16(SP)	// context
 	MOVQ	AX, 8(SP)	// frame (address of callbackArgs)
-	LEAQ	·callbackWrap(SB), BX
+	LEAQ	·callbackWrap<ABIInternal>(SB), BX	// cgocallback takes an ABIInternal entry-point
 	MOVQ	BX, 0(SP)	// PC of function value to call (callbackWrap)
 	CALL	·cgocallback(SB)
 	// Get callback result.
@@ -343,7 +343,7 @@ TEXT runtime·callbackasm1(SB),NOSPLIT,$0
 	RET
 
 // uint32 tstart_stdcall(M *newm);
-TEXT runtime·tstart_stdcall(SB),NOSPLIT,$0
+TEXT runtime·tstart_stdcall<ABIInternal>(SB),NOSPLIT,$0
 	// CX contains first arg newm
 	MOVQ	m_g0(CX), DX		// g
 
@@ -440,7 +440,9 @@ TEXT runtime·switchtothread(SB),NOSPLIT|NOFRAME,$0
 	MOVQ	32(SP), SP
 	RET
 
-// See https://www.dcl.hpi.uni-potsdam.de/research/WRK/2007/08/getting-os-information-the-kuser_shared_data-structure/
+// See https://wrkhpi.wordpress.com/2007/08/09/getting-os-information-the-kuser_shared_data-structure/
+// Archived copy at:
+// http://web.archive.org/web/20210411000829/https://wrkhpi.wordpress.com/2007/08/09/getting-os-information-the-kuser_shared_data-structure/
 // Must read hi1, then lo, then hi2. The snapshot is valid if hi1 == hi2.
 #define _INTERRUPT_TIME 0x7ffe0008
 #define _SYSTEM_TIME 0x7ffe0014
@@ -464,7 +466,13 @@ loop:
 	MOVQ	CX, ret+0(FP)
 	RET
 useQPC:
-	JMP	runtime·nanotimeQPC(SB)
+	// Call with ABIInternal because we could be
+	// very deep in a nosplit context and the wrapper
+	// adds stack space.
+	// TODO(#40724): The result from nanotimeQPC will
+	// be passed in a register, so store that to the
+	// stack so we can return through a wrapper.
+	JMP	runtime·nanotimeQPC<ABIInternal>(SB)
 	RET
 
 TEXT time·now(SB),NOSPLIT,$0-24
@@ -511,4 +519,12 @@ wall:
 	RET
 useQPC:
 	JMP	runtime·nowQPC(SB)
+	RET
+
+// func osSetupTLS(mp *m)
+// Setup TLS. for use by needm on Windows.
+TEXT runtime·osSetupTLS(SB),NOSPLIT,$0-8
+	MOVQ	mp+0(FP), AX
+	LEAQ	m_tls(AX), DI
+	CALL	runtime·settls(SB)
 	RET
