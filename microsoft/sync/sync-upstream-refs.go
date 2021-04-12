@@ -379,7 +379,8 @@ func main() {
 	}
 
 	if prFailed {
-		panic("Failed to submit one or more PRs.")
+		fmt.Printf("Failed to submit one or more PRs.")
+		os.Exit(1)
 	}
 
 	fmt.Println("Success.")
