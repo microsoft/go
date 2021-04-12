@@ -146,8 +146,9 @@ func main() {
 
 		// Automatically resolve conflicts in specific project doc files. Use '--no-overlay' to make
 		// sure we delete new files in e.g. '.github' that are in upstream but don't exist locally.
+		// '--ours' auto-deletes if upstream modifies a file that we deleted in our branch.
 		{
-			c := newGitCommand("checkout", "--no-overlay", "HEAD", "--")
+			c := newGitCommand("checkout", "--no-overlay", "--ours", "HEAD", "--")
 			c.Args = append(c.Args, autoResolveOurPaths...)
 			run(c)
 		}
