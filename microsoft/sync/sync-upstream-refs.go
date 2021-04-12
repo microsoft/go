@@ -220,51 +220,30 @@ func main() {
 
 		case *githubPATReviewer == "":
 			// In theory, if we have githubPAT but no reviewer, we can submit the PR but skip
-			// reviewing it/enabling auto-merge. However, this doesn't seem very useful.
+			// reviewing it/enabling auto-merge. However, this doesn't seem very useful, so it isn't
+			// implemented.
 			skipReason = "github-pat-reviewer not provided"
 		}
 
 		if skipReason != "" {
-			fmt.Printf("%s: skipping submitting PR for %v -> %v\n", skipReason, b.name, b.mergeTarget)
+			fmt.Printf("---- %s: skipping submitting PR for %v -> %v\n", skipReason, b.name, b.mergeTarget)
 			continue
 		}
 
 		if githubUser == "" {
 			githubUser = getUsername(*githubPAT)
-			fmt.Printf("User for github-pat is: %v\n", githubUser)
+			fmt.Printf("---- User for github-pat is: %v\n", githubUser)
 		}
 
 		// Use anonymous function to simplify returning errors in the body. We need to handle the
 		// error in a special way to avoid blocking other branches, and this lets us centralize it.
 		// Using a closure rather than calling a named function keeps var access simple.
 		err := func() error {
-			fmt.Printf("PR for %v -> %v: Submitting...\n", b.name, b.mergeTarget)
+			fmt.Printf("---- PR for %v -> %v: Submitting...\n", b.name, b.mergeTarget)
 
-			// POST the PR. This is considered successful if the PR is created or if we receive a
+			// POST the PR. The call returns success if the PR is created or if we receive a
 			// specific error message back from GitHub saying the PR is already created.
-			pr, err := postPR(
-				originOwnerSlashRepo,
-				prRequest{
-					Head: githubUser + ":auto-merge/" + b.mergeTarget,
-					Base: b.mergeTarget,
-
-					Title: fmt.Sprintf("[`%v`] Merge upstream `%v`", b.mergeTarget, b.name),
-					Body: fmt.Sprintf(
-						"🔃 This is an automatically generated PR merging upstream `%v` into `%v`.\n\n"+
-							"This PR should auto-merge itself when PR validation passes. If CI fails and you need to make fixups, be sure to use a merge commit, not a squash or rebase!\n\n"+
-							"---\n\n"+
-							"After these changes, the difference between upstream and the branch is:\n\n"+
-							"```\n%v\n```",
-						b.name,
-						b.mergeTarget,
-						strings.TrimSpace(b.fileDiff),
-					),
-
-					MaintainerCanModify: true,
-					Draft:               false,
-				},
-				*githubPAT,
-			)
+			pr, err := postPR(originOwnerSlashRepo, b.createPRRequest(githubUser), *githubPAT)
 			fmt.Printf("%+v\n", pr)
 
 			if err != nil {
@@ -272,105 +251,40 @@ func main() {
 			}
 
 			if !pr.AlreadyExists {
-				fmt.Printf("Submitted brand new PR: %v\n", pr.HTMLURL)
+				fmt.Printf("---- Submitted brand new PR: %v\n", pr.HTMLURL)
 
-				fmt.Printf("Approving with second account...\n")
-				err = mutateGraphQL(*githubPATReviewer, `mutation {
-					addPullRequestReview(input: {pullRequestId: "`+pr.NodeID+`", event: APPROVE, body: "Thanks! Auto-approving."}) {
-						clientMutationId
-					}
-				}`)
+				fmt.Printf("---- Approving with reviewer account...\n")
+				err = mutateGraphQL(
+					*githubPATReviewer,
+					`mutation {
+						addPullRequestReview(input: {pullRequestId: "`+pr.NodeID+`", event: APPROVE, body: "Thanks! Auto-approving."}) {
+							clientMutationId
+						}
+					}`)
 				if err != nil {
 					return err
 				}
 			} else {
-				fmt.Println("A PR already exists. Attempting to find it...")
-
-				prQuery := `{
-					user(login: "` + githubUser + `") {
-						pullRequests(states: OPEN, baseRefName: "` + b.mergeTarget + `", first: 5) {
-							nodes {
-								title
-								id
-								headRepositoryOwner {
-									login
-								}
-								baseRepository {
-									owner {
-										login
-									}
-								}
-							}
-						}
-					}
-				}`
-				// Output structure from the query. We pull out some data to make sure our search
-				// result is what we expect and avoid relying solely on the search engine query.
-				// This may be expanded in the future to search for a specific PR among the search
-				// results, if necessary. (Needed if we want to submit multiple, similar PRs from
-				// this bot.)
-				result := &struct {
-					// Go encoding/json requires exported properties (capitalized) but does handle
-					// matching it to the JSON (lowercase) for us.
-					Data struct {
-						User struct {
-							PullRequests struct {
-								Nodes []struct {
-									Title               string
-									Id                  string
-									HeadRepositoryOwner struct {
-										Login string
-									}
-									BaseRepository struct {
-										Owner struct {
-											Login string
-										}
-									}
-								}
-								PageInfo struct {
-									HasNextPage bool
-								}
-							}
-						}
-					}
-				}{}
-
-				if err = queryGraphQL(*githubPAT, prQuery, result); err != nil {
+				fmt.Println("---- A PR already exists. Attempting to find it...")
+				pr.NodeID, err = findExistingPR(b, githubUser, originOwnerRepo[0], *githubPAT)
+				if err != nil {
 					return err
 				}
-				fmt.Printf("%+v\n", result)
-
-				// Basic search result validation.
-				if prNodes := len(result.Data.User.PullRequests.Nodes); prNodes != 1 {
-					return fmt.Errorf("Expected 1 PR search result, found %v.", prNodes)
-				}
-				if result.Data.User.PullRequests.PageInfo.HasNextPage {
-					return fmt.Errorf("Another page of pull request search results found. Expected only one result, much less than one page.")
-				}
-
-				n := result.Data.User.PullRequests.Nodes[0]
-				if headOwner := n.HeadRepositoryOwner.Login; headOwner != githubUser {
-					return fmt.Errorf("PR head owner is %v, expected %v.", headOwner, githubUser)
-				}
-				if baseOwner := n.BaseRepository.Owner.Login; baseOwner != originOwnerRepo[0] {
-					return fmt.Errorf("PR base owner is %v, expected %v.", baseOwner, originOwnerRepo[0])
-				}
-				// Save the PR ID we found. We need to reapply automerge after the new push.
-				pr.NodeID = n.Id
 			}
 
-			fmt.Printf("Enabling auto-merge with first account...\n")
-
-			err = mutateGraphQL(*githubPATReviewer, `mutation {
-				enablePullRequestAutoMerge(input: {pullRequestId: "`+pr.NodeID+`", mergeMethod: MERGE}) {
-					clientMutationId
-				}
-			}`)
+			fmt.Printf("---- Enabling auto-merge with reviewer account...\n")
+			err = mutateGraphQL(
+				*githubPATReviewer,
+				`mutation {
+					enablePullRequestAutoMerge(input: {pullRequestId: "`+pr.NodeID+`", mergeMethod: MERGE}) {
+						clientMutationId
+					}
+				}`)
 			if err != nil {
 				return err
 			}
 
-			fmt.Printf("PR for %v -> %v: Done.\n", b.name, b.mergeTarget)
+			fmt.Printf("---- PR for %v -> %v: Done.\n", b.name, b.mergeTarget)
 			return nil
 		}()
 
@@ -386,7 +300,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	fmt.Println("Success.")
+	fmt.Println("\nSuccess.")
 }
 
 // getwd gets the current working dir or panics, for easy use in expressions.
@@ -469,6 +383,28 @@ func (b branch) originFetchRefspec() string {
 
 func (b branch) mergePushRefspec() string {
 	return "auto-merge/" + b.mergeTarget + ":refs/heads/auto-merge/" + b.mergeTarget
+}
+
+func (b branch) createPRRequest(githubUser string) prRequest {
+	return prRequest{
+		Head: githubUser + ":auto-merge/" + b.mergeTarget,
+		Base: b.mergeTarget,
+
+		Title: fmt.Sprintf("[`%v`] Merge upstream `%v`", b.mergeTarget, b.name),
+		Body: fmt.Sprintf(
+			"🔃 This is an automatically generated PR merging upstream `%v` into `%v`.\n\n"+
+				"This PR should auto-merge itself when PR validation passes. If CI fails and you need to make fixups, be sure to use a merge commit, not a squash or rebase!\n\n"+
+				"---\n\n"+
+				"After these changes, the difference between upstream and the branch is:\n\n"+
+				"```\n%v\n```",
+			b.name,
+			b.mergeTarget,
+			strings.TrimSpace(b.fileDiff),
+		),
+
+		MaintainerCanModify: true,
+		Draft:               false,
+	}
 }
 
 func sendJsonRequest(request *http.Request, response interface{}) (status int, err error) {
@@ -630,4 +566,81 @@ func queryGraphQL(pat string, query string, result interface{}) error {
 func mutateGraphQL(pat string, query string) error {
 	// Queries and mutations use the same API. But with a mutation, the results aren't useful to us.
 	return queryGraphQL(pat, query, &struct{}{})
+}
+
+func findExistingPR(b *branch, githubUser string, originOwner string, githubPAT string) (string, error) {
+	prQuery := `{
+		user(login: "` + githubUser + `") {
+			pullRequests(states: OPEN, baseRefName: "` + b.mergeTarget + `", first: 5) {
+				nodes {
+					title
+					id
+					headRepositoryOwner {
+						login
+					}
+					baseRepository {
+						owner {
+							login
+						}
+					}
+				}
+			}
+		}
+	}`
+	// Output structure from the query. We pull out some data to make sure our search result is what
+	// we expect and avoid relying solely on the search engine query. This may be expanded in the
+	// future to search for a specific PR among the search results, if necessary. (Needed if we want
+	// to submit multiple, similar PRs from this bot.)
+	//
+	// Declared adjacent to the query because the query determines the structure.
+	result := &struct {
+		// Note: Go encoding/json only detects exported properties (capitalized), but it does handle
+		// matching it to the lowercase JSON for us.
+		Data struct {
+			User struct {
+				PullRequests struct {
+					Nodes []struct {
+						Title               string
+						Id                  string
+						HeadRepositoryOwner struct {
+							Login string
+						}
+						BaseRepository struct {
+							Owner struct {
+								Login string
+							}
+						}
+					}
+					PageInfo struct {
+						HasNextPage bool
+					}
+				}
+			}
+		}
+	}{}
+
+	if err := queryGraphQL(githubPAT, prQuery, result); err != nil {
+		return "", err
+	}
+	fmt.Printf("%+v\n", result)
+
+	// Basic search result validation. We could be more flexible in some cases, but the goal here is
+	// to detect an unknown state early so we don't end up doing something strange.
+
+	if prNodes := len(result.Data.User.PullRequests.Nodes); prNodes != 1 {
+		return "", fmt.Errorf("Expected 1 PR search result, found %v.", prNodes)
+	}
+	if result.Data.User.PullRequests.PageInfo.HasNextPage {
+		return "", fmt.Errorf("Expected 1 PR search result, but the results say there's another page.")
+	}
+
+	n := result.Data.User.PullRequests.Nodes[0]
+	if headOwner := n.HeadRepositoryOwner.Login; headOwner != githubUser {
+		return "", fmt.Errorf("PR head owner is %v, expected %v.", headOwner, githubUser)
+	}
+	if baseOwner := n.BaseRepository.Owner.Login; baseOwner != originOwner {
+		return "", fmt.Errorf("PR base owner is %v, expected %v.", baseOwner, originOwner)
+	}
+
+	return n.Id, nil
 }
