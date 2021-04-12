@@ -41,8 +41,14 @@ A 'sync' is a few steps to run "merge from upstream" and "mirror from upstream":
 This script creates a temporary copy of the repository in 'microsoft/artifacts/'
 by default. This avoids trampling changes in the user's clone.`
 
-var autoResolveOurFiles = []string{
-	".github/",
+// Files and dirs that upstream may modify, but we want to ignore those modifications and keep our
+// changes to them. Normally our files are all in the 'microsoft/' directory, but some files are
+// required by GitHub to be in the root of the repo or in the '.github' directory, so we must modify
+// them in place and auto-resolve conflicts.
+//
+// This is in package scope just so it's easy to find at the top of the file for maintenance.
+var autoResolveOurPaths = []string{
+	".github",
 	"CODE_OF_CONDUCT.md",
 	"README.md",
 	"SECURITY.md",
@@ -138,13 +144,11 @@ func main() {
 		run(newGitCommand("checkout", "auto-merge/"+b.mergeTarget))
 		run(newGitCommand("merge", "--no-ff", "--no-commit", "auto-sync/"+b.name))
 
-		// Automatically resolve conflicts in specific project doc files. These files are used by
-		// GitHub, so we needed to change them directly rather than use patch files. Use
-		// '--no-overlay' to make sure we keep out any new files in '.github/' that are in upstream
-		// but don't exist locally.
+		// Automatically resolve conflicts in specific project doc files. Use '--no-overlay' to make
+		// sure we delete new files in e.g. '.github' that are in upstream but don't exist locally.
 		{
 			c := newGitCommand("checkout", "--no-overlay", "HEAD", "--")
-			c.Args = append(c.Args, autoResolveOurFiles...)
+			c.Args = append(c.Args, autoResolveOurPaths...)
 			run(c)
 		}
 
