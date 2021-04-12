@@ -102,6 +102,9 @@ func main() {
 		return
 	}
 
+	// Take the origin ("https://github.com/microsoft/go", "git@github.com:microsoft/go") and grab
+	// the owner ("microsoft") and repository name ("go"). This assumes origin follows one of these
+	// patterns.
 	originParts := strings.FieldsFunc(*origin, func(r rune) bool { return r == '/' || r == ':' })
 	if len(originParts) < 3 {
 		fmt.Println("Error: Failed to find 3 parts of 'origin' url. Expected a string separated with '/' or ':', like https://github.com/microsoft/go or git@github.com:microsoft/go")
