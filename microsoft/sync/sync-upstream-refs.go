@@ -124,21 +124,31 @@ func main() {
 		branches = append(branches, &nb)
 	}
 
-	{
-		c := newGitCommand("fetch", "--no-tags", *upstream)
-		for _, b := range branches {
-			c.Args = append(c.Args, b.upstreamFetchRefspec())
-		}
-		run(c)
-	}
+	// Fetch latest from remotes. We fetch with one big Git command per remote, instead of simply
+	// looping across every branch. This keeps round-trips to a minimum and benefits from innate Git
+	// parallelism.
+	//
+	// For each mirrored branch B in upstream, fetch it as 'auto-sync/B'.
+	//
+	// For each corresponding branch C in origin, fetch it as 'auto-merge/C'. (Branches in origin
+	// correspond to branches in upstream. E.g. 'master' B corresponds to 'microsoft/main' C.)
+	//
+	// Next, run auto-merge for each branch. We checkout 'auto-merge/C' and merge 'auto-sync/B' into
+	// it. This creates a merge commit in the local repo that brings origin 'microsoft/B' up to date
+	// with new changes in upstream 'B'.
+	//
+	// Once we're done merging each 'auto-merge/C' branch, we push all 'auto-sync/B' and
+	// 'auto-merge/C' branches to the 'to' repo. (Like fetching, this is also done with two commands
+	// to minimize round trips.)
 
-	{
-		c := newGitCommand("fetch", "--no-tags", *origin)
-		for _, b := range branches {
-			c.Args = append(c.Args, b.originFetchRefspec())
-		}
-		run(c)
+	fetchUpstream := newGitCommand("fetch", "--no-tags", *upstream)
+	fetchOrigin := newGitCommand("fetch", "--no-tags", *origin)
+	for _, b := range branches {
+		fetchUpstream.Args = append(fetchUpstream.Args, b.upstreamFetchRefspec())
+		fetchOrigin.Args = append(fetchOrigin.Args, b.originFetchRefspec())
 	}
+	run(fetchUpstream)
+	run(fetchOrigin)
 
 	for _, b := range branches {
 		run(newGitCommand("checkout", "auto-merge/"+b.mergeTarget))
@@ -147,25 +157,23 @@ func main() {
 		// Automatically resolve conflicts in specific project doc files. Use '--no-overlay' to make
 		// sure we delete new files in e.g. '.github' that are in upstream but don't exist locally.
 		// '--ours' auto-deletes if upstream modifies a file that we deleted in our branch.
-		{
-			c := newGitCommand("checkout", "--no-overlay", "--ours", "HEAD", "--")
-			c.Args = append(c.Args, autoResolveOurPaths...)
-			run(c)
-		}
+		run(newGitCommand(append([]string{"checkout", "--no-overlay", "--ours", "HEAD", "--"}, autoResolveOurPaths...)...))
 
-		// If we still have unmerged files, 'git commit' will exit non-zero, causing the script to exit.
-		// This prevents the script from pushing a bad merge.
+		// If we still have unmerged files, 'git commit' will exit non-zero, causing the script to
+		// exit. This prevents the script from pushing a bad merge.
 		run(newGitCommand("commit", "-m", "Merge upstream branch '"+b.name+"' into "+b.mergeTarget))
 
-		// Show a summary of which files are in our branch vs. upstream. This is just informational. CI
-		// is a better place to *enforce* a low diff: it's more visible, can be fixed up more easily, and
-		// doesn't block other branch mirror/merge operations.
-		fileDiffCommand := newGitCommand("diff", "--name-status", "auto-sync/"+b.name, "auto-merge/"+b.mergeTarget)
-		out, err := fileDiffCommand.CombinedOutput()
-		if err != nil {
-			panic(err)
-		}
-		b.fileDiff = string(out)
+		// Show a summary of which files are in our branch vs. upstream. This is just informational.
+		// CI is a better place to *enforce* a low diff: it's more visible, can be fixed up more
+		// easily, and doesn't block other branch mirror/merge operations.
+		//
+		// Save it to the branch struct so we can add it to the PR text.
+		b.fileDiff = combinedOutput(newGitCommand(
+			"diff",
+			"--name-status",
+			"auto-sync/"+b.name,
+			"auto-merge/"+b.mergeTarget,
+		))
 
 		fmt.Printf("---- Files changed from '%v' to '%v' ----\n", b.name, b.mergeTarget)
 		fmt.Print(b.fileDiff)
@@ -188,8 +196,14 @@ func main() {
 	}
 	run(newGitPushCommand(*to, true, mergePushRefspecs))
 
+	// All Git operations are complete! Next, ensure there's a GitHub PR for each auto-merge branch.
+
+	// Accumulate overall failure. This lets PR submission continue even if there's a problem for a
+	// specific branch.
 	var prFailed bool
 
+	// github user that owns the PRs. This is normally the owner of the 'to' repo. This variable is
+	// lazily initialized.
 	var githubUser string
 
 	for _, b := range branches {
@@ -212,7 +226,6 @@ func main() {
 			continue
 		}
 
-		// Lazily get username once for all branches.
 		if githubUser == "" {
 			githubUser = getUsername(*githubPAT)
 			fmt.Printf("User for github-pat is: %v\n", githubUser)
@@ -389,6 +402,16 @@ func run(c *exec.Cmd) {
 	if err := c.Run(); err != nil {
 		panic(err)
 	}
+}
+
+// combinedOutput returns the output string of c.CombinedOutput, and panics on error.
+func combinedOutput(c *exec.Cmd) string {
+	fmt.Printf("---- Running command: %v %v\n", c.Path, c.Args)
+	out, err := c.CombinedOutput()
+	if err != nil {
+		panic(err)
+	}
+	return string(out)
 }
 
 func newGitCommand(args ...string) *exec.Cmd {
