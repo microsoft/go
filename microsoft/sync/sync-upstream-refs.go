@@ -191,8 +191,12 @@ func main() {
 	}
 	run(newGitPushCommand(*to, false, mirrorPushRefspecs))
 
-	// Force push the merge branches. If an auto-PR is closed rather than accepted, or if an auto-PR
-	// doesn't ever get completed, the branch may contain a stale commit that we can't FF from.
+	// Force push the merge branches. We can't do a fast-forward push: our new merge commit is based
+	// on "origin", not "to", so if "to" has any commits, they aren't in our commit's history.
+	//
+	// Even if we did base our branch on "to", we'd hit undesired behaviors if the branch still has
+	// changes from an old PR. There are ways to handle this, but no clear benefit. Force push is
+	// simple and makes the PR flow simple.
 	mergePushRefspecs := make([]string, 0, len(branches))
 	for _, b := range branches {
 		mergePushRefspecs = append(mergePushRefspecs, b.mergePushRefspec())
