@@ -454,7 +454,7 @@ func (r remote) getOwner() string {
 }
 
 func (r remote) getOwnerSlashRepo() string {
-	return strings.Join(r.urlParts, "/")
+	return strings.Join(r.getOwnerRepo(), "/")
 }
 
 func sendJsonRequest(request *http.Request, response interface{}) (status int, err error) {
