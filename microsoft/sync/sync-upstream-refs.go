@@ -107,7 +107,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	run(exec.Command("git", "init", *tempGitDir))
+	runOrPanic(exec.Command("git", "init", *tempGitDir))
 
 	var branches []*branch = make([]*branch, 0, len(branchNames))
 	for _, b := range branchNames {
@@ -138,21 +138,29 @@ func main() {
 		fetchUpstream.Args = append(fetchUpstream.Args, b.upstreamFetchRefspec())
 		fetchOrigin.Args = append(fetchOrigin.Args, b.originFetchRefspec())
 	}
-	run(fetchUpstream)
-	run(fetchOrigin)
+	runOrPanic(fetchUpstream)
+	runOrPanic(fetchOrigin)
 
 	for _, b := range branches {
-		run(newGitCommand("checkout", "auto-merge/"+b.mergeTarget))
-		run(newGitCommand("merge", "--no-ff", "--no-commit", "auto-sync/"+b.name))
+		runOrPanic(newGitCommand("checkout", "auto-merge/"+b.mergeTarget))
+
+		if err := run(newGitCommand("merge", "--no-ff", "--no-commit", "auto-sync/"+b.name)); err != nil {
+			if exitError, ok := err.(*exec.ExitError); ok {
+				fmt.Printf("---- Merge hit an ExitError: '%v'. A non-zero exit code is expected if there were conflicts. The script will try to resolve them, next.\n", exitError)
+			} else {
+				// Make sure we don't ignore more than we intended.
+				panic(err)
+			}
+		}
 
 		// Automatically resolve conflicts in specific project doc files. Use '--no-overlay' to make
 		// sure we delete new files in e.g. '.github' that are in upstream but don't exist locally.
 		// '--ours' auto-deletes if upstream modifies a file that we deleted in our branch.
-		run(newGitCommand(append([]string{"checkout", "--no-overlay", "--ours", "HEAD", "--"}, autoResolveOurPaths...)...))
+		runOrPanic(newGitCommand(append([]string{"checkout", "--no-overlay", "--ours", "HEAD", "--"}, autoResolveOurPaths...)...))
 
 		// If we still have unmerged files, 'git commit' will exit non-zero, causing the script to
 		// exit. This prevents the script from pushing a bad merge.
-		run(newGitCommand("commit", "-m", "Merge upstream branch '"+b.name+"' into "+b.mergeTarget))
+		runOrPanic(newGitCommand("commit", "-m", "Merge upstream branch '"+b.name+"' into "+b.mergeTarget))
 
 		// Show a summary of which files are in our branch vs. upstream. This is just informational.
 		// CI is a better place to *enforce* a low diff: it's more visible, can be fixed up more
@@ -177,7 +185,7 @@ func main() {
 	for _, b := range branches {
 		mirrorPushRefspecs = append(mirrorPushRefspecs, b.mirrorPushRefspec())
 	}
-	run(newGitPushCommand(*to, false, mirrorPushRefspecs))
+	runOrPanic(newGitPushCommand(*to, false, mirrorPushRefspecs))
 
 	// Force push the merge branches. We can't do a fast-forward push: our new merge commit is based
 	// on "origin", not "to", so if "to" has any commits, they aren't in our commit's history.
@@ -189,7 +197,7 @@ func main() {
 	for _, b := range branches {
 		mergePushRefspecs = append(mergePushRefspecs, b.mergePushRefspec())
 	}
-	run(newGitPushCommand(*to, true, mergePushRefspecs))
+	runOrPanic(newGitPushCommand(*to, true, mergePushRefspecs))
 
 	// All Git operations are complete! Next, ensure there's a GitHub PR for each auto-merge branch.
 
@@ -313,14 +321,19 @@ func getwd() string {
 	return wd
 }
 
+// runOrPanic uses 'run', then panics on error (such as nonzero exit code).
+func runOrPanic(c *exec.Cmd) {
+	if err := run(c); err != nil {
+		panic(err)
+	}
+}
+
 // run sets up the command so it logs directly to our stdout/stderr streams, then runs it.
-func run(c *exec.Cmd) {
+func run(c *exec.Cmd) error {
 	fmt.Printf("---- Running command: %v %v\n", c.Path, c.Args)
 	c.Stdout = os.Stdout
 	c.Stderr = os.Stderr
-	if err := c.Run(); err != nil {
-		panic(err)
-	}
+	return c.Run()
 }
 
 // combinedOutput returns the output string of c.CombinedOutput, and panics on error.
