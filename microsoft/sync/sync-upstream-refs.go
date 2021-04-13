@@ -102,18 +102,6 @@ func main() {
 		return
 	}
 
-	// Take the origin ("https://github.com/microsoft/go", "git@github.com:microsoft/go") and grab
-	// the owner ("microsoft") and repository name ("go"). This assumes origin follows one of these
-	// patterns.
-	originParts := strings.FieldsFunc(*origin, func(r rune) bool { return r == '/' || r == ':' })
-	if len(originParts) < 3 {
-		fmt.Println("Error: Failed to find 3 parts of 'origin' url. Expected a string separated with '/' or ':', like https://github.com/microsoft/go or git@github.com:microsoft/go")
-		os.Exit(1)
-	}
-	originOwnerRepo := originParts[len(originParts)-2:]
-	originOwnerSlashRepo := strings.Join(originOwnerRepo, "/")
-	fmt.Printf("From origin repo URL %v, detected %v for the PR target.\n", *origin, originOwnerSlashRepo)
-
 	if _, err := os.Stat(*tempGitDir); !os.IsNotExist(err) {
 		fmt.Printf("Error: Temporary Git dir already exists: %v\n", *tempGitDir)
 		os.Exit(1)
@@ -209,9 +197,10 @@ func main() {
 	// specific branch.
 	var prFailed bool
 
-	// github user that owns the PRs. This is normally the owner of the 'to' repo. This variable is
-	// lazily initialized.
+	// Lazy var. github user that owns the PRs. This is normally the owner of the 'to' repo.
 	var githubUser string
+	// Lazy var. The origin that should receive the PR.
+	var parsedOrigin *remote
 
 	for _, b := range branches {
 		var skipReason string
@@ -239,6 +228,14 @@ func main() {
 			fmt.Printf("---- User for github-pat is: %v\n", githubUser)
 		}
 
+		if parsedOrigin == nil {
+			var err error
+			if parsedOrigin, err = parseRemoteUrl(*origin); err != nil {
+				fmt.Println(err)
+				os.Exit(1)
+			}
+		}
+
 		// Use anonymous function to simplify returning errors in the body. We need to handle the
 		// error in a special way to avoid blocking other branches, and this lets us centralize it.
 		// Using a closure rather than calling a named function keeps var access simple.
@@ -247,7 +244,7 @@ func main() {
 
 			// POST the PR. The call returns success if the PR is created or if we receive a
 			// specific error message back from GitHub saying the PR is already created.
-			pr, err := postPR(originOwnerSlashRepo, b.createPRRequest(githubUser), *githubPAT)
+			pr, err := postPR(parsedOrigin.getOwnerSlashRepo(), b.createPRRequest(githubUser), *githubPAT)
 			fmt.Printf("%+v\n", pr)
 
 			if err != nil {
@@ -270,7 +267,7 @@ func main() {
 				}
 			} else {
 				fmt.Println("---- A PR already exists. Attempting to find it...")
-				pr.NodeID, err = findExistingPR(b, githubUser, originOwnerRepo[0], *githubPAT)
+				pr.NodeID, err = findExistingPR(b, githubUser, parsedOrigin.getOwner(), *githubPAT)
 				if err != nil {
 					return err
 				}
@@ -409,6 +406,42 @@ func (b branch) createPRRequest(githubUser string) prRequest {
 		MaintainerCanModify: true,
 		Draft:               false,
 	}
+}
+
+type remote struct {
+	url      string
+	urlParts []string
+}
+
+// parseRemoteUrl takes the URL ("https://github.com/microsoft/go", "git@github.com:microsoft/go")
+// and grabs the owner ("microsoft") and repository name ("go"). This assumes the URL follows one of
+// these two patterns, or something that's compatible.
+func parseRemoteUrl(url string) (*remote, error) {
+	r := &remote{
+		url,
+		strings.FieldsFunc(url, func(r rune) bool { return r == '/' || r == ':' }),
+	}
+	if len(r.urlParts) < 3 {
+		return r, fmt.Errorf(
+			"Error: Failed to find 3 parts of remote url '%v'. Found '%v'. Expected a string separated with '/' or ':', like https://github.com/microsoft/go or git@github.com:microsoft/go",
+			r.url,
+			r.urlParts,
+		)
+	}
+	fmt.Printf("From repo URL %v, detected %v for the PR target.\n", url, r.urlParts)
+	return r, nil
+}
+
+func (r remote) getOwnerRepo() []string {
+	return r.urlParts[len(r.urlParts)-2:]
+}
+
+func (r remote) getOwner() string {
+	return r.getOwnerRepo()[0]
+}
+
+func (r remote) getOwnerSlashRepo() string {
+	return strings.Join(r.urlParts, "/")
 }
 
 func sendJsonRequest(request *http.Request, response interface{}) (status int, err error) {
