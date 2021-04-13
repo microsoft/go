@@ -61,10 +61,6 @@ func main() {
 	goos, goarch, config := builderParts[0], builderParts[1], strings.Join(builderParts[2:], "-")
 	fmt.Printf("Found os '%s', arch '%s', config '%s'\n", goos, goarch, config)
 
-	if *builder == "linux-amd64-longtest" {
-		run("microsoft/workaround-install-mercurial.sh")
-	}
-
 	// Tests usually use the builder name to decide what to do. However, some configurations also
 	// need extra env variables set up. Some of these take effect during the Go build.
 	switch config {
