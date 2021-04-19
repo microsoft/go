@@ -259,7 +259,13 @@ func main() {
 				return err
 			}
 
-			if !pr.AlreadyExists {
+			if pr.AlreadyExists {
+				fmt.Println("---- A PR already exists. Attempting to find it...")
+				pr.NodeID, err = findExistingPR(b, githubUser, parsedOrigin.getOwner(), *githubPAT)
+				if err != nil {
+					return err
+				}
+			} else {
 				fmt.Printf("---- Submitted brand new PR: %v\n", pr.HTMLURL)
 
 				fmt.Printf("---- Approving with reviewer account...\n")
@@ -270,12 +276,6 @@ func main() {
 							clientMutationId
 						}
 					}`)
-				if err != nil {
-					return err
-				}
-			} else {
-				fmt.Println("---- A PR already exists. Attempting to find it...")
-				pr.NodeID, err = findExistingPR(b, githubUser, parsedOrigin.getOwner(), *githubPAT)
 				if err != nil {
 					return err
 				}
