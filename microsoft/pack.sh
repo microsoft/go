@@ -19,8 +19,13 @@ done
 
 scriptroot="$( cd -P "$( dirname "$source" )" && pwd )"
 
+# Store artifacts and files related to building artifacts.
 artifacts_dir="$scriptroot/artifacts"
 test ! -d "$artifacts_dir" && mkdir "$artifacts_dir"
+
+# Store binary artifacts that we intend to publish as the output of a build.
+bin_dir="$artifacts_dir/bin"
+test ! -d "$bin_dir" && mkdir "$bin_dir"
 
 version=${BUILD_BUILDNUMBER:-dev}
 
@@ -36,7 +41,8 @@ version=${BUILD_BUILDNUMBER:-dev}
   GOARCH=$(bin/go env GOARCH)
   echo "Detected bin/go built for GOOS=$GOOS, GOARCH=$GOARCH"
 
-  go_tarball="$artifacts_dir/go.$version.$GOOS-$GOARCH.tar.gz"
+  go_tarball_filename="go.$version.$GOOS-$GOARCH.tar.gz"
+  go_tarball="$bin_dir/$go_tarball_filename"
   go_tarball_excludes="$artifacts_dir/exclude-from-targz.txt"
 
   echo "Creating $go_tarball ..."
@@ -70,6 +76,13 @@ version=${BUILD_BUILDNUMBER:-dev}
     api bin doc lib misc pkg src test \
     ${version_file:-} \
     -f "$go_tarball"
+
+  # Create a sha256 checksum file such that after downloading the tarball and the checksum file into
+  # the same directory, 'sha256sum -c *.sha256' validates the downloaded tarball.
+  (
+    cd "$bin_dir"
+    sha256sum "$go_tarball_filename" > "$bin_dir/$go_tarball_filename.sha256"
+  )
 
   echo "Done!"
 )
