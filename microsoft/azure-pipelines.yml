@@ -3,147 +3,64 @@
 # license that can be found in the LICENSE file.
 
 trigger:
-- microsoft/*
+  - microsoft/*
 pr:
-- microsoft/*
+  - microsoft/*
 
-jobs:
-- job: Build_linux_amd64
-  pool:
-    # The VM image of the Docker host. This doesn't need to match the container image, but it may
-    # give slightly better coverage by matching the kernel version.
-    vmImage: ubuntu-18.04
-  # The image used for the container this job runs in.
-  container: mcr.microsoft.com/dotnet-buildtools/prereqs:ubuntu-18.04-20210223192210-047508b
-  workspace:
-    clean: all
-  steps:
-  - template: pipeline/checkout-unix-task.yml
+stages:
+  - stage: Build
+    jobs:
+      - template: pipeline/matrix-jobs.yml
+        parameters:
+          builders:
+            - { os: linux, arch: amd64, config: buildandpack }
+            - { os: linux, arch: amd64, config: devscript }
+            - { os: linux, arch: amd64, config: test }
+            # Upstream builders.
+            - { os: linux, arch: amd64, config: clang }
+            - { os: linux, arch: amd64, config: longtest }
+            - { os: linux, arch: amd64, config: nocgo }
+            - { os: linux, arch: amd64, config: noopt }
+            - { os: linux, arch: amd64, config: race }
+            # - { os: linux, arch: amd64, config: racecompile } https://github.com/microsoft/go/issues/54
+            - { os: linux, arch: amd64, config: regabi }
+            - { os: linux, arch: amd64, config: ssacheck }
+            - { os: linux, arch: amd64, config: staticlockranking }
 
-  - script: |
-      set -ex
-      microsoft/build.sh --test
-    displayName: Build and Test
+  - ${{ if and(ne(variables['System.TeamProject'], 'public'), ne(variables['Build.Reason'], 'PullRequest')) }}:
+    - stage: Publish
+      dependsOn: Build
+      jobs:
+        - job: Publish
+          pool:
+            # This is a utility job that doesn't use Go: use generic recent LTS for publishing.
+            vmImage: ubuntu-20.04
+          variables:
+            blobDestinationUrl: 'https://golangartifacts.blob.core.windows.net/microsoft/$(Build.SourceBranchName)/$(Build.BuildNumber)'
+          steps:
+            - checkout: none
 
-  - script: |
-      set -ex
-      microsoft/pack.sh
-    displayName: Pack
+            - download: current
+              artifact: Binaries Signed
+              displayName: 'Download: Binaries Signed'
 
-  - publish: microsoft/artifacts/bin
-    artifact: Binaries linux_amd64
-    displayName: Pipeline publish
-    condition: succeededOrFailed()
+            - task: AzureCLI@2
+              displayName: Upload to blob storage
+              inputs:
+                azureSubscription: GoLang
+                scriptType: bash
+                scriptLocation: inlineScript
+                # Send literal '*' to az: it handles the wildcard itself. Az copy only accepts one
+                # "from" argument, so we can't use the shell's wildcard expansion.
+                inlineScript: |
+                  az storage copy -s '*' -d '$(blobDestinationUrl)'
+                workingDirectory: '$(Pipeline.Workspace)/Binaries Signed/'
 
-- ${{ if and(ne(variables['System.TeamProject'], 'public'), ne(variables['Build.Reason'], 'PullRequest')) }}:
-  - job: Sign
-    # Depend on all build jobs that produced artifacts that need signing.
-    dependsOn:
-    - Build_linux_amd64
-    pool:
-      name: NetCoreInternal-Pool
-      queue: buildpool.windows.10.amd64.vs2019
-    variables:
-    - name: TeamName
-      value: golang
-    workspace:
-      clean: all
-    steps:
-    - template: pipeline/checkout-windows-task.yml
-
-    - task: MicroBuildSigningPlugin@2
-      displayName: 'Install MicroBuild Signing Plugin'
-      inputs:
-        feedSource: 'https://dnceng.pkgs.visualstudio.com/_packaging/MicroBuildToolset/nuget/v3/index.json'
-
-    # Download all assets that need signing. (As of writing, only linux-amd64.)
-    - download: current
-      artifact: Binaries linux_amd64
-      displayName: 'Download: Binaries linux_amd64'
-
-    - powershell: |
-        cd "$(Pipeline.Workspace)"
-
-        $flatDir = "$(Build.StagingDirectory)/ToSign"
-        mkdir $flatDir
-
-        ls -Recurse -File -Path @(
-          'Binaries linux_amd64'
-        ) | %{
-          if (Test-Path "$flatDir\$($_.Name)") {
-            throw "Duplicate filename, unable to flatten: $($_.FullName)"
-          }
-          Copy-Item $_.FullName $flatDir
-        }
-      displayName: Copy files to sign to flat dir
-
-    - task: DotNetCoreCLI@2
-      displayName: 'Install Arcade SignTool'
-      inputs:
-        command: restore
-        projects: '$(Build.SourcesDirectory)/microsoft/signing/SignLinuxPackages.proj'
-        feedsToUse: config
-        nugetConfigPath: '$(Build.SourcesDirectory)/microsoft/signing/NuGet.config'
-
-    - task: DotNetCoreCLI@2
-      displayName: 'Sign Files'
-      inputs:
-        command: custom
-        projects: '$(Build.SourcesDirectory)/microsoft/signing/SignLinuxPackages.proj'
-        custom: msbuild
-        arguments: >-
-          /t:SignGoFiles
-          /p:SignFilesDir=$(Build.StagingDirectory)/ToSign
-          /p:SigningType=$(SigningType)
-          /bl:SignFiles.binlog
-
-    - publish: $(Build.StagingDirectory)/ToSign
-      artifact: Binaries Signed
-      displayName: Publish Binaries Signed
-      condition: always()
-
-    - publish: microsoft\signing
-      artifact: SigningDetails
-      displayName: Publish SigningDetails
-      condition: always()
-
-    - publish: 'SignFiles.binlog'
-      artifact: SigningBinlog
-      displayName: Publish SigningBinlog
-      condition: always()
-
-    - task: MicroBuildCleanup@1
-      displayName: 'Clean up MicroBuild'
-      condition: always()
-
-  - job: Publish
-    dependsOn:
-    - Sign
-    pool:
-      vmImage: ubuntu-20.04
-    variables:
-      blobDestinationUrl: 'https://golangartifacts.blob.core.windows.net/microsoft/$(Build.SourceBranchName)/$(Build.BuildNumber)'
-    steps:
-    - checkout: none
-
-    - download: current
-      artifact: Binaries Signed
-      displayName: 'Download: Binaries Signed'
-
-    - task: AzureCLI@2
-      displayName: Upload to blob storage
-      inputs:
-        azureSubscription: GoLang
-        scriptType: bash
-        scriptLocation: inlineScript
-        inlineScript: |
-          az storage copy -s "$(Pipeline.Workspace)/Binaries Signed/*" -d '$(blobDestinationUrl)'
-
-    - script: |
-        echo 'Generated links to artifacts in blob storage:'
-        echo ''
-        cd "$(Pipeline.Workspace)/Binaries Signed/"
-        for f in *; do
-          echo "$(blobDestinationUrl)/$f"
-        done
-      displayName: Show uploaded URLs
+            - script: |
+                echo 'Generated links to artifacts in blob storage:'
+                echo ''
+                for f in *; do
+                  echo "$(blobDestinationUrl)/$f"
+                done
+              displayName: Show uploaded URLs
+              workingDirectory: '$(Pipeline.Workspace)/Binaries Signed/'
