@@ -245,9 +245,12 @@ func main() {
 			}
 		}
 
-		// Use anonymous function to simplify returning errors in the body. We need to handle the
-		// error in a special way to avoid blocking other branches, and this lets us centralize it.
-		// Using a closure rather than calling a named function keeps var access simple.
+		// err contains any err we get from running the sequence of GitHub PR submission API calls.
+		//
+		// This uses an immediately invoked anonymous function for convenience/maintainability. We
+		// can 'return err' from anywhere in the function, to keep control flow simple. Also, we can
+		// capture vars from the 'main()' scope rather than making them global or explicitly passing
+		// each one into a named function.
 		err := func() error {
 			fmt.Printf("---- PR for %v -> %v: Submitting...\n", b.name, b.mergeTarget)
 
@@ -298,6 +301,15 @@ func main() {
 			return nil
 		}()
 
+		// If we got an error, don't panic! Log the error and set a flag to indicate it happened,
+		// then continue to process the next branch in the for loop.
+		//
+		// Say we are syncing branches main, go1.15, and go1.16. We're in the go1.15 iteration. For
+		// some reason, GitHub errored out when we submitted the PR for go1.15. If we panic, the
+		// script terminates before trying to submit a PR for go1.16, even though that one might
+		// work fine. That's not ideal. But worse, if the error persists and happens again when we
+		// try to update go1.15 in future runs of this script, go1.16 will never get synced. This is
+		// why we want to try to keep processing branches.
 		if err != nil {
 			fmt.Println(err)
 			prFailed = true
@@ -305,6 +317,7 @@ func main() {
 		}
 	}
 
+	// If PR submission failed for any branch, exit the overall script with NZEC.
 	if prFailed {
 		fmt.Printf("Failed to submit one or more PRs.")
 		os.Exit(1)
