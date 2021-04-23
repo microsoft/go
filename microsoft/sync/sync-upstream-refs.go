@@ -381,6 +381,9 @@ func newGitPushCommand(remote string, force bool, refspecs []string) *exec.Cmd {
 	return c
 }
 
+// branch contains information about a specific branch to sync. During the sync process, more info
+// can be added to this struct to be used later. This struct has methods that help calculate derived
+// information such as Git ref names.
 type branch struct {
 	name        string
 	mergeTarget string
@@ -435,6 +438,7 @@ func (b branch) createPRRequest(githubUser string) prRequest {
 	}
 }
 
+// remote is a parsed version of a Git remote. It helps determine how to send a GitHub PR.
 type remote struct {
 	url      string
 	urlParts []string
@@ -442,7 +446,7 @@ type remote struct {
 
 // parseRemoteUrl takes the URL ("https://github.com/microsoft/go", "git@github.com:microsoft/go")
 // and grabs the owner ("microsoft") and repository name ("go"). This assumes the URL follows one of
-// these two patterns, or something that's compatible.
+// these two patterns, or something that's compatible. Returns an initialized 'remote'.
 func parseRemoteUrl(url string) (*remote, error) {
 	r := &remote{
 		url,
@@ -471,6 +475,8 @@ func (r remote) getOwnerSlashRepo() string {
 	return strings.Join(r.getOwnerRepo(), "/")
 }
 
+// sendJsonRequest sends a request for JSON information. The JSON response is unmarshalled (parsed)
+// into the 'response' parameter, based on the structure of 'response'.
 func sendJsonRequest(request *http.Request, response interface{}) (status int, err error) {
 	request.Header.Add("Accept", "application/vnd.github.v3+json")
 	fmt.Printf("Sending request: %v %v\n", request.Method, request.URL)
@@ -500,6 +506,8 @@ func sendJsonRequest(request *http.Request, response interface{}) (status int, e
 	return
 }
 
+// sendJsonRequestSuccessful sends a request for JSON information via sendJsonRequest and verifies
+// the status code is success.
 func sendJsonRequestSuccessful(request *http.Request, response interface{}) error {
 	status, err := sendJsonRequest(request, response)
 	if err != nil {
@@ -511,6 +519,7 @@ func sendJsonRequestSuccessful(request *http.Request, response interface{}) erro
 	return nil
 }
 
+// getUsername queries GitHub for the username associated with a PAT.
 func getUsername(pat string) string {
 	request, err := http.NewRequest("GET", "https://api.github.com/user", nil)
 	if err != nil {
@@ -529,6 +538,7 @@ func getUsername(pat string) string {
 	return response.Login
 }
 
+// prRequest is the payload for a GitHub PR creation API call, marshallable as JSON.
 type prRequest struct {
 	Head                string `json:"head"`
 	Base                string `json:"base"`
@@ -538,16 +548,18 @@ type prRequest struct {
 	Draft               bool   `json:"draft"`
 }
 
+// prRequestResponse is a PR creation response from GitHub. It may represent success or failure.
 type prRequestResponse struct {
-	// Success:
+	// GitHub success response:
 	HTMLURL string `json:"html_url"`
 	NodeID  string `json:"node_id"`
 
-	// Failure:
+	// GitHub failure response:
 	Message string           `json:"message"`
 	Errors  []prRequestError `json:"errors"`
 
-	// Calculated:
+	// AlreadyExists is set to true if the error message says the PR exists. Otherwise, false. For
+	// our purposes, a GitHub failure response that indicates a PR already exists is not an error.
 	AlreadyExists bool
 }
 
