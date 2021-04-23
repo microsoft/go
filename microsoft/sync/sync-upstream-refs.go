@@ -7,6 +7,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io/ioutil"
@@ -102,7 +103,7 @@ func main() {
 		return
 	}
 
-	if _, err := os.Stat(*tempGitDir); !os.IsNotExist(err) {
+	if _, err := os.Stat(*tempGitDir); !errors.Is(err, os.ErrNotExist) {
 		fmt.Printf("Error: Temporary Git dir already exists: %v\n", *tempGitDir)
 		os.Exit(1)
 	}
