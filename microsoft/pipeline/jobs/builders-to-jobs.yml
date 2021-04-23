@@ -2,9 +2,14 @@
 # Use of this source code is governed by a BSD-style
 # license that can be found in the LICENSE file.
 
+# This template expands a list of builders into a list of jobs.
+
 parameters:
   # [] of { os, arch, config }
   builders: []
+  # If true, include a signing job that depends on all 'buildandpack' builder jobs finishing. This
+  # lets us start the lengthy tasks of signing and testing in parallel.
+  sign: false
 
 jobs:
   - ${{ each builder in parameters.builders }}:
@@ -13,11 +18,9 @@ jobs:
         parameters:
           builder: ${{ builder }}
 
-  - ${{ if and(ne(variables['System.TeamProject'], 'public'), ne(variables['Build.Reason'], 'PullRequest')) }}:
+  - ${{ if eq(parameters.sign, true) }}:
     - template: sign-job.yml
       parameters:
-        # Make the signing job depend on and sign each buildandpack builder. This lets us start the
-        # lengthy tasks of signing and testing in parallel. The publish stage waits for both.
         builders:
           - ${{ each builder in parameters.builders }}:
             - ${{ if eq(builder.config, 'buildandpack') }}:
