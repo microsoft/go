@@ -72,7 +72,7 @@ version=${BUILD_BUILDNUMBER:-dev}
     --numeric-owner \
     --transform 's,^,go/,' \
     --exclude-from="$go_tarball_excludes" \
-    *.txt *.ico *.md AUTHORS CONTRIBUTORS LICENSE PATENTS \
+    *.md AUTHORS CONTRIBUTORS LICENSE PATENTS \
     api bin doc lib misc pkg src test \
     ${version_file:-} \
     -f "$go_tarball"
