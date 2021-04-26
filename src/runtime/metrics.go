@@ -245,6 +245,15 @@ func initMetrics() {
 				out.scalar = uint64(gcount())
 			},
 		},
+		"/sched/latencies:seconds": {
+			compute: func(_ *statAggregate, out *metricValue) {
+				hist := out.float64HistOrInit(timeHistBuckets)
+				hist.counts[0] = atomic.Load64(&sched.timeToRun.underflow)
+				for i := range sched.timeToRun.counts {
+					hist.counts[i+1] = atomic.Load64(&sched.timeToRun.counts[i])
+				}
+			},
+		},
 	}
 	metricsInit = true
 }
@@ -364,7 +373,7 @@ func (a *sysStatsAggregate) compute() {
 	a.buckHashSys = memstats.buckhash_sys.load()
 	a.gcMiscSys = memstats.gcMiscSys.load()
 	a.otherSys = memstats.other_sys.load()
-	a.heapGoal = atomic.Load64(&memstats.next_gc)
+	a.heapGoal = atomic.Load64(&gcController.heapGoal)
 	a.gcCyclesDone = uint64(memstats.numgc)
 	a.gcCyclesForced = uint64(memstats.numforcedgc)
 

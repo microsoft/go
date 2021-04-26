@@ -11,6 +11,7 @@ import (
 	"cmd/link/internal/loader"
 	"cmd/link/internal/sym"
 	"fmt"
+	"internal/buildcfg"
 	"os"
 	"path/filepath"
 )
@@ -589,6 +590,7 @@ func (state *pclntab) generateFunctab(ctxt *Link, funcs []loader.Sym, inlSyms ma
 	if !useSymValue {
 		// Generate relocations for funcdata when externally linking.
 		state.writeFuncData(ctxt, sb, funcs, inlSyms, startLocations, setAddr, setUintNOP)
+		sb.SortRelocs()
 	}
 }
 
@@ -879,7 +881,7 @@ func (ctxt *Link) pclntab(container loader.Bitmap) *pclntab {
 }
 
 func gorootFinal() string {
-	root := objabi.GOROOT
+	root := buildcfg.GOROOT
 	if final := os.Getenv("GOROOT_FINAL"); final != "" {
 		root = final
 	}

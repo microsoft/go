@@ -6,9 +6,6 @@ package types
 
 type errorCode int
 
-// TODO(rFindley): ensure that existing error codes do not change in the
-//                 dev.typeparams branch.
-
 // This file defines the error codes that can be produced during type-checking.
 // Collectively, these codes provide an identifier that may be used to
 // implement special handling for certain types of errors.
@@ -162,7 +159,7 @@ const (
 	_UntypedNil
 
 	// _WrongAssignCount occurs when the number of values on the right-hand side
-	// of an assignment or or initialization expression does not match the number
+	// of an assignment or initialization expression does not match the number
 	// of variables on the left-hand side.
 	//
 	// Example:
@@ -885,6 +882,45 @@ const (
 	// Example:
 	//  var _ = real(int(1))
 	_InvalidReal
+
+	// _InvalidUnsafeAdd occurs when unsafe.Add is called with a
+	// length argument that is not of integer type.
+	//
+	// Example:
+	//  import "unsafe"
+	//
+	//  var p unsafe.Pointer
+	//  var _ = unsafe.Add(p, float64(1))
+	_InvalidUnsafeAdd
+
+	// _InvalidUnsafeSlice occurs when unsafe.Slice is called with a
+	// pointer argument that is not of pointer type or a length argument
+	// that is not of integer type, negative, or out of bounds.
+	//
+	// Example:
+	//  import "unsafe"
+	//
+	//  var x int
+	//  var _ = unsafe.Slice(x, 1)
+	//
+	// Example:
+	//  import "unsafe"
+	//
+	//  var x int
+	//  var _ = unsafe.Slice(&x, float64(1))
+	//
+	// Example:
+	//  import "unsafe"
+	//
+	//  var x int
+	//  var _ = unsafe.Slice(&x, -1)
+	//
+	// Example:
+	//  import "unsafe"
+	//
+	//  var x int
+	//  var _ = unsafe.Slice(&x, uint64(1) << 63)
+	_InvalidUnsafeSlice
 
 	/* exprs > assertion */
 

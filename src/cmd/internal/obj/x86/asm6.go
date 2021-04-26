@@ -36,6 +36,7 @@ import (
 	"cmd/internal/sys"
 	"encoding/binary"
 	"fmt"
+	"internal/buildcfg"
 	"log"
 	"strings"
 )
@@ -2460,7 +2461,7 @@ func instinit(ctxt *obj.Link) {
 	}
 }
 
-var isAndroid = objabi.GOOS == "android"
+var isAndroid = buildcfg.GOOS == "android"
 
 func prefixof(ctxt *obj.Link, a *obj.Addr) int {
 	if a.Reg < REG_CS && a.Index < REG_CS { // fast path
@@ -5306,7 +5307,7 @@ bad:
 		}
 	}
 
-	ctxt.Diag("invalid instruction: %v", p)
+	ctxt.Diag("%s: invalid instruction: %v", cursym.Name, p)
 }
 
 // byteswapreg returns a byte-addressable register (AX, BX, CX, DX)

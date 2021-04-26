@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"go/ast"
 	"go/constant"
+	"go/internal/typeparams"
 	"go/token"
 )
 
@@ -645,7 +646,7 @@ func (check *Checker) typeDecl(obj *TypeName, tdecl *ast.TypeSpec, def *Named) {
 	})
 
 	alias := tdecl.Assign.IsValid()
-	if alias && tdecl.TParams != nil {
+	if alias && typeparams.Get(tdecl) != nil {
 		// The parser will ensure this but we may still get an invalid AST.
 		// Complain and continue as regular type definition.
 		check.error(atPos(tdecl.Assign), 0, "generic type cannot be alias")
@@ -668,10 +669,10 @@ func (check *Checker) typeDecl(obj *TypeName, tdecl *ast.TypeSpec, def *Named) {
 		def.setUnderlying(named)
 		obj.typ = named // make sure recursive type declarations terminate
 
-		if tdecl.TParams != nil {
+		if tparams := typeparams.Get(tdecl); tparams != nil {
 			check.openScope(tdecl, "type parameters")
 			defer check.closeScope()
-			named.tparams = check.collectTypeParams(tdecl.TParams)
+			named.tparams = check.collectTypeParams(tparams)
 		}
 
 		// determine underlying type of named
@@ -713,7 +714,7 @@ func (check *Checker) collectTypeParams(list *ast.FieldList) (tparams []*TypeNam
 
 	setBoundAt := func(at int, bound Type) {
 		assert(IsInterface(bound))
-		tparams[at].typ.(*TypeParam).bound = bound
+		tparams[at].typ.(*_TypeParam).bound = bound
 	}
 
 	index := 0
@@ -756,7 +757,7 @@ func (check *Checker) collectTypeParams(list *ast.FieldList) (tparams []*TypeNam
 func (check *Checker) declareTypeParams(tparams []*TypeName, names []*ast.Ident) []*TypeName {
 	for _, name := range names {
 		tpar := NewTypeName(name.Pos(), check.pkg, name.Name, nil)
-		check.NewTypeParam(tpar, len(tparams), &emptyInterface) // assigns type to tpar as a side-effect
+		check.newTypeParam(tpar, len(tparams), &emptyInterface) // assigns type to tpar as a side-effect
 		check.declare(check.scope, name, tpar, check.scope.pos) // TODO(gri) check scope position
 		tparams = append(tparams, tpar)
 	}

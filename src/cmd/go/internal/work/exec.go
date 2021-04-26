@@ -8,11 +8,11 @@ package work
 
 import (
 	"bytes"
-	"cmd/go/internal/fsys"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"internal/buildcfg"
 	exec "internal/execabs"
 	"internal/lazyregexp"
 	"io"
@@ -31,6 +31,7 @@ import (
 	"cmd/go/internal/base"
 	"cmd/go/internal/cache"
 	"cmd/go/internal/cfg"
+	"cmd/go/internal/fsys"
 	"cmd/go/internal/load"
 	"cmd/go/internal/modload"
 	"cmd/go/internal/str"
@@ -276,6 +277,10 @@ func (b *Builder) buildActionID(a *Action) cache.ActionID {
 		key, val := cfg.GetArchEnv()
 		fmt.Fprintf(h, "%s=%s\n", key, val)
 
+		if goexperiment := buildcfg.GOEXPERIMENT(); goexperiment != "" {
+			fmt.Fprintf(h, "GOEXPERIMENT=%q\n", goexperiment)
+		}
+
 		// TODO(rsc): Convince compiler team not to add more magic environment variables,
 		// or perhaps restrict the environment variables passed to subprocesses.
 		// Because these are clumsy, undocumented special-case hacks
@@ -284,7 +289,7 @@ func (b *Builder) buildActionID(a *Action) cache.ActionID {
 		magic := []string{
 			"GOCLOBBERDEADHASH",
 			"GOSSAFUNC",
-			"GO_SSA_PHI_LOC_CUTOFF",
+			"GOSSADIR",
 			"GOSSAHASH",
 		}
 		for _, env := range magic {
@@ -1245,6 +1250,10 @@ func (b *Builder) printLinkerConfig(h io.Writer, p *load.Package) {
 		// GOARM, GOMIPS, etc.
 		key, val := cfg.GetArchEnv()
 		fmt.Fprintf(h, "%s=%s\n", key, val)
+
+		if goexperiment := buildcfg.GOEXPERIMENT(); goexperiment != "" {
+			fmt.Fprintf(h, "GOEXPERIMENT=%q\n", goexperiment)
+		}
 
 		// The linker writes source file paths that say GOROOT_FINAL, but
 		// only if -trimpath is not specified (see ld() in gc.go).
@@ -3096,7 +3105,7 @@ func (b *Builder) swigDoIntSize(objdir string) (intsize string, err error) {
 	}
 	srcs := []string{src}
 
-	p := load.GoFilesPackage(context.TODO(), srcs)
+	p := load.GoFilesPackage(context.TODO(), load.PackageOpts{}, srcs)
 
 	if _, _, e := BuildToolchain.gc(b, &Action{Mode: "swigDoIntSize", Package: p, Objdir: objdir}, "", nil, nil, "", false, srcs); e != nil {
 		return "32", nil

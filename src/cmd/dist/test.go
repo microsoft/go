@@ -475,6 +475,19 @@ func (t *tester) registerTests() {
 		})
 	}
 
+	// Test go/... cmd/gofmt with type parameters enabled.
+	if !t.compileOnly {
+		t.tests = append(t.tests, distTest{
+			name:    "tyepparams",
+			heading: "go/... and cmd/gofmt tests with tag typeparams",
+			fn: func(dt *distTest) error {
+				t.addCmd(dt, "src", t.goTest(), t.timeout(300), "-tags=typeparams", "go/...")
+				t.addCmd(dt, "src", t.goTest(), t.timeout(300), "-tags=typeparams", "cmd/gofmt")
+				return nil
+			},
+		})
+	}
+
 	if t.iOS() && !t.compileOnly {
 		t.tests = append(t.tests, distTest{
 			name:    "x509omitbundledroots",
@@ -736,8 +749,9 @@ func (t *tester) registerTests() {
 		if gohostos == "linux" && goarch == "amd64" {
 			t.registerTest("testasan", "../misc/cgo/testasan", "go", "run", ".")
 		}
-		if mSanSupported(goos, goarch) {
-			t.registerHostTest("testsanitizers/msan", "../misc/cgo/testsanitizers", "misc/cgo/testsanitizers", ".")
+		if goos == "linux" {
+			// because syscall.SysProcAttri struct used in misc/cgo/testsanitizers is only built on linux.
+			t.registerHostTest("testsanitizers", "../misc/cgo/testsanitizers", "misc/cgo/testsanitizers", ".")
 		}
 		if t.hasBash() && goos != "android" && !t.iOS() && gohostos != "windows" {
 			t.registerHostTest("cgo_errors", "../misc/cgo/errors", "misc/cgo/errors", ".")
@@ -962,6 +976,9 @@ func (t *tester) internalLink() bool {
 	if goos == "ios" {
 		return false
 	}
+	if goos == "windows" && goarch == "arm64" {
+		return false
+	}
 	// Internally linking cgo is incomplete on some architectures.
 	// https://golang.org/issue/10373
 	// https://golang.org/issue/14449
@@ -1094,8 +1111,7 @@ func (t *tester) cgoTest(dt *distTest) error {
 	cmd := t.addCmd(dt, "misc/cgo/test", t.goTest())
 	cmd.Env = append(os.Environ(), "GOFLAGS=-ldflags=-linkmode=auto")
 
-	// Skip internal linking cases on arm64 to support GCC-9.4 and above,
-	// only for linux, conservatively.
+	// Skip internal linking cases on linux/arm64 to support GCC-9.4 and above.
 	// See issue #39466.
 	skipInternalLink := goarch == "arm64" && goos == "linux"
 
@@ -1635,17 +1651,6 @@ func raceDetectorSupported(goos, goarch string) bool {
 		return goarch == "amd64" || goarch == "arm64"
 	case "freebsd", "netbsd", "openbsd", "windows":
 		return goarch == "amd64"
-	default:
-		return false
-	}
-}
-
-// mSanSupported is a copy of the function cmd/internal/sys.MSanSupported,
-// which can't be used here because cmd/dist has to be buildable by Go 1.4.
-func mSanSupported(goos, goarch string) bool {
-	switch goos {
-	case "linux":
-		return goarch == "amd64" || goarch == "arm64"
 	default:
 		return false
 	}
