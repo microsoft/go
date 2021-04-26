@@ -121,16 +121,21 @@ func genplt(ctxt *ld.Link, ldr *loader.Loader) {
 			// Update the relocation to use the call stub
 			r.SetSym(stub.Sym())
 
-			// make sure the data is writeable
-			if ldr.AttrReadOnly(s) {
-				panic("can't write to read-only sym data")
-			}
+			// Make the symbol writeable so we can fixup toc.
+			su := ldr.MakeSymbolUpdater(s)
+			su.MakeWritable()
+			p := su.Data()
 
-			// Restore TOC after bl. The compiler put a
-			// nop here for us to overwrite.
-			sp := ldr.Data(s)
+			// Check for toc restore slot (a nop), and replace with toc restore.
+			var nop uint32
+			if len(p) >= int(r.Off()+8) {
+				nop = ctxt.Arch.ByteOrder.Uint32(p[r.Off()+4:])
+			}
+			if nop != 0x60000000 {
+				ldr.Errorf(s, "Symbol %s is missing toc restoration slot at offset %d", ldr.SymName(s), r.Off()+4)
+			}
 			const o1 = 0xe8410018 // ld r2,24(r1)
-			ctxt.Arch.ByteOrder.PutUint32(sp[r.Off()+4:], o1)
+			ctxt.Arch.ByteOrder.PutUint32(p[r.Off()+4:], o1)
 		}
 	}
 	// Put call stubs at the beginning (instead of the end).
@@ -413,6 +418,7 @@ func xcoffreloc1(arch *sys.Arch, out *ld.OutBuf, ldr *loader.Loader, s loader.Sy
 		emitReloc(ld.XCOFF_R_TOCU|(0x0F<<8), 2)
 		emitReloc(ld.XCOFF_R_TOCL|(0x0F<<8), 6)
 	case objabi.R_POWER_TLS_LE:
+		// This only supports 16b relocations.  It is fixed up in archreloc.
 		emitReloc(ld.XCOFF_R_TLS_LE|0x0F<<8, 2)
 	case objabi.R_CALLPOWER:
 		if r.Size != 4 {
@@ -453,7 +459,10 @@ func elfreloc1(ctxt *ld.Link, out *ld.OutBuf, ldr *loader.Loader, s loader.Sym, 
 	case objabi.R_POWER_TLS:
 		out.Write64(uint64(elf.R_PPC64_TLS) | uint64(elfsym)<<32)
 	case objabi.R_POWER_TLS_LE:
-		out.Write64(uint64(elf.R_PPC64_TPREL16) | uint64(elfsym)<<32)
+		out.Write64(uint64(elf.R_PPC64_TPREL16_HA) | uint64(elfsym)<<32)
+		out.Write64(uint64(r.Xadd))
+		out.Write64(uint64(sectoff + 4))
+		out.Write64(uint64(elf.R_PPC64_TPREL16_LO) | uint64(elfsym)<<32)
 	case objabi.R_POWER_TLS_IE:
 		out.Write64(uint64(elf.R_PPC64_GOT_TPREL16_HA) | uint64(elfsym)<<32)
 		out.Write64(uint64(r.Xadd))
@@ -792,11 +801,25 @@ func archreloc(target *ld.Target, ldr *loader.Loader, syms *ld.ArchSyms, r loade
 			if !target.IsAIX() {
 				return val, nExtReloc, false
 			}
-		case objabi.R_POWER_TLS, objabi.R_POWER_TLS_LE, objabi.R_POWER_TLS_IE:
-			// check Outer is nil, Type is TLSBSS?
+		case objabi.R_POWER_TLS:
 			nExtReloc = 1
-			if rt == objabi.R_POWER_TLS_IE {
-				nExtReloc = 2 // need two ELF relocations, see elfreloc1
+			return val, nExtReloc, true
+		case objabi.R_POWER_TLS_LE, objabi.R_POWER_TLS_IE:
+			if target.IsAIX() && rt == objabi.R_POWER_TLS_LE {
+				// Fixup val, an addis/addi pair of instructions, which generate a 32b displacement
+				// from the threadpointer (R13), into a 16b relocation. XCOFF only supports 16b
+				// TLS LE relocations. Likewise, verify this is an addis/addi sequence.
+				const expectedOpcodes = 0x3C00000038000000
+				const expectedOpmasks = 0xFC000000FC000000
+				if uint64(val)&expectedOpmasks != expectedOpcodes {
+					ldr.Errorf(s, "relocation for %s+%d is not an addis/addi pair: %16x", ldr.SymName(rs), r.Off(), uint64(val))
+				}
+				nval := (int64(uint32(0x380d0000)) | val&0x03e00000) << 32 // addi rX, r13, $0
+				nval |= int64(0x60000000)                                  // nop
+				val = nval
+				nExtReloc = 1
+			} else {
+				nExtReloc = 2
 			}
 			return val, nExtReloc, true
 		case objabi.R_ADDRPOWER,
@@ -850,16 +873,32 @@ func archreloc(target *ld.Target, ldr *loader.Loader, syms *ld.ArchSyms, r loade
 			// the TLS.
 			v -= 0x800
 		}
-		if int64(int16(v)) != v {
+
+		var o1, o2 uint32
+		if int64(int32(v)) != v {
 			ldr.Errorf(s, "TLS offset out of range %d", v)
 		}
-		return (val &^ 0xffff) | (v & 0xffff), nExtReloc, true
+		if target.IsBigEndian() {
+			o1 = uint32(val >> 32)
+			o2 = uint32(val)
+		} else {
+			o1 = uint32(val)
+			o2 = uint32(val >> 32)
+		}
+
+		o1 |= uint32(((v + 0x8000) >> 16) & 0xFFFF)
+		o2 |= uint32(v & 0xFFFF)
+
+		if target.IsBigEndian() {
+			return int64(o1)<<32 | int64(o2), nExtReloc, true
+		}
+		return int64(o2)<<32 | int64(o1), nExtReloc, true
 	}
 
 	return val, nExtReloc, false
 }
 
-func archrelocvariant(target *ld.Target, ldr *loader.Loader, r loader.Reloc, rv sym.RelocVariant, s loader.Sym, t int64) (relocatedOffset int64) {
+func archrelocvariant(target *ld.Target, ldr *loader.Loader, r loader.Reloc, rv sym.RelocVariant, s loader.Sym, t int64, p []byte) (relocatedOffset int64) {
 	rs := ldr.ResolveABIAlias(r.Sym())
 	switch rv & sym.RV_TYPE_MASK {
 	default:
@@ -875,9 +914,10 @@ func archrelocvariant(target *ld.Target, ldr *loader.Loader, r loader.Reloc, rv 
 			// overflow depends on the instruction
 			var o1 uint32
 			if target.IsBigEndian() {
-				o1 = binary.BigEndian.Uint32(ldr.Data(s)[r.Off()-2:])
+				o1 = binary.BigEndian.Uint32(p[r.Off()-2:])
+
 			} else {
-				o1 = binary.LittleEndian.Uint32(ldr.Data(s)[r.Off():])
+				o1 = binary.LittleEndian.Uint32(p[r.Off():])
 			}
 			switch o1 >> 26 {
 			case 24, // ori
@@ -909,9 +949,9 @@ func archrelocvariant(target *ld.Target, ldr *loader.Loader, r loader.Reloc, rv 
 			// overflow depends on the instruction
 			var o1 uint32
 			if target.IsBigEndian() {
-				o1 = binary.BigEndian.Uint32(ldr.Data(s)[r.Off()-2:])
+				o1 = binary.BigEndian.Uint32(p[r.Off()-2:])
 			} else {
-				o1 = binary.LittleEndian.Uint32(ldr.Data(s)[r.Off():])
+				o1 = binary.LittleEndian.Uint32(p[r.Off():])
 			}
 			switch o1 >> 26 {
 			case 25, // oris
@@ -933,9 +973,9 @@ func archrelocvariant(target *ld.Target, ldr *loader.Loader, r loader.Reloc, rv 
 	case sym.RV_POWER_DS:
 		var o1 uint32
 		if target.IsBigEndian() {
-			o1 = uint32(binary.BigEndian.Uint16(ldr.Data(s)[r.Off():]))
+			o1 = uint32(binary.BigEndian.Uint16(p[r.Off():]))
 		} else {
-			o1 = uint32(binary.LittleEndian.Uint16(ldr.Data(s)[r.Off():]))
+			o1 = uint32(binary.LittleEndian.Uint16(p[r.Off():]))
 		}
 		if t&3 != 0 {
 			ldr.Errorf(s, "relocation for %s+%d is not aligned: %d", ldr.SymName(rs), r.Off(), t)
@@ -1039,8 +1079,11 @@ func ensureglinkresolver(ctxt *ld.Link, ldr *loader.Loader) *loader.SymbolBuilde
 	glink.AddUint32(ctxt.Arch, 0x7800f082) // srdi r0,r0,2
 
 	// r11 = address of the first byte of the PLT
-	glink.AddSymRef(ctxt.Arch, ctxt.PLT, 0, objabi.R_ADDRPOWER, 8)
-
+	r, _ := glink.AddRel(objabi.R_ADDRPOWER)
+	r.SetSym(ctxt.PLT)
+	r.SetSiz(8)
+	r.SetOff(int32(glink.Size()))
+	r.SetAdd(0)
 	glink.AddUint32(ctxt.Arch, 0x3d600000) // addis r11,0,.plt@ha
 	glink.AddUint32(ctxt.Arch, 0x396b0000) // addi r11,r11,.plt@l
 

@@ -83,7 +83,7 @@ func (check *Checker) conversion(x *operand, T Type) {
 // exported API call, i.e., when all methods have been type-checked.
 func (x *operand) convertibleTo(check *Checker, T Type) bool {
 	// "x is assignable to T"
-	if x.assignableTo(check, T, nil) {
+	if ok, _ := x.assignableTo(check, T, nil); ok {
 		return true
 	}
 
@@ -133,6 +133,18 @@ func (x *operand) convertibleTo(check *Checker, T Type) bool {
 	// "and vice versa"
 	if isUnsafePointer(V) && (isPointer(Tu) || isUintptr(Tu)) {
 		return true
+	}
+
+	// "x is a slice, T is a pointer-to-array type,
+	// and the slice and array types have identical element types."
+	if s := asSlice(V); s != nil {
+		if p := asPointer(T); p != nil {
+			if a := asArray(p.Elem()); a != nil {
+				if check.identical(s.Elem(), a.Elem()) {
+					return true
+				}
+			}
+		}
 	}
 
 	return false

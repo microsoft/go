@@ -62,13 +62,12 @@ func runTidy(ctx context.Context, cmd *base.Command, args []string) {
 	modload.RootMode = modload.NeedRoot
 
 	modload.LoadPackages(ctx, modload.PackageOpts{
-		Tags:                  imports.AnyTags(),
-		ResolveMissingImports: true,
-		LoadTests:             true,
-		AllowErrors:           tidyE,
+		Tags:                     imports.AnyTags(),
+		Tidy:                     true,
+		VendorModulesInGOROOTSrc: true,
+		ResolveMissingImports:    true,
+		LoadTests:                true,
+		AllowErrors:              tidyE,
+		SilenceMissingStdImports: true,
 	}, "all")
-
-	modload.TidyBuildList()
-	modload.TrimGoSum()
-	modload.WriteGoMod()
 }

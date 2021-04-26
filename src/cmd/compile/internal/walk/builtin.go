@@ -214,10 +214,7 @@ func walkDelete(init *ir.Nodes, n *ir.CallExpr) ir.Node {
 
 	t := map_.Type()
 	fast := mapfast(t)
-	if fast == mapslow {
-		// order.stmt made sure key is addressable.
-		key = typecheck.NodAddr(key)
-	}
+	key = mapKeyArg(fast, n, key)
 	return mkcall1(mapfndel(mapdelete[fast], t), nil, init, reflectdata.TypePtr(t), map_, key)
 }
 
@@ -651,6 +648,18 @@ func walkPrint(nn *ir.CallExpr, init *ir.Nodes) ir.Node {
 	r := ir.NewBlockStmt(base.Pos, nil)
 	r.List = calls
 	return walkStmt(typecheck.Stmt(r))
+}
+
+// walkRecover walks an ORECOVER node.
+func walkRecover(nn *ir.CallExpr, init *ir.Nodes) ir.Node {
+	// Call gorecover with the FP of this frame.
+	// FP is equal to caller's SP plus FixedFrameSize().
+	var fp ir.Node = mkcall("getcallersp", types.Types[types.TUINTPTR], init)
+	if off := base.Ctxt.FixedFrameSize(); off != 0 {
+		fp = ir.NewBinaryExpr(fp.Pos(), ir.OADD, fp, ir.NewInt(off))
+	}
+	fp = ir.NewConvExpr(fp.Pos(), ir.OCONVNOP, types.NewPtr(types.Types[types.TINT32]), fp)
+	return mkcall("gorecover", nn.Type(), init, fp)
 }
 
 func badtype(op ir.Op, tl, tr *types.Type) {

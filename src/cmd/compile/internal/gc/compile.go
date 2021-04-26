@@ -43,7 +43,10 @@ func enqueueFunc(fn *ir.Func) {
 	if len(fn.Body) == 0 {
 		// Initialize ABI wrappers if necessary.
 		ssagen.InitLSym(fn, false)
-		liveness.WriteFuncMap(fn)
+		types.CalcSize(fn.Type())
+		a := ssagen.AbiForBodylessFuncStackMap(fn)
+		abiInfo := a.ABIAnalyzeFuncType(fn.Type().FuncType()) // abiInfo has spill/home locations for wrapper
+		liveness.WriteFuncMap(fn, abiInfo)
 		return
 	}
 

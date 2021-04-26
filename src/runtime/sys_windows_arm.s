@@ -9,7 +9,7 @@
 // Note: For system ABI, R0-R3 are args, R4-R11 are callee-save.
 
 // void runtime·asmstdcall(void *c);
-TEXT runtime·asmstdcall(SB),NOSPLIT|NOFRAME,$0
+TEXT runtime·asmstdcall<ABIInternal>(SB),NOSPLIT|NOFRAME,$0
 	MOVM.DB.W [R4, R5, R14], (R13)	// push {r4, r5, lr}
 	MOVW	R0, R4			// put libcall * in r4
 	MOVW	R13, R5			// save stack pointer in r5
@@ -157,7 +157,7 @@ g0:
 	MOVW	R2, 4(R13)	// Move arg0 (ExceptionRecord) into position
 	MOVW	R3, 8(R13)	// Move arg1 (ContextRecord) into position
 	MOVW	R5, 12(R13)	// Move arg2 (original g) into position
-	BL	(R7)		// Call the go routine
+	BL	(R7)		// Call the goroutine
 	MOVW	16(R13), R4	// Fetch return value from stack
 
 	// Save system stack pointer for sigresume setup below.
@@ -221,96 +221,21 @@ TEXT sigresume<>(SB),NOSPLIT|NOFRAME,$0
 	MOVW	R0, R13
 	B	(R1)
 
-TEXT runtime·exceptiontramp(SB),NOSPLIT|NOFRAME,$0
+TEXT runtime·exceptiontramp<ABIInternal>(SB),NOSPLIT|NOFRAME,$0
 	MOVW	$runtime·exceptionhandler(SB), R1
 	B	sigtramp<>(SB)
 
-TEXT runtime·firstcontinuetramp(SB),NOSPLIT|NOFRAME,$0
+TEXT runtime·firstcontinuetramp<ABIInternal>(SB),NOSPLIT|NOFRAME,$0
 	MOVW	$runtime·firstcontinuehandler(SB), R1
 	B	sigtramp<>(SB)
 
-TEXT runtime·lastcontinuetramp(SB),NOSPLIT|NOFRAME,$0
+TEXT runtime·lastcontinuetramp<ABIInternal>(SB),NOSPLIT|NOFRAME,$0
 	MOVW	$runtime·lastcontinuehandler(SB), R1
 	B	sigtramp<>(SB)
 
-TEXT runtime·ctrlhandler(SB),NOSPLIT|NOFRAME,$0
-	MOVW	$runtime·ctrlhandler1(SB), R1
-	B	runtime·externalthreadhandler(SB)
-
-TEXT runtime·profileloop(SB),NOSPLIT|NOFRAME,$0
-	MOVW	$runtime·profileloop1(SB), R1
-	B	runtime·externalthreadhandler(SB)
-
-// int32 externalthreadhandler(uint32 arg, int (*func)(uint32))
-// stack layout:
-//   +----------------+
-//   | callee-save    |
-//   | registers      |
-//   +----------------+
-//   | m              |
-//   +----------------+
-// 20| g              |
-//   +----------------+
-// 16| func ptr (r1)  |
-//   +----------------+
-// 12| argument (r0)  |
-//---+----------------+
-// 8 | param1         | (also return value for called Go function)
-//   +----------------+
-// 4 | param0         |
-//   +----------------+
-// 0 | slot for LR    |
-//   +----------------+
-//
-TEXT runtime·externalthreadhandler(SB),NOSPLIT|NOFRAME|TOPFRAME,$0
-	MOVM.DB.W [R4-R11, R14], (R13)		// push {r4-r11, lr}
-	SUB	$(m__size + g__size + 20), R13	// space for locals
-	MOVW	R14, 0(R13)			// push LR again for anything unwinding the stack
-	MOVW	R0, 12(R13)
-	MOVW	R1, 16(R13)
-
-	// zero out m and g structures
-	ADD	$20, R13, R0			// compute pointer to g
-	MOVW	R0, 4(R13)
-	MOVW	$(m__size + g__size), R0
-	MOVW	R0, 8(R13)
-	BL	runtime·memclrNoHeapPointers(SB)
-
-	// initialize m and g structures
-	ADD	$20, R13, R2			// R2 = g
-	ADD	$(20 + g__size), R13, R3	// R3 = m
-	MOVW	R2, m_g0(R3)			// m->g0 = g
-	MOVW	R3, g_m(R2)			// g->m = m
-	MOVW	R2, m_curg(R3)			// m->curg = g
-
-	MOVW	R2, g
-	BL	runtime·save_g(SB)
-
-	// set up stackguard stuff
-	MOVW	R13, R0
-	MOVW	R0, g_stack+stack_hi(g)
-	SUB	$(32*1024), R0
-	MOVW	R0, (g_stack+stack_lo)(g)
-	MOVW	R0, g_stackguard0(g)
-	MOVW	R0, g_stackguard1(g)
-
-	// move argument into position and call function
-	MOVW	12(R13), R0
-	MOVW	R0, 4(R13)
-	MOVW	16(R13), R1
-	BL	(R1)
-
-	// clear g
-	MOVW	$0, g
-	BL	runtime·save_g(SB)
-
-	MOVW	8(R13), R0			// load return value
-	ADD	$(m__size + g__size + 20), R13	// free locals
-	MOVM.IA.W (R13), [R4-R11, R15]		// pop {r4-r11, pc}
-
 GLOBL runtime·cbctxts(SB), NOPTR, $4
 
-TEXT runtime·callbackasm1(SB),NOSPLIT|NOFRAME,$0
+TEXT runtime·callbackasm1<ABIInternal>(SB),NOSPLIT|NOFRAME,$0
 	// On entry, the trampoline in zcallback_windows_arm.s left
 	// the callback index in R12 (which is volatile in the C ABI).
 
@@ -349,7 +274,7 @@ TEXT runtime·callbackasm1(SB),NOSPLIT|NOFRAME,$0
 	B	(R12)	// return
 
 // uint32 tstart_stdcall(M *newm);
-TEXT runtime·tstart_stdcall(SB),NOSPLIT|NOFRAME,$0
+TEXT runtime·tstart_stdcall<ABIInternal>(SB),NOSPLIT|NOFRAME,$0
 	MOVM.DB.W [R4-R11, R14], (R13)		// push {r4-r11, lr}
 
 	MOVW	m_g0(R0), g
@@ -410,13 +335,15 @@ TEXT runtime·switchtothread(SB),NOSPLIT|NOFRAME,$0
 TEXT ·publicationBarrier(SB),NOSPLIT|NOFRAME,$0-0
 	B	runtime·armPublicationBarrier(SB)
 
-// never called (cgo not supported)
+// never called (this is a GOARM=7 platform)
 TEXT runtime·read_tls_fallback(SB),NOSPLIT|NOFRAME,$0
 	MOVW	$0xabcd, R0
 	MOVW	R0, (R0)
 	RET
 
-// See http://www.dcl.hpi.uni-potsdam.de/research/WRK/2007/08/getting-os-information-the-kuser_shared_data-structure/
+// See https://wrkhpi.wordpress.com/2007/08/09/getting-os-information-the-kuser_shared_data-structure/
+// Archived copy at:
+// http://web.archive.org/web/20210411000829/https://wrkhpi.wordpress.com/2007/08/09/getting-os-information-the-kuser_shared_data-structure/
 // Must read hi1, then lo, then hi2. The snapshot is valid if hi1 == hi2.
 #define _INTERRUPT_TIME 0x7ffe0008
 #define _SYSTEM_TIME 0x7ffe0014

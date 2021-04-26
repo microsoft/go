@@ -17,7 +17,7 @@
 // load_g and save_g (in tls_arm64.s) clobber R27 (REGTMP) and R0.
 
 // void runtime·asmstdcall(void *c);
-TEXT runtime·asmstdcall(SB),NOSPLIT|NOFRAME,$0
+TEXT runtime·asmstdcall<ABIInternal>(SB),NOSPLIT|NOFRAME,$0
 	STP.W	(R29, R30), -32(RSP)	// allocate C ABI stack frame
 	STP	(R19, R20), 16(RSP) // save old R19, R20
 	MOVD	R0, R19	// save libcall pointer
@@ -287,89 +287,21 @@ TEXT sigresume<>(SB),NOSPLIT|NOFRAME,$0
 	MOVD	R0, RSP
 	B	(R1)
 
-TEXT runtime·exceptiontramp(SB),NOSPLIT|NOFRAME,$0
-	MOVD	$runtime·exceptionhandler(SB), R1
+TEXT runtime·exceptiontramp<ABIInternal>(SB),NOSPLIT|NOFRAME,$0
+	MOVD	$runtime·exceptionhandler<ABIInternal>(SB), R1
 	B	sigtramp<>(SB)
 
-TEXT runtime·firstcontinuetramp(SB),NOSPLIT|NOFRAME,$0
-	MOVD	$runtime·firstcontinuehandler(SB), R1
+TEXT runtime·firstcontinuetramp<ABIInternal>(SB),NOSPLIT|NOFRAME,$0
+	MOVD	$runtime·firstcontinuehandler<ABIInternal>(SB), R1
 	B	sigtramp<>(SB)
 
 TEXT runtime·lastcontinuetramp(SB),NOSPLIT|NOFRAME,$0
-	MOVD	$runtime·lastcontinuehandler(SB), R1
+	MOVD	$runtime·lastcontinuehandler<ABIInternal>(SB), R1
 	B	sigtramp<>(SB)
-
-TEXT runtime·ctrlhandler(SB),NOSPLIT|NOFRAME,$0
-	MOVD	$runtime·ctrlhandler1(SB), R1
-	B	runtime·externalthreadhandler(SB)
-
-TEXT runtime·profileloop(SB),NOSPLIT|NOFRAME,$0
-	MOVD	$runtime·profileloop1(SB), R1
-	B	runtime·externalthreadhandler(SB)
-
-// externalthreadhander called with R0 = uint32 arg, R1 = Go function f.
-// Need to call f(arg), which returns a uint32, and return it in R0.
-TEXT runtime·externalthreadhandler(SB),NOSPLIT|TOPFRAME,$96-0
-	NO_LOCAL_POINTERS
-
-	// Push C callee-save registers R19-R28. LR, FP already saved.
-	SAVE_R19_TO_R28(-10*8)
-
-	// Allocate space for args, saved R0+R1, g, and m structures.
-	// Hide from nosplit check.
-	#define extra ((64+g__size+m__size+15)&~15)
-	SUB	$extra, RSP, R2	// hide from nosplit overflow check
-	MOVD	R2, RSP
-
-	// Save R0 and R1 (our args).
-	MOVD	R0, 32(RSP)
-	MOVD	R1, 40(RSP)
-
-	// Zero out m and g structures.
-	MOVD	$64(RSP), R0
-	MOVD	R0, 8(RSP)
-	MOVD	$(m__size + g__size), R0
-	MOVD	R0, 16(RSP)
-	MOVD	$0, 0(RSP)	// not-saved LR
-	BL	runtime·memclrNoHeapPointers(SB)
-
-	// Initialize m and g structures.
-	MOVD	$64(RSP), g
-	MOVD	$g__size(g), R3		// m
-	MOVD	R3, g_m(g)		// g->m = m
-	MOVD	g, m_g0(R3)		// m->g0 = g
-	MOVD	g, m_curg(R3)		// m->curg = g
-	MOVD	RSP, R0
-	MOVD	R0, g_stack+stack_hi(g)
-	SUB	$(32*1024), R0
-	MOVD	R0, (g_stack+stack_lo)(g)
-	MOVD	R0, g_stackguard0(g)
-	MOVD	R0, g_stackguard1(g)
-	BL	runtime·save_g(SB)
-
-	// Call function.
-	MOVD	32(RSP), R0
-	MOVD	40(RSP), R1
-	MOVW	R0, 8(RSP)
-	BL	(R1)
-
-	// Clear g.
-	MOVD	$0, g
-	BL	runtime·save_g(SB)
-
-	// Load return value (save_g would have smashed)
-	MOVW	(2*8)(RSP), R0
-
-	ADD	$extra, RSP, R2
-	MOVD	R2, RSP
-	#undef extra
-
-	RESTORE_R19_TO_R28(-10*8)
-	RET
 
 GLOBL runtime·cbctxts(SB), NOPTR, $4
 
-TEXT runtime·callbackasm1(SB),NOSPLIT,$208-0
+TEXT runtime·callbackasm1<ABIInternal>(SB),NOSPLIT,$208-0
 	NO_LOCAL_POINTERS
 
 	// On entry, the trampoline in zcallback_windows_arm64.s left
@@ -377,14 +309,19 @@ TEXT runtime·callbackasm1(SB),NOSPLIT,$208-0
 
 	// Save callback register arguments R0-R7.
 	// We do this at the top of the frame so they're contiguous with stack arguments.
-	MOVD	R0, arg0-(8*8)(SP)
-	MOVD	R1, arg1-(7*8)(SP)
-	MOVD	R2, arg2-(6*8)(SP)
-	MOVD	R3, arg3-(5*8)(SP)
-	MOVD	R4, arg4-(4*8)(SP)
-	MOVD	R5, arg5-(3*8)(SP)
-	MOVD	R6, arg6-(2*8)(SP)
-	MOVD	R7, arg7-(1*8)(SP)
+	// The 7*8 setting up R14 looks like a bug but is not: the eighth word
+	// is the space the assembler reserved for our caller's frame pointer,
+	// but we are not called from Go so that space is ours to use,
+	// and we must to be contiguous with the stack arguments.
+	MOVD	$arg0-(7*8)(SP), R14
+	MOVD	R0, (0*8)(R14)
+	MOVD	R1, (1*8)(R14)
+	MOVD	R2, (2*8)(R14)
+	MOVD	R3, (3*8)(R14)
+	MOVD	R4, (4*8)(R14)
+	MOVD	R5, (5*8)(R14)
+	MOVD	R6, (6*8)(R14)
+	MOVD	R7, (7*8)(R14)
 
 	// Push C callee-save registers R19-R28.
 	// LR, FP already saved.
@@ -393,7 +330,7 @@ TEXT runtime·callbackasm1(SB),NOSPLIT,$208-0
 	// Create a struct callbackArgs on our stack.
 	MOVD	$cbargs-(18*8+callbackArgs__size)(SP), R13
 	MOVD	R12, callbackArgs_index(R13)	// callback index
-	MOVD	$arg0-(8*8)(SP), R0
+	MOVD	R14, R0
 	MOVD	R0, callbackArgs_args(R13)		// address of args vector
 	MOVD	$0, R0
 	MOVD	R0, callbackArgs_result(R13)	// result
@@ -416,7 +353,7 @@ TEXT runtime·callbackasm1(SB),NOSPLIT,$208-0
 	RET
 
 // uint32 tstart_stdcall(M *newm);
-TEXT runtime·tstart_stdcall(SB),NOSPLIT,$96-0
+TEXT runtime·tstart_stdcall<ABIInternal>(SB),NOSPLIT,$96-0
 	SAVE_R19_TO_R28(-10*8)
 
 	MOVD	m_g0(R0), g
@@ -470,7 +407,9 @@ TEXT runtime·switchtothread(SB),NOSPLIT,$16-0
 	ADD	$16, RSP
 	RET
 
-// See http://www.dcl.hpi.uni-potsdam.de/research/WRK/2007/08/getting-os-information-the-kuser_shared_data-structure/
+// See https://wrkhpi.wordpress.com/2007/08/09/getting-os-information-the-kuser_shared_data-structure/
+// Archived copy at:
+// http://web.archive.org/web/20210411000829/https://wrkhpi.wordpress.com/2007/08/09/getting-os-information-the-kuser_shared_data-structure/
 // Must read hi1, then lo, then hi2. The snapshot is valid if hi1 == hi2.
 #define _INTERRUPT_TIME 0x7ffe0008
 #define _SYSTEM_TIME 0x7ffe0014
@@ -573,7 +512,7 @@ TEXT runtime·wintls(SB),NOSPLIT,$0
 ok:
 
 	// Save offset from R18 into tls_g.
-	LSL	$3, R1
-	ADD	$TEB_TlsSlots, R1
-	MOVD	R1, runtime·tls_g(SB)
+	LSL	$3, R0
+	ADD	$TEB_TlsSlots, R0
+	MOVD	R0, runtime·tls_g(SB)
 	RET
