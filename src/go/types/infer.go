@@ -215,7 +215,7 @@ func (check *Checker) infer(posn positioner, tparams []*TypeName, targs []Type, 
 	}
 
 	// At least one type argument couldn't be inferred.
-	assert(targs != nil && index >= 0 && targs[index] == nil)
+	assert(index >= 0 && targs[index] == nil)
 	tpar := tparams[index]
 	if report {
 		check.errorf(posn, _Todo, "cannot infer %s (%v) (%v)", tpar.name, tpar.pos, targs)
@@ -444,6 +444,25 @@ func (check *Checker) inferB(tparams []*TypeName, targs []Type, report bool) (ty
 			}
 		}
 		dirty = dirty[:n]
+	}
+
+	// Once nothing changes anymore, we may still have type parameters left;
+	// e.g., a structural constraint *P may match a type parameter Q but we
+	// don't have any type arguments to fill in for *P or Q (issue #45548).
+	// Don't let such inferences escape, instead nil them out.
+	for i, typ := range types {
+		if typ != nil && isParameterized(tparams, typ) {
+			types[i] = nil
+		}
+	}
+
+	// update index
+	index = -1
+	for i, typ := range types {
+		if typ == nil {
+			index = i
+			break
+		}
 	}
 
 	return

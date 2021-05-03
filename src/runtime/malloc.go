@@ -227,6 +227,7 @@ const (
 	// --------------  ---------  ----------  ----------  -----------
 	//       */64-bit         48        64MB           1    4M (32MB)
 	// windows/64-bit         48         4MB          64    1M  (8MB)
+	//      ios/arm64         33         4MB           1  2048  (8KB)
 	//       */32-bit         32         4MB           1  1024  (4KB)
 	//     */mips(le)         31         4MB           1   512  (2KB)
 
@@ -247,7 +248,7 @@ const (
 	// logHeapArenaBytes is log_2 of heapArenaBytes. For clarity,
 	// prefer using heapArenaBytes where possible (we need the
 	// constant to compute some other constants).
-	logHeapArenaBytes = (6+20)*(_64bit*(1-sys.GoosWindows)*(1-sys.GoarchWasm)) + (2+20)*(_64bit*sys.GoosWindows) + (2+20)*(1-_64bit) + (2+20)*sys.GoarchWasm
+	logHeapArenaBytes = (6+20)*(_64bit*(1-sys.GoosWindows)*(1-sys.GoarchWasm)*(1-sys.GoosIos*sys.GoarchArm64)) + (2+20)*(_64bit*sys.GoosWindows) + (2+20)*(1-_64bit) + (2+20)*sys.GoarchWasm + (2+20)*sys.GoosIos*sys.GoarchArm64
 
 	// heapArenaBitmapBytes is the size of each heap arena's bitmap.
 	heapArenaBitmapBytes = heapArenaBytes / (sys.PtrSize * 8 / 2)
@@ -978,6 +979,9 @@ func mallocgc(size uintptr, typ *_type, needzero bool) unsafe.Pointer {
 	var span *mspan
 	var x unsafe.Pointer
 	noscan := typ == nil || typ.ptrdata == 0
+	// In some cases block zeroing can profitably (for latency reduction purposes)
+	// be delayed till preemption is possible; isZeroed tracks that state.
+	isZeroed := true
 	if size <= maxSmallSize {
 		if noscan && size < maxTinySize {
 			// Tiny allocator.
@@ -1046,7 +1050,8 @@ func mallocgc(size uintptr, typ *_type, needzero bool) unsafe.Pointer {
 			(*[2]uint64)(x)[1] = 0
 			// See if we need to replace the existing tiny block with the new one
 			// based on amount of remaining free space.
-			if size < c.tinyoffset || c.tiny == 0 {
+			if !raceenabled && (size < c.tinyoffset || c.tiny == 0) {
+				// Note: disabled when race detector is on, see comment near end of this function.
 				c.tiny = uintptr(x)
 				c.tinyoffset = size
 			}
@@ -1072,7 +1077,9 @@ func mallocgc(size uintptr, typ *_type, needzero bool) unsafe.Pointer {
 		}
 	} else {
 		shouldhelpgc = true
-		span = c.allocLarge(size, needzero, noscan)
+		// For large allocations, keep track of zeroed state so that
+		// bulk zeroing can be happen later in a preemptible context.
+		span, isZeroed = c.allocLarge(size, needzero && !noscan, noscan)
 		span.freeindex = 1
 		span.allocCount = 1
 		x = unsafe.Pointer(span.base())
@@ -1131,6 +1138,12 @@ func mallocgc(size uintptr, typ *_type, needzero bool) unsafe.Pointer {
 	mp.mallocing = 0
 	releasem(mp)
 
+	// Pointerfree data can be zeroed late in a context where preemption can occur.
+	// x will keep the memory alive.
+	if !isZeroed && needzero {
+		memclrNoHeapPointersChunked(size, x)
+	}
+
 	if debug.malloc {
 		if debug.allocfreetrace != 0 {
 			tracealloc(x, size, typ)
@@ -1164,7 +1177,50 @@ func mallocgc(size uintptr, typ *_type, needzero bool) unsafe.Pointer {
 		}
 	}
 
+	if raceenabled && noscan && dataSize < maxTinySize {
+		// Pad tinysize allocations so they are aligned with the end
+		// of the tinyalloc region. This ensures that any arithmetic
+		// that goes off the top end of the object will be detectable
+		// by checkptr (issue 38872).
+		// Note that we disable tinyalloc when raceenabled for this to work.
+		// TODO: This padding is only performed when the race detector
+		// is enabled. It would be nice to enable it if any package
+		// was compiled with checkptr, but there's no easy way to
+		// detect that (especially at compile time).
+		// TODO: enable this padding for all allocations, not just
+		// tinyalloc ones. It's tricky because of pointer maps.
+		// Maybe just all noscan objects?
+		x = add(x, size-dataSize)
+	}
+
 	return x
+}
+
+// memclrNoHeapPointersChunked repeatedly calls memclrNoHeapPointers
+// on chunks of the buffer to be zeroed, with opportunities for preemption
+// along the way.  memclrNoHeapPointers contains no safepoints and also
+// cannot be preemptively scheduled, so this provides a still-efficient
+// block copy that can also be preempted on a reasonable granularity.
+//
+// Use this with care; if the data being cleared is tagged to contain
+// pointers, this allows the GC to run before it is all cleared.
+func memclrNoHeapPointersChunked(size uintptr, x unsafe.Pointer) {
+	v := uintptr(x)
+	// got this from benchmarking. 128k is too small, 512k is too large.
+	const chunkBytes = 256 * 1024
+	vsize := v + size
+	for voff := v; voff < vsize; voff = voff + chunkBytes {
+		if getg().preempt {
+			// may hold locks, e.g., profiling
+			goschedguarded()
+		}
+		// clear min(avail, lump) bytes
+		n := vsize - voff
+		if n > chunkBytes {
+			n = chunkBytes
+		}
+		memclrNoHeapPointers(unsafe.Pointer(voff), n)
+	}
 }
 
 // implementation of new builtin

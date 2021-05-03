@@ -400,7 +400,7 @@ func buildssa(fn *ir.Func, worker int) *ssa.Func {
 	name := ir.FuncName(fn)
 	printssa := false
 	if ssaDump != "" { // match either a simple name e.g. "(*Reader).Reset", package.name e.g. "compress/gzip.(*Reader).Reset", or subpackage name "gzip.(*Reader).Reset"
-		pkgDotName := base.Ctxt.Pkgpath+"."+name
+		pkgDotName := base.Ctxt.Pkgpath + "." + name
 		printssa = name == ssaDump ||
 			strings.HasSuffix(pkgDotName, ssaDump) && (pkgDotName == ssaDump || strings.HasSuffix(pkgDotName, "/"+ssaDump))
 	}
@@ -3195,6 +3195,12 @@ func (s *state) expr(n ir.Node) *ssa.Value {
 	case ir.ONEW:
 		n := n.(*ir.UnaryExpr)
 		return s.newObject(n.Type().Elem())
+
+	case ir.OUNSAFEADD:
+		n := n.(*ir.BinaryExpr)
+		ptr := s.expr(n.X)
+		len := s.expr(n.Y)
+		return s.newValue2(ssa.OpAddPtr, n.Type(), ptr, len)
 
 	default:
 		s.Fatalf("unhandled expr %v", n.Op())
@@ -6557,14 +6563,26 @@ func (s *State) DebugFriendlySetPosFrom(v *ssa.Value) {
 }
 
 // emit argument info (locations on stack) for traceback.
-func emitArgInfo(e *ssafn, pp *objw.Progs) {
+func emitArgInfo(e *ssafn, f *ssa.Func, pp *objw.Progs) {
 	ft := e.curfn.Type()
 	if ft.NumRecvs() == 0 && ft.NumParams() == 0 {
 		return
 	}
 
-	x := base.Ctxt.Lookup(fmt.Sprintf("%s.arginfo%d", e.curfn.LSym.Name, e.curfn.LSym.ABI()))
+	x := EmitArgInfo(e.curfn, f.OwnAux.ABIInfo())
 	e.curfn.LSym.Func().ArgInfo = x
+
+	// Emit a funcdata pointing at the arg info data.
+	p := pp.Prog(obj.AFUNCDATA)
+	p.From.SetConst(objabi.FUNCDATA_ArgInfo)
+	p.To.Type = obj.TYPE_MEM
+	p.To.Name = obj.NAME_EXTERN
+	p.To.Sym = x
+}
+
+// emit argument info (locations on stack) of f for traceback.
+func EmitArgInfo(f *ir.Func, abiInfo *abi.ABIParamResultInfo) *obj.LSym {
+	x := base.Ctxt.Lookup(fmt.Sprintf("%s.arginfo%d", f.LSym.Name, f.ABI))
 
 	PtrSize := int64(types.PtrSize)
 
@@ -6690,27 +6708,19 @@ func emitArgInfo(e *ssafn, pp *objw.Progs) {
 	}
 
 	c := true
-outer:
-	for _, fs := range &types.RecvsParams {
-		for _, a := range fs(ft).Fields().Slice() {
-			if !c {
-				writebyte(_dotdotdot)
-				break outer
-			}
-			c = visitType(a.Offset, a.Type, 0)
+	for _, a := range abiInfo.InParams() {
+		if !c {
+			writebyte(_dotdotdot)
+			break
 		}
+		c = visitType(a.FrameOffset(abiInfo), a.Type, 0)
 	}
 	writebyte(_endSeq)
 	if wOff > maxLen {
 		base.Fatalf("ArgInfo too large")
 	}
 
-	// Emit a funcdata pointing at the arg info data.
-	p := pp.Prog(obj.AFUNCDATA)
-	p.From.SetConst(objabi.FUNCDATA_ArgInfo)
-	p.To.Type = obj.TYPE_MEM
-	p.To.Name = obj.NAME_EXTERN
-	p.To.Sym = x
+	return x
 }
 
 // genssa appends entries to pp for each instruction in f.
@@ -6721,7 +6731,7 @@ func genssa(f *ssa.Func, pp *objw.Progs) {
 	e := f.Frontend().(*ssafn)
 
 	s.livenessMap, s.partLiveArgs = liveness.Compute(e.curfn, f, e.stkptrsize, pp)
-	emitArgInfo(e, pp)
+	emitArgInfo(e, f, pp)
 
 	openDeferInfo := e.curfn.LSym.Func().OpenCodedDeferInfo
 	if openDeferInfo != nil {
@@ -6961,9 +6971,18 @@ func genssa(f *ssa.Func, pp *objw.Progs) {
 	}
 
 	if base.Ctxt.Flag_locationlists {
-		debugInfo := ssa.BuildFuncDebug(base.Ctxt, f, base.Debug.LocationLists > 1, StackOffset)
+		var debugInfo *ssa.FuncDebug
+		if e.curfn.ABI == obj.ABIInternal && base.Flag.N != 0 {
+			debugInfo = ssa.BuildFuncDebugNoOptimized(base.Ctxt, f, base.Debug.LocationLists > 1, StackOffset)
+		} else {
+			debugInfo = ssa.BuildFuncDebug(base.Ctxt, f, base.Debug.LocationLists > 1, StackOffset)
+		}
 		e.curfn.DebugInfo = debugInfo
 		bstart := s.bstart
+		idToIdx := make([]int, f.NumBlocks())
+		for i, b := range f.Blocks {
+			idToIdx[b.ID] = i
+		}
 		// Note that at this moment, Prog.Pc is a sequence number; it's
 		// not a real PC until after assembly, so this mapping has to
 		// be done later.
@@ -6976,6 +6995,10 @@ func genssa(f *ssa.Func, pp *objw.Progs) {
 				}
 				return bstart[b].Pc
 			case ssa.BlockEnd.ID:
+				blk := f.Blocks[idToIdx[b]]
+				nv := len(blk.Values)
+				return valueToProgAfter[blk.Values[nv-1].ID].Pc
+			case ssa.FuncEnd.ID:
 				return e.curfn.LSym.Size
 			default:
 				return valueToProgAfter[v].Pc
@@ -7776,22 +7799,6 @@ func SpillSlotAddr(spill ssa.Spill, baseReg int16, extraOffset int64) obj.Addr {
 		Type:   obj.TYPE_MEM,
 		Reg:    baseReg,
 		Offset: spill.Offset + extraOffset,
-	}
-}
-
-// AddrForParamSlot fills in an Addr appropriately for a Spill,
-// Restore, or VARLIVE.
-func AddrForParamSlot(slot *ssa.LocalSlot, addr *obj.Addr) {
-	// TODO replace this boilerplate in a couple of places.
-	n, off := slot.N, slot.Off
-	addr.Type = obj.TYPE_MEM
-	addr.Sym = n.Linksym()
-	addr.Offset = off
-	if n.Class == ir.PPARAM || (n.Class == ir.PPARAMOUT && !n.IsOutputParamInRegisters()) {
-		addr.Name = obj.NAME_PARAM
-		addr.Offset += n.FrameOffset()
-	} else { // out parameters in registers allocate stack slots like autos.
-		addr.Name = obj.NAME_AUTO
 	}
 }
 

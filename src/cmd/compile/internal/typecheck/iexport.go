@@ -603,9 +603,9 @@ func (w *exportWriter) pkg(pkg *types.Pkg) {
 	w.string(pkg.Path)
 }
 
-func (w *exportWriter) qualifiedIdent(n ir.Node) {
+func (w *exportWriter) qualifiedIdent(n *ir.Name) {
 	// Ensure any referenced declarations are written out too.
-	w.p.pushDecl(n.Name())
+	w.p.pushDecl(n)
 
 	s := n.Sym()
 	w.string(s.Name)
@@ -1664,7 +1664,7 @@ func (w *exportWriter) expr(n ir.Node) {
 			w.typ(n.Type())
 		}
 
-	case ir.OCOPY, ir.OCOMPLEX:
+	case ir.OCOPY, ir.OCOMPLEX, ir.OUNSAFEADD, ir.OUNSAFESLICE:
 		// treated like other builtin calls (see e.g., OREAL)
 		n := n.(*ir.BinaryExpr)
 		w.op(n.Op())

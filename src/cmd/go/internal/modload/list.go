@@ -72,29 +72,17 @@ func ListModules(ctx context.Context, args []string, mode ListMode) ([]*modinfo.
 	}
 
 	if err == nil {
-		commitRequirements(ctx, rs)
+		commitRequirements(ctx, modFileGoVersion(), rs)
 	}
 	return mods, err
 }
 
 func listModules(ctx context.Context, rs *Requirements, args []string, mode ListMode) (_ *Requirements, mods []*modinfo.ModulePublic, mgErr error) {
-	var mg *ModuleGraph
-	if go117LazyTODO {
-		// Pull the args-loop below into another (new) loop.
-		// If the main module is lazy, try it once with mg == nil, and then load mg
-		// and try again.
-	} else {
-		// TODO(#41297): Don't bother loading or expanding the graph if all
-		// arguments are explicit version queries (including if no arguments are
-		// present at all).
-		rs, mg, mgErr = expandGraph(ctx, rs)
-	}
-
 	if len(args) == 0 {
-		return rs, []*modinfo.ModulePublic{moduleInfo(ctx, rs, Target, mode)}, mgErr
+		return rs, []*modinfo.ModulePublic{moduleInfo(ctx, rs, Target, mode)}, nil
 	}
 
-	matchedModule := map[module.Version]bool{}
+	needFullGraph := false
 	for _, arg := range args {
 		if strings.Contains(arg, `\`) {
 			base.Fatalf("go: module paths never use backslash")
@@ -102,19 +90,51 @@ func listModules(ctx context.Context, rs *Requirements, args []string, mode List
 		if search.IsRelativePath(arg) {
 			base.Fatalf("go: cannot use relative path %s to specify module", arg)
 		}
-		if !HasModRoot() {
-			if arg == "all" || strings.Contains(arg, "...") {
+		if arg == "all" || strings.Contains(arg, "...") {
+			needFullGraph = true
+			if !HasModRoot() {
 				base.Fatalf("go: cannot match %q: %v", arg, ErrNoModRoot)
 			}
-			if mode&ListVersions == 0 && !strings.Contains(arg, "@") {
-				base.Fatalf("go: cannot match %q without -versions or an explicit version: %v", arg, ErrNoModRoot)
-			}
+			continue
 		}
 		if i := strings.Index(arg, "@"); i >= 0 {
 			path := arg[:i]
 			vers := arg[i+1:]
+			if vers == "upgrade" || vers == "patch" {
+				if _, ok := rs.rootSelected(path); !ok || rs.depth == eager {
+					needFullGraph = true
+					if !HasModRoot() {
+						base.Fatalf("go: cannot match %q: %v", arg, ErrNoModRoot)
+					}
+				}
+			}
+			continue
+		}
+		if _, ok := rs.rootSelected(arg); !ok || rs.depth == eager {
+			needFullGraph = true
+			if mode&ListVersions == 0 && !HasModRoot() {
+				base.Fatalf("go: cannot match %q without -versions or an explicit version: %v", arg, ErrNoModRoot)
+			}
+		}
+	}
 
-			current := mg.Selected(path)
+	var mg *ModuleGraph
+	if needFullGraph {
+		rs, mg, mgErr = expandGraph(ctx, rs)
+	}
+
+	matchedModule := map[module.Version]bool{}
+	for _, arg := range args {
+		if i := strings.Index(arg, "@"); i >= 0 {
+			path := arg[:i]
+			vers := arg[i+1:]
+
+			var current string
+			if mg == nil {
+				current, _ = rs.rootSelected(path)
+			} else {
+				current = mg.Selected(path)
+			}
 			if current == "none" && mgErr != nil {
 				if vers == "upgrade" || vers == "patch" {
 					// The module graph is incomplete, so we don't know what version we're
@@ -149,10 +169,6 @@ func listModules(ctx context.Context, rs *Requirements, args []string, mode List
 			continue
 		}
 
-		if go117LazyTODO {
-			ModRoot() // Unversioned paths require that we be inside a module.
-		}
-
 		// Module path or pattern.
 		var match func(string) bool
 		if arg == "all" {
@@ -160,7 +176,18 @@ func listModules(ctx context.Context, rs *Requirements, args []string, mode List
 		} else if strings.Contains(arg, "...") {
 			match = search.MatchPattern(arg)
 		} else {
-			v := mg.Selected(arg)
+			var v string
+			if mg == nil {
+				var ok bool
+				v, ok = rs.rootSelected(arg)
+				if !ok {
+					// We checked rootSelected(arg) in the earlier args loop, so if there
+					// is no such root we should have loaded a non-nil mg.
+					panic(fmt.Sprintf("internal error: root requirement expected but not found for %v", arg))
+				}
+			} else {
+				v = mg.Selected(arg)
+			}
 			if v == "none" && mgErr != nil {
 				// mgErr is already set, so just skip this module.
 				continue

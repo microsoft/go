@@ -176,17 +176,17 @@ func (c *mcache) refill(spc spanClass) {
 	// mcache. If it gets uncached, we'll adjust this.
 	stats := memstats.heapStats.acquire()
 	atomic.Xadduintptr(&stats.smallAllocCount[spc.sizeclass()], uintptr(s.nelems)-uintptr(s.allocCount))
+
+	// Flush tinyAllocs.
+	if spc == tinySpanClass {
+		atomic.Xadduintptr(&stats.tinyAllocCount, c.tinyAllocs)
+		c.tinyAllocs = 0
+	}
 	memstats.heapStats.release()
 
 	// Update gcController.heapLive with the same assumption.
 	usedBytes := uintptr(s.allocCount) * s.elemsize
 	atomic.Xadd64(&gcController.heapLive, int64(s.npages*pageSize)-int64(usedBytes))
-
-	// Flush tinyAllocs.
-	if spc == tinySpanClass {
-		atomic.Xadd64(&memstats.tinyallocs, int64(c.tinyAllocs))
-		c.tinyAllocs = 0
-	}
 
 	// While we're here, flush scanAlloc, since we have to call
 	// revise anyway.
@@ -206,7 +206,10 @@ func (c *mcache) refill(spc spanClass) {
 }
 
 // allocLarge allocates a span for a large object.
-func (c *mcache) allocLarge(size uintptr, needzero bool, noscan bool) *mspan {
+// The boolean result indicates whether the span is known-zeroed.
+// If it did not need to be zeroed, it may not have been zeroed;
+// but if it came directly from the OS, it is already zeroed.
+func (c *mcache) allocLarge(size uintptr, needzero bool, noscan bool) (*mspan, bool) {
 	if size+_PageSize < size {
 		throw("out of memory")
 	}
@@ -221,7 +224,7 @@ func (c *mcache) allocLarge(size uintptr, needzero bool, noscan bool) *mspan {
 	deductSweepCredit(npages*_PageSize, npages)
 
 	spc := makeSpanClass(0, noscan)
-	s := mheap_.alloc(npages, spc, needzero)
+	s, isZeroed := mheap_.alloc(npages, spc, needzero)
 	if s == nil {
 		throw("out of memory")
 	}
@@ -245,7 +248,7 @@ func (c *mcache) allocLarge(size uintptr, needzero bool, noscan bool) *mspan {
 	mheap_.central[spc].mcentral.fullSwept(mheap_.sweepgen).push(s)
 	s.limit = s.base() + size
 	heapBitsForAddr(s.base()).initSpan(s)
-	return s
+	return s, isZeroed
 }
 
 func (c *mcache) releaseAll() {
@@ -280,8 +283,12 @@ func (c *mcache) releaseAll() {
 	// Clear tinyalloc pool.
 	c.tiny = 0
 	c.tinyoffset = 0
-	atomic.Xadd64(&memstats.tinyallocs, int64(c.tinyAllocs))
+
+	// Flush tinyAllocs.
+	stats := memstats.heapStats.acquire()
+	atomic.Xadduintptr(&stats.tinyAllocCount, c.tinyAllocs)
 	c.tinyAllocs = 0
+	memstats.heapStats.release()
 
 	// Updated heapScan and possible gcController.heapLive.
 	if gcBlackenEnabled != 0 {

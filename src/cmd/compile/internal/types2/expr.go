@@ -508,6 +508,7 @@ func (check *Checker) updateExprType(x syntax.Expr, typ Type, final bool) {
 		*syntax.IndexExpr,
 		*syntax.SliceExpr,
 		*syntax.AssertExpr,
+		*syntax.ListExpr,
 		//*syntax.StarExpr,
 		*syntax.KeyValueExpr,
 		*syntax.ArrayType,
@@ -1132,18 +1133,20 @@ func (check *Checker) exprInternal(x *operand, e syntax.Expr, hint Type) exprKin
 
 	case *syntax.FuncLit:
 		if sig, ok := check.typ(e.Type).(*Signature); ok {
-			// Anonymous functions are considered part of the
-			// init expression/func declaration which contains
-			// them: use existing package-level declaration info.
-			decl := check.decl // capture for use in closure below
-			iota := check.iota // capture for use in closure below (#22345)
-			// Don't type-check right away because the function may
-			// be part of a type definition to which the function
-			// body refers. Instead, type-check as soon as possible,
-			// but before the enclosing scope contents changes (#22992).
-			check.later(func() {
-				check.funcBody(decl, "<function literal>", sig, e.Body, iota)
-			})
+			if !check.conf.IgnoreFuncBodies && e.Body != nil {
+				// Anonymous functions are considered part of the
+				// init expression/func declaration which contains
+				// them: use existing package-level declaration info.
+				decl := check.decl // capture for use in closure below
+				iota := check.iota // capture for use in closure below (#22345)
+				// Don't type-check right away because the function may
+				// be part of a type definition to which the function
+				// body refers. Instead, type-check as soon as possible,
+				// but before the enclosing scope contents changes (#22992).
+				check.later(func() {
+					check.funcBody(decl, "<function literal>", sig, e.Body, iota)
+				})
+			}
 			x.mode = value
 			x.typ = sig
 		} else {
@@ -1407,6 +1410,11 @@ func (check *Checker) exprInternal(x *operand, e syntax.Expr, hint Type) exprKin
 
 	case *syntax.CallExpr:
 		return check.callExpr(x, e)
+
+	case *syntax.ListExpr:
+		// catch-all for unexpected expression lists
+		check.error(e, "unexpected list of expressions")
+		goto Error
 
 	// case *syntax.UnaryExpr:
 	// 	check.expr(x, e.X)

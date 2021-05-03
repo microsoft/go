@@ -2,8 +2,8 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-//go:build (openbsd && amd64) || (openbsd && arm64)
-// +build openbsd,amd64 openbsd,arm64
+//go:build (openbsd && 386) || (openbsd && amd64) || (openbsd && arm64)
+// +build openbsd,386 openbsd,amd64 openbsd,arm64
 
 package runtime
 
@@ -162,7 +162,7 @@ func nanotime1() int64 {
 func clock_gettime_trampoline()
 
 //go:nosplit
-func walltime1() (int64, int32) {
+func walltime() (int64, int32) {
 	var ts timespec
 	args := struct {
 		clock_id int32

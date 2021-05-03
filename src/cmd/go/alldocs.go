@@ -198,6 +198,8 @@
 // 		a program to use to invoke toolchain programs like vet and asm.
 // 		For example, instead of running asm, the go command will run
 // 		'cmd args /path/to/asm <arguments for asm>'.
+// 		The TOOLEXEC_IMPORTPATH environment variable will be set,
+// 		matching 'go list -f {{.ImportPath}}' for the package being built.
 //
 // The -asmflags, -gccgoflags, -gcflags, and -ldflags flags accept a
 // space-separated list of arguments to pass to an underlying tool
@@ -1219,7 +1221,7 @@
 //
 // Usage:
 //
-// 	go mod tidy [-e] [-v]
+// 	go mod tidy [-e] [-v] [-go=version]
 //
 // Tidy makes sure go.mod matches the source code in the module.
 // It adds any missing modules necessary to build the current module's
@@ -1232,6 +1234,12 @@
 //
 // The -e flag causes tidy to attempt to proceed despite errors
 // encountered while loading packages.
+//
+// The -go flag causes tidy to update the 'go' directive in the go.mod
+// file to the given version, which may change which module dependencies
+// are retained as explicit requirements in the go.mod file.
+// (Go versions 1.17 and higher retain more requirements in order to
+// support lazy module loading.)
 //
 // See https://golang.org/ref/mod#go-mod-tidy for more about 'go mod tidy'.
 //
@@ -2664,6 +2672,13 @@
 // 	    It is off by default but set during all.bash so that installing
 // 	    the Go tree can run a sanity check but not spend time running
 // 	    exhaustive tests.
+//
+// 	-shuffle off,on,N
+// 		Randomize the execution order of tests and benchmarks.
+// 		It is off by default. If -shuffle is set to on, then it will seed
+// 		the randomizer using the system clock. If -shuffle is set to an
+// 		integer N, then N will be used as the seed value. In both cases,
+// 		the seed will be reported for reproducibility.
 //
 // 	-timeout d
 // 	    If a test binary runs longer than duration d, panic.

@@ -86,12 +86,20 @@ type Checker struct {
 	pkg  *Package
 	*Info
 	version version                    // accepted language version
-	nextId  uint64                     // unique Id for type parameters (first valid Id is 1)
 	objMap  map[Object]*declInfo       // maps package-level objects and (non-interface) methods to declaration info
 	impMap  map[importKey]*Package     // maps (import path, source directory) to (complete or fake) package
 	posMap  map[*Interface][]token.Pos // maps interface types to lists of embedded interface positions
 	typMap  map[string]*Named          // maps an instantiated named type hash to a *Named type
-	pkgCnt  map[string]int             // counts number of imported packages with a given name (for better error messages)
+
+	// pkgPathMap maps package names to the set of distinct import paths we've
+	// seen for that name, anywhere in the import graph. It is used for
+	// disambiguating package names in error messages.
+	//
+	// pkgPathMap is allocated lazily, so that we don't pay the price of building
+	// it on the happy path. seenPkgMap tracks the packages that we've already
+	// walked.
+	pkgPathMap map[string]map[string]bool
+	seenPkgMap map[*Package]bool
 
 	// information collected during type-checking of a set of package files
 	// (initialized by Files, valid only for the duration of check.Files;
@@ -182,12 +190,10 @@ func NewChecker(conf *Config, fset *token.FileSet, pkg *Package, info *Info) *Ch
 		pkg:     pkg,
 		Info:    info,
 		version: version,
-		nextId:  1,
 		objMap:  make(map[Object]*declInfo),
 		impMap:  make(map[importKey]*Package),
 		posMap:  make(map[*Interface][]token.Pos),
 		typMap:  make(map[string]*Named),
-		pkgCnt:  make(map[string]int),
 	}
 }
 
@@ -265,9 +271,6 @@ func (check *Checker) checkFiles(files []*ast.File) (err error) {
 	if !check.conf.DisableUnusedImportCheck {
 		check.unusedImports()
 	}
-	// no longer needed - release memory
-	check.imports = nil
-	check.dotImportMap = nil
 
 	check.recordUntyped()
 
@@ -276,6 +279,12 @@ func (check *Checker) checkFiles(files []*ast.File) (err error) {
 	}
 
 	check.pkg.complete = true
+
+	// no longer needed - release memory
+	check.imports = nil
+	check.dotImportMap = nil
+	check.pkgPathMap = nil
+	check.seenPkgMap = nil
 
 	// TODO(rFindley) There's more memory we should release at this point.
 
@@ -295,6 +304,33 @@ func (check *Checker) processDelayed(top int) {
 	}
 	assert(top <= len(check.delayed)) // stack must not have shrunk
 	check.delayed = check.delayed[:top]
+}
+
+func (check *Checker) record(x *operand) {
+	// convert x into a user-friendly set of values
+	// TODO(gri) this code can be simplified
+	var typ Type
+	var val constant.Value
+	switch x.mode {
+	case invalid:
+		typ = Typ[Invalid]
+	case novalue:
+		typ = (*Tuple)(nil)
+	case constant_:
+		typ = x.typ
+		val = x.val
+	default:
+		typ = x.typ
+	}
+	assert(x.expr != nil && typ != nil)
+
+	if isUntyped(typ) {
+		// delay type and value recording until we know the type
+		// or until the end of type checking
+		check.rememberUntyped(x.expr, false, x.mode, typ.(*Basic), val)
+	} else {
+		check.recordTypeAndValue(x.expr, x.mode, typ, val)
+	}
 }
 
 func (check *Checker) recordUntyped() {
