@@ -177,11 +177,18 @@ func (ctxt *Link) setArchSyms() {
 }
 
 type Arch struct {
-	Funcalign      int
-	Maxalign       int
-	Minalign       int
-	Dwarfregsp     int
-	Dwarfreglr     int
+	Funcalign  int
+	Maxalign   int
+	Minalign   int
+	Dwarfregsp int
+	Dwarfreglr int
+
+	// Threshold of total text size, used for trampoline insertion. If the total
+	// text size is smaller than TrampLimit, we won't need to insert trampolines.
+	// It is pretty close to the offset range of a direct CALL machine instruction.
+	// We leave some room for extra stuff like PLT stubs.
+	TrampLimit uint64
+
 	Androiddynld   string
 	Linuxdynld     string
 	Freebsddynld   string
@@ -496,10 +503,8 @@ func (ctxt *Link) loadlib() {
 	default:
 		log.Fatalf("invalid -strictdups flag value %d", *FlagStrictDups)
 	}
-	if !buildcfg.Experiment.RegabiWrappers || ctxt.linkShared {
+	if !buildcfg.Experiment.RegabiWrappers {
 		// Use ABI aliases if ABI wrappers are not used.
-		// TODO: for now we still use ABI aliases in shared linkage, even if
-		// the wrapper is enabled.
 		flags |= loader.FlagUseABIAlias
 	}
 	elfsetstring1 := func(str string, off int) { elfsetstring(ctxt, 0, str, off) }
@@ -539,7 +544,10 @@ func (ctxt *Link) loadlib() {
 	// up symbol by name may not get expected result.
 
 	iscgo = ctxt.LibraryByPkg["runtime/cgo"] != nil
-	ctxt.canUsePlugins = ctxt.LibraryByPkg["plugin"] != nil
+
+	// Plugins a require cgo support to function. Similarly, plugins may require additional
+	// internal linker support on some platforms which may not be implemented.
+	ctxt.canUsePlugins = ctxt.LibraryByPkg["plugin"] != nil && iscgo
 
 	// We now have enough information to determine the link mode.
 	determineLinkMode(ctxt)
@@ -1517,12 +1525,13 @@ func (ctxt *Link) hostlink() {
 	// even when linking with -static, causing a linker
 	// error when using GNU ld. So take out -rdynamic if
 	// we added it. We do it in this order, rather than
-	// only adding -rdynamic later, so that -*extldflags
+	// only adding -rdynamic later, so that -extldflags
 	// can override -rdynamic without using -static.
+	// Similarly for -Wl,--dynamic-linker.
 	checkStatic := func(arg string) {
 		if ctxt.IsELF && arg == "-static" {
 			for i := range argv {
-				if argv[i] == "-rdynamic" {
+				if argv[i] == "-rdynamic" || strings.HasPrefix(argv[i], "-Wl,--dynamic-linker,") {
 					argv[i] = "-static"
 				}
 			}
@@ -2077,25 +2086,6 @@ func ldshlibsyms(ctxt *Link, shlib string) {
 		return
 	}
 
-	// collect text symbol ABI versions.
-	symabi := make(map[string]int) // map (unmangled) symbol name to version
-	if buildcfg.Experiment.RegabiWrappers {
-		for _, elfsym := range syms {
-			if elf.ST_TYPE(elfsym.Info) != elf.STT_FUNC {
-				continue
-			}
-			// Demangle the name. Keep in sync with symtab.go:putelfsym.
-			if strings.HasSuffix(elfsym.Name, ".abiinternal") {
-				// ABIInternal symbol has mangled name, so the primary symbol is ABI0.
-				symabi[strings.TrimSuffix(elfsym.Name, ".abiinternal")] = 0
-			}
-			if strings.HasSuffix(elfsym.Name, ".abi0") {
-				// ABI0 symbol has mangled name, so the primary symbol is ABIInternal.
-				symabi[strings.TrimSuffix(elfsym.Name, ".abi0")] = sym.SymVerABIInternal
-			}
-		}
-	}
-
 	for _, elfsym := range syms {
 		if elf.ST_TYPE(elfsym.Info) == elf.STT_NOTYPE || elf.ST_TYPE(elfsym.Info) == elf.STT_SECTION {
 			continue
@@ -2108,14 +2098,13 @@ func ldshlibsyms(ctxt *Link, shlib string) {
 		if elf.ST_TYPE(elfsym.Info) == elf.STT_FUNC && strings.HasPrefix(elfsym.Name, "type.") {
 			ver = sym.SymVerABIInternal
 		} else if buildcfg.Experiment.RegabiWrappers && elf.ST_TYPE(elfsym.Info) == elf.STT_FUNC {
+			// Demangle the ABI name. Keep in sync with symtab.go:mangleABIName.
 			if strings.HasSuffix(elfsym.Name, ".abiinternal") {
 				ver = sym.SymVerABIInternal
 				symname = strings.TrimSuffix(elfsym.Name, ".abiinternal")
 			} else if strings.HasSuffix(elfsym.Name, ".abi0") {
 				ver = 0
 				symname = strings.TrimSuffix(elfsym.Name, ".abi0")
-			} else if abi, ok := symabi[elfsym.Name]; ok {
-				ver = abi
 			}
 		}
 
@@ -2149,19 +2138,9 @@ func ldshlibsyms(ctxt *Link, shlib string) {
 			l.SetSymExtname(s, elfsym.Name)
 		}
 
-		// For function symbols, we don't know what ABI is
-		// available, so alias it under both ABIs.
-		//
-		// TODO(austin): This is almost certainly wrong once
-		// the ABIs are actually different. We might have to
-		// mangle Go function names in the .so to include the
-		// ABI.
-		if elf.ST_TYPE(elfsym.Info) == elf.STT_FUNC && ver == 0 {
-			if buildcfg.Experiment.RegabiWrappers {
-				if _, ok := symabi[symname]; ok {
-					continue // only use alias for functions w/o ABI wrappers
-				}
-			}
+		// For function symbols, if ABI wrappers are not used, we don't
+		// know what ABI is available, so alias it under both ABIs.
+		if !buildcfg.Experiment.RegabiWrappers && elf.ST_TYPE(elfsym.Info) == elf.STT_FUNC && ver == 0 {
 			alias := ctxt.loader.LookupOrCreateSym(symname, sym.SymVerABIInternal)
 			if l.SymType(alias) != 0 {
 				continue

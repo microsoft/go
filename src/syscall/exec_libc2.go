@@ -2,8 +2,8 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-//go:build darwin || (openbsd && amd64) || (openbsd && arm64)
-// +build darwin openbsd,amd64 openbsd,arm64
+//go:build darwin || (openbsd && 386) || (openbsd && amd64) || (openbsd && arm64)
+// +build darwin openbsd,386 openbsd,amd64 openbsd,arm64
 
 package syscall
 
@@ -91,8 +91,6 @@ func forkAndExecInChild(argv0 *byte, argv, envv []*byte, chroot, dir *byte, attr
 
 	// Fork succeeded, now in child.
 
-	runtime_AfterForkInChild()
-
 	// Enable tracing if requested.
 	if sys.Ptrace {
 		if err := ptrace(PTRACE_TRACEME, 0, 0, 0); err != nil {
@@ -135,6 +133,10 @@ func forkAndExecInChild(argv0 *byte, argv, envv []*byte, chroot, dir *byte, attr
 			goto childerror
 		}
 	}
+
+	// Restore the signal mask. We do this after TIOCSPGRP to avoid
+	// having the kernel send a SIGTTOU signal to the process group.
+	runtime_AfterForkInChild()
 
 	// Chroot
 	if chroot != nil {

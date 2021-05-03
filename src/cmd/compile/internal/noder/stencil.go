@@ -52,6 +52,8 @@ func (g *irgen) stencil() {
 				// Skip any generic functions
 				continue
 			}
+			// transformCall() below depends on CurFunc being set.
+			ir.CurFunc = decl.(*ir.Func)
 
 		case ir.OAS, ir.OAS2, ir.OAS2DOTTYPE, ir.OAS2FUNC, ir.OAS2MAPR, ir.OAS2RECV, ir.OASOP:
 			// These are all the various kinds of global assignments,
@@ -127,6 +129,7 @@ func (g *irgen) stencil() {
 		if base.Flag.W > 1 && modified {
 			ir.Dump(fmt.Sprintf("\nmodified %v", decl), decl)
 		}
+		ir.CurFunc = nil
 		// We may have seen new fully-instantiated generic types while
 		// instantiating any needed functions/methods in the above
 		// function. If so, instantiate all the methods of those types
@@ -275,6 +278,9 @@ func (g *irgen) genericSubst(newsym *types.Sym, nameNode *ir.Name, targs []ir.No
 	newf.Nname.Func = newf
 	newf.Nname.Defn = newf
 	newsym.Def = newf.Nname
+	savef := ir.CurFunc
+	// transformCall/transformReturn (called during stenciling of the body)
+	// depend on ir.CurFunc being set.
 	ir.CurFunc = newf
 
 	assert(len(tparams) == len(targs))
@@ -310,7 +316,7 @@ func (g *irgen) genericSubst(newsym *types.Sym, nameNode *ir.Name, targs []ir.No
 
 	// Make sure name/type of newf is set before substituting the body.
 	newf.Body = subst.list(gf.Body)
-	ir.CurFunc = nil
+	ir.CurFunc = savef
 
 	return newf
 }
@@ -661,7 +667,10 @@ func instTypeName(name string, targs []*types.Type) string {
 // result is t; otherwise the result is a new type. It deals with recursive types
 // by using TFORW types and finding partially or fully created types via sym.Def.
 func (subst *subster) typ(t *types.Type) *types.Type {
-	if !t.HasTParam() {
+	if !t.HasTParam() && t.Kind() != types.TFUNC {
+		// Note: function types need to be copied regardless, as the
+		// types of closures may contain declarations that need
+		// to be copied. See #45738.
 		return t
 	}
 

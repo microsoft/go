@@ -720,7 +720,7 @@ var optab = []Optab{
 	{AFSTPQ, C_PAIR, C_NONE, C_NONE, C_PQAUTO_16, 67, 4, REGSP, 0, C_XPRE},
 	{AFSTPQ, C_PAIR, C_NONE, C_NONE, C_PQAUTO_16, 67, 4, REGSP, 0, C_XPOST},
 	{AFSTPQ, C_PAIR, C_NONE, C_NONE, C_UAUTO4K, 76, 8, REGSP, 0, 0},
-	{AFSTPQ, C_PAIR, C_NONE, C_NONE, C_NAUTO4K, 76, 12, REGSP, 0, 0},
+	{AFSTPQ, C_PAIR, C_NONE, C_NONE, C_NAUTO4K, 76, 8, REGSP, 0, 0},
 	{AFSTPQ, C_PAIR, C_NONE, C_NONE, C_LAUTO, 77, 12, REGSP, LTO, 0},
 	{AFSTPQ, C_PAIR, C_NONE, C_NONE, C_NQOREG_16, 67, 4, 0, 0, 0},
 	{AFSTPQ, C_PAIR, C_NONE, C_NONE, C_NQOREG_16, 67, 4, 0, 0, C_XPRE},
@@ -760,7 +760,7 @@ var optab = []Optab{
 	{ASTP, C_PAIR, C_NONE, C_NONE, C_PPAUTO, 67, 4, REGSP, 0, C_XPRE},
 	{ASTP, C_PAIR, C_NONE, C_NONE, C_PPAUTO, 67, 4, REGSP, 0, C_XPOST},
 	{ASTP, C_PAIR, C_NONE, C_NONE, C_UAUTO4K, 76, 8, REGSP, 0, 0},
-	{ASTP, C_PAIR, C_NONE, C_NONE, C_NAUTO4K, 76, 12, REGSP, 0, 0},
+	{ASTP, C_PAIR, C_NONE, C_NONE, C_NAUTO4K, 76, 8, REGSP, 0, 0},
 	{ASTP, C_PAIR, C_NONE, C_NONE, C_LAUTO, 77, 12, REGSP, LTO, 0},
 	{ASTP, C_PAIR, C_NONE, C_NONE, C_NPOREG, 67, 4, 0, 0, 0},
 	{ASTP, C_PAIR, C_NONE, C_NONE, C_NPOREG, 67, 4, 0, 0, C_XPRE},
@@ -801,7 +801,7 @@ var optab = []Optab{
 	{ASTPW, C_PAIR, C_NONE, C_NONE, C_PSAUTO_4, 67, 4, REGSP, 0, C_XPRE},
 	{ASTPW, C_PAIR, C_NONE, C_NONE, C_PSAUTO_4, 67, 4, REGSP, 0, C_XPOST},
 	{ASTPW, C_PAIR, C_NONE, C_NONE, C_UAUTO4K, 76, 8, REGSP, 0, 0},
-	{ASTPW, C_PAIR, C_NONE, C_NONE, C_NAUTO4K, 76, 12, REGSP, 0, 0},
+	{ASTPW, C_PAIR, C_NONE, C_NONE, C_NAUTO4K, 76, 8, REGSP, 0, 0},
 	{ASTPW, C_PAIR, C_NONE, C_NONE, C_LAUTO, 77, 12, REGSP, LTO, 0},
 	{ASTPW, C_PAIR, C_NONE, C_NONE, C_NSOREG_4, 67, 4, 0, 0, 0},
 	{ASTPW, C_PAIR, C_NONE, C_NONE, C_NSOREG_4, 67, 4, 0, 0, C_XPRE},
@@ -3621,7 +3621,7 @@ func (c *ctxt7) asmout(p *obj.Prog, o *Optab, out []uint32) {
 		v := int32(p.From.Offset)
 
 		if v < -256 || v > 255 {
-			c.ctxt.Diag("offset out of range [-255,254]: %v", p)
+			c.ctxt.Diag("offset out of range [-256,255]: %v", p)
 		}
 		o1 = c.opldr(p, p.As)
 		if o.scond == C_XPOST {
@@ -3639,7 +3639,7 @@ func (c *ctxt7) asmout(p *obj.Prog, o *Optab, out []uint32) {
 		v := int32(p.To.Offset)
 
 		if v < -256 || v > 255 {
-			c.ctxt.Diag("offset out of range [-255,254]: %v", p)
+			c.ctxt.Diag("offset out of range [-256,255]: %v", p)
 		}
 		o1 = c.opstr(p, p.As)
 		if o.scond == C_XPOST {

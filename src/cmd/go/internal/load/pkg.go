@@ -1846,6 +1846,14 @@ func (p *Package) load(ctx context.Context, opts PackageOpts, path string, stk *
 	stk.Push(path)
 	defer stk.Pop()
 
+	pkgPath := p.ImportPath
+	if p.Internal.CmdlineFiles {
+		pkgPath = "command-line-arguments"
+	}
+	if cfg.ModulesEnabled {
+		p.Module = modload.PackageModuleInfo(ctx, pkgPath)
+	}
+
 	p.EmbedFiles, p.Internal.Embed, err = resolveEmbed(p.Dir, p.EmbedPatterns)
 	if err != nil {
 		p.Incomplete = true
@@ -1905,6 +1913,10 @@ func (p *Package) load(ctx context.Context, opts PackageOpts, path string, stk *
 	p.Internal.Imports = imports
 	p.collectDeps()
 
+	if cfg.ModulesEnabled && p.Error == nil && p.Name == "main" && len(p.DepsErrors) == 0 {
+		p.Internal.BuildInfo = modload.PackageBuildInfo(pkgPath, p.Deps)
+	}
+
 	// unsafe is a fake package.
 	if p.Standard && (p.ImportPath == "unsafe" || cfg.BuildContext.Compiler == "gccgo") {
 		p.Target = ""
@@ -1943,17 +1955,6 @@ func (p *Package) load(ctx context.Context, opts PackageOpts, path string, stk *
 	if len(p.FFiles) > 0 && !p.UsesCgo() && !p.UsesSwig() {
 		setError(fmt.Errorf("Fortran source files not allowed when not using cgo or SWIG: %s", strings.Join(p.FFiles, " ")))
 		return
-	}
-
-	if cfg.ModulesEnabled && p.Error == nil {
-		mainPath := p.ImportPath
-		if p.Internal.CmdlineFiles {
-			mainPath = "command-line-arguments"
-		}
-		p.Module = modload.PackageModuleInfo(ctx, mainPath)
-		if p.Name == "main" && len(p.DepsErrors) == 0 {
-			p.Internal.BuildInfo = modload.PackageBuildInfo(mainPath, p.Deps)
-		}
 	}
 }
 
@@ -2433,7 +2434,7 @@ func PackagesAndErrors(ctx context.Context, opts PackageOpts, patterns []string)
 		modOpts := modload.PackageOpts{
 			ResolveMissingImports: true,
 			LoadTests:             opts.ModResolveTests,
-			SilenceErrors:         true,
+			SilencePackageErrors:  true,
 		}
 		matches, _ = modload.LoadPackages(ctx, modOpts, patterns...)
 	} else {
@@ -2563,7 +2564,7 @@ func mainPackagesOnly(pkgs []*Package, patterns []string) []*Package {
 	mainCount := make([]int, len(patterns))
 	nonMainCount := make([]int, len(patterns))
 	for _, pkg := range pkgs {
-		if pkg.Name == "main" {
+		if pkg.Name == "main" || (pkg.Incomplete && pkg.Name == "") {
 			matchedPkgs = append(matchedPkgs, pkg)
 			for i := range patterns {
 				if matchers[i] != nil && matchers[i](pkg.ImportPath) {

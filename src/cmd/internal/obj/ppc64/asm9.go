@@ -222,16 +222,14 @@ var optab = []Optab{
 	{as: AMOVD, a1: C_ADDCON, a6: C_REG, type_: 3, size: 4},
 	{as: AMOVD, a1: C_ANDCON, a6: C_REG, type_: 3, size: 4},
 	{as: AMOVD, a1: C_UCON, a6: C_REG, type_: 3, size: 4},
-	{as: AMOVD, a1: C_SACON, a6: C_REG, type_: 3, size: 4},
-	{as: AMOVD, a1: C_ADDR, a6: C_REG, type_: 75, size: 8},
 	{as: AMOVD, a1: C_LCON, a6: C_REG, type_: 19, size: 8},
-	{as: AMOVD, a1: C_GOTADDR, a6: C_REG, type_: 81, size: 8},
+	{as: AMOVD, a1: C_SACON, a6: C_REG, type_: 3, size: 4},
 	{as: AMOVD, a1: C_LACON, a6: C_REG, type_: 26, size: 8},
+	{as: AMOVD, a1: C_ADDR, a6: C_REG, type_: 75, size: 8},
 	{as: AMOVD, a1: C_SOREG, a6: C_REG, type_: 8, size: 4},
 	{as: AMOVD, a1: C_LOREG, a6: C_REG, type_: 36, size: 8},
 	{as: AMOVD, a1: C_TLS_LE, a6: C_REG, type_: 79, size: 8},
 	{as: AMOVD, a1: C_TLS_IE, a6: C_REG, type_: 80, size: 12},
-	{as: AMOVD, a1: C_TOCADDR, a6: C_REG, type_: 95, size: 8},
 	{as: AMOVD, a1: C_SPR, a6: C_REG, type_: 66, size: 4},
 	{as: AMOVD, a1: C_REG, a6: C_ADDR, type_: 74, size: 8},
 	{as: AMOVD, a1: C_REG, a6: C_SOREG, type_: 7, size: 4},
@@ -242,11 +240,11 @@ var optab = []Optab{
 	{as: AMOVW, a1: C_ADDCON, a6: C_REG, type_: 3, size: 4},
 	{as: AMOVW, a1: C_ANDCON, a6: C_REG, type_: 3, size: 4},
 	{as: AMOVW, a1: C_UCON, a6: C_REG, type_: 3, size: 4},
-	{as: AMOVW, a1: C_SACON, a6: C_REG, type_: 3, size: 4},
-	{as: AMOVW, a1: C_ADDR, a6: C_REG, type_: 75, size: 8},
 	{as: AMOVW, a1: C_LCON, a6: C_REG, type_: 19, size: 8},
-	{as: AMOVW, a1: C_CREG, a6: C_REG, type_: 68, size: 4},
+	{as: AMOVW, a1: C_SACON, a6: C_REG, type_: 3, size: 4},
 	{as: AMOVW, a1: C_LACON, a6: C_REG, type_: 26, size: 8},
+	{as: AMOVW, a1: C_ADDR, a6: C_REG, type_: 75, size: 8},
+	{as: AMOVW, a1: C_CREG, a6: C_REG, type_: 68, size: 4},
 	{as: AMOVW, a1: C_SOREG, a6: C_REG, type_: 8, size: 4},
 	{as: AMOVW, a1: C_LOREG, a6: C_REG, type_: 36, size: 8},
 	{as: AMOVW, a1: C_SPR, a6: C_REG, type_: 66, size: 4},
@@ -304,6 +302,7 @@ var optab = []Optab{
 	{as: AWORD, a1: C_LCON, type_: 40, size: 4},
 	{as: ADWORD, a1: C_LCON, type_: 31, size: 8},
 	{as: ADWORD, a1: C_DCON, type_: 31, size: 8},
+	{as: ADWORD, a1: C_LACON, type_: 31, size: 8},
 	{as: AADDME, a1: C_REG, a6: C_REG, type_: 47, size: 4},
 	{as: AEXTSB, a1: C_REG, a6: C_REG, type_: 48, size: 4},
 	{as: AEXTSB, a6: C_REG, type_: 48, size: 4},
@@ -790,29 +789,24 @@ func (c *ctxt9) aclass(a *obj.Addr) int {
 
 	case obj.TYPE_MEM:
 		switch a.Name {
+		case obj.NAME_GOTREF, obj.NAME_TOCREF:
+			return C_ADDR
+
 		case obj.NAME_EXTERN,
 			obj.NAME_STATIC:
+			c.instoffset = a.Offset
 			if a.Sym == nil {
 				break
-			}
-			c.instoffset = a.Offset
-			if a.Sym != nil { // use relocation
-				if a.Sym.Type == objabi.STLSBSS {
-					if c.ctxt.Flag_shared {
-						return C_TLS_IE
-					} else {
-						return C_TLS_LE
-					}
+			} else if a.Sym.Type == objabi.STLSBSS {
+				// For PIC builds, use 12 byte got initial-exec TLS accesses.
+				if c.ctxt.Flag_shared {
+					return C_TLS_IE
 				}
+				// Otherwise, use 8 byte local-exec TLS accesses.
+				return C_TLS_LE
+			} else {
 				return C_ADDR
 			}
-			return C_LOREG
-
-		case obj.NAME_GOTREF:
-			return C_GOTADDR
-
-		case obj.NAME_TOCREF:
-			return C_TOCADDR
 
 		case obj.NAME_AUTO:
 			c.instoffset = int64(c.autosize) + a.Offset
@@ -877,11 +871,8 @@ func (c *ctxt9) aclass(a *obj.Addr) int {
 			if s == nil {
 				return C_GOK
 			}
-
 			c.instoffset = a.Offset
-
-			/* not sure why this barfs */
-			return C_LCON
+			return C_LACON
 
 		case obj.NAME_AUTO:
 			c.instoffset = int64(c.autosize) + a.Offset
@@ -2775,13 +2766,8 @@ func (c *ctxt9) asmout(p *obj.Prog, o *Optab, out []uint32) {
 
 	case 19: /* mov $lcon,r ==> cau+or */
 		d := c.vregoff(&p.From)
-
-		if p.From.Sym == nil {
-			o1 = loadu32(int(p.To.Reg), d)
-			o2 = LOP_IRR(OP_ORI, uint32(p.To.Reg), uint32(p.To.Reg), uint32(int32(d)))
-		} else {
-			o1, o2 = c.symbolAccess(p.From.Sym, d, p.To.Reg, OP_ADDI)
-		}
+		o1 = loadu32(int(p.To.Reg), d)
+		o2 = LOP_IRR(OP_ORI, uint32(p.To.Reg), uint32(p.To.Reg), uint32(int32(d)))
 
 	case 20: /* add $ucon,,r | addis $addcon,r,r */
 		v := c.regoff(&p.From)
@@ -2899,16 +2885,21 @@ func (c *ctxt9) asmout(p *obj.Prog, o *Optab, out []uint32) {
 		}
 
 	case 26: /* mov $lsext/auto/oreg,,r2 ==> addis+addi */
-		if p.To.Reg == REGTMP {
-			c.ctxt.Diag("can't synthesize large constant\n%v", p)
-		}
-		v := c.regoff(&p.From)
+		v := c.vregoff(&p.From)
 		r := int(p.From.Reg)
-		if r == 0 {
-			r = c.getimpliedreg(&p.From, p)
+
+		switch p.From.Name {
+		case obj.NAME_EXTERN, obj.NAME_STATIC:
+			// Load a 32 bit constant, or relocation depending on if a symbol is attached
+			o1, o2 = c.symbolAccess(p.From.Sym, v, p.To.Reg, OP_ADDI)
+		default:
+			if r == 0 {
+				r = c.getimpliedreg(&p.From, p)
+			}
+			// Add a 32 bit offset to a register.
+			o1 = AOP_IRR(OP_ADDIS, REGTMP, uint32(r), uint32(high16adjusted(int32(v))))
+			o2 = AOP_IRR(OP_ADDI, uint32(p.To.Reg), REGTMP, uint32(v))
 		}
-		o1 = AOP_IRR(OP_ADDIS, REGTMP, uint32(r), uint32(high16adjusted(v)))
-		o2 = AOP_IRR(OP_ADDI, uint32(p.To.Reg), REGTMP, uint32(v))
 
 	case 27: /* subc ra,$simm,rd => subfic rd,ra,$simm */
 		v := c.regoff(p.GetFrom3())
@@ -3437,18 +3428,34 @@ func (c *ctxt9) asmout(p *obj.Prog, o *Optab, out []uint32) {
 		}
 		o1, o2 = c.symbolAccess(p.To.Sym, v, p.From.Reg, inst)
 
-	//if(dlm) reloc(&p->to, p->pc, 1);
+	case 75: // 32 bit offset symbol loads (got/toc/addr)
+		v := p.From.Offset
 
-	case 75:
-		v := c.vregoff(&p.From)
 		// Offsets in DS form loads must be a multiple of 4
 		inst := c.opload(p.As)
 		if c.opform(inst) == DS_FORM && v&0x3 != 0 {
 			log.Fatalf("invalid offset for DS form load/store %v", p)
 		}
-		o1, o2 = c.symbolAccess(p.From.Sym, v, p.To.Reg, inst)
-
-	//if(dlm) reloc(&p->from, p->pc, 1);
+		switch p.From.Name {
+		case obj.NAME_GOTREF, obj.NAME_TOCREF:
+			if v != 0 {
+				c.ctxt.Diag("invalid offset for GOT/TOC access %v", p)
+			}
+			o1 = AOP_IRR(OP_ADDIS, uint32(p.To.Reg), REG_R2, 0)
+			o2 = AOP_IRR(inst, uint32(p.To.Reg), uint32(p.To.Reg), 0)
+			rel := obj.Addrel(c.cursym)
+			rel.Off = int32(c.pc)
+			rel.Siz = 8
+			rel.Sym = p.From.Sym
+			switch p.From.Name {
+			case obj.NAME_GOTREF:
+				rel.Type = objabi.R_ADDRPOWER_GOT
+			case obj.NAME_TOCREF:
+				rel.Type = objabi.R_ADDRPOWER_TOCREL_DS
+			}
+		default:
+			o1, o2 = c.symbolAccess(p.From.Sym, v, p.To.Reg, inst)
+		}
 
 	case 76:
 		v := c.vregoff(&p.From)
@@ -3459,8 +3466,6 @@ func (c *ctxt9) asmout(p *obj.Prog, o *Optab, out []uint32) {
 		}
 		o1, o2 = c.symbolAccess(p.From.Sym, v, p.To.Reg, inst)
 		o3 = LOP_RRR(OP_EXTSB, uint32(p.To.Reg), uint32(p.To.Reg), 0)
-
-		//if(dlm) reloc(&p->from, p->pc, 1);
 
 	case 79:
 		if p.From.Offset != 0 {
@@ -3492,19 +3497,6 @@ func (c *ctxt9) asmout(p *obj.Prog, o *Optab, out []uint32) {
 		rel.Sym = p.From.Sym
 		rel.Type = objabi.R_POWER_TLS
 
-	case 81:
-		v := c.vregoff(&p.To)
-		if v != 0 {
-			c.ctxt.Diag("invalid offset against GOT slot %v", p)
-		}
-
-		o1 = AOP_IRR(OP_ADDIS, uint32(p.To.Reg), REG_R2, 0)
-		o2 = AOP_IRR(c.opload(AMOVD), uint32(p.To.Reg), uint32(p.To.Reg), 0)
-		rel := obj.Addrel(c.cursym)
-		rel.Off = int32(c.pc)
-		rel.Siz = 8
-		rel.Sym = p.From.Sym
-		rel.Type = objabi.R_ADDRPOWER_GOT
 	case 82: /* vector instructions, VX-form and VC-form */
 		if p.From.Type == obj.TYPE_REG {
 			/* reg reg none OR reg reg reg */
@@ -3672,26 +3664,6 @@ func (c *ctxt9) asmout(p *obj.Prog, o *Optab, out []uint32) {
 		/* operand order: RA, RB, CY, RT */
 		cy := int(c.regoff(p.GetFrom3()))
 		o1 = AOP_Z23I(c.oprrr(p.As), uint32(p.To.Reg), uint32(p.From.Reg), uint32(p.Reg), uint32(cy))
-
-	case 95: /* Retrieve TOC relative symbol */
-		/* This code is for AIX only */
-		v := c.vregoff(&p.From)
-		if v != 0 {
-			c.ctxt.Diag("invalid offset against TOC slot %v", p)
-		}
-
-		inst := c.opload(p.As)
-		if c.opform(inst) != DS_FORM {
-			c.ctxt.Diag("invalid form for a TOC access in %v", p)
-		}
-
-		o1 = AOP_IRR(OP_ADDIS, uint32(p.To.Reg), REG_R2, 0)
-		o2 = AOP_IRR(inst, uint32(p.To.Reg), uint32(p.To.Reg), 0)
-		rel := obj.Addrel(c.cursym)
-		rel.Off = int32(c.pc)
-		rel.Siz = 8
-		rel.Sym = p.From.Sym
-		rel.Type = objabi.R_ADDRPOWER_TOCREL_DS
 
 	case 96: /* VSX load, DQ-form */
 		/* reg imm reg */

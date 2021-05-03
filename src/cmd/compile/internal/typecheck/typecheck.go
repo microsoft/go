@@ -596,6 +596,10 @@ func typecheck1(n ir.Node, top int) ir.Node {
 	case ir.OANDAND, ir.OOROR:
 		n := n.(*ir.LogicalExpr)
 		n.X, n.Y = Expr(n.X), Expr(n.Y)
+		if n.X.Type() == nil || n.Y.Type() == nil {
+			n.SetType(nil)
+			return n
+		}
 		// For "x == x && len(s)", it's better to report that "len(s)" (type int)
 		// can't be used with "&&" than to report that "x == x" (type untyped bool)
 		// can't be converted to int (see issue #41500).
@@ -770,6 +774,14 @@ func typecheck1(n ir.Node, top int) ir.Node {
 	case ir.ORECOVER:
 		n := n.(*ir.CallExpr)
 		return tcRecover(n)
+
+	case ir.OUNSAFEADD:
+		n := n.(*ir.BinaryExpr)
+		return tcUnsafeAdd(n)
+
+	case ir.OUNSAFESLICE:
+		n := n.(*ir.BinaryExpr)
+		return tcUnsafeSlice(n)
 
 	case ir.OCLOSURE:
 		n := n.(*ir.ClosureExpr)
@@ -1318,6 +1330,9 @@ func typecheckaste(op ir.Op, call ir.Node, isddd bool, tstruct *types.Type, nl i
 	n1 := tstruct.NumFields()
 	n2 := len(nl)
 	if !hasddd(tstruct) {
+		if isddd {
+			goto invalidddd
+		}
 		if n2 > n1 {
 			goto toomany
 		}
@@ -1383,6 +1398,8 @@ func typecheckaste(op ir.Op, call ir.Node, isddd bool, tstruct *types.Type, nl i
 	if i < len(nl) {
 		goto toomany
 	}
+
+invalidddd:
 	if isddd {
 		if call != nil {
 			base.Errorf("invalid use of ... in call to %v", call)
@@ -1924,6 +1941,35 @@ func checkmake(t *types.Type, arg string, np *ir.Node) bool {
 	// are the same as for index expressions. Factor the code better;
 	// for instance, indexlit might be called here and incorporate some
 	// of the bounds checks done for make.
+	n = DefaultLit(n, types.Types[types.TINT])
+	*np = n
+
+	return true
+}
+
+// checkunsafeslice is like checkmake but for unsafe.Slice.
+func checkunsafeslice(np *ir.Node) bool {
+	n := *np
+	if !n.Type().IsInteger() && n.Type().Kind() != types.TIDEAL {
+		base.Errorf("non-integer len argument in unsafe.Slice - %v", n.Type())
+		return false
+	}
+
+	// Do range checks for constants before DefaultLit
+	// to avoid redundant "constant NNN overflows int" errors.
+	if n.Op() == ir.OLITERAL {
+		v := toint(n.Val())
+		if constant.Sign(v) < 0 {
+			base.Errorf("negative len argument in unsafe.Slice")
+			return false
+		}
+		if ir.ConstOverflow(v, types.Types[types.TINT]) {
+			base.Errorf("len argument too large in unsafe.Slice")
+			return false
+		}
+	}
+
+	// DefaultLit is necessary for non-constants too: n might be 1.1<<k.
 	n = DefaultLit(n, types.Types[types.TINT])
 	*np = n
 

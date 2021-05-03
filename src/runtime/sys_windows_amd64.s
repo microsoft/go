@@ -5,6 +5,7 @@
 #include "go_asm.h"
 #include "go_tls.h"
 #include "textflag.h"
+#include "time_windows.h"
 #include "cgo/abi_amd64.h"
 
 // maxargs should be divisible by 2, as Windows stack
@@ -148,7 +149,7 @@ TEXT sigtramp<>(SB),NOSPLIT|NOFRAME,$0-0
 	// and re-save old SP for restoring later.
 	// Adjust g0 stack by the space we're using and
 	// save SP at the same place on the g0 stack.
-	// The 32(DI) here must match the 32(SP) above.
+	// The 40(DI) here must match the 40(SP) above.
 	SUBQ	$(REGS_HOST_TO_ABI0_STACK + 48), DI
 	MOVQ	SP, 40(DI)
 	MOVQ	DI, SP
@@ -341,16 +342,6 @@ TEXT runtime·switchtothread(SB),NOSPLIT|NOFRAME,$0
 	MOVQ	32(SP), SP
 	RET
 
-// See https://wrkhpi.wordpress.com/2007/08/09/getting-os-information-the-kuser_shared_data-structure/
-// Archived copy at:
-// http://web.archive.org/web/20210411000829/https://wrkhpi.wordpress.com/2007/08/09/getting-os-information-the-kuser_shared_data-structure/
-// Must read hi1, then lo, then hi2. The snapshot is valid if hi1 == hi2.
-#define _INTERRUPT_TIME 0x7ffe0008
-#define _SYSTEM_TIME 0x7ffe0014
-#define time_lo 0
-#define time_hi1 4
-#define time_hi2 8
-
 TEXT runtime·nanotime1(SB),NOSPLIT,$0-8
 	CMPB	runtime·useQPCTime(SB), $0
 	JNE	useQPC
@@ -368,52 +359,6 @@ loop:
 	RET
 useQPC:
 	JMP	runtime·nanotimeQPC(SB)
-	RET
-
-TEXT time·now(SB),NOSPLIT,$0-24
-	CMPB	runtime·useQPCTime(SB), $0
-	JNE	useQPC
-	MOVQ	$_INTERRUPT_TIME, DI
-loop:
-	MOVL	time_hi1(DI), AX
-	MOVL	time_lo(DI), BX
-	MOVL	time_hi2(DI), CX
-	CMPL	AX, CX
-	JNE	loop
-	SHLQ	$32, AX
-	ORQ	BX, AX
-	IMULQ	$100, AX
-	MOVQ	AX, mono+16(FP)
-
-	MOVQ	$_SYSTEM_TIME, DI
-wall:
-	MOVL	time_hi1(DI), AX
-	MOVL	time_lo(DI), BX
-	MOVL	time_hi2(DI), CX
-	CMPL	AX, CX
-	JNE	wall
-	SHLQ	$32, AX
-	ORQ	BX, AX
-	MOVQ	$116444736000000000, DI
-	SUBQ	DI, AX
-	IMULQ	$100, AX
-
-	// generated code for
-	//	func f(x uint64) (uint64, uint64) { return x/1000000000, x%100000000 }
-	// adapted to reduce duplication
-	MOVQ	AX, CX
-	MOVQ	$1360296554856532783, AX
-	MULQ	CX
-	ADDQ	CX, DX
-	RCRQ	$1, DX
-	SHRQ	$29, DX
-	MOVQ	DX, sec+0(FP)
-	IMULQ	$1000000000, DX
-	SUBQ	DX, CX
-	MOVL	CX, nsec+8(FP)
-	RET
-useQPC:
-	JMP	runtime·nowQPC(SB)
 	RET
 
 // func osSetupTLS(mp *m)

@@ -2,8 +2,8 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-//go:build openbsd && !amd64 && !arm64
-// +build openbsd,!amd64,!arm64
+//go:build openbsd && !386 && !amd64 && !arm64
+// +build openbsd,!386,!amd64,!arm64
 
 package runtime
 
@@ -98,4 +98,4 @@ func sigaltstack(new, old *stackt)
 func closeonexec(fd int32)
 func setNonblock(fd int32)
 
-func walltime1() (sec int64, nsec int32)
+func walltime() (sec int64, nsec int32)

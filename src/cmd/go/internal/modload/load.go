@@ -49,7 +49,7 @@ package modload
 // Because "go mod vendor" prunes out the tests of vendored packages, the
 // behavior of the "all" pattern with -mod=vendor in Go 1.11–1.15 is the same
 // as the "all" pattern (regardless of the -mod flag) in 1.16+.
-// The allClosesOverTests parameter to the loader indicates whether the "all"
+// The loader uses the GoVersion parameter to determine whether the "all"
 // pattern should close over tests (as in Go 1.11–1.15) or stop at only those
 // packages transitively imported by the packages and tests in the main module
 // ("all" in Go 1.16+ and "go mod vendor" in Go 1.11+).
@@ -121,6 +121,7 @@ import (
 	"cmd/go/internal/str"
 
 	"golang.org/x/mod/module"
+	"golang.org/x/mod/semver"
 )
 
 // loaded is the most recently-used package loader.
@@ -133,6 +134,14 @@ var loaded *loader
 
 // PackageOpts control the behavior of the LoadPackages function.
 type PackageOpts struct {
+	// GoVersion is the Go version to which the go.mod file should be updated
+	// after packages have been loaded.
+	//
+	// An empty GoVersion means to use the Go version already specified in the
+	// main module's go.mod file, or the latest Go version if there is no main
+	// module.
+	GoVersion string
+
 	// Tags are the build tags in effect (as interpreted by the
 	// cmd/go/internal/imports package).
 	// If nil, treated as equivalent to imports.Tags().
@@ -180,9 +189,16 @@ type PackageOpts struct {
 	// an error occurs.
 	AllowErrors bool
 
-	// SilenceErrors indicates that LoadPackages should not print errors
-	// that occur while loading packages. SilenceErrors implies AllowErrors.
-	SilenceErrors bool
+	// SilencePackageErrors indicates that LoadPackages should not print errors
+	// that occur while matching or loading packages, and should not terminate the
+	// process if such an error occurs.
+	//
+	// Errors encountered in the module graph will still be reported.
+	//
+	// The caller may retrieve the silenced package errors using the Lookup
+	// function, and matching errors are still populated in the Errs field of the
+	// associated search.Match.)
+	SilencePackageErrors bool
 
 	// SilenceMissingStdImports indicates that LoadPackages should not print
 	// errors or terminate the process if an imported package is missing, and the
@@ -298,12 +314,15 @@ func LoadPackages(ctx context.Context, opts PackageOpts, patterns ...string) (ma
 
 	initialRS, _ := loadModFile(ctx) // Ignore needCommit — we're going to commit at the end regardless.
 
+	if opts.GoVersion == "" {
+		opts.GoVersion = modFileGoVersion()
+	}
+
 	ld := loadFromRoots(ctx, loaderParams{
 		PackageOpts:  opts,
 		requirements: initialRS,
 
-		allClosesOverTests: index.allPatternClosesOverTests() && !opts.UseVendorAll,
-		allPatternIsRoot:   allPatternIsRoot,
+		allPatternIsRoot: allPatternIsRoot,
 
 		listRoots: func(rs *Requirements) (roots []string) {
 			updateMatches(rs, nil)
@@ -317,50 +336,12 @@ func LoadPackages(ctx context.Context, opts PackageOpts, patterns ...string) (ma
 	// One last pass to finalize wildcards.
 	updateMatches(ld.requirements, ld)
 
-	// Report errors, if any.
-	checkMultiplePaths(ld.requirements)
-	for _, pkg := range ld.pkgs {
-		if !pkg.isTest() {
-			loadedPackages = append(loadedPackages, pkg.path)
-		}
-
-		if pkg.err != nil {
-			if sumErr := (*ImportMissingSumError)(nil); errors.As(pkg.err, &sumErr) {
-				if importer := pkg.stack; importer != nil {
-					sumErr.importer = importer.path
-					sumErr.importerVersion = importer.mod.Version
-					sumErr.importerIsTest = importer.testOf != nil
-				}
-			}
-
-			if opts.SilenceErrors {
-				continue
-			}
-			if stdErr := (*ImportMissingError)(nil); errors.As(pkg.err, &stdErr) &&
-				stdErr.isStd && opts.SilenceMissingStdImports {
-				continue
-			}
-			if opts.SilenceNoGoErrors && errors.Is(pkg.err, imports.ErrNoGo) {
-				continue
-			}
-
-			if opts.AllowErrors {
-				fmt.Fprintf(os.Stderr, "%s: %v\n", pkg.stackText(), pkg.err)
-			} else {
-				base.Errorf("%s: %v", pkg.stackText(), pkg.err)
-			}
-		}
-	}
-	if !opts.SilenceErrors {
-		// Also list errors in matching patterns (such as directory permission
-		// errors for wildcard patterns).
+	// List errors in matching patterns (such as directory permission
+	// errors for wildcard patterns).
+	if !ld.SilencePackageErrors {
 		for _, match := range matches {
 			for _, err := range match.Errs {
-				if opts.AllowErrors {
-					fmt.Fprintf(os.Stderr, "%v\n", err)
-				} else {
-					base.Errorf("%v", err)
-				}
+				ld.errorf("%v\n", err)
 			}
 		}
 	}
@@ -370,14 +351,42 @@ func LoadPackages(ctx context.Context, opts PackageOpts, patterns ...string) (ma
 		search.WarnUnmatched(matches)
 	}
 
-	if ld.Tidy {
-		ld.requirements = tidyBuildList(ctx, ld, initialRS)
+	if opts.Tidy {
+		if cfg.BuildV {
+			mg, _ := ld.requirements.Graph(ctx)
+
+			for _, m := range initialRS.rootModules {
+				var unused bool
+				if ld.requirements.depth == eager {
+					// m is unused if it was dropped from the module graph entirely. If it
+					// was only demoted from direct to indirect, it may still be in use via
+					// a transitive import.
+					unused = mg.Selected(m.Path) == "none"
+				} else {
+					// m is unused if it was dropped from the roots. If it is still present
+					// as a transitive dependency, that transitive dependency is not needed
+					// by any package or test in the main module.
+					_, ok := ld.requirements.rootSelected(m.Path)
+					unused = !ok
+				}
+				if unused {
+					fmt.Fprintf(os.Stderr, "unused %s\n", m.Path)
+				}
+			}
+		}
+
 		modfetch.TrimGoSum(keepSums(ctx, ld, ld.requirements, loadedZipSumsOnly))
 	}
 
-	// Success! Update go.mod (if needed) and return the results.
+	// Success! Update go.mod and go.sum (if needed) and return the results.
 	loaded = ld
-	commitRequirements(ctx, loaded.requirements)
+	commitRequirements(ctx, opts.GoVersion, loaded.requirements)
+
+	for _, pkg := range ld.pkgs {
+		if !pkg.isTest() {
+			loadedPackages = append(loadedPackages, pkg.path)
+		}
+	}
 	sort.Strings(loadedPackages)
 	return matches, loadedPackages
 }
@@ -582,6 +591,11 @@ func pathInModuleCache(ctx context.Context, dir string, rs *Requirements) string
 
 // ImportFromFiles adds modules to the build list as needed
 // to satisfy the imports in the named Go source files.
+//
+// Errors in missing dependencies are silenced.
+//
+// TODO(bcmills): Silencing errors seems off. Take a closer look at this and
+// figure out what the error-reporting actually ought to be.
 func ImportFromFiles(ctx context.Context, gofiles []string) {
 	rs := LoadModFile(ctx)
 
@@ -591,20 +605,22 @@ func ImportFromFiles(ctx context.Context, gofiles []string) {
 		base.Fatalf("go: %v", err)
 	}
 
+	goVersion := modFileGoVersion()
 	loaded = loadFromRoots(ctx, loaderParams{
 		PackageOpts: PackageOpts{
+			GoVersion:             goVersion,
 			Tags:                  tags,
 			ResolveMissingImports: true,
+			SilencePackageErrors:  true,
 		},
-		requirements:       rs,
-		allClosesOverTests: index.allPatternClosesOverTests(),
+		requirements: rs,
 		listRoots: func(*Requirements) (roots []string) {
 			roots = append(roots, imports...)
 			roots = append(roots, testImports...)
 			return roots
 		},
 	})
-	commitRequirements(ctx, loaded.requirements)
+	commitRequirements(ctx, goVersion, loaded.requirements)
 }
 
 // DirImportPath returns the effective import path for dir,
@@ -740,6 +756,12 @@ func Lookup(parentPath string, parentIsStd bool, path string) (dir, realPath str
 type loader struct {
 	loaderParams
 
+	// allClosesOverTests indicates whether the "all" pattern includes
+	// dependencies of tests outside the main module (as in Go 1.11–1.15).
+	// (Otherwise — as in Go 1.16+ — the "all" pattern includes only the packages
+	// transitively *imported by* the packages and tests in the main module.)
+	allClosesOverTests bool
+
 	work *par.Queue
 
 	// reset on each iteration
@@ -754,8 +776,7 @@ type loaderParams struct {
 	PackageOpts
 	requirements *Requirements
 
-	allClosesOverTests bool // Does the "all" pattern include the transitive closure of tests of packages in "all"?
-	allPatternIsRoot   bool // Is the "all" pattern an additional root?
+	allPatternIsRoot bool // Is the "all" pattern an additional root?
 
 	listRoots func(rs *Requirements) []string
 }
@@ -770,6 +791,16 @@ func (ld *loader) reset() {
 	ld.roots = nil
 	ld.pkgCache = new(par.Cache)
 	ld.pkgs = nil
+}
+
+// errorf reports an error via either os.Stderr or base.Errorf,
+// according to whether ld.AllowErrors is set.
+func (ld *loader) errorf(format string, args ...interface{}) {
+	if ld.AllowErrors {
+		fmt.Fprintf(os.Stderr, format, args...)
+	} else {
+		base.Errorf(format, args...)
+	}
 }
 
 // A loadPkg records information about a single loaded package.
@@ -890,6 +921,30 @@ func loadFromRoots(ctx context.Context, params loaderParams) *loader {
 		work:         par.NewQueue(runtime.GOMAXPROCS(0)),
 	}
 
+	if params.GoVersion != "" {
+		if semver.Compare("v"+params.GoVersion, narrowAllVersionV) < 0 && !ld.UseVendorAll {
+			// The module's go version explicitly predates the change in "all" for lazy
+			// loading, so continue to use the older interpretation.
+			// (If params.GoVersion is empty, we are probably not in any module at all
+			// and should use the latest semantics.)
+			ld.allClosesOverTests = true
+		}
+
+		var err error
+		ld.requirements, err = convertDepth(ctx, ld.requirements, modDepthFromGoVersion(params.GoVersion))
+		if err != nil {
+			ld.errorf("go: %v\n", err)
+		}
+	}
+
+	if ld.requirements.depth == eager {
+		var err error
+		ld.requirements, _, err = expandGraph(ctx, ld.requirements)
+		if err != nil {
+			ld.errorf("go: %v\n", err)
+		}
+	}
+
 	for {
 		ld.reset()
 
@@ -899,13 +954,22 @@ func loadFromRoots(ctx context.Context, params loaderParams) *loader {
 		// build list we're using.
 		rootPkgs := ld.listRoots(ld.requirements)
 
-		if go117LazyTODO {
+		if ld.requirements.depth == lazy && cfg.BuildMod == "mod" {
 			// Before we start loading transitive imports of packages, locate all of
 			// the root packages and promote their containing modules to root modules
 			// dependencies. If their go.mod files are tidy (the common case) and the
 			// set of root packages does not change then we can select the correct
 			// versions of all transitive imports on the first try and complete
 			// loading in a single iteration.
+			changedBuildList := ld.preloadRootModules(ctx, rootPkgs)
+			if changedBuildList {
+				// The build list has changed, so the set of root packages may have also
+				// changed. Start over to pick up the changes. (Preloading roots is much
+				// cheaper than loading the full import graph, so we would rather pay
+				// for an extra iteration of preloading than potentially end up
+				// discarding the result of a full iteration of loading.)
+				continue
+			}
 		}
 
 		inRoots := map[*loadPkg]bool{}
@@ -926,12 +990,29 @@ func loadFromRoots(ctx context.Context, params loaderParams) *loader {
 
 		ld.buildStacks()
 
+		changed, err := ld.updateRequirements(ctx)
+		if err != nil {
+			ld.errorf("go: %v\n", err)
+			break
+		}
+		if changed {
+			// Don't resolve missing imports until the module graph have stabilized.
+			// If the roots are still changing, they may turn out to specify a
+			// requirement on the missing package(s), and we would rather use a
+			// version specified by a new root than add a new dependency on an
+			// unrelated version.
+			continue
+		}
+
 		if !ld.ResolveMissingImports || (!HasModRoot() && !allowMissingModuleImports) {
 			// We've loaded as much as we can without resolving missing imports.
 			break
 		}
+
 		modAddedBy := ld.resolveMissingImports(ctx)
 		if len(modAddedBy) == 0 {
+			// The roots are stable, and we've resolved all of the missing packages
+			// that we can.
 			break
 		}
 
@@ -941,36 +1022,91 @@ func loadFromRoots(ctx context.Context, params loaderParams) *loader {
 		}
 		module.Sort(toAdd) // to make errors deterministic
 
-		prevRS := ld.requirements
-		if err := ld.updateRequirements(ctx, toAdd); err != nil {
+		// We ran updateRequirements before resolving missing imports and it didn't
+		// make any changes, so we know that the requirement graph is already
+		// consistent with ld.pkgs: we don't need to pass ld.pkgs to updateRoots
+		// again. (That would waste time looking for changes that we have already
+		// applied.)
+		var noPkgs []*loadPkg
+		// We also know that we're going to call updateRequirements again next
+		// iteration so we don't need to also update it here. (That would waste time
+		// computing a "direct" map that we'll have to recompute later anyway.)
+		direct := ld.requirements.direct
+		rs, err := updateRoots(ctx, direct, ld.requirements, noPkgs, toAdd)
+		if err != nil {
 			// If an error was found in a newly added module, report the package
 			// import stack instead of the module requirement stack. Packages
 			// are more descriptive.
 			if err, ok := err.(*mvs.BuildListError); ok {
 				if pkg := modAddedBy[err.Module()]; pkg != nil {
-					base.Fatalf("go: %s: %v", pkg.stackText(), err.Err)
+					ld.errorf("go: %s: %v\n", pkg.stackText(), err.Err)
+					break
 				}
 			}
-			base.Fatalf("go: %v", err)
+			ld.errorf("go: %v\n", err)
+			break
 		}
-		if reflect.DeepEqual(prevRS.rootModules, ld.requirements.rootModules) {
+		if reflect.DeepEqual(rs.rootModules, ld.requirements.rootModules) {
 			// Something is deeply wrong. resolveMissingImports gave us a non-empty
-			// set of modules to add, but adding those modules to the graph had no
-			// effect.
-			panic(fmt.Sprintf("internal error: adding %v to module graph had no effect on root requirements (%v)", toAdd, prevRS.rootModules))
+			// set of modules to add to the graph, but adding those modules had no
+			// effect — either they were already in the graph, or updateRoots did not
+			// add them as requested.
+			panic(fmt.Sprintf("internal error: adding %v to module graph had no effect on root requirements (%v)", toAdd, rs.rootModules))
 		}
+		ld.requirements = rs
 	}
 	base.ExitIfErrors() // TODO(bcmills): Is this actually needed?
 
-	if err := ld.updateRequirements(ctx, nil); err != nil {
-		base.Fatalf("go: %v", err)
+	// Tidy the build list, if applicable, before we report errors.
+	// (The process of tidying may remove errors from irrelevant dependencies.)
+	if ld.Tidy {
+		rs, err := tidyRoots(ctx, ld.requirements, ld.pkgs)
+		if err != nil {
+			ld.errorf("go: %v\n", err)
+		}
+
+		// We continuously add tidy roots to ld.requirements during loading, so at
+		// this point the tidy roots should be a subset of the roots of
+		// ld.requirements. If not, there is a bug in the loading loop above.
+		for _, m := range rs.rootModules {
+			if v, ok := ld.requirements.rootSelected(m.Path); !ok || v != m.Version {
+				ld.errorf("go: internal error: a requirement on %v is needed but was not added during package loading\n", m)
+				base.ExitIfErrors()
+			}
+		}
+		ld.requirements = rs
 	}
 
-	if go117LazyTODO {
-		// Promoting a root can pull in previously-irrelevant requirements,
-		// changing the build list. Iterate until the roots are stable.
+	// Report errors, if any.
+	for _, pkg := range ld.pkgs {
+		if pkg.err == nil {
+			continue
+		}
+
+		// Add importer information to checksum errors.
+		if sumErr := (*ImportMissingSumError)(nil); errors.As(pkg.err, &sumErr) {
+			if importer := pkg.stack; importer != nil {
+				sumErr.importer = importer.path
+				sumErr.importerVersion = importer.mod.Version
+				sumErr.importerIsTest = importer.testOf != nil
+			}
+		}
+
+		if ld.SilencePackageErrors {
+			continue
+		}
+		if stdErr := (*ImportMissingError)(nil); errors.As(pkg.err, &stdErr) &&
+			stdErr.isStd && ld.SilenceMissingStdImports {
+			continue
+		}
+		if ld.SilenceNoGoErrors && errors.Is(pkg.err, imports.ErrNoGo) {
+			continue
+		}
+
+		ld.errorf("%s: %v\n", pkg.stackText(), pkg.err)
 	}
 
+	ld.checkMultiplePaths()
 	return ld
 }
 
@@ -990,17 +1126,40 @@ func loadFromRoots(ctx context.Context, params loaderParams) *loader {
 // 	  not provide any directly-imported package are then marked as indirect.
 //
 // 	- Root dependencies are updated to their selected versions.
-func (ld *loader) updateRequirements(ctx context.Context, add []module.Version) error {
+//
+// The "changed" return value reports whether the update changed the selected
+// version of any module that either provided a loaded package or may now
+// provide a package that was previously unresolved.
+func (ld *loader) updateRequirements(ctx context.Context) (changed bool, err error) {
 	rs := ld.requirements
 
-	// Compute directly referenced dependency modules.
-	direct := make(map[string]bool)
+	// direct contains the set of modules believed to provide packages directly
+	// imported by the main module.
+	var direct map[string]bool
+
+	// If we didn't scan all of the imports from the main module, or didn't use
+	// imports.AnyTags, then we didn't necessarily load every package that
+	// contributes “direct” imports — so we can't safely mark existing direct
+	// dependencies in ld.requirements as indirect-only. Propagate them as direct.
+	loadedDirect := ld.allPatternIsRoot && reflect.DeepEqual(ld.Tags, imports.AnyTags())
+	if loadedDirect {
+		direct = make(map[string]bool)
+	} else {
+		// TODO(bcmills): It seems like a shame to allocate and copy a map here when
+		// it will only rarely actually vary from rs.direct. Measure this cost and
+		// maybe avoid the copy.
+		direct = make(map[string]bool, len(rs.direct))
+		for mPath := range rs.direct {
+			direct[mPath] = true
+		}
+	}
+
 	for _, pkg := range ld.pkgs {
 		if pkg.mod != Target {
 			continue
 		}
 		for _, dep := range pkg.imports {
-			if dep.mod.Path == "" || dep.mod.Path == Target.Path {
+			if !dep.fromExternalModule() {
 				continue
 			}
 
@@ -1032,22 +1191,95 @@ func (ld *loader) updateRequirements(ctx context.Context, add []module.Version) 
 		}
 	}
 
-	// If we didn't scan all of the imports from the main module, or didn't use
-	// imports.AnyTags, then we didn't necessarily load every package that
-	// contributes “direct” imports — so we can't safely mark existing direct
-	// dependencies in ld.requirements as indirect-only. Propagate them as direct.
-	loadedDirect := ld.allPatternIsRoot && reflect.DeepEqual(ld.Tags, imports.AnyTags())
-	if !loadedDirect {
-		for mPath := range rs.direct {
-			direct[mPath] = true
+	var addRoots []module.Version
+	if ld.Tidy {
+		// When we are tidying a lazy module, we may need to add roots to preserve
+		// the versions of indirect, test-only dependencies that are upgraded
+		// above or otherwise missing from the go.mod files of direct
+		// dependencies. (For example, the direct dependency might be a very
+		// stable codebase that predates modules and thus lacks a go.mod file, or
+		// the author of the direct dependency may have forgotten to commit a
+		// change to the go.mod file, or may have made an erroneous hand-edit that
+		// causes it to be untidy.)
+		//
+		// Promoting an indirect dependency to a root adds the next layer of its
+		// dependencies to the module graph, which may increase the selected
+		// versions of other modules from which we have already loaded packages.
+		// So after we promote an indirect dependency to a root, we need to reload
+		// packages, which means another iteration of loading.
+		//
+		// As an extra wrinkle, the upgrades due to promoting a root can cause
+		// previously-resolved packages to become unresolved. For example, the
+		// module providing an unstable package might be upgraded to a version
+		// that no longer contains that package. If we then resolve the missing
+		// package, we might add yet another root that upgrades away some other
+		// dependency. (The tests in mod_tidy_convergence*.txt illustrate some
+		// particularly worrisome cases.)
+		//
+		// To ensure that this process of promoting, adding, and upgrading roots
+		// eventually terminates, during iteration we only ever add modules to the
+		// root set — we only remove irrelevant roots at the very end of
+		// iteration, after we have already added every root that we plan to need
+		// in the (eventual) tidy root set.
+		//
+		// Since we do not remove any roots during iteration, even if they no
+		// longer provide any imported packages, the selected versions of the
+		// roots can only increase and the set of roots can only expand. The set
+		// of extant root paths is finite and the set of versions of each path is
+		// finite, so the iteration *must* reach a stable fixed-point.
+		tidy, err := tidyRoots(ctx, rs, ld.pkgs)
+		if err != nil {
+			return false, err
+		}
+		addRoots = tidy.rootModules
+	}
+
+	rs, err = updateRoots(ctx, direct, rs, ld.pkgs, addRoots)
+	if err != nil {
+		// We don't actually know what even the root requirements are supposed to be,
+		// so we can't proceed with loading. Return the error to the caller
+		return false, err
+	}
+
+	if rs != ld.requirements && !reflect.DeepEqual(rs.rootModules, ld.requirements.rootModules) {
+		// The roots of the module graph have changed in some way (not just the
+		// "direct" markings). Check whether the changes affected any of the loaded
+		// packages.
+		mg, err := rs.Graph(ctx)
+		if err != nil {
+			return false, err
+		}
+		for _, pkg := range ld.pkgs {
+			if pkg.fromExternalModule() && mg.Selected(pkg.mod.Path) != pkg.mod.Version {
+				changed = true
+				break
+			}
+			if pkg.err != nil {
+				// Promoting a module to a root may resolve an import that was
+				// previously missing (by pulling in a previously-prune dependency that
+				// provides it) or ambiguous (by promoting exactly one of the
+				// alternatives to a root and ignoring the second-level alternatives) or
+				// otherwise errored out (by upgrading from a version that cannot be
+				// fetched to one that can be).
+				//
+				// Instead of enumerating all of the possible errors, we'll just check
+				// whether importFromModules returns nil for the package.
+				// False-positives are ok: if we have a false-positive here, we'll do an
+				// extra iteration of package loading this time, but we'll still
+				// converge when the root set stops changing.
+				//
+				// In some sense, we can think of this as ‘upgraded the module providing
+				// pkg.path from "none" to a version higher than "none"’.
+				if _, _, err = importFromModules(ctx, pkg.path, rs, nil); err == nil {
+					changed = true
+					break
+				}
+			}
 		}
 	}
 
-	rs, err := updateRoots(ctx, direct, rs, add)
-	if err == nil {
-		ld.requirements = rs
-	}
-	return err
+	ld.requirements = rs
+	return changed, nil
 }
 
 // resolveMissingImports returns a set of modules that could be added as
@@ -1057,7 +1289,11 @@ func (ld *loader) updateRequirements(ctx context.Context, add []module.Version) 
 // resolveMissingImports returns a map from each new module version to
 // the first missing package that module would resolve.
 func (ld *loader) resolveMissingImports(ctx context.Context) (modAddedBy map[module.Version]*loadPkg) {
-	var needPkgs []*loadPkg
+	type pkgMod struct {
+		pkg *loadPkg
+		mod *module.Version
+	}
+	var pkgMods []pkgMod
 	for _, pkg := range ld.pkgs {
 		if pkg.err == nil {
 			continue
@@ -1072,24 +1308,47 @@ func (ld *loader) resolveMissingImports(ctx context.Context) (modAddedBy map[mod
 			continue
 		}
 
-		needPkgs = append(needPkgs, pkg)
-
 		pkg := pkg
+		var mod module.Version
 		ld.work.Add(func() {
-			pkg.mod, pkg.err = queryImport(ctx, pkg.path, ld.requirements)
+			var err error
+			mod, err = queryImport(ctx, pkg.path, ld.requirements)
+			if err != nil {
+				// pkg.err was already non-nil, so we can reasonably attribute the error
+				// for pkg to either the original error or the one returned by
+				// queryImport. The existing error indicates only that we couldn't find
+				// the package, whereas the query error also explains why we didn't fix
+				// the problem — so we prefer the latter.
+				pkg.err = err
+			}
+
+			// err is nil, but we intentionally leave pkg.err non-nil and pkg.mod
+			// unset: we still haven't satisfied other invariants of a
+			// successfully-loaded package, such as scanning and loading the imports
+			// of that package. If we succeed in resolving the new dependency graph,
+			// the caller can reload pkg and update the error at that point.
+			//
+			// Even then, the package might not be loaded from the version we've
+			// identified here. The module may be upgraded by some other dependency,
+			// or by a transitive dependency of mod itself, or — less likely — the
+			// package may be rejected by an AllowPackage hook or rendered ambiguous
+			// by some other newly-added or newly-upgraded dependency.
 		})
+
+		pkgMods = append(pkgMods, pkgMod{pkg: pkg, mod: &mod})
 	}
 	<-ld.work.Idle()
 
 	modAddedBy = map[module.Version]*loadPkg{}
-	for _, pkg := range needPkgs {
-		if pkg.err != nil {
+	for _, pm := range pkgMods {
+		pkg, mod := pm.pkg, *pm.mod
+		if mod.Path == "" {
 			continue
 		}
 
-		fmt.Fprintf(os.Stderr, "go: found %s in %s %s\n", pkg.path, pkg.mod.Path, pkg.mod.Version)
-		if modAddedBy[pkg.mod] == nil {
-			modAddedBy[pkg.mod] = pkg
+		fmt.Fprintf(os.Stderr, "go: found %s in %s %s\n", pkg.path, mod.Path, mod.Version)
+		if modAddedBy[mod] == nil {
+			modAddedBy[mod] = pkg
 		}
 	}
 
@@ -1190,6 +1449,87 @@ func (ld *loader) applyPkgFlags(ctx context.Context, pkg *loadPkg, flags loadPkg
 	}
 }
 
+// preloadRootModules loads the module requirements needed to identify the
+// selected version of each module providing a package in rootPkgs,
+// adding new root modules to the module graph if needed.
+func (ld *loader) preloadRootModules(ctx context.Context, rootPkgs []string) (changedBuildList bool) {
+	needc := make(chan map[module.Version]bool, 1)
+	needc <- map[module.Version]bool{}
+	for _, path := range rootPkgs {
+		path := path
+		ld.work.Add(func() {
+			// First, try to identify the module containing the package using only roots.
+			//
+			// If the main module is tidy and the package is in "all" — or if we're
+			// lucky — we can identify all of its imports without actually loading the
+			// full module graph.
+			m, _, err := importFromModules(ctx, path, ld.requirements, nil)
+			if err != nil {
+				var missing *ImportMissingError
+				if errors.As(err, &missing) && ld.ResolveMissingImports {
+					// This package isn't provided by any selected module.
+					// If we can find it, it will be a new root dependency.
+					m, err = queryImport(ctx, path, ld.requirements)
+				}
+				if err != nil {
+					// We couldn't identify the root module containing this package.
+					// Leave it unresolved; we will report it during loading.
+					return
+				}
+			}
+			if m.Path == "" {
+				// The package is in std or cmd. We don't need to change the root set.
+				return
+			}
+
+			v, ok := ld.requirements.rootSelected(m.Path)
+			if !ok || v != m.Version {
+				// We found the requested package in m, but m is not a root, so
+				// loadModGraph will not load its requirements. We need to promote the
+				// module to a root to ensure that any other packages this package
+				// imports are resolved from correct dependency versions.
+				//
+				// (This is the “argument invariant” from the lazy loading design.)
+				need := <-needc
+				need[m] = true
+				needc <- need
+			}
+		})
+	}
+	<-ld.work.Idle()
+
+	need := <-needc
+	if len(need) == 0 {
+		return false // No roots to add.
+	}
+
+	toAdd := make([]module.Version, 0, len(need))
+	for m := range need {
+		toAdd = append(toAdd, m)
+	}
+	module.Sort(toAdd)
+
+	rs, err := updateRoots(ctx, ld.requirements.direct, ld.requirements, nil, toAdd)
+	if err != nil {
+		// We are missing some root dependency, and for some reason we can't load
+		// enough of the module dependency graph to add the missing root. Package
+		// loading is doomed to fail, so fail quickly.
+		ld.errorf("go: %v\n", err)
+		base.ExitIfErrors()
+		return false
+	}
+	if reflect.DeepEqual(rs.rootModules, ld.requirements.rootModules) {
+		// Something is deeply wrong. resolveMissingImports gave us a non-empty
+		// set of modules to add to the graph, but adding those modules had no
+		// effect — either they were already in the graph, or updateRoots did not
+		// add them as requested.
+		panic(fmt.Sprintf("internal error: adding %v to module graph had no effect on root requirements (%v)", toAdd, rs.rootModules))
+	}
+
+	ld.requirements = rs
+	return true
+}
+
 // load loads an individual package.
 func (ld *loader) load(ctx context.Context, pkg *loadPkg) {
 	if strings.Contains(pkg.path, "@") {
@@ -1210,7 +1550,24 @@ func (ld *loader) load(ctx context.Context, pkg *loadPkg) {
 		return
 	}
 
-	pkg.mod, pkg.dir, pkg.err = importFromModules(ctx, pkg.path, ld.requirements)
+	var mg *ModuleGraph
+	if ld.requirements.depth == eager {
+		var err error
+		mg, err = ld.requirements.Graph(ctx)
+		if err != nil {
+			// We already checked the error from Graph in loadFromRoots and/or
+			// updateRequirements, so we ignored the error on purpose and we should
+			// keep trying to push past it.
+			//
+			// However, because mg may be incomplete (and thus may select inaccurate
+			// versions), we shouldn't use it to load packages. Instead, we pass a nil
+			// *ModuleGraph, which will cause mg to first try loading from only the
+			// main module and root dependencies.
+			mg = nil
+		}
+	}
+
+	pkg.mod, pkg.dir, pkg.err = importFromModules(ctx, pkg.path, ld.requirements, mg)
 	if pkg.dir == "" {
 		return
 	}
@@ -1358,6 +1715,29 @@ func (ld *loader) computePatternAll() (all []string) {
 	}
 	sort.Strings(all)
 	return all
+}
+
+// checkMultiplePaths verifies that a given module path is used as itself
+// or as a replacement for another module, but not both at the same time.
+//
+// (See https://golang.org/issue/26607 and https://golang.org/issue/34650.)
+func (ld *loader) checkMultiplePaths() {
+	mods := ld.requirements.rootModules
+	if cached := ld.requirements.graph.Load(); cached != nil {
+		if mg := cached.(cachedGraph).mg; mg != nil {
+			mods = mg.BuildList()
+		}
+	}
+
+	firstPath := map[module.Version]string{}
+	for _, mod := range mods {
+		src := resolveReplacement(mod)
+		if prev, ok := firstPath[src]; !ok {
+			firstPath[src] = mod.Path
+		} else if prev != mod.Path {
+			ld.errorf("go: %s@%s used for two different module paths (%s and %s)\n", src.Path, src.Version, prev, mod.Path)
+		}
+	}
 }
 
 // scanDir is like imports.ScanDir but elides known magic imports from the list,

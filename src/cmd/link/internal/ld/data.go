@@ -39,6 +39,7 @@ import (
 	"cmd/link/internal/loader"
 	"cmd/link/internal/sym"
 	"compress/zlib"
+	"debug/elf"
 	"encoding/binary"
 	"fmt"
 	"log"
@@ -98,7 +99,8 @@ func trampoline(ctxt *Link, s loader.Sym) {
 	relocs := ldr.Relocs(s)
 	for ri := 0; ri < relocs.Count(); ri++ {
 		r := relocs.At(ri)
-		if !r.Type().IsDirectCallOrJump() {
+		rt := r.Type()
+		if !rt.IsDirectCallOrJump() && !isPLTCall(rt) {
 			continue
 		}
 		rs := r.Sym()
@@ -107,8 +109,11 @@ func trampoline(ctxt *Link, s loader.Sym) {
 		}
 		rs = ldr.ResolveABIAlias(rs)
 		if ldr.SymValue(rs) == 0 && (ldr.SymType(rs) != sym.SDYNIMPORT && ldr.SymType(rs) != sym.SUNDEFEXT) {
-			if ldr.SymPkg(rs) == ldr.SymPkg(s) {
-				continue // symbols in the same package are laid out together
+			if ldr.SymPkg(s) != "" && ldr.SymPkg(rs) == ldr.SymPkg(s) {
+				// Symbols in the same package are laid out together.
+				// Except that if SymPkg(s) == "", it is a host object symbol
+				// which may call an external symbol via PLT.
+				continue
 			}
 			if isRuntimeDepPkg(ldr.SymPkg(s)) && isRuntimeDepPkg(ldr.SymPkg(rs)) {
 				continue // runtime packages are laid out together
@@ -117,7 +122,27 @@ func trampoline(ctxt *Link, s loader.Sym) {
 
 		thearch.Trampoline(ctxt, ldr, ri, rs, s)
 	}
+}
 
+// whether rt is a (host object) relocation that will be turned into
+// a call to PLT.
+func isPLTCall(rt objabi.RelocType) bool {
+	const pcrel = 1
+	switch rt {
+	// ARM64
+	case objabi.ElfRelocOffset + objabi.RelocType(elf.R_AARCH64_CALL26),
+		objabi.ElfRelocOffset + objabi.RelocType(elf.R_AARCH64_JUMP26),
+		objabi.MachoRelocOffset + MACHO_ARM64_RELOC_BRANCH26*2 + pcrel:
+		return true
+
+	// ARM
+	case objabi.ElfRelocOffset + objabi.RelocType(elf.R_ARM_CALL),
+		objabi.ElfRelocOffset + objabi.RelocType(elf.R_ARM_PC24),
+		objabi.ElfRelocOffset + objabi.RelocType(elf.R_ARM_JUMP24):
+		return true
+	}
+	// TODO: other architectures.
+	return false
 }
 
 // FoldSubSymbolOffset computes the offset of symbol s to its top-level outer
@@ -2203,23 +2228,87 @@ func (ctxt *Link) textaddress() {
 		ctxt.Textp[0] = text
 	}
 
-	va := uint64(Rnd(*FlagTextAddr, int64(Funcalign)))
+	start := uint64(Rnd(*FlagTextAddr, int64(Funcalign)))
+	va := start
 	n := 1
 	sect.Vaddr = va
-	ntramps := 0
+
+	limit := thearch.TrampLimit
+	if limit == 0 {
+		limit = 1 << 63 // unlimited
+	}
+	if *FlagDebugTextSize != 0 {
+		limit = uint64(*FlagDebugTextSize)
+	}
+	if *FlagDebugTramp > 1 {
+		limit = 1 // debug mode, force generating trampolines for everything
+	}
+
+	if ctxt.IsAIX() && ctxt.IsExternal() {
+		// On AIX, normally we won't generate direct calls to external symbols,
+		// except in one test, cmd/go/testdata/script/link_syso_issue33139.txt.
+		// That test doesn't make much sense, and I'm not sure it ever works.
+		// Just generate trampoline for now (which will turn a direct call to
+		// an indirect call, which at least builds).
+		limit = 1
+	}
+
+	// First pass: assign addresses assuming the program is small and
+	// don't generate trampolines.
+	big := false
 	for _, s := range ctxt.Textp {
-		sect, n, va = assignAddress(ctxt, sect, n, s, va, false)
+		sect, n, va = assignAddress(ctxt, sect, n, s, va, false, big)
+		if va-start >= limit {
+			big = true
+			break
+		}
+	}
 
-		trampoline(ctxt, s) // resolve jumps, may add trampolines if jump too far
-
-		// lay down trampolines after each function
-		for ; ntramps < len(ctxt.tramps); ntramps++ {
-			tramp := ctxt.tramps[ntramps]
-			if ctxt.IsAIX() && strings.HasPrefix(ldr.SymName(tramp), "runtime.text.") {
-				// Already set in assignAddress
+	// Second pass: only if it is too big, insert trampolines for too-far
+	// jumps and targets with unknown addresses.
+	if big {
+		// reset addresses
+		for _, s := range ctxt.Textp {
+			if ldr.OuterSym(s) != 0 || s == text {
 				continue
 			}
-			sect, n, va = assignAddress(ctxt, sect, n, tramp, va, true)
+			oldv := ldr.SymValue(s)
+			for sub := s; sub != 0; sub = ldr.SubSym(sub) {
+				ldr.SetSymValue(sub, ldr.SymValue(sub)-oldv)
+			}
+		}
+		va = start
+
+		ntramps := 0
+		for _, s := range ctxt.Textp {
+			sect, n, va = assignAddress(ctxt, sect, n, s, va, false, big)
+
+			trampoline(ctxt, s) // resolve jumps, may add trampolines if jump too far
+
+			// lay down trampolines after each function
+			for ; ntramps < len(ctxt.tramps); ntramps++ {
+				tramp := ctxt.tramps[ntramps]
+				if ctxt.IsAIX() && strings.HasPrefix(ldr.SymName(tramp), "runtime.text.") {
+					// Already set in assignAddress
+					continue
+				}
+				sect, n, va = assignAddress(ctxt, sect, n, tramp, va, true, big)
+			}
+		}
+
+		// merge tramps into Textp, keeping Textp in address order
+		if ntramps != 0 {
+			newtextp := make([]loader.Sym, 0, len(ctxt.Textp)+ntramps)
+			i := 0
+			for _, s := range ctxt.Textp {
+				for ; i < ntramps && ldr.SymValue(ctxt.tramps[i]) < ldr.SymValue(s); i++ {
+					newtextp = append(newtextp, ctxt.tramps[i])
+				}
+				newtextp = append(newtextp, s)
+			}
+			newtextp = append(newtextp, ctxt.tramps[i:ntramps]...)
+
+			ctxt.Textp = newtextp
 		}
 	}
 
@@ -2231,25 +2320,10 @@ func (ctxt *Link) textaddress() {
 		ldr.SetSymValue(etext, int64(va))
 		ldr.SetSymValue(text, int64(Segtext.Sections[0].Vaddr))
 	}
-
-	// merge tramps into Textp, keeping Textp in address order
-	if ntramps != 0 {
-		newtextp := make([]loader.Sym, 0, len(ctxt.Textp)+ntramps)
-		i := 0
-		for _, s := range ctxt.Textp {
-			for ; i < ntramps && ldr.SymValue(ctxt.tramps[i]) < ldr.SymValue(s); i++ {
-				newtextp = append(newtextp, ctxt.tramps[i])
-			}
-			newtextp = append(newtextp, s)
-		}
-		newtextp = append(newtextp, ctxt.tramps[i:ntramps]...)
-
-		ctxt.Textp = newtextp
-	}
 }
 
 // assigns address for a text symbol, returns (possibly new) section, its number, and the address
-func assignAddress(ctxt *Link, sect *sym.Section, n int, s loader.Sym, va uint64, isTramp bool) (*sym.Section, int, uint64) {
+func assignAddress(ctxt *Link, sect *sym.Section, n int, s loader.Sym, va uint64, isTramp, big bool) (*sym.Section, int, uint64) {
 	ldr := ctxt.loader
 	if thearch.AssignAddress != nil {
 		return thearch.AssignAddress(ldr, sect, n, s, va, isTramp)
@@ -2277,20 +2351,19 @@ func assignAddress(ctxt *Link, sect *sym.Section, n int, s loader.Sym, va uint64
 	// On ppc64x a text section should not be larger than 2^26 bytes due to the size of
 	// call target offset field in the bl instruction.  Splitting into smaller text
 	// sections smaller than this limit allows the GNU linker to modify the long calls
-	// appropriately.  The limit allows for the space needed for tables inserted by the linker.
-
+	// appropriately. The limit allows for the space needed for tables inserted by the linker.
+	//
 	// If this function doesn't fit in the current text section, then create a new one.
-
+	//
 	// Only break at outermost syms.
+	if ctxt.Arch.InFamily(sys.PPC64) && ldr.OuterSym(s) == 0 && ctxt.IsExternal() && big {
+		// For debugging purposes, allow text size limit to be cranked down,
+		// so as to stress test the code that handles multiple text sections.
+		var textSizelimit uint64 = thearch.TrampLimit
+		if *FlagDebugTextSize != 0 {
+			textSizelimit = uint64(*FlagDebugTextSize)
+		}
 
-	// For debugging purposes, allow text size limit to be cranked down,
-	// so as to stress test the code that handles multiple text sections.
-	var textSizelimit uint64 = 0x1c00000
-	if *FlagDebugTextSize != 0 {
-		textSizelimit = uint64(*FlagDebugTextSize)
-	}
-
-	if ctxt.Arch.InFamily(sys.PPC64) && ldr.OuterSym(s) == 0 && ctxt.IsExternal() {
 		// Sanity check: make sure the limit is larger than any
 		// individual text symbol.
 		if funcsize > textSizelimit {
@@ -2298,12 +2371,23 @@ func assignAddress(ctxt *Link, sect *sym.Section, n int, s loader.Sym, va uint64
 		}
 
 		if va-sect.Vaddr+funcsize+maxSizeTrampolinesPPC64(ldr, s, isTramp) > textSizelimit {
+			// Align the next text section to the worst case function alignment likely
+			// to be encountered when processing function symbols. The start address
+			// is rounded against the final alignment of the text section later on in
+			// (*Link).address. This may happen due to usage of PCALIGN directives
+			// larger than Funcalign, or usage of ISA 3.1 prefixed instructions
+			// (see ISA 3.1 Book I 1.9).
+			const ppc64maxFuncalign = 64
+			va = uint64(Rnd(int64(va), ppc64maxFuncalign))
+
 			// Set the length for the previous text section
 			sect.Length = va - sect.Vaddr
 
 			// Create new section, set the starting Vaddr
 			sect = addsection(ctxt.loader, ctxt.Arch, &Segtext, ".text", 05)
+
 			sect.Vaddr = va
+			sect.Align = ppc64maxFuncalign
 			ldr.SetSymSect(s, sect)
 
 			// Create a symbol for the start of the secondary text sections
@@ -2316,6 +2400,7 @@ func assignAddress(ctxt *Link, sect *sym.Section, n int, s loader.Sym, va uint64
 				ntext.SetType(sym.STEXT)
 				ntext.SetSize(int64(MINFUNC))
 				ntext.SetOnList(true)
+				ntext.SetAlign(ppc64maxFuncalign)
 				ctxt.tramps = append(ctxt.tramps, ntext.Sym())
 
 				ntext.SetValue(int64(va))
@@ -2334,6 +2419,9 @@ func assignAddress(ctxt *Link, sect *sym.Section, n int, s loader.Sym, va uint64
 	ldr.SetSymValue(s, 0)
 	for sub := s; sub != 0; sub = ldr.SubSym(sub) {
 		ldr.SetSymValue(sub, ldr.SymValue(sub)+int64(va))
+		if ctxt.Debugvlog > 2 {
+			fmt.Println("assign text address:", ldr.SymName(sub), ldr.SymValue(sub))
+		}
 	}
 
 	va += funcsize
