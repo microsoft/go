@@ -1356,15 +1356,18 @@ func BuildFuncDebugNoOptimized(ctxt *obj.Link, f *Func, loggingEnabled bool, sta
 		return &fd
 	}
 
+	state := debugState{f: f}
+
+	if loggingEnabled {
+		state.logf("generating -N reg param loc lists for func %q\n", f.Name)
+	}
+
 	// Allocate location lists.
 	fd.LocationLists = make([][]byte, numRegParams)
 
 	// Locate the value corresponding to the last spill of
 	// an input register.
 	afterPrologVal := locatePrologEnd(f)
-	if afterPrologVal == ID(-1) {
-		panic(fmt.Sprintf("internal error: f=%s: can't locate after prolog value", f.Name))
-	}
 
 	// Walk the input params again and process the register-resident elements.
 	pidx := 0
@@ -1381,6 +1384,18 @@ func BuildFuncDebugNoOptimized(ctxt *obj.Link, f *Func, loggingEnabled bool, sta
 		slid := len(fd.VarSlots)
 		fd.VarSlots = append(fd.VarSlots, []SlotID{SlotID(slid)})
 
+		if afterPrologVal == ID(-1) {
+			// This can happen for degenerate functions with infinite
+			// loops such as that in issue 45948. In such cases, leave
+			// the var/slot set up for the param, but don't try to
+			// emit a location list.
+			if loggingEnabled {
+				state.logf("locatePrologEnd failed, skipping %v\n", n)
+			}
+			pidx++
+			continue
+		}
+
 		// Param is arriving in one or more registers. We need a 2-element
 		// location expression for it. First entry in location list
 		// will correspond to lifetime in input registers.
@@ -1389,6 +1404,9 @@ func BuildFuncDebugNoOptimized(ctxt *obj.Link, f *Func, loggingEnabled bool, sta
 		if list == nil {
 			pidx++
 			continue
+		}
+		if loggingEnabled {
+			state.logf("param %v:\n  [<entry>, %d]:\n", n, afterPrologVal)
 		}
 		rtypes, _ := inp.RegisterTypesAndOffsets()
 		padding := make([]uint64, 0, 32)
@@ -1402,14 +1420,23 @@ func BuildFuncDebugNoOptimized(ctxt *obj.Link, f *Func, loggingEnabled bool, sta
 				list = append(list, dwarf.DW_OP_regx)
 				list = dwarf.AppendUleb128(list, uint64(dwreg))
 			}
+			if loggingEnabled {
+				state.logf("    piece %d -> dwreg %d", k, dwreg)
+			}
 			if len(inp.Registers) > 1 {
 				list = append(list, dwarf.DW_OP_piece)
 				ts := rtypes[k].Width
 				list = dwarf.AppendUleb128(list, uint64(ts))
 				if padding[k] > 0 {
+					if loggingEnabled {
+						state.logf(" [pad %d bytes]", padding[k])
+					}
 					list = append(list, dwarf.DW_OP_piece)
 					list = dwarf.AppendUleb128(list, padding[k])
 				}
+			}
+			if loggingEnabled {
+				state.logf("\n")
 			}
 		}
 		// fill in length of location expression element
@@ -1430,6 +1457,10 @@ func BuildFuncDebugNoOptimized(ctxt *obj.Link, f *Func, loggingEnabled bool, sta
 			list = append(list, dwarf.DW_OP_fbreg)
 			list = dwarf.AppendSleb128(list, int64(soff))
 		}
+		if loggingEnabled {
+			state.logf("  [%d, <end>): stackOffset=%d\n", afterPrologVal, soff)
+		}
+
 		// fill in size
 		ctxt.Arch.ByteOrder.PutUint16(list[sizeIdx:], uint16(len(list)-sizeIdx-2))
 
