@@ -407,7 +407,7 @@ func matchLocalDirs(ctx context.Context, m *search.Match, rs *Requirements) {
 		dir := filepath.Dir(filepath.Clean(m.Pattern()[:i+3]))
 		absDir := dir
 		if !filepath.IsAbs(dir) {
-			absDir = filepath.Join(base.Cwd, dir)
+			absDir = filepath.Join(base.Cwd(), dir)
 		}
 		if search.InDir(absDir, cfg.GOROOTsrc) == "" && search.InDir(absDir, ModRoot()) == "" && pathInModuleCache(ctx, absDir, rs) == "" {
 			m.Dirs = []string{}
@@ -425,7 +425,7 @@ func resolveLocalPackage(ctx context.Context, dir string, rs *Requirements) (str
 	if filepath.IsAbs(dir) {
 		absDir = filepath.Clean(dir)
 	} else {
-		absDir = filepath.Join(base.Cwd, dir)
+		absDir = filepath.Join(base.Cwd(), dir)
 	}
 
 	bp, err := cfg.BuildContext.ImportDir(absDir, 0)
@@ -632,7 +632,7 @@ func DirImportPath(ctx context.Context, dir string) string {
 	LoadModFile(ctx) // Sets targetPrefix.
 
 	if !filepath.IsAbs(dir) {
-		dir = filepath.Join(base.Cwd, dir)
+		dir = filepath.Join(base.Cwd(), dir)
 	} else {
 		dir = filepath.Clean(dir)
 	}
@@ -1065,13 +1065,17 @@ func loadFromRoots(ctx context.Context, params loaderParams) *loader {
 			ld.errorf("go: %v\n", err)
 		}
 
-		// We continuously add tidy roots to ld.requirements during loading, so at
-		// this point the tidy roots should be a subset of the roots of
-		// ld.requirements. If not, there is a bug in the loading loop above.
-		for _, m := range rs.rootModules {
-			if v, ok := ld.requirements.rootSelected(m.Path); !ok || v != m.Version {
-				ld.errorf("go: internal error: a requirement on %v is needed but was not added during package loading\n", m)
-				base.ExitIfErrors()
+		if ld.requirements.depth == lazy {
+			// We continuously add tidy roots to ld.requirements during loading, so at
+			// this point the tidy roots should be a subset of the roots of
+			// ld.requirements, ensuring that no new dependencies are brought inside
+			// the lazy-loading horizon.
+			// If that is not the case, there is a bug in the loading loop above.
+			for _, m := range rs.rootModules {
+				if v, ok := ld.requirements.rootSelected(m.Path); !ok || v != m.Version {
+					ld.errorf("go: internal error: a requirement on %v is needed but was not added during package loading\n", m)
+					base.ExitIfErrors()
+				}
 			}
 		}
 		ld.requirements = rs
