@@ -24,7 +24,8 @@ func sanitizeInfo(info *Info) {
 		}
 	}
 
-	for e, inf := range info._Inferred {
+	inferred := getInferred(info)
+	for e, inf := range inferred {
 		changed := false
 		for i, targ := range inf.Targs {
 			if typ := s.typ(targ); typ != targ {
@@ -37,7 +38,7 @@ func sanitizeInfo(info *Info) {
 			changed = true
 		}
 		if changed {
-			info._Inferred[e] = inf
+			inferred[e] = inf
 		}
 	}
 
@@ -67,13 +68,17 @@ func sanitizeInfo(info *Info) {
 type sanitizer map[Type]Type
 
 func (s sanitizer) typ(typ Type) Type {
+	if typ == nil {
+		return nil
+	}
+
 	if t, found := s[typ]; found {
 		return t
 	}
 	s[typ] = typ
 
 	switch t := typ.(type) {
-	case nil, *Basic, *bottom, *top:
+	case *Basic, *bottom, *top:
 		// nothing to do
 
 	case *Array:
@@ -107,10 +112,14 @@ func (s sanitizer) typ(typ Type) Type {
 
 	case *Interface:
 		s.funcList(t.methods)
-		s.typ(t.types)
+		if types := s.typ(t.types); types != t.types {
+			t.types = types
+		}
 		s.typeList(t.embeddeds)
 		s.funcList(t.allMethods)
-		s.typ(t.allTypes)
+		if allTypes := s.typ(t.allTypes); allTypes != t.allTypes {
+			t.allTypes = allTypes
+		}
 
 	case *Map:
 		if key := s.typ(t.key); key != t.key {

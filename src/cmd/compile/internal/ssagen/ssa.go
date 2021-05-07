@@ -223,9 +223,10 @@ func AbiForBodylessFuncStackMap(fn *ir.Func) *abi.ABIConfig {
 	return ssaConfig.ABI0.Copy() // No idea what races will result, be safe
 }
 
-// TODO (NLT 2021-04-15) This must be changed to a name that cannot match; it may be helpful to other register ABI work to keep the trigger-logic
-const magicNameDotSuffix = ".MagicMethodNameForTestingRegisterABI"
-const magicLastTypeName = "MagicLastTypeNameForTestingRegisterABI"
+// These are disabled but remain ready for use in case they are needed for the next regabi port.
+// TODO if they are not needed for 1.18 / next register abi port, delete them.
+const magicNameDotSuffix = ".*disabled*MagicMethodNameForTestingRegisterABI"
+const magicLastTypeName = "*disabled*MagicLastTypeNameForTestingRegisterABI"
 
 // abiForFunc implements ABI policy for a function, but does not return a copy of the ABI.
 // Passing a nil function returns the default ABI based on experiment configuration.
@@ -4535,14 +4536,14 @@ func InitTables() {
 			return s.newValue2(ssa.OpMul64uhilo, types.NewTuple(types.Types[types.TUINT64], types.Types[types.TUINT64]), args[0], args[1])
 		},
 		sys.AMD64, sys.ARM64, sys.PPC64, sys.S390X, sys.MIPS64)
-	alias("math/bits", "Mul", "math/bits", "Mul64", sys.ArchAMD64, sys.ArchARM64, sys.ArchPPC64, sys.ArchS390X, sys.ArchMIPS64, sys.ArchMIPS64LE)
-	alias("runtime/internal/math", "Mul64", "math/bits", "Mul64", sys.ArchAMD64, sys.ArchARM64, sys.ArchPPC64, sys.ArchS390X, sys.ArchMIPS64, sys.ArchMIPS64LE)
+	alias("math/bits", "Mul", "math/bits", "Mul64", sys.ArchAMD64, sys.ArchARM64, sys.ArchPPC64, sys.ArchPPC64LE, sys.ArchS390X, sys.ArchMIPS64, sys.ArchMIPS64LE)
+	alias("runtime/internal/math", "Mul64", "math/bits", "Mul64", sys.ArchAMD64, sys.ArchARM64, sys.ArchPPC64, sys.ArchPPC64LE, sys.ArchS390X, sys.ArchMIPS64, sys.ArchMIPS64LE)
 	addF("math/bits", "Add64",
 		func(s *state, n *ir.CallExpr, args []*ssa.Value) *ssa.Value {
 			return s.newValue3(ssa.OpAdd64carry, types.NewTuple(types.Types[types.TUINT64], types.Types[types.TUINT64]), args[0], args[1], args[2])
 		},
 		sys.AMD64, sys.ARM64, sys.PPC64, sys.S390X)
-	alias("math/bits", "Add", "math/bits", "Add64", sys.ArchAMD64, sys.ArchARM64, sys.ArchPPC64, sys.ArchS390X)
+	alias("math/bits", "Add", "math/bits", "Add64", sys.ArchAMD64, sys.ArchARM64, sys.ArchPPC64, sys.ArchPPC64LE, sys.ArchS390X)
 	addF("math/bits", "Sub64",
 		func(s *state, n *ir.CallExpr, args []*ssa.Value) *ssa.Value {
 			return s.newValue3(ssa.OpSub64borrow, types.NewTuple(types.Types[types.TUINT64], types.Types[types.TUINT64]), args[0], args[1], args[2])
