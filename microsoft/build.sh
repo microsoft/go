@@ -21,6 +21,7 @@ scriptroot="$( cd -P "$( dirname "$source" )" && pwd )"
 
 build=1
 test=
+test_json=
 pack=
 
 # Print usage information and exit 0 if no error message is provided.
@@ -41,6 +42,7 @@ usage() {
   echo "Options:"
   echo "  --skip-build  Disable building Go."
   echo "  --test        Enable running tests."
+  echo "  --json        Runs tests with -json flag to emit verbose results in JSON format. For use in CI."
   echo "  --pack        Enable creating a tar.gz file similar to the official Go binary release."
   echo "  -h|--help     Print this help message and exit."
   echo ""
@@ -57,6 +59,9 @@ while [[ $# > 0 ]]; do
       ;;
     --test)
       test=1
+      ;;
+    --json)
+      test_json=1
       ;;
     --pack)
       pack=1
@@ -92,7 +97,22 @@ done
 
   if [ "$test" ]; then
     echo "Running tests..."
-    ./run.bash --no-rebuild
+    if [ "$test_json" ]; then
+      # "-json": Get test results as lines of JSON.
+      #
+      # "2>&1": If we're running in JSON mode, we are probably running under gotestsum, which
+      # detects stderr output and prints it as a problem even though we expect it. This could be
+      # misleading for someone looking at test results. To avoid this, redirect stderr to stdout.
+      # The test script returns a correct exit code, so the redirect doesn't affect overall test
+      # success/failure.
+      #
+      # For example, stderr output is normal when checking for machine capabilities. A Cgo static
+      # linking test emits "/usr/bin/ld: cannot find -lc" and then skips the test because that
+      # indicates static linking isn't supported with the current build/platform.
+      ./run.bash --no-rebuild -json 2>&1
+    else
+      ./run.bash --no-rebuild
+    fi
   fi
 
   if [ "$pack" ]; then

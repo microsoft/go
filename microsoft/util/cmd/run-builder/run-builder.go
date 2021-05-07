@@ -10,6 +10,8 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+
+	gotestsumcmd "gotest.tools/gotestsum/cmd"
 )
 
 const description = `
@@ -33,6 +35,7 @@ var dryRun = flag.Bool("n", false, "Enable dry run: print the commands that woul
 
 func main() {
 	var builder = flag.String("builder", "", "[Required] Specify a builder to run. Note, this may be destructive!")
+	var jUnitFile = flag.String("junitfile", "", "Write a JUnit XML file to this path if this builder runs tests.")
 	var help = flag.Bool("h", false, "Print this help message.")
 
 	flag.Usage = func() {
@@ -87,12 +90,21 @@ func main() {
 
 	run("microsoft/build.sh")
 
-	if config == "buildandpack" {
+	switch config {
+	case "buildandpack":
 		run("microsoft/pack.sh")
-	} else if config == "devscript" {
-		run("microsoft/build.sh", "--skip-build", "--test")
-	} else {
 
+	case "devscript":
+		cmdline := []string{"microsoft/build.sh", "--skip-build", "--test"}
+
+		if *jUnitFile != "" {
+			// Emit verbose JSON results in stdout for conversion. Follow script's arg style, '--'.
+			cmdline = append(cmdline, "--json")
+		}
+
+		runTest(cmdline, *jUnitFile)
+
+	default:
 		// The tests read GO_BUILDER_NAME and make decisions based on it. For some configurations,
 		// we only need to set this env var.
 		env("GO_BUILDER_NAME", *builder)
@@ -105,19 +117,28 @@ func main() {
 			env("GO_BUILDER_NAME", goos+"-"+goarch)
 		}
 
-		// 'sudo': Run under root user so we have zero UID. As of writing, all upstream builders
-		// using a non-WSL Linux host run tests as root. We encounter at least one issue if we run
-		// as non-root on Linux in our reimplementation: if the test infra detects non-zero UID, Go
-		// makes the tree read-only while initializing tests, breaking 'longtest' tests that need to
-		// open go.mod files with write permissions. https://github.com/microsoft/go/issues/53
-		// tracks making tests run as non-root where possible.
-		//
-		// '--preserve-env': Keep the testing configuration we've set up. Sudo normally reloads env.
-		//
-		// 'bin/go tool dist test': Use the dist test command directly, because 'src/run.bash' isn't
-		// compatible with longtest. 'src/run.bash' sets 'GOPATH=/nonexist-gopath', which breaks
-		// modconv tests that download modules.
-		run("sudo", "--preserve-env", "bin/go", "tool", "dist", "test")
+		cmdline := []string{
+			// Run under root user so we have zero UID. As of writing, all upstream builders using a
+			// non-WSL Linux host run tests as root. We encounter at least one issue if we run as
+			// non-root on Linux in our reimplementation: if the test infra detects non-zero UID, Go
+			// makes the tree read-only while initializing tests, breaking 'longtest' tests that
+			// need to open go.mod files with write permissions.
+			// https://github.com/microsoft/go/issues/53 tracks running as non-root where possible.
+			"sudo",
+			// Keep testing configuration we've set up. Sudo normally reloads env.
+			"--preserve-env",
+			// Use the dist test command directly, because 'src/run.bash' isn't compatible with
+			// longtest. 'src/run.bash' sets 'GOPATH=/nonexist-gopath', which breaks modconv tests
+			// that download modules.
+			"bin/go", "tool", "dist", "test",
+		}
+
+		if *jUnitFile != "" {
+			// Emit verbose JSON results in stdout for conversion. Follow Go flag style, '-'.
+			cmdline = append(cmdline, "-json")
+		}
+
+		runTest(cmdline, *jUnitFile)
 	}
 }
 
@@ -144,5 +165,41 @@ func run(name string, arg ...string) {
 
 	if err := c.Run(); err != nil {
 		panic(err)
+	}
+}
+
+// runTest runs a testing command. If given a JUnit XML file path, runs the test command inside a
+// gotestsum command that converts the JSON output into JUnit XML and writes it to a file at this
+// path.
+func runTest(cmdline []string, jUnitFile string) {
+	if *dryRun {
+		fmt.Printf("---- Dry run. Would have run test command: %v\n", cmdline)
+		return
+	}
+
+	if jUnitFile != "" {
+
+		gotestsumArgs := append(
+			[]string{
+				"--junitfile", jUnitFile,
+				"--hide-summary", "skipped,output",
+				"--format", "standard-quiet",
+				"--ignore-non-json-output-lines",
+				"--raw-command",
+			},
+			cmdline...,
+		)
+
+		fmt.Printf("---- Running gotestsum command: %v\n", gotestsumArgs)
+
+		// The 0th arg to a program is usually its path. This is used in help text to give example
+		// commands that the user can copy-paste even if they've renamed the executable manually.
+		// We're using gotestsum as a library, so there is no path. Pass an obvious placeholder as
+		// the 0th arg so if something unexpected happens and it shows up, it's not too misleading.
+		if err := gotestsumcmd.Run("ARG_0_PLACEHOLDER", gotestsumArgs); err != nil {
+			panic(err)
+		}
+	} else {
+		run(cmdline[0], cmdline[1:]...)
 	}
 }
