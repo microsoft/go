@@ -65,7 +65,7 @@ func main() {
 	fmt.Printf("Found os '%s', arch '%s', config '%s'\n", goos, goarch, config)
 
 	if *builder == "linux-amd64-longtest" {
-		run("microsoft/workaround-install-mercurial.sh")
+		runOrPanic("microsoft/workaround-install-mercurial.sh")
 	}
 
 	// Tests usually use the builder name to decide what to do. However, some configurations also
@@ -88,11 +88,11 @@ func main() {
 		env("GOEXPERIMENT", "staticlockranking")
 	}
 
-	run("microsoft/build.sh")
+	runOrPanic("microsoft/build.sh")
 
 	switch config {
 	case "buildandpack":
-		run("microsoft/pack.sh")
+		runOrPanic("microsoft/pack.sh")
 
 	case "devscript":
 		cmdline := []string{"microsoft/build.sh", "--skip-build", "--test"}
@@ -150,20 +150,23 @@ func env(key, value string) {
 	}
 }
 
-// run runs a command, sending stdout/stderr to our streams, and panics if it doesn't succeed.
-func run(name string, arg ...string) {
+func run(name string, arg ...string) error {
 	c := exec.Command(name, arg...)
 	c.Stdout = os.Stdout
 	c.Stderr = os.Stderr
 
 	if *dryRun {
 		fmt.Printf("---- Dry run. Would have run command: %v\n", c.Args)
-		return
+		return nil
 	}
 
 	fmt.Printf("---- Running command: %v\n", c.Args)
+	return c.Run()
+}
 
-	if err := c.Run(); err != nil {
+// runOrPanic runs a command, sending stdout/stderr to our streams, and panics if it doesn't succeed.
+func runOrPanic(name string, arg ...string) {
+	if err := run(name, arg...); err != nil {
 		panic(err)
 	}
 }
@@ -177,8 +180,9 @@ func runTest(cmdline []string, jUnitFile string) {
 		return
 	}
 
-	if jUnitFile != "" {
+	var err error
 
+	if jUnitFile != "" {
 		gotestsumArgs := append(
 			[]string{
 				"--junitfile", jUnitFile,
@@ -196,10 +200,18 @@ func runTest(cmdline []string, jUnitFile string) {
 		// commands that the user can copy-paste even if they've renamed the executable manually.
 		// We're using gotestsum as a library, so there is no path. Pass an obvious placeholder as
 		// the 0th arg so if something unexpected happens and it shows up, it's not too misleading.
-		if err := gotestsumcmd.Run("ARG_0_PLACEHOLDER", gotestsumArgs); err != nil {
-			panic(err)
-		}
+		err = gotestsumcmd.Run("ARG_0_PLACEHOLDER", gotestsumArgs)
 	} else {
-		run(cmdline[0], cmdline[1:]...)
+		err = run(cmdline[0], cmdline[1:]...)
+	}
+
+	if err != nil {
+		// If we got an ExitError, the error message was already printed by the command. We just
+		// need to exit with the same exit code.
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			os.Exit(exitErr.ExitCode())
+		}
+		// Something else happened: alert the user.
+		panic(err)
 	}
 }
