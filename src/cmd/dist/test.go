@@ -29,9 +29,9 @@ func cmdtest() {
 	var t tester
 	var noRebuild bool
 	flag.BoolVar(&t.listMode, "list", false, "list available tests")
-	// UPSTREAM: add JSON output support https://github.com/golang/go/issues/37486
+	// MICROSOFT_UPSTREAM: add JSON output support https://github.com/golang/go/issues/37486
 	flag.BoolVar(&t.jsonMode, "json", false, "pass -json to inner go test commands")
-	// END UPSTREAM
+	// END MICROSOFT_UPSTREAM
 	flag.BoolVar(&t.rebuild, "rebuild", false, "rebuild everything first")
 	flag.BoolVar(&noRebuild, "no-rebuild", false, "overrides -rebuild (historical dreg)")
 	flag.BoolVar(&t.keepGoing, "k", false, "keep going even when error occurred")
@@ -53,7 +53,7 @@ func cmdtest() {
 type tester struct {
 	race        bool
 	listMode    bool
-	jsonMode    bool // UPSTREAM: add JSON output support https://github.com/golang/go/issues/37486 (oneline comment to avoid disturbing gofmt alignment)
+	jsonMode    bool // MICROSOFT_UPSTREAM: add JSON output support https://github.com/golang/go/issues/37486 (oneline comment to avoid disturbing gofmt alignment)
 	rebuild     bool
 	failed      bool
 	keepGoing   bool
@@ -290,7 +290,7 @@ func short() string {
 // Callers should use goTest and then pass flags overriding these
 // defaults as later arguments in the command line.
 func (t *tester) goTest() []string {
-	// UPSTREAM: add JSON output support https://github.com/golang/go/issues/37486
+	// MICROSOFT_UPSTREAM: add JSON output support https://github.com/golang/go/issues/37486
 	cmdline := []string{
 		"go", "test", "-short=" + short(), "-count=1", t.tags(), t.runFlag(""),
 	}
@@ -298,7 +298,7 @@ func (t *tester) goTest() []string {
 		cmdline = append(cmdline, "-json")
 	}
 	return cmdline
-	// END UPSTREAM
+	// END MICROSOFT_UPSTREAM
 }
 
 func (t *tester) tags() string {
@@ -381,11 +381,11 @@ func (t *tester) registerStdTest(pkg string, useG3 bool) {
 				t.timeout(timeoutSec),
 				"-gcflags=all=" + gcflags,
 			}
-			// UPSTREAM: add JSON output support https://github.com/golang/go/issues/37486
+			// MICROSOFT_UPSTREAM: add JSON output support https://github.com/golang/go/issues/37486
 			if t.jsonMode {
 				args = append(args, "-json")
 			}
-			// END UPSTREAM
+			// END MICROSOFT_UPSTREAM
 			if t.race {
 				args = append(args, "-race")
 			}
