@@ -68,8 +68,8 @@ func main() {
 		runOrPanic("microsoft/workaround-install-mercurial.sh")
 	}
 
-	// Tests usually use the builder name to decide what to do. However, some configurations also
-	// need extra env variables set up. Some of these take effect during the Go build.
+	// Some builder configurations need extra env variables set up during the build, not just while
+	// running tests:
 	switch config {
 	case "clang":
 		env("CC", "/usr/bin/clang-3.9")
@@ -90,11 +90,16 @@ func main() {
 
 	runOrPanic("microsoft/build.sh")
 
+	// After the build completes, run builder-specific commands.
 	switch config {
 	case "buildandpack":
+		// "buildandpack" runs the pack script to produce a Go tarball, not tests.
 		runOrPanic("microsoft/pack.sh")
 
 	case "devscript":
+		// "devscript" is specific to the Microsoft infrastructure. It means the builder should
+		// validate the dev-friendly "microsoft/build.sh" script works to build and test Go. It runs
+		// a subset of the "test" builder's tests, but it uses the dev workflow.
 		cmdline := []string{"microsoft/build.sh", "--skip-build", "--test"}
 
 		if *jUnitFile != "" {
@@ -105,6 +110,9 @@ func main() {
 		runTest(cmdline, *jUnitFile)
 
 	default:
+		// Most builder configurations use "bin/go tool dist test" directly, rather than the
+		// Microsoft-specific "microsoft/build.sh" script. run-builder uses this approach.
+
 		// The tests read GO_BUILDER_NAME and make decisions based on it. For some configurations,
 		// we only need to set this env var.
 		env("GO_BUILDER_NAME", *builder)
@@ -183,12 +191,17 @@ func runTest(cmdline []string, jUnitFile string) {
 	var err error
 
 	if jUnitFile != "" {
+		// Set up gotestsum args. We rely on gotestsum to run the command, capture its output, and
+		// convert it to JUnit test result XML.
 		gotestsumArgs := append(
 			[]string{
 				"--junitfile", jUnitFile,
 				"--hide-summary", "skipped,output",
 				"--format", "standard-quiet",
+				// When a builder runs tests, some JSON lines are mixed in with standard output
+				// lines. Normally gotestsum treats this as an error, but we need to allow it.
 				"--ignore-non-json-output-lines",
+				// We don't use 'go test', we pass our own raw command. ("cmdline" args.)
 				"--raw-command",
 			},
 			cmdline...,
@@ -196,12 +209,17 @@ func runTest(cmdline []string, jUnitFile string) {
 
 		fmt.Printf("---- Running gotestsum command: %v\n", gotestsumArgs)
 
-		// The 0th arg to a program is usually its path. This is used in help text to give example
-		// commands that the user can copy-paste even if they've renamed the executable manually.
-		// We're using gotestsum as a library, so there is no path. Pass an obvious placeholder as
-		// the 0th arg so if something unexpected happens and it shows up, it's not too misleading.
+		// Use "ARG_0_PLACEHOLDER" as an arbitrary placeholder name. This is because here, we're
+		// essentially directly calling gotestsum's main method. The 0th arg to a main method is
+		// usually the program's path. This is used in the program's help text to give example
+		// commands that the user can copy-paste no matter where the executable lives or if it's
+		// been renamed. However, run-builder uses gotestsum as a library, so it's compiled into our
+		// binary and there is no actual 'gotestsum' program. We could pass run-builder's path, but
+		// that would be misleading if it ever shows up in gotestsum's output unexpectedly. Instead,
+		// pass an obvious placeholder.
 		err = gotestsumcmd.Run("ARG_0_PLACEHOLDER", gotestsumArgs)
 	} else {
+		// If we don't have a jUnitFile target, run the command normally.
 		err = run(cmdline[0], cmdline[1:]...)
 	}
 

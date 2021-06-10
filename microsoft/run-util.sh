@@ -5,6 +5,36 @@
 
 set -euo pipefail
 
+# Print the purpose of the script and how to use it.
+usage() {
+  echo "$0 builds and runs a tool defined in 'microsoft/util/cmd'.
+
+Usage: $0 <tool> [arguments...]
+
+Builds 'microsoft/util/cmd/{tool}/{tool}.go' and runs it using the list of
+arguments. If necessary, this command automatically installs Go and downloads
+the dependencies of the 'microsoft/util' module.
+
+Every tool accepts a '-h' argument to show tool usage help.
+
+Possible tool commands:"
+  for x in $toolroot/cmd/*; do
+    echo "  $0 ${x##*/}"
+  done
+}
+
+# Print an optional error message and general script usage info, then call "exit 1".
+# $1: An error message to print.
+exit_error() {
+  if [ "${1:-}" ]; then
+    echo "Error: $1"
+    echo ""
+  fi
+
+  usage
+  exit 1
+}
+
 source="${BASH_SOURCE[0]}"
 
 # resolve $SOURCE until the file is no longer a symlink
@@ -20,29 +50,8 @@ done
 scriptroot="$( cd -P "$( dirname "$source" )" && pwd )"
 toolroot="$scriptroot/util"
 
-# Print usage information and exit 0 if no error message is provided.
-# $1: An error message to display. If provided, this function will exit 1.
-usage() {
-  exit_code=0
-
-  if [ "${1:-}" ]; then
-    echo "Error: $1"
-    echo ""
-    exit_code=1
-  fi
-
-  echo "$0 builds and runs a tool in the 'github.com/microsoft/go/util' Go module, downloading dependencies if necessary."
-  echo ""
-  echo "Possible tool commands:"
-  for x in $toolroot/cmd/*; do
-    echo "  $0 ${x##*/}"
-  done
-
-  exit "$exit_code"
-}
-
 if [ ! "${1:-}" ]; then
-  usage "No tool specified."
+  exit_error "No tool specified."
 fi
 
 # Take the first arg as the tool name. The remaining args ($@) will be passed into the tool.
@@ -53,7 +62,7 @@ tool_src="$toolroot/cmd/$tool"
 tool_output="$scriptroot/artifacts/toolbin/$tool"
 
 if [ ! -d "$tool_src" ]; then
-  usage "Tool doesn't exist: '$tool_src'."
+  exit_error "Tool doesn't exist: '$tool_src'."
 fi
 
 . "$scriptroot/init-stage0.sh"
