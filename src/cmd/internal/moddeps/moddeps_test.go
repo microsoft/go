@@ -413,14 +413,6 @@ func findGorootModules(t *testing.T) []gorootModule {
 			if info.IsDir() && (info.Name() == "vendor" || info.Name() == "testdata") {
 				return filepath.SkipDir
 			}
-			// NO MICROSOFT_UPSTREAM: Ignore modules in the "microsoft" directory. The "microsoft"
-			// directory contains a utility module that is less constrained than the "core" Go
-			// modules: the utility module is not strictly necessary to build Go, so it's ok if its
-			// dependencies are downloaded when needed rather than being vendored.
-			if info.IsDir() && path == filepath.Join(runtime.GOROOT(), "microsoft") {
-				return filepath.SkipDir
-			}
-			// END NO MICROSOFT_UPSTREAM
 			if info.IsDir() && path == filepath.Join(runtime.GOROOT(), "pkg") {
 				// GOROOT/pkg contains generated artifacts, not source code.
 				//

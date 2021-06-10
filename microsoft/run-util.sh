@@ -7,13 +7,13 @@ set -euo pipefail
 
 # Print the purpose of the script and how to use it.
 usage() {
-  echo "$0 builds and runs a tool defined in 'microsoft/util/cmd'.
+  echo "$0 builds and runs a tool defined in 'microsoft/_util/cmd'.
 
 Usage: $0 <tool> [arguments...]
 
-Builds 'microsoft/util/cmd/{tool}/{tool}.go' and runs it using the list of
+Builds 'microsoft/_util/cmd/{tool}/{tool}.go' and runs it using the list of
 arguments. If necessary, this command automatically installs Go and downloads
-the dependencies of the 'microsoft/util' module.
+the dependencies of the 'microsoft/_util' module.
 
 Every tool accepts a '-h' argument to show tool usage help.
 
@@ -48,7 +48,7 @@ while [[ -h $source ]]; do
 done
 
 scriptroot="$( cd -P "$( dirname "$source" )" && pwd )"
-toolroot="$scriptroot/util"
+toolroot="$scriptroot/_util"
 
 if [ ! "${1:-}" ]; then
   exit_error "No tool specified."
