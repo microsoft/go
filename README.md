@@ -4,7 +4,8 @@ Go is an open source programming language that makes it easy to build simple,
 reliable, and efficient software.
 
 This repository, https://github.com/microsoft/go, contains the source for Go and
-the infrastructure used by Microsoft to build Go.
+the infrastructure used by Microsoft to build Go. See
+[`eng/README.md`](eng/README.md) for more information.
 
 ![Gopher image](https://golang.org/doc/gopher/fiveyears.jpg)
 *Gopher image by [Renee French][rf], licensed under [Creative Commons 3.0 Attributions license][cc3-by].*
