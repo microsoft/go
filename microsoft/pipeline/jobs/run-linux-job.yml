@@ -30,10 +30,22 @@ jobs:
       - script: |
           set -ex
 
-          . microsoft/init-stage0.sh
-          "$stage0_dir/go/bin/go" run microsoft/run-builder.go \
-            -builder '${{ parameters.builder.os }}-${{ parameters.builder.arch }}-${{ parameters.builder.config }}'
+          microsoft/run-util.sh run-builder \
+            -builder '${{ parameters.builder.os }}-${{ parameters.builder.arch }}-${{ parameters.builder.config }}' \
+            -junitfile '$(Build.SourcesDirectory)/microsoft/artifacts/TestResults.xml'
         displayName: Run ${{ parameters.builder.config }}
+
+      - ${{ if ne(parameters.builder.config, 'buildandpack') }}:
+        - task: PublishTestResults@2
+          displayName: Publish test results
+          condition: succeededOrFailed()
+          inputs:
+            testResultsFormat: JUnit
+            testResultsFiles: $(Build.SourcesDirectory)/microsoft/artifacts/TestResults.xml
+            testRunTitle: ${{ parameters.builder.os }}_${{ parameters.builder.arch }}_${{ parameters.builder.config }}
+            buildPlatform: ${{ parameters.builder.arch }}
+            buildConfiguration: ${{ parameters.builder.config }}
+            publishRunAttachments: true
 
       - ${{ if eq(parameters.builder.config, 'buildandpack' ) }}:
         - publish: microsoft/artifacts/bin
