@@ -28,10 +28,10 @@ if [ ! -f "$download_complete_indicator" ]; then
 
   go_tarball="$stage0_dir/go.tar.gz"
 
-  curl -SL --output "$go_tarball" https://golang.org/dl/go${stage0_go_version}.linux-amd64.tar.gz \
-    && echo "$stage0_go_sha256  $go_tarball" | sha256sum -c - \
-    && tar -C "$stage0_dir" -xzf "$go_tarball" \
-    && rm "$go_tarball"
+  curl -SL --output "$go_tarball" https://golang.org/dl/go${stage0_go_version}.linux-amd64.tar.gz
+  echo "$stage0_go_sha256  $go_tarball" | sha256sum -c -
+  tar -C "$stage0_dir" -xzf "$go_tarball"
+  rm "$go_tarball"
 
   touch "$download_complete_indicator"
 

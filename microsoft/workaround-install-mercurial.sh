@@ -17,8 +17,8 @@ fetch() {
   out=$1
   url=$2
   sum=$3
-  curl -SL --output "$out" "$url" \
-    && echo "$sum  $out" | sha256sum -c -
+  curl -SL --output "$out" "$url"
+  echo "$sum  $out" | sha256sum -c -
 }
 
 # Install mercurial to test Go integration.
