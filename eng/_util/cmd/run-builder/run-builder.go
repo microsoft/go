@@ -19,7 +19,7 @@ This script is used in CI to run a build/test/pack configuration.
 
 Example: Build and run tests using the dev scripts:
 
-  go run microsoft/run-builder.go -builder linux-amd64-devscript
+  go run eng/run-builder.go -builder linux-amd64-devscript
 
 For a list of builders that are run in CI, see 'azure-pipelines.yml'. This
 doesn't include every builder that upstream uses. It also adds some builders
@@ -65,7 +65,7 @@ func main() {
 	fmt.Printf("Found os '%s', arch '%s', config '%s'\n", goos, goarch, config)
 
 	if *builder == "linux-amd64-longtest" {
-		runOrPanic("microsoft/workaround-install-mercurial.sh")
+		runOrPanic("eng/workaround-install-mercurial.sh")
 	}
 
 	// Some builder configurations need extra env variables set up during the build, not just while
@@ -88,19 +88,19 @@ func main() {
 		env("GOEXPERIMENT", "staticlockranking")
 	}
 
-	runOrPanic("microsoft/build.sh")
+	runOrPanic("eng/build.sh")
 
 	// After the build completes, run builder-specific commands.
 	switch config {
 	case "buildandpack":
 		// "buildandpack" runs the pack script to produce a Go tarball, not tests.
-		runOrPanic("microsoft/pack.sh")
+		runOrPanic("eng/pack.sh")
 
 	case "devscript":
 		// "devscript" is specific to the Microsoft infrastructure. It means the builder should
-		// validate the dev-friendly "microsoft/build.sh" script works to build and test Go. It runs
+		// validate the dev-friendly "eng/build.sh" script works to build and test Go. It runs
 		// a subset of the "test" builder's tests, but it uses the dev workflow.
-		cmdline := []string{"microsoft/build.sh", "--skip-build", "--test"}
+		cmdline := []string{"eng/build.sh", "--skip-build", "--test"}
 
 		if *jUnitFile != "" {
 			// Emit verbose JSON results in stdout for conversion. Follow script's arg style, '--'.
@@ -111,7 +111,7 @@ func main() {
 
 	default:
 		// Most builder configurations use "bin/go tool dist test" directly, rather than the
-		// Microsoft-specific "microsoft/build.sh" script. run-builder uses this approach.
+		// Microsoft-specific "eng/build.sh" script. run-builder uses this approach.
 
 		// The tests read GO_BUILDER_NAME and make decisions based on it. For some configurations,
 		// we only need to set this env var.
