@@ -22,7 +22,7 @@ import (
 const description = `
 Example: A sync operation dry run from upstream master to microsoft/go:
 
-  go run microsoft/sync/sync-upstream-refs.go -b master -n
+  eng/run-util.sh sync -b master -n
 
 It may be useful to specify Git addresses like 'git@github.com:microsoft/go' to
 use SSH authentication.
@@ -39,13 +39,13 @@ A 'sync' is a few steps to run "merge from upstream" and "mirror from upstream":
    - This push is the "mirror from upstream".
    - We may change this to push to 'origin' in the future. See https://github.com/microsoft/go/issues/4
 
-This script creates a temporary copy of the repository in 'microsoft/artifacts/'
-by default. This avoids trampling changes in the user's clone.`
+This script creates a temporary copy of the repository in 'eng/artifacts/' by
+default. This avoids trampling changes in the user's clone.`
 
 // Files and dirs that upstream may modify, but we want to ignore those modifications and keep our
-// changes to them. Normally our files are all in the 'microsoft/' directory, but some files are
-// required by GitHub to be in the root of the repo or in the '.github' directory, so we must modify
-// them in place and auto-resolve conflicts.
+// changes to them. Normally our files are all in the 'eng/' directory, but some files are required
+// by GitHub to be in the root of the repo or in the '.github' directory, so we must modify them in
+// place and auto-resolve conflicts.
 //
 // This is in package scope just so it's easy to find at the top of the file for maintenance.
 var autoResolveOurPaths = []string{
@@ -57,7 +57,7 @@ var autoResolveOurPaths = []string{
 }
 
 var dryRun = flag.Bool("n", false, "Enable dry run: do not push, do not submit PR.")
-var tempGitDir = flag.String("temp-git-dir", filepath.Join(getwd(), "microsoft", "artifacts", "sync-upstream-temp-repo"), "Location to create the temporary Git repo. Must not exist.")
+var tempGitDir = flag.String("temp-git-dir", filepath.Join(getwd(), "eng", "artifacts", "sync-upstream-temp-repo"), "Location to create the temporary Git repo. Must not exist.")
 
 var client = http.Client{
 	Timeout: time.Second * 30,

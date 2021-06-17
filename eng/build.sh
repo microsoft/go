@@ -14,7 +14,7 @@ infrastructure builds it. This script automatically downloads a copy of the Go
 compiler (required to build Go) then starts the build. This script is also
 capable of running tests and packing a tar.gz file: see Options.
 
-The Microsoft CI infrastructure uses 'microsoft/run-util.sh run-builder', which
+The Microsoft CI infrastructure uses 'eng/run-util.sh run-builder', which
 runs this script to build Go. If the builder configuration is 'devscript',
 run-builder then uses this script to run tests. Otherwise, 'go tool dist test'
 is used directly to run tests. (Pass '-h' to run-builder for more info.) The
