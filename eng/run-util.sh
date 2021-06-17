@@ -71,7 +71,7 @@ PATH="$PATH:$stage0_dir/go/bin"
 (
   # Move into module so "go build" detects it and fetches dependencies.
   cd "$toolroot"
-  go build -o "$tool_output" "./cmd/$tool"
+  "$stage0_dir/go/bin/go" build -o "$tool_output" "./cmd/$tool"
 
   # Run tools from the root of the repo.
   cd "$scriptroot/.."
