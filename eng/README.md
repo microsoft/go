@@ -2,7 +2,7 @@
 
 This directory contains build infrastructure files that Microsoft uses to build
 Go. This directory serves a similar purpose to https://github.com/golang/build,
-which stores the build infrastructure for the canonical Go repo,
+which stores the build infrastructure for the upstream Go repo,
 https://go.googlesource.com/go.
 
 The directory name, "eng", is short for "engineering". This name is required
@@ -16,7 +16,7 @@ To build Go using the Microsoft scripts, run `./build.sh`, or run `eng/build.sh`
 from the root of the repository.
 
 This is similar to running `src/make.bash` from the root of the repo, the
-standard way to build the canonical Go repository. However, `build.sh` will
+standard way to build the upstream Go repository. However, `build.sh` will
 automatically download a version of Go and use that to build, and `build.sh`
 will also build the race runtime once the standard build is complete.
 
@@ -27,16 +27,16 @@ Run `eng/build.sh -h` for more information.
 ## Change containment
 
 Changes specific to the Microsoft build of Go are kept inside the `eng`
-directory. This helps to isolate and easily contribute changes to the canonical
+directory. This helps to isolate and easily contribute changes to the upstream
 Go repository.
 
 However, there are a few places outside of `eng` that are modified to fit
 infrastructure requirements:
 
 * `/*.md` - The Microsoft GitHub organization has standard repository text that
-  needs to be in these files, so the canonical Go repo text is changed.
+  needs to be in these files, so the upstream Go repo text is changed.
 * `/.github` - Contains CI configuration. GitHub requires files to be at this
-  absolute path, so the files in the canonical Go repo need to be deleted to
+  absolute path, so the files in the upstream Go repo need to be deleted to
   configure Microsoft's CI.
 * `/global.json` - This is a .NET SDK `global.json` file. It contains the
   version of the Arcade SDK that will be used for signing our outputs. Arcade
@@ -44,9 +44,9 @@ infrastructure requirements:
 * `/NuGet.config` - This is a .NET NuGet sources configuration file. This is
   also required at the root of the repo by the Arcade SDK.
 
-For a complete list of files that are modified vs. the canonical Git repository,
-first make sure you have the canonical Git refs locally. One way to do this is
-to set up a remote:
+For a complete list of files that are modified vs. the upstream Git repository,
+first make sure you have the upstream Git refs locally. One way to do this is to
+set up a remote:
 
 ```sh
 git remote add golang https://github.com/microsoft/go
