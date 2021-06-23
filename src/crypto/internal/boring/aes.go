@@ -157,14 +157,6 @@ func (x *aesCBC) CryptBlocks(dst, src []byte) {
 	}
 	if len(src) > 0 {
 		outlen := C.int(0)
-		if C._goboringcrypto_EVP_CipherInit_ex(
-			x.ctx,
-			nil, nil, nil,
-			(*C.uchar)(unsafe.Pointer(&x.iv[0])),
-			-1) != 1 {
-			panic("crypto/cipher: CipherInit_ex failed")
-		}
-		runtime.KeepAlive(x)
 		if C._goboringcrypto_EVP_CipherUpdate(
 			x.ctx,
 			base(dst), &outlen,
