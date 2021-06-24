@@ -92,10 +92,6 @@ func main() {
 
 	// After the build completes, run builder-specific commands.
 	switch config {
-	case "buildandpack":
-		// "buildandpack" runs the pack script to produce a Go tarball, not tests.
-		runOrPanic("eng/pack.sh")
-
 	case "devscript":
 		// "devscript" is specific to the Microsoft infrastructure. It means the builder should
 		// validate the dev-friendly "eng/build.sh" script works to build and test Go. It runs

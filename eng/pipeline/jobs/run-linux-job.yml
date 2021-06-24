@@ -27,15 +27,31 @@ jobs:
       - script: eng/init-stage0.sh
         displayName: Init stage 0 Go toolset
 
-      - script: |
-          set -ex
+      # Use build script directly for "buildandpack". If we used run-builder, we would need to
+      # download its external module dependencies.
+      - ${{ if eq(parameters.builder.config, 'buildandpack' ) }}:
+        - script: |
+            set -ex
 
-          eng/run-util.sh run-builder \
-            -builder '${{ parameters.builder.os }}-${{ parameters.builder.arch }}-${{ parameters.builder.config }}' \
-            -junitfile '$(Build.SourcesDirectory)/eng/artifacts/TestResults.xml'
-        displayName: Run ${{ parameters.builder.config }}
+            eng/build.sh --pack
+          displayName: Build and Pack
 
+        - publish: eng/artifacts/bin
+          artifact: Binaries ${{ parameters.builder.os }}_${{ parameters.builder.arch }}_${{ parameters.builder.config }}
+          displayName: Pipeline publish
+          condition: succeededOrFailed()
+
+      # Use run-builder for any configuration that includes tests. run-builder uses the "gotestsum"
+      # module to convert test results to a JUnit file that Azure DevOps can understand.
       - ${{ if ne(parameters.builder.config, 'buildandpack') }}:
+        - script: |
+            set -ex
+
+            eng/run-util.sh run-builder \
+              -builder '${{ parameters.builder.os }}-${{ parameters.builder.arch }}-${{ parameters.builder.config }}' \
+              -junitfile '$(Build.SourcesDirectory)/eng/artifacts/TestResults.xml'
+          displayName: Run ${{ parameters.builder.config }}
+
         - task: PublishTestResults@2
           displayName: Publish test results
           condition: succeededOrFailed()
@@ -46,9 +62,3 @@ jobs:
             buildPlatform: ${{ parameters.builder.arch }}
             buildConfiguration: ${{ parameters.builder.config }}
             publishRunAttachments: true
-
-      - ${{ if eq(parameters.builder.config, 'buildandpack' ) }}:
-        - publish: eng/artifacts/bin
-          artifact: Binaries ${{ parameters.builder.os }}_${{ parameters.builder.arch }}_${{ parameters.builder.config }}
-          displayName: Pipeline publish
-          condition: succeededOrFailed()
