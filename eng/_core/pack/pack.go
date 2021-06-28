@@ -65,7 +65,7 @@ func Archive(source string, output string) error {
 	// Full paths of dirs to skip packing. Avoid using "runtime.GOOS" because that would prevent
 	// this command from working across OSes. We may need to, for example, sign windows-amd64 +
 	// windows-arm64 and then repack both zips on a single computer.
-	skipDirs := []string{
+	skipPaths := []string{
 		filepath.Join("pkg", "obj"),
 		// Skip "cmd" in any GOOS_GOARCH directory, per upstream:
 		// https://github.com/golang/build/blob/baa7b38160246c52ae4dc6ba5dcab4a24a4d59f8/cmd/release/release.go#L506-L521
@@ -73,6 +73,7 @@ func Archive(source string, output string) error {
 		// Users don't need the API checker binary pre-built, per upstream:
 		// https://github.com/golang/build/blob/baa7b38160246c52ae4dc6ba5dcab4a24a4d59f8/cmd/release/release.go#L493-L497
 		filepath.Join("pkg", "tool", os+"_"+arch, "api"),
+		filepath.Join("pkg", "tool", os+"_"+arch, "api.exe"),
 	}
 
 	targetRuntimeRaceSyso := fmt.Sprintf("race_%v_%v.syso", os, arch)
@@ -121,18 +122,19 @@ func Archive(source string, output string) error {
 		} else {
 			// Now we're deeper in the tree. Include everything by default and only exclude specific
 			// files and directories.
-			if info.IsDir() {
-				for _, skip := range skipDirs {
-					if matched, _ := filepath.Match(skip, relPath); matched {
+			for _, skip := range skipPaths {
+				if relPath == skip {
+					if info.IsDir() {
 						return filepath.SkipDir
 					}
-				}
-			} else {
-				isRaceSyso, _ := filepath.Match("race_*.syso", info.Name())
-				// Skip race detection syso file if it doesn't match the target runtime.
-				if isRaceSyso && info.Name() != targetRuntimeRaceSyso {
 					return nil
 				}
+			}
+
+			isRaceSyso, _ := filepath.Match("race_*.syso", info.Name())
+			// Skip race detection syso file if it doesn't match the target runtime.
+			if isRaceSyso && info.Name() != targetRuntimeRaceSyso {
+				return nil
 			}
 		}
 
