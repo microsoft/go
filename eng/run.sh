@@ -7,19 +7,28 @@ set -euo pipefail
 
 # Print the purpose of the script and how to use it.
 usage() {
-  echo "$0 builds and runs a tool defined in 'eng/_util/cmd'.
+  echo "$0 builds and runs a tool defined in a module in 'eng'.
 
-Usage: $0 <tool> [arguments...]
+To run a tool:
+  $0 <tool> [arguments...]
 
-Builds 'eng/_util/cmd/{tool}/{tool}.go' and runs it using the list of
+To list possible tools:
+  $0
+
+Builds 'eng/<module>/cmd/<tool>/<tool>.go' and runs it using the list of
 arguments. If necessary, this command automatically installs Go and downloads
-the dependencies of the 'eng/_util' module.
+the dependencies of the module.
 
 Every tool accepts a '-h' argument to show tool usage help.
 
 Possible tool commands:"
-  for x in $toolroot/cmd/*; do
-    echo "  $0 ${x##*/}"
+  # Search every underscore-prefixed dir (assumed to be a module) for any "cmd" scripts. Use quotes
+  # to allow spaces in the repo path.
+  for module in "$scriptroot/_"*; do
+    echo "  Module ${module##*/}"
+    for x in "$module/cmd/"*; do
+      echo "    $0 ${x##*/}"
+    done
   done
 }
 
@@ -48,7 +57,6 @@ while [[ -h $source ]]; do
 done
 
 scriptroot="$( cd -P "$( dirname "$source" )" && pwd )"
-toolroot="$scriptroot/_util"
 
 if [ ! "${1:-}" ]; then
   exit_error "No tool specified."
@@ -58,7 +66,11 @@ fi
 tool=$1
 shift
 
-tool_src="$toolroot/cmd/$tool"
+# Use "for" to expand the wildcard, with quotes to handle spaces. We expect a single match, always.
+for tool_src in "$scriptroot/_"*"/cmd/$tool"; do
+  tool_module="$tool_src/../.."
+done
+
 tool_output="$scriptroot/artifacts/toolbin/$tool"
 
 if [ ! -d "$tool_src" ]; then
@@ -70,9 +82,13 @@ PATH="$PATH:$stage0_dir/go/bin"
 
 (
   # Move into module so "go build" detects it and fetches dependencies.
-  cd "$toolroot"
+  cd "$tool_module"
+  echo "Building $tool_src/$tool -> $tool_output"
   "$stage0_dir/go/bin/go" build -o "$tool_output" "./cmd/$tool"
+  echo "Building done."
+)
 
+(
   # Run tools from the root of the repo.
   cd "$scriptroot/.."
   "$tool_output" "$@"

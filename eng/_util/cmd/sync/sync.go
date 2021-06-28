@@ -22,7 +22,7 @@ import (
 const description = `
 Example: A sync operation dry run from upstream master to microsoft/go:
 
-  eng/run-util.sh sync -b master -n
+  eng/run.sh sync -b master -n
 
 It may be useful to specify Git addresses like 'git@github.com:microsoft/go' to
 use SSH authentication.

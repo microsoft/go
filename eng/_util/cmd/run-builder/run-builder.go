@@ -9,17 +9,18 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 
 	gotestsumcmd "gotest.tools/gotestsum/cmd"
 )
 
 const description = `
-This script is used in CI to run a build/test/pack configuration.
+This command is used in CI to run a build/test/pack configuration.
 
 Example: Build and run tests using the dev scripts:
 
-  go run eng/run-builder.go -builder linux-amd64-devscript
+  eng/run.sh run-builder -builder linux-amd64-devscript
 
 For a list of builders that are run in CI, see 'azure-pipelines.yml'. This
 doesn't include every builder that upstream uses. It also adds some builders
@@ -64,6 +65,11 @@ func main() {
 	goos, goarch, config := builderParts[0], builderParts[1], strings.Join(builderParts[2:], "-")
 	fmt.Printf("Found os '%s', arch '%s', config '%s'\n", goos, goarch, config)
 
+	scriptExtension := ".sh"
+	if goos == "windows" {
+		scriptExtension = ".ps1"
+	}
+
 	if *builder == "linux-amd64-longtest" {
 		runOrPanic("eng/workaround-install-mercurial.sh")
 	}
@@ -88,7 +94,7 @@ func main() {
 		env("GOEXPERIMENT", "staticlockranking")
 	}
 
-	runOrPanic("eng/build.sh")
+	runOrPanic(createScriptFileCmdline("eng/build" + scriptExtension)...)
 
 	// After the build completes, run builder-specific commands.
 	switch config {
@@ -96,14 +102,8 @@ func main() {
 		// "devscript" is specific to the Microsoft infrastructure. It means the builder should
 		// validate the dev-friendly "eng/build.sh" script works to build and test Go. It runs
 		// a subset of the "test" builder's tests, but it uses the dev workflow.
-		cmdline := []string{"eng/build.sh", "--skip-build", "--test"}
-
-		if *jUnitFile != "" {
-			// Emit verbose JSON results in stdout for conversion. Follow script's arg style, '--'.
-			cmdline = append(cmdline, "--json")
-		}
-
-		runTest(cmdline, *jUnitFile)
+		cmdline := []string{"eng/build" + scriptExtension, "-skipbuild", "-test"}
+		runTest(createScriptFileCmdline(cmdline...), *jUnitFile)
 
 	default:
 		// Most builder configurations use "bin/go tool dist test" directly, rather than the
@@ -122,24 +122,27 @@ func main() {
 		}
 
 		cmdline := []string{
-			// Run under root user so we have zero UID. As of writing, all upstream builders using a
-			// non-WSL Linux host run tests as root. We encounter at least one issue if we run as
-			// non-root on Linux in our reimplementation: if the test infra detects non-zero UID, Go
-			// makes the tree read-only while initializing tests, breaking 'longtest' tests that
-			// need to open go.mod files with write permissions.
-			// https://github.com/microsoft/go/issues/53 tracks running as non-root where possible.
-			"sudo",
-			// Keep testing configuration we've set up. Sudo normally reloads env.
-			"--preserve-env",
 			// Use the dist test command directly, because 'src/run.bash' isn't compatible with
 			// longtest. 'src/run.bash' sets 'GOPATH=/nonexist-gopath', which breaks modconv tests
 			// that download modules.
 			"bin/go", "tool", "dist", "test",
 		}
 
-		if *jUnitFile != "" {
-			// Emit verbose JSON results in stdout for conversion. Follow Go flag style, '-'.
-			cmdline = append(cmdline, "-json")
+		if goos == "linux" {
+			cmdline = append(
+				[]string{
+					// Run under root user so we have zero UID. As of writing, all upstream builders using a
+					// non-WSL Linux host run tests as root. We encounter at least one issue if we run as
+					// non-root on Linux in our reimplementation: if the test infra detects non-zero UID, Go
+					// makes the tree read-only while initializing tests, breaking 'longtest' tests that
+					// need to open go.mod files with write permissions.
+					// https://github.com/microsoft/go/issues/53 tracks running as non-root where possible.
+					"sudo",
+					// Keep testing configuration we've set up. Sudo normally reloads env.
+					"--preserve-env",
+				},
+				cmdline...,
+			)
 		}
 
 		runTest(cmdline, *jUnitFile)
@@ -154,8 +157,8 @@ func env(key, value string) {
 	}
 }
 
-func run(name string, arg ...string) error {
-	c := exec.Command(name, arg...)
+func run(cmdline ...string) error {
+	c := exec.Command(cmdline[0], cmdline[1:]...)
 	c.Stdout = os.Stdout
 	c.Stderr = os.Stderr
 
@@ -169,8 +172,8 @@ func run(name string, arg ...string) error {
 }
 
 // runOrPanic runs a command, sending stdout/stderr to our streams, and panics if it doesn't succeed.
-func runOrPanic(name string, arg ...string) {
-	if err := run(name, arg...); err != nil {
+func runOrPanic(cmdline ...string) {
+	if err := run(cmdline...); err != nil {
 		panic(err)
 	}
 }
@@ -179,6 +182,11 @@ func runOrPanic(name string, arg ...string) {
 // gotestsum command that converts the JSON output into JUnit XML and writes it to a file at this
 // path.
 func runTest(cmdline []string, jUnitFile string) {
+	if jUnitFile != "" {
+		// Emit verbose JSON results in stdout for conversion.
+		cmdline = append(cmdline, "-json")
+	}
+
 	if *dryRun {
 		fmt.Printf("---- Dry run. Would have run test command: %v\n", cmdline)
 		return
@@ -216,7 +224,7 @@ func runTest(cmdline []string, jUnitFile string) {
 		err = gotestsumcmd.Run("ARG_0_PLACEHOLDER", gotestsumArgs)
 	} else {
 		// If we don't have a jUnitFile target, run the command normally.
-		err = run(cmdline[0], cmdline[1:]...)
+		err = run(cmdline...)
 	}
 
 	if err != nil {
@@ -228,4 +236,15 @@ func runTest(cmdline []string, jUnitFile string) {
 		// Something else happened: alert the user.
 		panic(err)
 	}
+}
+
+func createScriptFileCmdline(cmdline ...string) []string {
+	// If this is a powershell script, prepend "powershell.exe [...]" to make it execute.
+	if filepath.Ext(cmdline[0]) == ".ps1" {
+		cmdline = append(
+			[]string{"powershell.exe", "-NoProfile", "-File"},
+			cmdline...,
+		)
+	}
+	return cmdline
 }
