@@ -65,11 +65,6 @@ func main() {
 	goos, goarch, config := builderParts[0], builderParts[1], strings.Join(builderParts[2:], "-")
 	fmt.Printf("Found os '%s', arch '%s', config '%s'\n", goos, goarch, config)
 
-	scriptExtension := ".sh"
-	if goos == "windows" {
-		scriptExtension = ".ps1"
-	}
-
 	if *builder == "linux-amd64-longtest" {
 		runOrPanic("eng/workaround-install-mercurial.sh")
 	}
@@ -94,20 +89,19 @@ func main() {
 		env("GOEXPERIMENT", "staticlockranking")
 	}
 
-	runOrPanic(createScriptFileCmdline("eng/build" + scriptExtension)...)
+	runOrPanic(createScriptFileCmdline("pwsh", "eng/run.ps1", "build")...)
 
 	// After the build completes, run builder-specific commands.
 	switch config {
 	case "devscript":
 		// "devscript" is specific to the Microsoft infrastructure. It means the builder should
-		// validate the dev-friendly "eng/build.sh" script works to build and test Go. It runs
-		// a subset of the "test" builder's tests, but it uses the dev workflow.
-		cmdline := []string{"eng/build" + scriptExtension, "-skipbuild", "-test"}
+		// validate the run.ps1 script with "build" tool works to build and test Go. It runs a
+		// subset of the "test" builder's tests, but it uses the dev workflow.
+		cmdline := []string{"pwsh", "eng/run.ps1", "build", "-skipbuild", "-test"}
 		runTest(createScriptFileCmdline(cmdline...), *jUnitFile)
 
 	default:
-		// Most builder configurations use "bin/go tool dist test" directly, rather than the
-		// Microsoft-specific "eng/build.sh" script. run-builder uses this approach.
+		// Most builder configurations use "bin/go tool dist test" directly, which is the default.
 
 		// The tests read GO_BUILDER_NAME and make decisions based on it. For some configurations,
 		// we only need to set this env var.

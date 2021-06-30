@@ -93,6 +93,21 @@ func build(o *options) error {
 	}
 
 	if !o.SkipBuild {
+		// If we have a stage 0 copy of Go in an env variable (as set by run.ps1), use it in the
+		// build command by setting GOROOT_BOOTSTRAP. The upstream build script "make.bash" uses
+		// this env variable to find the copy of Go to use to build.
+		//
+		// Forcing the build script to use our stage 0 avoids uncertainty that could occur if we
+		// allowed it to use arbitrary versions of Go from the build machine PATH.
+		//
+		// To avoid this behavior and use an ambiently installed verison of Go from PATH, run
+		// "make.bash" manually instead of using this tool.
+		if stage0Goroot := os.Getenv("STAGE_0_GOROOT"); stage0Goroot != "" {
+			if err := os.Setenv("GOROOT_BOOTSTRAP", stage0Goroot); err != nil {
+				return err
+			}
+		}
+
 		buildCommandLine := append(shellPrefix, "make"+scriptExtension)
 
 		if err := runCommandLine(buildCommandLine...); err != nil {
