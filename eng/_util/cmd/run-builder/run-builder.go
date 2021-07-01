@@ -205,6 +205,23 @@ func runTest(cmdline []string, jUnitFile string) {
 			cmdline...,
 		)
 
+		// gotestsum embeds the current version of Go into the JUnit file. This causes some
+		// problems, so use GOVERSION to override the behavior and use a simple placeholder.
+		//
+		// To find the Go version, gotestsum first looks up GOVERSION in env. If it doesn't exist,
+		// then it looks for "go" in PATH and uses the output of "go version". If Go doesn't exist
+		// in PATH, then gotestsum emits a warning.
+		//
+		// There are two problems. First, in CI, we don't have Go in PATH, so the warning shows up.
+		// It's shown as the last line of output in CI, so it seems more important than it really
+		// is. Second, even if gotestsum does find Go in PATH, it's the wrong version. We're running
+		// tests using the Go we just built, which is never in PATH. Both of these problems could
+		// end up being red herrings in the future, but we prevent them by setting GOVERSION.
+		//
+		// We could run "go version", parse the output, and use that as GOVERSION. However, this
+		// doesn't seem useful, because we know that we ran tests using the Go we just built.
+		env("GOVERSION", "gotestsum_go_version_placeholder")
+
 		fmt.Printf("---- Running gotestsum command: %v\n", gotestsumArgs)
 
 		// Use "ARG_0_PLACEHOLDER" as an arbitrary placeholder name. This is because here, we're
