@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
 
 	gotestsumcmd "gotest.tools/gotestsum/cmd"
@@ -89,7 +88,7 @@ func main() {
 		env("GOEXPERIMENT", "staticlockranking")
 	}
 
-	runOrPanic(createScriptFileCmdline("pwsh", "eng/run.ps1", "build")...)
+	runOrPanic("pwsh", "eng/run.ps1", "build")
 
 	// After the build completes, run builder-specific commands.
 	switch config {
@@ -98,7 +97,7 @@ func main() {
 		// validate the run.ps1 script with "build" tool works to build and test Go. It runs a
 		// subset of the "test" builder's tests, but it uses the dev workflow.
 		cmdline := []string{"pwsh", "eng/run.ps1", "build", "-skipbuild", "-test"}
-		runTest(createScriptFileCmdline(cmdline...), *jUnitFile)
+		runTest(cmdline, *jUnitFile)
 
 	default:
 		// Most builder configurations use "bin/go tool dist test" directly, which is the default.
@@ -247,15 +246,4 @@ func runTest(cmdline []string, jUnitFile string) {
 		// Something else happened: alert the user.
 		panic(err)
 	}
-}
-
-func createScriptFileCmdline(cmdline ...string) []string {
-	// If this is a powershell script, prepend "powershell.exe [...]" to make it execute.
-	if filepath.Ext(cmdline[0]) == ".ps1" {
-		cmdline = append(
-			[]string{"powershell.exe", "-NoProfile", "-File"},
-			cmdline...,
-		)
-	}
-	return cmdline
 }
