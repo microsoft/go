@@ -2,8 +2,8 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-// archive is a library to create binary release zip and tar.gz files based on a completed Go build
-// directory with contents that functionally match those at https://golang.org/dl/.
+// Package archive is a library to create binary release zip and tar.gz files based on a completed
+// Go build directory with contents that functionally match those at https://golang.org/dl/.
 //
 // The goal is to emulate the behavior of https://github.com/golang/build/tree/master/cmd/release in
 // a way that integrates more easily into the Microsoft infrastructure in this repo.
@@ -67,9 +67,9 @@ func CreateFromBuild(source string, output string) error {
 		"api", "bin", "doc", "lib", "misc", "pkg", "src", "test",
 	}
 
-	// Full paths of dirs to skip packing. Avoid using "runtime.GOOS" because that would prevent
-	// this command from working across OSes. We may need to, for example, sign windows-amd64 +
-	// windows-arm64 and then repack both zips on a single computer.
+	// Full paths of dirs and files to skip adding. Use "os", not "runtime.GOOS", because that would
+	// prevent this command from working across OSes. We may need to, for example, sign the contents
+	// of windows-amd64 + windows-arm64 and then repack both zips on a single computer.
 	skipPaths := []string{
 		filepath.Join("pkg", "obj"),
 		// Skip "cmd" in any GOOS_GOARCH directory, per upstream:
@@ -81,6 +81,8 @@ func CreateFromBuild(source string, output string) error {
 		filepath.Join("pkg", "tool", os+"_"+arch, "api.exe"),
 	}
 
+	// Figure out what the race detection syso (precompiled binary) is named for the current
+	// os/arch. We want to exclude all race syso files other than this one.
 	targetRuntimeRaceSyso := fmt.Sprintf("race_%v_%v.syso", os, arch)
 
 	// Keep track of the last time we told the user something. Periodically send info about how much
@@ -136,8 +138,12 @@ func CreateFromBuild(source string, output string) error {
 				}
 			}
 
-			isRaceSyso, _ := filepath.Match("race_*.syso", info.Name())
 			// Skip race detection syso file if it doesn't match the target runtime.
+			//
+			// Ignore error: the only possible error is one that says the pattern is invalid (see
+			// filepath.Match doc), which will never happen here because the pattern is a constant
+			// string. (Do be careful if you change it!)
+			isRaceSyso, _ := filepath.Match("race_*.syso", info.Name())
 			if isRaceSyso && info.Name() != targetRuntimeRaceSyso {
 				return nil
 			}
@@ -186,6 +192,9 @@ func CreateFromBuild(source string, output string) error {
 	return nil
 }
 
+// getArchivePathRuntime takes a path like "go1.7.linux-amd64.tar.gz" and extension like ".tar.gz",
+// and returns the os (linux) and arch (amd64). The "path" extension may have multiple '.'
+// characters in it, so "ext" must be passed in explicitly or else the match would be ambiguous.
 func getArchivePathRuntime(path string, ext string) (os string, arch string) {
 	pathNoExt := path[0 : len(path)-len(ext)]
 	firstRuntimeIndex := strings.LastIndex(pathNoExt, ".") + 1

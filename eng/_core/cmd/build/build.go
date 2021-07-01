@@ -54,8 +54,8 @@ func main() {
 
 	// If build returns an error, handle it here with panic. Having build return an error makes it
 	// easier to adapt build in the future to somewhere else in the module to use it as an API. (For
-	// example, run-builder could depend on this function. The reason it doesn't right now is that
-	// gotestsum can only run a command line.)
+	// example, "build" could be changed to "Build" and run-builder could use it. The reason this
+	// hasn't been done yet is that gotestsum can only run a command line, not a Go function.)
 	if err := build(o); err != nil {
 		panic(err)
 	}
@@ -80,11 +80,15 @@ func build(o *options) error {
 		shellPrefix = []string{"cmd.exe", "/c"}
 	}
 
+	// eng/run.ps1 guarantees that the current working directory is the root of the Go repo (our
+	// GOROOT). Keep track of this so we can optionally pack it up later.
 	rootDir, err := os.Getwd()
 	if err != nil {
 		return err
 	}
 
+	// The scripts in src require your working directory to be src, or they instantly fail. Change
+	// the current process dir so that we can run them.
 	if err := os.Chdir("src"); err != nil {
 		return err
 	}
@@ -97,7 +101,7 @@ func build(o *options) error {
 		// Forcing the build script to use our stage 0 avoids uncertainty that could occur if we
 		// allowed it to use arbitrary versions of Go from the build machine PATH.
 		//
-		// To avoid this behavior and use an ambiently installed verison of Go from PATH, run
+		// To avoid this behavior and use an ambiently installed version of Go from PATH, run
 		// "make.bash" manually instead of using this tool.
 		if stage0Goroot := os.Getenv("STAGE_0_GOROOT"); stage0Goroot != "" {
 			if err := os.Setenv("GOROOT_BOOTSTRAP", stage0Goroot); err != nil {
