@@ -2,7 +2,12 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-package pack
+// archive is a library to create binary release zip and tar.gz files based on a completed Go build
+// directory with contents that functionally match those at https://golang.org/dl/.
+//
+// The goal is to emulate the behavior of https://github.com/golang/build/tree/master/cmd/release in
+// a way that integrates more easily into the Microsoft infrastructure in this repo.
+package archive
 
 import (
 	"crypto/sha256"
@@ -17,15 +22,15 @@ import (
 	"time"
 )
 
-// Archive walks the Go build directory at "source" and produces an archive with the path "output".
-// If output is "", Archive produces a file in the build directory inside the "eng/artifacts/bin"
-// directory. The output directory is created if it doesn't exist. This function also produces a
-// checksum file for the archive in the same output directory.
+// CreateFromBuild walks the Go build directory at "source" and produces an archive with the path
+// "output". If output is "", CreateFromBuild produces a file in the build directory inside the
+// "eng/artifacts/bin" directory. The output directory is created if it doesn't exist. This function
+// also produces a checksum file for the archive in the same output directory.
 //
 // The inclusion of some files depends on the OS/ARCH. If output is specified, its filename must
-// follow the pattern "*{GOOS}-{GOARCH}{extension}" so OS and ARCH can be detected. If output is
-// not specified, the current Go runtime's OS and ARCH are used.
-func Archive(source string, output string) error {
+// follow the pattern "*{GOOS}-{GOARCH}{extension}" so OS and ARCH can be detected. If output is not
+// specified, the current Go runtime's OS and ARCH are used.
+func CreateFromBuild(source string, output string) error {
 	fmt.Printf("---- Creating Go archive (zip/tarball) from '%v'...\n", source)
 
 	if output == "" {
@@ -51,7 +56,7 @@ func Archive(source string, output string) error {
 	_ = os.MkdirAll(archiveDir, os.ModeDir|os.ModePerm)
 
 	// Pick an archiver based on target path extension.
-	archiver, ext := createArchiver(output)
+	archiver, ext := createArchiveWriter(output)
 
 	os, arch := getArchivePathRuntime(output, ext)
 	fmt.Printf("Packing %q for %q %q\n", ext, os, arch)

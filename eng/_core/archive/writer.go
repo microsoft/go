@@ -2,7 +2,7 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-package pack
+package archive
 
 import (
 	"archive/tar"
@@ -15,14 +15,14 @@ import (
 	"strings"
 )
 
-// createArchiver determines what the given archive path's extension is, creates an archiver that
-// writes to that archive path, and returns the archiver and detected extension.
+// createArchiveWriter determines what the given archive path's extension is, creates an archiver
+// that writes to that archive path, and returns the archiver and detected extension.
 //
 // Uses strings.HasSuffix to detect archive type. An exact match against "filepath.Ext(path)"
 // doesn't work because e.g. ".tar.gz" has two "." characters and only ".gz" would be detected. This
 // is also why the function returns the extension: it's difficult to unambiguously determine the
 // extension without simply checking each possibility like this function does.
-func createArchiver(path string) (a goArchiver, ext string) {
+func createArchiveWriter(path string) (a goArchiver, ext string) {
 	switch {
 	case strings.HasSuffix(path, ".tar.gz"):
 		return newTarGzArchiver(path), ".tar.gz"

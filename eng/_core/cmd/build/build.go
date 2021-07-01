@@ -12,7 +12,7 @@ import (
 	"path/filepath"
 	"runtime"
 
-	"github.com/microsoft/go/_core/pack"
+	"github.com/microsoft/go/_core/archive"
 )
 
 const description = `
@@ -175,7 +175,7 @@ func build(o *options) error {
 	}
 
 	if o.Pack {
-		if err := pack.Archive(rootDir, ""); err != nil {
+		if err := archive.CreateFromBuild(rootDir, ""); err != nil {
 			return err
 		}
 	}

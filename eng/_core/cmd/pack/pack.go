@@ -9,7 +9,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/microsoft/go/_core/pack"
+	"github.com/microsoft/go/_core/archive"
 )
 
 const description = `
@@ -40,7 +40,7 @@ func main() {
 		return
 	}
 
-	if err := pack.Archive(*source, *output); err != nil {
+	if err := archive.CreateFromBuild(*source, *output); err != nil {
 		panic(err)
 	}
 }
