@@ -19,19 +19,16 @@ const description = `
 This command builds Go, optionally running tests and packing an archive file.
 
 Use this script to build Go on your local machine in the way the Microsoft
-infrastructure builds it. The "eng/build.sh" or "eng/build.ps1" script
-automatically downloads a copy of the Go compiler (required to build Go) then
-starts the build. This script is also capable of running tests and packing an
-archive file: see Usage above.
+infrastructure builds it. "eng/run.ps1 build" automatically downloads a copy of
+the Go compiler (required to build Go) then starts the build. This script is
+also capable of running tests and packing an archive file: see Usage, above.
 
 To build and test Go without the Microsoft infrastructure, use the Bash scripts
 in 'src' such as 'src/run.bash' instead of this script.
 
 Example: Build Go, run tests, and produce an archive file:
 
-  eng/build.sh -test -pack
-
-  eng\build.ps1 -test -pack
+  pwsh eng/run.ps1 build -test -pack
 `
 
 func main() {
@@ -154,19 +151,21 @@ func build(o *options) error {
 
 		testCmd := exec.Command(testCommandLine[0], testCommandLine[1:]...)
 		testCmd.Stdout = os.Stdout
-		// Redirect stderr to stdout to avoid an issue with how gotestsum parses our output.
+		// Redirect stderr to stdout. We expect some lines of stderr to always show up during the
+		// test run, but "build"'s caller might not understand that.
 		//
-		// gotestsum parses our output to look for lines of JSON. If it detects stderr output,
-		// gotestsum prints it as a problem even though we expect stderr output. This error line
-		// could mislead someone trying to diagnose test results. To avoid the misleading line,
-		// redirect stderr to stdout so gotestsum doesn't notice it.
+		// For example, if we're running in CI, gotestsum may be capturing our output to report in a
+		// JUnit file. If gotestsum detects output in stderr, it prints it in an error message. This
+		// error message stands out, and could mislead someone trying to diagnose a failed test run.
+		// Redirecting all stderr output avoids this scenario. (See /eng/_core/README.md for more
+		// info on why we may be wrapped by gotestsum.)
 		//
-		// For example, stderr output is normal when checking for machine capabilities. A Cgo static
-		// linking test emits "/usr/bin/ld: cannot find -lc" and then skips the test because that
-		// indicates static linking isn't supported with the current build/platform.
+		// An example of benign stderr output is when the tests check for machine capabilities. A
+		// Cgo static linking test emits "/usr/bin/ld: cannot find -lc" when it checks the
+		// capabilities of "ld" on the current system.
 		//
-		// The test script returns a correct exit code, so the redirect doesn't cause an issue where
-		// the tests succeed even though they should have failed.
+		// The stderr output isn't used to determine whether the tests succeeded or not. (The
+		// redirect doesn't cause an issue where tests succeed that should have failed.)
 		testCmd.Stderr = os.Stdout
 
 		if err := runCmd(testCmd); err != nil {

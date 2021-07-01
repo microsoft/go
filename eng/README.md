@@ -12,17 +12,21 @@ absolute paths.
 
 ## Building Go
 
-To build Go using the Microsoft scripts, run `./build.sh`, or run `eng/build.sh`
-from the root of the repository.
+To build Go using the Microsoft scripts, run `./run.ps1 build`, or run
+`eng/run.ps1 build` from the root of the repository. To run the build from a
+shell other than PowerShell without switching, use `pwsh eng/run.ps1 build`.
 
-This is similar to running `src/make.bash` from the root of the repo, the
-standard way to build the upstream Go repository. However, `build.sh` will
-automatically download a version of Go and use that to build, and `build.sh`
-will also build the race runtime once the standard build is complete.
+The standard way to build the upstream Go repository is to run `./make.bash` in
+the `src` directory. Running `eng/run.ps1 build` accomplishes the same end
+result, but it will automatically download a version of Go and use that to
+build, and `eng/run.ps1 build` will also build the race runtime once the
+standard build is complete.
 
-Run `eng/build.sh -h` for more information.
+Run `eng/run.ps1 build -h` for more information.
 
-`build.sh` supports the OS/architecture `linux_amd64`.
+The `build` tool supports these OS/architectures:
+* `linux_amd64`
+* `windows_amd64`
 
 ## Change containment
 
