@@ -19,7 +19,7 @@ This command is used in CI to run a build/test/pack configuration.
 
 Example: Build and run tests using the dev scripts:
 
-  eng/run.sh run-builder -builder linux-amd64-devscript
+  eng/run.ps1 run-builder -builder linux-amd64-devscript
 
 For a list of builders that are run in CI, see 'azure-pipelines.yml'. This
 doesn't include every builder that upstream uses. It also adds some builders

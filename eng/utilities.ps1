@@ -14,6 +14,7 @@ $ErrorActionPreference = 'Stop'
 if ($host.Version.Major -lt 6) {
   Write-Host "Error: This script requires PowerShell 6 or higher; detected $($host.Version.Major)."
   Write-Host "See https://docs.microsoft.com/en-us/powershell/scripting/install/installing-powershell"
+  Write-Host "Or add 'pwsh' to the beginning of your command and try again."
 
   throw "Missing prerequisites; see logs above for details."
 }

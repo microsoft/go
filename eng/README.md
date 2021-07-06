@@ -10,11 +10,16 @@ because the [dotnet/arcade](https://github.com/dotnet/arcade) auto-update
 process specifically looks for `eng/Version.Details.xml` and `eng/common/`
 absolute paths.
 
+## Prerequisites
+
+* [PowerShell 6+](https://docs.microsoft.com/en-us/powershell/scripting/install/installing-powershell)
+
 ## Building Go
 
 To build Go using the Microsoft scripts, run `./run.ps1 build`, or run
 `eng/run.ps1 build` from the root of the repository. To run the build from a
 shell other than PowerShell without switching, use `pwsh eng/run.ps1 build`.
+This script is cross-platform.
 
 The standard way to build the upstream Go repository is to run `./make.bash` in
 the `src` directory. Running `eng/run.ps1 build` accomplishes the same end

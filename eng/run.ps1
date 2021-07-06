@@ -7,13 +7,13 @@
 This script builds and runs a tool defined in a module in 'eng'.
 
 To run a tool:
-  pwsh run.ps1 <tool> [arguments...]
+  run.ps1 <tool> [arguments...]
 
 For example, to build the repository:
-  pwsh run.ps1 build
+  run.ps1 build
 
 To list all possible tools:
-  pwsh run.ps1
+  run.ps1
 
 Builds 'eng/<module>/cmd/<tool>/<tool>.go' and runs it using the list of
 arguments. If necessary, this command automatically installs Go and downloads
@@ -38,11 +38,11 @@ if ($LASTEXITCODE) {
 }
 
 function Write-ToolList() {
-  Write-Host "Possible tool commands:"
+  Write-Host "Possible tools:"
   foreach ($module in Get-ChildItem (Join-Path $PSScriptRoot "_*")) {
     Write-Host "  Module $($module.Name):"
     foreach ($tool in Get-ChildItem (Join-Path $module "cmd" "*")) {
-      Write-Host "    pwsh $PSCommandPath $($tool.Name)"
+      Write-Host "    $($tool.Name)"
     }
   }
   Write-Host ""
@@ -113,7 +113,6 @@ try {
 try {
   # Run tool from the root of the repo.
   Push-Location (Join-Path $PSScriptRoot "..")
-
   & "$tool_output" @args
   if ($LASTEXITCODE) {
     Write-Host "Failed to run tool."
