@@ -421,7 +421,7 @@ func (b branch) createPRRequest(githubUser string) prRequest {
 		Head: githubUser + ":auto-merge/" + b.mergeTarget,
 		Base: b.mergeTarget,
 
-		Title: fmt.Sprintf("[`%v`] Merge upstream `%v`", b.mergeTarget, b.name),
+		Title: fmt.Sprintf("Merge upstream `%v` into `%v`", b.name, b.mergeTarget),
 		Body: fmt.Sprintf(
 			"🔃 This is an automatically generated PR merging upstream `%v` into `%v`.\n\n"+
 				"This PR should auto-merge itself when PR validation passes. If CI fails and you need to make fixups, be sure to use a merge commit, not a squash or rebase!\n\n"+

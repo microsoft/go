@@ -752,9 +752,9 @@ func (t *tester) registerTests() {
 						fn: func(dt *distTest) error {
 							cmd := t.addCmd(dt, "misc/swig/callback", t.goTest())
 							cmd.Env = append(os.Environ(),
-								"CGO_CFLAGS=-flto -Wno-lto-type-mismatch",
-								"CGO_CXXFLAGS=-flto -Wno-lto-type-mismatch",
-								"CGO_LDFLAGS=-flto -Wno-lto-type-mismatch",
+								"CGO_CFLAGS=-flto -Wno-lto-type-mismatch -Wno-unknown-warning-option",
+								"CGO_CXXFLAGS=-flto -Wno-lto-type-mismatch -Wno-unknown-warning-option",
+								"CGO_LDFLAGS=-flto -Wno-lto-type-mismatch -Wno-unknown-warning-option",
 							)
 							return nil
 						},
@@ -796,7 +796,7 @@ func (t *tester) registerTests() {
 			t.registerTest("testasan", "../misc/cgo/testasan", "go", "run", ".")
 		}
 		if goos == "linux" && goarch != "ppc64le" {
-			// because syscall.SysProcAttri struct used in misc/cgo/testsanitizers is only built on linux.
+			// because syscall.SysProcAttr struct used in misc/cgo/testsanitizers is only built on linux.
 			// Some inconsistent failures happen on ppc64le so disable for now.
 			t.registerHostTest("testsanitizers", "../misc/cgo/testsanitizers", "misc/cgo/testsanitizers", ".")
 		}
