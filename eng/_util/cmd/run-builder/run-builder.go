@@ -15,11 +15,11 @@ import (
 )
 
 const description = `
-This script is used in CI to run a build/test/pack configuration.
+This command is used in CI to run a build/test/pack configuration.
 
 Example: Build and run tests using the dev scripts:
 
-  go run eng/run-builder.go -builder linux-amd64-devscript
+  eng/run.ps1 run-builder -builder linux-amd64-devscript
 
 For a list of builders that are run in CI, see 'azure-pipelines.yml'. This
 doesn't include every builder that upstream uses. It also adds some builders
@@ -88,26 +88,19 @@ func main() {
 		env("GOEXPERIMENT", "staticlockranking")
 	}
 
-	runOrPanic("eng/build.sh")
+	runOrPanic("pwsh", "eng/run.ps1", "build")
 
 	// After the build completes, run builder-specific commands.
 	switch config {
 	case "devscript":
 		// "devscript" is specific to the Microsoft infrastructure. It means the builder should
-		// validate the dev-friendly "eng/build.sh" script works to build and test Go. It runs
-		// a subset of the "test" builder's tests, but it uses the dev workflow.
-		cmdline := []string{"eng/build.sh", "--skip-build", "--test"}
-
-		if *jUnitFile != "" {
-			// Emit verbose JSON results in stdout for conversion. Follow script's arg style, '--'.
-			cmdline = append(cmdline, "--json")
-		}
-
+		// validate the run.ps1 script with "build" tool works to build and test Go. It runs a
+		// subset of the "test" builder's tests, but it uses the dev workflow.
+		cmdline := []string{"pwsh", "eng/run.ps1", "build", "-skipbuild", "-test"}
 		runTest(cmdline, *jUnitFile)
 
 	default:
-		// Most builder configurations use "bin/go tool dist test" directly, rather than the
-		// Microsoft-specific "eng/build.sh" script. run-builder uses this approach.
+		// Most builder configurations use "bin/go tool dist test" directly, which is the default.
 
 		// The tests read GO_BUILDER_NAME and make decisions based on it. For some configurations,
 		// we only need to set this env var.
@@ -122,24 +115,27 @@ func main() {
 		}
 
 		cmdline := []string{
-			// Run under root user so we have zero UID. As of writing, all upstream builders using a
-			// non-WSL Linux host run tests as root. We encounter at least one issue if we run as
-			// non-root on Linux in our reimplementation: if the test infra detects non-zero UID, Go
-			// makes the tree read-only while initializing tests, breaking 'longtest' tests that
-			// need to open go.mod files with write permissions.
-			// https://github.com/microsoft/go/issues/53 tracks running as non-root where possible.
-			"sudo",
-			// Keep testing configuration we've set up. Sudo normally reloads env.
-			"--preserve-env",
 			// Use the dist test command directly, because 'src/run.bash' isn't compatible with
 			// longtest. 'src/run.bash' sets 'GOPATH=/nonexist-gopath', which breaks modconv tests
 			// that download modules.
 			"bin/go", "tool", "dist", "test",
 		}
 
-		if *jUnitFile != "" {
-			// Emit verbose JSON results in stdout for conversion. Follow Go flag style, '-'.
-			cmdline = append(cmdline, "-json")
+		if goos == "linux" {
+			cmdline = append(
+				[]string{
+					// Run under root user so we have zero UID. As of writing, all upstream builders using a
+					// non-WSL Linux host run tests as root. We encounter at least one issue if we run as
+					// non-root on Linux in our reimplementation: if the test infra detects non-zero UID, Go
+					// makes the tree read-only while initializing tests, breaking 'longtest' tests that
+					// need to open go.mod files with write permissions.
+					// https://github.com/microsoft/go/issues/53 tracks running as non-root where possible.
+					"sudo",
+					// Keep testing configuration we've set up. Sudo normally reloads env.
+					"--preserve-env",
+				},
+				cmdline...,
+			)
 		}
 
 		runTest(cmdline, *jUnitFile)
@@ -154,8 +150,8 @@ func env(key, value string) {
 	}
 }
 
-func run(name string, arg ...string) error {
-	c := exec.Command(name, arg...)
+func run(cmdline ...string) error {
+	c := exec.Command(cmdline[0], cmdline[1:]...)
 	c.Stdout = os.Stdout
 	c.Stderr = os.Stderr
 
@@ -169,8 +165,8 @@ func run(name string, arg ...string) error {
 }
 
 // runOrPanic runs a command, sending stdout/stderr to our streams, and panics if it doesn't succeed.
-func runOrPanic(name string, arg ...string) {
-	if err := run(name, arg...); err != nil {
+func runOrPanic(cmdline ...string) {
+	if err := run(cmdline...); err != nil {
 		panic(err)
 	}
 }
@@ -179,6 +175,11 @@ func runOrPanic(name string, arg ...string) {
 // gotestsum command that converts the JSON output into JUnit XML and writes it to a file at this
 // path.
 func runTest(cmdline []string, jUnitFile string) {
+	if jUnitFile != "" {
+		// Emit verbose JSON results in stdout for conversion.
+		cmdline = append(cmdline, "-json")
+	}
+
 	if *dryRun {
 		fmt.Printf("---- Dry run. Would have run test command: %v\n", cmdline)
 		return
@@ -203,6 +204,23 @@ func runTest(cmdline []string, jUnitFile string) {
 			cmdline...,
 		)
 
+		// gotestsum embeds the current version of Go into the JUnit file. This causes some
+		// problems, so use GOVERSION to override the behavior and use a simple placeholder.
+		//
+		// To find the Go version, gotestsum first looks up GOVERSION in env. If it doesn't exist,
+		// then it looks for "go" in PATH and uses the output of "go version". If Go doesn't exist
+		// in PATH, then gotestsum emits a warning.
+		//
+		// There are two problems. First, in CI, we don't have Go in PATH, so the warning shows up.
+		// It's shown as the last line of output in CI, so it seems more important than it really
+		// is. Second, even if gotestsum does find Go in PATH, it's the wrong version. We're running
+		// tests using the Go we just built, which is never in PATH. Both of these problems could
+		// end up being red herrings in the future, but we prevent them by setting GOVERSION.
+		//
+		// We could run "go version", parse the output, and use that as GOVERSION. However, this
+		// doesn't seem useful, because we know that we ran tests using the Go we just built.
+		env("GOVERSION", "gotestsum_go_version_placeholder")
+
 		fmt.Printf("---- Running gotestsum command: %v\n", gotestsumArgs)
 
 		// Use "ARG_0_PLACEHOLDER" as an arbitrary placeholder name. This is because here, we're
@@ -216,7 +234,7 @@ func runTest(cmdline []string, jUnitFile string) {
 		err = gotestsumcmd.Run("ARG_0_PLACEHOLDER", gotestsumArgs)
 	} else {
 		// If we don't have a jUnitFile target, run the command normally.
-		err = run(cmdline[0], cmdline[1:]...)
+		err = run(cmdline...)
 	}
 
 	if err != nil {
