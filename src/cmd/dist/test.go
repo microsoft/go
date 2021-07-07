@@ -29,6 +29,9 @@ func cmdtest() {
 	var t tester
 	var noRebuild bool
 	flag.BoolVar(&t.listMode, "list", false, "list available tests")
+	// MICROSOFT_UPSTREAM: add JSON output support https://github.com/golang/go/issues/37486
+	flag.BoolVar(&t.jsonMode, "json", false, "pass -json to inner go test commands")
+	// END MICROSOFT_UPSTREAM
 	flag.BoolVar(&t.rebuild, "rebuild", false, "rebuild everything first")
 	flag.BoolVar(&noRebuild, "no-rebuild", false, "overrides -rebuild (historical dreg)")
 	flag.BoolVar(&t.keepGoing, "k", false, "keep going even when error occurred")
@@ -50,6 +53,7 @@ func cmdtest() {
 type tester struct {
 	race        bool
 	listMode    bool
+	jsonMode    bool // MICROSOFT_UPSTREAM: add JSON output support https://github.com/golang/go/issues/37486 (oneline comment to avoid disturbing gofmt alignment)
 	rebuild     bool
 	failed      bool
 	keepGoing   bool
@@ -286,9 +290,15 @@ func short() string {
 // Callers should use goTest and then pass flags overriding these
 // defaults as later arguments in the command line.
 func (t *tester) goTest() []string {
-	return []string{
+	// MICROSOFT_UPSTREAM: add JSON output support https://github.com/golang/go/issues/37486
+	cmdline := []string{
 		"go", "test", "-short=" + short(), "-count=1", t.tags(), t.runFlag(""),
 	}
+	if t.jsonMode {
+		cmdline = append(cmdline, "-json")
+	}
+	return cmdline
+	// END MICROSOFT_UPSTREAM
 }
 
 func (t *tester) tags() string {
@@ -371,6 +381,11 @@ func (t *tester) registerStdTest(pkg string, useG3 bool) {
 				t.timeout(timeoutSec),
 				"-gcflags=all=" + gcflags,
 			}
+			// MICROSOFT_UPSTREAM: add JSON output support https://github.com/golang/go/issues/37486
+			if t.jsonMode {
+				args = append(args, "-json")
+			}
+			// END MICROSOFT_UPSTREAM
 			if t.race {
 				args = append(args, "-race")
 			}
@@ -722,14 +737,29 @@ func (t *tester) registerTests() {
 				},
 			})
 			if t.hasCxx() {
-				t.tests = append(t.tests, distTest{
-					name:    "swig_callback",
-					heading: "../misc/swig/callback",
-					fn: func(dt *distTest) error {
-						t.addCmd(dt, "misc/swig/callback", t.goTest())
-						return nil
+				t.tests = append(t.tests,
+					distTest{
+						name:    "swig_callback",
+						heading: "../misc/swig/callback",
+						fn: func(dt *distTest) error {
+							t.addCmd(dt, "misc/swig/callback", t.goTest())
+							return nil
+						},
 					},
-				})
+					distTest{
+						name:    "swig_callback_lto",
+						heading: "../misc/swig/callback",
+						fn: func(dt *distTest) error {
+							cmd := t.addCmd(dt, "misc/swig/callback", t.goTest())
+							cmd.Env = append(os.Environ(),
+								"CGO_CFLAGS=-flto -Wno-lto-type-mismatch -Wno-unknown-warning-option",
+								"CGO_CXXFLAGS=-flto -Wno-lto-type-mismatch -Wno-unknown-warning-option",
+								"CGO_LDFLAGS=-flto -Wno-lto-type-mismatch -Wno-unknown-warning-option",
+							)
+							return nil
+						},
+					},
+				)
 			}
 		}
 	}
@@ -766,7 +796,7 @@ func (t *tester) registerTests() {
 			t.registerTest("testasan", "../misc/cgo/testasan", "go", "run", ".")
 		}
 		if goos == "linux" && goarch != "ppc64le" {
-			// because syscall.SysProcAttri struct used in misc/cgo/testsanitizers is only built on linux.
+			// because syscall.SysProcAttr struct used in misc/cgo/testsanitizers is only built on linux.
 			// Some inconsistent failures happen on ppc64le so disable for now.
 			t.registerHostTest("testsanitizers", "../misc/cgo/testsanitizers", "misc/cgo/testsanitizers", ".")
 		}
@@ -1042,7 +1072,7 @@ func (t *tester) supportedBuildmode(mode string) bool {
 			"darwin-amd64", "darwin-arm64",
 			"freebsd-amd64",
 			"android-arm", "android-arm64", "android-386",
-			"windows-amd64", "windows-386":
+			"windows-amd64", "windows-386", "windows-arm64":
 			return true
 		}
 		return false
