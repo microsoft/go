@@ -239,7 +239,7 @@ func main() {
 
 		if parsedOrigin == nil {
 			var err error
-			if parsedOrigin, err = parseRemoteUrl(*origin); err != nil {
+			if parsedOrigin, err = parseRemoteURL(*origin); err != nil {
 				fmt.Println(err)
 				os.Exit(1)
 			}
@@ -444,17 +444,17 @@ type remote struct {
 	urlParts []string
 }
 
-// parseRemoteUrl takes the URL ("https://github.com/microsoft/go", "git@github.com:microsoft/go")
+// parseRemoteURL takes the URL ("https://github.com/microsoft/go", "git@github.com:microsoft/go")
 // and grabs the owner ("microsoft") and repository name ("go"). This assumes the URL follows one of
 // these two patterns, or something that's compatible. Returns an initialized 'remote'.
-func parseRemoteUrl(url string) (*remote, error) {
+func parseRemoteURL(url string) (*remote, error) {
 	r := &remote{
 		url,
 		strings.FieldsFunc(url, func(r rune) bool { return r == '/' || r == ':' }),
 	}
 	if len(r.urlParts) < 3 {
 		return r, fmt.Errorf(
-			"Error: Failed to find 3 parts of remote url '%v'. Found '%v'. Expected a string separated with '/' or ':', like https://github.com/microsoft/go or git@github.com:microsoft/go",
+			"failed to find 3 parts of remote url '%v'. Found '%v'. Expected a string separated with '/' or ':', like https://github.com/microsoft/go or git@github.com:microsoft/go",
 			r.url,
 			r.urlParts,
 		)
@@ -475,9 +475,9 @@ func (r remote) getOwnerSlashRepo() string {
 	return strings.Join(r.getOwnerRepo(), "/")
 }
 
-// sendJsonRequest sends a request for JSON information. The JSON response is unmarshalled (parsed)
+// sendJSONRequest sends a request for JSON information. The JSON response is unmarshalled (parsed)
 // into the 'response' parameter, based on the structure of 'response'.
-func sendJsonRequest(request *http.Request, response interface{}) (status int, err error) {
+func sendJSONRequest(request *http.Request, response interface{}) (status int, err error) {
 	request.Header.Add("Accept", "application/vnd.github.v3+json")
 	fmt.Printf("Sending request: %v %v\n", request.Method, request.URL)
 
@@ -506,15 +506,15 @@ func sendJsonRequest(request *http.Request, response interface{}) (status int, e
 	return
 }
 
-// sendJsonRequestSuccessful sends a request for JSON information via sendJsonRequest and verifies
+// sendJSONRequestSuccessful sends a request for JSON information via sendJsonRequest and verifies
 // the status code is success.
-func sendJsonRequestSuccessful(request *http.Request, response interface{}) error {
-	status, err := sendJsonRequest(request, response)
+func sendJSONRequestSuccessful(request *http.Request, response interface{}) error {
+	status, err := sendJSONRequest(request, response)
 	if err != nil {
 		return err
 	}
 	if status < 200 || status > 299 {
-		return fmt.Errorf("Request unsuccessful, http status %v, %v\n", status, http.StatusText(status))
+		return fmt.Errorf("request unsuccessful, http status %v, %v", status, http.StatusText(status))
 	}
 	return nil
 }
@@ -531,7 +531,7 @@ func getUsername(pat string) string {
 		Login string `json:"login"`
 	}{}
 
-	if err := sendJsonRequestSuccessful(request, response); err != nil {
+	if err := sendJSONRequestSuccessful(request, response); err != nil {
 		panic(err)
 	}
 
@@ -578,7 +578,7 @@ func postPR(ownerRepo string, request prRequest, pat string) (response *prReques
 	httpRequest.SetBasicAuth("", pat)
 
 	response = &prRequestResponse{}
-	statusCode, err := sendJsonRequest(httpRequest, response)
+	statusCode, err := sendJSONRequest(httpRequest, response)
 	if err != nil {
 		return
 	}
@@ -610,14 +610,14 @@ func postPR(ownerRepo string, request prRequest, pat string) (response *prReques
 		}
 		if !response.AlreadyExists {
 			err = fmt.Errorf(
-				"Response code %v may indicate PR already exists, but the error message is not recognized: %v",
+				"response code %v may indicate PR already exists, but the error message is not recognized: %v",
 				statusCode,
 				response.Errors,
 			)
 		}
 
 	default:
-		err = fmt.Errorf("Unexpected http status code: %v", statusCode)
+		err = fmt.Errorf("unexpected http status code: %v", statusCode)
 	}
 	return
 }
@@ -636,7 +636,7 @@ func queryGraphQL(pat string, query string, result interface{}) error {
 	}
 	httpRequest.SetBasicAuth("", pat)
 
-	return sendJsonRequestSuccessful(httpRequest, result)
+	return sendJSONRequestSuccessful(httpRequest, result)
 }
 
 func mutateGraphQL(pat string, query string) error {
@@ -677,7 +677,7 @@ func findExistingPR(b *branch, githubUser string, originOwner string, githubPAT 
 				PullRequests struct {
 					Nodes []struct {
 						Title               string
-						Id                  string
+						ID                  string
 						HeadRepositoryOwner struct {
 							Login string
 						}
@@ -704,19 +704,19 @@ func findExistingPR(b *branch, githubUser string, originOwner string, githubPAT 
 	// to detect an unknown state early so we don't end up doing something strange.
 
 	if prNodes := len(result.Data.User.PullRequests.Nodes); prNodes != 1 {
-		return "", fmt.Errorf("Expected 1 PR search result, found %v.", prNodes)
+		return "", fmt.Errorf("expected 1 PR search result, found %v", prNodes)
 	}
 	if result.Data.User.PullRequests.PageInfo.HasNextPage {
-		return "", fmt.Errorf("Expected 1 PR search result, but the results say there's another page.")
+		return "", fmt.Errorf("expected 1 PR search result, but the results say there's another page")
 	}
 
 	n := result.Data.User.PullRequests.Nodes[0]
 	if headOwner := n.HeadRepositoryOwner.Login; headOwner != githubUser {
-		return "", fmt.Errorf("PR head owner is %v, expected %v.", headOwner, githubUser)
+		return "", fmt.Errorf("pull request head owner is %v, expected %v", headOwner, githubUser)
 	}
 	if baseOwner := n.BaseRepository.Owner.Login; baseOwner != originOwner {
-		return "", fmt.Errorf("PR base owner is %v, expected %v.", baseOwner, originOwner)
+		return "", fmt.Errorf("pull request base owner is %v, expected %v", baseOwner, originOwner)
 	}
 
-	return n.Id, nil
+	return n.ID, nil
 }
