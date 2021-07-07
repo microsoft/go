@@ -87,8 +87,8 @@ func build(o *options) error {
 		return err
 	}
 
-	// The scripts in src require your working directory to be src, or they instantly fail. Change
-	// the current process dir so that we can run them.
+	// The upstream build scripts in {repo-root}/src require your working directory to be src, or
+	// they instantly fail. Change the current process dir so that we can run them.
 	if err := os.Chdir("src"); err != nil {
 		return err
 	}

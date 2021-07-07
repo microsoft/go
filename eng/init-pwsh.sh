@@ -16,6 +16,7 @@ pwsh_url="https://github.com/PowerShell/PowerShell/releases/download/v$pwsh_vers
 # pwsh must be installed outside of the Go repo. If it's in the repo, longtest "TestAllDependencies"
 # fails. It tries to traverse the pwsh directory and can't handle the "no such file or directory"
 # error caused by the symlink in the extracted dir: "libcrypto.so.1.0.0 -> /lib64/libcrypto.so.10".
+# Ideally this should be in the repository. Tracked by: https://github.com/microsoft/go/issues/12
 pwsh_dir="$HOME/.go-ci-prereq/pwsh/$pwsh_version"
 download_complete_indicator="$pwsh_dir/.downloaded"
 
