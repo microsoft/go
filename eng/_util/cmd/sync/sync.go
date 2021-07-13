@@ -49,6 +49,7 @@ default. This avoids trampling changes in the user's clone.`
 //
 // This is in package scope just so it's easy to find at the top of the file for maintenance.
 var autoResolveOurPaths = []string{
+	".gitattributes",
 	".github",
 	"CODE_OF_CONDUCT.md",
 	"README.md",
