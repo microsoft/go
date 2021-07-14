@@ -422,6 +422,16 @@ func findGorootModules(t *testing.T) []gorootModule {
 				// running time of this test anyway.)
 				return filepath.SkipDir
 			}
+			// NO MICROSOFT_UPSTREAM: Backport a check that ignores modules prefixed with "_". This
+			// makes the module tests ignore the Microsoft build infra modules in "eng", which don't
+			// conform to the usual expectations. Ported from b0c49ae9 and 6c1c055d.
+			if info.IsDir() && (strings.HasPrefix(info.Name(), "_") || strings.HasPrefix(info.Name(), ".")) {
+				// _ and . prefixed directories can be used for internal modules
+				// without a vendor directory that don't contribute to the build
+				// but might be used for example as code generators.
+				return filepath.SkipDir
+			}
+			// END NO MICROSOFT_UPSTREAM
 			if info.IsDir() || info.Name() != "go.mod" {
 				return nil
 			}
