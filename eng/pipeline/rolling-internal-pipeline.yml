@@ -1,0 +1,58 @@
+# Copyright (c) Microsoft Corporation.
+# Use of this source code is governed by a BSD-style
+# license that can be found in the LICENSE file.
+
+# This pipeline builds Go, runs inner loop tests, signs the packages, and publishes. It only runs
+# internally, via commit trigger.
+
+trigger:
+  batch: true
+  branches:
+    include:
+      - microsoft/*
+pr: none
+
+stages:
+  - stage: Build
+    jobs:
+      - template: jobs/go-builder-matrix-jobs.yml
+        parameters:
+          innerloop: true
+          sign: true
+
+  - stage: Publish
+    dependsOn: Build
+    jobs:
+      - job: Publish
+        pool:
+          # This is a utility job that doesn't use Go: use generic recent LTS for publishing.
+          vmImage: ubuntu-20.04
+        variables:
+          blobDestinationUrl: 'https://golangartifacts.blob.core.windows.net/microsoft/$(Build.SourceBranchName)/$(Build.BuildNumber)'
+        steps:
+          - checkout: none
+
+          - download: current
+            artifact: Binaries Signed
+            displayName: 'Download: Binaries Signed'
+
+          - task: AzureCLI@2
+            displayName: Upload to blob storage
+            inputs:
+              azureSubscription: GoLang
+              scriptType: bash
+              scriptLocation: inlineScript
+              # Send literal '*' to az: it handles the wildcard itself. Az copy only accepts one
+              # "from" argument, so we can't use the shell's wildcard expansion.
+              inlineScript: |
+                az storage copy -s '*' -d '$(blobDestinationUrl)'
+              workingDirectory: '$(Pipeline.Workspace)/Binaries Signed/'
+
+          - script: |
+              echo 'Generated links to artifacts in blob storage:'
+              echo ''
+              for f in *; do
+                echo "$(blobDestinationUrl)/$f"
+              done
+            displayName: Show uploaded URLs
+            workingDirectory: '$(Pipeline.Workspace)/Binaries Signed/'
