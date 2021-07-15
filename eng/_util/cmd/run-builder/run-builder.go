@@ -138,6 +138,11 @@ func main() {
 			)
 		}
 
+		// The ssacheck builder compiles the tests but doesn't run them.
+		if config == "ssacheck" {
+			cmdline = append(cmdline, "--compile-only")
+		}
+
 		runTest(cmdline, *jUnitFile)
 	}
 }
