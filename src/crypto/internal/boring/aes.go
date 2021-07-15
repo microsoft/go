@@ -173,6 +173,9 @@ func (x *aesCBC) SetIV(iv []byte) {
 		panic("cipher: incorrect length IV")
 	}
 	copy(x.iv[:], iv)
+	if C.int(1) != C._goboringcrypto_EVP_CipherInit_ex(x.ctx, nil, nil, nil, (*C.uchar)(unsafe.Pointer(&x.iv[0])), -1) {
+		panic("cipher: unable to initialize EVP cipher ctx")
+	}
 }
 
 func (c *aesCipher) NewCBCEncrypter(iv []byte) cipher.BlockMode {
@@ -231,9 +234,14 @@ func (c *aesCipher) NewCBCDecrypter(iv []byte) cipher.BlockMode {
 		cipher = C._goboringcrypto_EVP_aes_192_cbc()
 	case 256:
 		cipher = C._goboringcrypto_EVP_aes_256_cbc()
+	default:
+		panic("crypto/boring: unsupported key length")
 	}
 	if C.int(1) != C._goboringcrypto_EVP_CipherInit_ex(x.ctx, cipher, nil, k, vec, x.mode) {
 		panic("cipher: unable to initialize EVP cipher ctx")
+	}
+	if C.int(1) != C._goboringcrypto_EVP_CIPHER_CTX_set_padding(x.ctx, 0) {
+		panic("cipher: unable to set padding")
 	}
 
 	runtime.SetFinalizer(x, (*aesCBC).finalize)

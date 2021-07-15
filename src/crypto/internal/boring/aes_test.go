@@ -77,4 +77,103 @@ func TestBlobEncryptBasicBlockEncryption(t *testing.T) {
 	}, encrypted) {
 		t.Error("unexpected CryptBlocks result for second block")
 	}
+
+	var decrypter cipher.BlockMode
+	if c, ok := block.(*aesCipher); ok {
+		decrypter = c.NewCBCDecrypter(iv)
+		if decrypter == nil {
+			t.Error("unable to create new CBC decrypter")
+		}
+	}
+	plainText := append(srcBlock1, srcBlock2...)
+	decrypted := make([]byte, len(plainText))
+	decrypter.CryptBlocks(decrypted, encrypted[:16])
+	decrypter.CryptBlocks(decrypted[16:], encrypted[16:])
+	if !bytes.Equal(decrypted, plainText) {
+		t.Errorf("unexpected decrypted result\ngot: %#v\nexp: %#v", decrypted, plainText)
+	}
+}
+
+func TestDecryptSimple(t *testing.T) {
+	key := []byte{
+		0x24, 0xcd, 0x8b, 0x13, 0x37, 0xc5, 0xc1, 0xb1,
+		0x0, 0xbb, 0x27, 0x40, 0x4f, 0xab, 0x5f, 0x7b,
+		0x2d, 0x0, 0x20, 0xf5, 0x1, 0x84, 0x4, 0xbf,
+		0xe3, 0xbd, 0xa1, 0xc4, 0xbf, 0x61, 0x2f, 0xc5,
+	}
+	block, err := NewAESCipher(key)
+	if err != nil {
+		panic(err)
+	}
+	iv := []byte{
+		0x91, 0xc7, 0xa7, 0x54, 0x52, 0xef, 0x10, 0xdb,
+		0x91, 0xa8, 0x6c, 0xf9, 0x79, 0xd5, 0xac, 0x74,
+	}
+
+	plainText := []byte{
+		0x54, 0x68, 0x65, 0x72, 0x65, 0x20, 0x69, 0x73,
+		0x20, 0x6f, 0x6e, 0x6c, 0x79, 0x20, 0x6f, 0x6e,
+		0x65, 0x20, 0x4c, 0x6f, 0x72, 0x64, 0x20, 0x6f,
+		0x66, 0x20, 0x74, 0x68, 0x65, 0x20, 0x52, 0x69,
+		0x6e, 0x67, 0x2c, 0x20, 0x6f, 0x6e, 0x6c, 0x79,
+		0x20, 0x6f, 0x6e, 0x65, 0x20, 0x77, 0x68, 0x6f,
+		0x20, 0x63, 0x61, 0x6e, 0x20, 0x62, 0x65, 0x6e,
+		0x64, 0x20, 0x69, 0x74, 0x20, 0x74, 0x6f, 0x20,
+		0x68, 0x69, 0x73, 0x20, 0x77, 0x69, 0x6c, 0x6c,
+		0x2e, 0x20, 0x41, 0x6e, 0x64, 0x20, 0x68, 0x65,
+		0x20, 0x64, 0x6f, 0x65, 0x73, 0x20, 0x6e, 0x6f,
+		0x74, 0x20, 0x73, 0x68, 0x61, 0x72, 0x65, 0x20,
+		0x70, 0x6f, 0x77, 0x65, 0x72, 0x2e, 0x00, 0x00,
+		0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+	}
+	cipherText := make([]byte, len(plainText))
+	var encrypter cipher.BlockMode
+	if c, ok := block.(*aesCipher); ok {
+		encrypter = c.NewCBCEncrypter(iv)
+		if encrypter == nil {
+			t.Error("unable to create new CBC encrypter")
+		}
+	}
+	encrypter.CryptBlocks(cipherText, plainText[:64])
+	encrypter.CryptBlocks(cipherText[64:], plainText[64:])
+
+	expectedCipherText := []byte{
+		23, 51, 192, 210, 170, 124, 30, 218,
+		176, 54, 70, 132, 141, 124, 3, 152,
+		47, 3, 37, 81, 187, 101, 197, 94,
+		11, 38, 128, 60, 112, 20, 235, 130,
+		111, 236, 176, 99, 121, 6, 221, 181,
+		190, 228, 150, 177, 218, 3, 196, 0,
+		5, 141, 169, 151, 3, 161, 64, 244,
+		231, 237, 252, 143, 111, 37, 68, 70,
+		11, 137, 220, 243, 195, 90, 182, 83,
+		96, 80, 122, 14, 93, 178, 62, 159,
+		25, 162, 200, 155, 21, 150, 6, 101,
+		21, 234, 12, 74, 190, 213, 159, 220,
+		111, 184, 94, 169, 188, 93, 38, 150,
+		3, 208, 185, 201, 212, 246, 238, 181,
+	}
+	if bytes.Compare(expectedCipherText, cipherText) != 0 {
+		t.Fail()
+	}
+
+	var decrypter cipher.BlockMode
+	if c, ok := block.(*aesCipher); ok {
+		decrypter = c.NewCBCDecrypter(iv)
+		if decrypter == nil {
+			t.Error("unable to create new CBC decrypter")
+		}
+	}
+	decrypted := make([]byte, len(plainText))
+
+	decrypter.CryptBlocks(decrypted, cipherText[:64])
+	decrypter.CryptBlocks(decrypted[64:], cipherText[64:])
+
+	if len(decrypted) != len(plainText) {
+		t.Fail()
+	}
+
+	if bytes.Compare(plainText, decrypted) != 0 {
+		t.Errorf("decryption incorrect\nexp %v, got %v\n", plainText, decrypted)
+	}
 }
