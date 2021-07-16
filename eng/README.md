@@ -44,6 +44,10 @@ infrastructure requirements:
 
 * `/*.md` - The Microsoft GitHub organization has standard repository text that
   needs to be in these files, so the upstream Go repo text is changed.
+* `/.gitattributes` - When Arcade auto-update changes files, it uses CRLF or LF
+  depending on runtime/platform. The Go repo disables autocrlf, so this behavior
+  causes thrashing. To fix this, we modified the attributes file to turn
+  autocrlf back on for specific auto-updated files.
 * `/.github` - Contains CI configuration. GitHub requires files to be at this
   absolute path, so the files in the upstream Go repo need to be deleted to
   configure Microsoft's CI.
@@ -52,6 +56,17 @@ infrastructure requirements:
   SDK auto-update requires this file to be in this absolute location.
 * `/NuGet.config` - This is a .NET NuGet sources configuration file. This is
   also required at the root of the repo by the Arcade SDK.
+
+To find TODO-style comments describing intentional changes to upstream files
+that seem suitable to contribute, search the repo for:
+
+```
+MICROSOFT_UPSTREAM
+```
+
+You will also find `NO MICROSOFT_UPSTREAM` marking changes that wouldn't be
+useful to contribute to upstream. Typically, changes marked this way have no
+effect whatsoever outside the context of the Microsoft-specific infrastructure.
 
 For a complete list of files that are modified vs. the upstream Git repository,
 first make sure you have the upstream Git refs locally. One way to do this is to
