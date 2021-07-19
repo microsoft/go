@@ -180,7 +180,11 @@ DEFINEFUNC(const GO_EVP_MD *, EVP_sha224, (void), ())
 DEFINEFUNC(const GO_EVP_MD *, EVP_sha256, (void), ())
 DEFINEFUNC(const GO_EVP_MD *, EVP_sha384, (void), ())
 DEFINEFUNC(const GO_EVP_MD *, EVP_sha512, (void), ())
-DEFINEFUNC(int, EVP_MD_type, (const GO_EVP_MD *arg0), (arg0))
+#if OPENSSL_VERSION_NUMBER < 0x30000000L
+DEFINEFUNCINTERNAL(int, EVP_MD_type, (const GO_EVP_MD *arg0), (arg0))
+#else
+DEFINEFUNCINTERNAL(int, EVP_MD_get_type, (const GO_EVP_MD *arg0), (arg0))
+#endif
 DEFINEFUNCINTERNAL(size_t, EVP_MD_size, (const GO_EVP_MD *arg0), (arg0))
 DEFINEFUNCINTERNAL(const GO_EVP_MD*, EVP_md5_sha1, (void), ())
 
@@ -188,6 +192,15 @@ DEFINEFUNCINTERNAL(const GO_EVP_MD*, EVP_md5_sha1, (void), ())
 DEFINEFUNCINTERNAL(int, MD5_Init, (MD5_CTX *c), (c))
 DEFINEFUNCINTERNAL(int, MD5_Update, (MD5_CTX *c, const void *data, size_t len), (c, data, len))
 DEFINEFUNCINTERNAL(int, MD5_Final, (unsigned char *md, MD5_CTX *c), (md, c))
+
+static inline int
+_goboringcrypto_EVP_MD_type(const GO_EVP_MD *md) {
+#if OPENSSL_VERSION_NUMBER < 0x30000000L
+	return _goboringcrypto_internal_EVP_MD_type(md);
+#else
+	return _goboringcrypto_internal_EVP_MD_get_type(md);
+#endif
+}
 
 const GO_EVP_MD* _goboringcrypto_backport_EVP_md5_sha1(void);
 static inline const GO_EVP_MD*
@@ -230,6 +243,10 @@ static inline size_t
 _goboringcrypto_HMAC_size(const GO_HMAC_CTX* arg0) {
 #if OPENSSL_VERSION_NUMBER < 0x10100000L
 	return _goboringcrypto_internal_EVP_MD_size(arg0->md);
+#elif OPENSSL_VERSION_NUMBER >= 0x30000000L
+	const EVP_MD* md;
+	md = _goboringcrypto_internal_HMAC_CTX_get_md(arg0);
+	return _goboringcrypto_internal_EVP_MD_get_size(md);
 #else
 	const EVP_MD* md;
 	md = _goboringcrypto_internal_HMAC_CTX_get_md(arg0);
