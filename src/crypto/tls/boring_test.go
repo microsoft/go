@@ -156,6 +156,7 @@ func TestBoringServerCurves(t *testing.T) {
 
 	for _, curveid := range defaultCurvePreferences {
 		t.Run(fmt.Sprintf("curve=%d", curveid), func(t *testing.T) {
+			fipstls.Abandon()
 			clientHello := &clientHelloMsg{
 				vers:               VersionTLS12,
 				random:             make([]byte, 32),
