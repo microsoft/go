@@ -239,6 +239,7 @@ _goboringcrypto_HMAC_CTX_free(HMAC_CTX *ctx) {
 }
 
 DEFINEFUNCINTERNAL(EVP_MD*, HMAC_CTX_get_md, (const GO_HMAC_CTX* ctx), (ctx))
+DEFINEFUNCINTERNAL(size_t, EVP_MD_get_size, (const GO_EVP_MD *arg0), (arg0))
 static inline size_t
 _goboringcrypto_HMAC_size(const GO_HMAC_CTX* arg0) {
 #if OPENSSL_VERSION_NUMBER < 0x10100000L
