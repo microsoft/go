@@ -16,7 +16,7 @@ cherry-picked to each applicable branch.
 This results in straightforward Git repository history. An example (version
 numbers not accurate):
 
-![](upstream-releases.png)
+> ![](upstream-releases.png)
 
 > A horizontal line of circles represents a series of commits in a branch, with
 parent commits to the left and children to the right. Arrows represent
@@ -28,48 +28,104 @@ with upstream branches. Each `microsoft/*` branch initially forks from upstream,
 then periodically merges in all changes from the upstream branch. The
 `microsoft/main` branch is associated with `master`:
 
-![](microsoft-sync.png)
+> ![](microsoft-sync.png)
 
 > A dashed arrow points from a commit to a merge commit that includes it.
 
 How does a new `microsoft/*` branch get created when upstream creates a release
-branch? There are two possible situations, which are discussed in the next
-sections: steady state and retroactive branch creation.
+branch? There are several possible situations, which are discussed in the next
+sections:
 
-## Steady state release branch
+1.  `microsoft/main` exists, and it is "behind" the new release branch:  
+    > ![](behind.png)
+2.  `microsoft/main` exists, and it is "ahead of" the new release branch:  
+    > ![](ahead.png)
+3. `microsoft/main` didn't exist when the release branch was created:  
+    > ![](retroactive.png)
 
-Say we have an actively maintained `microsoft/main` branch, then upstream forks
-a branch for a 1.42 release.
+## If `microsoft/main` is behind
 
-![](steady-state-fork.png)
+This case is the easiest to handle.
 
-We first find the *merge base* ("best" common ancestor, per Git) of the release
-branch and `master`. Then, we merge that commit into `microsoft/main` and create
-a `microsoft/release-branch.go1.42` branch on the same commit:
+Say we are creating the branch for a hypothetical `go1.42`. First use `git
+merge-base release-branch.go1.42 master` to find the best common ancestor. Then,
+merge that commit into `microsoft/main` and create a
+`microsoft/release-branch.go1.42` branch on the same commit:
 
-![](steady-state-create-branch.png)
+> ![](behind-create.png)
 
-> The merge-base commit is circled.
+> The merge-base between `master` and the release branch is circled.
 
 > Starting with both branches pointing at the same commit ensures that merge
 conflicts (if any) only need to be solved once. This saves time, and eliminates
 the chance of accidentally resolving the conflict differently for each branch.
 
-Then, we periodically merge each upstream branch into its corresponding
-`microsoft/*` branch. The branches diverge naturally along with the branch
-they're associated to:
+After that, auto-sync infrastructure will periodically merge each upstream
+branch into its corresponding `microsoft/*` branch. The branches diverge
+naturally along with the branch they're associated to:
 
-![](steady-state-done.png)
+> ![](behind-done.png)
 
-Release branch creation is complete.
+## If `microsoft/main` is ahead
 
-## Retroactive release branch (Go 1.16 and earlier)
+This situation looks like this:
+
+> ![](ahead-detailed.png)
+
+> `A` `B` `C` and `D` are commits that fix Microsoft infrastructure bugs.  
+> The merge-base between `master` and the release branch is circled.
+
+> This situation can happen because `microsoft/main` automatically gets periodic
+merges from `master`, even if a dev isn't involved. The window of opportunity
+for the simple "`microsoft/main` is behind" process starts when the release
+branch is created and ends the next time `microsoft/main` gets an automatic sync
+PR. It's too late at this point: we would need to force push `microsoft/main`
+back to an old commit, discarding infra changes and orphaning official builds.
+
+To continue, we need to create `microsoft/release-branch.go1.42` at the most
+recent `microsoft/main` commit before the fork happened. That would be the
+commit `C` in the diagram.
+
+To find `C` without manually inspecting the Git graph, check each commit
+reachable from `microsoft/main` (but not from `master`) until you find the most
+recent commit that doesn't contain the merge-base as an ancestor. This can be
+done by a shell (bash, Git bash, etc.) script:
+
+```sh
+# Adjust commands if you don't have these Git remotes set up:
+# msft = https://github.com/microsoft/go, golang = https://github.com/golang/go
+branch=golang/release-branch.go1.42
+release_base=$(git merge-base $branch golang/master)
+
+git rev-list golang/master..msft/microsoft/main |
+while read x; do
+  if ! git merge-base --is-ancestor $release_base $x; then
+    git show $x
+    break
+  fi
+done
+```
+
+Note that this excludes the `D` infra fix! If `D` is required in the release
+branch, it must be cherry-picked. To find the list of infra fixes like `D` that
+might be missing, use this command with `C`'s commit hash:
+
+```sh
+git log --oneline --no-merges --ancestry-path {C}..msft/microsoft/main
+```
+
+Once the branch is created and auto-merges start happening, the situation will
+look like this:
+
+> ![](ahead-done.png)
+
+## If `microsoft/main` didn't exist yet
 
 The `microsoft/main` branch hasn't always existed. It was created some time
 after Go 1.16 was released. `release-branch.go1.16` and earlier upstream release
 branches have already diverged from `master`. The situation looks like this:
 
-![](retroactive-fork.png)
+> ![](retroactive.png)
 
 To apply the Microsoft build infrastructure on top of the 1.16 branch, we
 isolate the infrastructure changes, then cherry-pick them on top of the release
@@ -78,7 +134,7 @@ branch to create `microsoft/release-branch.go1.16`.
 To do that, we use these Git commands:
 
 ```sh
-# Assume these Git remotes are set up:
+# Adjust commands if you don't have these Git remotes set up:
 # msft = https://github.com/microsoft/go, golang = https://github.com/golang/go
 #
 # Initialize the microsoft/go repo's branch with the tip of the upstream branch.
@@ -113,11 +169,9 @@ git push [...]
 
 After that, we periodically merge the release branch into the corresponding
 `microsoft/*` branch. We end up with the same branch arrangement for ongoing
-work as the other approach, just with a different history:
+work as the other approaches, just with a different history:
 
-![](retroactive-done.png)
-
-Release branch creation is complete.
+> ![](retroactive-done.png)
 
 # How to apply `microsoft/main` infra fixes to a release branch?
 
