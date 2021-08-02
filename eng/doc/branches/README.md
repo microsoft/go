@@ -18,10 +18,10 @@ numbers not accurate):
 
 > ![](images/upstream-releases.png)
 
-> A horizontal line of circles represents a series of commits in a branch, with
-parent commits to the left and children to the right. Arrows represent
-additional `parent -> child` links. The callout boxes are Git tags, created for
-each minor release.
+> * A horizontal line of circles represents a series of commits in a branch.
+>   Parent commits are to the left and children are to the right.
+> * Arrows represent additional `parent -> child` links.
+> * The callout boxes are Git tags, created for each minor release.
 
 The microsoft/go repository maintains a set of `microsoft/*` branches associated
 with upstream branches. Each `microsoft/*` branch initially forks from upstream,
@@ -30,7 +30,15 @@ then periodically merges in all changes from the upstream branch. The
 
 > ![](images/microsoft-sync.png)
 
-> A dashed arrow points from a commit to a merge commit that includes it.
+> * Each dashed arrow points from a `master` commit to a merge commit that
+>   includes it.
+> * `A` is the first commit to `microsoft/main` that added Microsoft build
+>   infrastructure, forking from the upstream branch.
+> * `B` and `C` are commits that fix up parts of the Microsoft infra. These
+>   parts include CI stability, improving artifact parity, fixing infra
+>   compatibility with upstream (`master`) code, and more.
+>   *  Merge commits significantly outnumber infra fix commits. For simplicity,
+>      the diagrams in this document exaggerate the number of infra fixes.
 
 How does a new `microsoft/*` branch get created when upstream creates a release
 branch? There are several possible situations, which are discussed in the next
@@ -72,8 +80,8 @@ This situation looks like this:
 
 > ![](images/ahead-detailed.png)
 
-> `A` `B` `C` and `D` are commits that fix Microsoft infrastructure bugs.  
-> The merge-base between `master` and the release branch is circled.
+> * `A` `B` `C` and `D` are commits that fix Microsoft infrastructure bugs.
+> * The merge-base between `master` and the release branch is circled.
 
 > This situation can happen because `microsoft/main` automatically gets periodic
 merges from `master`, even if a dev isn't involved. The window of opportunity
