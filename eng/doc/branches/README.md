@@ -16,7 +16,7 @@ cherry-picked to each applicable branch.
 This results in straightforward Git repository history. An example (version
 numbers not accurate):
 
-> ![](upstream-releases.png)
+> ![](images/upstream-releases.png)
 
 > A horizontal line of circles represents a series of commits in a branch, with
 parent commits to the left and children to the right. Arrows represent
@@ -28,7 +28,7 @@ with upstream branches. Each `microsoft/*` branch initially forks from upstream,
 then periodically merges in all changes from the upstream branch. The
 `microsoft/main` branch is associated with `master`:
 
-> ![](microsoft-sync.png)
+> ![](images/microsoft-sync.png)
 
 > A dashed arrow points from a commit to a merge commit that includes it.
 
@@ -37,11 +37,11 @@ branch? There are several possible situations, which are discussed in the next
 sections:
 
 1.  `microsoft/main` exists, and it is "behind" the new release branch:  
-    > ![](behind.png)
+    > ![](images/behind.png)
 2.  `microsoft/main` exists, and it is "ahead of" the new release branch:  
-    > ![](ahead.png)
+    > ![](images/ahead.png)
 3. `microsoft/main` didn't exist when the release branch was created:  
-    > ![](retroactive.png)
+    > ![](images/retroactive.png)
 
 ## If `microsoft/main` is behind
 
@@ -52,7 +52,7 @@ merge-base release-branch.go1.42 master` to find the best common ancestor. Then,
 merge that commit into `microsoft/main` and create a
 `microsoft/release-branch.go1.42` branch on the same commit:
 
-> ![](behind-create.png)
+> ![](images/behind-create.png)
 
 > The merge-base between `master` and the release branch is circled.
 
@@ -64,13 +64,13 @@ After that, auto-sync infrastructure will periodically merge each upstream
 branch into its corresponding `microsoft/*` branch. The branches diverge
 naturally along with the branch they're associated to:
 
-> ![](behind-done.png)
+> ![](images/behind-done.png)
 
 ## If `microsoft/main` is ahead
 
 This situation looks like this:
 
-> ![](ahead-detailed.png)
+> ![](images/ahead-detailed.png)
 
 > `A` `B` `C` and `D` are commits that fix Microsoft infrastructure bugs.  
 > The merge-base between `master` and the release branch is circled.
@@ -117,7 +117,7 @@ git log --oneline --no-merges --ancestry-path {C}..msft/microsoft/main
 Once the branch is created and auto-merges start happening, the situation will
 look like this:
 
-> ![](ahead-done.png)
+> ![](images/ahead-done.png)
 
 ## If `microsoft/main` didn't exist yet
 
@@ -125,7 +125,7 @@ The `microsoft/main` branch hasn't always existed. It was created some time
 after Go 1.16 was released. `release-branch.go1.16` and earlier upstream release
 branches have already diverged from `master`. The situation looks like this:
 
-> ![](retroactive.png)
+> ![](images/retroactive.png)
 
 To apply the Microsoft build infrastructure on top of the 1.16 branch, we
 isolate the infrastructure changes, then cherry-pick them on top of the release
@@ -171,7 +171,7 @@ After that, we periodically merge the release branch into the corresponding
 `microsoft/*` branch. We end up with the same branch arrangement for ongoing
 work as the other approaches, just with a different history:
 
-> ![](retroactive-done.png)
+> ![](images/retroactive-done.png)
 
 # How to apply `microsoft/main` infra fixes to a release branch?
 
