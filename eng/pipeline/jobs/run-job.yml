@@ -1,0 +1,82 @@
+# Copyright (c) Microsoft Corporation.
+# Use of this source code is governed by a BSD-style
+# license that can be found in the LICENSE file.
+
+# This job runs a builder for any OS.
+
+parameters:
+  # { os, arch, config }
+  builder: {}
+
+jobs:
+  - job: ${{ parameters.builder.os }}_${{ parameters.builder.arch }}_${{ parameters.builder.config }}
+    workspace:
+      clean: all
+
+    ${{ if eq(parameters.builder.os, 'windows') }}:
+      pool:
+        vmImage: windows-2019
+
+    ${{ if eq(parameters.builder.os, 'linux') }}:
+      pool:
+        # The VM image of the Docker host. This doesn't need to match the container image, but it may
+        # give slightly better coverage by matching the kernel version.
+        vmImage: ubuntu-18.04
+      # The image used for the container this job runs in. The tests run in this container, so it
+      # should match what we support as closely as possible.
+      container: mcr.microsoft.com/dotnet-buildtools/prereqs:ubuntu-18.04-20210223192210-047508b
+
+    steps:
+      - ${{ if eq(parameters.builder.os, 'linux') }}:
+        - template: ../steps/checkout-unix-task.yml
+        - template: ../steps/init-pwsh-task.yml
+
+      - ${{ if eq(parameters.builder.os, 'windows') }}:
+        - template: ../steps/checkout-windows-task.yml
+
+      # Initialize stage 0 toolset ahead of time so we can track timing data separately from the
+      # build operations. When we call this script again later, it won't download Go again.
+      - pwsh: |
+          . eng/utilities.ps1
+          Get-Stage0GoRoot
+        displayName: Init stage 0 Go toolset
+
+      # Use build script directly for "buildandpack". If we used run-builder, we would need to
+      # download its external module dependencies.
+      - ${{ if eq(parameters.builder.config, 'buildandpack' ) }}:
+        - pwsh: |
+            eng/run.ps1 build --pack
+          displayName: Build and Pack
+
+        - publish: eng/artifacts/bin
+          artifact: Binaries ${{ parameters.builder.os }}_${{ parameters.builder.arch }}_${{ parameters.builder.config }}
+          displayName: Pipeline publish
+          condition: succeededOrFailed()
+
+      # Use run-builder for any configuration that includes tests. run-builder uses the "gotestsum"
+      # module to convert test results to a JUnit file that Azure DevOps can understand.
+      - ${{ if ne(parameters.builder.config, 'buildandpack') }}:
+        - pwsh: |
+            if ($IsWindows) {
+              Write-Host "Removing Git usr\bin from PATH to avoid running a Linux test that would fail, 'TestScript/script_wait'..."
+              Write-Host $env:PATH
+              $env:PATH = (
+                $env:PATH -split ';' | Where-Object { $_ -ne 'C:\Program Files\Git\usr\bin' }
+              ) -join ';'
+            }
+
+            eng/run.ps1 run-builder `
+              -builder '${{ parameters.builder.os }}-${{ parameters.builder.arch }}-${{ parameters.builder.config }}' `
+              -junitfile '$(Build.SourcesDirectory)/eng/artifacts/TestResults.xml'
+          displayName: Run ${{ parameters.builder.config }}
+
+        - task: PublishTestResults@2
+          displayName: Publish test results
+          condition: succeededOrFailed()
+          inputs:
+            testResultsFormat: JUnit
+            testResultsFiles: $(Build.SourcesDirectory)/eng/artifacts/TestResults.xml
+            testRunTitle: ${{ parameters.builder.os }}_${{ parameters.builder.arch }}_${{ parameters.builder.config }}
+            buildPlatform: ${{ parameters.builder.arch }}
+            buildConfiguration: ${{ parameters.builder.config }}
+            publishRunAttachments: true

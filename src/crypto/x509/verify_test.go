@@ -246,8 +246,14 @@ var verifyTests = []verifyTest{
 		currentTime:   1397502195,
 		dnsName:       "api.moip.com.br",
 
-		// CryptoAPI can find alternative validation paths.
-		systemLax: true,
+		// NO MICROSOFT_UPSTREAM: This test fails on Windows due to a certificate expiring and the
+		// tests being unable to extend its expiry date. So, skip it. See
+		// https://github.com/golang/go/issues/40604
+		//
+		// It's not likely that upstream would take this change (or a more detailed fix), as this
+		// branch is old and the issue doesn't interfere with the release process.
+		systemSkip: true,
+		// END NO MICROSOFT_UPSTREAM
 
 		expectedChains: [][]string{
 			{
