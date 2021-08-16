@@ -426,14 +426,9 @@ func (u *unifier) nify(x, y Type, p *ifacePair) bool {
 		}
 
 	case *Named:
-		// Two named types are identical if their type names originate
-		// in the same type declaration.
-		// if y, ok := y.(*Named); ok {
-		// 	return x.obj == y.obj
-		// }
 		if y, ok := y.(*Named); ok {
-			x.expand()
-			y.expand()
+			x.expand(nil)
+			y.expand(nil)
 			// TODO(gri) This is not always correct: two types may have the same names
 			//           in the same package if one of them is nested in a function.
 			//           Extremely unlikely but we need an always correct solution.

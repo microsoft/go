@@ -145,7 +145,7 @@ func (check *Checker) builtin(x *operand, call *ast.CallExpr, id builtinId) (_ b
 		mode := invalid
 		var typ Type
 		var val constant.Value
-		switch typ = implicitArrayDeref(optype(x.typ)); t := typ.(type) {
+		switch typ = arrayPtrDeref(under(x.typ)); t := typ.(type) {
 		case *Basic:
 			if isString(t) && id == _Len {
 				if x.mode == constant_ {
@@ -179,9 +179,9 @@ func (check *Checker) builtin(x *operand, call *ast.CallExpr, id builtinId) (_ b
 				mode = value
 			}
 
-		case *Union:
+		case *TypeParam:
 			if t.underIs(func(t Type) bool {
-				switch t := t.(type) {
+				switch t := arrayPtrDeref(t).(type) {
 				case *Basic:
 					if isString(t) && id == _Len {
 						return true
@@ -481,39 +481,21 @@ func (check *Checker) builtin(x *operand, call *ast.CallExpr, id builtinId) (_ b
 			return
 		}
 
-		min, max := -1, 10
-		var valid func(t Type) bool
-		valid = func(t Type) bool {
-			var m int
-			switch t := under(t).(type) {
-			case *Slice:
-				m = 2
-			case *Map, *Chan:
-				m = 1
-			case *TypeParam:
-				return t.underIs(valid)
-			default:
-				return false
-			}
-			if m > min {
-				min = m
-			}
-			if m+1 < max {
-				max = m + 1
-			}
-			return true
-		}
-
-		if !valid(T) {
+		var min int // minimum number of arguments
+		switch optype(T).(type) {
+		case *Slice:
+			min = 2
+		case *Map, *Chan:
+			min = 1
+		case *top:
+			check.invalidArg(arg0, _InvalidMake, "cannot make %s; type parameter has no structural type", arg0)
+			return
+		default:
 			check.invalidArg(arg0, _InvalidMake, "cannot make %s; type must be slice, map, or channel", arg0)
 			return
 		}
-		if nargs < min || max < nargs {
-			if min == max {
-				check.errorf(call, _WrongArgCount, "%v expects %d arguments; found %d", call, min, nargs)
-			} else {
-				check.errorf(call, _WrongArgCount, "%v expects %d or %d arguments; found %d", call, min, max, nargs)
-			}
+		if nargs < min || min+1 < nargs {
+			check.invalidOp(call, _WrongArgCount, "%v expects %d or %d arguments; found %d", call, min, min+1, nargs)
 			return
 		}
 
@@ -824,12 +806,10 @@ func (check *Checker) applyTypeFunc(f func(Type) Type, x Type) Type {
 	if tp := asTypeParam(x); tp != nil {
 		// Test if t satisfies the requirements for the argument
 		// type and collect possible result types at the same time.
-		var rtypes []Type
-		var tildes []bool
-		if !tp.iface().is(func(typ Type, tilde bool) bool {
-			if r := f(typ); r != nil {
-				rtypes = append(rtypes, r)
-				tildes = append(tildes, tilde)
+		var terms []*Term
+		if !tp.iface().typeSet().is(func(t *term) bool {
+			if r := f(t.typ); r != nil {
+				terms = append(terms, NewTerm(t.tilde, r))
 				return true
 			}
 			return false
@@ -841,10 +821,8 @@ func (check *Checker) applyTypeFunc(f func(Type) Type, x Type) Type {
 		// type param is placed in the current package so export/import
 		// works as expected.
 		tpar := NewTypeName(token.NoPos, check.pkg, "<type parameter>", nil)
-		ptyp := check.NewTypeParam(tpar, &emptyInterface) // assigns type to tpar as a side-effect
+		ptyp := check.NewTypeParam(tpar, NewInterfaceType(nil, []Type{NewUnion(terms)})) // assigns type to tpar as a side-effect
 		ptyp.index = tp.index
-		tsum := newUnion(rtypes, tildes)
-		ptyp.bound = &Interface{complete: true, tset: &_TypeSet{types: tsum}}
 
 		return ptyp
 	}
@@ -868,10 +846,10 @@ func makeSig(res Type, args ...Type) *Signature {
 	return &Signature{params: params, results: result}
 }
 
-// implicitArrayDeref returns A if typ is of the form *A and A is an array;
+// arrayPtrDeref returns A if typ is of the form *A and A is an array;
 // otherwise it returns typ.
 //
-func implicitArrayDeref(typ Type) Type {
+func arrayPtrDeref(typ Type) Type {
 	if p, ok := typ.(*Pointer); ok {
 		if a := asArray(p.base); a != nil {
 			return a
