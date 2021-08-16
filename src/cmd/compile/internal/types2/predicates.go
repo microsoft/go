@@ -302,8 +302,30 @@ func identical(x, y Type, cmpTags bool, p *ifacePair) bool {
 		// Two named types are identical if their type names originate
 		// in the same type declaration.
 		if y, ok := y.(*Named); ok {
-			x.expand()
-			y.expand()
+			x.expand(nil)
+			y.expand(nil)
+
+			xargs := x.TArgs()
+			yargs := y.TArgs()
+
+			if len(xargs) != len(yargs) {
+				return false
+			}
+
+			if len(xargs) > 0 {
+				// Instances are identical if their original type and type arguments
+				// are identical.
+				if !Identical(x.orig, y.orig) {
+					return false
+				}
+				for i, xa := range xargs {
+					if !Identical(xa, yargs[i]) {
+						return false
+					}
+				}
+				return true
+			}
+
 			// TODO(gri) Why is x == y not sufficient? And if it is,
 			//           we can just return false here because x == y
 			//           is caught in the very beginning of this function.

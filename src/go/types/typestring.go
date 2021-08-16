@@ -40,27 +40,6 @@ func RelativeTo(pkg *Package) Qualifier {
 	}
 }
 
-// If gcCompatibilityMode is set, printing of types is modified
-// to match the representation of some types in the gc compiler:
-//
-//	- byte and rune lose their alias name and simply stand for
-//	  uint8 and int32 respectively
-//	- embedded interfaces get flattened (the embedding info is lost,
-//	  and certain recursive interface types cannot be printed anymore)
-//
-// This makes it easier to compare packages computed with the type-
-// checker vs packages imported from gc export data.
-//
-// Caution: This flag affects all uses of WriteType, globally.
-// It is only provided for testing in conjunction with
-// gc-generated data.
-//
-// This flag is exported in the x/tools/go/types package. We don't
-// need it at the moment in the std repo and so we don't export it
-// anymore. We should eventually try to remove it altogether.
-// TODO(gri) remove this
-var gcCompatibilityMode bool
-
 // TypeString returns the string representation of typ.
 // The Qualifier controls the printing of
 // package-level objects, and may be nil.
@@ -108,15 +87,6 @@ func writeType(buf *bytes.Buffer, typ Type, qf Qualifier, visited []Type) {
 			}
 		}
 
-		if gcCompatibilityMode {
-			// forget the alias names
-			switch t.kind {
-			case Byte:
-				t = Typ[Uint8]
-			case Rune:
-				t = Typ[Int32]
-			}
-		}
 		buf.WriteString(t.name)
 
 	case *Array:
@@ -159,9 +129,10 @@ func writeType(buf *bytes.Buffer, typ Type, qf Qualifier, visited []Type) {
 		writeSignature(buf, t, qf, visited)
 
 	case *Union:
-		if t.IsEmpty() {
-			buf.WriteString("⊥")
-			break
+		// Unions only appear as (syntactic) embedded elements
+		// in interfaces and syntactically cannot be empty.
+		if t.Len() == 0 {
+			panic("empty union")
 		}
 		for i, t := range t.terms {
 			if i > 0 {
@@ -174,66 +145,22 @@ func writeType(buf *bytes.Buffer, typ Type, qf Qualifier, visited []Type) {
 		}
 
 	case *Interface:
-		// We write the source-level methods and embedded types rather
-		// than the actual method set since resolved method signatures
-		// may have non-printable cycles if parameters have embedded
-		// interface types that (directly or indirectly) embed the
-		// current interface. For instance, consider the result type
-		// of m:
-		//
-		//     type T interface{
-		//         m() interface{ T }
-		//     }
-		//
 		buf.WriteString("interface{")
-		empty := true
-		if gcCompatibilityMode {
-			// print flattened interface
-			// (useful to compare against gc-generated interfaces)
-			tset := t.typeSet()
-			for i, m := range tset.methods {
-				if i > 0 {
-					buf.WriteString("; ")
-				}
-				buf.WriteString(m.name)
-				writeSignature(buf, m.typ.(*Signature), qf, visited)
-				empty = false
-			}
-			if !empty && tset.types != nil {
+		first := true
+		for _, m := range t.methods {
+			if !first {
 				buf.WriteString("; ")
 			}
-			if tset.types != nil {
-				buf.WriteString("type ")
-				writeType(buf, tset.types, qf, visited)
-			}
-		} else {
-			// print explicit interface methods and embedded types
-			for i, m := range t.methods {
-				if i > 0 {
-					buf.WriteString("; ")
-				}
-				buf.WriteString(m.name)
-				writeSignature(buf, m.typ.(*Signature), qf, visited)
-				empty = false
-			}
-			if !empty && len(t.embeddeds) > 0 {
-				buf.WriteString("; ")
-			}
-			for i, typ := range t.embeddeds {
-				if i > 0 {
-					buf.WriteString("; ")
-				}
-				writeType(buf, typ, qf, visited)
-				empty = false
-			}
+			first = false
+			buf.WriteString(m.name)
+			writeSignature(buf, m.typ.(*Signature), qf, visited)
 		}
-		// print /* incomplete */ if needed to satisfy existing tests
-		// TODO(gri) get rid of this eventually
-		if debug && t.tset == nil {
-			if !empty {
-				buf.WriteByte(' ')
+		for _, typ := range t.embeddeds {
+			if !first {
+				buf.WriteString("; ")
 			}
-			buf.WriteString("/* incomplete */")
+			first = false
+			writeType(buf, typ, qf, visited)
 		}
 		buf.WriteByte('}')
 
@@ -258,7 +185,7 @@ func writeType(buf *bytes.Buffer, typ Type, qf Qualifier, visited []Type) {
 		case RecvOnly:
 			s = "<-chan "
 		default:
-			panic("unreachable")
+			unreachable()
 		}
 		buf.WriteString(s)
 		if parens {
@@ -322,23 +249,27 @@ func writeTParamList(buf *bytes.Buffer, list []*TypeName, qf Qualifier, visited 
 	buf.WriteString("[")
 	var prev Type
 	for i, p := range list {
-		// TODO(rFindley) support 'any' sugar here.
-		var b Type = &emptyInterface
-		if t, _ := p.typ.(*TypeParam); t != nil && t.bound != nil {
-			b = t.bound
+		// Determine the type parameter and its constraint.
+		// list is expected to hold type parameter names,
+		// but don't crash if that's not the case.
+		tpar, _ := p.typ.(*TypeParam)
+		var bound Type
+		if tpar != nil {
+			bound = tpar.bound // should not be nil but we want to see it if it is
 		}
+
 		if i > 0 {
-			if b != prev {
-				// type bound changed - write previous one before advancing
+			if bound != prev {
+				// bound changed - write previous one before advancing
 				buf.WriteByte(' ')
 				writeType(buf, prev, qf, visited)
 			}
 			buf.WriteString(", ")
 		}
-		prev = b
+		prev = bound
 
-		if t, _ := p.typ.(*TypeParam); t != nil {
-			writeType(buf, t, qf, visited)
+		if tpar != nil {
+			writeType(buf, tpar, qf, visited)
 		} else {
 			buf.WriteString(p.name)
 		}
@@ -405,7 +336,7 @@ func writeTuple(buf *bytes.Buffer, tup *Tuple, variadic bool, qf Qualifier, visi
 					// special case:
 					// append(s, "foo"...) leads to signature func([]byte, string...)
 					if t := asBasic(typ); t == nil || t.kind != String {
-						panic("internal error: string type expected")
+						panic("expected string type")
 					}
 					writeType(buf, typ, qf, visited)
 					buf.WriteString("...")

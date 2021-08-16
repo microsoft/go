@@ -19,8 +19,8 @@ type Signature struct {
 	// and store it in the Func Object) because when type-checking a function
 	// literal we call the general type checker which returns a general Type.
 	// We then unpack the *Signature and use the scope for the literal body.
-	rparams  *TypeParams // receiver type parameters from left to right, or nil
-	tparams  *TypeParams // type parameters from left to right, or nil
+	rparams  *TParamList // receiver type parameters from left to right, or nil
+	tparams  *TParamList // type parameters from left to right, or nil
 	scope    *Scope      // function scope, present for package-local signatures
 	recv     *Var        // nil if not a method
 	params   *Tuple      // (incoming) parameters from left to right; or nil
@@ -54,13 +54,13 @@ func NewSignature(recv *Var, params, results *Tuple, variadic bool) *Signature {
 func (s *Signature) Recv() *Var { return s.recv }
 
 // TParams returns the type parameters of signature s, or nil.
-func (s *Signature) TParams() *TypeParams { return s.tparams }
+func (s *Signature) TParams() *TParamList { return s.tparams }
 
 // SetTParams sets the type parameters of signature s.
 func (s *Signature) SetTParams(tparams []*TypeName) { s.tparams = bindTParams(tparams) }
 
 // RParams returns the receiver type parameters of signature s, or nil.
-func (s *Signature) RParams() *TypeParams { return s.rparams }
+func (s *Signature) RParams() *TParamList { return s.rparams }
 
 // SetRParams sets the receiver type params of signature s.
 func (s *Signature) SetRParams(rparams []*TypeName) { s.rparams = bindTParams(rparams) }
@@ -153,7 +153,7 @@ func (check *Checker) funcType(sig *Signature, recvPar *syntax.Field, tparams []
 					// TODO(gri) should we assume now that bounds always exist?
 					//           (no bound == empty interface)
 					if bound != nil {
-						bound = check.subst(tname.pos, bound, smap)
+						bound = check.subst(tname.pos, bound, smap, nil)
 						tname.typ.(*TypeParam).bound = bound
 					}
 				}
@@ -215,7 +215,7 @@ func (check *Checker) funcType(sig *Signature, recvPar *syntax.Field, tparams []
 			var err string
 			switch T := rtyp.(type) {
 			case *Named:
-				T.expand()
+				T.expand(nil)
 				// spec: "The type denoted by T is called the receiver base type; it must not
 				// be a pointer or interface type and it must be declared in the same package
 				// as the method."
