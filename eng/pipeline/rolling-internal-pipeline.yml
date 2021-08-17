@@ -28,9 +28,34 @@ stages:
           # This is a utility job that doesn't use Go: use generic recent LTS for publishing.
           vmImage: ubuntu-20.04
         variables:
-          blobDestinationUrl: 'https://golangartifacts.blob.core.windows.net/microsoft/$(Build.SourceBranchName)/$(Build.BuildNumber)'
+          - name: blobDestinationUrl
+            value: 'https://dotnetbuildoutput.blob.core.windows.net/golang/microsoft/$(PublishBranchAlias)/$(Build.BuildNumber)'
+          - group: go-storage
         steps:
           - checkout: none
+
+          - pwsh: |
+              function TrimStart($s, $prefix) {
+                if ($s.StartsWith($prefix)) {
+                  return $s.Substring($prefix.Length)
+                }
+                return $s
+              }
+              $branch = "$(Build.SourceBranch)"
+              Write-Host "For Build.SourceBranch '$branch',"
+
+              # $(Build.SourceBranchName) only gives us "feature" for "refs/heads/dev/feature". We
+              # want to publish this as "dev/feature". So, use $(Build.SourceBranch) and figure it
+              # out ourselves.
+              $branch = TrimStart $branch "refs/heads/"
+
+              # Don't include "microsoft/" virtual directory prefix: we are already in the
+              # "microsoft" container, so this would result in "microsoft/microsoft/main".
+              $branch = TrimStart $branch "microsoft/"
+
+              Write-Host "PublishBranchAlias is: $branch"
+              Write-Host "##vso[task.setvariable variable=PublishBranchAlias;]$branch"
+            displayName: Find publish branch alias
 
           - download: current
             artifact: Binaries Signed
@@ -45,7 +70,7 @@ stages:
               # Send literal '*' to az: it handles the wildcard itself. Az copy only accepts one
               # "from" argument, so we can't use the shell's wildcard expansion.
               inlineScript: |
-                az storage copy -s '*' -d '$(blobDestinationUrl)'
+                az storage copy -s '*' -d '$(blobDestinationUrl)' --sas-token '$(dotnetbuildoutput-golang-write-sas-query)'
               workingDirectory: '$(Pipeline.Workspace)/Binaries Signed/'
 
           - script: |
