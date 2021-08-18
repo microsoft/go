@@ -226,10 +226,6 @@ func (u *unifier) nifyEq(x, y Type, p *ifacePair) bool {
 // code the corresponding changes should be made here.
 // Must not be called directly from outside the unifier.
 func (u *unifier) nify(x, y Type, p *ifacePair) bool {
-	// types must be expanded for comparison
-	x = expand(x)
-	y = expand(y)
-
 	if !u.exact {
 		// If exact unification is known to fail because we attempt to
 		// match a type name against an unnamed type literal, consider
@@ -427,12 +423,9 @@ func (u *unifier) nify(x, y Type, p *ifacePair) bool {
 		}
 
 	case *Named:
-		// Two named types are identical if their type names originate
-		// in the same type declaration.
-		// if y, ok := y.(*Named); ok {
-		// 	return x.obj == y.obj
-		// }
 		if y, ok := y.(*Named); ok {
+			x.expand(nil)
+			y.expand(nil)
 			// TODO(gri) This is not always correct: two types may have the same names
 			//           in the same package if one of them is nested in a function.
 			//           Extremely unlikely but we need an always correct solution.

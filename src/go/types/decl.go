@@ -317,7 +317,7 @@ func (check *Checker) validType(typ Type, path []Object) typeInfo {
 		}
 
 	case *Named:
-		t.expand()
+		t.expand(check.typMap)
 		// don't touch the type if it is from a different package or the Universe scope
 		// (doing so would lead to a race condition - was issue #35049)
 		if t.obj.pkg != check.pkg {
@@ -631,7 +631,7 @@ func (check *Checker) typeDecl(obj *TypeName, tdecl *ast.TypeSpec, def *Named) {
 	}
 }
 
-func (check *Checker) collectTypeParams(list *ast.FieldList) *TypeParams {
+func (check *Checker) collectTypeParams(list *ast.FieldList) *TParamList {
 	var tparams []*TypeName
 	// Declare type parameters up-front, with empty interface as type bound.
 	// The scope of type parameters starts at the beginning of the type parameter
@@ -711,7 +711,8 @@ func (check *Checker) collectMethods(obj *TypeName) {
 	// and field names must be distinct."
 	base := asNamed(obj.typ) // shouldn't fail but be conservative
 	if base != nil {
-		if t, _ := base.Underlying().(*Struct); t != nil {
+		u := safeUnderlying(base) // base should be expanded, but use safeUnderlying to be conservative
+		if t, _ := u.(*Struct); t != nil {
 			for _, fld := range t.fields {
 				if fld.name != "_" {
 					assert(mset.insert(fld) == nil)
@@ -773,6 +774,10 @@ func (check *Checker) funcDecl(obj *Func, decl *declInfo) {
 	fdecl := decl.fdecl
 	check.funcType(sig, fdecl.Recv, fdecl.Type)
 	obj.color_ = saved
+
+	if fdecl.Type.TParams.NumFields() > 0 && fdecl.Body == nil {
+		check.softErrorf(fdecl.Name, _Todo, "parameterized function is missing function body")
+	}
 
 	// function body must be type-checked after global declarations
 	// (functions implemented elsewhere have no body)

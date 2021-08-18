@@ -15,12 +15,12 @@ import (
 type Named struct {
 	check      *Checker
 	info       typeInfo    // for cycle detection
-	obj        *TypeName   // corresponding declared object
+	obj        *TypeName   // corresponding declared object for declared types; placeholder for instantiated types
 	orig       *Named      // original, uninstantiated type
 	fromRHS    Type        // type (on RHS of declaration) this *Named type is derived of (for cycle reporting)
 	underlying Type        // possibly a *Named during setup; never a *Named once set up completely
 	instance   *instance   // syntactic information for lazy instantiation
-	tparams    *TypeParams // type parameters, or nil
+	tparams    *TParamList // type parameters, or nil
 	targs      []Type      // type arguments (after instantiation), or nil
 	methods    []*Func     // methods declared for this type (not the method set of this type); signatures are type-checked lazily
 
@@ -80,7 +80,7 @@ func (t *Named) load() *Named {
 }
 
 // newNamed is like NewNamed but with a *Checker receiver and additional orig argument.
-func (check *Checker) newNamed(obj *TypeName, orig *Named, underlying Type, tparams *TypeParams, methods []*Func) *Named {
+func (check *Checker) newNamed(obj *TypeName, orig *Named, underlying Type, tparams *TParamList, methods []*Func) *Named {
 	typ := &Named{check: check, obj: obj, orig: orig, fromRHS: underlying, underlying: underlying, tparams: tparams, methods: methods}
 	if typ.orig == nil {
 		typ.orig = typ
@@ -108,8 +108,11 @@ func (check *Checker) newNamed(obj *TypeName, orig *Named, underlying Type, tpar
 	return typ
 }
 
-// Obj returns the type name for the named type t.
-func (t *Named) Obj() *TypeName { return t.obj }
+// Obj returns the type name for the declaration defining the named type t. For
+// instantiated types, this is the type name of the base type.
+func (t *Named) Obj() *TypeName {
+	return t.orig.obj // for non-instances this is the same as t.obj
+}
 
 // _Orig returns the original generic type an instantiated type is derived from.
 // If t is not an instantiated type, the result is t.
@@ -120,7 +123,7 @@ func (t *Named) _Orig() *Named { return t.orig }
 
 // TParams returns the type parameters of the named type t, or nil.
 // The result is non-nil for an (originally) parameterized type even if it is instantiated.
-func (t *Named) TParams() *TypeParams { return t.load().tparams }
+func (t *Named) TParams() *TParamList { return t.load().tparams }
 
 // SetTParams sets the type parameters of the named type t.
 func (t *Named) SetTParams(tparams []*TypeName) { t.load().tparams = bindTParams(tparams) }
@@ -131,9 +134,6 @@ func (t *Named) NumTArgs() int { return len(t.targs) }
 
 // TArgs returns the i'th type argument of the named type t for 0 <= i < t.NumTArgs().
 func (t *Named) TArg(i int) Type { return t.targs[i] }
-
-// SetTArgs sets the type arguments of the named type t.
-func (t *Named) SetTArgs(args []Type) { t.targs = args }
 
 // NumMethods returns the number of explicit methods whose receiver is named type t.
 func (t *Named) NumMethods() int { return len(t.load().methods) }
@@ -160,7 +160,7 @@ func (t *Named) AddMethod(m *Func) {
 	}
 }
 
-func (t *Named) Underlying() Type { return t.load().underlying }
+func (t *Named) Underlying() Type { return t.load().expand(nil).underlying }
 func (t *Named) String() string   { return TypeString(t, nil) }
 
 // ----------------------------------------------------------------------------
@@ -173,18 +173,13 @@ func (t *Named) String() string   { return TypeString(t, nil) }
 // is detected, the result is Typ[Invalid]. If a cycle is detected and
 // n0.check != nil, the cycle is reported.
 func (n0 *Named) under() Type {
-	n0.expand()
-
 	u := n0.Underlying()
-
-	if u == Typ[Invalid] {
-		return u
-	}
 
 	// If the underlying type of a defined type is not a defined
 	// (incl. instance) type, then that is the desired underlying
 	// type.
-	switch u.(type) {
+	var n1 *Named
+	switch u1 := u.(type) {
 	case nil:
 		return Typ[Invalid]
 	default:
@@ -192,6 +187,7 @@ func (n0 *Named) under() Type {
 		return u
 	case *Named:
 		// handled below
+		n1 = u1
 	}
 
 	if n0.check == nil {
@@ -201,42 +197,32 @@ func (n0 *Named) under() Type {
 	// Invariant: after this point n0 as well as any named types in its
 	// underlying chain should be set up when this function exits.
 	check := n0.check
+	n := n0
 
-	// If we can't expand u at this point, it is invalid.
-	n := asNamed(u)
-	if n == nil {
-		n0.underlying = Typ[Invalid]
-		return n0.underlying
-	}
+	seen := make(map[*Named]int) // types that need their underlying resolved
+	var path []Object            // objects encountered, for cycle reporting
 
-	// Otherwise, follow the forward chain.
-	seen := map[*Named]int{n0: 0}
-	path := []Object{n0.obj}
+loop:
 	for {
-		u = n.Underlying()
-		if u == nil {
-			u = Typ[Invalid]
-			break
-		}
-		var n1 *Named
-		switch u1 := u.(type) {
-		case *Named:
-			u1.expand()
-			n1 = u1
-		}
-		if n1 == nil {
-			break // end of chain
-		}
-
 		seen[n] = len(seen)
 		path = append(path, n.obj)
 		n = n1
-
 		if i, ok := seen[n]; ok {
 			// cycle
 			check.cycleError(path[i:])
 			u = Typ[Invalid]
 			break
+		}
+		u = n.Underlying()
+		switch u1 := u.(type) {
+		case nil:
+			u = Typ[Invalid]
+			break loop
+		default:
+			break loop
+		case *Named:
+			// Continue collecting *Named types in the chain.
+			n1 = u1
 		}
 	}
 
@@ -271,26 +257,40 @@ type instance struct {
 
 // expand ensures that the underlying type of n is instantiated.
 // The underlying type will be Typ[Invalid] if there was an error.
-// TODO(rfindley): expand would be a better name for this method, but conflicts
-// with the existing concept of lazy expansion. Need to reconcile this.
-func (n *Named) expand() {
+func (n *Named) expand(typMap map[string]*Named) *Named {
 	if n.instance != nil {
 		// n must be loaded before instantiation, in order to have accurate
 		// tparams. This is done implicitly by the call to n.TParams, but making it
 		// explicit is harmless: load is idempotent.
 		n.load()
-		inst := n.check.instantiate(n.instance.pos, n.orig.underlying, n.TParams().list(), n.targs, n.instance.posList)
+		if typMap == nil {
+			if n.check != nil {
+				typMap = n.check.typMap
+			} else {
+				// If we're instantiating lazily, we might be outside the scope of a
+				// type-checking pass. In that case we won't have a pre-existing
+				// typMap, but don't want to create a duplicate of the current instance
+				// in the process of expansion.
+				h := instantiatedHash(n.orig, n.targs)
+				typMap = map[string]*Named{h: n}
+			}
+		}
+
+		inst := n.check.instantiate(n.instance.pos, n.orig.underlying, n.TParams().list(), n.targs, n.instance.posList, typMap)
 		n.underlying = inst
 		n.fromRHS = inst
 		n.instance = nil
 	}
+	return n
 }
 
-// expand expands uninstantiated named types and leaves all other types alone.
-// expand does not recurse.
-func expand(typ Type) Type {
+// safeUnderlying returns the underlying of typ without expanding instances, to
+// avoid infinite recursion.
+//
+// TODO(rfindley): eliminate this function or give it a better name.
+func safeUnderlying(typ Type) Type {
 	if t, _ := typ.(*Named); t != nil {
-		t.expand()
+		return t.load().underlying
 	}
-	return typ
+	return typ.Underlying()
 }

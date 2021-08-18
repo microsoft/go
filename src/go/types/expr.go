@@ -600,7 +600,7 @@ func (check *Checker) updateExprVal(x ast.Expr, val constant.Value) {
 func (check *Checker) convertUntyped(x *operand, target Type) {
 	newType, val, code := check.implicitTypeAndValue(x, target)
 	if code != 0 {
-		check.invalidConversion(code, x, target.Underlying())
+		check.invalidConversion(code, x, safeUnderlying(target))
 		x.mode = invalid
 		return
 	}
@@ -621,7 +621,6 @@ func (check *Checker) convertUntyped(x *operand, target Type) {
 // If x is a constant operand, the returned constant.Value will be the
 // representation of x in this context.
 func (check *Checker) implicitTypeAndValue(x *operand, target Type) (Type, constant.Value, errorCode) {
-	target = expand(target)
 	if x.mode == invalid || isTyped(x.typ) || target == Typ[Invalid] {
 		return x.typ, nil, 0
 	}
