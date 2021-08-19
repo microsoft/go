@@ -1,0 +1,52 @@
+# This pipeline deletes old images from our ACR to free up space. This doesn't affect images that
+# have already been published to MCR.
+#
+# This pipeline is based on .NET Docker's cleanup pipeline:
+# https://github.com/dotnet/docker-tools/blob/main/eng/pipelines/cleanup-acr-images.yml
+
+trigger: none
+pr: none
+
+schedules:
+- cron: "0 6 * * *"
+  displayName: Nightly build
+  branches:
+    include:
+    - main
+  always: true
+
+variables:
+- template: variables/common.yml
+
+jobs:
+- job: Build
+  pool:
+    vmImage: $(defaultLinuxAmd64PoolImage)
+  steps:
+  - template: ../common/templates/steps/init-docker-linux.yml
+  - template: steps/clean-acr-images.yml
+    parameters:
+      repo: "build-staging/*"
+      action: delete
+      # There is a reason to keep these around in some cases: you can trigger a build, wait, then
+      # trigger the publish an arbitrary amount of time later. This is useful to test a set of
+      # images before release day. Cleaning up the images would prevent the publish. This number
+      # needs to hit the right balance.
+      age: 9
+  - template: steps/clean-acr-images.yml
+    parameters:
+      repo: "public/oss/go/golang/nightly/*"
+      action: pruneDangling
+      age: 30
+  - template: steps/clean-acr-images.yml
+    parameters:
+      repo: "public/oss/go/golang/alpha/*"
+      action: pruneDangling
+      age: 30
+  # Disabled due to https://github.com/dotnet/docker-tools/issues/797
+  # - template: steps/clean-acr-images.yml
+  #   parameters:
+  #     repo: "mirror/*"
+  #     action: pruneDangling
+  #     age: 0
+  - template: ../common/templates/steps/cleanup-docker-linux.yml
