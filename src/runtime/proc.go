@@ -4425,7 +4425,7 @@ func sigprof(pc, sp, lr uintptr, gp *g, mp *m) {
 		return
 	}
 
-	// On mips{,le}, 64bit atomics are emulated with spinlocks, in
+	// On mips{,le}/arm, 64bit atomics are emulated with spinlocks, in
 	// runtime/internal/atomic. If SIGPROF arrives while the program is inside
 	// the critical section, it creates a deadlock (when writing the sample).
 	// As a workaround, create a counter of SIGPROFs while in critical section
@@ -4437,6 +4437,13 @@ func sigprof(pc, sp, lr uintptr, gp *g, mp *m) {
 				cpuprof.lostAtomic++
 				return
 			}
+		}
+		if GOARCH == "arm" && goarm < 7 && GOOS == "linux" && pc&0xffff0000 == 0xffff0000 {
+			// runtime/internal/atomic functions call into kernel
+			// helpers on arm < 7. See
+			// runtime/internal/atomic/sys_linux_arm.s.
+			cpuprof.lostAtomic++
+			return
 		}
 	}
 
@@ -4751,7 +4758,6 @@ func (pp *p) destroy() {
 		moveTimers(plocal, pp.timers)
 		pp.timers = nil
 		pp.numTimers = 0
-		pp.adjustTimers = 0
 		pp.deletedTimers = 0
 		atomic.Store64(&pp.timer0When, 0)
 		unlock(&pp.timersLock)
