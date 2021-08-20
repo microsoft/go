@@ -11,7 +11,7 @@
 # stage name that we can reference later.
 # * https://github.com/docker/for-mac/issues/2155
 # * https://github.com/moby/moby/issues/34482
-ARG REPO=cr.microsoft.com/oss/go/golang
+ARG REPO=mcr.microsoft.com/oss/go/golang
 # It's easy to download Go and install it in server core, but not nanoserver. So, to build
 # nanoserver, copy over the server core installation.
 ARG DOWNLOADER_TAG=1.16.6-windowsservercore-1809
