@@ -1,4 +1,10 @@
-FROM mcr.microsoft.com/windows/{{ env.windowsVariant }}:{{ env.windowsRelease }}
+#
+# NOTE: THIS DOCKERFILE IS GENERATED VIA "apply-templates.sh"
+#
+# PLEASE DO NOT EDIT IT DIRECTLY.
+#
+
+FROM mcr.microsoft.com/windows/servercore:1809
 
 # $ProgressPreference: https://github.com/PowerShell/PowerShell/issues/2138#issuecomment-251261324
 SHELL ["powershell", "-Command", "$ErrorActionPreference = 'Stop'; $ProgressPreference = 'SilentlyContinue';"]
@@ -37,40 +43,26 @@ RUN Write-Host ('Downloading {0} ...' -f $env:GIT_DOWNLOAD_URL); \
 	\
 	Write-Host 'Complete.';
 
-{{
-	def install_directory:
-		if [ "1.15", "1.16" ] | index(env.version) then
-			"C:\\go"
-		else
-			"C:\\Program Files\\Go"
-		end
--}}
-{{ if install_directory == "C:\\go" then ( -}}
 # ideally, this would be C:\go to match Linux a bit closer, but C:\go was the default install path for Go itself on Windows
 ENV GOPATH C:\\gopath
 # (https://golang.org/cl/283600)
-{{ ) else ( -}}
-# for 1.17+, we'll follow the (new) Go upstream default for install (https://golang.org/cl/283600), which frees up C:\go to be the default GOPATH and thus match the Linux images more closely (https://github.com/docker-library/golang/issues/288)
-ENV GOPATH C:\\go
-# HOWEVER, please note that it is the Go upstream intention to remove GOPATH support entirely: https://blog.golang.org/go116-module-changes
-{{ ) end -}}
 
 # PATH isn't actually set in the Docker image, so we have to set it from within the container
-RUN $newPath = ('{0}\bin;{{ install_directory }}\bin;{1}' -f $env:GOPATH, $env:PATH); \
+RUN $newPath = ('{0}\bin;C:\go\bin;{1}' -f $env:GOPATH, $env:PATH); \
 	Write-Host ('Updating PATH: {0}' -f $newPath); \
 	[Environment]::SetEnvironmentVariable('PATH', $newPath, [EnvironmentVariableTarget]::Machine);
 # doing this first to share cache across versions more aggressively
 
-ENV GOLANG_VERSION {{ .version }}
+ENV GOLANG_VERSION 1.15.5
 
-RUN $url = '{{ .arches["windows-amd64"].url }}'; \
+RUN $url = 'https://dotnetbuildoutput.blob.core.windows.net/golang/microsoft/release-branch.go1.15/20210817.4/go.20210817.4.windows-amd64.zip'; \
 	Write-Host ('Downloading {0} ...' -f $url); \
 # NO MICROSOFT_UPSTREAM: Use TLS 1.2: required by the microsoft/go build storage account.
 	[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; \
 # END NO MICROSOFT_UPSTREAM
 	Invoke-WebRequest -Uri $url -OutFile 'go.zip'; \
 	\
-	$sha256 = '{{ .arches["windows-amd64"].sha256 }}'; \
+	$sha256 = 'c852c3ab7a4abba1b94f4952daf8e8e3003fdb5fdf9dbfe16a12b52809240b3c'; \
 	Write-Host ('Verifying sha256 ({0}) ...' -f $sha256); \
 	if ((Get-FileHash go.zip -Algorithm sha256).Hash -ne $sha256) { \
 		Write-Host 'FAILED!'; \
@@ -79,11 +71,6 @@ RUN $url = '{{ .arches["windows-amd64"].url }}'; \
 	\
 	Write-Host 'Expanding ...'; \
 	Expand-Archive go.zip -DestinationPath C:\; \
-{{ if install_directory != "C:\\go" then ( -}}
-	\
-	Write-Host 'Moving ...'; \
-	Move-Item -Path C:\go -Destination '{{ install_directory }}'; \
-{{ ) else "" end -}}
 	\
 	Write-Host 'Removing ...'; \
 	Remove-Item go.zip -Force; \

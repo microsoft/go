@@ -1,3 +1,9 @@
+#
+# NOTE: THIS DOCKERFILE IS GENERATED VIA "apply-templates.sh"
+#
+# PLEASE DO NOT EDIT IT DIRECTLY.
+#
+
 # NO MICROSOFT_UPSTREAM: Add "downloader" stage to make the Dockerfile work with .NET Docker infra.
 #
 # Docker doesn't support ARGs in "COPY --from", so we use ARGs to define a stage that "--from" can
@@ -8,52 +14,32 @@
 ARG REPO=mcr.microsoft.com/oss/go/golang
 # It's easy to download Go and install it in server core, but not nanoserver. So, to build
 # nanoserver, copy over the server core installation.
-ARG DOWNLOADER_TAG={{ .version }}-windowsservercore-{{ env.windowsRelease }}
+ARG DOWNLOADER_TAG=1.15.5-windowsservercore-1809
 FROM $REPO:$DOWNLOADER_TAG AS downloader
 # END NO MICROSOFT_UPSTREAM
 
-FROM mcr.microsoft.com/windows/{{ env.windowsVariant }}:{{ env.windowsRelease }}
+FROM mcr.microsoft.com/windows/nanoserver:1809
 
 SHELL ["cmd", "/S", "/C"]
 
 # no Git installed (intentionally)
 #  -- Nano Server is "Windows Slim"
 
-{{
-	def install_directory:
-		if [ "1.15", "1.16" ] | index(env.version) then
-			"C:\\go"
-		else
-			"C:\\Program Files\\Go"
-		end
--}}
-{{ if install_directory == "C:\\go" then ( -}}
 # ideally, this would be C:\go to match Linux a bit closer, but C:\go was the default install path for Go itself on Windows
 ENV GOPATH C:\\gopath
 # (https://golang.org/cl/283600)
-{{ ) else ( -}}
-# for 1.17+, we'll follow the (new) Go upstream default for install (https://golang.org/cl/283600), which frees up C:\go to be the default GOPATH and thus match the Linux images more closely (https://github.com/docker-library/golang/issues/288)
-ENV GOPATH C:\\go
-# HOWEVER, please note that it is the Go upstream intention to remove GOPATH support entirely: https://blog.golang.org/go116-module-changes
-{{ ) end -}}
 
 # PATH isn't actually set in the Docker image, so we have to set it from within the container
 USER ContainerAdministrator
-RUN setx /m PATH "%GOPATH%\bin;{{ install_directory }}\bin;%PATH%"
+RUN setx /m PATH "%GOPATH%\bin;C:\go\bin;%PATH%"
 USER ContainerUser
 # doing this first to share cache across versions more aggressively
 
-ENV GOLANG_VERSION {{ .version }}
+ENV GOLANG_VERSION 1.15.5
 
 # Docker's Windows path parsing is absolutely *cursed*; please just trust me on this one -Tianon
 # NO MICROSOFT_UPSTREAM: Use "downloader" stage defined earlier.
-COPY --from=downloader {{
-# END NO MICROSOFT_UPSTREAM
-	install_directory
-	| gsub("\\\\"; "\\\\")
-	| [ . , . ]
-	| @json
-}}
+COPY --from=downloader ["C:\\\\go","C:\\\\go"]
 RUN go version
 
 WORKDIR $GOPATH

@@ -1,4 +1,10 @@
-FROM buildpack-deps:{{ env.variant }}-scm
+#
+# NOTE: THIS DOCKERFILE IS GENERATED VIA "apply-templates.sh"
+#
+# PLEASE DO NOT EDIT IT DIRECTLY.
+#
+
+FROM buildpack-deps:stretch-scm
 
 # gcc for cgo
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -11,54 +17,25 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 ENV PATH /usr/local/go/bin:$PATH
 
-ENV GOLANG_VERSION {{ .version }}
+ENV GOLANG_VERSION 1.16.6
 
 RUN set -eux; \
 	\
 	dpkgArch="$(dpkg --print-architecture)"; \
 	url=; \
 	case "${dpkgArch##*-}" in \
-{{
-	[
-		.arches | to_entries[]
-		| select(.value.supported)
-		| .key as $bashbrewArch
-		| (
-			{
-				amd64: "amd64",
-				arm32v5: "armel",
-				arm32v7: "armhf",
-				arm64v8: "arm64",
-				i386: "i386",
-				mips64le: "mips64el",
-				ppc64le: "ppc64el",
-				s390x: "s390x",
-			} | .[$bashbrewArch] // ""
-		) as $dpkgArch
-		| select($dpkgArch != "")
-		| .value
-		| (
--}}
-		{{ $dpkgArch | @sh }}) \
-{{ if .url then ( -}}
-			url={{ .url | @sh }}; \
-			sha256={{ .sha256 | @sh }}; \
-{{ ) else ( -}}
-			export {{ .env | to_entries | map(.key + "=" + (.value | @sh)) | join(" ") }}; \
-{{ ) end -}}
+		'amd64') \
+			url='https://dotnetbuildoutput.blob.core.windows.net/golang/microsoft/release-branch.go1.16/20210817.5/go.20210817.5.linux-amd64.tar.gz'; \
+			sha256='a8080642bb567175d31bc92cb7438ea2640d53b8254b220a52e05c92fd48cb12'; \
 			;; \
-{{
-		)
-	] | add
--}}
 		*) echo >&2 "error: unsupported architecture '$dpkgArch' (likely packaging update needed)"; exit 1 ;; \
 	esac; \
 	build=; \
 	if [ -z "$url" ]; then \
 # https://github.com/golang/go/issues/38536#issuecomment-616897960
 		build=1; \
-		url={{ .arches.src.url | @sh }}; \
-		sha256={{ .arches.src.sha256 | @sh }}; \
+		url=null; \
+		sha256=null; \
 		echo >&2; \
 		echo >&2 "warning: current architecture ($dpkgArch) does not have a corresponding Go binary release; will be building from source"; \
 		echo >&2; \
