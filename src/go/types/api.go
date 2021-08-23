@@ -62,6 +62,18 @@ func (err Error) Error() string {
 	return fmt.Sprintf("%s: %s", err.Fset.Position(err.Pos), err.Msg)
 }
 
+// An ArgumentError holds an error associated with an argument index.
+type ArgumentError struct {
+	index int
+	error
+}
+
+// Index returns the positional index of the argument associated with the
+// error.
+func (e ArgumentError) Index() int {
+	return e.index
+}
+
 // An Importer resolves import paths to Packages.
 //
 // CAUTION: This interface does not support the import of locally
@@ -351,7 +363,7 @@ func (tv TypeAndValue) HasOk() bool {
 // Inferred reports the Inferred type arguments and signature
 // for a parameterized function call that uses type inference.
 type Inferred struct {
-	TArgs []Type
+	TArgs *TypeList
 	Sig   *Signature
 }
 

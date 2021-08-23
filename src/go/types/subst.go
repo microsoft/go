@@ -18,11 +18,11 @@ type substMap map[*TypeParam]Type
 
 // makeSubstMap creates a new substitution map mapping tpars[i] to targs[i].
 // If targs[i] is nil, tpars[i] is not substituted.
-func makeSubstMap(tpars []*TypeName, targs []Type) substMap {
+func makeSubstMap(tpars []*TypeParam, targs []Type) substMap {
 	assert(len(tpars) == len(targs))
 	proj := make(substMap, len(tpars))
 	for i, tpar := range tpars {
-		proj[tpar.typ.(*TypeParam)] = targs[i]
+		proj[tpar] = targs[i]
 	}
 	return proj
 }
@@ -38,13 +38,12 @@ func (m substMap) lookup(tpar *TypeParam) Type {
 	return tpar
 }
 
-// subst returns the type typ with its type parameters tpars replaced by
-// the corresponding type arguments targs, recursively.
-// subst is functional in the sense that it doesn't modify the incoming
-// type. If a substitution took place, the result type is different from
-// from the incoming type.
+// subst returns the type typ with its type parameters tpars replaced by the
+// corresponding type arguments targs, recursively. subst is pure in the sense
+// that it doesn't modify the incoming type. If a substitution took place, the
+// result type is different from from the incoming type.
 //
-// If the given typMap is nil and check is non-nil, check.typMap is used.
+// If the given typMap is non-nil, it is used in lieu of check.typMap.
 func (check *Checker) subst(pos token.Pos, typ Type, smap substMap, typMap map[string]*Named) Type {
 	if smap.empty() {
 		return typ
@@ -157,9 +156,6 @@ func (subst *subster) typ(typ Type) Type {
 		embeddeds, ecopied := subst.typeList(t.embeddeds)
 		if mcopied || ecopied {
 			iface := &Interface{methods: methods, embeddeds: embeddeds, complete: t.complete}
-			if subst.check == nil {
-				panic("internal error: cannot instantiate interfaces yet")
-			}
 			return iface
 		}
 
@@ -195,21 +191,21 @@ func (subst *subster) typ(typ Type) Type {
 		}
 
 		var newTArgs []Type
-		assert(len(t.targs) == t.TParams().Len())
+		assert(t.targs.Len() == t.TParams().Len())
 
 		// already instantiated
 		dump(">>> %s already instantiated", t)
 		// For each (existing) type argument targ, determine if it needs
 		// to be substituted; i.e., if it is or contains a type parameter
 		// that has a type argument for it.
-		for i, targ := range t.targs {
+		for i, targ := range t.targs.list() {
 			dump(">>> %d targ = %s", i, targ)
 			new_targ := subst.typ(targ)
 			if new_targ != targ {
 				dump(">>> substituted %d targ %s => %s", i, targ, new_targ)
 				if newTArgs == nil {
 					newTArgs = make([]Type, t.TParams().Len())
-					copy(newTArgs, t.targs)
+					copy(newTArgs, t.targs.list())
 				}
 				newTArgs[i] = new_targ
 			}
@@ -228,11 +224,16 @@ func (subst *subster) typ(typ Type) Type {
 			return named
 		}
 
-		// create a new named type and populate typMap to avoid endless recursion
+		// Create a new named type and populate typMap to avoid endless recursion.
+		// The position used here is irrelevant because validation only occurs on t
+		// (we don't call validType on named), but we use subst.pos to help with
+		// debugging.
 		tname := NewTypeName(subst.pos, t.obj.pkg, t.obj.name, nil)
 		t.load()
-		named := subst.check.newNamed(tname, t.orig, t.underlying, t.TParams(), t.methods) // method signatures are updated lazily
-		named.targs = newTArgs
+		// It's ok to provide a nil *Checker because the newly created type
+		// doesn't need to be (lazily) expanded; it's expanded below.
+		named := (*Checker)(nil).newNamed(tname, t.orig, nil, t.tparams, t.methods) // t is loaded, so tparams and methods are available
+		named.targs = &TypeList{newTArgs}
 		subst.typMap[h] = named
 		t.expand(subst.typMap) // must happen after typMap update to avoid infinite recursion
 
@@ -241,7 +242,7 @@ func (subst *subster) typ(typ Type) Type {
 		named.underlying = subst.typOrNil(t.underlying)
 		dump(">>> underlying: %v", named.underlying)
 		assert(named.underlying != nil)
-		named.fromRHS = named.underlying // for cycle detection (Checker.validType)
+		named.fromRHS = named.underlying // for consistency, though no cycle detection is necessary
 
 		return named
 

@@ -21,10 +21,10 @@ type Named struct {
 	underlying Type        // possibly a *Named during setup; never a *Named once set up completely
 	instance   *instance   // syntactic information for lazy instantiation
 	tparams    *TParamList // type parameters, or nil
-	targs      []Type      // type arguments (after instantiation), or nil
+	targs      *TypeList   // type arguments (after instantiation), or nil
 	methods    []*Func     // methods declared for this type (not the method set of this type); signatures are type-checked lazily
 
-	resolve func(*Named) ([]*TypeName, Type, []*Func)
+	resolve func(*Named) ([]*TypeParam, Type, []*Func)
 	once    sync.Once
 }
 
@@ -46,7 +46,7 @@ func (t *Named) load() *Named {
 	// underlying is set when t is expanded.
 	//
 	// By convention, a type instance is loaded iff its tparams are set.
-	if len(t.targs) > 0 && t.tparams == nil {
+	if t.targs.Len() > 0 && t.tparams == nil {
 		t.orig.load()
 		t.tparams = t.orig.tparams
 		t.methods = t.orig.methods
@@ -126,14 +126,10 @@ func (t *Named) _Orig() *Named { return t.orig }
 func (t *Named) TParams() *TParamList { return t.load().tparams }
 
 // SetTParams sets the type parameters of the named type t.
-func (t *Named) SetTParams(tparams []*TypeName) { t.load().tparams = bindTParams(tparams) }
+func (t *Named) SetTParams(tparams []*TypeParam) { t.load().tparams = bindTParams(tparams) }
 
-// NumTArgs returns the number of type arguments used to instantiate the named
-// type t, or 0 if t is not an instantiated type.
-func (t *Named) NumTArgs() int { return len(t.targs) }
-
-// TArgs returns the i'th type argument of the named type t for 0 <= i < t.NumTArgs().
-func (t *Named) TArg(i int) Type { return t.targs[i] }
+// TArgs returns the type arguments used to instantiate the named type t.
+func (t *Named) TArgs() *TypeList { return t.targs }
 
 // NumMethods returns the number of explicit methods whose receiver is named type t.
 func (t *Named) NumMethods() int { return len(t.load().methods) }
@@ -248,11 +244,10 @@ func (n *Named) setUnderlying(typ Type) {
 
 // instance holds position information for use in lazy instantiation.
 //
-// TODO(rfindley): come up with a better name for this type, now that its usage
-// has changed.
+// TODO(rfindley): instance is probably unnecessary now. See if it can be
+// eliminated.
 type instance struct {
-	pos     token.Pos   // position of type instantiation; for error reporting only
-	posList []token.Pos // position of each targ; for error reporting only
+	pos token.Pos // position of type instantiation; for error reporting only
 }
 
 // expand ensures that the underlying type of n is instantiated.
@@ -263,22 +258,26 @@ func (n *Named) expand(typMap map[string]*Named) *Named {
 		// tparams. This is done implicitly by the call to n.TParams, but making it
 		// explicit is harmless: load is idempotent.
 		n.load()
-		if typMap == nil {
-			if n.check != nil {
-				typMap = n.check.typMap
-			} else {
-				// If we're instantiating lazily, we might be outside the scope of a
-				// type-checking pass. In that case we won't have a pre-existing
-				// typMap, but don't want to create a duplicate of the current instance
-				// in the process of expansion.
-				h := instantiatedHash(n.orig, n.targs)
-				typMap = map[string]*Named{h: n}
+		var u Type
+		if n.check.validateTArgLen(n.instance.pos, n.tparams.Len(), n.targs.Len()) {
+			if typMap == nil {
+				if n.check != nil {
+					typMap = n.check.typMap
+				} else {
+					// If we're instantiating lazily, we might be outside the scope of a
+					// type-checking pass. In that case we won't have a pre-existing
+					// typMap, but don't want to create a duplicate of the current instance
+					// in the process of expansion.
+					h := instantiatedHash(n.orig, n.targs.list())
+					typMap = map[string]*Named{h: n}
+				}
 			}
+			u = n.check.subst(n.instance.pos, n.orig.underlying, makeSubstMap(n.TParams().list(), n.targs.list()), typMap)
+		} else {
+			u = Typ[Invalid]
 		}
-
-		inst := n.check.instantiate(n.instance.pos, n.orig.underlying, n.TParams().list(), n.targs, n.instance.posList, typMap)
-		n.underlying = inst
-		n.fromRHS = inst
+		n.underlying = u
+		n.fromRHS = u
 		n.instance = nil
 	}
 	return n
