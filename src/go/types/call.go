@@ -60,7 +60,7 @@ func (check *Checker) funcInst(x *operand, ix *typeparams.IndexExpr) {
 	}
 
 	// instantiate function signature
-	res := check.Instantiate(x.Pos(), sig, targs, poslist, true).(*Signature)
+	res := check.instantiate(x.Pos(), sig, targs, poslist).(*Signature)
 	assert(res.TParams().Len() == 0) // signature is not generic anymore
 	if inferred {
 		check.recordInferred(ix.Orig, targs, res)
@@ -223,7 +223,6 @@ func (check *Checker) exprList(elist []ast.Expr, allowCommaOk bool) (xlist []*op
 		// exactly one (possibly invalid or comma-ok) value
 		xlist = []*operand{&x}
 		if allowCommaOk && (x.mode == mapindex || x.mode == commaok || x.mode == commaerr) {
-			x.mode = value
 			x2 := &operand{mode: value, expr: e, typ: Typ[UntypedBool]}
 			if x.mode == commaerr {
 				x2.typ = universeError
@@ -333,7 +332,7 @@ func (check *Checker) arguments(call *ast.CallExpr, sig *Signature, targs []Type
 		}
 
 		// compute result signature
-		rsig = check.Instantiate(call.Pos(), sig, targs, nil, true).(*Signature)
+		rsig = check.instantiate(call.Pos(), sig, targs, nil).(*Signature)
 		assert(rsig.TParams().Len() == 0) // signature is not generic anymore
 		check.recordInferred(call, targs, rsig)
 
