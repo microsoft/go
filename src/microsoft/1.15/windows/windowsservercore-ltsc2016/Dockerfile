@@ -53,7 +53,7 @@ RUN $newPath = ('{0}\bin;C:\go\bin;{1}' -f $env:GOPATH, $env:PATH); \
 	[Environment]::SetEnvironmentVariable('PATH', $newPath, [EnvironmentVariableTarget]::Machine);
 # doing this first to share cache across versions more aggressively
 
-ENV GOLANG_VERSION 1.15.5
+ENV GOLANG_VERSION 1.15.14
 
 RUN $url = 'https://dotnetbuildoutput.blob.core.windows.net/golang/microsoft/release-branch.go1.15/20210817.4/go.20210817.4.windows-amd64.zip'; \
 	Write-Host ('Downloading {0} ...' -f $url); \

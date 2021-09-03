@@ -14,7 +14,7 @@
 ARG REPO=mcr.microsoft.com/oss/go/golang
 # It's easy to download Go and install it in server core, but not nanoserver. So, to build
 # nanoserver, copy over the server core installation.
-ARG DOWNLOADER_TAG=1.15.5-windowsservercore-1809
+ARG DOWNLOADER_TAG=1.15.14-windowsservercore-1809
 FROM $REPO:$DOWNLOADER_TAG AS downloader
 # END NO MICROSOFT_UPSTREAM
 
@@ -35,7 +35,7 @@ RUN setx /m PATH "%GOPATH%\bin;C:\go\bin;%PATH%"
 USER ContainerUser
 # doing this first to share cache across versions more aggressively
 
-ENV GOLANG_VERSION 1.15.5
+ENV GOLANG_VERSION 1.15.14
 
 # Docker's Windows path parsing is absolutely *cursed*; please just trust me on this one -Tianon
 # NO MICROSOFT_UPSTREAM: Use "downloader" stage defined earlier.
