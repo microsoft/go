@@ -13,6 +13,21 @@ import (
 	"fmt"
 )
 
+// An Environment is an opaque type checking environment. It may be used to
+// share identical type instances across type checked packages or calls to
+// Instantiate.
+type Environment struct {
+	// For now, Environment just hides a Checker.
+	// Eventually, we strive to remove the need for a checker.
+	check *Checker
+}
+
+// NewEnvironment returns a new Environment, initialized with the given
+// Checker, or nil.
+func NewEnvironment(check *Checker) *Environment {
+	return &Environment{check}
+}
+
 // Instantiate instantiates the type typ with the given type arguments targs.
 // typ must be a *Named or a *Signature type, and its number of type parameters
 // must match the number of provided type arguments. The result is a new,
@@ -20,8 +35,9 @@ import (
 // *Signature). Any methods attached to a *Named are simply copied; they are
 // not instantiated.
 //
-// If check is non-nil, it will be used to de-dupe the instance against
-// previous instances with the same identity.
+// If env is non-nil, it may be used to de-dupe the instance against previous
+// instances with the same identity. This functionality is implemented for
+// environments with non-nil Checkers.
 //
 // If verify is set and constraint satisfaction fails, the returned error may
 // be of dynamic type ArgumentError indicating which type argument did not
@@ -29,12 +45,16 @@ import (
 //
 // TODO(rfindley): change this function to also return an error if lengths of
 // tparams and targs do not match.
-func Instantiate(check *Checker, typ Type, targs []Type, validate bool) (Type, error) {
+func Instantiate(env *Environment, typ Type, targs []Type, validate bool) (Type, error) {
+	var check *Checker
+	if env != nil {
+		check = env.check
+	}
 	inst := check.instance(nopos, typ, targs)
 
 	var err error
 	if validate {
-		var tparams []*TypeName
+		var tparams []*TypeParam
 		switch t := typ.(type) {
 		case *Named:
 			tparams = t.TParams().list()
@@ -55,7 +75,7 @@ func Instantiate(check *Checker, typ Type, targs []Type, validate bool) (Type, e
 func (check *Checker) instantiate(pos syntax.Pos, typ Type, targs []Type, posList []syntax.Pos) (res Type) {
 	assert(check != nil)
 	if check.conf.Trace {
-		check.trace(pos, "-- instantiating %s with %s", typ, typeListString(targs))
+		check.trace(pos, "-- instantiating %s with %s", typ, NewTypeList(targs))
 		check.indent++
 		defer func() {
 			check.indent--
@@ -76,7 +96,7 @@ func (check *Checker) instantiate(pos syntax.Pos, typ Type, targs []Type, posLis
 	check.later(func() {
 		// Collect tparams again because lazily loaded *Named types may not have
 		// had tparams set up above.
-		var tparams []*TypeName
+		var tparams []*TypeParam
 		switch t := typ.(type) {
 		case *Named:
 			tparams = t.TParams().list()
@@ -102,81 +122,72 @@ func (check *Checker) instantiate(pos syntax.Pos, typ Type, targs []Type, posLis
 // instance creates a type or function instance using the given original type
 // typ and arguments targs. For Named types the resulting instance will be
 // unexpanded.
-func (check *Checker) instance(pos syntax.Pos, typ Type, targs []Type) (res Type) {
-	// TODO(gri) What is better here: work with TypeParams, or work with TypeNames?
+func (check *Checker) instance(pos syntax.Pos, typ Type, targs []Type) Type {
 	switch t := typ.(type) {
 	case *Named:
-		h := instantiatedHash(t, targs)
+		h := typeHash(t, targs)
 		if check != nil {
-			// typ may already have been instantiated with identical type arguments. In
-			// that case, re-use the existing instance.
+			// typ may already have been instantiated with identical type arguments.
+			// In that case, re-use the existing instance.
 			if named := check.typMap[h]; named != nil {
 				return named
 			}
 		}
-
 		tname := NewTypeName(pos, t.obj.pkg, t.obj.name, nil)
 		named := check.newNamed(tname, t, nil, nil, nil) // methods and tparams are set when named is loaded
-		named.targs = targs
-		named.instance = &instance{pos}
+		named.targs = NewTypeList(targs)
+		named.instPos = &pos
 		if check != nil {
 			check.typMap[h] = named
 		}
-		res = named
+		return named
+
 	case *Signature:
 		tparams := t.TParams()
-		if !check.validateTArgLen(pos, tparams, targs) {
+		if !check.validateTArgLen(pos, tparams.Len(), len(targs)) {
 			return Typ[Invalid]
 		}
 		if tparams.Len() == 0 {
 			return typ // nothing to do (minor optimization)
 		}
-		defer func() {
-			// If we had an unexpected failure somewhere don't panic below when
-			// asserting res.(*Signature). Check for *Signature in case Typ[Invalid]
-			// is returned.
-			if _, ok := res.(*Signature); !ok {
-				return
-			}
-			// If the signature doesn't use its type parameters, subst
-			// will not make a copy. In that case, make a copy now (so
-			// we can set tparams to nil w/o causing side-effects).
-			if t == res {
-				copy := *t
-				res = &copy
-			}
-			// After instantiating a generic signature, it is not generic
-			// anymore; we need to set tparams to nil.
-			res.(*Signature).tparams = nil
-		}()
-		res = check.subst(pos, typ, makeSubstMap(tparams.list(), targs), nil)
-	default:
-		// only types and functions can be generic
-		panic(fmt.Sprintf("%v: cannot instantiate %v", pos, typ))
+		sig := check.subst(pos, typ, makeSubstMap(tparams.list(), targs), nil).(*Signature)
+		// If the signature doesn't use its type parameters, subst
+		// will not make a copy. In that case, make a copy now (so
+		// we can set tparams to nil w/o causing side-effects).
+		if sig == t {
+			copy := *sig
+			sig = &copy
+		}
+		// After instantiating a generic signature, it is not generic
+		// anymore; we need to set tparams to nil.
+		sig.tparams = nil
+		return sig
 	}
-	return res
+
+	// only types and functions can be generic
+	panic(fmt.Sprintf("%v: cannot instantiate %v", pos, typ))
 }
 
 // validateTArgLen verifies that the length of targs and tparams matches,
 // reporting an error if not. If validation fails and check is nil,
 // validateTArgLen panics.
-func (check *Checker) validateTArgLen(pos syntax.Pos, tparams *TParamList, targs []Type) bool {
-	if len(targs) != tparams.Len() {
+func (check *Checker) validateTArgLen(pos syntax.Pos, ntparams, ntargs int) bool {
+	if ntargs != ntparams {
 		// TODO(gri) provide better error message
 		if check != nil {
-			check.errorf(pos, "got %d arguments but %d type parameters", len(targs), tparams.Len())
+			check.errorf(pos, "got %d arguments but %d type parameters", ntargs, ntparams)
 			return false
 		}
-		panic(fmt.Sprintf("%v: got %d arguments but %d type parameters", pos, len(targs), tparams.Len()))
+		panic(fmt.Sprintf("%v: got %d arguments but %d type parameters", pos, ntargs, ntparams))
 	}
 	return true
 }
 
-func (check *Checker) verify(pos syntax.Pos, tparams []*TypeName, targs []Type) (int, error) {
+func (check *Checker) verify(pos syntax.Pos, tparams []*TypeParam, targs []Type) (int, error) {
 	smap := makeSubstMap(tparams, targs)
-	for i, tname := range tparams {
+	for i, tpar := range tparams {
 		// stop checking bounds after the first failure
-		if err := check.satisfies(pos, targs[i], tname.typ.(*TypeParam), smap); err != nil {
+		if err := check.satisfies(pos, targs[i], tpar, smap); err != nil {
 			return i, err
 		}
 	}

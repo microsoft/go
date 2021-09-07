@@ -309,7 +309,7 @@ func (r *importReader) obj(name string) {
 		r.declare(types2.NewConst(pos, r.currPkg, name, typ, val))
 
 	case 'F', 'G':
-		var tparams []*types2.TypeName
+		var tparams []*types2.TypeParam
 		if tag == 'G' {
 			tparams = r.tparamList()
 		}
@@ -318,7 +318,7 @@ func (r *importReader) obj(name string) {
 		r.declare(types2.NewFunc(pos, r.currPkg, name, sig))
 
 	case 'T', 'U':
-		var tparams []*types2.TypeName
+		var tparams []*types2.TypeParam
 		if tag == 'U' {
 			tparams = r.tparamList()
 		}
@@ -327,9 +327,7 @@ func (r *importReader) obj(name string) {
 		// declaration before recursing.
 		obj := types2.NewTypeName(pos, r.currPkg, name, nil)
 		named := types2.NewNamed(obj, nil, nil)
-		if tag == 'U' {
-			named.SetTParams(tparams)
-		}
+		named.SetTParams(tparams)
 		r.declare(obj)
 
 		underlying := r.p.typAt(r.uint64(), named).Underlying()
@@ -346,10 +344,10 @@ func (r *importReader) obj(name string) {
 				// rparams of the method (since those are the
 				// typeparams being used in the method sig/body).
 				targs := baseType(msig.Recv().Type()).TArgs()
-				if len(targs) > 0 {
-					rparams := make([]*types2.TypeName, len(targs))
-					for i, targ := range targs {
-						rparams[i] = types2.AsTypeParam(targ).Obj()
+				if targs.Len() > 0 {
+					rparams := make([]*types2.TypeParam, targs.Len())
+					for i := range rparams {
+						rparams[i] = types2.AsTypeParam(targs.At(i))
 					}
 					msig.SetRParams(rparams)
 				}
@@ -690,15 +688,15 @@ func (r *importReader) signature(recv *types2.Var) *types2.Signature {
 	return types2.NewSignature(recv, params, results, variadic)
 }
 
-func (r *importReader) tparamList() []*types2.TypeName {
+func (r *importReader) tparamList() []*types2.TypeParam {
 	n := r.uint64()
 	if n == 0 {
 		return nil
 	}
-	xs := make([]*types2.TypeName, n)
+	xs := make([]*types2.TypeParam, n)
 	for i := range xs {
 		typ := r.typ()
-		xs[i] = types2.AsTypeParam(typ).Obj()
+		xs[i] = types2.AsTypeParam(typ)
 	}
 	return xs
 }

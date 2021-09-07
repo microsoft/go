@@ -195,7 +195,7 @@ func transformCompare(n *ir.BinaryExpr) {
 			aop, _ := typecheck.Assignop(lt, rt)
 			if aop != ir.OXXX {
 				types.CalcSize(lt)
-				if lt.HasTParam() || rt.IsInterface() == lt.IsInterface() || lt.Width >= 1<<16 {
+				if lt.HasTParam() || rt.IsInterface() == lt.IsInterface() || lt.Size() >= 1<<16 {
 					l = ir.NewConvExpr(base.Pos, aop, rt, l)
 					l.SetTypecheck(1)
 				}
@@ -208,7 +208,7 @@ func transformCompare(n *ir.BinaryExpr) {
 			aop, _ := typecheck.Assignop(rt, lt)
 			if aop != ir.OXXX {
 				types.CalcSize(rt)
-				if rt.HasTParam() || rt.IsInterface() == lt.IsInterface() || rt.Width >= 1<<16 {
+				if rt.HasTParam() || rt.IsInterface() == lt.IsInterface() || rt.Size() >= 1<<16 {
 					r = ir.NewConvExpr(base.Pos, aop, lt, r)
 					r.SetTypecheck(1)
 				}
@@ -493,10 +493,15 @@ func transformSelect(sel *ir.SelectStmt) {
 		if ncase.Comm != nil {
 			n := ncase.Comm
 			oselrecv2 := func(dst, recv ir.Node, def bool) {
-				n := ir.NewAssignListStmt(n.Pos(), ir.OSELRECV2, []ir.Node{dst, ir.BlankNode}, []ir.Node{recv})
-				n.Def = def
-				n.SetTypecheck(1)
-				ncase.Comm = n
+				selrecv := ir.NewAssignListStmt(n.Pos(), ir.OSELRECV2, []ir.Node{dst, ir.BlankNode}, []ir.Node{recv})
+				if dst.Op() == ir.ONAME && dst.(*ir.Name).Defn == n {
+					// Must fix Defn for dst, since we are
+					// completely changing the node.
+					dst.(*ir.Name).Defn = selrecv
+				}
+				selrecv.Def = def
+				selrecv.SetTypecheck(1)
+				ncase.Comm = selrecv
 			}
 			switch n.Op() {
 			case ir.OAS:
@@ -578,11 +583,7 @@ func transformDot(n *ir.SelectorExpr, isCall bool) ir.Node {
 
 	if (n.Op() == ir.ODOTINTER || n.Op() == ir.ODOTMETH) && !isCall {
 		n.SetOp(ir.OMETHVALUE)
-		if len(n.X.Type().RParams()) > 0 || n.X.Type().IsPtr() && len(n.X.Type().Elem().RParams()) > 0 {
-			// TODO: MethodValueWrapper needed for generics?
-			// Or did we successfully desugar all that at stencil time?
-			return n
-		}
+		// This converts a method type to a function type. See issue 47775.
 		n.SetType(typecheck.NewMethodType(n.Type(), nil))
 	}
 	return n
@@ -815,7 +816,10 @@ func transformBuiltin(n *ir.CallExpr) ir.Node {
 			return transformRealImag(u1.(*ir.UnaryExpr))
 		case ir.OPANIC:
 			return transformPanic(u1.(*ir.UnaryExpr))
-		case ir.OCLOSE, ir.ONEW, ir.OALIGNOF, ir.OOFFSETOF, ir.OSIZEOF:
+		case ir.OALIGNOF, ir.OOFFSETOF, ir.OSIZEOF:
+			// This corresponds to the EvalConst() call near end of typecheck().
+			return typecheck.EvalConst(u1)
+		case ir.OCLOSE, ir.ONEW:
 			// nothing more to do
 			return u1
 		}

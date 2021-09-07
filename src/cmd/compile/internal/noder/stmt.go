@@ -5,6 +5,7 @@
 package noder
 
 import (
+	"cmd/compile/internal/base"
 	"cmd/compile/internal/ir"
 	"cmd/compile/internal/syntax"
 	"cmd/compile/internal/typecheck"
@@ -27,6 +28,7 @@ func (g *irgen) stmts(stmts []syntax.Stmt) []ir.Node {
 }
 
 func (g *irgen) stmt(stmt syntax.Stmt) ir.Node {
+	base.Assert(g.exprStmtOK)
 	switch stmt := stmt.(type) {
 	case nil, *syntax.EmptyStmt:
 		return nil
@@ -48,7 +50,9 @@ func (g *irgen) stmt(stmt syntax.Stmt) ir.Node {
 		n.SetTypecheck(1)
 		return n
 	case *syntax.DeclStmt:
-		return ir.NewBlockStmt(g.pos(stmt), g.decls(stmt.DeclList))
+		n := ir.NewBlockStmt(g.pos(stmt), nil)
+		g.decls(&n.List, stmt.DeclList)
+		return n
 
 	case *syntax.AssignStmt:
 		if stmt.Op != 0 && stmt.Op != syntax.Def {
@@ -323,6 +327,8 @@ func (g *irgen) switchStmt(stmt *syntax.SwitchStmt) ir.Node {
 		if obj, ok := g.info.Implicits[clause]; ok {
 			cv = g.obj(obj)
 			cv.SetPos(g.makeXPos(clause.Colon))
+			assert(expr.Op() == ir.OTYPESW)
+			cv.Defn = expr
 		}
 		body[i] = ir.NewCaseStmt(g.pos(clause), g.exprList(clause.Cases), g.stmts(clause.Body))
 		body[i].Var = cv

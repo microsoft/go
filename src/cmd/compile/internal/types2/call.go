@@ -15,6 +15,10 @@ import (
 // funcInst type-checks a function instantiation inst and returns the result in x.
 // The operand x must be the evaluation of inst.X and its type must be a signature.
 func (check *Checker) funcInst(x *operand, inst *syntax.IndexExpr) {
+	if !check.allowVersion(check.pkg, 1, 18) {
+		check.softErrorf(inst.Pos(), "function instantiation requires go1.18 or later")
+	}
+
 	xlist := unpackExpr(inst.Index)
 	targs := check.typeList(xlist)
 	if targs == nil {
@@ -79,8 +83,9 @@ func (check *Checker) callExpr(x *operand, call *syntax.CallExpr) exprKind {
 		x.expr = iexpr
 		check.record(x)
 	} else {
-		check.exprOrType(x, call.Fun)
+		check.exprOrType(x, call.Fun, true)
 	}
+	// x.typ may be generic
 
 	switch x.mode {
 	case invalid:
@@ -90,6 +95,10 @@ func (check *Checker) callExpr(x *operand, call *syntax.CallExpr) exprKind {
 
 	case typexpr:
 		// conversion
+		check.nonGeneric(x)
+		if x.mode == invalid {
+			return conversion
+		}
 		T := x.typ
 		x.mode = invalid
 		switch n := len(call.ArgList); n {
@@ -118,6 +127,7 @@ func (check *Checker) callExpr(x *operand, call *syntax.CallExpr) exprKind {
 		return conversion
 
 	case builtin:
+		// no need to check for non-genericity here
 		id := x.id
 		if !check.builtin(x, call, id) {
 			x.mode = invalid
@@ -131,6 +141,7 @@ func (check *Checker) callExpr(x *operand, call *syntax.CallExpr) exprKind {
 	}
 
 	// ordinary function/method call
+	// signature may be generic
 	cgocall := x.mode == cgofunc
 
 	sig := asSignature(x.typ)
@@ -318,6 +329,13 @@ func (check *Checker) arguments(call *syntax.CallExpr, sig *Signature, targs []T
 
 	// infer type arguments and instantiate signature if necessary
 	if sig.TParams().Len() > 0 {
+		if !check.allowVersion(check.pkg, 1, 18) {
+			if iexpr, _ := call.Fun.(*syntax.IndexExpr); iexpr != nil {
+				check.softErrorf(iexpr.Pos(), "function instantiation requires go1.18 or later")
+			} else {
+				check.softErrorf(call.Pos(), "implicit function instantiation requires go1.18 or later")
+			}
+		}
 		// TODO(gri) provide position information for targs so we can feed
 		//           it to the instantiate call for better error reporting
 		targs := check.infer(call.Pos(), sig.TParams().list(), targs, sigParams, args, true)
@@ -341,8 +359,11 @@ func (check *Checker) arguments(call *syntax.CallExpr, sig *Signature, targs []T
 	}
 
 	// check arguments
-	for i, a := range args {
-		check.assignment(a, sigParams.vars[i].typ, check.sprintf("argument to %s", call.Fun))
+	if len(args) > 0 {
+		context := check.sprintf("argument to %s", call.Fun)
+		for i, a := range args {
+			check.assignment(a, sigParams.vars[i].typ, context)
+		}
 	}
 
 	return
@@ -460,12 +481,10 @@ func (check *Checker) selector(x *operand, e *syntax.SelectorExpr) {
 		}
 	}
 
-	check.exprOrType(x, e.X)
+	check.exprOrType(x, e.X, false)
 	if x.mode == invalid {
 		goto Error
 	}
-
-	check.instantiatedOperand(x)
 
 	obj, index, indirect = LookupFieldOrMethod(x.typ, x.mode == variable, check.pkg, sel)
 	if obj == nil {
@@ -667,7 +686,7 @@ func (check *Checker) use(arg ...syntax.Expr) {
 			check.use(l.ElemList...)
 			continue
 		}
-		check.rawExpr(&x, e, nil)
+		check.rawExpr(&x, e, nil, false)
 	}
 }
 
@@ -698,17 +717,9 @@ func (check *Checker) useLHS(arg ...syntax.Expr) {
 				}
 			}
 		}
-		check.rawExpr(&x, e, nil)
+		check.rawExpr(&x, e, nil, false)
 		if v != nil {
 			v.used = v_used // restore v.used
 		}
-	}
-}
-
-// instantiatedOperand reports an error of x is an uninstantiated (generic) type and sets x.typ to Typ[Invalid].
-func (check *Checker) instantiatedOperand(x *operand) {
-	if x.mode == typexpr && isGeneric(x.typ) {
-		check.errorf(x, "cannot use generic type %s without instantiation", x.typ)
-		x.typ = Typ[Invalid]
 	}
 }

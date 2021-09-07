@@ -1549,11 +1549,12 @@ func (v Value) MapKeys() []Value {
 	if m != nil {
 		mlen = maplen(m)
 	}
-	it := mapiterinit(v.typ, m)
+	var it hiter
+	mapiterinit(v.typ, m, &it)
 	a := make([]Value, mlen)
 	var i int
 	for i = 0; i < len(a); i++ {
-		key := mapiterkey(it)
+		key := mapiterkey(&it)
 		if key == nil {
 			// Someone deleted an entry from the map since we
 			// called maplen above. It's a data race, but nothing
@@ -1561,59 +1562,142 @@ func (v Value) MapKeys() []Value {
 			break
 		}
 		a[i] = copyVal(keyType, fl, key)
-		mapiternext(it)
+		mapiternext(&it)
 	}
 	return a[:i]
+}
+
+// hiter's structure matches runtime.hiter's structure.
+// Having a clone here allows us to embed a map iterator
+// inside type MapIter so that MapIters can be re-used
+// without doing any allocations.
+type hiter struct {
+	key         unsafe.Pointer
+	elem        unsafe.Pointer
+	t           unsafe.Pointer
+	h           unsafe.Pointer
+	buckets     unsafe.Pointer
+	bptr        unsafe.Pointer
+	overflow    *[]unsafe.Pointer
+	oldoverflow *[]unsafe.Pointer
+	startBucket uintptr
+	offset      uint8
+	wrapped     bool
+	B           uint8
+	i           uint8
+	bucket      uintptr
+	checkBucket uintptr
+}
+
+func (h hiter) initialized() bool {
+	return h.t != nil
 }
 
 // A MapIter is an iterator for ranging over a map.
 // See Value.MapRange.
 type MapIter struct {
-	m  Value
-	it unsafe.Pointer
+	m     Value
+	hiter hiter
 }
 
 // Key returns the key of the iterator's current map entry.
 func (it *MapIter) Key() Value {
-	if it.it == nil {
+	if !it.hiter.initialized() {
 		panic("MapIter.Key called before Next")
 	}
-	if mapiterkey(it.it) == nil {
+	iterkey := mapiterkey(&it.hiter)
+	if iterkey == nil {
 		panic("MapIter.Key called on exhausted iterator")
 	}
 
 	t := (*mapType)(unsafe.Pointer(it.m.typ))
 	ktype := t.key
-	return copyVal(ktype, it.m.flag.ro()|flag(ktype.Kind()), mapiterkey(it.it))
+	return copyVal(ktype, it.m.flag.ro()|flag(ktype.Kind()), iterkey)
+}
+
+// SetKey assigns dst to the key of the iterator's current map entry.
+// It is equivalent to dst.Set(it.Key()), but it avoids allocating a new Value.
+// As in Go, the key must be assignable to dst's type.
+func (it *MapIter) SetKey(dst Value) {
+	if !it.hiter.initialized() {
+		panic("MapIter.SetKey called before Next")
+	}
+	iterkey := mapiterkey(&it.hiter)
+	if iterkey == nil {
+		panic("MapIter.SetKey called on exhausted iterator")
+	}
+
+	dst.mustBeAssignable()
+	var target unsafe.Pointer
+	if dst.kind() == Interface {
+		target = dst.ptr
+	}
+
+	t := (*mapType)(unsafe.Pointer(it.m.typ))
+	ktype := t.key
+
+	key := Value{ktype, iterkey, it.m.flag | flag(ktype.Kind())}
+	key = key.assignTo("reflect.MapIter.SetKey", dst.typ, target)
+	typedmemmove(dst.typ, dst.ptr, key.ptr)
 }
 
 // Value returns the value of the iterator's current map entry.
 func (it *MapIter) Value() Value {
-	if it.it == nil {
+	if !it.hiter.initialized() {
 		panic("MapIter.Value called before Next")
 	}
-	if mapiterkey(it.it) == nil {
+	iterelem := mapiterelem(&it.hiter)
+	if iterelem == nil {
 		panic("MapIter.Value called on exhausted iterator")
 	}
 
 	t := (*mapType)(unsafe.Pointer(it.m.typ))
 	vtype := t.elem
-	return copyVal(vtype, it.m.flag.ro()|flag(vtype.Kind()), mapiterelem(it.it))
+	return copyVal(vtype, it.m.flag.ro()|flag(vtype.Kind()), iterelem)
+}
+
+// SetValue assigns dst to the value of the iterator's current map entry.
+// It is equivalent to dst.Set(it.Value()), but it avoids allocating a new Value.
+// As in Go, the value must be assignable to dst's type.
+func (it *MapIter) SetValue(dst Value) {
+	if !it.hiter.initialized() {
+		panic("MapIter.SetValue called before Next")
+	}
+	iterelem := mapiterelem(&it.hiter)
+	if iterelem == nil {
+		panic("MapIter.SetValue called on exhausted iterator")
+	}
+
+	dst.mustBeAssignable()
+	var target unsafe.Pointer
+	if dst.kind() == Interface {
+		target = dst.ptr
+	}
+
+	t := (*mapType)(unsafe.Pointer(it.m.typ))
+	vtype := t.elem
+
+	elem := Value{vtype, iterelem, it.m.flag | flag(vtype.Kind())}
+	elem = elem.assignTo("reflect.MapIter.SetValue", dst.typ, target)
+	typedmemmove(dst.typ, dst.ptr, elem.ptr)
 }
 
 // Next advances the map iterator and reports whether there is another
 // entry. It returns false when the iterator is exhausted; subsequent
 // calls to Key, Value, or Next will panic.
 func (it *MapIter) Next() bool {
-	if it.it == nil {
-		it.it = mapiterinit(it.m.typ, it.m.pointer())
+	if !it.m.IsValid() {
+		panic("MapIter.Next called on an iterator that does not have an associated map Value")
+	}
+	if !it.hiter.initialized() {
+		mapiterinit(it.m.typ, it.m.pointer(), &it.hiter)
 	} else {
-		if mapiterkey(it.it) == nil {
+		if mapiterkey(&it.hiter) == nil {
 			panic("MapIter.Next called on exhausted iterator")
 		}
-		mapiternext(it.it)
+		mapiternext(&it.hiter)
 	}
-	return mapiterkey(it.it) != nil
+	return mapiterkey(&it.hiter) != nil
 }
 
 // MapRange returns a range iterator for a map.
@@ -3162,19 +3246,17 @@ func mapassign(t *rtype, m unsafe.Pointer, key, val unsafe.Pointer)
 //go:noescape
 func mapdelete(t *rtype, m unsafe.Pointer, key unsafe.Pointer)
 
-// m escapes into the return value, but the caller of mapiterinit
-// doesn't let the return value escape.
 //go:noescape
-func mapiterinit(t *rtype, m unsafe.Pointer) unsafe.Pointer
+func mapiterinit(t *rtype, m unsafe.Pointer, it *hiter)
 
 //go:noescape
-func mapiterkey(it unsafe.Pointer) (key unsafe.Pointer)
+func mapiterkey(it *hiter) (key unsafe.Pointer)
 
 //go:noescape
-func mapiterelem(it unsafe.Pointer) (elem unsafe.Pointer)
+func mapiterelem(it *hiter) (elem unsafe.Pointer)
 
 //go:noescape
-func mapiternext(it unsafe.Pointer)
+func mapiternext(it *hiter)
 
 //go:noescape
 func maplen(m unsafe.Pointer) int

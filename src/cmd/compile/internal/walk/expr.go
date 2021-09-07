@@ -767,7 +767,7 @@ func walkIndexMap(n *ir.IndexExpr, init *ir.Nodes) ir.Node {
 		// m[k] is not the target of an assignment.
 		fast := mapfast(t)
 		key = mapKeyArg(fast, n, key)
-		if w := t.Elem().Width; w <= zeroValSize {
+		if w := t.Elem().Size(); w <= zeroValSize {
 			call = mkcall1(mapfn(mapaccess1[fast], t, false), types.NewPtr(t.Elem()), init, reflectdata.TypePtr(t), map_, key)
 		} else {
 			z := reflectdata.ZeroAddr(w)
@@ -824,7 +824,7 @@ func walkSlice(n *ir.SliceExpr, init *ir.Nodes) ir.Node {
 	n.High = walkExpr(n.High, init)
 	n.Max = walkExpr(n.Max, init)
 	if checkSlice {
-		n.X = walkCheckPtrAlignment(n.X.(*ir.ConvExpr), init, n.Max)
+		n.X = walkCheckPtrAlignment(n.X.(*ir.ConvExpr), init, n)
 	}
 
 	if n.Op().IsSlice3() {
@@ -873,7 +873,7 @@ func bounded(n ir.Node, max int64) bool {
 	}
 
 	sign := n.Type().IsSigned()
-	bits := int32(8 * n.Type().Width)
+	bits := int32(8 * n.Type().Size())
 
 	if ir.IsSmallIntConst(n) {
 		v := ir.Int64Val(n)

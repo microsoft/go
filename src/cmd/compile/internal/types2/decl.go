@@ -514,11 +514,26 @@ func (check *Checker) varDecl(obj *Var, lhs []*Var, typ, init syntax.Expr) {
 	check.initVars(lhs, []syntax.Expr{init}, nopos)
 }
 
+// isImportedConstraint reports whether typ is an imported type constraint.
+func (check *Checker) isImportedConstraint(typ Type) bool {
+	named, _ := typ.(*Named)
+	if named == nil || named.obj.pkg == check.pkg || named.obj.pkg == nil {
+		return false
+	}
+	u, _ := named.under().(*Interface)
+	return u != nil && u.IsConstraint()
+}
+
 func (check *Checker) typeDecl(obj *TypeName, tdecl *syntax.TypeDecl, def *Named) {
 	assert(obj.typ == nil)
 
+	var rhs Type
 	check.later(func() {
 		check.validType(obj.typ, nil)
+		// If typ is local, an error was already reported where typ is specified/defined.
+		if check.isImportedConstraint(rhs) && !check.allowVersion(check.pkg, 1, 18) {
+			check.errorf(tdecl.Type.Pos(), "using type constraint %s requires go1.18 or later", rhs)
+		}
 	})
 
 	alias := tdecl.Alias
@@ -540,7 +555,8 @@ func (check *Checker) typeDecl(obj *TypeName, tdecl *syntax.TypeDecl, def *Named
 		}
 
 		obj.typ = Typ[Invalid]
-		obj.typ = check.anyType(tdecl.Type)
+		rhs = check.varType(tdecl.Type)
+		obj.typ = rhs
 		return
 	}
 
@@ -555,8 +571,9 @@ func (check *Checker) typeDecl(obj *TypeName, tdecl *syntax.TypeDecl, def *Named
 	}
 
 	// determine underlying type of named
-	named.fromRHS = check.definedType(tdecl.Type, named)
-	assert(named.fromRHS != nil)
+	rhs = check.definedType(tdecl.Type, named)
+	assert(rhs != nil)
+	named.fromRHS = rhs
 	// The underlying type of named may be itself a named type that is
 	// incomplete:
 	//
@@ -582,7 +599,7 @@ func (check *Checker) typeDecl(obj *TypeName, tdecl *syntax.TypeDecl, def *Named
 }
 
 func (check *Checker) collectTypeParams(list []*syntax.Field) *TParamList {
-	tparams := make([]*TypeName, len(list))
+	tparams := make([]*TypeParam, len(list))
 
 	// Declare type parameters up-front.
 	// The scope of type parameters starts at the beginning of the type parameter
@@ -599,16 +616,16 @@ func (check *Checker) collectTypeParams(list []*syntax.Field) *TParamList {
 		if i == 0 || f.Type != list[i-1].Type {
 			bound = check.boundType(f.Type)
 		}
-		tparams[i].typ.(*TypeParam).bound = bound
+		tparams[i].bound = bound
 	}
 
 	return bindTParams(tparams)
 }
 
-func (check *Checker) declareTypeParam(name *syntax.Name) *TypeName {
-	tpar := NewTypeName(name.Pos(), check.pkg, name.Value, nil)
-	check.NewTypeParam(tpar, nil)                           // assigns type to tpar as a side-effect
-	check.declare(check.scope, name, tpar, check.scope.pos) // TODO(gri) check scope position
+func (check *Checker) declareTypeParam(name *syntax.Name) *TypeParam {
+	tname := NewTypeName(name.Pos(), check.pkg, name.Value, nil)
+	tpar := check.NewTypeParam(tname, nil)                   // assigns type to tname as a side-effect
+	check.declare(check.scope, name, tname, check.scope.pos) // TODO(gri) check scope position
 	return tpar
 }
 

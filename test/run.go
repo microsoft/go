@@ -85,12 +85,12 @@ var unifiedEnabled, defaultGLevels = func() (bool, string) {
 	// won't need to disable tests for it anymore anyway.
 	enabled := strings.Contains(","+env.GOEXPERIMENT+",", ",unified,")
 
-	// Normal test runs should test with both -G=0 and -G=3 for types2
-	// coverage. But the unified experiment always uses types2, so
-	// testing with -G=3 is redundant.
-	glevels := "0,3"
-	if enabled {
-		glevels = "0"
+	// Test both -G=0 and -G=3 on the longtest builders, to make sure we
+	// don't accidentally break -G=0 mode until we're ready to remove it
+	// completely. But elsewhere, testing -G=3 alone should be enough.
+	glevels := "3"
+	if strings.Contains(os.Getenv("GO_BUILDER_NAME"), "longtest") {
+		glevels = "0,3"
 	}
 
 	return enabled, glevels
@@ -759,7 +759,8 @@ func (t *test) run() {
 			}
 		}
 
-		if hasGFlag && t.glevel != CompilerDefaultGLevel {
+		// In unified IR mode, run the test regardless of explicit -G flag.
+		if !unifiedEnabled && hasGFlag && t.glevel != CompilerDefaultGLevel {
 			// test provides explicit -G flag already; don't run again
 			if *verbose {
 				fmt.Printf("excl\t%s\n", t.goFileName())
@@ -2185,8 +2186,7 @@ var g3Failures = setOf(
 
 	"typeparam/nested.go", // -G=3 doesn't support function-local types with generics
 
-	"typeparam/mdempsky/4.go",  // -G=3 can't export functions with labeled breaks in loops
-	"typeparam/mdempsky/15.go", // ICE in (*irgen).buildClosure
+	"typeparam/mdempsky/4.go", // -G=3 can't export functions with labeled breaks in loops
 )
 
 var unifiedFailures = setOf(

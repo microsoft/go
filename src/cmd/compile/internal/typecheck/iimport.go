@@ -8,7 +8,6 @@
 package typecheck
 
 import (
-	"bytes"
 	"encoding/binary"
 	"fmt"
 	"go/constant"
@@ -608,7 +607,7 @@ func (r *importReader) exoticType() *types.Type {
 	case exoticTypeRecv:
 		var rcvr *types.Field
 		if r.bool() { // isFakeRecv
-			rcvr = fakeRecvField()
+			rcvr = types.FakeRecv()
 		} else {
 			rcvr = r.exoticParam()
 		}
@@ -715,7 +714,7 @@ func (p *iimporter) typAt(off uint64) *types.Type {
 		// No need to calc sizes for re-instantiated generic types, and
 		// they are not necessarily resolved until the top-level type is
 		// defined (because of recursive types).
-		if t.OrigSym == nil || !t.HasTParam() {
+		if t.OrigSym() == nil || !t.HasTParam() {
 			types.CheckSize(t)
 		}
 		p.typCache[off] = t
@@ -794,7 +793,7 @@ func (r *importReader) typ1() *types.Type {
 		for i := range methods {
 			pos := r.pos()
 			sym := r.selector()
-			typ := r.signature(fakeRecvField(), nil)
+			typ := r.signature(types.FakeRecv(), nil)
 
 			methods[i] = types.NewField(pos, sym, typ)
 		}
@@ -1270,7 +1269,11 @@ func (r *importReader) node() ir.Node {
 	case ir.ONAME:
 		isBuiltin := r.bool()
 		if isBuiltin {
-			return types.BuiltinPkg.Lookup(r.string()).Def.(*ir.Name)
+			pkg := types.BuiltinPkg
+			if r.bool() {
+				pkg = types.UnsafePkg
+			}
+			return pkg.Lookup(r.string()).Def.(*ir.Name)
 		}
 		return r.localName()
 
@@ -1396,7 +1399,7 @@ func (r *importReader) node() ir.Node {
 					} else {
 						genType := types.ReceiverBaseType(n1.X.Type())
 						if genType.IsInstantiatedGeneric() {
-							genType = genType.OrigSym.Def.Type()
+							genType = genType.OrigSym().Def.Type()
 						}
 						m = Lookdot1(n1, sel, genType, genType.Methods(), 1)
 					}
@@ -1405,12 +1408,14 @@ func (r *importReader) node() ir.Node {
 				}
 			case ir.ODOT, ir.ODOTPTR, ir.ODOTINTER:
 				n.Selection = r.exoticField()
-			case ir.ODOTMETH, ir.OMETHVALUE, ir.OMETHEXPR:
+			case ir.OMETHEXPR:
+				n = typecheckMethodExpr(n).(*ir.SelectorExpr)
+			case ir.ODOTMETH, ir.OMETHVALUE:
 				// These require a Lookup to link to the correct declaration.
 				rcvrType := expr.Type()
 				typ := n.Type()
 				n.Selection = Lookdot(n, rcvrType, 1)
-				if op == ir.OMETHVALUE || op == ir.OMETHEXPR {
+				if op == ir.OMETHVALUE {
 					// Lookdot clobbers the opcode and type, undo that.
 					n.SetOp(op)
 					n.SetType(typ)
@@ -1751,32 +1756,6 @@ func builtinCall(pos src.XPos, op ir.Op) *ir.CallExpr {
 	return ir.NewCallExpr(pos, ir.OCALL, ir.NewIdent(base.Pos, types.BuiltinPkg.Lookup(ir.OpNames[op])), nil)
 }
 
-// InstTypeName creates a name for an instantiated type, based on the name of the
-// generic type and the type args.
-func InstTypeName(name string, targs []*types.Type) string {
-	b := bytes.NewBufferString(name)
-	b.WriteByte('[')
-	for i, targ := range targs {
-		if i > 0 {
-			b.WriteByte(',')
-		}
-		// WriteString() does not include the package name for the local
-		// package, but we want it to make sure type arguments (including
-		// type params) are uniquely specified.
-		if targ.Sym() != nil && targ.Sym().Pkg == types.LocalPkg {
-			b.WriteString(targ.Sym().Pkg.Name)
-			b.WriteByte('.')
-		}
-		// types1 uses "interface {" and types2 uses "interface{" - convert
-		// to consistent types2 format.
-		tstring := targ.String()
-		tstring = strings.Replace(tstring, "interface {", "interface{", -1)
-		b.WriteString(tstring)
-	}
-	b.WriteByte(']')
-	return b.String()
-}
-
 // NewIncompleteNamedType returns a TFORW type t with name specified by sym, such
 // that t.nod and sym.Def are set correctly.
 func NewIncompleteNamedType(pos src.XPos, sym *types.Sym) *types.Type {
@@ -1805,7 +1784,7 @@ func Instantiate(pos src.XPos, baseType *types.Type, targs []*types.Type) *types
 
 	t := NewIncompleteNamedType(baseType.Pos(), instSym)
 	t.SetRParams(targs)
-	t.OrigSym = baseSym
+	t.SetOrigSym(baseSym)
 
 	// baseType may still be TFORW or its methods may not be fully filled in
 	// (since we are in the middle of importing it). So, delay call to
@@ -1830,7 +1809,7 @@ func resumeDoInst() {
 		for len(deferredInstStack) > 0 {
 			t := deferredInstStack[0]
 			deferredInstStack = deferredInstStack[1:]
-			substInstType(t, t.OrigSym.Def.(*ir.Name).Type(), t.RParams())
+			substInstType(t, t.OrigSym().Def.(*ir.Name).Type(), t.RParams())
 		}
 	}
 	deferInst--
@@ -1841,7 +1820,7 @@ func resumeDoInst() {
 // during a type substitution for an instantiation. This is needed for
 // instantiations of mutually recursive types.
 func doInst(t *types.Type) *types.Type {
-	return Instantiate(t.Pos(), t.OrigSym.Def.(*ir.Name).Type(), t.RParams())
+	return Instantiate(t.Pos(), t.OrigSym().Def.(*ir.Name).Type(), t.RParams())
 }
 
 // substInstType completes the instantiation of a generic type by doing a
@@ -1879,7 +1858,7 @@ func substInstType(t *types.Type, baseType *types.Type, targs []*types.Type) {
 		}
 		t2 := msubst.Typ(f.Type)
 		oldsym := f.Nname.Sym()
-		newsym := MakeInstName(oldsym, targs, true)
+		newsym := MakeFuncInstSym(oldsym, targs, true)
 		var nname *ir.Name
 		if newsym.Def != nil {
 			nname = newsym.Def.(*ir.Name)

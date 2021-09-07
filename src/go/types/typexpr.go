@@ -36,14 +36,15 @@ func (check *Checker) ident(x *operand, e *ast.Ident, def *Named, wantType bool)
 		}
 		return
 	case universeAny, universeComparable:
+		// complain if necessary
 		if !check.allowVersion(check.pkg, 1, 18) {
 			check.errorf(e, _UndeclaredName, "undeclared name: %s (requires version go1.18 or later)", e.Name)
-			return
+			return // avoid follow-on errors
 		}
-		// If we allow "any" for general use, this if-statement can be removed (issue #33232).
 		if obj == universeAny {
-			check.error(e, _Todo, "cannot use any outside constraint position")
-			return
+			// If we allow "any" for general use, this if-statement can be removed (issue #33232).
+			check.softErrorf(e, _Todo, "cannot use any outside constraint position")
+			// ok to continue
 		}
 	}
 	check.recordUse(e, obj)
@@ -134,40 +135,26 @@ func (check *Checker) typ(e ast.Expr) Type {
 }
 
 // varType type-checks the type expression e and returns its type, or Typ[Invalid].
-// The type must not be an (uninstantiated) generic type and it must be ordinary
-// (see ordinaryType).
+// The type must not be an (uninstantiated) generic type and it must not be a
+// constraint interface.
 func (check *Checker) varType(e ast.Expr) Type {
 	typ := check.definedType(e, nil)
-	check.ordinaryType(e, typ)
-	return typ
-}
-
-// ordinaryType reports an error if typ is an interface type containing
-// type lists or is (or embeds) the predeclared type comparable.
-func (check *Checker) ordinaryType(pos positioner, typ Type) {
 	// We don't want to call under() (via asInterface) or complete interfaces while we
 	// are in the middle of type-checking parameter declarations that might belong to
 	// interface methods. Delay this check to the end of type-checking.
 	check.later(func() {
 		if t := asInterface(typ); t != nil {
-			tset := computeInterfaceTypeSet(check, pos.Pos(), t) // TODO(gri) is this the correct position?
-			if !tset.IsMethodSet() {
+			tset := computeInterfaceTypeSet(check, e.Pos(), t) // TODO(gri) is this the correct position?
+			if tset.IsConstraint() {
 				if tset.comparable {
-					check.softErrorf(pos, _Todo, "interface is (or embeds) comparable")
+					check.softErrorf(e, _Todo, "interface is (or embeds) comparable")
 				} else {
-					check.softErrorf(pos, _Todo, "interface contains type constraints")
+					check.softErrorf(e, _Todo, "interface contains type constraints")
 				}
 			}
 		}
 	})
-}
 
-// anyType type-checks the type expression e and returns its type, or Typ[Invalid].
-// The type may be generic or instantiated.
-func (check *Checker) anyType(e ast.Expr) Type {
-	typ := check.typInternal(e, nil)
-	assert(isTyped(typ))
-	check.recordTypeAndValue(e, typexpr, typ, nil)
 	return typ
 }
 
@@ -273,6 +260,9 @@ func (check *Checker) typInternal(e0 ast.Expr, def *Named) (T Type) {
 
 	case *ast.IndexExpr, *ast.MultiIndexExpr:
 		ix := typeparams.UnpackIndexExpr(e)
+		if !check.allowVersion(check.pkg, 1, 18) {
+			check.softErrorf(inNode(e, ix.Lbrack), _Todo, "type instantiation requires go1.18 or later")
+		}
 		// TODO(rfindley): type instantiation should require go1.18
 		return check.instantiatedType(ix.X, ix.Indices, def)
 
@@ -381,33 +371,6 @@ func (check *Checker) typInternal(e0 ast.Expr, def *Named) (T Type) {
 	typ := Typ[Invalid]
 	def.setUnderlying(typ)
 	return typ
-}
-
-// typeOrNil type-checks the type expression (or nil value) e
-// and returns the type of e, or nil. If e is a type, it must
-// not be an (uninstantiated) generic type.
-// If e is neither a type nor nil, typeOrNil returns Typ[Invalid].
-// TODO(gri) should we also disallow non-var types?
-func (check *Checker) typeOrNil(e ast.Expr) Type {
-	var x operand
-	check.rawExpr(&x, e, nil)
-	switch x.mode {
-	case invalid:
-		// ignore - error reported before
-	case novalue:
-		check.errorf(&x, _NotAType, "%s used as type", &x)
-	case typexpr:
-		check.instantiatedOperand(&x)
-		return x.typ
-	case value:
-		if x.isNil() {
-			return nil
-		}
-		fallthrough
-	default:
-		check.errorf(&x, _NotAType, "%s is not a type", &x)
-	}
-	return Typ[Invalid]
 }
 
 func (check *Checker) instantiatedType(x ast.Expr, targsx []ast.Expr, def *Named) Type {
