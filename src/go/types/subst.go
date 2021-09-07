@@ -41,7 +41,7 @@ func (m substMap) lookup(tpar *TypeParam) Type {
 // subst returns the type typ with its type parameters tpars replaced by the
 // corresponding type arguments targs, recursively. subst is pure in the sense
 // that it doesn't modify the incoming type. If a substitution took place, the
-// result type is different from from the incoming type.
+// result type is different from the incoming type.
 //
 // If the given typMap is non-nil, it is used in lieu of check.typMap.
 func (check *Checker) subst(pos token.Pos, typ Type, smap substMap, typMap map[string]*Named) Type {
@@ -217,7 +217,7 @@ func (subst *subster) typ(typ Type) Type {
 		}
 
 		// before creating a new named type, check if we have this one already
-		h := instantiatedHash(t, newTArgs)
+		h := typeHash(t, newTArgs)
 		dump(">>> new type hash: %s", h)
 		if named, found := subst.typMap[h]; found {
 			dump(">>> found %s", named)
@@ -233,7 +233,7 @@ func (subst *subster) typ(typ Type) Type {
 		// It's ok to provide a nil *Checker because the newly created type
 		// doesn't need to be (lazily) expanded; it's expanded below.
 		named := (*Checker)(nil).newNamed(tname, t.orig, nil, t.tparams, t.methods) // t is loaded, so tparams and methods are available
-		named.targs = &TypeList{newTArgs}
+		named.targs = NewTypeList(newTArgs)
 		subst.typMap[h] = named
 		t.expand(subst.typMap) // must happen after typMap update to avoid infinite recursion
 
@@ -256,37 +256,32 @@ func (subst *subster) typ(typ Type) Type {
 	return typ
 }
 
-var instanceHashing = 0
-
-func instantiatedHash(typ *Named, targs []Type) string {
-	assert(instanceHashing == 0)
-	instanceHashing++
+// typeHash returns a string representation of typ, which can be used as an exact
+// type hash: types that are identical produce identical string representations.
+// If typ is a *Named type and targs is not empty, typ is printed as if it were
+// instantiated with targs.
+func typeHash(typ Type, targs []Type) string {
+	assert(typ != nil)
 	var buf bytes.Buffer
-	writeTypeName(&buf, typ.obj, nil)
-	buf.WriteByte('[')
-	writeTypeList(&buf, targs, nil, nil)
-	buf.WriteByte(']')
-	instanceHashing--
 
-	// With respect to the represented type, whether a
-	// type is fully expanded or stored as instance
-	// does not matter - they are the same types.
-	// Remove the instanceMarkers printed for instances.
-	res := buf.Bytes()
-	i := 0
-	for _, b := range res {
-		if b != instanceMarker {
-			res[i] = b
-			i++
+	h := newTypeHasher(&buf)
+	if named, _ := typ.(*Named); named != nil && len(targs) > 0 {
+		// Don't use WriteType because we need to use the provided targs
+		// and not any targs that might already be with the *Named type.
+		h.typeName(named.obj)
+		h.typeList(targs)
+	} else {
+		assert(targs == nil)
+		h.typ(typ)
+	}
+
+	if debug {
+		// there should be no instance markers in type hashes
+		for _, b := range buf.Bytes() {
+			assert(b != instanceMarker)
 		}
 	}
 
-	return string(res[:i])
-}
-
-func typeListString(list []Type) string {
-	var buf bytes.Buffer
-	writeTypeList(&buf, list, nil, nil)
 	return buf.String()
 }
 

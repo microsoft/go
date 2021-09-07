@@ -299,7 +299,7 @@ func (pw *pkgWriter) typIdx(typ types2.Type, dict *writerDict) typeInfo {
 		// Type aliases can refer to uninstantiated generic types, so we
 		// might see len(TParams) != 0 && len(TArgs) == 0 here.
 		// TODO(mdempsky): Revisit after #46477 is resolved.
-		assert(typ.TParams().Len() == len(typ.TArgs()) || len(typ.TArgs()) == 0)
+		assert(typ.TParams().Len() == typ.TArgs().Len() || typ.TArgs().Len() == 0)
 
 		// TODO(mdempsky): Why do we need to loop here?
 		orig := typ
@@ -441,10 +441,10 @@ func (w *writer) param(param *types2.Var) {
 
 // @@@ Objects
 
-func (w *writer) obj(obj types2.Object, explicits []types2.Type) {
-	explicitInfos := make([]typeInfo, len(explicits))
-	for i, explicit := range explicits {
-		explicitInfos[i] = w.p.typIdx(explicit, w.dict)
+func (w *writer) obj(obj types2.Object, explicits *types2.TypeList) {
+	explicitInfos := make([]typeInfo, explicits.Len())
+	for i := range explicitInfos {
+		explicitInfos[i] = w.p.typIdx(explicits.At(i), w.dict)
 	}
 	info := objInfo{idx: w.p.objIdx(obj), explicits: explicitInfos}
 
@@ -618,7 +618,7 @@ func (w *writer) objDict(obj types2.Object, dict *writerDict) {
 	ntparams := tparams.Len()
 	w.len(ntparams)
 	for i := 0; i < ntparams; i++ {
-		w.typ(tparams.At(i).Type().(*types2.TypeParam).Constraint())
+		w.typ(tparams.At(i).Constraint())
 	}
 
 	nderived := len(dict.derived)
@@ -647,7 +647,7 @@ func (w *writer) typeParamNames(tparams *types2.TParamList) {
 
 	ntparams := tparams.Len()
 	for i := 0; i < ntparams; i++ {
-		tparam := tparams.At(i)
+		tparam := tparams.At(i).Obj()
 		w.pos(tparam)
 		w.localIdent(tparam)
 	}
@@ -1217,7 +1217,7 @@ func (w *writer) expr(expr syntax.Expr) {
 		}
 
 		obj := obj.(*types2.Var)
-		assert(len(targs) == 0)
+		assert(targs.Len() == 0)
 
 		w.code(exprLocal)
 		w.useLocal(expr.Pos(), obj)
@@ -1479,7 +1479,7 @@ func (c *declCollector) withTParams(obj types2.Object) *declCollector {
 	copy := *c
 	copy.implicits = copy.implicits[:len(copy.implicits):len(copy.implicits)]
 	for i := 0; i < n; i++ {
-		copy.implicits = append(copy.implicits, tparams.At(i))
+		copy.implicits = append(copy.implicits, tparams.At(i).Obj())
 	}
 	return &copy
 }
@@ -1711,7 +1711,7 @@ func (w *writer) pkgDecl(decl syntax.Decl) {
 		// TODO(mdempsky): Revisit after #46477 is resolved.
 		if name.IsAlias() {
 			named, ok := name.Type().(*types2.Named)
-			if ok && named.TParams().Len() != 0 && len(named.TArgs()) == 0 {
+			if ok && named.TParams().Len() != 0 && named.TArgs().Len() == 0 {
 				break
 			}
 		}
@@ -1770,7 +1770,7 @@ func isGlobal(obj types2.Object) bool {
 // lookupObj returns the object that expr refers to, if any. If expr
 // is an explicit instantiation of a generic object, then the type
 // arguments are returned as well.
-func lookupObj(info *types2.Info, expr syntax.Expr) (obj types2.Object, targs []types2.Type) {
+func lookupObj(info *types2.Info, expr syntax.Expr) (obj types2.Object, targs *types2.TypeList) {
 	if index, ok := expr.(*syntax.IndexExpr); ok {
 		if inf, ok := info.Inferred[index]; ok {
 			targs = inf.TArgs
@@ -1785,13 +1785,14 @@ func lookupObj(info *types2.Info, expr syntax.Expr) (obj types2.Object, targs []
 				}
 			}
 
-			targs = make([]types2.Type, len(args))
+			list := make([]types2.Type, len(args))
 			for i, arg := range args {
 				tv, ok := info.Types[arg]
 				assert(ok)
 				assert(tv.IsType())
-				targs[i] = tv.Type
+				list[i] = tv.Type
 			}
+			targs = types2.NewTypeList(list)
 		}
 
 		expr = index.X

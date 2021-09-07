@@ -740,9 +740,16 @@ func implements(t, iface *types.Type, m, samename **types.Field, ptr *int) bool 
 
 	if t.IsInterface() || t.IsTypeParam() {
 		if t.IsTypeParam() {
-			// A typeparam satisfies an interface if its type bound
-			// has all the methods of that interface.
-			t = t.Bound()
+			// If t is a simple type parameter T, its type and underlying is the same.
+			// If t is a type definition:'type P[T any] T', its type is P[T] and its
+			// underlying is T. Therefore we use 't.Underlying() != t' to distinguish them.
+			if t.Underlying() != t {
+				CalcMethods(t)
+			} else {
+				// A typeparam satisfies an interface if its type bound
+				// has all the methods of that interface.
+				t = t.Bound()
+			}
 		}
 		i := 0
 		tms := t.AllMethods().Slice()
@@ -900,6 +907,35 @@ func TypesOf(x []ir.Node) []*types.Type {
 	return r
 }
 
+// addTargs writes out the targs to buffer b as a comma-separated list enclosed by
+// brackets.
+func addTargs(b *bytes.Buffer, targs []*types.Type) {
+	b.WriteByte('[')
+	for i, targ := range targs {
+		if i > 0 {
+			b.WriteByte(',')
+		}
+		// Use NameString(), which includes the package name for the local
+		// package, to make sure that type arguments (including type params),
+		// are uniquely specified.
+		tstring := targ.NameString()
+		// types1 uses "interface {" and types2 uses "interface{" - convert
+		// to consistent types2 format.  Same for "struct {"
+		tstring = strings.Replace(tstring, "interface {", "interface{", -1)
+		tstring = strings.Replace(tstring, "struct {", "struct{", -1)
+		b.WriteString(tstring)
+	}
+	b.WriteString("]")
+}
+
+// InstTypeName creates a name for an instantiated type, based on the name of the
+// generic type and the type args.
+func InstTypeName(name string, targs []*types.Type) string {
+	b := bytes.NewBufferString(name)
+	addTargs(b, targs)
+	return b.String()
+}
+
 // makeInstName1 returns the name of the generic function instantiated with the
 // given types, which can have type params or shapes, or be concrete types. name is
 // the name of the generic function or method.
@@ -912,36 +948,16 @@ func makeInstName1(name string, targs []*types.Type, hasBrackets bool) string {
 	} else {
 		b.WriteString(name)
 	}
-	b.WriteString("[")
-	for i, targ := range targs {
-		if i > 0 {
-			b.WriteString(",")
-		}
-		// WriteString() does not include the package name for the local
-		// package, but we want it for uniqueness.
-		if targ.Sym() != nil && targ.Sym().Pkg == types.LocalPkg {
-			b.WriteString(targ.Sym().Pkg.Name)
-			b.WriteByte('.')
-		}
-		// types1 uses "interface {" and types2 uses "interface{" - convert
-		// to consistent types2 format.
-		tstring := targ.String()
-		tstring = strings.Replace(tstring, "interface {", "interface{", -1)
-		b.WriteString(tstring)
-	}
-	b.WriteString("]")
+	addTargs(b, targs)
 	if i >= 0 {
 		i2 := strings.LastIndex(name[i:], "]")
 		assert(i2 >= 0)
 		b.WriteString(name[i+i2+1:])
 	}
-	if strings.HasPrefix(b.String(), ".inst..inst.") {
-		panic(fmt.Sprintf("multiple .inst. prefix in %s", b.String()))
-	}
 	return b.String()
 }
 
-// MakeInstName makes the unique name for a stenciled generic function or method,
+// MakeFuncInstSym makes the unique sym for a stenciled generic function or method,
 // based on the name of the function fnsym and the targs. It replaces any
 // existing bracket type list in the name. MakeInstName asserts that fnsym has
 // brackets in its name if and only if hasBrackets is true.
@@ -953,11 +969,11 @@ func makeInstName1(name string, targs []*types.Type, hasBrackets bool) string {
 //
 // The standard naming is something like: 'genFn[int,bool]' for functions and
 // '(*genType[int,bool]).methodName' for methods
-func MakeInstName(gf *types.Sym, targs []*types.Type, hasBrackets bool) *types.Sym {
+func MakeFuncInstSym(gf *types.Sym, targs []*types.Type, hasBrackets bool) *types.Sym {
 	return gf.Pkg.Lookup(makeInstName1(gf.Name, targs, hasBrackets))
 }
 
-func MakeDictName(gf *types.Sym, targs []*types.Type, hasBrackets bool) *types.Sym {
+func MakeDictSym(gf *types.Sym, targs []*types.Type, hasBrackets bool) *types.Sym {
 	for _, targ := range targs {
 		if targ.HasTParam() {
 			fmt.Printf("FUNCTION %s\n", gf.Name)
@@ -994,6 +1010,15 @@ type Tsubster struct {
 // result is t; otherwise the result is a new type. It deals with recursive types
 // by using TFORW types and finding partially or fully created types via sym.Def.
 func (ts *Tsubster) Typ(t *types.Type) *types.Type {
+	// Defer the CheckSize calls until we have fully-defined
+	// (possibly-recursive) top-level type.
+	types.DeferCheckSize()
+	r := ts.typ1(t)
+	types.ResumeCheckSize()
+	return r
+}
+
+func (ts *Tsubster) typ1(t *types.Type) *types.Type {
 	if !t.HasTParam() && t.Kind() != types.TFUNC {
 		// Note: function types need to be copied regardless, as the
 		// types of closures may contain declarations that need
@@ -1033,12 +1058,13 @@ func (ts *Tsubster) Typ(t *types.Type) *types.Type {
 	var targsChanged bool
 	var forw *types.Type
 
-	if t.Sym() != nil {
+	if t.Sym() != nil && t.HasTParam() {
+		// Need to test for t.HasTParam() again because of special TFUNC case above.
 		// Translate the type params for this type according to
 		// the tparam/targs mapping from subst.
 		neededTargs = make([]*types.Type, len(t.RParams()))
 		for i, rparam := range t.RParams() {
-			neededTargs[i] = ts.Typ(rparam)
+			neededTargs[i] = ts.typ1(rparam)
 			if !types.Identical(neededTargs[i], rparam) {
 				targsChanged = true
 			}
@@ -1062,8 +1088,8 @@ func (ts *Tsubster) Typ(t *types.Type) *types.Type {
 		forw.SetRParams(neededTargs)
 		// Copy the OrigSym from the re-instantiated type (which is the sym of
 		// the base generic type).
-		assert(t.OrigSym != nil)
-		forw.OrigSym = t.OrigSym
+		assert(t.OrigSym() != nil)
+		forw.SetOrigSym(t.OrigSym())
 	}
 
 	var newt *types.Type
@@ -1076,26 +1102,26 @@ func (ts *Tsubster) Typ(t *types.Type) *types.Type {
 		}
 		// Substitute the underlying typeparam (e.g. T in P[T], see
 		// the example describing type P[T] above).
-		newt = ts.Typ(t.Underlying())
+		newt = ts.typ1(t.Underlying())
 		assert(newt != t)
 
 	case types.TARRAY:
 		elem := t.Elem()
-		newelem := ts.Typ(elem)
+		newelem := ts.typ1(elem)
 		if newelem != elem || targsChanged {
 			newt = types.NewArray(newelem, t.NumElem())
 		}
 
 	case types.TPTR:
 		elem := t.Elem()
-		newelem := ts.Typ(elem)
+		newelem := ts.typ1(elem)
 		if newelem != elem || targsChanged {
 			newt = types.NewPtr(newelem)
 		}
 
 	case types.TSLICE:
 		elem := t.Elem()
-		newelem := ts.Typ(elem)
+		newelem := ts.typ1(elem)
 		if newelem != elem || targsChanged {
 			newt = types.NewSlice(newelem)
 		}
@@ -1144,28 +1170,23 @@ func (ts *Tsubster) Typ(t *types.Type) *types.Type {
 		}
 
 	case types.TINTER:
-		newt = ts.tinter(t)
-		if newt == t && !targsChanged {
+		newt = ts.tinter(t, targsChanged)
+		if newt == t {
 			newt = nil
 		}
 
 	case types.TMAP:
-		newkey := ts.Typ(t.Key())
-		newval := ts.Typ(t.Elem())
+		newkey := ts.typ1(t.Key())
+		newval := ts.typ1(t.Elem())
 		if newkey != t.Key() || newval != t.Elem() || targsChanged {
 			newt = types.NewMap(newkey, newval)
 		}
 
 	case types.TCHAN:
 		elem := t.Elem()
-		newelem := ts.Typ(elem)
+		newelem := ts.typ1(elem)
 		if newelem != elem || targsChanged {
 			newt = types.NewChan(newelem, t.ChanDir())
-			if !newt.HasTParam() {
-				// TODO(danscales): not sure why I have to do this
-				// only for channels.....
-				types.CheckSize(newt)
-			}
 		}
 	case types.TFORW:
 		if ts.SubstForwFunc != nil {
@@ -1175,7 +1196,7 @@ func (ts *Tsubster) Typ(t *types.Type) *types.Type {
 		}
 	case types.TINT, types.TINT8, types.TINT16, types.TINT32, types.TINT64,
 		types.TUINT, types.TUINT8, types.TUINT16, types.TUINT32, types.TUINT64,
-		types.TUINTPTR, types.TBOOL, types.TSTRING, types.TFLOAT32, types.TFLOAT64, types.TCOMPLEX64, types.TCOMPLEX128:
+		types.TUINTPTR, types.TBOOL, types.TSTRING, types.TFLOAT32, types.TFLOAT64, types.TCOMPLEX64, types.TCOMPLEX128, types.TUNSAFEPTR:
 		newt = t.Underlying()
 	case types.TUNION:
 		nt := t.NumTerms()
@@ -1185,7 +1206,7 @@ func (ts *Tsubster) Typ(t *types.Type) *types.Type {
 		for i := 0; i < nt; i++ {
 			term, tilde := t.Term(i)
 			tildes[i] = tilde
-			newterms[i] = ts.Typ(term)
+			newterms[i] = ts.typ1(term)
 			if newterms[i] != term {
 				changed = true
 			}
@@ -1203,16 +1224,16 @@ func (ts *Tsubster) Typ(t *types.Type) *types.Type {
 		return t
 	}
 
-	if t.Sym() == nil && t.Kind() != types.TINTER {
-		// Not a named type or interface type, so there was no forwarding type
-		// and there are no methods to substitute.
-		assert(t.Methods().Len() == 0)
-		return newt
-	}
-
 	if forw != nil {
 		forw.SetUnderlying(newt)
 		newt = forw
+	}
+
+	if !newt.HasTParam() {
+		// Calculate the size of any new types created. These will be
+		// deferred until the top-level ts.Typ() or g.typ() (if this is
+		// called from g.fillinMethods()).
+		types.CheckSize(newt)
 	}
 
 	if t.Kind() != types.TINTER && t.Methods().Len() > 0 {
@@ -1220,9 +1241,9 @@ func (ts *Tsubster) Typ(t *types.Type) *types.Type {
 		var newfields []*types.Field
 		newfields = make([]*types.Field, t.Methods().Len())
 		for i, f := range t.Methods().Slice() {
-			t2 := ts.Typ(f.Type)
+			t2 := ts.typ1(f.Type)
 			oldsym := f.Nname.Sym()
-			newsym := MakeInstName(oldsym, ts.Targs, true)
+			newsym := MakeFuncInstSym(oldsym, ts.Targs, true)
 			var nname *ir.Name
 			if newsym.Def != nil {
 				nname = newsym.Def.(*ir.Name)
@@ -1263,7 +1284,7 @@ func (ts *Tsubster) tstruct(t *types.Type, force bool) *types.Type {
 		newfields = make([]*types.Field, t.NumFields())
 	}
 	for i, f := range t.Fields().Slice() {
-		t2 := ts.Typ(f.Type)
+		t2 := ts.typ1(f.Type)
 		if (t2 != f.Type || f.Nname != nil) && newfields == nil {
 			newfields = make([]*types.Field, t.NumFields())
 			for j := 0; j < i; j++ {
@@ -1310,13 +1331,22 @@ func (ts *Tsubster) tstruct(t *types.Type, force bool) *types.Type {
 }
 
 // tinter substitutes type params in types of the methods of an interface type.
-func (ts *Tsubster) tinter(t *types.Type) *types.Type {
+func (ts *Tsubster) tinter(t *types.Type, force bool) *types.Type {
 	if t.Methods().Len() == 0 {
+		if t.HasTParam() {
+			// For an empty interface, we need to return a new type,
+			// since it may now be fully instantiated (HasTParam
+			// becomes false).
+			return types.NewInterface(t.Pkg(), nil)
+		}
 		return t
 	}
 	var newfields []*types.Field
+	if force {
+		newfields = make([]*types.Field, t.Methods().Len())
+	}
 	for i, f := range t.Methods().Slice() {
-		t2 := ts.Typ(f.Type)
+		t2 := ts.typ1(f.Type)
 		if (t2 != f.Type || f.Nname != nil) && newfields == nil {
 			newfields = make([]*types.Field, t.Methods().Len())
 			for j := 0; j < i; j++ {

@@ -17,11 +17,11 @@ type Interface struct {
 	embedPos  *[]syntax.Pos // positions of embedded elements; or nil (for error messages) - use pointer to save space
 	complete  bool          // indicates that all fields (except for tset) are set up
 
-	tset *TypeSet // type set described by this interface, computed lazily
+	tset *_TypeSet // type set described by this interface, computed lazily
 }
 
 // typeSet returns the type set for interface t.
-func (t *Interface) typeSet() *TypeSet { return computeInterfaceTypeSet(nil, nopos, t) }
+func (t *Interface) typeSet() *_TypeSet { return computeInterfaceTypeSet(nil, nopos, t) }
 
 // emptyInterface represents the empty interface
 var emptyInterface = Interface{complete: true, tset: &topTypeSet}
@@ -98,7 +98,7 @@ func (t *Interface) Empty() bool { return t.typeSet().IsAll() }
 func (t *Interface) IsComparable() bool { return t.typeSet().IsComparable() }
 
 // IsConstraint reports whether interface t is not just a method set.
-func (t *Interface) IsConstraint() bool { return !t.typeSet().IsMethodSet() }
+func (t *Interface) IsConstraint() bool { return t.typeSet().IsConstraint() }
 
 func (t *Interface) Underlying() Type { return t }
 func (t *Interface) String() string   { return TypeString(t, nil) }

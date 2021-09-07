@@ -5,7 +5,6 @@
 package user
 
 import (
-	"runtime"
 	"testing"
 )
 
@@ -119,14 +118,15 @@ func TestLookupGroup(t *testing.T) {
 	}
 }
 
+func checkGroupList(t *testing.T) {
+	t.Helper()
+	if !groupListImplemented {
+		t.Skip("user: group list not implemented; skipping test")
+	}
+}
+
 func TestGroupIds(t *testing.T) {
-	checkGroup(t)
-	if runtime.GOOS == "aix" {
-		t.Skip("skipping GroupIds, see golang.org/issue/30563")
-	}
-	if runtime.GOOS == "illumos" {
-		t.Skip("skipping GroupIds, see golang.org/issue/14709")
-	}
+	checkGroupList(t)
 	user, err := Current()
 	if err != nil {
 		t.Fatalf("Current(): %v", err)

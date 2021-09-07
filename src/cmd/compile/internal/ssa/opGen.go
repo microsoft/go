@@ -962,7 +962,6 @@ const (
 	OpAMD64MOVQstore
 	OpAMD64MOVOload
 	OpAMD64MOVOstore
-	OpAMD64MOVOstorezero
 	OpAMD64MOVBloadidx1
 	OpAMD64MOVWloadidx1
 	OpAMD64MOVWloadidx2
@@ -983,6 +982,7 @@ const (
 	OpAMD64MOVWstoreconst
 	OpAMD64MOVLstoreconst
 	OpAMD64MOVQstoreconst
+	OpAMD64MOVOstoreconst
 	OpAMD64MOVBstoreconstidx1
 	OpAMD64MOVWstoreconstidx1
 	OpAMD64MOVWstoreconstidx2
@@ -2174,6 +2174,10 @@ const (
 	OpRISCV64FSUBD
 	OpRISCV64FMULD
 	OpRISCV64FDIVD
+	OpRISCV64FMADDD
+	OpRISCV64FMSUBD
+	OpRISCV64FNMADDD
+	OpRISCV64FNMSUBD
 	OpRISCV64FSQRTD
 	OpRISCV64FNEGD
 	OpRISCV64FMVDX
@@ -12626,19 +12630,6 @@ var opcodeTable = [...]opInfo{
 		},
 	},
 	{
-		name:           "MOVOstorezero",
-		auxType:        auxSymOff,
-		argLen:         2,
-		faultOnNilArg0: true,
-		symEffect:      SymWrite,
-		asm:            x86.AMOVUPS,
-		reg: regInfo{
-			inputs: []inputInfo{
-				{0, 4295016447}, // AX CX DX BX SP BP SI DI R8 R9 R10 R11 R12 R13 R15 SB
-			},
-		},
-	},
-	{
 		name:        "MOVBloadidx1",
 		auxType:     auxSymOff,
 		argLen:      3,
@@ -12948,6 +12939,19 @@ var opcodeTable = [...]opInfo{
 		faultOnNilArg0: true,
 		symEffect:      SymWrite,
 		asm:            x86.AMOVQ,
+		reg: regInfo{
+			inputs: []inputInfo{
+				{0, 4295032831}, // AX CX DX BX SP BP SI DI R8 R9 R10 R11 R12 R13 g R15 SB
+			},
+		},
+	},
+	{
+		name:           "MOVOstoreconst",
+		auxType:        auxSymValAndOff,
+		argLen:         2,
+		faultOnNilArg0: true,
+		symEffect:      SymWrite,
+		asm:            x86.AMOVUPS,
 		reg: regInfo{
 			inputs: []inputInfo{
 				{0, 4295032831}, // AX CX DX BX SP BP SI DI R8 R9 R10 R11 R12 R13 g R15 SB
@@ -29048,6 +29052,70 @@ var opcodeTable = [...]opInfo{
 			inputs: []inputInfo{
 				{0, 9223372034707292160}, // F0 F1 F2 F3 F4 F5 F6 F7 F8 F9 F10 F11 F12 F13 F14 F15 F16 F17 F18 F19 F20 F21 F22 F23 F24 F25 F26 F27 F28 F29 F30 F31
 				{1, 9223372034707292160}, // F0 F1 F2 F3 F4 F5 F6 F7 F8 F9 F10 F11 F12 F13 F14 F15 F16 F17 F18 F19 F20 F21 F22 F23 F24 F25 F26 F27 F28 F29 F30 F31
+			},
+			outputs: []outputInfo{
+				{0, 9223372034707292160}, // F0 F1 F2 F3 F4 F5 F6 F7 F8 F9 F10 F11 F12 F13 F14 F15 F16 F17 F18 F19 F20 F21 F22 F23 F24 F25 F26 F27 F28 F29 F30 F31
+			},
+		},
+	},
+	{
+		name:        "FMADDD",
+		argLen:      3,
+		commutative: true,
+		asm:         riscv.AFMADDD,
+		reg: regInfo{
+			inputs: []inputInfo{
+				{0, 9223372034707292160}, // F0 F1 F2 F3 F4 F5 F6 F7 F8 F9 F10 F11 F12 F13 F14 F15 F16 F17 F18 F19 F20 F21 F22 F23 F24 F25 F26 F27 F28 F29 F30 F31
+				{1, 9223372034707292160}, // F0 F1 F2 F3 F4 F5 F6 F7 F8 F9 F10 F11 F12 F13 F14 F15 F16 F17 F18 F19 F20 F21 F22 F23 F24 F25 F26 F27 F28 F29 F30 F31
+				{2, 9223372034707292160}, // F0 F1 F2 F3 F4 F5 F6 F7 F8 F9 F10 F11 F12 F13 F14 F15 F16 F17 F18 F19 F20 F21 F22 F23 F24 F25 F26 F27 F28 F29 F30 F31
+			},
+			outputs: []outputInfo{
+				{0, 9223372034707292160}, // F0 F1 F2 F3 F4 F5 F6 F7 F8 F9 F10 F11 F12 F13 F14 F15 F16 F17 F18 F19 F20 F21 F22 F23 F24 F25 F26 F27 F28 F29 F30 F31
+			},
+		},
+	},
+	{
+		name:        "FMSUBD",
+		argLen:      3,
+		commutative: true,
+		asm:         riscv.AFMSUBD,
+		reg: regInfo{
+			inputs: []inputInfo{
+				{0, 9223372034707292160}, // F0 F1 F2 F3 F4 F5 F6 F7 F8 F9 F10 F11 F12 F13 F14 F15 F16 F17 F18 F19 F20 F21 F22 F23 F24 F25 F26 F27 F28 F29 F30 F31
+				{1, 9223372034707292160}, // F0 F1 F2 F3 F4 F5 F6 F7 F8 F9 F10 F11 F12 F13 F14 F15 F16 F17 F18 F19 F20 F21 F22 F23 F24 F25 F26 F27 F28 F29 F30 F31
+				{2, 9223372034707292160}, // F0 F1 F2 F3 F4 F5 F6 F7 F8 F9 F10 F11 F12 F13 F14 F15 F16 F17 F18 F19 F20 F21 F22 F23 F24 F25 F26 F27 F28 F29 F30 F31
+			},
+			outputs: []outputInfo{
+				{0, 9223372034707292160}, // F0 F1 F2 F3 F4 F5 F6 F7 F8 F9 F10 F11 F12 F13 F14 F15 F16 F17 F18 F19 F20 F21 F22 F23 F24 F25 F26 F27 F28 F29 F30 F31
+			},
+		},
+	},
+	{
+		name:        "FNMADDD",
+		argLen:      3,
+		commutative: true,
+		asm:         riscv.AFNMADDD,
+		reg: regInfo{
+			inputs: []inputInfo{
+				{0, 9223372034707292160}, // F0 F1 F2 F3 F4 F5 F6 F7 F8 F9 F10 F11 F12 F13 F14 F15 F16 F17 F18 F19 F20 F21 F22 F23 F24 F25 F26 F27 F28 F29 F30 F31
+				{1, 9223372034707292160}, // F0 F1 F2 F3 F4 F5 F6 F7 F8 F9 F10 F11 F12 F13 F14 F15 F16 F17 F18 F19 F20 F21 F22 F23 F24 F25 F26 F27 F28 F29 F30 F31
+				{2, 9223372034707292160}, // F0 F1 F2 F3 F4 F5 F6 F7 F8 F9 F10 F11 F12 F13 F14 F15 F16 F17 F18 F19 F20 F21 F22 F23 F24 F25 F26 F27 F28 F29 F30 F31
+			},
+			outputs: []outputInfo{
+				{0, 9223372034707292160}, // F0 F1 F2 F3 F4 F5 F6 F7 F8 F9 F10 F11 F12 F13 F14 F15 F16 F17 F18 F19 F20 F21 F22 F23 F24 F25 F26 F27 F28 F29 F30 F31
+			},
+		},
+	},
+	{
+		name:        "FNMSUBD",
+		argLen:      3,
+		commutative: true,
+		asm:         riscv.AFNMSUBD,
+		reg: regInfo{
+			inputs: []inputInfo{
+				{0, 9223372034707292160}, // F0 F1 F2 F3 F4 F5 F6 F7 F8 F9 F10 F11 F12 F13 F14 F15 F16 F17 F18 F19 F20 F21 F22 F23 F24 F25 F26 F27 F28 F29 F30 F31
+				{1, 9223372034707292160}, // F0 F1 F2 F3 F4 F5 F6 F7 F8 F9 F10 F11 F12 F13 F14 F15 F16 F17 F18 F19 F20 F21 F22 F23 F24 F25 F26 F27 F28 F29 F30 F31
+				{2, 9223372034707292160}, // F0 F1 F2 F3 F4 F5 F6 F7 F8 F9 F10 F11 F12 F13 F14 F15 F16 F17 F18 F19 F20 F21 F22 F23 F24 F25 F26 F27 F28 F29 F30 F31
 			},
 			outputs: []outputInfo{
 				{0, 9223372034707292160}, // F0 F1 F2 F3 F4 F5 F6 F7 F8 F9 F10 F11 F12 F13 F14 F15 F16 F17 F18 F19 F20 F21 F22 F23 F24 F25 F26 F27 F28 F29 F30 F31

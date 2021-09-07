@@ -35,7 +35,7 @@ func checkFiles(noders []*noder) (posMap, *types2.Package, *types2.Info) {
 
 	// typechecking
 	importer := gcimports{
-		packages: make(map[string]*types2.Package),
+		packages: map[string]*types2.Package{"unsafe": types2.Unsafe},
 	}
 	conf := types2.Config{
 		GoVersion:             base.Flag.Lang,
@@ -141,6 +141,17 @@ type irgen struct {
 	typs   map[types2.Type]*types.Type
 	marker dwarfgen.ScopeMarker
 
+	// laterFuncs records tasks that need to run after all declarations
+	// are processed.
+	laterFuncs []func()
+
+	// exprStmtOK indicates whether it's safe to generate expressions or
+	// statements yet.
+	exprStmtOK bool
+
+	// types which we need to finish, by doing g.fillinMethods.
+	typesToFinalize []*typeDelayInfo
+
 	// Fully-instantiated generic types whose methods should be instantiated
 	instTypeList []*types.Type
 
@@ -165,11 +176,20 @@ type irgen struct {
 	topFuncIsGeneric bool
 }
 
+func (g *irgen) later(fn func()) {
+	g.laterFuncs = append(g.laterFuncs, fn)
+}
+
 type delayInfo struct {
 	gf    *ir.Name
 	targs []*types.Type
 	sym   *types.Sym
 	off   int
+}
+
+type typeDelayInfo struct {
+	typ  *types2.Named
+	ntyp *types.Type
 }
 
 func (g *irgen) generate(noders []*noder) {
@@ -184,7 +204,7 @@ func (g *irgen) generate(noders []*noder) {
 	// At this point, types2 has already handled name resolution and
 	// type checking. We just need to map from its object and type
 	// representations to those currently used by the rest of the
-	// compiler. This happens mostly in 3 passes.
+	// compiler. This happens in a few passes.
 
 	// 1. Process all import declarations. We use the compiler's own
 	// importer for this, rather than types2's gcimporter-derived one,
@@ -233,7 +253,16 @@ Outer:
 
 	// 3. Process all remaining declarations.
 	for _, declList := range declLists {
-		g.target.Decls = append(g.target.Decls, g.decls(declList)...)
+		g.decls((*ir.Nodes)(&g.target.Decls), declList)
+	}
+	g.exprStmtOK = true
+
+	// 4. Run any "later" tasks. Avoid using 'range' so that tasks can
+	// recursively queue further tasks. (Not currently utilized though.)
+	for len(g.laterFuncs) > 0 {
+		fn := g.laterFuncs[0]
+		g.laterFuncs = g.laterFuncs[1:]
+		fn()
 	}
 
 	if base.Flag.W > 1 {
@@ -242,12 +271,6 @@ Outer:
 			ir.Dump(s, n)
 		}
 	}
-
-	// Check for unusual case where noder2 encounters a type error that types2
-	// doesn't check for (e.g. notinheap incompatibility).
-	base.ExitIfErrors()
-
-	typecheck.DeclareUniverse()
 
 	for _, p := range noders {
 		// Process linkname and cgo pragmas.
@@ -260,6 +283,22 @@ Outer:
 			return false
 		})
 	}
+
+	if base.Flag.Complete {
+		for _, n := range g.target.Decls {
+			if fn, ok := n.(*ir.Func); ok {
+				if fn.Body == nil && fn.Nname.Sym().Linkname == "" {
+					base.ErrorfAt(fn.Pos(), "missing function body")
+				}
+			}
+		}
+	}
+
+	// Check for unusual case where noder2 encounters a type error that types2
+	// doesn't check for (e.g. notinheap incompatibility).
+	base.ExitIfErrors()
+
+	typecheck.DeclareUniverse()
 
 	// Create any needed stencils of generic functions
 	g.stencil()
@@ -275,6 +314,8 @@ Outer:
 		}
 	}
 	g.target.Decls = g.target.Decls[:j]
+
+	base.Assertf(len(g.laterFuncs) == 0, "still have %d later funcs", len(g.laterFuncs))
 }
 
 func (g *irgen) unhandled(what string, p poser) {

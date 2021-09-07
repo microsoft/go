@@ -62,7 +62,7 @@ func (u *unifier) unify(x, y Type) bool {
 // A tparamsList describes a list of type parameters and the types inferred for them.
 type tparamsList struct {
 	unifier *unifier
-	tparams []*TypeName
+	tparams []*TypeParam
 	// For each tparams element, there is a corresponding type slot index in indices.
 	// index  < 0: unifier.types[-index-1] == nil
 	// index == 0: no type slot allocated yet
@@ -76,29 +76,30 @@ type tparamsList struct {
 // String returns a string representation for a tparamsList. For debugging.
 func (d *tparamsList) String() string {
 	var buf bytes.Buffer
-	buf.WriteByte('[')
-	for i, tname := range d.tparams {
+	w := newTypeWriter(&buf, nil)
+	w.byte('[')
+	for i, tpar := range d.tparams {
 		if i > 0 {
-			buf.WriteString(", ")
+			w.string(", ")
 		}
-		writeType(&buf, tname.typ, nil, nil)
-		buf.WriteString(": ")
-		writeType(&buf, d.at(i), nil, nil)
+		w.typ(tpar)
+		w.string(": ")
+		w.typ(d.at(i))
 	}
-	buf.WriteByte(']')
+	w.byte(']')
 	return buf.String()
 }
 
 // init initializes d with the given type parameters.
 // The type parameters must be in the order in which they appear in their declaration
 // (this ensures that the tparams indices match the respective type parameter index).
-func (d *tparamsList) init(tparams []*TypeName) {
+func (d *tparamsList) init(tparams []*TypeParam) {
 	if len(tparams) == 0 {
 		return
 	}
 	if debug {
 		for i, tpar := range tparams {
-			assert(i == tpar.typ.(*TypeParam).index)
+			assert(i == tpar.index)
 		}
 	}
 	d.tparams = tparams
@@ -158,8 +159,8 @@ func (d *tparamsList) index(typ Type) int {
 
 // If tpar is a type parameter in list, tparamIndex returns the type parameter index.
 // Otherwise, the result is < 0. tpar must not be nil.
-func tparamIndex(list []*TypeName, tpar *TypeParam) int {
-	if i := tpar.index; i < len(list) && list[i].typ == tpar {
+func tparamIndex(list []*TypeParam, tpar *TypeParam) int {
+	if i := tpar.index; i < len(list) && list[i] == tpar {
 		return i
 	}
 	return -1
@@ -429,13 +430,17 @@ func (u *unifier) nify(x, y Type, p *ifacePair) bool {
 		if y, ok := y.(*Named); ok {
 			x.expand(nil)
 			y.expand(nil)
+
+			xargs := x.targs.list()
+			yargs := y.targs.list()
+
 			// TODO(gri) This is not always correct: two types may have the same names
 			//           in the same package if one of them is nested in a function.
 			//           Extremely unlikely but we need an always correct solution.
 			if x.obj.pkg == y.obj.pkg && x.obj.name == y.obj.name {
-				assert(len(x.targs) == len(y.targs))
-				for i, x := range x.targs {
-					if !u.nify(x, y.targs[i], p) {
+				assert(len(xargs) == len(yargs))
+				for i, x := range xargs {
+					if !u.nify(x, yargs[i], p) {
 						return false
 					}
 				}

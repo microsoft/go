@@ -1448,7 +1448,7 @@ func (p *parser) interfaceType() *InterfaceType {
 
 		case _Type:
 			// TODO(gri) remove TypeList syntax if we accept #45346
-			if p.mode&AllowGenerics != 0 {
+			if p.mode&AllowGenerics != 0 && p.mode&AllowTypeLists != 0 {
 				type_ := NewName(p.pos(), "type") // cannot have a method named "type"
 				p.next()
 				if p.tok != _Semi && p.tok != _Rbrace {
@@ -1484,8 +1484,13 @@ func (p *parser) interfaceType() *InterfaceType {
 		}
 
 		if p.mode&AllowGenerics != 0 {
-			p.syntaxError("expecting method, type list, or embedded element")
-			p.advance(_Semi, _Rbrace, _Type) // TODO(gri) remove _Type if we don't accept it anymore
+			if p.mode&AllowTypeLists != 0 {
+				p.syntaxError("expecting method, type list, or embedded element")
+				p.advance(_Semi, _Rbrace, _Type)
+			} else {
+				p.syntaxError("expecting method or embedded element")
+				p.advance(_Semi, _Rbrace)
+			}
 			return false
 		}
 
@@ -1840,7 +1845,11 @@ func (p *parser) paramDeclOrNil(name *Name) *Field {
 	}
 
 	f := new(Field)
-	f.pos = p.pos()
+	if name != nil {
+		f.pos = name.pos
+	} else {
+		f.pos = p.pos()
+	}
 
 	if p.tok == _Name || name != nil {
 		if name == nil {
@@ -1920,16 +1929,13 @@ func (p *parser) paramList(name *Name, close token, requireNames bool) (list []*
 	}
 
 	// distribute parameter types (len(list) > 0)
-	if named == 0 {
+	if named == 0 && !requireNames {
 		// all unnamed => found names are named types
 		for _, par := range list {
 			if typ := par.Name; typ != nil {
 				par.Type = typ
 				par.Name = nil
 			}
-		}
-		if requireNames {
-			p.syntaxErrorAt(list[0].Type.Pos(), "type parameters must be named")
 		}
 	} else if named != len(list) {
 		// some named => all must have names and types

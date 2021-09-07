@@ -38,14 +38,15 @@ func (check *Checker) ident(x *operand, e *syntax.Name, def *Named, wantType boo
 		}
 		return
 	case universeAny, universeComparable:
+		// complain if necessary
 		if !check.allowVersion(check.pkg, 1, 18) {
 			check.errorf(e, "undeclared name: %s (requires version go1.18 or later)", e.Value)
-			return
+			return // avoid follow-on errors
 		}
-		// If we allow "any" for general use, this if-statement can be removed (issue #33232).
 		if obj == universeAny {
-			check.error(e, "cannot use any outside constraint position")
-			return
+			// If we allow "any" for general use, this if-statement can be removed (issue #33232).
+			check.softErrorf(e, "cannot use any outside constraint position")
+			// ok to continue
 		}
 	}
 	check.recordUse(e, obj)
@@ -136,24 +137,19 @@ func (check *Checker) typ(e syntax.Expr) Type {
 }
 
 // varType type-checks the type expression e and returns its type, or Typ[Invalid].
-// The type must not be an (uninstantiated) generic type and it must be ordinary
-// (see ordinaryType).
+// The type must not be an (uninstantiated) generic type and it must not be a
+// constraint interface.
 func (check *Checker) varType(e syntax.Expr) Type {
 	typ := check.definedType(e, nil)
-	check.ordinaryType(syntax.StartPos(e), typ)
-	return typ
-}
 
-// ordinaryType reports an error if typ is an interface type containing
-// type lists or is (or embeds) the predeclared type comparable.
-func (check *Checker) ordinaryType(pos syntax.Pos, typ Type) {
 	// We don't want to call under() (via asInterface) or complete interfaces while we
 	// are in the middle of type-checking parameter declarations that might belong to
 	// interface methods. Delay this check to the end of type-checking.
 	check.later(func() {
 		if t := asInterface(typ); t != nil {
+			pos := syntax.StartPos(e)
 			tset := computeInterfaceTypeSet(check, pos, t) // TODO(gri) is this the correct position?
-			if !tset.IsMethodSet() {
+			if tset.IsConstraint() {
 				if tset.comparable {
 					check.softErrorf(pos, "interface is (or embeds) comparable")
 				} else {
@@ -162,14 +158,7 @@ func (check *Checker) ordinaryType(pos syntax.Pos, typ Type) {
 			}
 		}
 	})
-}
 
-// anyType type-checks the type expression e and returns its type, or Typ[Invalid].
-// The type may be generic or instantiated.
-func (check *Checker) anyType(e syntax.Expr) Type {
-	typ := check.typInternal(e, nil)
-	assert(isTyped(typ))
-	check.recordTypeAndValue(e, typexpr, typ, nil)
 	return typ
 }
 
@@ -274,6 +263,9 @@ func (check *Checker) typInternal(e0 syntax.Expr, def *Named) (T Type) {
 		}
 
 	case *syntax.IndexExpr:
+		if !check.allowVersion(check.pkg, 1, 18) {
+			check.softErrorf(e.Pos(), "type instantiation requires go1.18 or later")
+		}
 		return check.instantiatedType(e.X, unpackExpr(e.Index), def)
 
 	case *syntax.ParenExpr:
@@ -395,30 +387,6 @@ func (check *Checker) typInternal(e0 syntax.Expr, def *Named) (T Type) {
 	typ := Typ[Invalid]
 	def.setUnderlying(typ)
 	return typ
-}
-
-// typeOrNil type-checks the type expression (or nil value) e
-// and returns the type of e, or nil. If e is a type, it must
-// not be an (uninstantiated) generic type.
-// If e is neither a type nor nil, typeOrNil returns Typ[Invalid].
-// TODO(gri) should we also disallow non-var types?
-func (check *Checker) typOrNil(e syntax.Expr) Type {
-	var x operand
-	check.rawExpr(&x, e, nil)
-	switch x.mode {
-	case invalid:
-		// ignore - error reported before
-	case novalue:
-		check.errorf(&x, "%s used as type", &x)
-	case typexpr:
-		check.instantiatedOperand(&x)
-		return x.typ
-	case nilvalue:
-		return nil
-	default:
-		check.errorf(&x, "%s is not a type", &x)
-	}
-	return Typ[Invalid]
 }
 
 func (check *Checker) instantiatedType(x syntax.Expr, targsx []syntax.Expr, def *Named) Type {

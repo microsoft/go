@@ -9,8 +9,6 @@ import (
 	"sync"
 )
 
-// TODO(gri) Clean up Named struct below; specifically the fromRHS field (can we use underlying?).
-
 // A Named represents a named (defined) type.
 type Named struct {
 	check      *Checker
@@ -19,12 +17,12 @@ type Named struct {
 	orig       *Named      // original, uninstantiated type
 	fromRHS    Type        // type (on RHS of declaration) this *Named type is derived from (for cycle reporting)
 	underlying Type        // possibly a *Named during setup; never a *Named once set up completely
-	instance   *instance   // position information for lazy instantiation, or nil
+	instPos    *syntax.Pos // position information for lazy instantiation, or nil
 	tparams    *TParamList // type parameters, or nil
-	targs      []Type      // type arguments (after instantiation), or nil
+	targs      *TypeList   // type arguments (after instantiation), or nil
 	methods    []*Func     // methods declared for this type (not the method set of this type); signatures are type-checked lazily
 
-	resolve func(*Named) ([]*TypeName, Type, []*Func)
+	resolve func(*Named) ([]*TypeParam, Type, []*Func)
 	once    sync.Once
 }
 
@@ -46,7 +44,7 @@ func (t *Named) load() *Named {
 	// underlying is set when t is expanded.
 	//
 	// By convention, a type instance is loaded iff its tparams are set.
-	if len(t.targs) > 0 && t.tparams == nil {
+	if t.targs.Len() > 0 && t.tparams == nil {
 		t.orig.load()
 		t.tparams = t.orig.tparams
 		t.methods = t.orig.methods
@@ -126,10 +124,10 @@ func (t *Named) Orig() *Named { return t.orig }
 func (t *Named) TParams() *TParamList { return t.load().tparams }
 
 // SetTParams sets the type parameters of the named type t.
-func (t *Named) SetTParams(tparams []*TypeName) { t.load().tparams = bindTParams(tparams) }
+func (t *Named) SetTParams(tparams []*TypeParam) { t.load().tparams = bindTParams(tparams) }
 
-// TArgs returns the type arguments after instantiation of the named type t, or nil if not instantiated.
-func (t *Named) TArgs() []Type { return t.targs }
+// TArgs returns the type arguments used to instantiate the named type t.
+func (t *Named) TArgs() *TypeList { return t.targs }
 
 // NumMethods returns the number of explicit methods whose receiver is named type t.
 func (t *Named) NumMethods() int { return len(t.load().methods) }
@@ -242,24 +240,16 @@ func (n *Named) setUnderlying(typ Type) {
 	}
 }
 
-// instance holds position information for use in lazy instantiation.
-//
-// TODO(rfindley): instance is probably unnecessary now. See if it can be
-// eliminated.
-type instance struct {
-	pos syntax.Pos // position of type instantiation; for error reporting only
-}
-
 // expand ensures that the underlying type of n is instantiated.
 // The underlying type will be Typ[Invalid] if there was an error.
 func (n *Named) expand(typMap map[string]*Named) *Named {
-	if n.instance != nil {
+	if n.instPos != nil {
 		// n must be loaded before instantiation, in order to have accurate
 		// tparams. This is done implicitly by the call to n.TParams, but making it
 		// explicit is harmless: load is idempotent.
 		n.load()
 		var u Type
-		if n.check.validateTArgLen(n.instance.pos, n.tparams, n.targs) {
+		if n.check.validateTArgLen(*n.instPos, n.tparams.Len(), n.targs.Len()) {
 			if typMap == nil {
 				if n.check != nil {
 					typMap = n.check.typMap
@@ -268,17 +258,17 @@ func (n *Named) expand(typMap map[string]*Named) *Named {
 					// type-checking pass. In that case we won't have a pre-existing
 					// typMap, but don't want to create a duplicate of the current instance
 					// in the process of expansion.
-					h := instantiatedHash(n.orig, n.targs)
+					h := typeHash(n.orig, n.targs.list())
 					typMap = map[string]*Named{h: n}
 				}
 			}
-			u = n.check.subst(n.instance.pos, n.orig.underlying, makeSubstMap(n.TParams().list(), n.targs), typMap)
+			u = n.check.subst(*n.instPos, n.orig.underlying, makeSubstMap(n.TParams().list(), n.targs.list()), typMap)
 		} else {
 			u = Typ[Invalid]
 		}
 		n.underlying = u
 		n.fromRHS = u
-		n.instance = nil
+		n.instPos = nil
 	}
 	return n
 }

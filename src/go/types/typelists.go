@@ -4,6 +4,8 @@
 
 package types
 
+import "bytes"
+
 // TParamList holds a list of type parameters.
 type TParamList struct{ tparams []*TypeParam }
 
@@ -27,6 +29,14 @@ func (l *TParamList) list() []*TypeParam {
 // TypeList holds a list of types.
 type TypeList struct{ types []Type }
 
+// NewTypeList returns a new TypeList with the types in list.
+func NewTypeList(list []Type) *TypeList {
+	if len(list) == 0 {
+		return nil
+	}
+	return &TypeList{list}
+}
+
 // Len returns the number of types in the list.
 // It is safe to call on a nil receiver.
 func (l *TypeList) Len() int { return len(l.list()) }
@@ -42,6 +52,15 @@ func (l *TypeList) list() []Type {
 		return nil
 	}
 	return l.types
+}
+
+func (l *TypeList) String() string {
+	if l == nil || len(l.types) == 0 {
+		return "[]"
+	}
+	var buf bytes.Buffer
+	newTypeWriter(&buf, nil).typeList(l.types)
+	return buf.String()
 }
 
 // ----------------------------------------------------------------------------
