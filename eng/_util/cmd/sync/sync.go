@@ -143,6 +143,10 @@ func main() {
 	runOrPanic(fetchUpstream)
 	runOrPanic(fetchOrigin)
 
+	// While looping through the branches and trying to sync, use this slice to keep track of which
+	// branches have changes, so we can push changes and submit PRs later.
+	changedBranches := make([]*branch, 0, len(branches))
+
 	for _, b := range branches {
 		runOrPanic(newGitCommand("checkout", "auto-merge/"+b.mergeTarget))
 
@@ -159,6 +163,21 @@ func main() {
 		// sure we delete new files in e.g. '.github' that are in upstream but don't exist locally.
 		// '--ours' auto-deletes if upstream modifies a file that we deleted in our branch.
 		runOrPanic(newGitCommand(append([]string{"checkout", "--no-overlay", "--ours", "HEAD", "--"}, autoResolveOurPaths...)...))
+
+		// Check if there are any files in the stage. If not, we don't need to process this branch
+		// anymore, because the merge + autoresolve didn't change anything.
+		if err := run(newGitCommand("diff", "--cached", "--quiet")); err != nil {
+			if _, ok := err.(*exec.ExitError); ok {
+				fmt.Printf("---- Detected changes in Git stage. Continuing to commit and submit PR.\n")
+			} else {
+				// Make sure we don't ignore more than we intended.
+				panic(err)
+			}
+		} else {
+			// If the diff had 0 exit code, there are no changes. Skip this branch's next steps.
+			fmt.Printf("---- No changes to sync for %v. Skipping.\n", b.name)
+			continue
+		}
 
 		// If we still have unmerged files, 'git commit' will exit non-zero, causing the script to
 		// exit. This prevents the script from pushing a bad merge.
@@ -179,12 +198,20 @@ func main() {
 		fmt.Printf("---- Files changed from '%v' to '%v' ----\n", b.name, b.mergeTarget)
 		fmt.Print(b.fileDiff)
 		fmt.Println("--------")
+
+		changedBranches = append(changedBranches, b)
+	}
+
+	if len(changedBranches) == 0 {
+		fmt.Println("Checked branches for changes to sync: none found.")
+		fmt.Println("Success.")
+		return
 	}
 
 	// Mirroring should always be FF: fail if not. This indicates upstream did some kind of a force
 	// push, so the merging probably wouldn't work anyway.
-	mirrorPushRefspecs := make([]string, 0, len(branches))
-	for _, b := range branches {
+	mirrorPushRefspecs := make([]string, 0, len(changedBranches))
+	for _, b := range changedBranches {
 		mirrorPushRefspecs = append(mirrorPushRefspecs, b.mirrorPushRefspec())
 	}
 	runOrPanic(newGitPushCommand(*to, false, mirrorPushRefspecs))
@@ -195,8 +222,8 @@ func main() {
 	// Even if we did base our branch on "to", we'd hit undesired behaviors if the branch still has
 	// changes from an old PR. There are ways to handle this, but no clear benefit. Force push is
 	// simple and makes the PR flow simple.
-	mergePushRefspecs := make([]string, 0, len(branches))
-	for _, b := range branches {
+	mergePushRefspecs := make([]string, 0, len(changedBranches))
+	for _, b := range changedBranches {
 		mergePushRefspecs = append(mergePushRefspecs, b.mergePushRefspec())
 	}
 	runOrPanic(newGitPushCommand(*to, true, mergePushRefspecs))
@@ -212,7 +239,7 @@ func main() {
 	// Lazy var. The origin that should receive the PR.
 	var parsedOrigin *remote
 
-	for _, b := range branches {
+	for _, b := range changedBranches {
 		var skipReason string
 		switch {
 		case *dryRun:
