@@ -305,7 +305,7 @@ func (r *importReader) obj(name string) {
 			tparams = r.tparamList()
 		}
 		sig := r.signature(nil)
-		sig.SetTParams(tparams)
+		sig.SetTypeParams(tparams)
 		r.declare(types.NewFunc(pos, r.currPkg, name, sig))
 
 	case 'T', 'U':
@@ -317,7 +317,7 @@ func (r *importReader) obj(name string) {
 		// declaration before recursing.
 		obj := types.NewTypeName(pos, r.currPkg, name, nil)
 		named := types.NewNamed(obj, nil, nil)
-		named.SetTParams(tparams)
+		named.SetTypeParams(tparams)
 		r.declare(obj)
 
 		underlying := r.p.typAt(r.uint64(), named).Underlying()
@@ -333,13 +333,13 @@ func (r *importReader) obj(name string) {
 				// If the receiver has any targs, set those as the
 				// rparams of the method (since those are the
 				// typeparams being used in the method sig/body).
-				targs := baseType(msig.Recv().Type()).TArgs()
+				targs := baseType(msig.Recv().Type()).TypeArgs()
 				if targs.Len() > 0 {
 					rparams := make([]*types.TypeParam, targs.Len())
 					for i := range rparams {
 						rparams[i], _ = targs.At(i).(*types.TypeParam)
 					}
-					msig.SetRParams(rparams)
+					msig.SetRecvTypeParams(rparams)
 				}
 
 				named.AddMethod(types.NewFunc(mpos, r.currPkg, mname, msig))
@@ -355,7 +355,7 @@ func (r *importReader) obj(name string) {
 		}
 		name0, sub := parseSubscript(name)
 		tn := types.NewTypeName(pos, r.currPkg, name0, nil)
-		t := (*types.Checker)(nil).NewTypeParam(tn, nil)
+		t := types.NewTypeParam(tn, nil)
 		if sub == 0 {
 			errorf("missing subscript")
 		}

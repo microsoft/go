@@ -13,19 +13,6 @@ import (
 	"go/token"
 )
 
-// An Environment is an opaque type checking environment. It may be used to
-// share identical type instances across type checked packages or calls to
-// Instantiate.
-//
-// Currently, Environment is just a placeholder and has no effect on
-// instantiation.
-type Environment struct {
-	// Environment is currently un-implemented, because our instantiatedHash
-	// logic doesn't correctly handle Named type identity across multiple
-	// packages.
-	// TODO(rfindley): implement this.
-}
-
 // Instantiate instantiates the type typ with the given type arguments targs.
 // typ must be a *Named or a *Signature type, and its number of type parameters
 // must match the number of provided type arguments. The result is a new,
@@ -44,16 +31,16 @@ type Environment struct {
 // TODO(rfindley): change this function to also return an error if lengths of
 // tparams and targs do not match.
 func Instantiate(env *Environment, typ Type, targs []Type, validate bool) (Type, error) {
-	inst := (*Checker)(nil).instance(token.NoPos, typ, targs)
+	inst := (*Checker)(nil).instance(token.NoPos, typ, targs, env)
 
 	var err error
 	if validate {
 		var tparams []*TypeParam
 		switch t := typ.(type) {
 		case *Named:
-			tparams = t.TParams().list()
+			tparams = t.TypeParams().list()
 		case *Signature:
-			tparams = t.TParams().list()
+			tparams = t.TypeParams().list()
 		}
 		if i, err := (*Checker)(nil).verify(token.NoPos, tparams, targs); err != nil {
 			return inst, ArgumentError{i, err}
@@ -84,7 +71,7 @@ func (check *Checker) instantiate(pos token.Pos, typ Type, targs []Type, posList
 		}()
 	}
 
-	inst := check.instance(pos, typ, targs)
+	inst := check.instance(pos, typ, targs, check.conf.Environment)
 
 	assert(len(posList) <= len(targs))
 	check.later(func() {
@@ -93,9 +80,9 @@ func (check *Checker) instantiate(pos token.Pos, typ Type, targs []Type, posList
 		var tparams []*TypeParam
 		switch t := typ.(type) {
 		case *Named:
-			tparams = t.TParams().list()
+			tparams = t.TypeParams().list()
 		case *Signature:
-			tparams = t.TParams().list()
+			tparams = t.TypeParams().list()
 		}
 		// Avoid duplicate errors; instantiate will have complained if tparams
 		// and targs do not have the same length.
@@ -116,14 +103,15 @@ func (check *Checker) instantiate(pos token.Pos, typ Type, targs []Type, posList
 // instance creates a type or function instance using the given original type
 // typ and arguments targs. For Named types the resulting instance will be
 // unexpanded.
-func (check *Checker) instance(pos token.Pos, typ Type, targs []Type) Type {
+func (check *Checker) instance(pos token.Pos, typ Type, targs []Type, env *Environment) Type {
 	switch t := typ.(type) {
 	case *Named:
-		h := typeHash(t, targs)
-		if check != nil {
-			// typ may already have been instantiated with identical type arguments.
-			// In that case, re-use the existing instance.
-			if named := check.typMap[h]; named != nil {
+		var h string
+		if env != nil {
+			h = env.typeHash(t, targs)
+			// typ may already have been instantiated with identical type arguments. In
+			// that case, re-use the existing instance.
+			if named := env.typeForHash(h, nil); named != nil {
 				return named
 			}
 		}
@@ -131,20 +119,22 @@ func (check *Checker) instance(pos token.Pos, typ Type, targs []Type) Type {
 		named := check.newNamed(tname, t, nil, nil, nil) // methods and tparams are set when named is loaded
 		named.targs = NewTypeList(targs)
 		named.instPos = &pos
-		if check != nil {
-			check.typMap[h] = named
+		if env != nil {
+			// It's possible that we've lost a race to add named to the environment.
+			// In this case, use whichever instance is recorded in the environment.
+			named = env.typeForHash(h, named)
 		}
 		return named
 
 	case *Signature:
-		tparams := t.TParams()
+		tparams := t.TypeParams()
 		if !check.validateTArgLen(pos, tparams.Len(), len(targs)) {
 			return Typ[Invalid]
 		}
 		if tparams.Len() == 0 {
 			return typ // nothing to do (minor optimization)
 		}
-		sig := check.subst(pos, typ, makeSubstMap(tparams.list(), targs), nil).(*Signature)
+		sig := check.subst(pos, typ, makeSubstMap(tparams.list(), targs), env).(*Signature)
 		// If the signature doesn't use its type parameters, subst
 		// will not make a copy. In that case, make a copy now (so
 		// we can set tparams to nil w/o causing side-effects).

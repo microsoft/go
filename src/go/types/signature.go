@@ -21,13 +21,13 @@ type Signature struct {
 	// and store it in the Func Object) because when type-checking a function
 	// literal we call the general type checker which returns a general Type.
 	// We then unpack the *Signature and use the scope for the literal body.
-	rparams  *TParamList // receiver type parameters from left to right, or nil
-	tparams  *TParamList // type parameters from left to right, or nil
-	scope    *Scope      // function scope, present for package-local signatures
-	recv     *Var        // nil if not a method
-	params   *Tuple      // (incoming) parameters from left to right; or nil
-	results  *Tuple      // (outgoing) results from left to right; or nil
-	variadic bool        // true if the last parameter's type is of the form ...T (or string, for append built-in only)
+	rparams  *TypeParamList // receiver type parameters from left to right, or nil
+	tparams  *TypeParamList // type parameters from left to right, or nil
+	scope    *Scope         // function scope, present for package-local signatures
+	recv     *Var           // nil if not a method
+	params   *Tuple         // (incoming) parameters from left to right; or nil
+	results  *Tuple         // (outgoing) results from left to right; or nil
+	variadic bool           // true if the last parameter's type is of the form ...T (or string, for append built-in only)
 }
 
 // NewSignature returns a new function type for the given receiver, parameters,
@@ -55,17 +55,17 @@ func NewSignature(recv *Var, params, results *Tuple, variadic bool) *Signature {
 // contain methods whose receiver type is a different interface.
 func (s *Signature) Recv() *Var { return s.recv }
 
-// TParams returns the type parameters of signature s, or nil.
-func (s *Signature) TParams() *TParamList { return s.tparams }
+// TypeParams returns the type parameters of signature s, or nil.
+func (s *Signature) TypeParams() *TypeParamList { return s.tparams }
 
-// SetTParams sets the type parameters of signature s.
-func (s *Signature) SetTParams(tparams []*TypeParam) { s.tparams = bindTParams(tparams) }
+// SetTypeParams sets the type parameters of signature s.
+func (s *Signature) SetTypeParams(tparams []*TypeParam) { s.tparams = bindTParams(tparams) }
 
-// RParams returns the receiver type parameters of signature s, or nil.
-func (s *Signature) RParams() *TParamList { return s.rparams }
+// RecvTypeParams returns the receiver type parameters of signature s, or nil.
+func (s *Signature) RecvTypeParams() *TypeParamList { return s.rparams }
 
-// SetRParams sets the receiver type params of signature s.
-func (s *Signature) SetRParams(rparams []*TypeParam) { s.rparams = bindTParams(rparams) }
+// SetRecvTypeParams sets the receiver type params of signature s.
+func (s *Signature) SetRecvTypeParams(rparams []*TypeParam) { s.rparams = bindTParams(rparams) }
 
 // Params returns the parameters of signature s, or nil.
 func (s *Signature) Params() *Tuple { return s.params }
@@ -128,19 +128,19 @@ func (check *Checker) funcType(sig *Signature, recvPar *ast.FieldList, ftyp *ast
 				//       again when we type-check the signature.
 				// TODO(gri) maybe the receiver should be marked as invalid instead?
 				if recv, _ := check.genericType(rname, false).(*Named); recv != nil {
-					recvTParams = recv.TParams().list()
+					recvTParams = recv.TypeParams().list()
 				}
 			}
 			// provide type parameter bounds
 			// - only do this if we have the right number (otherwise an error is reported elsewhere)
-			if sig.RParams().Len() == len(recvTParams) {
+			if sig.RecvTypeParams().Len() == len(recvTParams) {
 				// We have a list of *TypeNames but we need a list of Types.
-				list := make([]Type, sig.RParams().Len())
-				for i, t := range sig.RParams().list() {
+				list := make([]Type, sig.RecvTypeParams().Len())
+				for i, t := range sig.RecvTypeParams().list() {
 					list[i] = t
 				}
 				smap := makeSubstMap(recvTParams, list)
-				for i, tpar := range sig.RParams().list() {
+				for i, tpar := range sig.RecvTypeParams().list() {
 					bound := recvTParams[i].bound
 					// bound is (possibly) parameterized in the context of the
 					// receiver type declaration. Substitute parameters for the
@@ -151,13 +151,13 @@ func (check *Checker) funcType(sig *Signature, recvPar *ast.FieldList, ftyp *ast
 		}
 	}
 
-	if ftyp.TParams != nil {
-		sig.tparams = check.collectTypeParams(ftyp.TParams)
+	if ftyp.TypeParams != nil {
+		check.collectTypeParams(&sig.tparams, ftyp.TypeParams)
 		// Always type-check method type parameters but complain that they are not allowed.
 		// (A separate check is needed when type-checking interface method signatures because
 		// they don't have a receiver specification.)
 		if recvPar != nil {
-			check.errorf(ftyp.TParams, _Todo, "methods cannot have type parameters")
+			check.errorf(ftyp.TypeParams, _Todo, "methods cannot have type parameters")
 		}
 	}
 
@@ -203,7 +203,7 @@ func (check *Checker) funcType(sig *Signature, recvPar *ast.FieldList, ftyp *ast
 				T.expand(nil)
 				// The receiver type may be an instantiated type referred to
 				// by an alias (which cannot have receiver parameters for now).
-				if T.TArgs() != nil && sig.RParams() == nil {
+				if T.TypeArgs() != nil && sig.RecvTypeParams() == nil {
 					check.errorf(atPos(recv.pos), _Todo, "cannot define methods on instantiated type %s", recv.typ)
 					break
 				}
@@ -326,7 +326,7 @@ func isubst(x ast.Expr, smap map[*ast.Ident]*ast.Ident) ast.Expr {
 			new.X = X
 			return &new
 		}
-	case *ast.IndexExpr, *ast.MultiIndexExpr:
+	case *ast.IndexExpr, *ast.IndexListExpr:
 		ix := typeparams.UnpackIndexExpr(x)
 		var newIndexes []ast.Expr
 		for i, index := range ix.Indices {
