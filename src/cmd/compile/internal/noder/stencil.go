@@ -396,13 +396,19 @@ func (g *irgen) buildClosure(outer *ir.Func, x ir.Node) ir.Node {
 	if rcvrValue != nil {
 		rcvrVar = ir.NewNameAt(pos, typecheck.LookupNum(".rcvr", g.dnum))
 		g.dnum++
-		rcvrVar.Class = ir.PAUTO
 		typed(rcvrValue.Type(), rcvrVar)
-		rcvrVar.Curfn = outer
 		rcvrAssign = ir.NewAssignStmt(pos, rcvrVar, rcvrValue)
 		rcvrAssign.SetTypecheck(1)
 		rcvrVar.Defn = rcvrAssign
-		outer.Dcl = append(outer.Dcl, rcvrVar)
+		if outer == nil {
+			rcvrVar.Class = ir.PEXTERN
+			g.target.Decls = append(g.target.Decls, rcvrAssign)
+			g.target.Externs = append(g.target.Externs, rcvrVar)
+		} else {
+			rcvrVar.Class = ir.PAUTO
+			rcvrVar.Curfn = outer
+			outer.Dcl = append(outer.Dcl, rcvrVar)
+		}
 	}
 
 	// Build body of closure. This involves just calling the wrapped function directly
@@ -481,39 +487,43 @@ func (g *irgen) buildClosure(outer *ir.Func, x ir.Node) ir.Node {
 }
 
 // instantiateMethods instantiates all the methods (and associated dictionaries) of
-// all fully-instantiated generic types that have been added to g.instTypeList.
+// all fully-instantiated generic types that have been added to typecheck.instTypeList.
+// It continues until no more types are added to typecheck.instTypeList.
 func (g *irgen) instantiateMethods() {
-	for i := 0; i < len(g.instTypeList); i++ {
-		typ := g.instTypeList[i]
-		assert(!typ.HasShape())
-		// Mark runtime type as needed, since this ensures that the
-		// compiler puts out the needed DWARF symbols, when this
-		// instantiated type has a different package from the local
-		// package.
-		typecheck.NeedRuntimeType(typ)
-		// Lookup the method on the base generic type, since methods may
-		// not be set on imported instantiated types.
-		baseSym := typ.OrigSym()
-		baseType := baseSym.Def.(*ir.Name).Type()
-		for j, _ := range typ.Methods().Slice() {
-			if baseType.Methods().Slice()[j].Nointerface() {
-				typ.Methods().Slice()[j].SetNointerface(true)
+	for {
+		instTypeList := typecheck.GetInstTypeList()
+		if len(instTypeList) == 0 {
+			break
+		}
+		for _, typ := range instTypeList {
+			assert(!typ.HasShape())
+			// Mark runtime type as needed, since this ensures that the
+			// compiler puts out the needed DWARF symbols, when this
+			// instantiated type has a different package from the local
+			// package.
+			typecheck.NeedRuntimeType(typ)
+			// Lookup the method on the base generic type, since methods may
+			// not be set on imported instantiated types.
+			baseSym := typ.OrigSym()
+			baseType := baseSym.Def.(*ir.Name).Type()
+			for j, _ := range typ.Methods().Slice() {
+				if baseType.Methods().Slice()[j].Nointerface() {
+					typ.Methods().Slice()[j].SetNointerface(true)
+				}
+				baseNname := baseType.Methods().Slice()[j].Nname.(*ir.Name)
+				// Eagerly generate the instantiations and dictionaries that implement these methods.
+				// We don't use the instantiations here, just generate them (and any
+				// further instantiations those generate, etc.).
+				// Note that we don't set the Func for any methods on instantiated
+				// types. Their signatures don't match so that would be confusing.
+				// Direct method calls go directly to the instantiations, implemented above.
+				// Indirect method calls use wrappers generated in reflectcall. Those wrappers
+				// will use these instantiations if they are needed (for interface tables or reflection).
+				_ = g.getInstantiation(baseNname, typ.RParams(), true)
+				_ = g.getDictionarySym(baseNname, typ.RParams(), true)
 			}
-			baseNname := baseType.Methods().Slice()[j].Nname.(*ir.Name)
-			// Eagerly generate the instantiations and dictionaries that implement these methods.
-			// We don't use the instantiations here, just generate them (and any
-			// further instantiations those generate, etc.).
-			// Note that we don't set the Func for any methods on instantiated
-			// types. Their signatures don't match so that would be confusing.
-			// Direct method calls go directly to the instantiations, implemented above.
-			// Indirect method calls use wrappers generated in reflectcall. Those wrappers
-			// will use these instantiations if they are needed (for interface tables or reflection).
-			_ = g.getInstantiation(baseNname, typ.RParams(), true)
-			_ = g.getDictionarySym(baseNname, typ.RParams(), true)
 		}
 	}
-	g.instTypeList = nil
-
 }
 
 // getInstNameNode returns the name node for the method or function being instantiated, and a bool which is true if a method is being instantiated.
@@ -735,9 +745,6 @@ func (g *irgen) genericSubst(newsym *types.Sym, nameNode *ir.Name, shapes []*typ
 	}
 
 	ir.CurFunc = savef
-	// Add any new, fully instantiated types seen during the substitution to
-	// g.instTypeList.
-	g.instTypeList = append(g.instTypeList, subst.ts.InstTypeList...)
 
 	if doubleCheck {
 		ir.Visit(newf, func(n ir.Node) {
@@ -1176,6 +1183,12 @@ func (subst *subster) node(n ir.Node) ir.Node {
 
 		case ir.OCONVIFACE:
 			x := x.(*ir.ConvExpr)
+			if m.Type().IsEmptyInterface() && m.(*ir.ConvExpr).X.Type().IsEmptyInterface() {
+				// Was T->interface{}, after stenciling it is now interface{}->interface{}.
+				// No longer need the conversion. See issue 48276.
+				m.(*ir.ConvExpr).SetOp(ir.OCONVNOP)
+				break
+			}
 			// Note: x's argument is still typed as a type parameter.
 			// m's argument now has an instantiated type.
 			if x.X.Type().HasTParam() || (x.X.Type().IsInterface() && x.Type().HasTParam()) {
@@ -1573,7 +1586,6 @@ func (g *irgen) getDictionarySym(gf *ir.Name, targs []*types.Type, isMeth bool) 
 		off:   off,
 	}
 	g.dictSymsToFinalize = append(g.dictSymsToFinalize, delay)
-	g.instTypeList = append(g.instTypeList, subst.InstTypeList...)
 	return sym
 }
 
@@ -1640,8 +1652,6 @@ func (g *irgen) finalizeSyms() {
 
 		objw.Global(lsym, int32(d.off), obj.DUPOK|obj.RODATA)
 		infoPrint("=== Finalized dictionary %s\n", d.sym.Name)
-
-		g.instTypeList = append(g.instTypeList, subst.InstTypeList...)
 	}
 	g.dictSymsToFinalize = nil
 }

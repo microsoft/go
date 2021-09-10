@@ -382,8 +382,8 @@ func (p *printer) parameters(fields *ast.FieldList, isTypeParam bool) {
 }
 
 func (p *printer) signature(sig *ast.FuncType) {
-	if sig.TParams != nil {
-		p.parameters(sig.TParams, true)
+	if sig.TypeParams != nil {
+		p.parameters(sig.TypeParams, true)
 	}
 	if sig.Params != nil {
 		p.parameters(sig.Params, false)
@@ -873,7 +873,7 @@ func (p *printer) expr1(expr ast.Expr, prec1, depth int) {
 		p.expr0(x.Index, depth+1)
 		p.print(x.Rbrack, token.RBRACK)
 
-	case *ast.MultiIndexExpr:
+	case *ast.IndexListExpr:
 		// TODO(gri): as for IndexExpr, should treat [] like parentheses and undo
 		// one level of depth
 		p.expr1(x.X, token.HighestPrec, 1)
@@ -1632,8 +1632,8 @@ func (p *printer) spec(spec ast.Spec, n int, doIndent bool) {
 	case *ast.TypeSpec:
 		p.setComment(s.Doc)
 		p.expr(s.Name)
-		if s.TParams != nil {
-			p.parameters(s.TParams, true)
+		if s.TypeParams != nil {
+			p.parameters(s.TypeParams, true)
 		}
 		if n == 1 {
 			p.print(blank)

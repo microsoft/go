@@ -559,7 +559,7 @@ func exprFmt(n Node, s fmt.State, prec int) {
 	}
 
 	nprec := OpPrec[n.Op()]
-	if n.Op() == OTYPE && n.Type().IsPtr() {
+	if n.Op() == OTYPE && n.Type() != nil && n.Type().IsPtr() {
 		nprec = OpPrec[ODEREF]
 	}
 
@@ -1147,6 +1147,7 @@ func dumpNodeHeader(w io.Writer, n Node) {
 			}
 			// TODO(mdempsky): Print line pragma details too.
 			file := filepath.Base(pos.Filename())
+			// Note: this output will be parsed by ssa/html.go:(*HTMLWriter).WriteAST. Keep in sync.
 			fmt.Fprintf(w, "%s:%d:%d", file, pos.Line(), pos.Col())
 		}
 	}

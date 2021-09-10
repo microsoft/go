@@ -317,7 +317,7 @@ func (check *Checker) validType(typ Type, path []Object) typeInfo {
 		}
 
 	case *Named:
-		t.expand(check.typMap)
+		t.expand(check.conf.Environment)
 
 		// don't touch the type if it is from a different package or the Universe scope
 		// (doing so would lead to a race condition - was issue #35049)
@@ -567,7 +567,7 @@ func (check *Checker) typeDecl(obj *TypeName, tdecl *syntax.TypeDecl, def *Named
 	if tdecl.TParamList != nil {
 		check.openScope(tdecl, "type parameters")
 		defer check.closeScope()
-		named.tparams = check.collectTypeParams(tdecl.TParamList)
+		check.collectTypeParams(&named.tparams, tdecl.TParamList)
 	}
 
 	// determine underlying type of named
@@ -592,13 +592,13 @@ func (check *Checker) typeDecl(obj *TypeName, tdecl *syntax.TypeDecl, def *Named
 	named.underlying = under(named)
 
 	// If the RHS is a type parameter, it must be from this type declaration.
-	if tpar, _ := named.underlying.(*TypeParam); tpar != nil && tparamIndex(named.TParams().list(), tpar) < 0 {
+	if tpar, _ := named.underlying.(*TypeParam); tpar != nil && tparamIndex(named.TypeParams().list(), tpar) < 0 {
 		check.errorf(tdecl.Type, "cannot use function type parameter %s as RHS in type declaration", tpar)
 		named.underlying = Typ[Invalid]
 	}
 }
 
-func (check *Checker) collectTypeParams(list []*syntax.Field) *TParamList {
+func (check *Checker) collectTypeParams(dst **TypeParamList, list []*syntax.Field) {
 	tparams := make([]*TypeParam, len(list))
 
 	// Declare type parameters up-front.
@@ -608,44 +608,49 @@ func (check *Checker) collectTypeParams(list []*syntax.Field) *TParamList {
 		tparams[i] = check.declareTypeParam(f.Name)
 	}
 
+	// Set the type parameters before collecting the type constraints because
+	// the parameterized type may be used by the constraints (issue #47887).
+	// Example: type T[P T[P]] interface{}
+	*dst = bindTParams(tparams)
+
 	var bound Type
 	for i, f := range list {
 		// Optimization: Re-use the previous type bound if it hasn't changed.
 		// This also preserves the grouped output of type parameter lists
 		// when printing type strings.
 		if i == 0 || f.Type != list[i-1].Type {
-			bound = check.boundType(f.Type)
+			// The predeclared identifier "any" is visible only as a type bound in a type parameter list.
+			// If we allow "any" for general use, this if-statement can be removed (issue #33232).
+			if name, _ := unparen(f.Type).(*syntax.Name); name != nil && name.Value == "any" && check.lookup("any") == universeAny {
+				bound = universeAny.Type()
+			} else {
+				bound = check.typ(f.Type)
+			}
 		}
 		tparams[i].bound = bound
 	}
 
-	return bindTParams(tparams)
+	check.later(func() {
+		for i, tpar := range tparams {
+			u := under(tpar.bound)
+			if _, ok := u.(*Interface); !ok && u != Typ[Invalid] {
+				check.errorf(list[i].Type, "%s is not an interface", tpar.bound)
+			}
+		}
+	})
 }
 
 func (check *Checker) declareTypeParam(name *syntax.Name) *TypeParam {
+	// Use Typ[Invalid] for the type constraint to ensure that a type
+	// is present even if the actual constraint has not been assigned
+	// yet.
+	// TODO(gri) Need to systematically review all uses of type parameter
+	//           constraints to make sure we don't rely on them if they
+	//           are not properly set yet.
 	tname := NewTypeName(name.Pos(), check.pkg, name.Value, nil)
-	tpar := check.NewTypeParam(tname, nil)                   // assigns type to tname as a side-effect
+	tpar := check.newTypeParam(tname, Typ[Invalid])          // assigns type to tname as a side-effect
 	check.declare(check.scope, name, tname, check.scope.pos) // TODO(gri) check scope position
 	return tpar
-}
-
-// boundType type-checks the type expression e and returns its type, or Typ[Invalid].
-// The type must be an interface, including the predeclared type "any".
-func (check *Checker) boundType(e syntax.Expr) Type {
-	// The predeclared identifier "any" is visible only as a type bound in a type parameter list.
-	// If we allow "any" for general use, this if-statement can be removed (issue #33232).
-	if name, _ := unparen(e).(*syntax.Name); name != nil && name.Value == "any" && check.lookup("any") == universeAny {
-		return universeAny.Type()
-	}
-
-	bound := check.typ(e)
-	check.later(func() {
-		u := under(bound)
-		if _, ok := u.(*Interface); !ok && u != Typ[Invalid] {
-			check.errorf(e, "%s is not an interface", bound)
-		}
-	})
-	return bound
 }
 
 func (check *Checker) collectMethods(obj *TypeName) {

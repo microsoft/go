@@ -51,7 +51,7 @@ func jalrToSym(ctxt *obj.Link, p *obj.Prog, newprog obj.ProgAlloc, lr int16) *ob
 	p.Mark |= NEED_PCREL_ITYPE_RELOC
 	p.SetFrom3(obj.Addr{Type: obj.TYPE_CONST, Offset: to.Offset, Sym: to.Sym})
 	p.From = obj.Addr{Type: obj.TYPE_CONST, Offset: 0}
-	p.Reg = 0
+	p.Reg = obj.REG_NONE
 	p.To = obj.Addr{Type: obj.TYPE_REG, Reg: REG_TMP}
 	p = obj.Appendp(p, newprog)
 
@@ -59,7 +59,7 @@ func jalrToSym(ctxt *obj.Link, p *obj.Prog, newprog obj.ProgAlloc, lr int16) *ob
 	p.As = AJALR
 	p.From.Type = obj.TYPE_REG
 	p.From.Reg = lr
-	p.Reg = 0
+	p.Reg = obj.REG_NONE
 	p.To.Type = obj.TYPE_REG
 	p.To.Reg = REG_TMP
 	p.To.Sym = to.Sym
@@ -72,7 +72,7 @@ func jalrToSym(ctxt *obj.Link, p *obj.Prog, newprog obj.ProgAlloc, lr int16) *ob
 func progedit(ctxt *obj.Link, p *obj.Prog, newprog obj.ProgAlloc) {
 
 	// Expand binary instructions to ternary ones.
-	if p.Reg == 0 {
+	if p.Reg == obj.REG_NONE {
 		switch p.As {
 		case AADDI, ASLTI, ASLTIU, AANDI, AORI, AXORI, ASLLI, ASRLI, ASRAI,
 			AADD, AAND, AOR, AXOR, ASLL, ASRL, ASUB, ASRA,
@@ -154,7 +154,7 @@ func progedit(ctxt *obj.Link, p *obj.Prog, newprog obj.ProgAlloc) {
 
 	case AMOV:
 		// Put >32-bit constants in memory and load them.
-		if p.From.Type == obj.TYPE_CONST && p.From.Name == obj.NAME_NONE && p.From.Reg == 0 && int64(int32(p.From.Offset)) != p.From.Offset {
+		if p.From.Type == obj.TYPE_CONST && p.From.Name == obj.NAME_NONE && p.From.Reg == obj.REG_NONE && int64(int32(p.From.Offset)) != p.From.Offset {
 			p.From.Type = obj.TYPE_MEM
 			p.From.Sym = ctxt.Int64Sym(p.From.Offset)
 			p.From.Name = obj.NAME_EXTERN
@@ -218,82 +218,28 @@ func movToStore(mnemonic obj.As) obj.As {
 	}
 }
 
-// rewriteMOV rewrites MOV pseudo-instructions.
-func rewriteMOV(ctxt *obj.Link, newprog obj.ProgAlloc, p *obj.Prog) {
+// markRelocs marks an obj.Prog that specifies a MOV pseudo-instruction and
+// requires relocation.
+func markRelocs(p *obj.Prog) {
 	switch p.As {
 	case AMOV, AMOVB, AMOVH, AMOVW, AMOVBU, AMOVHU, AMOVWU, AMOVF, AMOVD:
-	default:
-		panic(fmt.Sprintf("%+v is not a MOV pseudo-instruction", p.As))
-	}
-
-	switch p.From.Type {
-	case obj.TYPE_MEM:
-		switch p.From.Name {
-		case obj.NAME_AUTO, obj.NAME_PARAM, obj.NAME_NONE:
-			if p.To.Type != obj.TYPE_REG {
-				ctxt.Diag("unsupported load for %v", p)
+		switch {
+		case p.From.Type == obj.TYPE_ADDR && p.To.Type == obj.TYPE_REG:
+			switch p.From.Name {
+			case obj.NAME_EXTERN, obj.NAME_STATIC:
+				p.Mark |= NEED_PCREL_ITYPE_RELOC
 			}
-
-		case obj.NAME_EXTERN, obj.NAME_STATIC:
-			p.Mark |= NEED_PCREL_ITYPE_RELOC
-
-		default:
-			ctxt.Diag("unsupported name %d for %v", p.From.Name, p)
-		}
-
-	case obj.TYPE_REG:
-		switch p.To.Type {
-		case obj.TYPE_REG:
-			switch p.As {
-			case AMOV, AMOVB, AMOVH, AMOVW, AMOVBU, AMOVHU, AMOVWU, AMOVF, AMOVD:
-			default:
-				ctxt.Diag("unsupported register-register move at %v", p)
+		case p.From.Type == obj.TYPE_MEM && p.To.Type == obj.TYPE_REG:
+			switch p.From.Name {
+			case obj.NAME_EXTERN, obj.NAME_STATIC:
+				p.Mark |= NEED_PCREL_ITYPE_RELOC
 			}
-
-		case obj.TYPE_MEM:
-			switch p.As {
-			case AMOVBU, AMOVHU, AMOVWU:
-				ctxt.Diag("unsupported unsigned store at %v", p)
-				return
-			}
+		case p.From.Type == obj.TYPE_REG && p.To.Type == obj.TYPE_MEM:
 			switch p.To.Name {
-			case obj.NAME_AUTO, obj.NAME_PARAM, obj.NAME_NONE:
-
 			case obj.NAME_EXTERN, obj.NAME_STATIC:
 				p.Mark |= NEED_PCREL_STYPE_RELOC
-
-			default:
-				ctxt.Diag("unsupported name %d for %v", p.From.Name, p)
 			}
-
-		default:
-			ctxt.Diag("unsupported MOV at %v", p)
 		}
-
-	case obj.TYPE_CONST:
-		if p.As != AMOV {
-			ctxt.Diag("%v: unsupported constant load", p)
-		}
-		if p.To.Type != obj.TYPE_REG {
-			ctxt.Diag("%v: constant load must target register", p)
-		}
-
-	case obj.TYPE_ADDR:
-		if p.To.Type != obj.TYPE_REG || p.As != AMOV {
-			ctxt.Diag("unsupported addr MOV at %v", p)
-		}
-		switch p.From.Name {
-		case obj.NAME_AUTO, obj.NAME_PARAM, obj.NAME_NONE:
-
-		case obj.NAME_EXTERN, obj.NAME_STATIC:
-			p.Mark |= NEED_PCREL_ITYPE_RELOC
-
-		default:
-			ctxt.Diag("bad addr MOV from name %v at %v", p.From.Name, p)
-		}
-
-	default:
-		ctxt.Diag("unsupported MOV at %v", p)
 	}
 }
 
@@ -503,7 +449,7 @@ func preprocess(ctxt *obj.Link, cursym *obj.LSym, newprog obj.ProgAlloc) {
 
 		ldpanic.As = AMOV
 		ldpanic.From = obj.Addr{Type: obj.TYPE_MEM, Reg: REGG, Offset: 4 * int64(ctxt.Arch.PtrSize)} // G.panic
-		ldpanic.Reg = 0
+		ldpanic.Reg = obj.REG_NONE
 		ldpanic.To = obj.Addr{Type: obj.TYPE_REG, Reg: REG_X11}
 
 		bneadj := obj.Appendp(ldpanic, newprog)
@@ -523,7 +469,7 @@ func preprocess(ctxt *obj.Link, cursym *obj.LSym, newprog obj.ProgAlloc) {
 		getargp := obj.Appendp(last, newprog)
 		getargp.As = AMOV
 		getargp.From = obj.Addr{Type: obj.TYPE_MEM, Reg: REG_X11, Offset: 0} // Panic.argp
-		getargp.Reg = 0
+		getargp.Reg = obj.REG_NONE
 		getargp.To = obj.Addr{Type: obj.TYPE_REG, Reg: REG_X12}
 
 		bneadj.To.SetTarget(getargp)
@@ -550,7 +496,7 @@ func preprocess(ctxt *obj.Link, cursym *obj.LSym, newprog obj.ProgAlloc) {
 		setargp := obj.Appendp(adjargp, newprog)
 		setargp.As = AMOV
 		setargp.From = obj.Addr{Type: obj.TYPE_REG, Reg: REG_X12}
-		setargp.Reg = 0
+		setargp.Reg = obj.REG_NONE
 		setargp.To = obj.Addr{Type: obj.TYPE_MEM, Reg: REG_X11, Offset: 0} // Panic.argp
 
 		godone := obj.Appendp(setargp, newprog)
@@ -624,7 +570,7 @@ func preprocess(ctxt *obj.Link, cursym *obj.LSym, newprog obj.ProgAlloc) {
 			} else {
 				p.As = AJALR
 				p.From = obj.Addr{Type: obj.TYPE_REG, Reg: REG_ZERO}
-				p.Reg = 0
+				p.Reg = obj.REG_NONE
 				p.To = obj.Addr{Type: obj.TYPE_REG, Reg: REG_LR}
 			}
 
@@ -659,14 +605,8 @@ func preprocess(ctxt *obj.Link, cursym *obj.LSym, newprog obj.ProgAlloc) {
 		}
 	}
 
-	// Rewrite MOV pseudo-instructions. This cannot be done in
-	// progedit, as SP offsets need to be applied before we split
-	// up some of the Addrs.
 	for p := cursym.Func().Text; p != nil; p = p.Link {
-		switch p.As {
-		case AMOV, AMOVB, AMOVH, AMOVW, AMOVBU, AMOVHU, AMOVWU, AMOVF, AMOVD:
-			rewriteMOV(ctxt, newprog, p)
-		}
+		markRelocs(p)
 	}
 
 	// Compute instruction addresses.  Once we do that, we need to check for
@@ -718,7 +658,7 @@ func preprocess(ctxt *obj.Link, cursym *obj.LSym, newprog obj.ProgAlloc) {
 					p.As = AAUIPC
 					p.From = obj.Addr{Type: obj.TYPE_BRANCH, Sym: p.From.Sym}
 					p.From.SetTarget(p.To.Target())
-					p.Reg = 0
+					p.Reg = obj.REG_NONE
 					p.To = obj.Addr{Type: obj.TYPE_REG, Reg: REG_TMP}
 
 					rescan = true
@@ -890,10 +830,10 @@ func signExtend(val int64, bit uint) int64 {
 // generate a full 32-bit constant.
 func Split32BitImmediate(imm int64) (low, high int64, err error) {
 	if !immIFits(imm, 32) {
-		return 0, 0, fmt.Errorf("immediate does not fit in 32-bits: %d", imm)
+		return 0, 0, fmt.Errorf("immediate does not fit in 32 bits: %d", imm)
 	}
 
-	// Nothing special needs to be done if the immediate fits in 12-bits.
+	// Nothing special needs to be done if the immediate fits in 12 bits.
 	if immIFits(imm, 12) {
 		return imm, 0, nil
 	}
@@ -966,14 +906,14 @@ func immIFits(x int64, nbits uint) bool {
 // immI extracts the signed integer of the specified size from an immediate.
 func immI(as obj.As, imm int64, nbits uint) uint32 {
 	if !immIFits(imm, nbits) {
-		panic(fmt.Sprintf("%v\tsigned immediate %d cannot fit in %d bits", as, imm, nbits))
+		panic(fmt.Sprintf("%v: signed immediate %d cannot fit in %d bits", as, imm, nbits))
 	}
 	return uint32(imm)
 }
 
 func wantImmI(ctxt *obj.Link, as obj.As, imm int64, nbits uint) {
 	if !immIFits(imm, nbits) {
-		ctxt.Diag("%v\tsigned immediate cannot be larger than %d bits but got %d", as, nbits, imm)
+		ctxt.Diag("%v: signed immediate %d cannot be larger than %d bits", as, imm, nbits)
 	}
 }
 
@@ -983,13 +923,13 @@ func wantReg(ctxt *obj.Link, as obj.As, pos string, descr string, r, min, max ui
 		if r != obj.REG_NONE {
 			suffix = fmt.Sprintf(" but got non-%s register %s", descr, RegName(int(r)))
 		}
-		ctxt.Diag("%v\texpected %s register in %s position%s", as, descr, pos, suffix)
+		ctxt.Diag("%v: expected %s register in %s position%s", as, descr, pos, suffix)
 	}
 }
 
 func wantNoneReg(ctxt *obj.Link, as obj.As, pos string, r uint32) {
 	if r != obj.REG_NONE {
-		ctxt.Diag("%v\texpected no register in %s but got register %s", as, pos, RegName(int(r)))
+		ctxt.Diag("%v: expected no register in %s but got register %s", as, pos, RegName(int(r)))
 	}
 }
 
@@ -1006,7 +946,7 @@ func wantFloatReg(ctxt *obj.Link, as obj.As, pos string, r uint32) {
 // wantEvenOffset checks that the offset is a multiple of two.
 func wantEvenOffset(ctxt *obj.Link, as obj.As, offset int64) {
 	if offset%1 != 0 {
-		ctxt.Diag("%v\tjump offset %v must be even", as, offset)
+		ctxt.Diag("%v: jump offset %d must be a multiple of two", as, offset)
 	}
 }
 
@@ -1121,7 +1061,7 @@ func validateRaw(ctxt *obj.Link, ins *instruction) {
 	// Treat the raw value specially as a 32-bit unsigned integer.
 	// Nobody wants to enter negative machine code.
 	if ins.imm < 0 || 1<<32 <= ins.imm {
-		ctxt.Diag("%v\timmediate in raw position cannot be larger than 32 bits but got %d", ins.as, ins.imm)
+		ctxt.Diag("%v: immediate %d in raw position cannot be larger than 32 bits", ins.as, ins.imm)
 	}
 }
 
@@ -1764,6 +1704,11 @@ func instructionsForMOV(p *obj.Prog) []*instruction {
 	switch {
 	case p.From.Type == obj.TYPE_CONST && p.To.Type == obj.TYPE_REG:
 		// Handle constant to register moves.
+		if p.As != AMOV {
+			p.Ctxt.Diag("%v: unsupported constant load", p)
+			return nil
+		}
+
 		low, high, err := Split32BitImmediate(ins.imm)
 		if err != nil {
 			p.Ctxt.Diag("%v: constant %d too large: %v", p, ins.imm, err)
@@ -1786,6 +1731,10 @@ func instructionsForMOV(p *obj.Prog) []*instruction {
 			ins.as, ins.rs1 = AADDIW, ins.rd
 			inss = append(inss, ins)
 		}
+
+	case p.From.Type == obj.TYPE_CONST && p.To.Type != obj.TYPE_REG:
+		p.Ctxt.Diag("%v: constant load must target register", p)
+		return nil
 
 	case p.From.Type == obj.TYPE_REG && p.To.Type == obj.TYPE_REG:
 		// Handle register to register moves.
@@ -1838,13 +1787,17 @@ func instructionsForMOV(p *obj.Prog) []*instruction {
 			insAUIPC := &instruction{as: AAUIPC, rd: ins.rd}
 			ins.as, ins.rs1, ins.rs2, ins.imm = movToLoad(p.As), ins.rd, obj.REG_NONE, 0
 			inss = []*instruction{insAUIPC, ins}
+
+		default:
+			p.Ctxt.Diag("unsupported name %d for %v", p.From.Name, p)
+			return nil
 		}
 
 	case p.From.Type == obj.TYPE_REG && p.To.Type == obj.TYPE_MEM:
 		// Register to memory stores.
 		switch p.As {
 		case AMOVBU, AMOVHU, AMOVWU:
-			// rewriteMOV should have already added an error for these.
+			p.Ctxt.Diag("%v: unsupported unsigned store", p)
 			return nil
 		}
 		switch p.To.Name {
@@ -1861,11 +1814,18 @@ func instructionsForMOV(p *obj.Prog) []*instruction {
 			insAUIPC := &instruction{as: AAUIPC, rd: REG_TMP}
 			ins.as, ins.rd, ins.rs1, ins.rs2, ins.imm = movToStore(p.As), REG_TMP, uint32(p.From.Reg), obj.REG_NONE, 0
 			inss = []*instruction{insAUIPC, ins}
+
+		default:
+			p.Ctxt.Diag("unsupported name %d for %v", p.From.Name, p)
+			return nil
 		}
 
 	case p.From.Type == obj.TYPE_ADDR && p.To.Type == obj.TYPE_REG:
 		// MOV $sym+off(SP/SB), R
-
+		if p.As != AMOV {
+			p.Ctxt.Diag("%v: unsupported address load", p)
+			return nil
+		}
 		switch p.From.Name {
 		case obj.NAME_AUTO, obj.NAME_PARAM, obj.NAME_NONE:
 			inss = instructionsForOpImmediate(p, AADDI, addrToReg(p.From))
@@ -1879,15 +1839,19 @@ func instructionsForMOV(p *obj.Prog) []*instruction {
 			insAUIPC := &instruction{as: AAUIPC, rd: ins.rd}
 			ins.as, ins.rs1, ins.rs2, ins.imm = AADDI, ins.rd, obj.REG_NONE, 0
 			inss = []*instruction{insAUIPC, ins}
-		}
 
-	default:
-		// If we get here with a MOV pseudo-instruction it is going to
-		// remain unhandled. For now we trust rewriteMOV to catch these.
-		switch p.As {
-		case AMOV, AMOVB, AMOVH, AMOVW, AMOVBU, AMOVHU, AMOVWU, AMOVF, AMOVD:
+		default:
+			p.Ctxt.Diag("unsupported name %d for %v", p.From.Name, p)
 			return nil
 		}
+
+	case p.From.Type == obj.TYPE_ADDR && p.To.Type != obj.TYPE_REG:
+		p.Ctxt.Diag("%v: address load must target register", p)
+		return nil
+
+	default:
+		p.Ctxt.Diag("%v: unsupported MOV", p)
+		return nil
 	}
 
 	return inss
@@ -2034,6 +1998,16 @@ func instructionsForProg(p *obj.Prog) []*instruction {
 		ins.as = ASLTU
 		ins.rs1 = REG_ZERO
 
+	case AFABSS:
+		// FABSS rs, rd -> FSGNJXS rs, rs, rd
+		ins.as = AFSGNJXS
+		ins.rs1 = uint32(p.From.Reg)
+
+	case AFABSD:
+		// FABSD rs, rd -> FSGNJXD rs, rs, rd
+		ins.as = AFSGNJXD
+		ins.rs1 = uint32(p.From.Reg)
+
 	case AFNEGS:
 		// FNEGS rs, rd -> FSGNJNS rs, rs, rd
 		ins.as = AFSGNJNS
@@ -2055,7 +2029,6 @@ func assemble(ctxt *obj.Link, cursym *obj.LSym, newprog obj.ProgAlloc) {
 		ctxt.Retpoline = false // don't keep printing
 	}
 
-	var symcode []uint32
 	for p := cursym.Func().Text; p != nil; p = p.Link {
 		switch p.As {
 		case AJALR:
@@ -2110,22 +2083,16 @@ func assemble(ctxt *obj.Link, cursym *obj.LSym, newprog obj.ProgAlloc) {
 			rel.Type = rt
 		}
 
+		offset := p.Pc
 		for _, ins := range instructionsForProg(p) {
-			ic, err := ins.encode()
-			if err != nil {
-				break
+			if ic, err := ins.encode(); err == nil {
+				cursym.WriteInt(ctxt, offset, ins.length(), int64(ic))
+				offset += int64(ins.length())
 			}
 			if ins.usesRegTmp() {
 				p.Mark |= USES_REG_TMP
 			}
-			symcode = append(symcode, ic)
 		}
-	}
-	cursym.Size = int64(4 * len(symcode))
-
-	cursym.Grow(cursym.Size)
-	for p, i := cursym.P, 0; i < len(symcode); p, i = p[4:], i+1 {
-		ctxt.Arch.ByteOrder.PutUint32(p, symcode[i])
 	}
 
 	obj.MarkUnsafePoints(ctxt, cursym.Func().Text, newprog, isUnsafePoint, nil)

@@ -780,11 +780,13 @@ func (t *test) run() {
 			}
 
 		default:
-			// we don't know how to add -G for this test yet
-			if *verbose {
-				fmt.Printf("excl\t%s\n", t.goFileName())
+			if t.glevel != CompilerDefaultGLevel {
+				// we don't know how to add -G for this test yet
+				if *verbose {
+					fmt.Printf("excl\t%s\n", t.goFileName())
+				}
+				return false
 			}
-			return false
 		}
 
 		return true
@@ -2185,6 +2187,8 @@ var g3Failures = setOf(
 	"writebarrier.go", // correct diagnostics, but different lines (probably irgen's fault)
 
 	"typeparam/nested.go", // -G=3 doesn't support function-local types with generics
+
+	"typeparam/issue46461b.go", // -G=3 fails when type parameters refer back to the parameterized type itself
 
 	"typeparam/mdempsky/4.go", // -G=3 can't export functions with labeled breaks in loops
 )
