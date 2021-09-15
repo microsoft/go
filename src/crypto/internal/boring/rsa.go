@@ -336,7 +336,7 @@ func VerifyRSAPKCS1v15(pub *PublicKeyRSA, h crypto.Hash, msg, sig []byte, msgIsH
 		}
 		return 1
 	}) == 0 {
-		return errors.New("foo")
+		return errors.New("crypto/rsa: verification error")
 	}
 
 	if msgIsHashed {

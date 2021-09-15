@@ -37,6 +37,9 @@ func testAllCurves(t *testing.T, f func(*testing.T, elliptic.Curve)) {
 		tests = tests[:1]
 	}
 	for _, test := range tests {
+		if boring.Enabled() && test.name == "P224" {
+			t.Skip("p224 not supported in FIPS mode")
+		}
 		curve := test.curve
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
