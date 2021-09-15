@@ -8,7 +8,6 @@ package types2
 
 import (
 	"bytes"
-	"fmt"
 	"strconv"
 	"unicode/utf8"
 )
@@ -64,9 +63,6 @@ func WriteSignature(buf *bytes.Buffer, sig *Signature, qf Qualifier) {
 	newTypeWriter(buf, qf).signature(sig)
 }
 
-// instanceMarker is the prefix for an instantiated type in unexpanded form.
-const instanceMarker = '#'
-
 type typeWriter struct {
 	buf  *bytes.Buffer
 	seen map[Type]bool
@@ -83,14 +79,29 @@ func newTypeHasher(buf *bytes.Buffer, env *Environment) *typeWriter {
 	return &typeWriter{buf, make(map[Type]bool), nil, env}
 }
 
-func (w *typeWriter) byte(b byte)                               { w.buf.WriteByte(b) }
-func (w *typeWriter) string(s string)                           { w.buf.WriteString(s) }
-func (w *typeWriter) writef(format string, args ...interface{}) { fmt.Fprintf(w.buf, format, args...) }
+func (w *typeWriter) byte(b byte) {
+	if w.env != nil {
+		if b == ' ' {
+			b = '#'
+		}
+		w.buf.WriteByte(b)
+		return
+	}
+	w.buf.WriteByte(b)
+	if b == ',' || b == ';' {
+		w.buf.WriteByte(' ')
+	}
+}
+
+func (w *typeWriter) string(s string) {
+	w.buf.WriteString(s)
+}
+
 func (w *typeWriter) error(msg string) {
 	if w.env != nil {
 		panic(msg)
 	}
-	w.string("<" + msg + ">")
+	w.buf.WriteString("<" + msg + ">")
 }
 
 func (w *typeWriter) typ(typ Type) {
@@ -117,7 +128,9 @@ func (w *typeWriter) typ(typ Type) {
 		w.string(t.name)
 
 	case *Array:
-		w.writef("[%d]", t.len)
+		w.byte('[')
+		w.string(strconv.FormatInt(t.len, 10))
+		w.byte(']')
 		w.typ(t.elem)
 
 	case *Slice:
@@ -128,7 +141,7 @@ func (w *typeWriter) typ(typ Type) {
 		w.string("struct{")
 		for i, f := range t.fields {
 			if i > 0 {
-				w.string("; ")
+				w.byte(';')
 			}
 			// This doesn't do the right thing for embedded type
 			// aliases where we should print the alias name, not
@@ -139,7 +152,11 @@ func (w *typeWriter) typ(typ Type) {
 			}
 			w.typ(f.typ)
 			if tag := t.Tag(i); tag != "" {
-				w.writef(" %q", tag)
+				w.byte(' ')
+				// TODO(gri) If tag contains blanks, replacing them with '#'
+				//           in Environment.TypeHash may produce another tag
+				//           accidentally.
+				w.string(strconv.Quote(tag))
 			}
 		}
 		w.byte('}')
@@ -177,7 +194,7 @@ func (w *typeWriter) typ(typ Type) {
 		first := true
 		for _, m := range t.methods {
 			if !first {
-				w.string("; ")
+				w.byte(';')
 			}
 			first = false
 			w.string(m.name)
@@ -185,7 +202,7 @@ func (w *typeWriter) typ(typ Type) {
 		}
 		for _, typ := range t.embeddeds {
 			if !first {
-				w.string("; ")
+				w.byte(';')
 			}
 			first = false
 			w.typ(typ)
@@ -225,13 +242,6 @@ func (w *typeWriter) typ(typ Type) {
 		}
 
 	case *Named:
-		// Instance markers indicate unexpanded instantiated
-		// types. Write them to aid debugging, but don't write
-		// them when we need an instance hash: whether a type
-		// is fully expanded or not doesn't matter for identity.
-		if w.env == nil && t.instPos != nil {
-			w.byte(instanceMarker)
-		}
 		w.typePrefix(t)
 		w.typeName(t.obj)
 		if t.targs != nil {
@@ -279,7 +289,7 @@ func (w *typeWriter) typeList(list []Type) {
 	w.byte('[')
 	for i, typ := range list {
 		if i > 0 {
-			w.string(", ")
+			w.byte(',')
 		}
 		w.typ(typ)
 	}
@@ -303,7 +313,7 @@ func (w *typeWriter) tParamList(list []*TypeParam) {
 				w.byte(' ')
 				w.typ(prev)
 			}
-			w.string(", ")
+			w.byte(',')
 		}
 		prev = tpar.bound
 		w.typ(tpar)
@@ -327,7 +337,7 @@ func (w *typeWriter) tuple(tup *Tuple, variadic bool) {
 	if tup != nil {
 		for i, v := range tup.vars {
 			if i > 0 {
-				w.string(", ")
+				w.byte(',')
 			}
 			// parameter names are ignored for type identity and thus type hashes
 			if w.env == nil && v.name != "" {

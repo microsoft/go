@@ -72,7 +72,7 @@ const (
 	structType
 	interfaceType
 	typeParamType
-	instType
+	instanceType
 	unionType
 )
 
@@ -318,17 +318,17 @@ func (r *importReader) obj(name string) {
 		r.declare(types2.NewFunc(pos, r.currPkg, name, sig))
 
 	case 'T', 'U':
-		var tparams []*types2.TypeParam
-		if tag == 'U' {
-			tparams = r.tparamList()
-		}
-
 		// Types can be recursive. We need to setup a stub
 		// declaration before recursing.
 		obj := types2.NewTypeName(pos, r.currPkg, name, nil)
 		named := types2.NewNamed(obj, nil, nil)
-		named.SetTypeParams(tparams)
+		// Declare obj before calling r.tparamList, so the new type name is recognized
+		// if used in the constraint of one of its own typeparams (see #48280).
 		r.declare(obj)
+		if tag == 'U' {
+			tparams := r.tparamList()
+			named.SetTypeParams(tparams)
+		}
 
 		underlying := r.p.typAt(r.uint64(), named).Underlying()
 		named.SetUnderlying(underlying)
@@ -646,7 +646,7 @@ func (r *importReader) doType(base *types2.Named) types2.Type {
 		r.p.doDecl(pkg, name)
 		return r.p.tparamIndex[id]
 
-	case instType:
+	case instanceType:
 		if r.p.exportVersion < iexportVersionGenerics {
 			errorf("unexpected instantiation type")
 		}
@@ -661,7 +661,7 @@ func (r *importReader) doType(base *types2.Named) types2.Type {
 		baseType := r.typ()
 		// The imported instantiated type doesn't include any methods, so
 		// we must always use the methods of the base (orig) type.
-		// TODO provide a non-nil *Checker
+		// TODO provide a non-nil *Environment
 		t, _ := types2.Instantiate(nil, baseType, targs, false)
 		return t
 

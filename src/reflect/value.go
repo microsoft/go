@@ -1517,7 +1517,7 @@ func (v Value) MapIndex(key Value) Value {
 	// of unexported fields.
 
 	var e unsafe.Pointer
-	if key.kind() == String && tt.key.Kind() == String {
+	if key.kind() == String && tt.key.Kind() == String && tt.elem.size <= maxValSize {
 		k := *(*string)(key.ptr)
 		e = mapaccess_faststr(v.typ, v.pointer(), k)
 	} else {
@@ -2128,7 +2128,7 @@ func (v Value) SetMapIndex(key, elem Value) {
 	key.mustBeExported()
 	tt := (*mapType)(unsafe.Pointer(v.typ))
 
-	if key.kind() == String && tt.key.Kind() == String {
+	if key.kind() == String && tt.key.Kind() == String && tt.elem.size <= maxValSize {
 		k := *(*string)(key.ptr)
 		if elem.typ == nil {
 			mapdelete_faststr(v.typ, v.pointer(), k)
@@ -2940,8 +2940,7 @@ func (v Value) CanConvert(t Type) bool {
 	// from slice to pointer-to-array.
 	if vt.Kind() == Slice && t.Kind() == Ptr && t.Elem().Kind() == Array {
 		n := t.Elem().Len()
-		h := (*unsafeheader.Slice)(v.ptr)
-		if n > h.Len {
+		if n > v.Len() {
 			return false
 		}
 	}
@@ -3208,10 +3207,10 @@ func cvtStringRunes(v Value, t Type) Value {
 // convertOp: []T -> *[N]T
 func cvtSliceArrayPtr(v Value, t Type) Value {
 	n := t.Elem().Len()
-	h := (*unsafeheader.Slice)(v.ptr)
-	if n > h.Len {
-		panic("reflect: cannot convert slice with length " + itoa.Itoa(h.Len) + " to pointer to array with length " + itoa.Itoa(n))
+	if n > v.Len() {
+		panic("reflect: cannot convert slice with length " + itoa.Itoa(v.Len()) + " to pointer to array with length " + itoa.Itoa(n))
 	}
+	h := (*unsafeheader.Slice)(v.ptr)
 	return Value{t.common(), h.Data, v.flag&^(flagIndir|flagAddr|flagKindMask) | flag(Ptr)}
 }
 

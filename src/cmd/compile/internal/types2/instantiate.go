@@ -108,7 +108,7 @@ func (check *Checker) instance(pos syntax.Pos, typ Type, targs []Type, env *Envi
 	case *Named:
 		var h string
 		if env != nil {
-			h = env.typeHash(t, targs)
+			h = env.TypeHash(t, targs)
 			// typ may already have been instantiated with identical type arguments. In
 			// that case, re-use the existing instance.
 			if named := env.typeForHash(h, nil); named != nil {
@@ -116,9 +116,11 @@ func (check *Checker) instance(pos syntax.Pos, typ Type, targs []Type, env *Envi
 			}
 		}
 		tname := NewTypeName(pos, t.obj.pkg, t.obj.name, nil)
-		named := check.newNamed(tname, t, nil, nil, nil) // methods and tparams are set when named is loaded
+		named := check.newNamed(tname, t, nil, nil, nil) // methods and tparams are set when named is resolved
 		named.targs = NewTypeList(targs)
-		named.instPos = &pos
+		named.resolver = func(env *Environment, n *Named) (*TypeParamList, Type, []*Func) {
+			return expandNamed(env, n, pos)
+		}
 		if env != nil {
 			// It's possible that we've lost a race to add named to the environment.
 			// In this case, use whichever instance is recorded in the environment.

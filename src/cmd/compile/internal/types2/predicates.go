@@ -225,6 +225,13 @@ func identical(x, y Type, cmpTags bool, p *ifacePair) bool {
 				identical(x.results, y.results, cmpTags, p)
 		}
 
+	case *Union:
+		if y, _ := y.(*Union); y != nil {
+			xset := computeUnionTypeSet(nil, nopos, x)
+			yset := computeUnionTypeSet(nil, nopos, y)
+			return xset.terms.equal(yset.terms)
+		}
+
 	case *Interface:
 		// Two interface types are identical if they describe the same type sets.
 		// With the existing implementation restriction, this simplifies to:
@@ -302,9 +309,6 @@ func identical(x, y Type, cmpTags bool, p *ifacePair) bool {
 		// Two named types are identical if their type names originate
 		// in the same type declaration.
 		if y, ok := y.(*Named); ok {
-			x.expand(nil)
-			y.expand(nil)
-
 			xargs := x.TypeArgs().list()
 			yargs := y.TypeArgs().list()
 
