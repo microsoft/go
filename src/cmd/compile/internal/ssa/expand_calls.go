@@ -1082,6 +1082,12 @@ func (x *expandState) rewriteArgs(v *Value, firstArg int) {
 	mem := m0
 	newArgs := []*Value{}
 	oldArgs := []*Value{}
+	sp := x.sp
+	if v.Op == OpTailLECall {
+		// For tail call, we unwind the frame before the call so we'll use the caller's
+		// SP.
+		sp = x.f.Entry.NewValue0(src.NoXPos, OpGetCallerSP, x.typs.Uintptr)
+	}
 	for i, a := range v.Args[firstArg : len(v.Args)-1] { // skip leading non-parameter SSA Args and trailing mem SSA Arg.
 		oldArgs = append(oldArgs, a)
 		auxI := int64(i)
@@ -1092,9 +1098,20 @@ func (x *expandState) rewriteArgs(v *Value, firstArg int) {
 			if a.MemoryArg() != m0 {
 				x.f.Fatalf("Op...LECall and OpDereference have mismatched mem, %s and %s", v.LongString(), a.LongString())
 			}
+			if v.Op == OpTailLECall {
+				// It's common for a tail call passing the same arguments (e.g. method wrapper),
+				// so this would be a self copy. Detect this and optimize it out.
+				a0 := a.Args[0]
+				if a0.Op == OpLocalAddr {
+					n := a0.Aux.(*ir.Name)
+					if n.Class == ir.PPARAM && n.FrameOffset()+x.f.Config.ctxt.FixedFrameSize() == aOffset {
+						continue
+					}
+				}
+			}
 			// "Dereference" of addressed (probably not-SSA-eligible) value becomes Move
 			// TODO(register args) this will be more complicated with registers in the picture.
-			mem = x.rewriteDereference(v.Block, x.sp, a, mem, aOffset, aux.SizeOfArg(auxI), aType, a.Pos)
+			mem = x.rewriteDereference(v.Block, sp, a, mem, aOffset, aux.SizeOfArg(auxI), aType, a.Pos)
 		} else {
 			var rc registerCursor
 			var result *[]*Value
@@ -1104,10 +1121,18 @@ func (x *expandState) rewriteArgs(v *Value, firstArg int) {
 			} else {
 				aOffset = aux.OffsetOfArg(auxI)
 			}
+			if v.Op == OpTailLECall && a.Op == OpArg && a.AuxInt == 0 {
+				// It's common for a tail call passing the same arguments (e.g. method wrapper),
+				// so this would be a self copy. Detect this and optimize it out.
+				n := a.Aux.(*ir.Name)
+				if n.Class == ir.PPARAM && n.FrameOffset()+x.f.Config.ctxt.FixedFrameSize() == aOffset {
+					continue
+				}
+			}
 			if x.debug > 1 {
 				x.Printf("...storeArg %s, %v, %d\n", a.LongString(), aType, aOffset)
 			}
-			rc.init(aRegs, aux.abiInfo, result, x.sp)
+			rc.init(aRegs, aux.abiInfo, result, sp)
 			mem = x.storeArgOrLoad(a.Pos, v.Block, a, mem, aType, aOffset, 0, rc)
 		}
 	}
@@ -1207,7 +1232,7 @@ func expandCalls(f *Func) {
 		for _, v := range b.Values {
 			firstArg := 0
 			switch v.Op {
-			case OpStaticLECall:
+			case OpStaticLECall, OpTailLECall:
 			case OpInterLECall:
 				firstArg = 1
 			case OpClosureLECall:
@@ -1523,6 +1548,10 @@ func expandCalls(f *Func) {
 				x.rewriteArgToMemOrRegs(v)
 			case OpStaticLECall:
 				v.Op = OpStaticCall
+				rts := abi.RegisterTypes(v.Aux.(*AuxCall).abiInfo.OutParams())
+				v.Type = types.NewResults(append(rts, types.TypeMem))
+			case OpTailLECall:
+				v.Op = OpTailCall
 				rts := abi.RegisterTypes(v.Aux.(*AuxCall).abiInfo.OutParams())
 				v.Type = types.NewResults(append(rts, types.TypeMem))
 			case OpClosureLECall:
