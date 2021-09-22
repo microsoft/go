@@ -63,8 +63,9 @@
 //     }
 //
 //     type Func struct {
-//         Tag       byte // 'F'
+//         Tag       byte // 'F' or 'G'
 //         Pos       Pos
+//         TypeParams []typeOff  // only present if Tag == 'G'
 //         Signature Signature
 //     }
 //
@@ -75,8 +76,9 @@
 //     }
 //
 //     type Type struct {
-//         Tag        byte // 'T'
+//         Tag        byte // 'T' or 'U'
 //         Pos        Pos
+//         TypeParams []typeOff  // only present if Tag == 'U'
 //         Underlying typeOff
 //
 //         Methods []struct{  // omitted if Underlying is an interface type
@@ -93,6 +95,12 @@
 //         Type typeOff
 //     }
 //
+//     // "Automatic" declaration of each typeparam
+//     type TypeParam struct {
+//         Tag  byte // 'P'
+//         Pos  Pos
+//         Bound typeOff
+//     }
 //
 // typeOff means a uvarint that either indicates a predeclared type,
 // or an offset into the Data section. If the uvarint is less than
@@ -104,7 +112,7 @@
 // (*exportWriter).value for details.
 //
 //
-// There are nine kinds of type descriptors, distinguished by an itag:
+// There are twelve kinds of type descriptors, distinguished by an itag:
 //
 //     type DefinedType struct {
 //         Tag     itag // definedType
@@ -172,8 +180,30 @@
 //         }
 //     }
 //
+//     // Reference to a type param declaration
+//     type TypeParamType struct {
+//         Tag     itag // typeParamType
+//         Name    stringOff
+//         PkgPath stringOff
+//     }
 //
-//  TODO(danscales): fill in doc for 'type TypeParamType' and 'type InstType'
+//     // Instantiation of a generic type (like List[T2] or List[int])
+//     type InstanceType struct {
+//         Tag     itag // instanceType
+//         Pos     pos
+//         TypeArgs []typeOff
+//         BaseType typeOff
+//     }
+//
+//     type UnionType struct {
+//         Tag     itag // interfaceType
+//         Terms   []struct {
+//             tilde bool
+//             Type  typeOff
+//         }
+//     }
+//
+//
 //
 //     type Signature struct {
 //         Params   []Param
@@ -255,7 +285,7 @@ const (
 	structType
 	interfaceType
 	typeParamType
-	instType
+	instanceType // Instantiation of a generic type
 	unionType
 )
 
@@ -893,7 +923,7 @@ func (w *exportWriter) doTyp(t *types.Type) {
 		if strings.Index(s.Name, "[") < 0 {
 			base.Fatalf("incorrect name for instantiated type")
 		}
-		w.startType(instType)
+		w.startType(instanceType)
 		w.pos(t.Pos())
 		// Export the type arguments for the instantiated type. The
 		// instantiated type could be in a method header (e.g. "func (v

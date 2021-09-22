@@ -821,7 +821,7 @@ func (r *importReader) typ1() *types.Type {
 		}
 		return n.Type()
 
-	case instType:
+	case instanceType:
 		if r.p.exportVersion < iexportVersionGenerics {
 			base.Fatalf("unexpected instantiation type")
 		}
@@ -1867,6 +1867,11 @@ func substInstType(t *types.Type, baseType *types.Type, targs []*types.Type) {
 	}
 	t.SetUnderlying(subst.Typ(baseType.Underlying()))
 
+	if t.HasShape() && !t.IsInterface() {
+		// Concrete shape types have no methods.
+		return
+	}
+
 	newfields := make([]*types.Field, baseType.Methods().Len())
 	for i, f := range baseType.Methods().Slice() {
 		if !f.IsMethod() || types.IsInterfaceMethod(f.Type) {
@@ -1903,8 +1908,9 @@ func substInstType(t *types.Type, baseType *types.Type, targs []*types.Type) {
 		newfields[i].Nname = nname
 	}
 	t.Methods().Set(newfields)
-	if !t.HasTParam() && t.Kind() != types.TINTER && t.Methods().Len() > 0 {
-		// Generate all the methods for a new fully-instantiated type.
+	if !t.HasTParam() && !t.HasShape() && t.Kind() != types.TINTER && t.Methods().Len() > 0 {
+		// Generate all the methods for a new fully-instantiated,
+		// non-interface, non-shape type.
 		NeedInstType(t)
 	}
 }

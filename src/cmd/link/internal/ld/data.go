@@ -113,7 +113,6 @@ func trampoline(ctxt *Link, s loader.Sym) {
 		if !ldr.AttrReachable(rs) || ldr.SymType(rs) == sym.Sxxx {
 			continue // something is wrong. skip it here and we'll emit a better error later
 		}
-		rs = ldr.ResolveABIAlias(rs)
 		if ldr.SymValue(rs) == 0 && (ldr.SymType(rs) != sym.SDYNIMPORT && ldr.SymType(rs) != sym.SUNDEFEXT) {
 			if ldr.SymPkg(s) != "" && ldr.SymPkg(rs) == ldr.SymPkg(s) {
 				// Symbols in the same package are laid out together.
@@ -194,7 +193,6 @@ func (st *relocSymState) relocsym(s loader.Sym, P []byte) {
 		off := r.Off()
 		siz := int32(r.Siz())
 		rs := r.Sym()
-		rs = ldr.ResolveABIAlias(rs)
 		rt := r.Type()
 		weak := r.Weak()
 		if off < 0 || off+siz > int32(len(P)) {
@@ -340,7 +338,6 @@ func (st *relocSymState) relocsym(s loader.Sym, P []byte) {
 			if weak && !ldr.AttrReachable(rs) {
 				// Redirect it to runtime.unreachableMethod, which will throw if called.
 				rs = syms.unreachableMethod
-				rs = ldr.ResolveABIAlias(rs)
 			}
 			if target.IsExternal() {
 				nExtReloc++
@@ -614,7 +611,7 @@ func extreloc(ctxt *Link, ldr *loader.Loader, s loader.Sym, r loader.Reloc) (loa
 
 	case objabi.R_TLS_LE, objabi.R_TLS_IE:
 		if target.IsElf() {
-			rs := ldr.ResolveABIAlias(r.Sym())
+			rs := r.Sym()
 			rr.Xsym = rs
 			if rr.Xsym == 0 {
 				rr.Xsym = ctxt.Tlsg
@@ -626,10 +623,9 @@ func extreloc(ctxt *Link, ldr *loader.Loader, s loader.Sym, r loader.Reloc) (loa
 
 	case objabi.R_ADDR:
 		// set up addend for eventual relocation via outer symbol.
-		rs := ldr.ResolveABIAlias(r.Sym())
+		rs := r.Sym()
 		if r.Weak() && !ldr.AttrReachable(rs) {
 			rs = ctxt.ArchSyms.unreachableMethod
-			rs = ldr.ResolveABIAlias(rs)
 		}
 		rs, off := FoldSubSymbolOffset(ldr, rs)
 		rr.Xadd = r.Add() + off
@@ -644,13 +640,13 @@ func extreloc(ctxt *Link, ldr *loader.Loader, s loader.Sym, r loader.Reloc) (loa
 		if target.IsDarwin() {
 			return rr, false
 		}
-		rs := ldr.ResolveABIAlias(r.Sym())
+		rs := r.Sym()
 		rr.Xsym = loader.Sym(ldr.SymSect(rs).Sym)
 		rr.Xadd = r.Add() + ldr.SymValue(rs) - int64(ldr.SymSect(rs).Vaddr)
 
 	// r.Sym() can be 0 when CALL $(constant) is transformed from absolute PC to relative PC call.
 	case objabi.R_GOTPCREL, objabi.R_CALL, objabi.R_PCREL:
-		rs := ldr.ResolveABIAlias(r.Sym())
+		rs := r.Sym()
 		if rt == objabi.R_GOTPCREL && target.IsDynlinkingGo() && target.IsDarwin() && rs != 0 {
 			rr.Xadd = r.Add()
 			rr.Xadd -= int64(siz) // relative to address after the relocated chunk
@@ -692,7 +688,7 @@ func extreloc(ctxt *Link, ldr *loader.Loader, s loader.Sym, r loader.Reloc) (loa
 // symbol and addend.
 func ExtrelocSimple(ldr *loader.Loader, r loader.Reloc) loader.ExtReloc {
 	var rr loader.ExtReloc
-	rs := ldr.ResolveABIAlias(r.Sym())
+	rs := r.Sym()
 	rr.Xsym = rs
 	rr.Xadd = r.Add()
 	rr.Type = r.Type()
@@ -705,7 +701,7 @@ func ExtrelocSimple(ldr *loader.Loader, r loader.Reloc) loader.ExtReloc {
 func ExtrelocViaOuterSym(ldr *loader.Loader, r loader.Reloc, s loader.Sym) loader.ExtReloc {
 	// set up addend for eventual relocation via outer symbol.
 	var rr loader.ExtReloc
-	rs := ldr.ResolveABIAlias(r.Sym())
+	rs := r.Sym()
 	rs, off := FoldSubSymbolOffset(ldr, rs)
 	rr.Xadd = r.Add() + off
 	rst := ldr.SymType(rs)
@@ -1782,7 +1778,9 @@ func (state *dodataState) allocateDataSections(ctxt *Link) {
 
 	// Coverage instrumentation counters for libfuzzer.
 	if len(state.data[sym.SLIBFUZZER_EXTRA_COUNTER]) > 0 {
-		state.allocateNamedSectionAndAssignSyms(&Segdata, "__libfuzzer_extra_counters", sym.SLIBFUZZER_EXTRA_COUNTER, sym.Sxxx, 06)
+		sect := state.allocateNamedSectionAndAssignSyms(&Segdata, "__libfuzzer_extra_counters", sym.SLIBFUZZER_EXTRA_COUNTER, sym.Sxxx, 06)
+		ldr.SetSymSect(ldr.LookupOrCreateSym("internal/fuzz._counters", 0), sect)
+		ldr.SetSymSect(ldr.LookupOrCreateSym("internal/fuzz._ecounters", 0), sect)
 	}
 
 	if len(state.data[sym.STLSBSS]) > 0 {
@@ -2522,6 +2520,7 @@ func (ctxt *Link) address() []*sym.Segment {
 	var noptr *sym.Section
 	var bss *sym.Section
 	var noptrbss *sym.Section
+	var fuzzCounters *sym.Section
 	for i, s := range Segdata.Sections {
 		if (ctxt.IsELF || ctxt.HeadType == objabi.Haix) && s.Name == ".tbss" {
 			continue
@@ -2533,17 +2532,17 @@ func (ctxt *Link) address() []*sym.Segment {
 		s.Vaddr = va
 		va += uint64(vlen)
 		Segdata.Length = va - Segdata.Vaddr
-		if s.Name == ".data" {
+		switch s.Name {
+		case ".data":
 			data = s
-		}
-		if s.Name == ".noptrdata" {
+		case ".noptrdata":
 			noptr = s
-		}
-		if s.Name == ".bss" {
+		case ".bss":
 			bss = s
-		}
-		if s.Name == ".noptrbss" {
+		case ".noptrbss":
 			noptrbss = s
+		case "__libfuzzer_extra_counters":
+			fuzzCounters = s
 		}
 	}
 
@@ -2659,6 +2658,11 @@ func (ctxt *Link) address() []*sym.Segment {
 	ctxt.xdefine("runtime.noptrbss", sym.SNOPTRBSS, int64(noptrbss.Vaddr))
 	ctxt.xdefine("runtime.enoptrbss", sym.SNOPTRBSS, int64(noptrbss.Vaddr+noptrbss.Length))
 	ctxt.xdefine("runtime.end", sym.SBSS, int64(Segdata.Vaddr+Segdata.Length))
+
+	if fuzzCounters != nil {
+		ctxt.xdefine("internal/fuzz._counters", sym.SLIBFUZZER_EXTRA_COUNTER, int64(fuzzCounters.Vaddr))
+		ctxt.xdefine("internal/fuzz._ecounters", sym.SLIBFUZZER_EXTRA_COUNTER, int64(fuzzCounters.Vaddr+fuzzCounters.Length))
+	}
 
 	if ctxt.IsSolaris() {
 		// On Solaris, in the runtime it sets the external names of the

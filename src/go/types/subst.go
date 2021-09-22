@@ -177,7 +177,9 @@ func (subst *subster) typ(typ Type) Type {
 		}
 
 		var newTArgs []Type
-		assert(t.targs.Len() == t.orig.TypeParams().Len())
+		if t.targs.Len() != t.orig.TypeParams().Len() {
+			return Typ[Invalid] // error reported elsewhere
+		}
 
 		// already instantiated
 		dump(">>> %s already instantiated", t)
@@ -210,7 +212,6 @@ func (subst *subster) typ(typ Type) Type {
 			return named
 		}
 
-		t.orig.resolve(subst.env)
 		// Create a new instance and populate the environment to avoid endless
 		// recursion. The position used here is irrelevant because validation only
 		// occurs on t (we don't call validType on named), but we use subst.pos to
