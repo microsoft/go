@@ -307,7 +307,6 @@ type extSymPayload struct {
 const (
 	// Loader.flags
 	FlagStrictDups = 1 << iota
-	FlagUseABIAlias
 )
 
 func NewLoader(flags uint32, elfsetstring elfsetstringFunc, reporter *ErrorReporter) *Loader {
@@ -1207,6 +1206,15 @@ func (l *Loader) IsItab(i Sym) bool {
 	}
 	r, li := l.toLocal(i)
 	return r.Sym(li).IsItab()
+}
+
+// Returns whether this symbol is a dictionary symbol.
+func (l *Loader) IsDict(i Sym) bool {
+	if l.IsExternal(i) {
+		return false
+	}
+	r, li := l.toLocal(i)
+	return r.Sym(li).IsDict()
 }
 
 // Return whether this is a trampoline of a deferreturn call.
@@ -2183,7 +2191,7 @@ func (st *loadState) preloadSyms(r *oReader, kind int) {
 		}
 		if strings.HasPrefix(name, "runtime.") ||
 			(loadingRuntimePkg && strings.HasPrefix(name, "type.")) {
-			if bi := goobj.BuiltinIdx(name, v); bi != -1 {
+			if bi := goobj.BuiltinIdx(name, int(osym.ABI())); bi != -1 {
 				// This is a definition of a builtin symbol. Record where it is.
 				l.builtinSyms[bi] = gi
 			}
@@ -2286,27 +2294,6 @@ func abiToVer(abi uint16, localSymVersion int) int {
 		log.Fatalf("invalid symbol ABI: %d", abi)
 	}
 	return v
-}
-
-// ResolveABIAlias given a symbol returns the ABI alias target of that
-// symbol. If the sym in question is not an alias, the sym itself is
-// returned.
-func (l *Loader) ResolveABIAlias(s Sym) Sym {
-	if l.flags&FlagUseABIAlias == 0 {
-		return s
-	}
-	if s == 0 {
-		return 0
-	}
-	if l.SymType(s) != sym.SABIALIAS {
-		return s
-	}
-	relocs := l.Relocs(s)
-	target := relocs.At(0).Sym()
-	if l.SymType(target) == sym.SABIALIAS {
-		panic(fmt.Sprintf("ABI alias %s references another ABI alias %s", l.SymName(s), l.SymName(target)))
-	}
-	return target
 }
 
 // TopLevelSym tests a symbol (by name and kind) to determine whether

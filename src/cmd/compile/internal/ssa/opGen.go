@@ -1033,6 +1033,14 @@ const (
 	OpAMD64ORLlock
 	OpAMD64PrefetchT0
 	OpAMD64PrefetchNTA
+	OpAMD64ANDNQ
+	OpAMD64ANDNL
+	OpAMD64BLSIQ
+	OpAMD64BLSIL
+	OpAMD64BLSMSKQ
+	OpAMD64BLSMSKL
+	OpAMD64BLSRQ
+	OpAMD64BLSRL
 
 	OpARMADD
 	OpARMADDconst
@@ -1412,6 +1420,7 @@ const (
 	OpARM64MVNshiftLL
 	OpARM64MVNshiftRL
 	OpARM64MVNshiftRA
+	OpARM64MVNshiftRO
 	OpARM64NEGshiftLL
 	OpARM64NEGshiftRL
 	OpARM64NEGshiftRA
@@ -1424,21 +1433,27 @@ const (
 	OpARM64ANDshiftLL
 	OpARM64ANDshiftRL
 	OpARM64ANDshiftRA
+	OpARM64ANDshiftRO
 	OpARM64ORshiftLL
 	OpARM64ORshiftRL
 	OpARM64ORshiftRA
+	OpARM64ORshiftRO
 	OpARM64XORshiftLL
 	OpARM64XORshiftRL
 	OpARM64XORshiftRA
+	OpARM64XORshiftRO
 	OpARM64BICshiftLL
 	OpARM64BICshiftRL
 	OpARM64BICshiftRA
+	OpARM64BICshiftRO
 	OpARM64EONshiftLL
 	OpARM64EONshiftRL
 	OpARM64EONshiftRA
+	OpARM64EONshiftRO
 	OpARM64ORNshiftLL
 	OpARM64ORNshiftRL
 	OpARM64ORNshiftRA
+	OpARM64ORNshiftRO
 	OpARM64CMPshiftLL
 	OpARM64CMPshiftRL
 	OpARM64CMPshiftRA
@@ -1448,6 +1463,7 @@ const (
 	OpARM64TSTshiftLL
 	OpARM64TSTshiftRL
 	OpARM64TSTshiftRA
+	OpARM64TSTshiftRO
 	OpARM64BFI
 	OpARM64BFXIL
 	OpARM64SBFIZ
@@ -13620,6 +13636,120 @@ var opcodeTable = [...]opInfo{
 			},
 		},
 	},
+	{
+		name:         "ANDNQ",
+		argLen:       2,
+		clobberFlags: true,
+		asm:          x86.AANDNQ,
+		reg: regInfo{
+			inputs: []inputInfo{
+				{0, 49135}, // AX CX DX BX BP SI DI R8 R9 R10 R11 R12 R13 R15
+				{1, 49135}, // AX CX DX BX BP SI DI R8 R9 R10 R11 R12 R13 R15
+			},
+			outputs: []outputInfo{
+				{0, 49135}, // AX CX DX BX BP SI DI R8 R9 R10 R11 R12 R13 R15
+			},
+		},
+	},
+	{
+		name:         "ANDNL",
+		argLen:       2,
+		clobberFlags: true,
+		asm:          x86.AANDNL,
+		reg: regInfo{
+			inputs: []inputInfo{
+				{0, 49135}, // AX CX DX BX BP SI DI R8 R9 R10 R11 R12 R13 R15
+				{1, 49135}, // AX CX DX BX BP SI DI R8 R9 R10 R11 R12 R13 R15
+			},
+			outputs: []outputInfo{
+				{0, 49135}, // AX CX DX BX BP SI DI R8 R9 R10 R11 R12 R13 R15
+			},
+		},
+	},
+	{
+		name:         "BLSIQ",
+		argLen:       1,
+		clobberFlags: true,
+		asm:          x86.ABLSIQ,
+		reg: regInfo{
+			inputs: []inputInfo{
+				{0, 49135}, // AX CX DX BX BP SI DI R8 R9 R10 R11 R12 R13 R15
+			},
+			outputs: []outputInfo{
+				{0, 49135}, // AX CX DX BX BP SI DI R8 R9 R10 R11 R12 R13 R15
+			},
+		},
+	},
+	{
+		name:         "BLSIL",
+		argLen:       1,
+		clobberFlags: true,
+		asm:          x86.ABLSIL,
+		reg: regInfo{
+			inputs: []inputInfo{
+				{0, 49135}, // AX CX DX BX BP SI DI R8 R9 R10 R11 R12 R13 R15
+			},
+			outputs: []outputInfo{
+				{0, 49135}, // AX CX DX BX BP SI DI R8 R9 R10 R11 R12 R13 R15
+			},
+		},
+	},
+	{
+		name:         "BLSMSKQ",
+		argLen:       1,
+		clobberFlags: true,
+		asm:          x86.ABLSMSKQ,
+		reg: regInfo{
+			inputs: []inputInfo{
+				{0, 49135}, // AX CX DX BX BP SI DI R8 R9 R10 R11 R12 R13 R15
+			},
+			outputs: []outputInfo{
+				{0, 49135}, // AX CX DX BX BP SI DI R8 R9 R10 R11 R12 R13 R15
+			},
+		},
+	},
+	{
+		name:         "BLSMSKL",
+		argLen:       1,
+		clobberFlags: true,
+		asm:          x86.ABLSMSKL,
+		reg: regInfo{
+			inputs: []inputInfo{
+				{0, 49135}, // AX CX DX BX BP SI DI R8 R9 R10 R11 R12 R13 R15
+			},
+			outputs: []outputInfo{
+				{0, 49135}, // AX CX DX BX BP SI DI R8 R9 R10 R11 R12 R13 R15
+			},
+		},
+	},
+	{
+		name:         "BLSRQ",
+		argLen:       1,
+		clobberFlags: true,
+		asm:          x86.ABLSRQ,
+		reg: regInfo{
+			inputs: []inputInfo{
+				{0, 49135}, // AX CX DX BX BP SI DI R8 R9 R10 R11 R12 R13 R15
+			},
+			outputs: []outputInfo{
+				{0, 49135}, // AX CX DX BX BP SI DI R8 R9 R10 R11 R12 R13 R15
+			},
+		},
+	},
+	{
+		name:         "BLSRL",
+		argLen:       1,
+		clobberFlags: true,
+		asm:          x86.ABLSRL,
+		reg: regInfo{
+			inputs: []inputInfo{
+				{0, 49135}, // AX CX DX BX BP SI DI R8 R9 R10 R11 R12 R13 R15
+			},
+			outputs: []outputInfo{
+				{0, 49135}, // AX CX DX BX BP SI DI R8 R9 R10 R11 R12 R13 R15
+			},
+		},
+	},
 
 	{
 		name:        "ADD",
@@ -18808,6 +18938,20 @@ var opcodeTable = [...]opInfo{
 		},
 	},
 	{
+		name:    "MVNshiftRO",
+		auxType: auxInt64,
+		argLen:  1,
+		asm:     arm64.AMVN,
+		reg: regInfo{
+			inputs: []inputInfo{
+				{0, 805044223}, // R0 R1 R2 R3 R4 R5 R6 R7 R8 R9 R10 R11 R12 R13 R14 R15 R16 R17 R19 R20 R21 R22 R23 R24 R25 R26 g R30
+			},
+			outputs: []outputInfo{
+				{0, 670826495}, // R0 R1 R2 R3 R4 R5 R6 R7 R8 R9 R10 R11 R12 R13 R14 R15 R16 R17 R19 R20 R21 R22 R23 R24 R25 R26 R30
+			},
+		},
+	},
+	{
 		name:    "NEGshiftLL",
 		auxType: auxInt64,
 		argLen:  1,
@@ -18985,6 +19129,21 @@ var opcodeTable = [...]opInfo{
 		},
 	},
 	{
+		name:    "ANDshiftRO",
+		auxType: auxInt64,
+		argLen:  2,
+		asm:     arm64.AAND,
+		reg: regInfo{
+			inputs: []inputInfo{
+				{0, 805044223}, // R0 R1 R2 R3 R4 R5 R6 R7 R8 R9 R10 R11 R12 R13 R14 R15 R16 R17 R19 R20 R21 R22 R23 R24 R25 R26 g R30
+				{1, 805044223}, // R0 R1 R2 R3 R4 R5 R6 R7 R8 R9 R10 R11 R12 R13 R14 R15 R16 R17 R19 R20 R21 R22 R23 R24 R25 R26 g R30
+			},
+			outputs: []outputInfo{
+				{0, 670826495}, // R0 R1 R2 R3 R4 R5 R6 R7 R8 R9 R10 R11 R12 R13 R14 R15 R16 R17 R19 R20 R21 R22 R23 R24 R25 R26 R30
+			},
+		},
+	},
+	{
 		name:    "ORshiftLL",
 		auxType: auxInt64,
 		argLen:  2,
@@ -19016,6 +19175,21 @@ var opcodeTable = [...]opInfo{
 	},
 	{
 		name:    "ORshiftRA",
+		auxType: auxInt64,
+		argLen:  2,
+		asm:     arm64.AORR,
+		reg: regInfo{
+			inputs: []inputInfo{
+				{0, 805044223}, // R0 R1 R2 R3 R4 R5 R6 R7 R8 R9 R10 R11 R12 R13 R14 R15 R16 R17 R19 R20 R21 R22 R23 R24 R25 R26 g R30
+				{1, 805044223}, // R0 R1 R2 R3 R4 R5 R6 R7 R8 R9 R10 R11 R12 R13 R14 R15 R16 R17 R19 R20 R21 R22 R23 R24 R25 R26 g R30
+			},
+			outputs: []outputInfo{
+				{0, 670826495}, // R0 R1 R2 R3 R4 R5 R6 R7 R8 R9 R10 R11 R12 R13 R14 R15 R16 R17 R19 R20 R21 R22 R23 R24 R25 R26 R30
+			},
+		},
+	},
+	{
+		name:    "ORshiftRO",
 		auxType: auxInt64,
 		argLen:  2,
 		asm:     arm64.AORR,
@@ -19075,6 +19249,21 @@ var opcodeTable = [...]opInfo{
 		},
 	},
 	{
+		name:    "XORshiftRO",
+		auxType: auxInt64,
+		argLen:  2,
+		asm:     arm64.AEOR,
+		reg: regInfo{
+			inputs: []inputInfo{
+				{0, 805044223}, // R0 R1 R2 R3 R4 R5 R6 R7 R8 R9 R10 R11 R12 R13 R14 R15 R16 R17 R19 R20 R21 R22 R23 R24 R25 R26 g R30
+				{1, 805044223}, // R0 R1 R2 R3 R4 R5 R6 R7 R8 R9 R10 R11 R12 R13 R14 R15 R16 R17 R19 R20 R21 R22 R23 R24 R25 R26 g R30
+			},
+			outputs: []outputInfo{
+				{0, 670826495}, // R0 R1 R2 R3 R4 R5 R6 R7 R8 R9 R10 R11 R12 R13 R14 R15 R16 R17 R19 R20 R21 R22 R23 R24 R25 R26 R30
+			},
+		},
+	},
+	{
 		name:    "BICshiftLL",
 		auxType: auxInt64,
 		argLen:  2,
@@ -19106,6 +19295,21 @@ var opcodeTable = [...]opInfo{
 	},
 	{
 		name:    "BICshiftRA",
+		auxType: auxInt64,
+		argLen:  2,
+		asm:     arm64.ABIC,
+		reg: regInfo{
+			inputs: []inputInfo{
+				{0, 805044223}, // R0 R1 R2 R3 R4 R5 R6 R7 R8 R9 R10 R11 R12 R13 R14 R15 R16 R17 R19 R20 R21 R22 R23 R24 R25 R26 g R30
+				{1, 805044223}, // R0 R1 R2 R3 R4 R5 R6 R7 R8 R9 R10 R11 R12 R13 R14 R15 R16 R17 R19 R20 R21 R22 R23 R24 R25 R26 g R30
+			},
+			outputs: []outputInfo{
+				{0, 670826495}, // R0 R1 R2 R3 R4 R5 R6 R7 R8 R9 R10 R11 R12 R13 R14 R15 R16 R17 R19 R20 R21 R22 R23 R24 R25 R26 R30
+			},
+		},
+	},
+	{
+		name:    "BICshiftRO",
 		auxType: auxInt64,
 		argLen:  2,
 		asm:     arm64.ABIC,
@@ -19165,6 +19369,21 @@ var opcodeTable = [...]opInfo{
 		},
 	},
 	{
+		name:    "EONshiftRO",
+		auxType: auxInt64,
+		argLen:  2,
+		asm:     arm64.AEON,
+		reg: regInfo{
+			inputs: []inputInfo{
+				{0, 805044223}, // R0 R1 R2 R3 R4 R5 R6 R7 R8 R9 R10 R11 R12 R13 R14 R15 R16 R17 R19 R20 R21 R22 R23 R24 R25 R26 g R30
+				{1, 805044223}, // R0 R1 R2 R3 R4 R5 R6 R7 R8 R9 R10 R11 R12 R13 R14 R15 R16 R17 R19 R20 R21 R22 R23 R24 R25 R26 g R30
+			},
+			outputs: []outputInfo{
+				{0, 670826495}, // R0 R1 R2 R3 R4 R5 R6 R7 R8 R9 R10 R11 R12 R13 R14 R15 R16 R17 R19 R20 R21 R22 R23 R24 R25 R26 R30
+			},
+		},
+	},
+	{
 		name:    "ORNshiftLL",
 		auxType: auxInt64,
 		argLen:  2,
@@ -19196,6 +19415,21 @@ var opcodeTable = [...]opInfo{
 	},
 	{
 		name:    "ORNshiftRA",
+		auxType: auxInt64,
+		argLen:  2,
+		asm:     arm64.AORN,
+		reg: regInfo{
+			inputs: []inputInfo{
+				{0, 805044223}, // R0 R1 R2 R3 R4 R5 R6 R7 R8 R9 R10 R11 R12 R13 R14 R15 R16 R17 R19 R20 R21 R22 R23 R24 R25 R26 g R30
+				{1, 805044223}, // R0 R1 R2 R3 R4 R5 R6 R7 R8 R9 R10 R11 R12 R13 R14 R15 R16 R17 R19 R20 R21 R22 R23 R24 R25 R26 g R30
+			},
+			outputs: []outputInfo{
+				{0, 670826495}, // R0 R1 R2 R3 R4 R5 R6 R7 R8 R9 R10 R11 R12 R13 R14 R15 R16 R17 R19 R20 R21 R22 R23 R24 R25 R26 R30
+			},
+		},
+	},
+	{
+		name:    "ORNshiftRO",
 		auxType: auxInt64,
 		argLen:  2,
 		asm:     arm64.AORN,
@@ -19307,6 +19541,18 @@ var opcodeTable = [...]opInfo{
 	},
 	{
 		name:    "TSTshiftRA",
+		auxType: auxInt64,
+		argLen:  2,
+		asm:     arm64.ATST,
+		reg: regInfo{
+			inputs: []inputInfo{
+				{0, 805044223}, // R0 R1 R2 R3 R4 R5 R6 R7 R8 R9 R10 R11 R12 R13 R14 R15 R16 R17 R19 R20 R21 R22 R23 R24 R25 R26 g R30
+				{1, 805044223}, // R0 R1 R2 R3 R4 R5 R6 R7 R8 R9 R10 R11 R12 R13 R14 R15 R16 R17 R19 R20 R21 R22 R23 R24 R25 R26 g R30
+			},
+		},
+	},
+	{
+		name:    "TSTshiftRO",
 		auxType: auxInt64,
 		argLen:  2,
 		asm:     arm64.ATST,
@@ -36906,12 +37152,12 @@ var registersPPC64 = [...]Register{
 	{62, ppc64.REG_F30, -1, "F30"},
 	{63, ppc64.REG_F31, -1, "F31"},
 }
-var paramIntRegPPC64 = []int8(nil)
-var paramFloatRegPPC64 = []int8(nil)
+var paramIntRegPPC64 = []int8{3, 4, 5, 6, 7, 8, 9, 10, 14, 15, 16, 17}
+var paramFloatRegPPC64 = []int8{33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44}
 var gpRegMaskPPC64 = regMask(1073733624)
 var fpRegMaskPPC64 = regMask(576460743713488896)
 var specialRegMaskPPC64 = regMask(0)
-var framepointerRegPPC64 = int8(1)
+var framepointerRegPPC64 = int8(-1)
 var linkRegPPC64 = int8(-1)
 var registersRISCV64 = [...]Register{
 	{0, riscv.REG_X0, -1, "X0"},

@@ -87,13 +87,11 @@ func (check *Checker) newNamed(obj *TypeName, orig *Named, underlying Type, tpar
 
 // Obj returns the type name for the declaration defining the named type t. For
 // instantiated types, this is the type name of the base type.
-func (t *Named) Obj() *TypeName {
-	return t.orig.obj // for non-instances this is the same as t.obj
-}
+func (t *Named) Obj() *TypeName { return t.orig.obj } // for non-instances this is the same as t.obj
 
-// Orig returns the original generic type an instantiated type is derived from.
-// If t is not an instantiated type, the result is t.
-func (t *Named) Orig() *Named { return t.orig }
+// Origin returns the parameterized type from which the named type t is
+// instantiated. If t is not an instantiated type, the result is t.
+func (t *Named) Origin() *Named { return t.orig }
 
 // TODO(gri) Come up with a better representation and API to distinguish
 //           between parameterized instantiated and non-instantiated types.
@@ -219,36 +217,111 @@ func (n *Named) setUnderlying(typ Type) {
 	}
 }
 
+// bestEnv returns the best available environment. In order of preference:
+// - the given env, if non-nil
+// - the Checker env, if check is non-nil
+// - a new environment
+func (check *Checker) bestEnv(env *Environment) *Environment {
+	if env != nil {
+		return env
+	}
+	if check != nil {
+		assert(check.conf.Environment != nil)
+		return check.conf.Environment
+	}
+	return NewEnvironment()
+}
+
 // expandNamed ensures that the underlying type of n is instantiated.
 // The underlying type will be Typ[Invalid] if there was an error.
-func expandNamed(env *Environment, n *Named, instPos syntax.Pos) (*TypeParamList, Type, []*Func) {
+func expandNamed(env *Environment, n *Named, instPos syntax.Pos) (tparams *TypeParamList, underlying Type, methods []*Func) {
 	n.orig.resolve(env)
 
-	var u Type
-	if n.check.validateTArgLen(instPos, n.orig.tparams.Len(), n.targs.Len()) {
-		// TODO(rfindley): handling an optional Checker and Environment here (and
-		// in subst) feels overly complicated. Can we simplify?
-		if env == nil {
-			if n.check != nil {
-				env = n.check.conf.Environment
-			} else {
-				// If we're instantiating lazily, we might be outside the scope of a
-				// type-checking pass. In that case we won't have a pre-existing
-				// environment, but don't want to create a duplicate of the current
-				// instance in the process of expansion.
-				env = NewEnvironment()
-			}
-			h := env.TypeHash(n.orig, n.targs.list())
-			// add the instance to the environment to avoid infinite recursion.
-			// addInstance may return a different, existing instance, but we
-			// shouldn't return that instance from expand.
-			env.typeForHash(h, n)
+	check := n.check
+
+	if check.validateTArgLen(instPos, n.orig.tparams.Len(), n.targs.Len()) {
+		// We must always have an env, to avoid infinite recursion.
+		env = check.bestEnv(env)
+		h := env.TypeHash(n.orig, n.targs.list())
+		// ensure that an instance is recorded for h to avoid infinite recursion.
+		env.typeForHash(h, n)
+
+		smap := makeSubstMap(n.orig.tparams.list(), n.targs.list())
+		underlying = n.check.subst(instPos, n.orig.underlying, smap, env)
+
+		for i := 0; i < n.orig.NumMethods(); i++ {
+			origm := n.orig.Method(i)
+
+			// During type checking origm may not have a fully set up type, so defer
+			// instantiation of its signature until later.
+			m := NewFunc(origm.pos, origm.pkg, origm.name, nil)
+			m.hasPtrRecv_ = origm.hasPtrRecv()
+			// Setting instRecv here allows us to complete later (we need the
+			// instRecv to get targs and the original method).
+			m.instRecv = n
+
+			methods = append(methods, m)
 		}
-		u = n.check.subst(instPos, n.orig.underlying, makeSubstMap(n.orig.tparams.list(), n.targs.list()), env)
 	} else {
-		u = Typ[Invalid]
+		underlying = Typ[Invalid]
 	}
-	return n.orig.tparams, u, n.orig.methods
+
+	// Methods should not escape the type checker API without being completed. If
+	// we're in the context of a type checking pass, we need to defer this until
+	// later (not all methods may have types).
+	completeMethods := func() {
+		for _, m := range methods {
+			if m.instRecv != nil {
+				check.completeMethod(env, m)
+			}
+		}
+	}
+	if check != nil {
+		check.later(completeMethods)
+	} else {
+		completeMethods()
+	}
+
+	return n.orig.tparams, underlying, methods
+}
+
+func (check *Checker) completeMethod(env *Environment, m *Func) {
+	assert(m.instRecv != nil)
+	rbase := m.instRecv
+	m.instRecv = nil
+	m.setColor(black)
+
+	assert(rbase.TypeArgs().Len() > 0)
+
+	// Look up the original method.
+	_, orig := lookupMethod(rbase.orig.methods, rbase.obj.pkg, m.name)
+	assert(orig != nil)
+	if check != nil {
+		check.objDecl(orig, nil)
+	}
+	origSig := orig.typ.(*Signature)
+	if origSig.RecvTypeParams().Len() != rbase.targs.Len() {
+		m.typ = origSig // or new(Signature), but we can't use Typ[Invalid]: Funcs must have Signature type
+		return          // error reported elsewhere
+	}
+
+	smap := makeSubstMap(origSig.RecvTypeParams().list(), rbase.targs.list())
+	sig := check.subst(orig.pos, origSig, smap, env).(*Signature)
+	if sig == origSig {
+		// No substitution occurred, but we still need to create a new signature to
+		// hold the instantiated receiver.
+		copy := *origSig
+		sig = &copy
+	}
+	var rtyp Type
+	if m.hasPtrRecv() {
+		rtyp = NewPointer(rbase)
+	} else {
+		rtyp = rbase
+	}
+	sig.recv = NewParam(origSig.recv.pos, origSig.recv.pkg, origSig.recv.name, rtyp)
+
+	m.typ = sig
 }
 
 // safeUnderlying returns the underlying of typ without expanding instances, to

@@ -374,11 +374,11 @@ type pcHeader struct {
 	minLC          uint8   // min instruction size
 	ptrSize        uint8   // size of a ptr in bytes
 	nfunc          int     // number of functions in the module
-	nfiles         uint    // number of entries in the file tab.
+	nfiles         uint    // number of entries in the file tab
 	funcnameOffset uintptr // offset to the funcnametab variable from pcHeader
 	cuOffset       uintptr // offset to the cutab variable from pcHeader
 	filetabOffset  uintptr // offset to the filetab variable from pcHeader
-	pctabOffset    uintptr // offset to the pctab varible from pcHeader
+	pctabOffset    uintptr // offset to the pctab variable from pcHeader
 	pclnOffset     uintptr // offset to the pclntab variable from pcHeader
 }
 
@@ -568,13 +568,11 @@ const debugPcln = false
 func moduledataverify1(datap *moduledata) {
 	// Check that the pclntab's format is valid.
 	hdr := datap.pcHeader
-	if hdr.magic != 0xfffffffa || hdr.pad1 != 0 || hdr.pad2 != 0 || hdr.minLC != sys.PCQuantum || hdr.ptrSize != goarch.PtrSize {
-		print("runtime: function symbol table header:", hex(hdr.magic), hex(hdr.pad1), hex(hdr.pad2), hex(hdr.minLC), hex(hdr.ptrSize))
-		if datap.pluginpath != "" {
-			print(", plugin:", datap.pluginpath)
-		}
-		println()
-		throw("invalid function symbol table\n")
+	if hdr.magic != 0xfffffffa || hdr.pad1 != 0 || hdr.pad2 != 0 ||
+		hdr.minLC != sys.PCQuantum || hdr.ptrSize != goarch.PtrSize {
+		println("runtime: pcHeader: magic=", hex(hdr.magic), "pad1=", hdr.pad1, "pad2=", hdr.pad2,
+			"minLC=", hdr.minLC, "ptrSize=", hdr.ptrSize, "pluginpath=", datap.pluginpath)
+		throw("invalid function symbol table")
 	}
 
 	// ftab is lookup table for function by program counter.

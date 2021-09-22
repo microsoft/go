@@ -60,6 +60,7 @@ var (
 
 func defaultContext() build.Context {
 	ctxt := build.Default
+
 	ctxt.JoinPath = filepath.Join // back door to say "do not use go command"
 
 	ctxt.GOROOT = findGOROOT()
