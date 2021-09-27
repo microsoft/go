@@ -912,6 +912,12 @@ func (subst *subster) node(n ir.Node) ir.Node {
 			if v := subst.ts.Vars[x.(*ir.Name)]; v != nil {
 				return v
 			}
+			if ir.IsBlank(x) {
+				// Special case, because a blank local variable is
+				// not in the fn.Dcl list.
+				m := ir.NewNameAt(x.Pos(), ir.BlankNode.Sym())
+				return typed(subst.ts.Typ(x.Type()), m)
+			}
 			return x
 		case ir.ONONAME:
 			// This handles the identifier in a type switch guard
@@ -1087,10 +1093,17 @@ func (subst *subster) node(n ir.Node) ir.Node {
 			case ir.OCALL, ir.OCALLFUNC, ir.OCALLMETH, ir.OCALLINTER:
 				transformCall(call)
 
+			case ir.OCONVNOP:
+				transformCall(call)
+
 			case ir.OFUNCINST:
 				// A call with an OFUNCINST will get transformed
 				// in stencil() once we have created & attached the
 				// instantiation to be called.
+				// We must transform the arguments of the call now, though,
+				// so that any needed CONVIFACE nodes are exposed,
+				// so the dictionary format is correct
+				transformEarlyCall(call)
 
 			case ir.OXDOT, ir.ODOTTYPE, ir.ODOTTYPE2:
 			default:
@@ -1220,6 +1233,12 @@ func (g *irgen) dictPass(info *instInfo) {
 			op := m.(*ir.CallExpr).X.Op()
 			if op != ir.OFUNCINST {
 				assert(op == ir.OMETHVALUE || op == ir.OCLOSURE || op == ir.ODYNAMICDOTTYPE || op == ir.ODYNAMICDOTTYPE2)
+				if op == ir.OMETHVALUE {
+					// Redo the transformation of OXDOT, now that we
+					// know the method value is being called.
+					m.(*ir.CallExpr).X.(*ir.SelectorExpr).SetOp(ir.OXDOT)
+					transformDot(m.(*ir.CallExpr).X.(*ir.SelectorExpr), true)
+				}
 				transformCall(m.(*ir.CallExpr))
 			}
 
