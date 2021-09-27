@@ -2,11 +2,10 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-//go:build linux
-// +build linux
+package main
 
-package runtime
+import "b"
 
-// This is needed for vet
-//go:noescape
-func callCgoSigaction(sig uintptr, new, old *sigactiont) int32
+func main() {
+	var _ b.Session
+}
