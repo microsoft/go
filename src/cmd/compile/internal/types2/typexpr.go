@@ -143,7 +143,7 @@ func (check *Checker) varType(e syntax.Expr) Type {
 		if t := asInterface(typ); t != nil {
 			pos := syntax.StartPos(e)
 			tset := computeInterfaceTypeSet(check, pos, t) // TODO(gri) is this the correct position?
-			if tset.IsConstraint() {
+			if !tset.IsMethodSet() {
 				if tset.comparable {
 					check.softErrorf(pos, "interface is (or embeds) comparable")
 				} else {
@@ -408,6 +408,7 @@ func (check *Checker) instantiatedType(x syntax.Expr, targsx []syntax.Expr, def 
 
 	typ := check.instantiate(x.Pos(), base, targs, posList)
 	def.setUnderlying(typ)
+	check.recordInstance(x, targs, typ)
 
 	// make sure we check instantiation works at least once
 	// and that the resulting type is valid
