@@ -25,14 +25,17 @@ stages:
     jobs:
       - job: Publish
         pool:
-          # This is a utility job that doesn't use Go: use generic recent LTS for publishing.
+          # This is a utility job: use generic recent LTS for publishing.
           vmImage: ubuntu-20.04
         variables:
           - name: blobDestinationUrl
             value: 'https://dotnetbuildoutput.blob.core.windows.net/golang/microsoft/$(PublishBranchAlias)/$(Build.BuildNumber)'
           - group: go-storage
+        workspace:
+          clean: all
         steps:
-          - checkout: none
+          - template: steps/checkout-unix-task.yml
+          - template: steps/init-pwsh-task.yml
 
           - pwsh: |
               function TrimStart($s, $prefix) {
@@ -60,6 +63,19 @@ stages:
           - download: current
             artifact: Binaries Signed
             displayName: 'Download: Binaries Signed'
+
+          - pwsh: |
+              eng/run.ps1 createbuildassetjson `
+                -artifacts-dir '$(Pipeline.Workspace)/Binaries Signed/' `
+                -source-dir '$(Build.SourcesDirectory)' `
+                -destination-url '$(blobDestinationUrl)' `
+                -branch '$(PublishBranchAlias)' `
+                -o '$(Pipeline.Workspace)/Binaries Signed/assets.json'
+            displayName: 'Create build asset JSON'
+
+          - publish: $(Pipeline.Workspace)/Binaries Signed/assets.json
+            artifact: BuildAssets
+            displayName: Publish build asset JSON
 
           - task: AzureCLI@2
             displayName: Upload to blob storage
