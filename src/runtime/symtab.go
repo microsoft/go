@@ -206,7 +206,7 @@ func runtime_expandFinalInlineFrame(stk []uintptr) []uintptr {
 		}
 		lastFuncID = inltree[ix].funcID
 		// Back up to an instruction in the "caller".
-		tracepc = f.entry + uintptr(inltree[ix].parentPc)
+		tracepc = f.entry() + uintptr(inltree[ix].parentPc)
 		pc = tracepc + 1
 	}
 
@@ -272,8 +272,26 @@ func (f *Func) raw() *_func {
 }
 
 func (f *Func) funcInfo() funcInfo {
-	fn := f.raw()
-	return funcInfo{fn, findmoduledatap(fn.entry)}
+	return f.raw().funcInfo()
+}
+
+func (f *_func) funcInfo() funcInfo {
+	// Find the module containing fn. fn is located in the pclntable.
+	// The unsafe.Pointer to uintptr conversions and arithmetic
+	// are safe because we are working with module addresses.
+	ptr := uintptr(unsafe.Pointer(f))
+	var mod *moduledata
+	for datap := &firstmoduledata; datap != nil; datap = datap.next {
+		if len(datap.pclntable) == 0 {
+			continue
+		}
+		base := uintptr(unsafe.Pointer(&datap.pclntable[0]))
+		if base <= ptr && ptr < base+uintptr(len(datap.pclntable)) {
+			mod = datap
+			break
+		}
+	}
+	return funcInfo{f, mod}
 }
 
 // PCDATA and FUNCDATA table indexes.
@@ -586,13 +604,9 @@ func moduledataverify1(datap *moduledata) {
 			if i+1 < nftab {
 				f2name = funcname(f2)
 			}
-			print("function symbol table not sorted by program counter:", hex(datap.ftab[i].entry), funcname(f1), ">", hex(datap.ftab[i+1].entry), f2name)
-			if datap.pluginpath != "" {
-				print(", plugin:", datap.pluginpath)
-			}
-			println()
+			println("function symbol table not sorted by PC:", hex(datap.ftab[i].entry), funcname(f1), ">", hex(datap.ftab[i+1].entry), f2name, ", plugin:", datap.pluginpath)
 			for j := 0; j <= i; j++ {
-				print("\t", hex(datap.ftab[j].entry), " ", funcname(funcInfo{(*_func)(unsafe.Pointer(&datap.pclntable[datap.ftab[j].funcoff])), datap}), "\n")
+				println("\t", hex(datap.ftab[j].entry), funcname(funcInfo{(*_func)(unsafe.Pointer(&datap.pclntable[datap.ftab[j].funcoff])), datap}))
 			}
 			if GOOS == "aix" && isarchive {
 				println("-Wl,-bnoobjreorder is mandatory on aix/ppc64 with c-archive")
@@ -635,7 +649,8 @@ func FuncForPC(pc uintptr) *Func {
 			name := funcnameFromNameoff(f, inltree[ix].func_)
 			file, line := funcline(f, pc)
 			fi := &funcinl{
-				entry: f.entry, // entry of the real (the outermost) function.
+				ones:  ^uintptr(0),
+				entry: f.entry(), // entry of the real (the outermost) function.
 				name:  name,
 				file:  file,
 				line:  int(line),
@@ -652,7 +667,7 @@ func (f *Func) Name() string {
 		return ""
 	}
 	fn := f.raw()
-	if fn.entry == 0 { // inlined version
+	if fn.isInlined() { // inlined version
 		fi := (*funcinl)(unsafe.Pointer(fn))
 		return fi.name
 	}
@@ -662,11 +677,11 @@ func (f *Func) Name() string {
 // Entry returns the entry address of the function.
 func (f *Func) Entry() uintptr {
 	fn := f.raw()
-	if fn.entry == 0 { // inlined version
+	if fn.isInlined() { // inlined version
 		fi := (*funcinl)(unsafe.Pointer(fn))
 		return fi.entry
 	}
-	return fn.entry
+	return fn.funcInfo().entry()
 }
 
 // FileLine returns the file name and line number of the
@@ -675,7 +690,7 @@ func (f *Func) Entry() uintptr {
 // counter within f.
 func (f *Func) FileLine(pc uintptr) (file string, line int) {
 	fn := f.raw()
-	if fn.entry == 0 { // inlined version
+	if fn.isInlined() { // inlined version
 		fi := (*funcinl)(unsafe.Pointer(fn))
 		return fi.file, fi.line
 	}
@@ -711,6 +726,16 @@ func (f funcInfo) valid() bool {
 
 func (f funcInfo) _Func() *Func {
 	return (*Func)(unsafe.Pointer(f._func))
+}
+
+// isInlined reports whether f should be re-interpreted as a *funcinl.
+func (f *_func) isInlined() bool {
+	return f.entryPC == ^uintptr(0) // see comment for funcinl.ones
+}
+
+// entry returns the entry PC for f.
+func (f funcInfo) entry() uintptr {
+	return f.entryPC
 }
 
 // findfunc looks up function metadata for a PC.
@@ -817,19 +842,19 @@ func pcvalue(f funcInfo, off uint32, targetpc uintptr, cache *pcvalueCache, stri
 
 	if !f.valid() {
 		if strict && panicking == 0 {
-			print("runtime: no module data for ", hex(f.entry), "\n")
+			println("runtime: no module data for", hex(f.entry()))
 			throw("no module data")
 		}
 		return -1, 0
 	}
 	datap := f.datap
 	p := datap.pctab[off:]
-	pc := f.entry
+	pc := f.entry()
 	prevpc := pc
 	val := int32(-1)
 	for {
 		var ok bool
-		p, ok = step(p, &pc, &val, pc == f.entry)
+		p, ok = step(p, &pc, &val, pc == f.entry())
 		if !ok {
 			break
 		}
@@ -866,11 +891,11 @@ func pcvalue(f funcInfo, off uint32, targetpc uintptr, cache *pcvalueCache, stri
 	print("runtime: invalid pc-encoded table f=", funcname(f), " pc=", hex(pc), " targetpc=", hex(targetpc), " tab=", p, "\n")
 
 	p = datap.pctab[off:]
-	pc = f.entry
+	pc = f.entry()
 	val = -1
 	for {
 		var ok bool
-		p, ok = step(p, &pc, &val, pc == f.entry)
+		p, ok = step(p, &pc, &val, pc == f.entry())
 		if !ok {
 			break
 		}
@@ -954,7 +979,7 @@ func funcline(f funcInfo, targetpc uintptr) (file string, line int32) {
 func funcspdelta(f funcInfo, targetpc uintptr, cache *pcvalueCache) int32 {
 	x, _ := pcvalue(f, f.pcsp, targetpc, cache, true)
 	if x&(goarch.PtrSize-1) != 0 {
-		print("invalid spdelta ", funcname(f), " ", hex(f.entry), " ", hex(targetpc), " ", hex(f.pcsp), " ", x, "\n")
+		print("invalid spdelta ", funcname(f), " ", hex(f.entry()), " ", hex(targetpc), " ", hex(f.pcsp), " ", x, "\n")
 	}
 	return x
 }
@@ -963,12 +988,12 @@ func funcspdelta(f funcInfo, targetpc uintptr, cache *pcvalueCache) int32 {
 func funcMaxSPDelta(f funcInfo) int32 {
 	datap := f.datap
 	p := datap.pctab[f.pcsp:]
-	pc := f.entry
+	pc := f.entry()
 	val := int32(-1)
 	max := int32(0)
 	for {
 		var ok bool
-		p, ok = step(p, &pc, &val, pc == f.entry)
+		p, ok = step(p, &pc, &val, pc == f.entry())
 		if !ok {
 			return max
 		}

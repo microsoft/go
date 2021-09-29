@@ -966,7 +966,7 @@ func newstack() {
 		f := findfunc(gp.sched.pc)
 		if f.valid() {
 			pcname = funcname(f)
-			pcoff = gp.sched.pc - f.entry
+			pcoff = gp.sched.pc - f.entry()
 		}
 		print("runtime: newstack at ", pcname, "+", hex(pcoff),
 			" sp=", hex(gp.sched.sp), " stack=[", hex(gp.stack.lo), ", ", hex(gp.stack.hi), "]\n",
@@ -1240,7 +1240,7 @@ func getStackMap(frame *stkframe, cache *pcvalueCache, debug bool) (locals, args
 
 	f := frame.fn
 	pcdata := int32(-1)
-	if targetpc != f.entry {
+	if targetpc != f.entry() {
 		// Back up to the CALL. If we're at the function entry
 		// point, we want to use the entry map (-1), even if
 		// the first instruction of the function changes the
@@ -1316,7 +1316,7 @@ func getStackMap(frame *stkframe, cache *pcvalueCache, debug bool) (locals, args
 	}
 
 	// stack objects.
-	if (GOARCH == "amd64" || GOARCH == "arm64") && unsafe.Sizeof(abi.RegArgs{}) > 0 && frame.argmap != nil {
+	if (GOARCH == "amd64" || GOARCH == "arm64" || GOARCH == "ppc64" || GOARCH == "ppc64le") && unsafe.Sizeof(abi.RegArgs{}) > 0 && frame.argmap != nil {
 		// argmap is set when the function is reflect.makeFuncStub or reflect.methodValueCall.
 		// We don't actually use argmap in this case, but we need to fake the stack object
 		// record for these frames which contain an internal/abi.RegArgs at a hard-coded offset.

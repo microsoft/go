@@ -1927,7 +1927,7 @@ func methodWrapper(rcvr *types.Type, method *types.Field, forItab bool) *obj.LSy
 			}
 			targs = targs2
 
-			sym := typecheck.MakeFuncInstSym(ir.MethodSym(methodrcvr, method.Sym), targs, true)
+			sym := typecheck.MakeFuncInstSym(ir.MethodSym(methodrcvr, method.Sym), targs, false, true)
 			if sym.Def == nil {
 				// Currently we make sure that we have all the instantiations
 				// we need by generating them all in ../noder/stencil.go:instantiateMethods
@@ -2006,6 +2006,9 @@ func MarkUsedIfaceMethod(n *ir.CallExpr) {
 	}
 	dot := n.X.(*ir.SelectorExpr)
 	ityp := dot.X.Type()
+	if ityp.HasShape() {
+		base.Fatalf("marking method of shape type used %+v %s", ityp, dot.Sel.Name)
+	}
 	tsym := TypeLinksym(ityp)
 	r := obj.Addrel(ir.CurFunc.LSym)
 	r.Sym = tsym

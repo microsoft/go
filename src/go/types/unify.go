@@ -9,7 +9,6 @@ package types
 import (
 	"bytes"
 	"fmt"
-	"sort"
 )
 
 // The unifier maintains two separate sets of type parameters x and y
@@ -64,6 +63,10 @@ func (u *unifier) unify(x, y Type) bool {
 type tparamsList struct {
 	unifier *unifier
 	tparams []*TypeParam
+	// For each tparams element, there is a corresponding mask bit in masks.
+	// If set, the corresponding type parameter is masked and doesn't appear
+	// as a type parameter with tparamsList.index.
+	masks []bool
 	// For each tparams element, there is a corresponding type slot index in indices.
 	// index  < 0: unifier.types[-index-1] == nil
 	// index == 0: no type slot allocated yet
@@ -104,12 +107,17 @@ func (d *tparamsList) init(tparams []*TypeParam) {
 		}
 	}
 	d.tparams = tparams
+	d.masks = make([]bool, len(tparams))
 	d.indices = make([]int, len(tparams))
 }
 
+// mask and unmask permit the masking/unmasking of the i'th type parameter of d.
+func (d *tparamsList) mask(i int)   { d.masks[i] = true }
+func (d *tparamsList) unmask(i int) { d.masks[i] = false }
+
 // join unifies the i'th type parameter of x with the j'th type parameter of y.
 // If both type parameters already have a type associated with them and they are
-// not joined, join fails and return false.
+// not joined, join fails and returns false.
 func (u *unifier) join(i, j int) bool {
 	ti := u.x.indices[i]
 	tj := u.y.indices[j]
@@ -133,23 +141,30 @@ func (u *unifier) join(i, j int) bool {
 		break
 	case ti > 0 && tj > 0:
 		// Both type parameters have (possibly different) inferred types. Cannot join.
+		// TODO(gri) Should we check if types are identical? Investigate.
 		return false
 	case ti > 0:
 		// Only the type parameter for x has an inferred type. Use x slot for y.
 		u.y.setIndex(j, ti)
+	// This case is handled like the default case.
+	// case tj > 0:
+	// 	// Only the type parameter for y has an inferred type. Use y slot for x.
+	// 	u.x.setIndex(i, tj)
 	default:
-		// Either the type parameter for y has an inferred type, or neither type
-		// parameter has an inferred type. In either case, use y slot for x.
+		// Neither type parameter has an inferred type. Use y slot for x
+		// (or x slot for y, it doesn't matter).
 		u.x.setIndex(i, tj)
 	}
 	return true
 }
 
-// If typ is a type parameter of d, index returns the type parameter index.
+// If typ is an unmasked type parameter of d, index returns the type parameter index.
 // Otherwise, the result is < 0.
 func (d *tparamsList) index(typ Type) int {
 	if tpar, ok := typ.(*TypeParam); ok {
-		return tparamIndex(d.tparams, tpar)
+		if i := tparamIndex(d.tparams, tpar); i >= 0 && !d.masks[i] {
+			return i
+		}
 	}
 	return -1
 }
@@ -223,7 +238,7 @@ func (u *unifier) nifyEq(x, y Type, p *ifacePair) bool {
 }
 
 // nify implements the core unification algorithm which is an
-// adapted version of Checker.identical0. For changes to that
+// adapted version of Checker.identical. For changes to that
 // code the corresponding changes should be made here.
 // Must not be called directly from outside the unifier.
 func (u *unifier) nify(x, y Type, p *ifacePair) bool {
@@ -242,7 +257,7 @@ func (u *unifier) nify(x, y Type, p *ifacePair) bool {
 		}
 	}
 
-	// Cases where at least one of x or y is a type parameter.
+	// Cases where at least one of x or y is an (unmasked) type parameter.
 	switch i, j := u.x.index(x), u.y.index(y); {
 	case i >= 0 && j >= 0:
 		// both x and y are type parameters
@@ -255,6 +270,12 @@ func (u *unifier) nify(x, y Type, p *ifacePair) bool {
 	case i >= 0:
 		// x is a type parameter, y is not
 		if tx := u.x.at(i); tx != nil {
+			// The inferred type tx may be or contain x again but we don't
+			// want to "unpack" it again when unifying tx with y: tx is the
+			// inferred type. Mask type parameter x for this recursion, so
+			// that subsequent encounters treat x like an ordinary type.
+			u.x.mask(i)
+			defer u.x.unmask(i)
 			return u.nifyEq(tx, y, p)
 		}
 		// otherwise, infer type from y
@@ -264,6 +285,9 @@ func (u *unifier) nify(x, y Type, p *ifacePair) bool {
 	case j >= 0:
 		// y is a type parameter, x is not
 		if ty := u.y.at(j); ty != nil {
+			// see comment above
+			u.y.mask(j)
+			defer u.y.unmask(j)
 			return u.nifyEq(x, ty, p)
 		}
 		// otherwise, infer type from x
@@ -398,8 +422,8 @@ func (u *unifier) nify(x, y Type, p *ifacePair) bool {
 					p = p.prev
 				}
 				if debug {
-					assert(sort.IsSorted(byUniqueMethodName(a)))
-					assert(sort.IsSorted(byUniqueMethodName(b)))
+					assertSortedMethods(a)
+					assertSortedMethods(b)
 				}
 				for i, f := range a {
 					g := b[i]
@@ -424,6 +448,7 @@ func (u *unifier) nify(x, y Type, p *ifacePair) bool {
 		}
 
 	case *Named:
+		// TODO(gri) This code differs now from the parallel code in Checker.identical. Investigate.
 		if y, ok := y.(*Named); ok {
 			xargs := x.targs.list()
 			yargs := y.targs.list()

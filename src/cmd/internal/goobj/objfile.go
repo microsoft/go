@@ -100,7 +100,6 @@ import (
 //    }
 //
 //    Data   [...]byte
-//    Pcdata [...]byte
 //
 //    // blocks only used by tools (objdump, nm)
 //
@@ -204,7 +203,6 @@ const (
 	BlkReloc
 	BlkAux
 	BlkData
-	BlkPcdata
 	BlkRefName
 	BlkEnd
 	NBlk
@@ -358,6 +356,8 @@ type SymRef struct {
 	PkgIdx uint32
 	SymIdx uint32
 }
+
+func (s SymRef) IsZero() bool { return s == SymRef{} }
 
 // Hash64
 type Hash64Type [Hash64Size]byte
