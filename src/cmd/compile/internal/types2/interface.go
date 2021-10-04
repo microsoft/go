@@ -16,6 +16,7 @@ type Interface struct {
 	methods   []*Func       // ordered list of explicitly declared methods
 	embeddeds []Type        // ordered list of explicitly embedded elements
 	embedPos  *[]syntax.Pos // positions of embedded elements; or nil (for error messages) - use pointer to save space
+	implicit  bool          // interface is wrapper for type set literal (non-interface T, ~T, or A|B)
 	complete  bool          // indicates that all fields (except for tset) are set up
 
 	tset *_TypeSet // type set described by this interface, computed lazily
@@ -26,19 +27,6 @@ func (t *Interface) typeSet() *_TypeSet { return computeInterfaceTypeSet(t.check
 
 // emptyInterface represents the empty interface
 var emptyInterface = Interface{complete: true, tset: &topTypeSet}
-
-// NewInterface returns a new interface for the given methods and embedded types.
-// NewInterface takes ownership of the provided methods and may modify their types
-// by setting missing receivers.
-//
-// Deprecated: Use NewInterfaceType instead which allows arbitrary embedded types.
-func NewInterface(methods []*Func, embeddeds []*Named) *Interface {
-	tnames := make([]Type, len(embeddeds))
-	for i, t := range embeddeds {
-		tnames[i] = t
-	}
-	return NewInterfaceType(methods, tnames)
-}
 
 // NewInterfaceType returns a new interface for the given methods and embedded types.
 // NewInterfaceType takes ownership of the provided methods and may modify their types
@@ -76,12 +64,6 @@ func (t *Interface) ExplicitMethod(i int) *Func { return t.methods[i] }
 // NumEmbeddeds returns the number of embedded types in interface t.
 func (t *Interface) NumEmbeddeds() int { return len(t.embeddeds) }
 
-// Embedded returns the i'th embedded defined (*Named) type of interface t for 0 <= i < t.NumEmbeddeds().
-// The result is nil if the i'th embedded type is not a defined type.
-//
-// Deprecated: Use EmbeddedType which is not restricted to defined (*Named) types.
-func (t *Interface) Embedded(i int) *Named { tname, _ := t.embeddeds[i].(*Named); return tname }
-
 // EmbeddedType returns the i'th embedded type of interface t for 0 <= i < t.NumEmbeddeds().
 func (t *Interface) EmbeddedType(i int) Type { return t.embeddeds[i] }
 
@@ -100,6 +82,9 @@ func (t *Interface) IsComparable() bool { return t.typeSet().IsComparable() }
 
 // IsMethodSet reports whether the interface t is fully described by its method set.
 func (t *Interface) IsMethodSet() bool { return t.typeSet().IsMethodSet() }
+
+// IsImplicit reports whether the interface t is a wrapper for a type set literal.
+func (t *Interface) IsImplicit() bool { return t.implicit }
 
 func (t *Interface) Underlying() Type { return t }
 func (t *Interface) String() string   { return TypeString(t, nil) }
@@ -121,7 +106,6 @@ func (check *Checker) interfaceType(ityp *Interface, iface *syntax.InterfaceType
 
 	for _, f := range iface.MethodList {
 		if f.Name == nil {
-			// We have an embedded type; possibly a union of types.
 			addEmbedded(posFor(f.Type), parseUnion(check, flattenUnion(nil, f.Type)))
 			continue
 		}

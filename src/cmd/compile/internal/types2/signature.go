@@ -28,16 +28,6 @@ type Signature struct {
 	variadic bool           // true if the last parameter's type is of the form ...T (or string, for append built-in only)
 }
 
-// NewSignature returns a new function type for the given receiver, parameters,
-// and results, either of which may be nil. If variadic is set, the function
-// is variadic, it must have at least one parameter, and the last parameter
-// must be of unnamed slice type.
-//
-// Deprecated: Use NewSignatureType instead which allows for type parameters.
-func NewSignature(recv *Var, params, results *Tuple, variadic bool) *Signature {
-	return NewSignatureType(recv, nil, nil, params, results, variadic)
-}
-
 // NewSignatureType creates a new function type for the given receiver,
 // receiver type parameters, type parameters, parameters, and results. If
 // variadic is set, params must hold at least one parameter and the last
@@ -234,7 +224,7 @@ func (check *Checker) funcType(sig *Signature, recvPar *syntax.Field, tparams []
 			var err string
 			switch T := rtyp.(type) {
 			case *Named:
-				T.resolve(check.conf.Environment)
+				T.resolve(check.conf.Context)
 				// The receiver type may be an instantiated type referred to
 				// by an alias (which cannot have receiver parameters for now).
 				if T.TypeArgs() != nil && sig.RecvTypeParams() == nil {

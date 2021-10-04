@@ -34,13 +34,13 @@ func checkFiles(noders []*noder) (posMap, *types2.Package, *types2.Info) {
 	}
 
 	// typechecking
-	env := types2.NewEnvironment()
+	ctxt := types2.NewContext()
 	importer := gcimports{
-		env:      env,
+		ctxt:     ctxt,
 		packages: map[string]*types2.Package{"unsafe": types2.Unsafe},
 	}
 	conf := types2.Config{
-		Environment:           env,
+		Context:               ctxt,
 		GoVersion:             base.Flag.Lang,
 		IgnoreLabels:          true, // parser already checked via syntax.CheckBranches mode
 		CompilerErrorMessages: true, // use error strings matching existing compiler errors
@@ -170,6 +170,12 @@ type irgen struct {
 	// avoid adding closures of generic functions/methods to the target.Decls
 	// list.
 	topFuncIsGeneric bool
+
+	// The context during type/function/method declarations that is used to
+	// uniquely name type parameters. We need unique names for type params so we
+	// can be sure they match up correctly between types2-to-types1 translation
+	// and types1 importing.
+	curDecl string
 }
 
 func (g *irgen) later(fn func()) {
