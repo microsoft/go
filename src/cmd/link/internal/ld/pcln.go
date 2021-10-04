@@ -17,11 +17,10 @@ import (
 	"strings"
 )
 
+const funcSize = 10 * 4 // funcSize is the size of the _func object in runtime/runtime2.go
+
 // pclntab holds the state needed for pclntab generation.
 type pclntab struct {
-	// The size of the func object in the runtime.
-	funcSize uint32
-
 	// The first and last functions found.
 	firstFunc, lastFunc loader.Sym
 
@@ -69,11 +68,7 @@ func (state *pclntab) addGeneratedSym(ctxt *Link, name string, size int64, f gen
 // generate pclntab.
 func makePclntab(ctxt *Link, container loader.Bitmap) (*pclntab, []*sym.CompilationUnit, []loader.Sym) {
 	ldr := ctxt.loader
-
-	state := &pclntab{
-		// This is the size of the _func object in runtime/runtime2.go.
-		funcSize: uint32(ctxt.Arch.PtrSize + 9*4),
-	}
+	state := new(pclntab)
 
 	// Gather some basic stats and info.
 	seenCUs := make(map[*sym.CompilationUnit]struct{})
@@ -148,13 +143,8 @@ func computeDeferReturn(ctxt *Link, deferReturnSym, s loader.Sym) uint32 {
 				switch target.Arch.Family {
 				case sys.AMD64, sys.I386:
 					deferreturn--
-				case sys.PPC64, sys.ARM, sys.ARM64, sys.MIPS, sys.MIPS64:
+				case sys.ARM, sys.ARM64, sys.MIPS, sys.MIPS64, sys.PPC64, sys.RISCV64:
 					// no change
-				case sys.RISCV64:
-					// TODO(jsing): The JALR instruction is marked with
-					// R_CALLRISCV, whereas the actual reloc is currently
-					// one instruction earlier starting with the AUIPC.
-					deferreturn -= 4
 				case sys.S390X:
 					deferreturn -= 2
 				default:
@@ -225,8 +215,10 @@ func makeInlSyms(ctxt *Link, funcs []loader.Sym, nameOffsets map[loader.Sym]uint
 // generatePCHeader creates the runtime.pcheader symbol, setting it up as a
 // generator to fill in its data later.
 func (state *pclntab) generatePCHeader(ctxt *Link) {
+	ldr := ctxt.loader
+	textStartOff := int64(8 + 2*ctxt.Arch.PtrSize)
+	size := int64(8 + 8*ctxt.Arch.PtrSize)
 	writeHeader := func(ctxt *Link, s loader.Sym) {
-		ldr := ctxt.loader
 		header := ctxt.loader.MakeSymbolUpdater(s)
 
 		writeSymOffset := func(off int64, ws loader.Sym) int64 {
@@ -239,21 +231,30 @@ func (state *pclntab) generatePCHeader(ctxt *Link) {
 		}
 
 		// Write header.
-		// Keep in sync with runtime/symtab.go:pcHeader.
-		header.SetUint32(ctxt.Arch, 0, 0xfffffffa)
+		// Keep in sync with runtime/symtab.go:pcHeader and package debug/gosym.
+		header.SetUint32(ctxt.Arch, 0, 0xfffffff0)
 		header.SetUint8(ctxt.Arch, 6, uint8(ctxt.Arch.MinLC))
 		header.SetUint8(ctxt.Arch, 7, uint8(ctxt.Arch.PtrSize))
 		off := header.SetUint(ctxt.Arch, 8, uint64(state.nfunc))
 		off = header.SetUint(ctxt.Arch, off, uint64(state.nfiles))
+		if off != textStartOff {
+			panic(fmt.Sprintf("pcHeader textStartOff: %d != %d", off, textStartOff))
+		}
+		off += int64(ctxt.Arch.PtrSize) // skip runtimeText relocation
 		off = writeSymOffset(off, state.funcnametab)
 		off = writeSymOffset(off, state.cutab)
 		off = writeSymOffset(off, state.filetab)
 		off = writeSymOffset(off, state.pctab)
 		off = writeSymOffset(off, state.pclntab)
+		if off != size {
+			panic(fmt.Sprintf("pcHeader size: %d != %d", off, size))
+		}
 	}
 
-	size := int64(8 + 7*ctxt.Arch.PtrSize)
 	state.pcheader = state.addGeneratedSym(ctxt, "runtime.pcheader", size, writeHeader)
+	// Create the runtimeText relocation.
+	sb := ldr.MakeSymbolUpdater(state.pcheader)
+	sb.SetAddr(ctxt.Arch, textStartOff, ldr.Lookup("runtime.text", 0))
 }
 
 // walkFuncs iterates over the funcs, calling a function for each unique
@@ -552,9 +553,8 @@ type pclnSetUint func(*loader.SymbolBuilder, *sys.Arch, int64, uint64) int64
 // The first pass is executed early in the link, and it creates any needed
 // relocations to lay out the data. The pieces that need relocations are:
 //   1) the PC->func table.
-//   2) The entry points in the func objects.
-//   3) The funcdata.
-// (1) and (2) are handled in writePCToFunc. (3) is handled in writeFuncdata.
+//   2) The funcdata.
+// (1) is handled in writePCToFunc. (2) is handled in writeFuncdata.
 //
 // After relocations, once we know where to write things in the output buffer,
 // we execute the second pass, which is actually writing the data.
@@ -661,7 +661,7 @@ func (state pclntab) calculateFunctabSize(ctxt *Link, funcs []loader.Sym) (int64
 		size = Rnd(size, int64(ctxt.Arch.PtrSize))
 		startLocations[i] = uint32(size)
 		fi := ldr.FuncInfo(s)
-		size += int64(state.funcSize)
+		size += funcSize
 		if fi.Valid() {
 			fi.Preload()
 			numFuncData := ldr.NumFuncdata(s)
@@ -708,9 +708,6 @@ func writePCToFunc(ctxt *Link, sb *loader.SymbolBuilder, funcs []loader.Sym, sta
 		setAddr(sb, ctxt.Arch, int64(funcIndex*2*ctxt.Arch.PtrSize), s, 0)
 		setUint(sb, ctxt.Arch, int64((funcIndex*2+1)*ctxt.Arch.PtrSize), uint64(startLocations[i]))
 		funcIndex++
-
-		// Write the entry location.
-		setAddr(sb, ctxt.Arch, int64(startLocations[i]), s, 0)
 	}
 
 	// Final entry of table is just end pc.
@@ -741,7 +738,7 @@ func (state *pclntab) writeFuncData(ctxt *Link, sb *loader.SymbolBuilder, funcs 
 		// Missing funcdata will be 0 (nil pointer).
 		funcdata = funcData(ldr, s, fi, inlSyms[s], funcdata)
 		if len(funcdata) > 0 {
-			off := int64(startLocations[i] + state.funcSize + numPCData(ldr, s, fi)*4)
+			off := int64(startLocations[i] + funcSize + numPCData(ldr, s, fi)*4)
 			off = Rnd(off, int64(ctxt.Arch.PtrSize))
 			for j := range funcdata {
 				dataoff := off + int64(ctxt.Arch.PtrSize*j)
@@ -760,6 +757,7 @@ func (state *pclntab) writeFuncData(ctxt *Link, sb *loader.SymbolBuilder, funcs 
 func writeFuncs(ctxt *Link, sb *loader.SymbolBuilder, funcs []loader.Sym, inlSyms map[loader.Sym]loader.Sym, startLocations, cuOffsets []uint32, nameOffsets map[loader.Sym]uint32) {
 	ldr := ctxt.loader
 	deferReturnSym := ldr.Lookup("runtime.deferreturn", abiInternalVer)
+	textStart := ldr.SymValue(ldr.Lookup("runtime.text", 0))
 	funcdata := []loader.Sym{}
 	var pcsp, pcfile, pcline, pcinline loader.Sym
 	var pcdata []loader.Sym
@@ -772,10 +770,13 @@ func writeFuncs(ctxt *Link, sb *loader.SymbolBuilder, funcs []loader.Sym, inlSym
 			pcsp, pcfile, pcline, pcinline, pcdata = ldr.PcdataAuxs(s, pcdata)
 		}
 
-		// Note we skip the space for the entry value -- that's handled in
-		// writePCToFunc. We don't write it here, because it might require a
-		// relocation.
-		off := startLocations[i] + uint32(ctxt.Arch.PtrSize) // entry
+		off := startLocations[i]
+		// entry uintptr (offset of func entry PC from textStart)
+		entryOff := ldr.SymValue(s) - textStart
+		if entryOff < 0 {
+			panic(fmt.Sprintf("expected func %s(%x) to be placed before or at textStart (%x)", ldr.SymName(s), ldr.SymValue(s), textStart))
+		}
+		off = uint32(sb.SetUint32(ctxt.Arch, int64(off), uint32(entryOff)))
 
 		// name int32
 		nameoff, ok := nameOffsets[s]

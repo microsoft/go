@@ -69,7 +69,7 @@ func (check *Checker) objDecl(obj Object, def *Named) {
 	// Funcs with m.instRecv set have not yet be completed. Complete them now
 	// so that they have a type when objDecl exits.
 	if m, _ := obj.(*Func); m != nil && m.instRecv != nil {
-		check.completeMethod(check.conf.Environment, m)
+		check.completeMethod(check.conf.Context, m)
 	}
 
 	// Checking the declaration of obj means inferring its type
@@ -330,7 +330,7 @@ func (check *Checker) validType(typ Type, path []Object) typeInfo {
 		}
 
 	case *Named:
-		t.resolve(check.conf.Environment)
+		t.resolve(check.conf.Context)
 
 		// don't touch the type if it is from a different package or the Universe scope
 		// (doing so would lead to a race condition - was issue #35049)
@@ -632,19 +632,34 @@ func (check *Checker) collectTypeParams(dst **TypeParamList, list []*syntax.Fiel
 		// This also preserves the grouped output of type parameter lists
 		// when printing type strings.
 		if i == 0 || f.Type != list[i-1].Type {
-			bound = check.typ(f.Type)
+			bound = check.bound(f.Type)
 		}
 		tparams[i].bound = bound
 	}
 
 	check.later(func() {
 		for i, tpar := range tparams {
-			u := under(tpar.bound)
-			if _, ok := u.(*Interface); !ok && u != Typ[Invalid] {
-				check.errorf(list[i].Type, "%s is not an interface", tpar.bound)
+			if _, ok := under(tpar.bound).(*TypeParam); ok {
+				check.error(list[i].Type, "cannot use a type parameter as constraint")
 			}
+			tpar.iface() // compute type set
 		}
 	})
+}
+
+func (check *Checker) bound(x syntax.Expr) Type {
+	// A type set literal of the form ~T and A|B may only appear as constraint;
+	// embed it in an implicit interface so that only interface type-checking
+	// needs to take care of such type expressions.
+	if op, _ := x.(*syntax.Operation); op != nil && (op.Op == syntax.Tilde || op.Op == syntax.Or) {
+		t := check.typ(&syntax.InterfaceType{MethodList: []*syntax.Field{{Type: x}}})
+		// mark t as implicit interface if all went well
+		if t, _ := t.(*Interface); t != nil {
+			t.implicit = true
+		}
+		return t
+	}
+	return check.typ(x)
 }
 
 func (check *Checker) declareTypeParam(name *syntax.Name) *TypeParam {
