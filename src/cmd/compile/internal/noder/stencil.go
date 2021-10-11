@@ -996,6 +996,12 @@ func (subst *subster) node(n ir.Node) ir.Node {
 			case ir.OSELECT:
 				transformSelect(m.(*ir.SelectStmt))
 
+			case ir.OCOMPLIT:
+				transformCompLit(m.(*ir.CompLitExpr))
+
+			case ir.OADDR:
+				transformAddr(m.(*ir.AddrExpr))
+
 			}
 		}
 
@@ -1298,9 +1304,9 @@ func (g *irgen) dictPass(info *instInfo) {
 							// Type switch from nonempty interface. We need a *runtime.itab
 							// for the dynamic type.
 							ix := -1
-							for i, ic := range info.dictInfo.itabConvs {
+							for j, ic := range info.dictInfo.itabConvs {
 								if ic == m.List[i] {
-									ix = info.dictInfo.startItabConv + i
+									ix = info.dictInfo.startItabConv + j
 									break
 								}
 							}

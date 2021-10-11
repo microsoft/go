@@ -335,6 +335,10 @@ func rewriteValueARM64(v *Value) bool {
 		return rewriteValueARM64_OpARM64ORshiftRL(v)
 	case OpARM64ORshiftRO:
 		return rewriteValueARM64_OpARM64ORshiftRO(v)
+	case OpARM64REV:
+		return rewriteValueARM64_OpARM64REV(v)
+	case OpARM64REVW:
+		return rewriteValueARM64_OpARM64REVW(v)
 	case OpARM64ROR:
 		return rewriteValueARM64_OpARM64ROR(v)
 	case OpARM64RORW:
@@ -920,6 +924,8 @@ func rewriteValueARM64(v *Value) bool {
 		return rewriteValueARM64_OpPrefetchCache(v)
 	case OpPrefetchCacheStreamed:
 		return rewriteValueARM64_OpPrefetchCacheStreamed(v)
+	case OpPubBarrier:
+		return rewriteValueARM64_OpPubBarrier(v)
 	case OpRotateLeft16:
 		return rewriteValueARM64_OpRotateLeft16(v)
 	case OpRotateLeft32:
@@ -20297,6 +20303,34 @@ func rewriteValueARM64_OpARM64ORshiftRO(v *Value) bool {
 	}
 	return false
 }
+func rewriteValueARM64_OpARM64REV(v *Value) bool {
+	v_0 := v.Args[0]
+	// match: (REV (REV p))
+	// result: p
+	for {
+		if v_0.Op != OpARM64REV {
+			break
+		}
+		p := v_0.Args[0]
+		v.copyOf(p)
+		return true
+	}
+	return false
+}
+func rewriteValueARM64_OpARM64REVW(v *Value) bool {
+	v_0 := v.Args[0]
+	// match: (REVW (REVW p))
+	// result: p
+	for {
+		if v_0.Op != OpARM64REVW {
+			break
+		}
+		p := v_0.Args[0]
+		v.copyOf(p)
+		return true
+	}
+	return false
+}
 func rewriteValueARM64_OpARM64ROR(v *Value) bool {
 	v_1 := v.Args[1]
 	v_0 := v.Args[0]
@@ -25610,6 +25644,18 @@ func rewriteValueARM64_OpPrefetchCacheStreamed(v *Value) bool {
 		v.reset(OpARM64PRFM)
 		v.AuxInt = int64ToAuxInt(1)
 		v.AddArg2(addr, mem)
+		return true
+	}
+}
+func rewriteValueARM64_OpPubBarrier(v *Value) bool {
+	v_0 := v.Args[0]
+	// match: (PubBarrier mem)
+	// result: (DMB [0xe] mem)
+	for {
+		mem := v_0
+		v.reset(OpARM64DMB)
+		v.AuxInt = int64ToAuxInt(0xe)
+		v.AddArg(mem)
 		return true
 	}
 }
