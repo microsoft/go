@@ -356,6 +356,7 @@ func (check *Checker) validType(typ Type, path []Object) typeInfo {
 				if tn == t.obj {
 					check.cycleError(path[i:])
 					t.info = invalid
+					t.underlying = Typ[Invalid]
 					return t.info
 				}
 			}
@@ -586,7 +587,7 @@ func (check *Checker) isImportedConstraint(typ Type) bool {
 		return false
 	}
 	u, _ := named.under().(*Interface)
-	return u != nil && u.IsConstraint()
+	return u != nil && !u.IsMethodSet()
 }
 
 func (check *Checker) typeDecl(obj *TypeName, tdecl *ast.TypeSpec, def *Named) {

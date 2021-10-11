@@ -1041,6 +1041,8 @@ const (
 	OpAMD64BLSMSKL
 	OpAMD64BLSRQ
 	OpAMD64BLSRL
+	OpAMD64TZCNTQ
+	OpAMD64TZCNTL
 
 	OpARMADD
 	OpARMADDconst
@@ -1633,6 +1635,7 @@ const (
 	OpARM64LoweredPanicBoundsB
 	OpARM64LoweredPanicBoundsC
 	OpARM64PRFM
+	OpARM64DMB
 
 	OpMIPSADD
 	OpMIPSADDconst
@@ -1991,6 +1994,7 @@ const (
 	OpPPC64MOVDBRloadidx
 	OpPPC64FMOVDloadidx
 	OpPPC64FMOVSloadidx
+	OpPPC64DCBT
 	OpPPC64MOVDBRstore
 	OpPPC64MOVWBRstore
 	OpPPC64MOVHBRstore
@@ -2949,6 +2953,7 @@ const (
 	OpAtomicAnd32Variant
 	OpAtomicOr8Variant
 	OpAtomicOr32Variant
+	OpPubBarrier
 	OpClobber
 	OpClobberReg
 	OpPrefetchCache
@@ -4728,7 +4733,6 @@ var opcodeTable = [...]opInfo{
 		name:         "NOTL",
 		argLen:       1,
 		resultInArg0: true,
-		clobberFlags: true,
 		asm:          x86.ANOTL,
 		reg: regInfo{
 			inputs: []inputInfo{
@@ -10772,7 +10776,6 @@ var opcodeTable = [...]opInfo{
 		name:         "NOTQ",
 		argLen:       1,
 		resultInArg0: true,
-		clobberFlags: true,
 		asm:          x86.ANOTQ,
 		reg: regInfo{
 			inputs: []inputInfo{
@@ -10787,7 +10790,6 @@ var opcodeTable = [...]opInfo{
 		name:         "NOTL",
 		argLen:       1,
 		resultInArg0: true,
-		clobberFlags: true,
 		asm:          x86.ANOTL,
 		reg: regInfo{
 			inputs: []inputInfo{
@@ -13741,6 +13743,34 @@ var opcodeTable = [...]opInfo{
 		argLen:       1,
 		clobberFlags: true,
 		asm:          x86.ABLSRL,
+		reg: regInfo{
+			inputs: []inputInfo{
+				{0, 49135}, // AX CX DX BX BP SI DI R8 R9 R10 R11 R12 R13 R15
+			},
+			outputs: []outputInfo{
+				{0, 49135}, // AX CX DX BX BP SI DI R8 R9 R10 R11 R12 R13 R15
+			},
+		},
+	},
+	{
+		name:         "TZCNTQ",
+		argLen:       1,
+		clobberFlags: true,
+		asm:          x86.ATZCNTQ,
+		reg: regInfo{
+			inputs: []inputInfo{
+				{0, 49135}, // AX CX DX BX BP SI DI R8 R9 R10 R11 R12 R13 R15
+			},
+			outputs: []outputInfo{
+				{0, 49135}, // AX CX DX BX BP SI DI R8 R9 R10 R11 R12 R13 R15
+			},
+		},
+	},
+	{
+		name:         "TZCNTL",
+		argLen:       1,
+		clobberFlags: true,
+		asm:          x86.ATZCNTL,
 		reg: regInfo{
 			inputs: []inputInfo{
 				{0, 49135}, // AX CX DX BX BP SI DI R8 R9 R10 R11 R12 R13 R15
@@ -21790,6 +21820,14 @@ var opcodeTable = [...]opInfo{
 			},
 		},
 	},
+	{
+		name:           "DMB",
+		auxType:        auxInt64,
+		argLen:         1,
+		hasSideEffects: true,
+		asm:            arm64.ADMB,
+		reg:            regInfo{},
+	},
 
 	{
 		name:        "ADD",
@@ -26672,6 +26710,18 @@ var opcodeTable = [...]opInfo{
 			},
 			outputs: []outputInfo{
 				{0, 576460743713488896}, // F1 F2 F3 F4 F5 F6 F7 F8 F9 F10 F11 F12 F13 F14 F15 F16 F17 F18 F19 F20 F21 F22 F23 F24 F25 F26
+			},
+		},
+	},
+	{
+		name:           "DCBT",
+		auxType:        auxInt64,
+		argLen:         2,
+		hasSideEffects: true,
+		asm:            ppc64.ADCBT,
+		reg: regInfo{
+			inputs: []inputInfo{
+				{0, 1073733630}, // SP SB R3 R4 R5 R6 R7 R8 R9 R10 R11 R12 R14 R15 R16 R17 R18 R19 R20 R21 R22 R23 R24 R25 R26 R27 R28 R29
 			},
 		},
 	},
@@ -36736,6 +36786,12 @@ var opcodeTable = [...]opInfo{
 	{
 		name:           "AtomicOr32Variant",
 		argLen:         3,
+		hasSideEffects: true,
+		generic:        true,
+	},
+	{
+		name:           "PubBarrier",
+		argLen:         1,
 		hasSideEffects: true,
 		generic:        true,
 	},

@@ -513,8 +513,8 @@ func init() {
 		{name: "NEGQ", argLength: 1, reg: gp11, asm: "NEGQ", resultInArg0: true, clobberFlags: true}, // -arg0
 		{name: "NEGL", argLength: 1, reg: gp11, asm: "NEGL", resultInArg0: true, clobberFlags: true}, // -arg0
 
-		{name: "NOTQ", argLength: 1, reg: gp11, asm: "NOTQ", resultInArg0: true, clobberFlags: true}, // ^arg0
-		{name: "NOTL", argLength: 1, reg: gp11, asm: "NOTL", resultInArg0: true, clobberFlags: true}, // ^arg0
+		{name: "NOTQ", argLength: 1, reg: gp11, asm: "NOTQ", resultInArg0: true}, // ^arg0
+		{name: "NOTL", argLength: 1, reg: gp11, asm: "NOTL", resultInArg0: true}, // ^arg0
 
 		// BS{F,R}Q returns a tuple [result, flags]
 		// result is undefined if the input is zero.
@@ -918,6 +918,10 @@ func init() {
 		{name: "BLSMSKL", argLength: 1, reg: gp11, asm: "BLSMSKL", clobberFlags: true}, // arg0 ^ (arg0 - 1)
 		{name: "BLSRQ", argLength: 1, reg: gp11, asm: "BLSRQ", clobberFlags: true},     // arg0 & (arg0 - 1)
 		{name: "BLSRL", argLength: 1, reg: gp11, asm: "BLSRL", clobberFlags: true},     // arg0 & (arg0 - 1)
+		// count the number of trailing zero bits, prefer TZCNTQ over BSFQ, as TZCNTQ(0)==64
+		// and BSFQ(0) is undefined. Same for TZCNTL(0)==32
+		{name: "TZCNTQ", argLength: 1, reg: gp11, asm: "TZCNTQ", clobberFlags: true},
+		{name: "TZCNTL", argLength: 1, reg: gp11, asm: "TZCNTL", clobberFlags: true},
 	}
 
 	var AMD64blocks = []blockData{
