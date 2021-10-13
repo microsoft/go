@@ -9,6 +9,7 @@ import (
 	"bytes"
 	"compress/bzip2"
 	"crypto"
+	"crypto/internal/boring"
 	"crypto/rand"
 	"crypto/sha1"
 	"crypto/sha256"
