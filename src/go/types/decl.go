@@ -329,7 +329,17 @@ func (check *Checker) validType(typ Type, path []Object) typeInfo {
 		}
 
 	case *Named:
-		t.resolve(check.conf.Context)
+		// If t is parameterized, we should be considering the instantiated (expanded)
+		// form of t, but in general we can't with this algorithm: if t is an invalid
+		// type it may be so because it infinitely expands through a type parameter.
+		// Instantiating such a type would lead to an infinite sequence of instantiations.
+		// In general, we need "type flow analysis" to recognize those cases.
+		// Example: type A[T any] struct{ x A[*T] } (issue #48951)
+		// In this algorithm we always only consider the orginal, uninstantiated type.
+		// This won't recognize some invalid cases with parameterized types, but it
+		// will terminate.
+		t = t.orig
+
 		// don't touch the type if it is from a different package or the Universe scope
 		// (doing so would lead to a race condition - was issue #35049)
 		if t.obj.pkg != check.pkg {
@@ -357,7 +367,7 @@ func (check *Checker) validType(typ Type, path []Object) typeInfo {
 					check.cycleError(path[i:])
 					t.info = invalid
 					t.underlying = Typ[Invalid]
-					return t.info
+					return invalid
 				}
 			}
 			panic("cycle start not found")
@@ -681,7 +691,7 @@ func (check *Checker) collectTypeParams(dst **TypeParamList, list *ast.FieldList
 	for _, f := range list.List {
 		// TODO(rfindley) we should be able to rely on f.Type != nil at this point
 		if f.Type != nil {
-			bound := check.typ(f.Type)
+			bound := check.bound(f.Type)
 			bounds = append(bounds, bound)
 			posns = append(posns, f.Type)
 			for i := range f.Names {
@@ -693,12 +703,37 @@ func (check *Checker) collectTypeParams(dst **TypeParamList, list *ast.FieldList
 
 	check.later(func() {
 		for i, bound := range bounds {
-			u := under(bound)
-			if _, ok := u.(*Interface); !ok && u != Typ[Invalid] {
-				check.errorf(posns[i], _Todo, "%s is not an interface", bound)
+			if _, ok := under(bound).(*TypeParam); ok {
+				check.error(posns[i], _Todo, "cannot use a type parameter as constraint")
 			}
 		}
+		for _, tpar := range tparams {
+			tpar.iface() // compute type set
+		}
 	})
+}
+
+func (check *Checker) bound(x ast.Expr) Type {
+	// A type set literal of the form ~T and A|B may only appear as constraint;
+	// embed it in an implicit interface so that only interface type-checking
+	// needs to take care of such type expressions.
+	wrap := false
+	switch op := x.(type) {
+	case *ast.UnaryExpr:
+		wrap = op.Op == token.TILDE
+	case *ast.BinaryExpr:
+		wrap = op.Op == token.OR
+	}
+	if wrap {
+		x = &ast.InterfaceType{Methods: &ast.FieldList{List: []*ast.Field{{Type: x}}}}
+		t := check.typ(x)
+		// mark t as implicit interface if all went well
+		if t, _ := t.(*Interface); t != nil {
+			t.implicit = true
+		}
+		return t
+	}
+	return check.typ(x)
 }
 
 func (check *Checker) declareTypeParams(tparams []*TypeParam, names []*ast.Ident) []*TypeParam {

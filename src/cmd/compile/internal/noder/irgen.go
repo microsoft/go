@@ -44,7 +44,6 @@ func checkFiles(noders []*noder) (posMap, *types2.Package, *types2.Info) {
 		GoVersion:             base.Flag.Lang,
 		IgnoreLabels:          true, // parser already checked via syntax.CheckBranches mode
 		CompilerErrorMessages: true, // use error strings matching existing compiler errors
-		AllowTypeLists:        true, // remove this line once all tests use type set syntax
 		Error: func(err error) {
 			terr := err.(types2.Error)
 			base.ErrorfAt(m.makeXPos(terr.Pos), "%s", terr.Msg)
@@ -115,7 +114,7 @@ type dictInfo struct {
 	itabConvs []ir.Node
 
 	// Mapping from each shape type that substitutes a type param, to its
-	// type bound (which is also substitued with shapes if it is parameterized)
+	// type bound (which is also substituted with shapes if it is parameterized)
 	shapeToBound map[*types.Type]*types.Type
 
 	// For type switches on nonempty interfaces, a map from OTYPE entries of
@@ -148,6 +147,9 @@ type irgen struct {
 	// laterFuncs records tasks that need to run after all declarations
 	// are processed.
 	laterFuncs []func()
+	// haveEmbed indicates whether the current node belongs to file that
+	// imports "embed" package.
+	haveEmbed bool
 
 	// exprStmtOK indicates whether it's safe to generate expressions or
 	// statements yet.
@@ -255,8 +257,11 @@ Outer:
 	types.ResumeCheckSize()
 
 	// 3. Process all remaining declarations.
-	for _, declList := range declLists {
+	for i, declList := range declLists {
+		old := g.haveEmbed
+		g.haveEmbed = noders[i].importedEmbed
 		g.decls((*ir.Nodes)(&g.target.Decls), declList)
+		g.haveEmbed = old
 	}
 	g.exprStmtOK = true
 
