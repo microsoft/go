@@ -1746,11 +1746,34 @@ func (w *exportWriter) expr(n ir.Node) {
 		}
 		w.localName(n)
 
-	// case OPACK, ONONAME:
+	case ir.ONONAME:
+		w.op(ir.ONONAME)
+		// This should only be for OKEY nodes in generic functions
+		s := n.Sym()
+		w.string(s.Name)
+		w.pkg(s.Pkg)
+		if go117ExportTypes {
+			w.typ(n.Type())
+		}
+
+	// case OPACK:
 	// 	should have been resolved by typechecking - handled by default case
 
 	case ir.OTYPE:
 		w.op(ir.OTYPE)
+		w.typ(n.Type())
+
+	case ir.ODYNAMICTYPE:
+		n := n.(*ir.DynamicType)
+		w.op(ir.ODYNAMICTYPE)
+		w.pos(n.Pos())
+		w.expr(n.X)
+		if n.ITab != nil {
+			w.bool(true)
+			w.expr(n.ITab)
+		} else {
+			w.bool(false)
+		}
 		w.typ(n.Type())
 
 	case ir.OTYPESW:
@@ -1818,7 +1841,7 @@ func (w *exportWriter) expr(n ir.Node) {
 		w.typ(n.Type())
 		w.fieldList(n.List) // special handling of field names
 
-	case ir.OARRAYLIT, ir.OSLICELIT, ir.OMAPLIT:
+	case ir.OCOMPLIT, ir.OARRAYLIT, ir.OSLICELIT, ir.OMAPLIT:
 		n := n.(*ir.CompLitExpr)
 		if go117ExportTypes {
 			w.op(n.Op())
@@ -1876,6 +1899,14 @@ func (w *exportWriter) expr(n ir.Node) {
 		}
 		w.pos(n.Pos())
 		w.expr(n.X)
+		w.typ(n.Type())
+
+	case ir.ODYNAMICDOTTYPE, ir.ODYNAMICDOTTYPE2:
+		n := n.(*ir.DynamicTypeAssertExpr)
+		w.op(n.Op())
+		w.pos(n.Pos())
+		w.expr(n.X)
+		w.expr(n.T)
 		w.typ(n.Type())
 
 	case ir.OINDEX, ir.OINDEXMAP:

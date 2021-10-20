@@ -176,7 +176,7 @@ func ReadImports(pkg *types.Pkg, data string) {
 		}
 
 		for nSyms := ird.uint64(); nSyms > 0; nSyms-- {
-			s := pkg.Lookup(p.stringAt(ird.uint64()))
+			s := pkg.Lookup(p.nameAt(ird.uint64()))
 			off := ird.uint64()
 
 			if _, ok := DeclImporter[s]; !ok {
@@ -190,7 +190,7 @@ func ReadImports(pkg *types.Pkg, data string) {
 		pkg := p.pkgAt(ird.uint64())
 
 		for nSyms := ird.uint64(); nSyms > 0; nSyms-- {
-			s := pkg.Lookup(p.stringAt(ird.uint64()))
+			s := pkg.Lookup(p.nameAt(ird.uint64()))
 			off := ird.uint64()
 
 			if _, ok := inlineImporter[s]; !ok {
@@ -222,6 +222,22 @@ func (p *iimporter) stringAt(off uint64) string {
 	}
 	spos := off + uint64(n)
 	return p.stringData[spos : spos+slen]
+}
+
+// nameAt is the same as stringAt, except it replaces instances
+// of "" with the path of the package being imported.
+func (p *iimporter) nameAt(off uint64) string {
+	s := p.stringAt(off)
+	// Names of objects (functions, methods, globals) may include ""
+	// to represent the path name of the imported package.
+	// Replace "" with the imported package prefix. This occurs
+	// specifically for generics where the names of instantiations
+	// and dictionaries contain package-qualified type names.
+	// Include the dot to avoid matching with struct tags ending in '"'.
+	if strings.Contains(s, "\"\".") {
+		s = strings.Replace(s, "\"\".", p.ipkg.Prefix+".", -1)
+	}
+	return s
 }
 
 func (p *iimporter) posBaseAt(off uint64) *src.PosBase {
@@ -279,6 +295,7 @@ func (p *iimporter) newReader(off uint64, pkg *types.Pkg) *importReader {
 }
 
 func (r *importReader) string() string        { return r.p.stringAt(r.uint64()) }
+func (r *importReader) name() string          { return r.p.nameAt(r.uint64()) }
 func (r *importReader) posBase() *src.PosBase { return r.p.posBaseAt(r.uint64()) }
 func (r *importReader) pkg() *types.Pkg       { return r.p.pkgAt(r.uint64()) }
 
@@ -530,7 +547,7 @@ func (r *importReader) localIdent() *types.Sym { return r.ident(false) }
 func (r *importReader) selector() *types.Sym   { return r.ident(true) }
 
 func (r *importReader) qualifiedIdent() *ir.Ident {
-	name := r.string()
+	name := r.name()
 	pkg := r.pkg()
 	sym := pkg.Lookup(name)
 	return ir.NewIdent(src.NoXPos, sym)
@@ -1295,6 +1312,14 @@ func (r *importReader) node() ir.Node {
 	case ir.OTYPE:
 		return ir.TypeNode(r.typ())
 
+	case ir.ODYNAMICTYPE:
+		n := ir.NewDynamicType(r.pos(), r.expr())
+		if r.bool() {
+			n.ITab = r.expr()
+		}
+		n.SetType(r.typ())
+		return n
+
 	case ir.OTYPESW:
 		pos := r.pos()
 		var tag *ir.Ident
@@ -1359,7 +1384,11 @@ func (r *importReader) node() ir.Node {
 		return ir.NewCompLitExpr(r.pos(), ir.OCOMPLIT, ir.TypeNode(r.typ()), r.fieldList())
 
 	case ir.OCOMPLIT:
-		return ir.NewCompLitExpr(r.pos(), ir.OCOMPLIT, ir.TypeNode(r.typ()), r.exprList())
+		pos := r.pos()
+		t := r.typ()
+		n := ir.NewCompLitExpr(pos, ir.OCOMPLIT, ir.TypeNode(t), r.exprList())
+		n.SetType(t)
+		return n
 
 	case ir.OARRAYLIT, ir.OSLICELIT, ir.OMAPLIT:
 		if !go117ExportTypes {
@@ -1442,6 +1471,11 @@ func (r *importReader) node() ir.Node {
 		if go117ExportTypes {
 			n.SetOp(op)
 		}
+		return n
+
+	case ir.ODYNAMICDOTTYPE, ir.ODYNAMICDOTTYPE2:
+		n := ir.NewDynamicTypeAssertExpr(r.pos(), op, r.expr(), r.expr())
+		n.SetType(r.typ())
 		return n
 
 	case ir.OINDEX, ir.OINDEXMAP:
@@ -1809,9 +1843,25 @@ func Instantiate(pos src.XPos, baseType *types.Type, targs []*types.Type) *types
 	instSym := baseSym.Pkg.Lookup(name)
 	if instSym.Def != nil {
 		// May match existing type from previous import or
-		// types2-to-types1 conversion, or from in-progress instantiation
-		// in the current type import stack.
-		return instSym.Def.Type()
+		// types2-to-types1 conversion.
+		t := instSym.Def.Type()
+		if t.Kind() != types.TFORW {
+			return t
+		}
+		// Or, we have started creating this type in (*TSubster).Typ, but its
+		// underlying type was not completed yet, so we need to add this type
+		// to deferredInstStack, if not already there.
+		found := false
+		for _, t2 := range deferredInstStack {
+			if t2 == t {
+				found = true
+				break
+			}
+		}
+		if !found {
+			deferredInstStack = append(deferredInstStack, t)
+		}
+		return t
 	}
 
 	t := NewIncompleteNamedType(baseType.Pos(), instSym)
@@ -1852,6 +1902,7 @@ func resumeDoInst() {
 // during a type substitution for an instantiation. This is needed for
 // instantiations of mutually recursive types.
 func doInst(t *types.Type) *types.Type {
+	assert(t.Kind() == types.TFORW)
 	return Instantiate(t.Pos(), t.OrigSym().Def.(*ir.Name).Type(), t.RParams())
 }
 
@@ -1860,6 +1911,7 @@ func doInst(t *types.Type) *types.Type {
 // instantiation being created, baseType is the base generic type, and targs are
 // the type arguments that baseType is being instantiated with.
 func substInstType(t *types.Type, baseType *types.Type, targs []*types.Type) {
+	assert(t.Kind() == types.TFORW)
 	subst := Tsubster{
 		Tparams:       baseType.RParams(),
 		Targs:         targs,

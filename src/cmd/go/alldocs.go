@@ -131,8 +131,19 @@
 //
 // 	-asmflags '[pattern=]arg list'
 // 		arguments to pass on each go tool asm invocation.
+// 	-buildinfo
+// 		Whether to stamp binaries with build flags. By default, the compiler name
+// 		(gc or gccgo), toolchain flags (like -gcflags), and environment variables
+// 		containing flags (like CGO_CFLAGS) are stamped into binaries. Use
+// 		-buildinfo=false to omit build information. See also -buildvcs.
 // 	-buildmode mode
 // 		build mode to use. See 'go help buildmode' for more.
+// 	-buildvcs
+// 		Whether to stamp binaries with version control information. By default,
+// 		version control information is stamped into a binary if the main package
+// 		and the main module containing it are in the repository containing the
+// 		current directory (if there is a repository). Use -buildvcs=false to
+// 		omit version control information. See also -buildinfo.
 // 	-compiler name
 // 		name of compiler to use, as in runtime.Compiler (gccgo or gc).
 // 	-gccgoflags '[pattern=]arg list'
@@ -498,7 +509,7 @@
 // files. Those commands can run any process but the intent is to
 // create or update Go source files.
 //
-// Go generate is never run automatically by go build, go get, go test,
+// Go generate is never run automatically by go build, go test,
 // and so on. It must be run explicitly.
 //
 // Go generate scans the file for directives, which are lines of
@@ -644,8 +655,7 @@
 //
 // See 'go help install' or https://golang.org/ref/mod#go-install for details.
 //
-// In addition to build flags (listed in 'go help build') 'go get' accepts the
-// following flags.
+// 'go get' accepts the following flags.
 //
 // The -t flag instructs get to consider modules needed to build tests of
 // packages specified on the command line.
@@ -659,6 +669,10 @@
 //
 // When the -t and -u flags are used together, get will update
 // test dependencies as well.
+//
+// The -x flag prints commands as they are executed. This is useful for
+// debugging version control commands when a module is downloaded directly
+// from a repository.
 //
 // For more about modules, see https://golang.org/ref/mod.
 //

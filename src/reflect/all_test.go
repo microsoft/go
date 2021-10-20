@@ -348,8 +348,8 @@ func TestMapIterSet(t *testing.T) {
 
 	iter := v.MapRange()
 	for iter.Next() {
-		iter.SetKey(k)
-		iter.SetValue(e)
+		k.SetIterKey(iter)
+		e.SetIterValue(iter)
 		want := m[k.String()]
 		got := e.Interface()
 		if got != want {
@@ -366,8 +366,8 @@ func TestMapIterSet(t *testing.T) {
 	got := int(testing.AllocsPerRun(10, func() {
 		iter := v.MapRange()
 		for iter.Next() {
-			iter.SetKey(k)
-			iter.SetValue(e)
+			k.SetIterKey(iter)
+			e.SetIterValue(iter)
 		}
 	}))
 	// Making a *MapIter allocates. This should be the only allocation.
@@ -2511,6 +2511,11 @@ func TestMethodValue(t *testing.T) {
 	p := Point{3, 4}
 	var i int64
 
+	// Check that method value have the same underlying code pointers.
+	if p1, p2 := ValueOf(Point{1, 1}).Method(1), ValueOf(Point{2, 2}).Method(1); p1.Pointer() != p2.Pointer() {
+		t.Errorf("methodValueCall mismatched: %v - %v", p1, p2)
+	}
+
 	// Curried method of value.
 	tfunc := TypeOf((func(int) int)(nil))
 	v := ValueOf(p).Method(1)
@@ -3218,11 +3223,11 @@ func (*outer) M() {}
 
 func TestNestedMethods(t *testing.T) {
 	typ := TypeOf((*outer)(nil))
-	if typ.NumMethod() != 1 || typ.Method(0).Func.Pointer() != ValueOf((*outer).M).Pointer() {
+	if typ.NumMethod() != 1 || typ.Method(0).Func.UnsafePointer() != ValueOf((*outer).M).UnsafePointer() {
 		t.Errorf("Wrong method table for outer: (M=%p)", (*outer).M)
 		for i := 0; i < typ.NumMethod(); i++ {
 			m := typ.Method(i)
-			t.Errorf("\t%d: %s %#x\n", i, m.Name, m.Func.Pointer())
+			t.Errorf("\t%d: %s %p\n", i, m.Name, m.Func.UnsafePointer())
 		}
 	}
 }
@@ -3261,11 +3266,11 @@ func (i *InnerInt) M() int {
 
 func TestEmbeddedMethods(t *testing.T) {
 	typ := TypeOf((*OuterInt)(nil))
-	if typ.NumMethod() != 1 || typ.Method(0).Func.Pointer() != ValueOf((*OuterInt).M).Pointer() {
+	if typ.NumMethod() != 1 || typ.Method(0).Func.UnsafePointer() != ValueOf((*OuterInt).M).UnsafePointer() {
 		t.Errorf("Wrong method table for OuterInt: (m=%p)", (*OuterInt).M)
 		for i := 0; i < typ.NumMethod(); i++ {
 			m := typ.Method(i)
-			t.Errorf("\t%d: %s %#x\n", i, m.Name, m.Func.Pointer())
+			t.Errorf("\t%d: %s %p\n", i, m.Name, m.Func.UnsafePointer())
 		}
 	}
 
@@ -3523,11 +3528,11 @@ func TestSlice(t *testing.T) {
 
 	rv := ValueOf(&xs).Elem()
 	rv = rv.Slice(3, 4)
-	ptr2 := rv.Pointer()
+	ptr2 := rv.UnsafePointer()
 	rv = rv.Slice(5, 5)
-	ptr3 := rv.Pointer()
+	ptr3 := rv.UnsafePointer()
 	if ptr3 != ptr2 {
-		t.Errorf("xs.Slice(3,4).Slice3(5,5).Pointer() = %#x, want %#x", ptr3, ptr2)
+		t.Errorf("xs.Slice(3,4).Slice3(5,5).UnsafePointer() = %p, want %p", ptr3, ptr2)
 	}
 }
 
@@ -3570,11 +3575,11 @@ func TestSlice3(t *testing.T) {
 
 	rv = ValueOf(&xs).Elem()
 	rv = rv.Slice3(3, 5, 7)
-	ptr2 := rv.Pointer()
+	ptr2 := rv.UnsafePointer()
 	rv = rv.Slice3(4, 4, 4)
-	ptr3 := rv.Pointer()
+	ptr3 := rv.UnsafePointer()
 	if ptr3 != ptr2 {
-		t.Errorf("xs.Slice3(3,5,7).Slice3(4,4,4).Pointer() = %#x, want %#x", ptr3, ptr2)
+		t.Errorf("xs.Slice3(3,5,7).Slice3(4,4,4).UnsafePointer() = %p, want %p", ptr3, ptr2)
 	}
 }
 
@@ -6813,7 +6818,7 @@ func verifyGCBitsSlice(t *testing.T, typ Type, cap int, bits []byte) {
 	// repeat a bitmap for a small array or executing a repeat in
 	// a GC program.
 	val := MakeSlice(typ, 0, cap)
-	data := NewAt(ArrayOf(cap, typ), unsafe.Pointer(val.Pointer()))
+	data := NewAt(ArrayOf(cap, typ), val.UnsafePointer())
 	heapBits := GCBits(data.Interface())
 	// Repeat the bitmap for the slice size, trimming scalars in
 	// the last element.
@@ -7475,9 +7480,9 @@ func TestMapIterReset(t *testing.T) {
 		var seenk, seenv uint64
 		iter.Reset(ValueOf(m3))
 		for iter.Next() {
-			iter.SetKey(kv)
+			kv.SetIterKey(iter)
 			seenk ^= kv.Uint()
-			iter.SetValue(kv)
+			kv.SetIterValue(iter)
 			seenv ^= kv.Uint()
 		}
 		if seenk != 0b111 {
@@ -7617,5 +7622,114 @@ func TestConvertibleTo(t *testing.T) {
 
 	if t3.ConvertibleTo(t4) {
 		t.Fatalf("(%s).ConvertibleTo(%s) = true, want false", t3, t4)
+	}
+}
+
+func TestSetIter(t *testing.T) {
+	data := map[string]int{
+		"foo": 1,
+		"bar": 2,
+		"baz": 3,
+	}
+
+	m := ValueOf(data)
+	i := m.MapRange()
+	k := New(TypeOf("")).Elem()
+	v := New(TypeOf(0)).Elem()
+	shouldPanic("Value.SetIterKey called before Next", func() {
+		k.SetIterKey(i)
+	})
+	shouldPanic("Value.SetIterValue called before Next", func() {
+		v.SetIterValue(i)
+	})
+	data2 := map[string]int{}
+	for i.Next() {
+		k.SetIterKey(i)
+		v.SetIterValue(i)
+		data2[k.Interface().(string)] = v.Interface().(int)
+	}
+	if !DeepEqual(data, data2) {
+		t.Errorf("maps not equal, got %v want %v", data2, data)
+	}
+	shouldPanic("Value.SetIterKey called on exhausted iterator", func() {
+		k.SetIterKey(i)
+	})
+	shouldPanic("Value.SetIterValue called on exhausted iterator", func() {
+		v.SetIterValue(i)
+	})
+
+	i.Reset(m)
+	i.Next()
+	shouldPanic("Value.SetIterKey using unaddressable value", func() {
+		ValueOf("").SetIterKey(i)
+	})
+	shouldPanic("Value.SetIterValue using unaddressable value", func() {
+		ValueOf(0).SetIterValue(i)
+	})
+	shouldPanic("value of type string is not assignable to type int", func() {
+		New(TypeOf(0)).Elem().SetIterKey(i)
+	})
+	shouldPanic("value of type int is not assignable to type string", func() {
+		New(TypeOf("")).Elem().SetIterValue(i)
+	})
+
+	// Make sure assignment conversion works.
+	var x interface{}
+	y := ValueOf(&x).Elem()
+	y.SetIterKey(i)
+	if _, ok := data[x.(string)]; !ok {
+		t.Errorf("got key %s which is not in map", x)
+	}
+	y.SetIterValue(i)
+	if x.(int) < 1 || x.(int) > 3 {
+		t.Errorf("got value %d which is not in map", x)
+	}
+
+	// Try some key/value types which are direct interfaces.
+	a := 88
+	b := 99
+	pp := map[*int]*int{
+		&a: &b,
+	}
+	i = ValueOf(pp).MapRange()
+	i.Next()
+	y.SetIterKey(i)
+	if got := *y.Interface().(*int); got != a {
+		t.Errorf("pointer incorrect: got %d want %d", got, a)
+	}
+	y.SetIterValue(i)
+	if got := *y.Interface().(*int); got != b {
+		t.Errorf("pointer incorrect: got %d want %d", got, b)
+	}
+}
+
+//go:notinheap
+type nih struct{ x int }
+
+var global_nih = nih{x: 7}
+
+func TestNotInHeapDeref(t *testing.T) {
+	// See issue 48399.
+	v := ValueOf((*nih)(nil))
+	v.Elem()
+	shouldPanic("reflect: call of reflect.Value.Field on zero Value", func() { v.Elem().Field(0) })
+
+	v = ValueOf(&global_nih)
+	if got := v.Elem().Field(0).Int(); got != 7 {
+		t.Fatalf("got %d, want 7", got)
+	}
+
+	v = ValueOf((*nih)(unsafe.Pointer(new(int))))
+	shouldPanic("reflect: reflect.Value.Elem on an invalid notinheap pointer", func() { v.Elem() })
+}
+
+func TestMethodCallValueCodePtr(t *testing.T) {
+	m := ValueOf(Point{}).Method(1)
+	want := MethodValueCallCodePtr()
+	if got := uintptr(m.UnsafePointer()); got != want {
+		t.Errorf("methodValueCall code pointer mismatched, want: %v, got: %v", want, got)
+	}
+	if got := m.Pointer(); got != want {
+		t.Errorf("methodValueCall code pointer mismatched, want: %v, got: %v", want, got)
 	}
 }

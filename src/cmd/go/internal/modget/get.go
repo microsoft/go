@@ -83,8 +83,7 @@ current directory. For example:
 
 See 'go help install' or https://golang.org/ref/mod#go-install for details.
 
-In addition to build flags (listed in 'go help build') 'go get' accepts the
-following flags.
+'go get' accepts the following flags.
 
 The -t flag instructs get to consider modules needed to build tests of
 packages specified on the command line.
@@ -98,6 +97,10 @@ but changes the default to select patch releases.
 
 When the -t and -u flags are used together, get will update
 test dependencies as well.
+
+The -x flag prints commands as they are executed. This is useful for
+debugging version control commands when a module is downloaded directly
+from a repository.
 
 For more about modules, see https://golang.org/ref/mod.
 
@@ -1572,7 +1575,7 @@ func (r *resolver) checkPackageProblems(ctx context.Context, pkgPatterns []strin
 		i := i
 		m := r.buildList[i]
 		mActual := m
-		if mRepl, _ := modload.Replacement(m); mRepl.Path != "" {
+		if mRepl := modload.Replacement(m); mRepl.Path != "" {
 			mActual = mRepl
 		}
 		old := module.Version{Path: m.Path, Version: r.initialVersion[m.Path]}
@@ -1580,7 +1583,7 @@ func (r *resolver) checkPackageProblems(ctx context.Context, pkgPatterns []strin
 			continue
 		}
 		oldActual := old
-		if oldRepl, _ := modload.Replacement(old); oldRepl.Path != "" {
+		if oldRepl := modload.Replacement(old); oldRepl.Path != "" {
 			oldActual = oldRepl
 		}
 		if mActual == oldActual || mActual.Version == "" || !modfetch.HaveSum(oldActual) {

@@ -687,6 +687,7 @@ func schedinit() {
 	modulesinit()   // provides activeModules
 	typelinksinit() // uses maps, activeModules
 	itabsinit()     // uses activeModules
+	stkobjinit()    // must run before GC starts
 
 	sigsave(&_g_.m.sigmask)
 	initSigmask = _g_.m.sigmask
@@ -5839,7 +5840,7 @@ const randomizeScheduler = raceenabled
 // If the run queue is full, runnext puts g on the global queue.
 // Executed only by the owner P.
 func runqput(_p_ *p, gp *g, next bool) {
-	if randomizeScheduler && next && fastrand()%2 == 0 {
+	if randomizeScheduler && next && fastrandn(2) == 0 {
 		next = false
 	}
 

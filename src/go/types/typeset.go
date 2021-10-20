@@ -28,8 +28,8 @@ func (s *_TypeSet) IsEmpty() bool { return s.terms.isEmpty() }
 // IsAll reports whether type set s is the set of all types (corresponding to the empty interface).
 func (s *_TypeSet) IsAll() bool { return !s.comparable && len(s.methods) == 0 && s.terms.isAll() }
 
-// IsConstraint reports whether type set s is not just a set of methods.
-func (s *_TypeSet) IsConstraint() bool { return s.comparable || !s.terms.isAll() }
+// IsMethodSet reports whether the interface t is fully described by its method set.
+func (s *_TypeSet) IsMethodSet() bool { return !s.comparable && s.terms.isAll() }
 
 // IsComparable reports whether each type in the set is comparable.
 func (s *_TypeSet) IsComparable() bool {
@@ -292,7 +292,7 @@ func computeInterfaceTypeSet(check *Checker, pos token.Pos, ityp *Interface) *_T
 			// Union parsing reports a (delayed) error, so we can ignore this entry.
 			continue
 		default:
-			if typ == Typ[Invalid] {
+			if u == Typ[Invalid] {
 				continue
 			}
 			if check != nil && !check.allowVersion(check.pkg, 1, 18) {

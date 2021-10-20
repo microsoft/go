@@ -1169,6 +1169,21 @@ func (v Value) Elem() Value {
 	case Ptr:
 		ptr := v.ptr
 		if v.flag&flagIndir != 0 {
+			if ifaceIndir(v.typ) {
+				// This is a pointer to a not-in-heap object. ptr points to a uintptr
+				// in the heap. That uintptr is the address of a not-in-heap object.
+				// In general, pointers to not-in-heap objects can be total junk.
+				// But Elem() is asking to dereference it, so the user has asserted
+				// that at least it is a valid pointer (not just an integer stored in
+				// a pointer slot). So let's check, to make sure that it isn't a pointer
+				// that the runtime will crash on if it sees it during GC or write barriers.
+				// Since it is a not-in-heap pointer, all pointers to the heap are
+				// forbidden! That makes the test pretty easy.
+				// See issue 48399.
+				if !verifyNotInHeapPtr(*(*uintptr)(ptr)) {
+					panic("reflect: reflect.Value.Elem on an invalid notinheap pointer")
+				}
+			}
 			ptr = *(*unsafe.Pointer)(ptr)
 		}
 		// The returned value's address is v's value.
@@ -1651,30 +1666,30 @@ func (iter *MapIter) Key() Value {
 	return copyVal(ktype, iter.m.flag.ro()|flag(ktype.Kind()), iterkey)
 }
 
-// SetKey assigns dst to the key of iter's current map entry.
-// It is equivalent to dst.Set(i.Key()), but it avoids allocating a new Value.
-// As in Go, the key must be assignable to dst's type.
-func (iter *MapIter) SetKey(dst Value) {
+// SetIterKey assigns to v the key of iter's current map entry.
+// It is equivalent to v.Set(iter.Key()), but it avoids allocating a new Value.
+// As in Go, the key must be assignable to v's type.
+func (v Value) SetIterKey(iter *MapIter) {
 	if !iter.hiter.initialized() {
-		panic("MapIter.SetKey called before Next")
+		panic("reflect: Value.SetIterKey called before Next")
 	}
 	iterkey := mapiterkey(&iter.hiter)
 	if iterkey == nil {
-		panic("MapIter.SetKey called on exhausted iterator")
+		panic("reflect: Value.SetIterKey called on exhausted iterator")
 	}
 
-	dst.mustBeAssignable()
+	v.mustBeAssignable()
 	var target unsafe.Pointer
-	if dst.kind() == Interface {
-		target = dst.ptr
+	if v.kind() == Interface {
+		target = v.ptr
 	}
 
 	t := (*mapType)(unsafe.Pointer(iter.m.typ))
 	ktype := t.key
 
-	key := Value{ktype, iterkey, iter.m.flag | flag(ktype.Kind())}
-	key = key.assignTo("reflect.MapIter.SetKey", dst.typ, target)
-	typedmemmove(dst.typ, dst.ptr, key.ptr)
+	key := Value{ktype, iterkey, iter.m.flag | flag(ktype.Kind()) | flagIndir}
+	key = key.assignTo("reflect.MapIter.SetKey", v.typ, target)
+	typedmemmove(v.typ, v.ptr, key.ptr)
 }
 
 // Value returns the value of iter's current map entry.
@@ -1692,30 +1707,30 @@ func (iter *MapIter) Value() Value {
 	return copyVal(vtype, iter.m.flag.ro()|flag(vtype.Kind()), iterelem)
 }
 
-// SetValue assigns dst to the value of iter's current map entry.
-// It is equivalent to dst.Set(i.Value()), but it avoids allocating a new Value.
-// As in Go, the value must be assignable to dst's type.
-func (iter *MapIter) SetValue(dst Value) {
+// SetIterValue assigns to v the value of iter's current map entry.
+// It is equivalent to v.Set(iter.Value()), but it avoids allocating a new Value.
+// As in Go, the value must be assignable to v's type.
+func (v Value) SetIterValue(iter *MapIter) {
 	if !iter.hiter.initialized() {
-		panic("MapIter.SetValue called before Next")
+		panic("reflect: Value.SetIterValue called before Next")
 	}
 	iterelem := mapiterelem(&iter.hiter)
 	if iterelem == nil {
-		panic("MapIter.SetValue called on exhausted iterator")
+		panic("reflect: Value.SetIterValue called on exhausted iterator")
 	}
 
-	dst.mustBeAssignable()
+	v.mustBeAssignable()
 	var target unsafe.Pointer
-	if dst.kind() == Interface {
-		target = dst.ptr
+	if v.kind() == Interface {
+		target = v.ptr
 	}
 
 	t := (*mapType)(unsafe.Pointer(iter.m.typ))
 	vtype := t.elem
 
-	elem := Value{vtype, iterelem, iter.m.flag | flag(vtype.Kind())}
-	elem = elem.assignTo("reflect.MapIter.SetValue", dst.typ, target)
-	typedmemmove(dst.typ, dst.ptr, elem.ptr)
+	elem := Value{vtype, iterelem, iter.m.flag | flag(vtype.Kind()) | flagIndir}
+	elem = elem.assignTo("reflect.MapIter.SetValue", v.typ, target)
+	typedmemmove(v.typ, v.ptr, elem.ptr)
 }
 
 // Next advances the map iterator and reports whether there is another
@@ -1918,8 +1933,9 @@ func (v Value) OverflowUint(x uint64) bool {
 // If v's Kind is Slice, the returned pointer is to the first
 // element of the slice. If the slice is nil the returned value
 // is 0.  If the slice is empty but non-nil the return value is non-zero.
+//
+// Deprecated: use uintptr(Value.UnsafePointer()) to get the equivalent result.
 func (v Value) Pointer() uintptr {
-	// TODO: deprecate
 	k := v.kind()
 	switch k {
 	case Ptr:
@@ -1941,8 +1957,7 @@ func (v Value) Pointer() uintptr {
 			// created via reflect have the same underlying code pointer,
 			// so their Pointers are equal. The function used here must
 			// match the one used in makeMethodValue.
-			f := methodValueCall
-			return **(**uintptr)(unsafe.Pointer(&f))
+			return methodValueCallCodePtr()
 		}
 		p := v.pointer()
 		// Non-nil func value points at data block.
@@ -2458,11 +2473,12 @@ func (v Value) Uint() uint64 {
 // which ensures cmd/compile can recognize unsafe.Pointer(v.UnsafeAddr())
 // and make an exception.
 
-// UnsafeAddr returns a pointer to v's data.
+// UnsafeAddr returns a pointer to v's data, as a uintptr.
 // It is for advanced clients that also import the "unsafe" package.
 // It panics if v is not addressable.
+//
+// Deprecated: use uintptr(Value.Addr().UnsafePointer()) to get the equivalent result.
 func (v Value) UnsafeAddr() uintptr {
-	// TODO: deprecate
 	if v.typ == nil {
 		panic(&ValueError{"reflect.Value.UnsafeAddr", Invalid})
 	}
@@ -2470,6 +2486,57 @@ func (v Value) UnsafeAddr() uintptr {
 		panic("reflect.Value.UnsafeAddr of unaddressable value")
 	}
 	return uintptr(v.ptr)
+}
+
+// UnsafePointer returns v's value as a unsafe.Pointer.
+// It panics if v's Kind is not Chan, Func, Map, Ptr, Slice, or UnsafePointer.
+//
+// If v's Kind is Func, the returned pointer is an underlying
+// code pointer, but not necessarily enough to identify a
+// single function uniquely. The only guarantee is that the
+// result is zero if and only if v is a nil func Value.
+//
+// If v's Kind is Slice, the returned pointer is to the first
+// element of the slice. If the slice is nil the returned value
+// is nil.  If the slice is empty but non-nil the return value is non-nil.
+func (v Value) UnsafePointer() unsafe.Pointer {
+	k := v.kind()
+	switch k {
+	case Ptr:
+		if v.typ.ptrdata == 0 {
+			// Since it is a not-in-heap pointer, all pointers to the heap are
+			// forbidden! See comment in Value.Elem and issue #48399.
+			if !verifyNotInHeapPtr(*(*uintptr)(v.ptr)) {
+				panic("reflect: reflect.Value.UnsafePointer on an invalid notinheap pointer")
+			}
+			return *(*unsafe.Pointer)(v.ptr)
+		}
+		fallthrough
+	case Chan, Map, UnsafePointer:
+		return v.pointer()
+	case Func:
+		if v.flag&flagMethod != 0 {
+			// As the doc comment says, the returned pointer is an
+			// underlying code pointer but not necessarily enough to
+			// identify a single function uniquely. All method expressions
+			// created via reflect have the same underlying code pointer,
+			// so their Pointers are equal. The function used here must
+			// match the one used in makeMethodValue.
+			code := methodValueCallCodePtr()
+			return *(*unsafe.Pointer)(unsafe.Pointer(&code))
+		}
+		p := v.pointer()
+		// Non-nil func value points at data block.
+		// First word of data block is actual code.
+		if p != nil {
+			p = *(*unsafe.Pointer)(p)
+		}
+		return p
+
+	case Slice:
+		return (*unsafeheader.Slice)(v.ptr).Data
+	}
+	panic(&ValueError{"reflect.Value.UnsafePointer", v.kind()})
 }
 
 // StringHeader is the runtime representation of a string.
@@ -3405,6 +3472,8 @@ func typedslicecopy(elemType *rtype, dst, src unsafeheader.Slice) int
 
 //go:noescape
 func typehash(t *rtype, p unsafe.Pointer, h uintptr) uintptr
+
+func verifyNotInHeapPtr(p uintptr) bool
 
 // Dummy annotation marking that the value x escapes,
 // for use in cases where the reflect code is so clever that

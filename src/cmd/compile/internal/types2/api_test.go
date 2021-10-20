@@ -328,8 +328,10 @@ func TestTypesInfo(t *testing.T) {
 		// parameterized functions
 		{genericPkg + `p0; func f[T any](T) {}; var _ = f[int]`, `f`, `func[generic_p0.T₁ interface{}](generic_p0.T₁)`},
 		{genericPkg + `p1; func f[T any](T) {}; var _ = f[int]`, `f[int]`, `func(int)`},
-		{genericPkg + `p2; func f[T any](T) {}; func _() { f(42) }`, `f`, `func[generic_p2.T₁ interface{}](generic_p2.T₁)`},
-		{genericPkg + `p3; func f[T any](T) {}; func _() { f(42) }`, `f(42)`, `()`},
+		{genericPkg + `p2; func f[T any](T) {}; func _() { f(42) }`, `f`, `func(int)`},
+		{genericPkg + `p3; func f[T any](T) {}; func _() { f[int](42) }`, `f[int]`, `func(int)`},
+		{genericPkg + `p4; func f[T any](T) {}; func _() { f[int](42) }`, `f`, `func[generic_p4.T₁ interface{}](generic_p4.T₁)`},
+		{genericPkg + `p5; func f[T any](T) {}; func _() { f(42) }`, `f(42)`, `()`},
 
 		// type parameters
 		{genericPkg + `t0; type t[] int; var _ t`, `t`, `generic_t0.t`}, // t[] is a syntax error that is ignored in this test in favor of t
@@ -1653,6 +1655,7 @@ func TestConvertibleTo(t *testing.T) {
 	}{
 		{Typ[Int], Typ[Int], true},
 		{Typ[Int], Typ[Float32], true},
+		{Typ[Int], Typ[String], true},
 		{newDefined(Typ[Int]), Typ[Int], true},
 		{newDefined(new(Struct)), new(Struct), true},
 		{newDefined(Typ[Int]), new(Struct), false},
@@ -1660,8 +1663,7 @@ func TestConvertibleTo(t *testing.T) {
 		{NewSlice(Typ[Int]), NewPointer(NewArray(Typ[Int], 10)), true},
 		{NewSlice(Typ[Int]), NewArray(Typ[Int], 10), false},
 		{NewSlice(Typ[Int]), NewPointer(NewArray(Typ[Uint], 10)), false},
-		// Untyped string values are not permitted by the spec, so the below
-		// behavior is undefined.
+		// Untyped string values are not permitted by the spec, so the behavior below is undefined.
 		{Typ[UntypedString], Typ[String], true},
 	} {
 		if got := ConvertibleTo(test.v, test.t); got != test.want {

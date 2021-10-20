@@ -919,14 +919,11 @@ func addTargs(b *bytes.Buffer, targs []*types.Type) {
 		if i > 0 {
 			b.WriteByte(',')
 		}
-		// Use NameString(), which includes the package name for the local
-		// package, to make sure that type arguments (including type params),
-		// are uniquely specified.
-		tstring := targ.NameString()
-		// types1 uses "interface {" and types2 uses "interface{" - convert
-		// to consistent types2 format.  Same for "struct {"
-		tstring = strings.Replace(tstring, "interface {", "interface{", -1)
-		tstring = strings.Replace(tstring, "struct {", "struct{", -1)
+		// Make sure that type arguments (including type params), are
+		// uniquely specified. LinkString() eliminates all spaces
+		// and includes the package path (local package path is "" before
+		// linker substitution).
+		tstring := targ.LinkString()
 		b.WriteString(tstring)
 	}
 	b.WriteString("]")
@@ -1010,17 +1007,20 @@ func assert(p bool) {
 // List of newly fully-instantiated types who should have their methods generated.
 var instTypeList []*types.Type
 
-// NeedInstType adds a new fully-instantied type to instTypeList.
+// NeedInstType adds a new fully-instantiated type to instTypeList.
 func NeedInstType(t *types.Type) {
 	instTypeList = append(instTypeList, t)
 }
 
-// GetInstTypeList returns the current contents of instTypeList, and sets
-// instTypeList to nil.
+// GetInstTypeList returns the current contents of instTypeList.
 func GetInstTypeList() []*types.Type {
 	r := instTypeList
-	instTypeList = nil
 	return r
+}
+
+// ClearInstTypeList clears the contents of instTypeList.
+func ClearInstTypeList() {
+	instTypeList = nil
 }
 
 // General type substituter, for replacing typeparams with type args.
@@ -1220,7 +1220,7 @@ func (ts *Tsubster) typ1(t *types.Type) *types.Type {
 		}
 	case types.TFORW:
 		if ts.SubstForwFunc != nil {
-			newt = ts.SubstForwFunc(t)
+			return ts.SubstForwFunc(forw)
 		} else {
 			assert(false)
 		}
@@ -1324,9 +1324,6 @@ func (ts *Tsubster) tstruct(t *types.Type, force bool) *types.Type {
 			}
 		}
 		if newfields != nil {
-			// TODO(danscales): make sure this works for the field
-			// names of embedded types (which should keep the name of
-			// the type param, not the instantiated type).
 			newfields[i] = types.NewField(f.Pos, f.Sym, t2)
 			newfields[i].Embedded = f.Embedded
 			newfields[i].Note = f.Note
@@ -1440,6 +1437,7 @@ func Shapify(t *types.Type, index int) *types.Type {
 		return s
 	}
 
+	// LinkString specifies the type uniquely, but has no spaces.
 	nm := fmt.Sprintf("%s_%d", u.LinkString(), index)
 	sym := types.ShapePkg.Lookup(nm)
 	if sym.Def != nil {

@@ -5,6 +5,7 @@
 package testing
 
 import (
+	"bytes"
 	"errors"
 	"flag"
 	"fmt"
@@ -56,6 +57,10 @@ type InternalFuzzTarget struct {
 // call F.Fuzz once to provide a fuzz function. See the testing package
 // documentation for an example, and see the F.Fuzz and F.Add method
 // documentation for details.
+//
+// *F methods can only be called before (*F).Fuzz. Once inside the function
+// passed to (*F).Fuzz, only (*T) methods can be used. The only *F methods that
+// are allowed in the (*F).Fuzz function are (*F).Failed and (*F).Name.
 type F struct {
 	common
 	fuzzContext *fuzzContext
@@ -80,83 +85,11 @@ var _ TB = (*F)(nil)
 // import internal/fuzz from testing.
 type corpusEntry = struct {
 	Parent     string
-	Name       string
+	Path       string
 	Data       []byte
 	Values     []interface{}
 	Generation int
 	IsSeed     bool
-}
-
-// Cleanup registers a function to be called after the fuzz function has been
-// called on all seed corpus entries, and after fuzzing completes (if enabled).
-// Cleanup functions will be called in last added, first called order.
-func (f *F) Cleanup(fn func()) {
-	if f.inFuzzFn {
-		panic("testing: f.Cleanup was called inside the f.Fuzz function, use t.Cleanup instead")
-	}
-	f.common.Helper()
-	f.common.Cleanup(fn)
-}
-
-// Error is equivalent to Log followed by Fail.
-func (f *F) Error(args ...interface{}) {
-	if f.inFuzzFn {
-		panic("testing: f.Error was called inside the f.Fuzz function, use t.Error instead")
-	}
-	f.common.Helper()
-	f.common.Error(args...)
-}
-
-// Errorf is equivalent to Logf followed by Fail.
-func (f *F) Errorf(format string, args ...interface{}) {
-	if f.inFuzzFn {
-		panic("testing: f.Errorf was called inside the f.Fuzz function, use t.Errorf instead")
-	}
-	f.common.Helper()
-	f.common.Errorf(format, args...)
-}
-
-// Fail marks the function as having failed but continues execution.
-func (f *F) Fail() {
-	if f.inFuzzFn {
-		panic("testing: f.Fail was called inside the f.Fuzz function, use t.Fail instead")
-	}
-	f.common.Helper()
-	f.common.Fail()
-}
-
-// FailNow marks the function as having failed and stops its execution
-// by calling runtime.Goexit (which then runs all deferred calls in the
-// current goroutine).
-// Execution will continue at the next test, benchmark, or fuzz function.
-// FailNow must be called from the goroutine running the
-// fuzz target, not from other goroutines
-// created during the test. Calling FailNow does not stop
-// those other goroutines.
-func (f *F) FailNow() {
-	if f.inFuzzFn {
-		panic("testing: f.FailNow was called inside the f.Fuzz function, use t.FailNow instead")
-	}
-	f.common.Helper()
-	f.common.FailNow()
-}
-
-// Fatal is equivalent to Log followed by FailNow.
-func (f *F) Fatal(args ...interface{}) {
-	if f.inFuzzFn {
-		panic("testing: f.Fatal was called inside the f.Fuzz function, use t.Fatal instead")
-	}
-	f.common.Helper()
-	f.common.Fatal(args...)
-}
-
-// Fatalf is equivalent to Logf followed by FailNow.
-func (f *F) Fatalf(format string, args ...interface{}) {
-	if f.inFuzzFn {
-		panic("testing: f.Fatalf was called inside the f.Fuzz function, use t.Fatalf instead")
-	}
-	f.common.Helper()
-	f.common.Fatalf(format, args...)
 }
 
 // Helper marks the calling function as a test helper function.
@@ -187,65 +120,26 @@ func (f *F) Helper() {
 	}
 }
 
-// Setenv calls os.Setenv(key, value) and uses Cleanup to restore the
-// environment variable to its original value after the test.
-//
-// When fuzzing is enabled, the fuzzing engine spawns worker processes running
-// the test binary. Each worker process inherits the environment of the parent
-// process, including environment variables set with F.Setenv.
-func (f *F) Setenv(key, value string) {
+// Fail marks the function as having failed but continues execution.
+func (f *F) Fail() {
+	// (*F).Fail may be called by (*T).Fail, which we should allow. However, we
+	// shouldn't allow direct (*F).Fail calls from inside the (*F).Fuzz function.
 	if f.inFuzzFn {
-		panic("testing: f.Setenv was called inside the f.Fuzz function, use t.Setenv instead")
+		panic("testing: f.Fail was called inside the f.Fuzz function, use t.Fail instead")
 	}
 	f.common.Helper()
-	f.common.Setenv(key, value)
+	f.common.Fail()
 }
 
-// Skip is equivalent to Log followed by SkipNow.
-func (f *F) Skip(args ...interface{}) {
+// Skipped reports whether the test was skipped.
+func (f *F) Skipped() bool {
+	// (*F).Skipped may be called by tRunner, which we should allow. However, we
+	// shouldn't allow direct (*F).Skipped calls from inside the (*F).Fuzz function.
 	if f.inFuzzFn {
-		panic("testing: f.Skip was called inside the f.Fuzz function, use t.Skip instead")
+		panic("testing: f.Skipped was called inside the f.Fuzz function, use t.Skipped instead")
 	}
 	f.common.Helper()
-	f.common.Skip(args...)
-}
-
-// SkipNow marks the test as having been skipped and stops its execution
-// by calling runtime.Goexit.
-// If a test fails (see Error, Errorf, Fail) and is then skipped,
-// it is still considered to have failed.
-// Execution will continue at the next test or benchmark. See also FailNow.
-// SkipNow must be called from the goroutine running the test, not from
-// other goroutines created during the test. Calling SkipNow does not stop
-// those other goroutines.
-func (f *F) SkipNow() {
-	if f.inFuzzFn {
-		panic("testing: f.SkipNow was called inside the f.Fuzz function, use t.SkipNow instead")
-	}
-	f.common.Helper()
-	f.common.SkipNow()
-}
-
-// Skipf is equivalent to Logf followed by SkipNow.
-func (f *F) Skipf(format string, args ...interface{}) {
-	if f.inFuzzFn {
-		panic("testing: f.Skipf was called inside the f.Fuzz function, use t.Skipf instead")
-	}
-	f.common.Helper()
-	f.common.Skipf(format, args...)
-}
-
-// TempDir returns a temporary directory for the test to use.
-// The directory is automatically removed by Cleanup when the test and
-// all its subtests complete.
-// Each subsequent call to t.TempDir returns a unique directory;
-// if the directory creation fails, TempDir terminates the test by calling Fatal.
-func (f *F) TempDir() string {
-	if f.inFuzzFn {
-		panic("testing: f.TempDir was called inside the f.Fuzz function, use t.TempDir instead")
-	}
-	f.common.Helper()
-	return f.common.TempDir()
+	return f.common.Skipped()
 }
 
 // Add will add the arguments to the seed corpus for the fuzz target. This will
@@ -259,7 +153,7 @@ func (f *F) Add(args ...interface{}) {
 		}
 		values = append(values, args[i])
 	}
-	f.corpus = append(f.corpus, corpusEntry{Values: values, IsSeed: true, Name: fmt.Sprintf("seed#%d", len(f.corpus))})
+	f.corpus = append(f.corpus, corpusEntry{Values: values, IsSeed: true, Path: fmt.Sprintf("seed#%d", len(f.corpus))})
 }
 
 // supportedTypes represents all of the supported types which can be fuzzed.
@@ -296,14 +190,19 @@ var supportedTypes = map[reflect.Type]bool{
 // float64, int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64.
 // More types may be supported in the future.
 //
+// ff must not call any *F methods, e.g. (*F).Log, (*F).Error, (*F).Skip. Use
+// the corresponding *T method instead. The only *F methods that are allowed in
+// the (*F).Fuzz function are (*F).Failed and (*F).Name.
+//
 // This function sould be fast and deterministic, and its behavior should not
 // depend on shared state. No mutatable input arguments, or pointers to them,
 // should be retained between executions of the fuzz function, as the memory
-// backing them may be mutated during a subsequent invocation.
+// backing them may be mutated during a subsequent invocation. ff must not
+// modify the underlying data of the arguments provided by the fuzzing engine.
 //
-// When fuzzing, F.Fuzz does not return until a problem is found, time runs
-// out (set with -fuzztime), or the test process is interrupted by a signal.
-// F.Fuzz should be called exactly once unless F.Skip or F.Fail is called.
+// When fuzzing, F.Fuzz does not return until a problem is found, time runs out
+// (set with -fuzztime), or the test process is interrupted by a signal. F.Fuzz
+// should be called exactly once, unless F.Skip or F.Fail is called beforehand.
 func (f *F) Fuzz(ff interface{}) {
 	if f.fuzzCalled {
 		panic("testing: F.Fuzz called more than once")
@@ -366,18 +265,25 @@ func (f *F) Fuzz(ff interface{}) {
 	// run calls fn on a given input, as a subtest with its own T.
 	// run is analogous to T.Run. The test filtering and cleanup works similarly.
 	// fn is called in its own goroutine.
-	run := func(e corpusEntry) error {
+	run := func(captureOut io.Writer, e corpusEntry) (ok bool) {
 		if e.Values == nil {
-			// Every code path should have already unmarshaled Data into Values.
-			// It's our fault if it didn't.
-			panic(fmt.Sprintf("corpus file %q was not unmarshaled", e.Name))
+			// The corpusEntry must have non-nil Values in order to run the
+			// test. If Values is nil, it is a bug in our code.
+			panic(fmt.Sprintf("corpus file %q was not unmarshaled", e.Path))
 		}
 		if shouldFailFast() {
-			return nil
+			return true
 		}
-		testName := f.common.name
-		if e.Name != "" {
-			testName = fmt.Sprintf("%s/%s", testName, e.Name)
+		testName := f.name
+		if e.Path != "" {
+			testName = fmt.Sprintf("%s/%s", testName, filepath.Base(e.Path))
+		}
+		if f.testContext.isFuzzing {
+			// Don't preserve subtest names while fuzzing. If fn calls T.Run,
+			// there will be a very large number of subtests with duplicate names,
+			// which will use a large amount of memory. The subtest names aren't
+			// useful since there's no way to re-run them deterministically.
+			f.testContext.match.clearSubNames()
 		}
 
 		// Record the stack trace at the point of this call so that if the subtest
@@ -394,16 +300,19 @@ func (f *F) Fuzz(ff interface{}) {
 				level:   f.level + 1,
 				creator: pc[:n],
 				chatty:  f.chatty,
-				fuzzing: true,
 			},
 			context: f.testContext,
+		}
+		if captureOut != nil {
+			// t.parent aliases f.common.
+			t.parent.w = captureOut
 		}
 		t.w = indenter{&t.common}
 		if t.chatty != nil {
 			// TODO(#48132): adjust this to work with test2json.
 			t.chatty.Updatef(t.name, "=== RUN   %s\n", t.name)
 		}
-		f.inFuzzFn = true
+		f.common.inFuzzFn, f.inFuzzFn = true, true
 		go tRunner(t, func(t *T) {
 			args := []reflect.Value{reflect.ValueOf(t)}
 			for _, v := range e.Values {
@@ -418,11 +327,8 @@ func (f *F) Fuzz(ff interface{}) {
 			fn.Call(args)
 		})
 		<-t.signal
-		f.inFuzzFn = false
-		if t.Failed() {
-			return errors.New(string(f.output))
-		}
-		return nil
+		f.common.inFuzzFn, f.inFuzzFn = false, false
+		return !t.Failed()
 	}
 
 	switch f.fuzzContext.mode {
@@ -447,9 +353,10 @@ func (f *F) Fuzz(ff interface{}) {
 			f.Fail()
 			fmt.Fprintf(f.w, "%v\n", err)
 			if crashErr, ok := err.(fuzzCrashError); ok {
-				crashName := crashErr.CrashName()
-				fmt.Fprintf(f.w, "Crash written to %s\n", filepath.Join(corpusDir, f.name, crashName))
-				fmt.Fprintf(f.w, "To re-run:\ngo test %s -run=%s/%s\n", f.fuzzContext.deps.ImportPath(), f.name, crashName)
+				crashPath := crashErr.CrashPath()
+				fmt.Fprintf(f.w, "Crash written to %s\n", crashPath)
+				testName := filepath.Base(crashPath)
+				fmt.Fprintf(f.w, "To re-run:\ngo test %s -run=%s/%s\n", f.fuzzContext.deps.ImportPath(), f.name, testName)
 			}
 		}
 		// TODO(jayconrod,katiehockman): Aggregate statistics across workers
@@ -458,7 +365,17 @@ func (f *F) Fuzz(ff interface{}) {
 	case fuzzWorker:
 		// Fuzzing is enabled, and this is a worker process. Follow instructions
 		// from the coordinator.
-		if err := f.fuzzContext.deps.RunFuzzWorker(run); err != nil {
+		if err := f.fuzzContext.deps.RunFuzzWorker(func(e corpusEntry) error {
+			// Don't write to f.w (which points to Stdout) if running from a
+			// fuzz worker. This would become very verbose, particularly during
+			// minimization. Return the error instead, and let the caller deal
+			// with the output.
+			var buf bytes.Buffer
+			if ok := run(&buf, e); !ok {
+				return errors.New(buf.String())
+			}
+			return nil
+		}); err != nil {
 			// Internal errors are marked with f.Fail; user code may call this too, before F.Fuzz.
 			// The worker will exit with fuzzWorkerExitCode, indicating this is a failure
 			// (and 'go test' should exit non-zero) but a crasher should not be recorded.
@@ -469,7 +386,10 @@ func (f *F) Fuzz(ff interface{}) {
 		// Fuzzing is not enabled, or will be done later. Only run the seed
 		// corpus now.
 		for _, e := range f.corpus {
-			run(e)
+			name := fmt.Sprintf("%s/%s", f.name, filepath.Base(e.Path))
+			if _, ok, _ := f.testContext.match.fullName(nil, name); ok {
+				run(f.w, e)
+			}
 		}
 	}
 }
@@ -515,11 +435,11 @@ type fuzzCrashError interface {
 	error
 	Unwrap() error
 
-	// CrashName returns the name of the subtest that corresponds to the saved
-	// crash input file in the seed corpus. The test can be re-run with
-	// go test $pkg -run=$target/$name where $pkg is the package's import path,
-	// $target is the fuzz target name, and $name is the string returned here.
-	CrashName() string
+	// CrashPath returns the path of the subtest that corresponds to the saved
+	// crash input file in the seed corpus. The test can be re-run with go test
+	// -run=$target/$name $target is the fuzz target name, and $name is the
+	// filepath.Base of the string returned here.
+	CrashPath() string
 }
 
 // fuzzContext holds fields common to all fuzz targets.
@@ -610,6 +530,7 @@ func runFuzzing(deps testDeps, fuzzTargets []InternalFuzzTarget) (ok bool) {
 	}
 	m := newMatcher(deps.MatchString, *matchFuzz, "-test.fuzz")
 	tctx := newTestContext(1, m)
+	tctx.isFuzzing = true
 	fctx := &fuzzContext{
 		deps: deps,
 	}

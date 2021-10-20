@@ -329,7 +329,17 @@ func (check *Checker) validType(typ Type, path []Object) typeInfo {
 		}
 
 	case *Named:
-		t.resolve(check.conf.Context)
+		// If t is parameterized, we should be considering the instantiated (expanded)
+		// form of t, but in general we can't with this algorithm: if t is an invalid
+		// type it may be so because it infinitely expands through a type parameter.
+		// Instantiating such a type would lead to an infinite sequence of instantiations.
+		// In general, we need "type flow analysis" to recognize those cases.
+		// Example: type A[T any] struct{ x A[*T] } (issue #48951)
+		// In this algorithm we always only consider the orginal, uninstantiated type.
+		// This won't recognize some invalid cases with parameterized types, but it
+		// will terminate.
+		t = t.orig
+
 		// don't touch the type if it is from a different package or the Universe scope
 		// (doing so would lead to a race condition - was issue #35049)
 		if t.obj.pkg != check.pkg {
@@ -356,7 +366,8 @@ func (check *Checker) validType(typ Type, path []Object) typeInfo {
 				if tn == t.obj {
 					check.cycleError(path[i:])
 					t.info = invalid
-					return t.info
+					t.underlying = Typ[Invalid]
+					return invalid
 				}
 			}
 			panic("cycle start not found")
@@ -586,7 +597,7 @@ func (check *Checker) isImportedConstraint(typ Type) bool {
 		return false
 	}
 	u, _ := named.under().(*Interface)
-	return u != nil && u.IsConstraint()
+	return u != nil && !u.IsMethodSet()
 }
 
 func (check *Checker) typeDecl(obj *TypeName, tdecl *ast.TypeSpec, def *Named) {
@@ -636,22 +647,11 @@ func (check *Checker) typeDecl(obj *TypeName, tdecl *ast.TypeSpec, def *Named) {
 	assert(rhs != nil)
 	named.fromRHS = rhs
 
-	// The underlying type of named may be itself a named type that is
-	// incomplete:
-	//
-	//	type (
-	//		A B
-	//		B *C
-	//		C A
-	//	)
-	//
-	// The type of C is the (named) type of A which is incomplete,
-	// and which has as its underlying type the named type B.
-	// Determine the (final, unnamed) underlying type by resolving
-	// any forward chain.
-	// TODO(gri) Investigate if we can just use named.fromRHS here
-	//           and rely on lazy computation of the underlying type.
-	named.underlying = under(named)
+	// If the underlying was not set while type-checking the right-hand side, it
+	// is invalid and an error should have been reported elsewhere.
+	if named.underlying == nil {
+		named.underlying = Typ[Invalid]
+	}
 
 	// If the RHS is a type parameter, it must be from this type declaration.
 	if tpar, _ := named.underlying.(*TypeParam); tpar != nil && tparamIndex(named.TypeParams().list(), tpar) < 0 {
@@ -680,7 +680,7 @@ func (check *Checker) collectTypeParams(dst **TypeParamList, list *ast.FieldList
 	for _, f := range list.List {
 		// TODO(rfindley) we should be able to rely on f.Type != nil at this point
 		if f.Type != nil {
-			bound := check.typ(f.Type)
+			bound := check.bound(f.Type)
 			bounds = append(bounds, bound)
 			posns = append(posns, f.Type)
 			for i := range f.Names {
@@ -692,12 +692,37 @@ func (check *Checker) collectTypeParams(dst **TypeParamList, list *ast.FieldList
 
 	check.later(func() {
 		for i, bound := range bounds {
-			u := under(bound)
-			if _, ok := u.(*Interface); !ok && u != Typ[Invalid] {
-				check.errorf(posns[i], _Todo, "%s is not an interface", bound)
+			if _, ok := under(bound).(*TypeParam); ok {
+				check.error(posns[i], _Todo, "cannot use a type parameter as constraint")
 			}
 		}
+		for _, tpar := range tparams {
+			tpar.iface() // compute type set
+		}
 	})
+}
+
+func (check *Checker) bound(x ast.Expr) Type {
+	// A type set literal of the form ~T and A|B may only appear as constraint;
+	// embed it in an implicit interface so that only interface type-checking
+	// needs to take care of such type expressions.
+	wrap := false
+	switch op := x.(type) {
+	case *ast.UnaryExpr:
+		wrap = op.Op == token.TILDE
+	case *ast.BinaryExpr:
+		wrap = op.Op == token.OR
+	}
+	if wrap {
+		x = &ast.InterfaceType{Methods: &ast.FieldList{List: []*ast.Field{{Type: x}}}}
+		t := check.typ(x)
+		// mark t as implicit interface if all went well
+		if t, _ := t.(*Interface); t != nil {
+			t.implicit = true
+		}
+		return t
+	}
+	return check.typ(x)
 }
 
 func (check *Checker) declareTypeParams(tparams []*TypeParam, names []*ast.Ident) []*TypeParam {
@@ -740,7 +765,7 @@ func (check *Checker) collectMethods(obj *TypeName) {
 	// and field names must be distinct."
 	base := asNamed(obj.typ) // shouldn't fail but be conservative
 	if base != nil {
-		u := safeUnderlying(base) // base should be expanded, but use safeUnderlying to be conservative
+		u := base.under()
 		if t, _ := u.(*Struct); t != nil {
 			for _, fld := range t.fields {
 				if fld.name != "_" {

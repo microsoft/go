@@ -19,6 +19,7 @@ type Interface struct {
 	methods   []*Func      // ordered list of explicitly declared methods
 	embeddeds []Type       // ordered list of explicitly embedded elements
 	embedPos  *[]token.Pos // positions of embedded elements; or nil (for error messages) - use pointer to save space
+	implicit  bool         // interface is wrapper for type set literal (non-interface T, ~T, or A|B)
 	complete  bool         // indicates that obj, methods, and embeddeds are set and type set can be computed
 
 	tset *_TypeSet // type set described by this interface, computed lazily
@@ -106,12 +107,10 @@ func (t *Interface) IsComparable() bool { return t.typeSet().IsComparable() }
 
 // IsMethodSet reports whether the interface t is fully described by its method
 // set.
-func (t *Interface) IsMethodSet() bool { return !t.typeSet().IsConstraint() }
+func (t *Interface) IsMethodSet() bool { return t.typeSet().IsMethodSet() }
 
-// IsConstraint reports whether interface t is not just a method set.
-//
-// TODO(rfindley): remove this method.
-func (t *Interface) IsConstraint() bool { return t.typeSet().IsConstraint() }
+// IsImplicit reports whether the interface t is a wrapper for a type set literal.
+func (t *Interface) IsImplicit() bool { return t.implicit }
 
 // Complete computes the interface's type set. It must be called by users of
 // NewInterfaceType and NewInterface after the interface's embedded types are
@@ -148,7 +147,6 @@ func (check *Checker) interfaceType(ityp *Interface, iface *ast.InterfaceType, d
 
 	for _, f := range iface.Methods.List {
 		if len(f.Names) == 0 {
-			// We have an embedded type; possibly a union of types.
 			addEmbedded(f.Type.Pos(), parseUnion(check, flattenUnion(nil, f.Type)))
 			continue
 		}

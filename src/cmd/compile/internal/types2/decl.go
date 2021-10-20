@@ -330,7 +330,16 @@ func (check *Checker) validType(typ Type, path []Object) typeInfo {
 		}
 
 	case *Named:
-		t.resolve(check.conf.Context)
+		// If t is parameterized, we should be considering the instantiated (expanded)
+		// form of t, but in general we can't with this algorithm: if t is an invalid
+		// type it may be so because it infinitely expands through a type parameter.
+		// Instantiating such a type would lead to an infinite sequence of instantiations.
+		// In general, we need "type flow analysis" to recognize those cases.
+		// Example: type A[T any] struct{ x A[*T] } (issue #48951)
+		// In this algorithm we always only consider the orginal, uninstantiated type.
+		// This won't recognize some invalid cases with parameterized types, but it
+		// will terminate.
+		t = t.orig
 
 		// don't touch the type if it is from a different package or the Universe scope
 		// (doing so would lead to a race condition - was issue #35049)
@@ -358,7 +367,8 @@ func (check *Checker) validType(typ Type, path []Object) typeInfo {
 				if tn == t.obj {
 					check.cycleError(path[i:])
 					t.info = invalid
-					return t.info
+					t.underlying = Typ[Invalid]
+					return invalid
 				}
 			}
 			panic("cycle start not found")
@@ -547,7 +557,7 @@ func (check *Checker) typeDecl(obj *TypeName, tdecl *syntax.TypeDecl, def *Named
 		if check.isImportedConstraint(rhs) && !check.allowVersion(check.pkg, 1, 18) {
 			check.errorf(tdecl.Type.Pos(), "using type constraint %s requires go1.18 or later", rhs)
 		}
-	})
+	}).describef(obj, "validType(%s)", obj.Name())
 
 	alias := tdecl.Alias
 	if alias && tdecl.TParamList != nil {
@@ -587,22 +597,12 @@ func (check *Checker) typeDecl(obj *TypeName, tdecl *syntax.TypeDecl, def *Named
 	rhs = check.definedType(tdecl.Type, named)
 	assert(rhs != nil)
 	named.fromRHS = rhs
-	// The underlying type of named may be itself a named type that is
-	// incomplete:
-	//
-	//	type (
-	//		A B
-	//		B *C
-	//		C A
-	//	)
-	//
-	// The type of C is the (named) type of A which is incomplete,
-	// and which has as its underlying type the named type B.
-	// Determine the (final, unnamed) underlying type by resolving
-	// any forward chain.
-	// TODO(gri) Investigate if we can just use named.fromRHS here
-	//           and rely on lazy computation of the underlying type.
-	named.underlying = under(named)
+
+	// If the underlying was not set while type-checking the right-hand side, it
+	// is invalid and an error should have been reported elsewhere.
+	if named.underlying == nil {
+		named.underlying = Typ[Invalid]
+	}
 
 	// If the RHS is a type parameter, it must be from this type declaration.
 	if tpar, _ := named.underlying.(*TypeParam); tpar != nil && tparamIndex(named.TypeParams().list(), tpar) < 0 {
@@ -626,22 +626,29 @@ func (check *Checker) collectTypeParams(dst **TypeParamList, list []*syntax.Fiel
 	// Example: type T[P T[P]] interface{}
 	*dst = bindTParams(tparams)
 
+	// Keep track of bounds for later validation.
 	var bound Type
+	var bounds []Type
+	var posers []poser
 	for i, f := range list {
 		// Optimization: Re-use the previous type bound if it hasn't changed.
 		// This also preserves the grouped output of type parameter lists
 		// when printing type strings.
 		if i == 0 || f.Type != list[i-1].Type {
 			bound = check.bound(f.Type)
+			bounds = append(bounds, bound)
+			posers = append(posers, f.Type)
 		}
 		tparams[i].bound = bound
 	}
 
 	check.later(func() {
-		for i, tpar := range tparams {
-			if _, ok := under(tpar.bound).(*TypeParam); ok {
-				check.error(list[i].Type, "cannot use a type parameter as constraint")
+		for i, bound := range bounds {
+			if _, ok := under(bound).(*TypeParam); ok {
+				check.error(posers[i], "cannot use a type parameter as constraint")
 			}
+		}
+		for _, tpar := range tparams {
 			tpar.iface() // compute type set
 		}
 	})
@@ -694,7 +701,7 @@ func (check *Checker) collectMethods(obj *TypeName) {
 	// and field names must be distinct."
 	base := asNamed(obj.typ) // shouldn't fail but be conservative
 	if base != nil {
-		u := safeUnderlying(base) // base should be expanded, but use safeUnderlying to be conservative
+		u := base.under()
 		if t, _ := u.(*Struct); t != nil {
 			for _, fld := range t.fields {
 				if fld.name != "_" {

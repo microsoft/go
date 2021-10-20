@@ -1367,6 +1367,11 @@ func (state *dodataState) makeRelroForSharedLib(target *Link) {
 					// the relro data.
 					isRelro = true
 				}
+			case sym.SGOFUNC:
+				// The only SGOFUNC symbols that contain relocations are .stkobj,
+				// and their relocations are of type objabi.R_ADDROFF,
+				// which always get resolved during linking.
+				isRelro = false
 			}
 			if isRelro {
 				state.setSymType(s, symnrelro)
@@ -2437,6 +2442,11 @@ func splitTextSections(ctxt *Link) bool {
 	return (ctxt.IsPPC64() || (ctxt.IsARM64() && ctxt.IsDarwin())) && ctxt.IsExternal()
 }
 
+// On Wasm, we reserve 4096 bytes for zero page, then 4096 bytes for wasm_exec.js
+// to store command line args. Data sections starts from at least address 8192.
+// Keep in sync with wasm_exec.js.
+const wasmMinDataAddr = 4096 + 4096
+
 // address assigns virtual addresses to all segments and sections and
 // returns all segments in file order.
 func (ctxt *Link) address() []*sym.Segment {
@@ -2446,10 +2456,14 @@ func (ctxt *Link) address() []*sym.Segment {
 	order = append(order, &Segtext)
 	Segtext.Rwx = 05
 	Segtext.Vaddr = va
-	for _, s := range Segtext.Sections {
+	for i, s := range Segtext.Sections {
 		va = uint64(Rnd(int64(va), int64(s.Align)))
 		s.Vaddr = va
 		va += s.Length
+
+		if ctxt.IsWasm() && i == 0 && va < wasmMinDataAddr {
+			va = wasmMinDataAddr
+		}
 	}
 
 	Segtext.Length = va - uint64(*FlagTextAddr)
