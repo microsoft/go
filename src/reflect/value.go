@@ -1933,8 +1933,9 @@ func (v Value) OverflowUint(x uint64) bool {
 // If v's Kind is Slice, the returned pointer is to the first
 // element of the slice. If the slice is nil the returned value
 // is 0.  If the slice is empty but non-nil the return value is non-zero.
+//
+// Deprecated: use uintptr(Value.UnsafePointer()) to get the equivalent result.
 func (v Value) Pointer() uintptr {
-	// TODO: deprecate
 	k := v.kind()
 	switch k {
 	case Ptr:
@@ -1956,8 +1957,7 @@ func (v Value) Pointer() uintptr {
 			// created via reflect have the same underlying code pointer,
 			// so their Pointers are equal. The function used here must
 			// match the one used in makeMethodValue.
-			f := methodValueCall
-			return **(**uintptr)(unsafe.Pointer(&f))
+			return methodValueCallCodePtr()
 		}
 		p := v.pointer()
 		// Non-nil func value points at data block.
@@ -2473,11 +2473,12 @@ func (v Value) Uint() uint64 {
 // which ensures cmd/compile can recognize unsafe.Pointer(v.UnsafeAddr())
 // and make an exception.
 
-// UnsafeAddr returns a pointer to v's data.
+// UnsafeAddr returns a pointer to v's data, as a uintptr.
 // It is for advanced clients that also import the "unsafe" package.
 // It panics if v is not addressable.
+//
+// Deprecated: use uintptr(Value.Addr().UnsafePointer()) to get the equivalent result.
 func (v Value) UnsafeAddr() uintptr {
-	// TODO: deprecate
 	if v.typ == nil {
 		panic(&ValueError{"reflect.Value.UnsafeAddr", Invalid})
 	}
@@ -2485,6 +2486,57 @@ func (v Value) UnsafeAddr() uintptr {
 		panic("reflect.Value.UnsafeAddr of unaddressable value")
 	}
 	return uintptr(v.ptr)
+}
+
+// UnsafePointer returns v's value as a unsafe.Pointer.
+// It panics if v's Kind is not Chan, Func, Map, Ptr, Slice, or UnsafePointer.
+//
+// If v's Kind is Func, the returned pointer is an underlying
+// code pointer, but not necessarily enough to identify a
+// single function uniquely. The only guarantee is that the
+// result is zero if and only if v is a nil func Value.
+//
+// If v's Kind is Slice, the returned pointer is to the first
+// element of the slice. If the slice is nil the returned value
+// is nil.  If the slice is empty but non-nil the return value is non-nil.
+func (v Value) UnsafePointer() unsafe.Pointer {
+	k := v.kind()
+	switch k {
+	case Ptr:
+		if v.typ.ptrdata == 0 {
+			// Since it is a not-in-heap pointer, all pointers to the heap are
+			// forbidden! See comment in Value.Elem and issue #48399.
+			if !verifyNotInHeapPtr(*(*uintptr)(v.ptr)) {
+				panic("reflect: reflect.Value.UnsafePointer on an invalid notinheap pointer")
+			}
+			return *(*unsafe.Pointer)(v.ptr)
+		}
+		fallthrough
+	case Chan, Map, UnsafePointer:
+		return v.pointer()
+	case Func:
+		if v.flag&flagMethod != 0 {
+			// As the doc comment says, the returned pointer is an
+			// underlying code pointer but not necessarily enough to
+			// identify a single function uniquely. All method expressions
+			// created via reflect have the same underlying code pointer,
+			// so their Pointers are equal. The function used here must
+			// match the one used in makeMethodValue.
+			code := methodValueCallCodePtr()
+			return *(*unsafe.Pointer)(unsafe.Pointer(&code))
+		}
+		p := v.pointer()
+		// Non-nil func value points at data block.
+		// First word of data block is actual code.
+		if p != nil {
+			p = *(*unsafe.Pointer)(p)
+		}
+		return p
+
+	case Slice:
+		return (*unsafeheader.Slice)(v.ptr).Data
+	}
+	panic(&ValueError{"reflect.Value.UnsafePointer", v.kind()})
 }
 
 // StringHeader is the runtime representation of a string.
