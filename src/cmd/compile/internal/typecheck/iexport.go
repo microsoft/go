@@ -1763,6 +1763,19 @@ func (w *exportWriter) expr(n ir.Node) {
 		w.op(ir.OTYPE)
 		w.typ(n.Type())
 
+	case ir.ODYNAMICTYPE:
+		n := n.(*ir.DynamicType)
+		w.op(ir.ODYNAMICTYPE)
+		w.pos(n.Pos())
+		w.expr(n.X)
+		if n.ITab != nil {
+			w.bool(true)
+			w.expr(n.ITab)
+		} else {
+			w.bool(false)
+		}
+		w.typ(n.Type())
+
 	case ir.OTYPESW:
 		n := n.(*ir.TypeSwitchGuard)
 		w.op(ir.OTYPESW)
@@ -1886,6 +1899,14 @@ func (w *exportWriter) expr(n ir.Node) {
 		}
 		w.pos(n.Pos())
 		w.expr(n.X)
+		w.typ(n.Type())
+
+	case ir.ODYNAMICDOTTYPE, ir.ODYNAMICDOTTYPE2:
+		n := n.(*ir.DynamicTypeAssertExpr)
+		w.op(n.Op())
+		w.pos(n.Pos())
+		w.expr(n.X)
+		w.expr(n.T)
 		w.typ(n.Type())
 
 	case ir.OINDEX, ir.OINDEXMAP:
