@@ -245,7 +245,7 @@ func (l *sweepLocker) dispose() {
 
 func (l *sweepLocker) sweepIsDone() {
 	if debug.gcpacertrace > 0 {
-		print("pacer: sweep done at heap size ", gcController.heapLive>>20, "MB; allocated ", (gcController.heapLive-mheap_.sweepHeapLiveBasis)>>20, "MB during sweep; swept ", mheap_.pagesSwept, " pages at ", mheap_.sweepPagesPerByte, " pages/byte\n")
+		print("pacer: sweep done at heap size ", gcController.heapLive>>20, "MB; allocated ", (gcController.heapLive-mheap_.sweepHeapLiveBasis)>>20, "MB during sweep; swept ", mheap_.pagesSwept.Load(), " pages at ", mheap_.sweepPagesPerByte, " pages/byte\n")
 	}
 }
 
@@ -291,7 +291,7 @@ func sweepone() uintptr {
 				// Whole span was freed. Count it toward the
 				// page reclaimer credit since these pages can
 				// now be used for span allocation.
-				atomic.Xadduintptr(&mheap_.reclaimCredit, npages)
+				mheap_.reclaimCredit.Add(npages)
 			} else {
 				// Span is still in-use, so this returned no
 				// pages to the heap and the span needs to
@@ -408,7 +408,7 @@ func (sl *sweepLocked) sweep(preserve bool) bool {
 		traceGCSweepSpan(s.npages * _PageSize)
 	}
 
-	atomic.Xadd64(&mheap_.pagesSwept, int64(s.npages))
+	mheap_.pagesSwept.Add(int64(s.npages))
 
 	spc := s.spanclass
 	size := s.elemsize
@@ -719,17 +719,17 @@ func deductSweepCredit(spanBytes uintptr, callerSweepPages uintptr) {
 	}
 
 retry:
-	sweptBasis := atomic.Load64(&mheap_.pagesSweptBasis)
+	sweptBasis := mheap_.pagesSweptBasis.Load()
 
 	// Fix debt if necessary.
 	newHeapLive := uintptr(atomic.Load64(&gcController.heapLive)-mheap_.sweepHeapLiveBasis) + spanBytes
 	pagesTarget := int64(mheap_.sweepPagesPerByte*float64(newHeapLive)) - int64(callerSweepPages)
-	for pagesTarget > int64(atomic.Load64(&mheap_.pagesSwept)-sweptBasis) {
+	for pagesTarget > int64(mheap_.pagesSwept.Load()-sweptBasis) {
 		if sweepone() == ^uintptr(0) {
 			mheap_.sweepPagesPerByte = 0
 			break
 		}
-		if atomic.Load64(&mheap_.pagesSweptBasis) != sweptBasis {
+		if mheap_.pagesSweptBasis.Load() != sweptBasis {
 			// Sweep pacing changed. Recompute debt.
 			goto retry
 		}

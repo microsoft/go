@@ -96,17 +96,17 @@ type mheap struct {
 	// any given time, the system is at (gcController.heapLive,
 	// pagesSwept) in this space.
 	//
-	// It's important that the line pass through a point we
-	// control rather than simply starting at a (0,0) origin
+	// It is important that the line pass through a point we
+	// control rather than simply starting at a 0,0 origin
 	// because that lets us adjust sweep pacing at any time while
 	// accounting for current progress. If we could only adjust
 	// the slope, it would create a discontinuity in debt if any
 	// progress has already been made.
-	pagesInUse         uint64  // pages of spans in stats mSpanInUse; updated atomically
-	pagesSwept         uint64  // pages swept this cycle; updated atomically
-	pagesSweptBasis    uint64  // pagesSwept to use as the origin of the sweep ratio; updated atomically
-	sweepHeapLiveBasis uint64  // value of gcController.heapLive to use as the origin of sweep ratio; written with lock, read without
-	sweepPagesPerByte  float64 // proportional sweep ratio; written with lock, read without
+	pagesInUse         atomic.Uint64 // pages of spans in stats mSpanInUse
+	pagesSwept         atomic.Uint64 // pages swept this cycle
+	pagesSweptBasis    atomic.Uint64 // pagesSwept to use as the origin of the sweep ratio
+	sweepHeapLiveBasis uint64        // value of gcController.heapLive to use as the origin of sweep ratio; written with lock, read without
+	sweepPagesPerByte  float64       // proportional sweep ratio; written with lock, read without
 	// TODO(austin): pagesInUse should be a uintptr, but the 386
 	// compiler can't 8-byte align fields.
 
@@ -123,16 +123,13 @@ type mheap struct {
 	//
 	// If this is >= 1<<63, the page reclaimer is done scanning
 	// the page marks.
-	//
-	// This is accessed atomically.
-	reclaimIndex uint64
+	reclaimIndex atomic.Uint64
+
 	// reclaimCredit is spare credit for extra pages swept. Since
 	// the page reclaimer works in large chunks, it may reclaim
 	// more than requested. Any spare pages released go to this
 	// credit pool.
-	//
-	// This is accessed atomically.
-	reclaimCredit uintptr
+	reclaimCredit atomic.Uintptr
 
 	// arenas is the heap arena map. It points to the metadata for
 	// the heap for every arena frame of the entire usable virtual
@@ -739,7 +736,7 @@ func (h *mheap) reclaim(npage uintptr) {
 	// batching heap frees.
 
 	// Bail early if there's no more reclaim work.
-	if atomic.Load64(&h.reclaimIndex) >= 1<<63 {
+	if h.reclaimIndex.Load() >= 1<<63 {
 		return
 	}
 
@@ -756,23 +753,23 @@ func (h *mheap) reclaim(npage uintptr) {
 	locked := false
 	for npage > 0 {
 		// Pull from accumulated credit first.
-		if credit := atomic.Loaduintptr(&h.reclaimCredit); credit > 0 {
+		if credit := h.reclaimCredit.Load(); credit > 0 {
 			take := credit
 			if take > npage {
 				// Take only what we need.
 				take = npage
 			}
-			if atomic.Casuintptr(&h.reclaimCredit, credit, credit-take) {
+			if h.reclaimCredit.CompareAndSwap(credit, credit-take) {
 				npage -= take
 			}
 			continue
 		}
 
 		// Claim a chunk of work.
-		idx := uintptr(atomic.Xadd64(&h.reclaimIndex, pagesPerReclaimerChunk) - pagesPerReclaimerChunk)
+		idx := uintptr(h.reclaimIndex.Add(pagesPerReclaimerChunk) - pagesPerReclaimerChunk)
 		if idx/pagesPerArena >= uintptr(len(arenas)) {
 			// Page reclaiming is done.
-			atomic.Store64(&h.reclaimIndex, 1<<63)
+			h.reclaimIndex.Store(1 << 63)
 			break
 		}
 
@@ -788,7 +785,7 @@ func (h *mheap) reclaim(npage uintptr) {
 			npage -= nfound
 		} else {
 			// Put spare pages toward global credit.
-			atomic.Xadduintptr(&h.reclaimCredit, nfound-npage)
+			h.reclaimCredit.Add(nfound - npage)
 			npage = 0
 		}
 	}
@@ -1311,7 +1308,7 @@ HaveSpan:
 		atomic.Or8(&arena.pageInUse[pageIdx], pageMask)
 
 		// Update related page sweeper stats.
-		atomic.Xadd64(&h.pagesInUse, int64(npages))
+		h.pagesInUse.Add(int64(npages))
 	}
 
 	// Make sure the newly allocated span will be observed
@@ -1468,7 +1465,7 @@ func (h *mheap) freeSpanLocked(s *mspan, typ spanAllocType) {
 			print("mheap.freeSpanLocked - span ", s, " ptr ", hex(s.base()), " allocCount ", s.allocCount, " sweepgen ", s.sweepgen, "/", h.sweepgen, "\n")
 			throw("mheap.freeSpanLocked - invalid free")
 		}
-		atomic.Xadd64(&h.pagesInUse, -int64(s.npages))
+		h.pagesInUse.Add(-int64(s.npages))
 
 		// Clear in-use bit in arena page bitmap.
 		arena, pageIdx, pageMask := pageIndexOf(s.base())
