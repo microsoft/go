@@ -75,6 +75,14 @@
 //         })
 //     }
 //
+// A detailed specification of the benchmark results format is given
+// in https://golang.org/design/14313-benchmark-format.
+//
+// There are standard tools for working with benchmark results at
+// https://golang.org/x/perf/cmd.
+// In particular, https://golang.org/x/perf/cmd/benchstat performs
+// statistically robust A/B comparisons.
+//
 // Examples
 //
 // The package also runs and verifies example code. Example functions may
@@ -1775,6 +1783,12 @@ func runTests(matchString func(pat, str string) (bool, error), tests []InternalT
 		runtime.GOMAXPROCS(procs)
 		for i := uint(0); i < *count; i++ {
 			if shouldFailFast() {
+				break
+			}
+			if i > 0 && !ran {
+				// There were no tests to run on the first
+				// iteration. This won't change, so no reason
+				// to keep trying.
 				break
 			}
 			ctx := newTestContext(*parallel, newMatcher(matchString, *match, "-test.run"))

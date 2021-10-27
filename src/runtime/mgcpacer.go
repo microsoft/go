@@ -73,6 +73,10 @@ var gcController gcControllerState
 
 type gcControllerState struct {
 	// Initialized from $GOGC. GOGC=off means no GC.
+	//
+	// Updated atomically with mheap_.lock held or during a STW.
+	// Safe to read atomically at any time, or non-atomically with
+	// mheap_.lock or STW.
 	gcPercent int32
 
 	_ uint32 // padding so following 64-bit values are 8-byte aligned
@@ -222,24 +226,14 @@ type gcControllerState struct {
 	// bytes that should be performed by mutator assists. This is
 	// computed at the beginning of each cycle and updated every
 	// time heapScan is updated.
-	//
-	// Stored as a uint64, but it's actually a float64. Use
-	// float64frombits to get the value.
-	//
-	// Read and written atomically.
-	assistWorkPerByte uint64
+	assistWorkPerByte atomic.Float64
 
 	// assistBytesPerWork is 1/assistWorkPerByte.
-	//
-	// Stored as a uint64, but it's actually a float64. Use
-	// float64frombits to get the value.
-	//
-	// Read and written atomically.
 	//
 	// Note that because this is read and written independently
 	// from assistWorkPerByte users may notice a skew between
 	// the two values, and such a state should be safe.
-	assistBytesPerWork uint64
+	assistBytesPerWork atomic.Float64
 
 	// fractionalUtilizationGoal is the fraction of wall clock
 	// time that should be spent in the fractional mark worker on
@@ -333,7 +327,7 @@ func (c *gcControllerState) startCycle() {
 	c.revise()
 
 	if debug.gcpacertrace > 0 {
-		assistRatio := float64frombits(atomic.Load64(&c.assistWorkPerByte))
+		assistRatio := c.assistWorkPerByte.Load()
 		print("pacer: assist ratio=", assistRatio,
 			" (scan ", gcController.heapScan>>20, " MB in ",
 			work.initialHeapLive>>20, "->",
@@ -365,7 +359,7 @@ func (c *gcControllerState) startCycle() {
 // is when assists are enabled and the necessary statistics are
 // available).
 func (c *gcControllerState) revise() {
-	gcPercent := c.gcPercent
+	gcPercent := atomic.Loadint32(&c.gcPercent)
 	if gcPercent < 0 {
 		// If GC is disabled but we're running a forced GC,
 		// act like GOGC is huge for the below calculations.
@@ -439,8 +433,8 @@ func (c *gcControllerState) revise() {
 	// cycle.
 	assistWorkPerByte := float64(scanWorkRemaining) / float64(heapRemaining)
 	assistBytesPerWork := float64(heapRemaining) / float64(scanWorkRemaining)
-	atomic.Store64(&c.assistWorkPerByte, float64bits(assistWorkPerByte))
-	atomic.Store64(&c.assistBytesPerWork, float64bits(assistBytesPerWork))
+	c.assistWorkPerByte.Store(assistWorkPerByte)
+	c.assistBytesPerWork.Store(assistBytesPerWork)
 }
 
 // endCycle computes the trigger ratio for the next cycle.
@@ -761,8 +755,8 @@ func (c *gcControllerState) commit(triggerRatio float64) {
 			// Avoid setting the sweep ratio extremely high
 			heapDistance = _PageSize
 		}
-		pagesSwept := atomic.Load64(&mheap_.pagesSwept)
-		pagesInUse := atomic.Load64(&mheap_.pagesInUse)
+		pagesSwept := mheap_.pagesSwept.Load()
+		pagesInUse := mheap_.pagesInUse.Load()
 		sweepDistancePages := int64(pagesInUse) - int64(pagesSwept)
 		if sweepDistancePages <= 0 {
 			mheap_.sweepPagesPerByte = 0
@@ -772,11 +766,9 @@ func (c *gcControllerState) commit(triggerRatio float64) {
 			// Write pagesSweptBasis last, since this
 			// signals concurrent sweeps to recompute
 			// their debt.
-			atomic.Store64(&mheap_.pagesSweptBasis, pagesSwept)
+			mheap_.pagesSweptBasis.Store(pagesSwept)
 		}
 	}
-
-	gcPaceScavenger()
 }
 
 // effectiveGrowthRatio returns the current effective heap growth
@@ -802,6 +794,8 @@ func (c *gcControllerState) effectiveGrowthRatio() float64 {
 // setGCPercent updates gcPercent and all related pacer state.
 // Returns the old value of gcPercent.
 //
+// Calls gcControllerState.commit.
+//
 // The world must be stopped, or mheap_.lock must be held.
 func (c *gcControllerState) setGCPercent(in int32) int32 {
 	assertWorldStoppedOrLockHeld(&mheap_.lock)
@@ -810,7 +804,8 @@ func (c *gcControllerState) setGCPercent(in int32) int32 {
 	if in < 0 {
 		in = -1
 	}
-	c.gcPercent = in
+	// Write it atomically so readers like revise() can read it safely.
+	atomic.Storeint32(&c.gcPercent, in)
 	c.heapMinimum = defaultHeapMinimum * uint64(c.gcPercent) / 100
 	// Update pacing in response to gcPercent change.
 	c.commit(c.triggerRatio)
@@ -824,6 +819,7 @@ func setGCPercent(in int32) (out int32) {
 	systemstack(func() {
 		lock(&mheap_.lock)
 		out = gcController.setGCPercent(in)
+		gcPaceScavenger(gcController.heapGoal, gcController.lastHeapGoal)
 		unlock(&mheap_.lock)
 	})
 

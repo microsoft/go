@@ -545,7 +545,7 @@ func (t gcTrigger) test() bool {
 		// own write.
 		return gcController.heapLive >= gcController.trigger
 	case gcTriggerTime:
-		if gcController.gcPercent < 0 {
+		if atomic.Loadint32(&gcController.gcPercent) < 0 {
 			return false
 		}
 		lastgc := int64(atomic.Load64(&memstats.last_gc_nanotime))
@@ -971,6 +971,7 @@ func gcMarkTermination(nextTriggerRatio float64) {
 
 	// Update GC trigger and pacing for the next cycle.
 	gcController.commit(nextTriggerRatio)
+	gcPaceScavenger(gcController.heapGoal, gcController.lastHeapGoal)
 
 	// Update timing memstats
 	now := nanotime()
@@ -1457,10 +1458,10 @@ func gcSweep(mode gcMode) {
 	lock(&mheap_.lock)
 	mheap_.sweepgen += 2
 	mheap_.sweepDrained = 0
-	mheap_.pagesSwept = 0
+	mheap_.pagesSwept.Store(0)
 	mheap_.sweepArenas = mheap_.allArenas
-	mheap_.reclaimIndex = 0
-	mheap_.reclaimCredit = 0
+	mheap_.reclaimIndex.Store(0)
+	mheap_.reclaimCredit.Store(0)
 	unlock(&mheap_.lock)
 
 	sweep.centralIndex.clear()
