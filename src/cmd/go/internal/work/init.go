@@ -11,7 +11,7 @@ import (
 	"cmd/go/internal/cfg"
 	"cmd/go/internal/fsys"
 	"cmd/go/internal/modload"
-	"cmd/internal/str"
+	"cmd/internal/quoted"
 	"cmd/internal/sys"
 	"fmt"
 	"os"
@@ -46,7 +46,7 @@ func BuildInit() {
 	// Make sure CC, CXX, and FC are absolute paths.
 	for _, key := range []string{"CC", "CXX", "FC"} {
 		value := cfg.Getenv(key)
-		args, err := str.SplitQuotedFields(value)
+		args, err := quoted.Split(value)
 		if err != nil {
 			base.Fatalf("go: %s environment variable could not be parsed: %v", key, err)
 		}
@@ -67,20 +67,7 @@ func BuildInit() {
 // instrumentation is added. 'go test -fuzz' still works without coverage,
 // but it generates random inputs without guidance, so it's much less effective.
 func fuzzInstrumentFlags() []string {
-	// TODO: expand the set of supported platforms, with testing. Nothing about
-	// the instrumentation is OS specific, but only amd64 and arm64 are
-	// supported in the runtime. See src/runtime/libfuzzer*.
-	//
-	// Keep in sync with build constraints in
-	// internal/fuzz/counters_{un,}supported.go
-	switch cfg.Goos {
-	case "darwin", "freebsd", "linux", "windows":
-	default:
-		return nil
-	}
-	switch cfg.Goarch {
-	case "amd64", "arm64":
-	default:
+	if !sys.FuzzInstrumented(cfg.Goos, cfg.Goarch) {
 		return nil
 	}
 	return []string{"-d=libfuzzer"}

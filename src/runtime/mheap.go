@@ -65,9 +65,7 @@ type mheap struct {
 	lock  mutex
 	pages pageAlloc // page allocation data structure
 
-	sweepgen     uint32 // sweep generation, see comment in mspan; written during STW
-	sweepDrained uint32 // all spans are swept or are being swept
-	sweepers     uint32 // number of active sweepone calls
+	sweepgen uint32 // sweep generation, see comment in mspan; written during STW
 
 	// allspans is a slice of all mspans ever created. Each mspan
 	// appears exactly once.
@@ -815,7 +813,10 @@ func (h *mheap) reclaimChunk(arenas []arenaIdx, pageIdx, n uintptr) uintptr {
 
 	n0 := n
 	var nFreed uintptr
-	sl := newSweepLocker()
+	sl := sweep.active.begin()
+	if !sl.valid {
+		return 0
+	}
 	for n > 0 {
 		ai := arenas[pageIdx/pagesPerArena]
 		ha := h.arenas[ai.l1()][ai.l2()]
@@ -861,7 +862,7 @@ func (h *mheap) reclaimChunk(arenas []arenaIdx, pageIdx, n uintptr) uintptr {
 		pageIdx += uintptr(len(inUse) * 8)
 		n -= uintptr(len(inUse) * 8)
 	}
-	sl.dispose()
+	sweep.active.end(sl)
 	if trace.enabled {
 		unlock(&h.lock)
 		// Account for pages scanned but not reclaimed.
@@ -893,10 +894,9 @@ func (s spanAllocType) manual() bool {
 //
 // spanclass indicates the span's size class and scannability.
 //
-// If needzero is true, the memory for the returned span will be zeroed.
-// The boolean returned indicates whether the returned span contains zeroes,
-// either because this was requested, or because it was already zeroed.
-func (h *mheap) alloc(npages uintptr, spanclass spanClass, needzero bool) (*mspan, bool) {
+// Returns a span that has been fully initialized. span.needzero indicates
+// whether the span has been zeroed. Note that it may not be.
+func (h *mheap) alloc(npages uintptr, spanclass spanClass) *mspan {
 	// Don't do any operations that lock the heap on the G stack.
 	// It might trigger stack growth, and the stack growth code needs
 	// to be able to allocate heap.
@@ -909,17 +909,7 @@ func (h *mheap) alloc(npages uintptr, spanclass spanClass, needzero bool) (*mspa
 		}
 		s = h.allocSpan(npages, spanAllocHeap, spanclass)
 	})
-
-	if s == nil {
-		return nil, false
-	}
-	isZeroed := s.needzero == 0
-	if needzero && !isZeroed {
-		memclrNoHeapPointers(unsafe.Pointer(s.base()), s.npages<<_PageShift)
-		isZeroed = true
-	}
-	s.needzero = 0
-	return s, isZeroed
+	return s
 }
 
 // allocManual allocates a manually-managed span of npage pages.
@@ -1008,7 +998,7 @@ func (h *mheap) allocNeedsZero(base, npage uintptr) (needZero bool) {
 				break
 			}
 			zeroedBase = atomic.Loaduintptr(&ha.zeroedBase)
-			// Sanity check zeroedBase.
+			// Double check basic conditions of zeroedBase.
 			if zeroedBase <= arenaLimit && zeroedBase > arenaBase {
 				// The zeroedBase moved into the space we were trying to
 				// claim. That's very bad, and indicates someone allocated

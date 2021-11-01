@@ -113,6 +113,8 @@ func (check *Checker) overflow(x *operand) {
 
 	// Typed constants must be representable in
 	// their type after each constant operation.
+	// x.typ cannot be a type parameter (type
+	// parameters cannot be constant types).
 	if isTyped(x.typ) {
 		check.representable(x, asBasic(x.typ))
 		return
@@ -155,6 +157,8 @@ var op2str2 = [...]string{
 	syntax.Shl: "shift",
 }
 
+// If typ is a type parameter, underIs returns the result of typ.underIs(f).
+// Otherwise, underIs returns the result of f(under(typ)).
 func underIs(typ Type, f func(Type) bool) bool {
 	u := under(typ)
 	if tpar, _ := u.(*TypeParam); tpar != nil {
@@ -1253,7 +1257,7 @@ func (check *Checker) exprInternal(x *operand, e syntax.Expr, hint Type) exprKin
 			goto Error
 		}
 
-		switch utyp := singleUnder(base).(type) {
+		switch utyp := structure(base).(type) {
 		case *Struct:
 			if len(e.ElemList) == 0 {
 				break

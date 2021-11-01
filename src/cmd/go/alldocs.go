@@ -467,14 +467,18 @@
 //
 // Usage:
 //
-// 	go fix [packages]
+// 	go fix [-fix list] [packages]
 //
 // Fix runs the Go fix command on the packages named by the import paths.
+//
+// The -fix flag sets a comma-separated list of fixes to run.
+// The default is all known fixes.
+// (Its value is passed to 'go tool fix -r'.)
 //
 // For more about fix, see 'go doc cmd/fix'.
 // For more about specifying packages, see 'go help packages'.
 //
-// To run fix with specific options, run 'go tool fix'.
+// To run fix with other options, run 'go tool fix'.
 //
 // See also: go fmt, go vet.
 //
@@ -2790,11 +2794,12 @@
 //
 // 	-fuzz regexp
 // 	    Run the fuzz target matching the regular expression. When specified,
-// 	    the command line argument must match exactly one package, and regexp
-// 	    must match exactly one fuzz target within that package. After tests,
-// 	    benchmarks, seed corpora of other fuzz targets, and examples have
-// 	    completed, the matching target will be fuzzed. See the Fuzzing section
-// 	    of the testing package documentation for details.
+// 	    the command line argument must match exactly one package within the
+// 	    main module, and regexp must match exactly one fuzz target within
+// 	    that package. After tests, benchmarks, seed corpora of other fuzz
+// 	    targets, and examples have completed, the matching target will be
+// 	    fuzzed. See the Fuzzing section of the testing package documentation
+// 	    for details.
 //
 // 	-fuzztime t
 // 	    Run enough iterations of the fuzz test to take t, specified as a
@@ -2946,7 +2951,11 @@
 // When 'go test' runs a test binary, it does so from within the
 // corresponding package's source code directory. Depending on the test,
 // it may be necessary to do the same when invoking a generated test
-// binary directly.
+// binary directly. Because that directory may be located within the
+// module cache, which may be read-only and is verified by checksums, the
+// test must not write to it or any other directory within the module
+// unless explicitly requested by the user (such as with the -fuzz flag,
+// which writes failures to testdata/fuzz).
 //
 // The command-line package list, if present, must appear before any
 // flag not known to the go test command. Continuing the example above,
