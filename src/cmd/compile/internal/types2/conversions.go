@@ -20,7 +20,7 @@ func (check *Checker) conversion(x *operand, T Type) {
 	var cause string
 	switch {
 	case constArg && isConstType(T):
-		// constant conversion
+		// constant conversion (T cannot be a type parameter)
 		switch t := asBasic(T); {
 		case representableConst(x.val, check, t, &x.val):
 			ok = true
@@ -94,8 +94,15 @@ func (x *operand) convertibleTo(check *Checker, T Type, cause *string) bool {
 		return true
 	}
 
+	// determine type parameter operands with specific type terms
 	Vp, _ := under(x.typ).(*TypeParam)
 	Tp, _ := under(T).(*TypeParam)
+	if Vp != nil && !Vp.hasTerms() {
+		Vp = nil
+	}
+	if Tp != nil && !Tp.hasTerms() {
+		Tp = nil
+	}
 
 	errorf := func(format string, args ...interface{}) {
 		if check != nil && cause != nil {
@@ -107,7 +114,7 @@ func (x *operand) convertibleTo(check *Checker, T Type, cause *string) bool {
 		}
 	}
 
-	// generic cases
+	// generic cases with specific type terms
 	// (generic operands cannot be constants, so we can ignore x.val)
 	switch {
 	case Vp != nil && Tp != nil:
@@ -171,12 +178,12 @@ func convertibleToImpl(check *Checker, V, T Type, cause *string) bool {
 		return true
 	}
 
-	// "V an integer or a slice of bytes or runes and T is a string type"
+	// "V is an integer or a slice of bytes or runes and T is a string type"
 	if (isInteger(V) || isBytesOrRunes(Vu)) && isString(T) {
 		return true
 	}
 
-	// "V a string and T is a slice of bytes or runes"
+	// "V is a string and T is a slice of bytes or runes"
 	if isString(V) && isBytesOrRunes(Tu) {
 		return true
 	}
@@ -217,6 +224,10 @@ func convertibleToImpl(check *Checker, V, T Type, cause *string) bool {
 
 	return false
 }
+
+// Helper predicates for convertibleToImpl. The types provided to convertibleToImpl
+// may be type parameters but they won't have specific type terms. Thus it is ok to
+// use the toT convenience converters in the predicates below.
 
 func isUintptr(typ Type) bool {
 	t := asBasic(typ)

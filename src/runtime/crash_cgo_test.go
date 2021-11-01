@@ -3,7 +3,6 @@
 // license that can be found in the LICENSE file.
 
 //go:build cgo
-// +build cgo
 
 package runtime_test
 
@@ -534,7 +533,7 @@ func TestCgoTracebackSigpanic(t *testing.T) {
 	// No runtime errors like "runtime: unexpected return pc".
 	nowant := "runtime: "
 	if strings.Contains(got, nowant) {
-		t.Errorf("unexpectedly saw %q in output", want)
+		t.Errorf("unexpectedly saw %q in output", nowant)
 	}
 }
 
@@ -625,10 +624,18 @@ func TestSegv(t *testing.T) {
 			if !strings.Contains(got, want) {
 				t.Errorf("did not see %q in output", want)
 			}
+
 			// No runtime errors like "runtime: unknown pc".
-			nowant := "runtime: "
-			if strings.Contains(got, nowant) {
-				t.Errorf("unexpectedly saw %q in output", want)
+			switch runtime.GOOS {
+			case "darwin", "illumos", "solaris":
+				// TODO(golang.org/issue/49182): Skip, runtime
+				// throws while attempting to generate
+				// traceback.
+			default:
+				nowant := "runtime: "
+				if strings.Contains(got, nowant) {
+					t.Errorf("unexpectedly saw %q in output", nowant)
+				}
 			}
 		})
 	}
