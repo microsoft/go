@@ -73,7 +73,7 @@ first make sure you have the upstream Git refs locally. One way to do this is to
 set up a remote:
 
 ```sh
-git remote add golang https://github.com/microsoft/go
+git remote add golang https://go.googlesource.com/go
 git fetch golang
 ```
 
