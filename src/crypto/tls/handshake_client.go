@@ -117,7 +117,10 @@ func (c *Conn) makeClientHello() (*clientHelloMsg, ecdheParameters, error) {
 	}
 
 	if hello.vers >= VersionTLS12 {
-		hello.supportedSignatureAlgorithms = supportedSignatureAlgorithms
+		hello.supportedSignatureAlgorithms = supportedSignatureAlgorithms()
+	}
+	if testingOnlyForceClientHelloSignatureAlgorithms != nil {
+		hello.supportedSignatureAlgorithms = testingOnlyForceClientHelloSignatureAlgorithms
 	}
 
 	var params ecdheParameters
@@ -856,6 +859,8 @@ func (c *Conn) verifyServerCertificate(certificates [][]byte) error {
 
 	if !c.config.InsecureSkipVerify {
 		opts := x509.VerifyOptions{
+			IsBoring: isBoringCertificate,
+
 			Roots:         c.config.RootCAs,
 			CurrentTime:   c.config.time(),
 			DNSName:       c.config.ServerName,

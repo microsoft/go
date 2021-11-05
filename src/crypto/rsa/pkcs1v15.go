@@ -11,6 +11,7 @@ import (
 	"io"
 	"math/big"
 
+	"crypto/internal/boring"
 	"crypto/internal/randutil"
 )
 
@@ -36,8 +37,8 @@ type PKCS1v15DecryptOptions struct {
 //
 // WARNING: use of this function to encrypt plaintexts other than
 // session keys is dangerous. Use RSA OAEP in new protocols.
-func EncryptPKCS1v15(rand io.Reader, pub *PublicKey, msg []byte) ([]byte, error) {
-	randutil.MaybeReadByte(rand)
+func EncryptPKCS1v15(random io.Reader, pub *PublicKey, msg []byte) ([]byte, error) {
+	randutil.MaybeReadByte(random)
 
 	if err := checkPub(pub); err != nil {
 		return nil, err
@@ -47,20 +48,37 @@ func EncryptPKCS1v15(rand io.Reader, pub *PublicKey, msg []byte) ([]byte, error)
 		return nil, ErrMessageTooLong
 	}
 
+	if boring.Enabled() {
+		bkey, err := boringPublicKey(pub)
+		if err != nil {
+			return nil, err
+		}
+		return boring.EncryptRSAPKCS1(bkey, msg)
+	}
+	boring.UnreachableExceptTests()
+
 	// EM = 0x00 || 0x02 || PS || 0x00 || M
 	em := make([]byte, k)
 	em[1] = 2
 	ps, mm := em[2:len(em)-len(msg)-1], em[len(em)-len(msg):]
-	err := nonZeroRandomBytes(ps, rand)
+	err := nonZeroRandomBytes(ps, random)
 	if err != nil {
 		return nil, err
 	}
 	em[len(em)-len(msg)-1] = 0
 	copy(mm, msg)
 
+	if boring.Enabled() {
+		var bkey *boring.PublicKeyRSA
+		bkey, err = boringPublicKey(pub)
+		if err != nil {
+			return nil, err
+		}
+		return boring.EncryptRSANoPadding(bkey, em)
+	}
+
 	m := new(big.Int).SetBytes(em)
 	c := encrypt(new(big.Int), pub, m)
-
 	return c.FillBytes(em), nil
 }
 
@@ -76,6 +94,19 @@ func DecryptPKCS1v15(rand io.Reader, priv *PrivateKey, ciphertext []byte) ([]byt
 	if err := checkPub(&priv.PublicKey); err != nil {
 		return nil, err
 	}
+
+	if boring.Enabled() {
+		bkey, err := boringPrivateKey(priv)
+		if err != nil {
+			return nil, err
+		}
+		out, err := boring.DecryptRSAPKCS1(bkey, ciphertext)
+		if err != nil {
+			return nil, ErrDecryption
+		}
+		return out, nil
+	}
+
 	valid, out, index, err := decryptPKCS1v15(rand, priv, ciphertext)
 	if err != nil {
 		return nil, err
@@ -143,13 +174,26 @@ func decryptPKCS1v15(rand io.Reader, priv *PrivateKey, ciphertext []byte) (valid
 		return
 	}
 
-	c := new(big.Int).SetBytes(ciphertext)
-	m, err := decrypt(rand, priv, c)
-	if err != nil {
-		return
+	if boring.Enabled() {
+		var bkey *boring.PrivateKeyRSA
+		bkey, err = boringPrivateKey(priv)
+		if err != nil {
+			return
+		}
+		em, err = boring.DecryptRSANoPadding(bkey, ciphertext)
+		if err != nil {
+			return
+		}
+	} else {
+		c := new(big.Int).SetBytes(ciphertext)
+		var m *big.Int
+		m, err = decrypt(rand, priv, c)
+		if err != nil {
+			return
+		}
+		em = m.FillBytes(make([]byte, k))
 	}
 
-	em = m.FillBytes(make([]byte, k))
 	firstByteIsZero := subtle.ConstantTimeByteEq(em[0], 0)
 	secondByteIsTwo := subtle.ConstantTimeByteEq(em[1], 2)
 
@@ -228,7 +272,15 @@ var hashPrefixes = map[crypto.Hash][]byte{
 // messages is small, an attacker may be able to build a map from
 // messages to signatures and identify the signed messages. As ever,
 // signatures provide authenticity, not confidentiality.
-func SignPKCS1v15(rand io.Reader, priv *PrivateKey, hash crypto.Hash, hashed []byte) ([]byte, error) {
+func SignPKCS1v15(random io.Reader, priv *PrivateKey, hash crypto.Hash, hashed []byte) ([]byte, error) {
+	if boring.Enabled() {
+		bkey, err := boringPrivateKey(priv)
+		if err != nil {
+			return nil, err
+		}
+		return boring.SignRSAPKCS1v15(bkey, hash, hashed, true)
+	}
+
 	hashLen, prefix, err := pkcs1v15HashInfo(hash, len(hashed))
 	if err != nil {
 		return nil, err
@@ -250,7 +302,7 @@ func SignPKCS1v15(rand io.Reader, priv *PrivateKey, hash crypto.Hash, hashed []b
 	copy(em[k-hashLen:k], hashed)
 
 	m := new(big.Int).SetBytes(em)
-	c, err := decryptAndCheck(rand, priv, m)
+	c, err := decryptAndCheck(random, priv, m)
 	if err != nil {
 		return nil, err
 	}
@@ -264,6 +316,17 @@ func SignPKCS1v15(rand io.Reader, priv *PrivateKey, hash crypto.Hash, hashed []b
 // returning a nil error. If hash is zero then hashed is used directly. This
 // isn't advisable except for interoperability.
 func VerifyPKCS1v15(pub *PublicKey, hash crypto.Hash, hashed []byte, sig []byte) error {
+	if boring.Enabled() {
+		bkey, err := boringPublicKey(pub)
+		if err != nil {
+			return err
+		}
+		if err = boring.VerifyRSAPKCS1v15(bkey, hash, hashed, sig, hash != crypto.Hash(0)); err != nil {
+			return err
+		}
+		return nil
+	}
+
 	hashLen, prefix, err := pkcs1v15HashInfo(hash, len(hashed))
 	if err != nil {
 		return err
@@ -302,6 +365,25 @@ func VerifyPKCS1v15(pub *PublicKey, hash crypto.Hash, hashed []byte, sig []byte)
 	}
 
 	return nil
+}
+
+func HashVerifyPKCS1v15(pub *PublicKey, hash crypto.Hash, msg []byte, sig []byte) error {
+	if boring.Enabled() {
+		bkey, err := boringPublicKey(pub)
+		if err != nil {
+			return err
+		}
+		if err := boring.VerifyRSAPKCS1v15(bkey, hash, msg, sig, false); err != nil {
+			return ErrVerification
+		}
+		return nil
+	}
+
+	boring.UnreachableExceptTests()
+	h := hash.New()
+	h.Write(msg)
+	d := h.Sum(nil)
+	return VerifyPKCS1v15(pub, hash, d, sig)
 }
 
 func pkcs1v15HashInfo(hash crypto.Hash, inLen int) (hashLen int, prefix []byte, err error) {

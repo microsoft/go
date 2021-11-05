@@ -13,6 +13,8 @@ import (
 	"internal/cpu"
 )
 
+import "crypto/internal/boring"
+
 // defined in asm_*.s
 
 //go:noescape
@@ -57,6 +59,7 @@ func newCipher(key []byte) (cipher.Block, error) {
 func (c *aesCipherAsm) BlockSize() int { return BlockSize }
 
 func (c *aesCipherAsm) Encrypt(dst, src []byte) {
+	boring.Unreachable()
 	if len(src) < BlockSize {
 		panic("crypto/aes: input not full block")
 	}
@@ -70,6 +73,7 @@ func (c *aesCipherAsm) Encrypt(dst, src []byte) {
 }
 
 func (c *aesCipherAsm) Decrypt(dst, src []byte) {
+	boring.Unreachable()
 	if len(src) < BlockSize {
 		panic("crypto/aes: input not full block")
 	}

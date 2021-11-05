@@ -7,7 +7,9 @@ package ecdsa
 import (
 	"bufio"
 	"compress/bzip2"
+	"crypto"
 	"crypto/elliptic"
+	"crypto/internal/boring"
 	"crypto/rand"
 	"crypto/sha1"
 	"crypto/sha256"
@@ -35,6 +37,9 @@ func testAllCurves(t *testing.T, f func(*testing.T, elliptic.Curve)) {
 		tests = tests[:1]
 	}
 	for _, test := range tests {
+		if boring.Enabled() && test.name == "P224" {
+			t.Skip("p224 not supported in FIPS mode")
+		}
 		curve := test.curve
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
@@ -85,6 +90,30 @@ func TestSignAndVerifyASN1(t *testing.T) {
 	testAllCurves(t, testSignAndVerifyASN1)
 }
 
+func testHashSignAndHashVerify(t *testing.T, c elliptic.Curve, tag string) {
+	priv, err := GenerateKey(c, rand.Reader)
+	if priv == nil {
+		t.Fatal(err)
+	}
+
+	msg := []byte("testing")
+	h := crypto.SHA256
+	r, s, err := HashSign(rand.Reader, priv, msg, h)
+	if err != nil {
+		t.Errorf("%s: error signing: %s", tag, err)
+		return
+	}
+
+	if !HashVerify(&priv.PublicKey, msg, r, s, h) {
+		t.Errorf("%s: Verify failed", tag)
+	}
+
+	msg[0] ^= 0xff
+	if HashVerify(&priv.PublicKey, msg, r, s, h) {
+		t.Errorf("%s: Verify always works!", tag)
+	}
+}
+
 func testSignAndVerifyASN1(t *testing.T, c elliptic.Curve) {
 	priv, _ := GenerateKey(c, rand.Reader)
 
@@ -107,6 +136,16 @@ func testSignAndVerifyASN1(t *testing.T, c elliptic.Curve) {
 
 func TestNonceSafety(t *testing.T) {
 	testAllCurves(t, testNonceSafety)
+}
+
+func TestHashSignAndHashVerify(t *testing.T) {
+	testHashSignAndHashVerify(t, elliptic.P256(), "p256")
+
+	if testing.Short() && !boring.Enabled() {
+		return
+	}
+	testHashSignAndHashVerify(t, elliptic.P384(), "p384")
+	testHashSignAndHashVerify(t, elliptic.P521(), "p521")
 }
 
 func testNonceSafety(t *testing.T, c elliptic.Curve) {
@@ -193,6 +232,7 @@ func TestVectors(t *testing.T) {
 
 	lineNo := 1
 	var h hash.Hash
+	var ch crypto.Hash
 	var msg []byte
 	var hashed []byte
 	var r, s *big.Int
@@ -223,6 +263,9 @@ func TestVectors(t *testing.T) {
 
 			switch parts[0] {
 			case "P-224":
+				if boring.Enabled() { // P-224 not supported in RHEL OpenSSL.
+					continue
+				}
 				pub.Curve = elliptic.P224()
 			case "P-256":
 				pub.Curve = elliptic.P256()
@@ -237,14 +280,19 @@ func TestVectors(t *testing.T) {
 			switch parts[1] {
 			case "SHA-1":
 				h = sha1.New()
+				ch = crypto.SHA1
 			case "SHA-224":
 				h = sha256.New224()
+				ch = crypto.SHA224
 			case "SHA-256":
 				h = sha256.New()
+				ch = crypto.SHA256
 			case "SHA-384":
 				h = sha512.New384()
+				ch = crypto.SHA384
 			case "SHA-512":
 				h = sha512.New()
+				ch = crypto.SHA512
 			default:
 				h = nil
 			}
@@ -274,8 +322,14 @@ func TestVectors(t *testing.T) {
 			h.Reset()
 			h.Write(msg)
 			hashed := h.Sum(hashed[:0])
-			if Verify(pub, hashed, r, s) != expected {
-				t.Fatalf("incorrect result on line %d", lineNo)
+			if boring.Enabled() {
+				if HashVerify(pub, msg, r, s, ch) != expected {
+					t.Fatalf("incorrect result on line %d", lineNo)
+				}
+			} else {
+				if Verify(pub, hashed, r, s) != expected {
+					t.Fatalf("incorrect result on line %d", lineNo)
+				}
 			}
 		default:
 			t.Fatalf("unknown variable on line %d: %s", lineNo, line)

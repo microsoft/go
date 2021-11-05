@@ -332,7 +332,7 @@ var depsRules = `
 
 	# Bulk of the standard library must not use cgo.
 	# The prohibition stops at net and os/user.
-	C !< fmt, go/types, CRYPTO-MATH;
+	C !< fmt, go/types;
 
 	CGO, OS
 	< plugin;
@@ -386,9 +386,13 @@ var depsRules = `
 	NET, log
 	< net/mail;
 
-	# CRYPTO is core crypto algorithms - no cgo, fmt, net.
-	# Unfortunately, stuck with reflect via encoding/binary.
-	encoding/binary, golang.org/x/sys/cpu, hash
+
+	sync/atomic < crypto/internal/boring/fipstls;
+	crypto/internal/boring/fipstls < crypto/internal/boring/sig;
+
+	encoding/binary, golang.org/x/sys/cpu, hash,
+	FMT, math/big,
+	CGO, crypto/internal/boring/sig, crypto/internal/boring/fipstls
 	< crypto
 	< crypto/subtle
 	< crypto/internal/subtle
@@ -396,29 +400,24 @@ var depsRules = `
 	< crypto/ed25519/internal/edwards25519/field
 	< crypto/ed25519/internal/edwards25519
 	< crypto/cipher
+	< encoding/asn1
+	< crypto/internal/boring
 	< crypto/aes, crypto/des, crypto/hmac, crypto/md5, crypto/rc4,
 	  crypto/sha1, crypto/sha256, crypto/sha512
-	< CRYPTO;
-
-	CGO, fmt, net !< CRYPTO;
-
-	# CRYPTO-MATH is core bignum-based crypto - no cgo, net; fmt now ok.
-	CRYPTO, FMT, math/big
 	< crypto/rand
 	< crypto/internal/randutil
 	< crypto/ed25519
-	< encoding/asn1
 	< golang.org/x/crypto/cryptobyte/asn1
 	< golang.org/x/crypto/cryptobyte
 	< golang.org/x/crypto/curve25519
 	< crypto/dsa, crypto/elliptic, crypto/rsa
 	< crypto/ecdsa
-	< CRYPTO-MATH;
+	< CRYPTO-BORING;
 
-	CGO, net !< CRYPTO-MATH;
+	net !< CRYPTO-BORING;
 
 	# TLS, Prince of Dependencies.
-	CRYPTO-MATH, NET, container/list, encoding/hex, encoding/pem
+	CRYPTO-BORING, NET, container/list, encoding/hex, encoding/pem
 	< golang.org/x/crypto/internal/subtle
 	< golang.org/x/crypto/chacha20
 	< golang.org/x/crypto/poly1305
@@ -428,6 +427,12 @@ var depsRules = `
 	< crypto/x509/pkix
 	< crypto/x509
 	< crypto/tls;
+
+	crypto/internal/boring/sig, crypto/internal/boring/fipstls
+	< crypto/tls/fipsonly;
+
+	crypto/internal/boring
+	< crypto/boring;
 
 	# crypto-aware packages
 

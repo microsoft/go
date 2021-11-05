@@ -37,6 +37,9 @@ import (
 	"io"
 	"math/big"
 
+	"crypto/internal/boring"
+	"unsafe"
+
 	"golang.org/x/crypto/cryptobyte"
 	"golang.org/x/crypto/cryptobyte/asn1"
 )
@@ -60,6 +63,8 @@ const (
 type PublicKey struct {
 	elliptic.Curve
 	X, Y *big.Int
+
+	boring unsafe.Pointer
 }
 
 // Any methods implemented on PublicKey might need to also be implemented on
@@ -87,6 +92,8 @@ func (pub *PublicKey) Equal(x crypto.PublicKey) bool {
 type PrivateKey struct {
 	PublicKey
 	D *big.Int
+
+	boring unsafe.Pointer
 }
 
 // Public returns the public key corresponding to priv.
@@ -147,6 +154,15 @@ func randFieldElement(c elliptic.Curve, rand io.Reader) (k *big.Int, err error) 
 
 // GenerateKey generates a public and private key pair.
 func GenerateKey(c elliptic.Curve, rand io.Reader) (*PrivateKey, error) {
+	if boring.Enabled() {
+		x, y, d, err := boring.GenerateKeyECDSA(c.Params().Name)
+		if err != nil {
+			return nil, err
+		}
+		return &PrivateKey{PublicKey: PublicKey{Curve: c, X: x, Y: y}, D: d}, nil
+	}
+	boring.UnreachableExceptTests()
+
 	k, err := randFieldElement(c, rand)
 	if err != nil {
 		return nil, err
@@ -199,6 +215,16 @@ var errZeroParam = errors.New("zero parameter")
 // depends on the entropy of rand.
 func Sign(rand io.Reader, priv *PrivateKey, hash []byte) (r, s *big.Int, err error) {
 	randutil.MaybeReadByte(rand)
+
+	if boring.Enabled() {
+		boring.PanicIfStrictFIPS("ecdsa.Sign disabled in FIPS mode, use HashSign with raw message instead")
+		b, err := boringPrivateKey(priv)
+		if err != nil {
+			return nil, nil, err
+		}
+		return boring.SignECDSA(b, hash, crypto.Hash(0))
+	}
+	boring.UnreachableExceptTests()
 
 	// Get min(log2(q) / 2, 256) bits of entropy from rand.
 	entropylen := (priv.Curve.Params().BitSize + 7) / 16
@@ -286,9 +312,37 @@ func SignASN1(rand io.Reader, priv *PrivateKey, hash []byte) ([]byte, error) {
 	return priv.Sign(rand, hash, nil)
 }
 
+func HashSign(rand io.Reader, priv *PrivateKey, msg []byte, h crypto.Hash) (r, s *big.Int, err error) {
+	randutil.MaybeReadByte(rand)
+
+	if boring.Enabled() {
+		b, err := boringPrivateKey(priv)
+		if err != nil {
+			return nil, nil, err
+		}
+		return boring.SignECDSA(b, msg, h)
+	}
+	boring.UnreachableExceptTests()
+
+	hash := h.New()
+	hash.Write(msg)
+	d := hash.Sum(nil)
+
+	return Sign(rand, priv, d)
+}
+
 // Verify verifies the signature in r, s of hash using the public key, pub. Its
 // return value records whether the signature is valid.
 func Verify(pub *PublicKey, hash []byte, r, s *big.Int) bool {
+	if boring.Enabled() {
+		boring.PanicIfStrictFIPS("ecdsa.Verify disabled in FIPS mode, use HashVerify with raw message instead")
+		b, err := boringPublicKey(pub)
+		if err != nil {
+			return false
+		}
+		return boring.VerifyECDSA(b, hash, r, s, crypto.Hash(0))
+	}
+
 	// See [NSA] 3.4.2
 	c := pub.Curve
 	N := c.Params().N
@@ -350,6 +404,23 @@ func VerifyASN1(pub *PublicKey, hash, sig []byte) bool {
 		return false
 	}
 	return Verify(pub, hash, r, s)
+}
+
+func HashVerify(pub *PublicKey, msg []byte, r, s *big.Int, h crypto.Hash) bool {
+	if boring.Enabled() {
+		b, err := boringPublicKey(pub)
+		if err != nil {
+			return false
+		}
+		return boring.VerifyECDSA(b, msg, r, s, h)
+	}
+	boring.UnreachableExceptTests()
+
+	hash := h.New()
+	hash.Write(msg)
+	d := hash.Sum(nil)
+
+	return Verify(pub, d, r, s)
 }
 
 type zr struct {

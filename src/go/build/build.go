@@ -1880,6 +1880,7 @@ func (ctxt *Context) eval(x constraint.Expr, allTags map[string]bool) bool {
 //	cgo (if cgo is enabled)
 //	$GOOS
 //	$GOARCH
+//	boringcrypto
 //	ctxt.Compiler
 //	linux (if GOOS = android)
 //	solaris (if GOOS = illumos)
@@ -1905,6 +1906,10 @@ func (ctxt *Context) matchTag(name string, allTags map[string]bool) bool {
 		return true
 	}
 	if ctxt.GOOS == "ios" && name == "darwin" {
+		return true
+	}
+	// Let applications know that the Go+BoringCrypto toolchain is in use.
+	if name == "boringcrypto" {
 		return true
 	}
 
