@@ -59,6 +59,9 @@ _goboringcrypto_DLOPEN_OPENSSL(void)
 	handle = dlopen("libcrypto.so", RTLD_NOW | RTLD_GLOBAL);
 #elif OPENSSL_VERSION_NUMBER < 0x10100000L
 	handle = dlopen("libcrypto.so.10", RTLD_NOW | RTLD_GLOBAL);
+	if (handle == NULL) {
+		handle = dlopen("libcrypto.so.1.0.0", RTLD_NOW | RTLD_GLOBAL);
+	}
 #else
 	handle = dlopen("libcrypto.so.1.1", RTLD_NOW | RTLD_GLOBAL);
 #endif
