@@ -60,6 +60,7 @@ _goboringcrypto_DLOPEN_OPENSSL(void)
 #elif OPENSSL_VERSION_NUMBER < 0x10100000L
 	handle = dlopen("libcrypto.so.10", RTLD_NOW | RTLD_GLOBAL);
 	if (handle == NULL) {
+		// The libcrypto shared library naming convention differs among linux distros
 		handle = dlopen("libcrypto.so.1.0.0", RTLD_NOW | RTLD_GLOBAL);
 	}
 #else
