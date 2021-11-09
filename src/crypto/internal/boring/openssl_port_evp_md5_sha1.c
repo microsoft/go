@@ -11,7 +11,7 @@
 
 #include "goboringcrypto.h"
 
-#if OPENSSL_VERSION_NUMBER < 0x10100000L
+#if OPENSSL_VERSION_NUMBER < OPENSSL_VERSION_1_1_0_RTM
 // New in OpenSSL 1.1.
 static inline void *
 _goboringcrypto_internal_EVP_MD_CTX_md_data(EVP_MD_CTX *ctx)
