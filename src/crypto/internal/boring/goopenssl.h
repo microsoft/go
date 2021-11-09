@@ -68,7 +68,7 @@ _goboringcrypto_DLOPEN(const char* libraryName)
 static void*
 _goboringcrypto_DLOPEN_OPENSSL(void)
 {
-	if (handle) 
+	if (handle)
 	{
 		return handle;
 	}
