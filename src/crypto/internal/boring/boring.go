@@ -2,11 +2,8 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-// +build linux
-// +build !android
-// +build !no_openssl
-// +build !cmd_go_bootstrap
-// +build !msan
+//go:build linux && !android && !no_openssl && !cmd_go_bootstrap && !msan
+// +build linux,!android,!no_openssl,!cmd_go_bootstrap,!msan
 
 package boring
 
@@ -48,7 +45,9 @@ func init() {
 	}
 
 	// Initialize the OpenSSL library.
-	C._goboringcrypto_OPENSSL_setup()
+	if C._goboringcrypto_OPENSSL_setup() != 1 {
+		panic("boringcrypto: OpenSSL setup failed")
+	}
 
 	// Check to see if the system is running in FIPS mode, if so
 	// enable "boring" mode to call into OpenSSL for FIPS compliance.
@@ -60,10 +59,6 @@ func init() {
 
 func enableBoringFIPSMode() {
 	enabled = true
-
-	if C._goboringcrypto_OPENSSL_thread_setup() != 1 {
-		panic("boringcrypto: OpenSSL thread setup failed")
-	}
 	fipstls.Force()
 }
 
