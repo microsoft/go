@@ -10,7 +10,8 @@
 // This header file describes the OpenSSL ABI as built for use in Go.
 
 #include <stdlib.h> // size_t
-#include <stdint.h> // uint8_t
+#include <stdint.h> // uint8_t, getenv
+#include <string.h> // strnlen
 
 #include <openssl/ossl_typ.h>
 
@@ -45,9 +46,25 @@
 		return func argscall;                     \
 	}
 
+// x.x.x, considering the max number of decimal digits for each component
+#define MaxVersionStringLength 32
+#define OPENSSL_VERSION_3_0_RTM 0x30000000L
+#define OPENSSL_VERSION_1_1_1_RTM 0x10101000L
+#define OPENSSL_VERSION_1_1_0_RTM 0x10100000L
+#define OPENSSL_VERSION_1_0_2_RTM 0x10002000L
+#define SONAME_BASE "libcrypto.so."
+#define MAKELIB(v)  SONAME_BASE v
+
 #include <dlfcn.h>
 
-static void* handle;
+static void* handle = NULL;
+
+static void
+_goboringcrypto_DLOPEN(const char* libraryName)
+{
+	handle = dlopen(libraryName, RTLD_NOW | RTLD_GLOBAL);
+}
+
 static void*
 _goboringcrypto_DLOPEN_OPENSSL(void)
 {
@@ -55,16 +72,64 @@ _goboringcrypto_DLOPEN_OPENSSL(void)
 	{
 		return handle;
 	}
-#ifndef OPENSSL_VERSION_NUMBER
-	handle = dlopen("libcrypto.so", RTLD_NOW | RTLD_GLOBAL);
-#elif OPENSSL_VERSION_NUMBER < 0x10100000L
-	handle = dlopen("libcrypto.so.10", RTLD_NOW | RTLD_GLOBAL);
-	if (handle == NULL) {
-		// The libcrypto shared library naming convention differs among linux distros
-		handle = dlopen("libcrypto.so.1.0.0", RTLD_NOW | RTLD_GLOBAL);
+
+	// Approach taken from .Net System.Security.Cryptography.Native
+	// https://github.com/dotnet/runtime/blob/f64246ce08fb7a58221b2b7c8e68f69c02522b0d/src/libraries/Native/Unix/System.Security.Cryptography.Native/opensslshim.c#L54
+
+	// If there is an override of the version specified using the GO_OPENSSL_VERSION_OVERRIDE
+	// env variable, try to load that first.
+	// The format of the value in the env variable is expected to be the version numbers,
+	// like 1.0.0, 1.0.2 etc.
+	char* versionOverride = getenv("GO_OPENSSL_VERSION_OVERRIDE");
+	if ((versionOverride != NULL) && strnlen(versionOverride, MaxVersionStringLength + 1) <= MaxVersionStringLength)
+	{
+		char soName[sizeof(SONAME_BASE) + MaxVersionStringLength] = SONAME_BASE;
+		strcat(soName, versionOverride);
+		_goboringcrypto_DLOPEN(soName);
+	}
+
+#if OPENSSL_VERSION_NUMBER >= OPENSSL_VERSION_3_0_RTM
+	if (handle == NULL)
+	{
+		_goboringcrypto_DLOPEN(MAKELIB("3"));
+	}
+#elif OPENSSL_VERSION_NUMBER >= OPENSSL_VERSION_1_1_0_RTM
+	if (handle == NULL)
+	{
+		_goboringcrypto_DLOPEN(MAKELIB("1.1"));
+	}
+
+	// FreeBSD uses a different suffix numbering convention.
+	// Current supported FreeBSD releases should use the order .11 -> .111
+	if (handle == NULL)
+	{
+		_goboringcrypto_DLOPEN(MAKELIB("11"));
+	}
+
+	if (handle == NULL)
+	{
+		_goboringcrypto_DLOPEN(MAKELIB("111"));
 	}
 #else
-	handle = dlopen("libcrypto.so.1.1", RTLD_NOW | RTLD_GLOBAL);
+	if (handle == NULL)
+	{
+		// Debian 9 has dropped support for SSLv3 and so they have bumped their soname. Let's try it
+		// before trying the version 1.0.0 to make it less probable that some of our other dependencies
+		// end up loading conflicting version of libcrypto.
+		_goboringcrypto_DLOPEN(MAKELIB("1.0.2"));
+	}
+
+	if (handle == NULL)
+	{
+		// Now try the default versioned so naming as described in the OpenSSL doc
+		_goboringcrypto_DLOPEN(MAKELIB("1.0.0"));
+	}
+
+	if (handle == NULL)
+	{
+		// Fedora derived distros use different naming for the version 1.0.0
+		_goboringcrypto_DLOPEN(MAKELIB("10"));
+	}
 #endif
 	return handle;
 }
@@ -89,7 +154,7 @@ DEFINEFUNCINTERNAL(void, ERR_error_string_n, (unsigned long e, unsigned char *bu
 DEFINEFUNCINTERNAL(int, CRYPTO_num_locks, (void), ())
 static inline int
 _goboringcrypto_CRYPTO_num_locks(void) {
-#if OPENSSL_VERSION_NUMBER < 0x10100000L
+#if OPENSSL_VERSION_NUMBER < OPENSSL_VERSION_1_1_0_RTM
 	return _goboringcrypto_internal_CRYPTO_num_locks();
 #else
 	return CRYPTO_num_locks();
@@ -98,7 +163,7 @@ _goboringcrypto_CRYPTO_num_locks(void) {
 DEFINEFUNCINTERNAL(void, CRYPTO_set_id_callback, (unsigned long (*id_function)(void)), (id_function))
 static inline void
 _goboringcrypto_CRYPTO_set_id_callback(unsigned long (*id_function)(void)) {
-#if OPENSSL_VERSION_NUMBER < 0x10100000L
+#if OPENSSL_VERSION_NUMBER < OPENSSL_VERSION_1_1_0_RTM
 	_goboringcrypto_internal_CRYPTO_set_id_callback(id_function);
 #else
 	CRYPTO_set_id_callback(id_function);
@@ -109,7 +174,7 @@ DEFINEFUNCINTERNAL(void, CRYPTO_set_locking_callback,
 	(locking_function))
 static inline void
 _goboringcrypto_CRYPTO_set_locking_callback(void (*locking_function)(int mode, int n, const char *file, int line)) {
-#if OPENSSL_VERSION_NUMBER < 0x10100000L
+#if OPENSSL_VERSION_NUMBER < OPENSSL_VERSION_1_1_0_RTM
 	_goboringcrypto_internal_CRYPTO_set_locking_callback(locking_function);
 #else
 	CRYPTO_set_locking_callback(locking_function);
@@ -186,7 +251,7 @@ DEFINEFUNC(const GO_EVP_MD *, EVP_sha224, (void), ())
 DEFINEFUNC(const GO_EVP_MD *, EVP_sha256, (void), ())
 DEFINEFUNC(const GO_EVP_MD *, EVP_sha384, (void), ())
 DEFINEFUNC(const GO_EVP_MD *, EVP_sha512, (void), ())
-#if OPENSSL_VERSION_NUMBER < 0x30000000L
+#if OPENSSL_VERSION_NUMBER < OPENSSL_VERSION_3_0_RTM
 DEFINEFUNCINTERNAL(int, EVP_MD_type, (const GO_EVP_MD *arg0), (arg0))
 #else
 DEFINEFUNCINTERNAL(int, EVP_MD_get_type, (const GO_EVP_MD *arg0), (arg0))
@@ -201,7 +266,7 @@ DEFINEFUNCINTERNAL(int, MD5_Final, (unsigned char *md, MD5_CTX *c), (md, c))
 
 static inline int
 _goboringcrypto_EVP_MD_type(const GO_EVP_MD *md) {
-#if OPENSSL_VERSION_NUMBER < 0x30000000L
+#if OPENSSL_VERSION_NUMBER < OPENSSL_VERSION_3_0_RTM
 	return _goboringcrypto_internal_EVP_MD_type(md);
 #else
 	return _goboringcrypto_internal_EVP_MD_get_type(md);
@@ -211,7 +276,7 @@ _goboringcrypto_EVP_MD_type(const GO_EVP_MD *md) {
 const GO_EVP_MD* _goboringcrypto_backport_EVP_md5_sha1(void);
 static inline const GO_EVP_MD*
 _goboringcrypto_EVP_md5_sha1(void) {
-#if OPENSSL_VERSION_NUMBER < 0x10100000L
+#if OPENSSL_VERSION_NUMBER < OPENSSL_VERSION_1_1_0_RTM
 	return _goboringcrypto_backport_EVP_md5_sha1();
 #else
 	return _goboringcrypto_internal_EVP_md5_sha1();
@@ -234,10 +299,10 @@ DEFINEFUNC(size_t, HMAC_CTX_copy, (GO_HMAC_CTX *dest, GO_HMAC_CTX *src), (dest, 
 DEFINEFUNCINTERNAL(void, HMAC_CTX_free, (GO_HMAC_CTX * arg0), (arg0))
 static inline void
 _goboringcrypto_HMAC_CTX_free(HMAC_CTX *ctx) {
-#if OPENSSL_VERSION_NUMBER < 0x10100000L
+#if OPENSSL_VERSION_NUMBER < OPENSSL_VERSION_1_1_0_RTM
    if (ctx != NULL) {
-       _goboringcrypto_HMAC_CTX_cleanup(ctx);
-       free(ctx);
+	   _goboringcrypto_HMAC_CTX_cleanup(ctx);
+	   free(ctx);
    }
 #else
 	_goboringcrypto_internal_HMAC_CTX_free(ctx);
@@ -248,9 +313,9 @@ DEFINEFUNCINTERNAL(EVP_MD*, HMAC_CTX_get_md, (const GO_HMAC_CTX* ctx), (ctx))
 DEFINEFUNCINTERNAL(size_t, EVP_MD_get_size, (const GO_EVP_MD *arg0), (arg0))
 static inline size_t
 _goboringcrypto_HMAC_size(const GO_HMAC_CTX* arg0) {
-#if OPENSSL_VERSION_NUMBER < 0x10100000L
+#if OPENSSL_VERSION_NUMBER < OPENSSL_VERSION_1_1_0_RTM
 	return _goboringcrypto_internal_EVP_MD_size(arg0->md);
-#elif OPENSSL_VERSION_NUMBER >= 0x30000000L
+#elif OPENSSL_VERSION_NUMBER >= OPENSSL_VERSION_3_0_RTM
 	const EVP_MD* md;
 	md = _goboringcrypto_internal_HMAC_CTX_get_md(arg0);
 	return _goboringcrypto_internal_EVP_MD_get_size(md);
@@ -264,7 +329,7 @@ _goboringcrypto_HMAC_size(const GO_HMAC_CTX* arg0) {
 DEFINEFUNCINTERNAL(GO_HMAC_CTX*, HMAC_CTX_new, (void), ())
 static inline GO_HMAC_CTX*
 _goboringcrypto_HMAC_CTX_new(void) {
-#if OPENSSL_VERSION_NUMBER < 0x10100000L
+#if OPENSSL_VERSION_NUMBER < OPENSSL_VERSION_1_1_0_RTM
 	GO_HMAC_CTX* ctx = malloc(sizeof(GO_HMAC_CTX));
 	if (ctx != NULL)
 		_goboringcrypto_HMAC_CTX_init(ctx);
@@ -277,7 +342,7 @@ _goboringcrypto_HMAC_CTX_new(void) {
 DEFINEFUNCINTERNAL(void, HMAC_CTX_reset, (GO_HMAC_CTX * arg0), (arg0))
 static inline void
 _goboringcrypto_HMAC_CTX_reset(GO_HMAC_CTX* ctx) {
-#if OPENSSL_VERSION_NUMBER < 0x10100000L
+#if OPENSSL_VERSION_NUMBER < OPENSSL_VERSION_1_1_0_RTM
 	_goboringcrypto_HMAC_CTX_cleanup(ctx);
 	_goboringcrypto_HMAC_CTX_init(ctx);
 #else
@@ -311,8 +376,8 @@ enum
 void _goboringcrypto_EVP_AES_cbc_encrypt(EVP_CIPHER_CTX *ctx, const uint8_t *arg0, uint8_t *arg1, size_t arg2, const uint8_t *a, const int arg5);
 DEFINEFUNC(void, AES_cbc_encrypt,
 		   (const unsigned char *in, unsigned char *out,
-                     size_t length, const AES_KEY *key,
-                     unsigned char *ivec, const int enc),
+					 size_t length, const AES_KEY *key,
+					 unsigned char *ivec, const int enc),
 		   (in, out, length, key, ivec, enc))
 
 void EVP_AES_cbc_enc(EVP_CIPHER_CTX *ctx, const uint8_t *in, uint8_t *out, size_t len);
@@ -394,7 +459,7 @@ DEFINEFUNCINTERNAL(EVP_MD_CTX*, EVP_MD_CTX_new, (void), ())
 DEFINEFUNCINTERNAL(EVP_MD_CTX*, EVP_MD_CTX_create, (void), ())
 
 static inline EVP_MD_CTX* _goboringcrypto_EVP_MD_CTX_create(void) {
-#if OPENSSL_VERSION_NUMBER < 0x10100000L
+#if OPENSSL_VERSION_NUMBER < OPENSSL_VERSION_1_1_0_RTM
 	return _goboringcrypto_internal_EVP_MD_CTX_create();
 #else
 	return _goboringcrypto_internal_EVP_MD_CTX_new();
@@ -439,7 +504,7 @@ int _goboringcrypto_EVP_verify(EVP_MD* md, EVP_PKEY_CTX *ctx, const uint8_t *msg
 DEFINEFUNCINTERNAL(void, EVP_MD_CTX_free, (EVP_MD_CTX *ctx), (ctx))
 DEFINEFUNCINTERNAL(void, EVP_MD_CTX_destroy, (EVP_MD_CTX *ctx), (ctx))
 static inline void _goboringcrypto_EVP_MD_CTX_free(EVP_MD_CTX *ctx) {
-#if OPENSSL_VERSION_NUMBER < 0x10100000L
+#if OPENSSL_VERSION_NUMBER < OPENSSL_VERSION_1_1_0_RTM
 	return _goboringcrypto_internal_EVP_MD_CTX_destroy(ctx);
 #else
 	return _goboringcrypto_internal_EVP_MD_CTX_free(ctx);
@@ -482,24 +547,24 @@ DEFINEFUNCINTERNAL(int, RSA_set0_factors,
 
 static inline int
 _goboringcrypto_RSA_set0_factors(GO_RSA * r, GO_BIGNUM *p, GO_BIGNUM *q) {
-#if OPENSSL_VERSION_NUMBER < 0x10100000L
-    /* If the fields p and q in r are NULL, the corresponding input
-     * parameters MUST be non-NULL.
-     */
-    if ((r->p == NULL && p == NULL)
-        || (r->q == NULL && q == NULL))
-        return 0;
+#if OPENSSL_VERSION_NUMBER < OPENSSL_VERSION_1_1_0_RTM
+	/* If the fields p and q in r are NULL, the corresponding input
+	 * parameters MUST be non-NULL.
+	 */
+	if ((r->p == NULL && p == NULL)
+		|| (r->q == NULL && q == NULL))
+		return 0;
 
-    if (p != NULL) {
-        _goboringcrypto_BN_clear_free(r->p);
-        r->p = p;
-    }
-    if (q != NULL) {
-        _goboringcrypto_BN_clear_free(r->q);
-        r->q = q;
-    }
+	if (p != NULL) {
+		_goboringcrypto_BN_clear_free(r->p);
+		r->p = p;
+	}
+	if (q != NULL) {
+		_goboringcrypto_BN_clear_free(r->q);
+		r->q = q;
+	}
 
-    return 1;
+	return 1;
 #else
 	return _goboringcrypto_internal_RSA_set0_factors(r, p, q);
 #endif
@@ -511,29 +576,29 @@ DEFINEFUNCINTERNAL(int, RSA_set0_crt_params,
 
 static inline int
 _goboringcrypto_RSA_set0_crt_params(GO_RSA * r, GO_BIGNUM *dmp1, GO_BIGNUM *dmq1, GO_BIGNUM *iqmp) {
-#if OPENSSL_VERSION_NUMBER < 0x10100000L
-    /* If the fields dmp1, dmq1 and iqmp in r are NULL, the corresponding input
-     * parameters MUST be non-NULL.
-     */
-    if ((r->dmp1 == NULL && dmp1 == NULL)
-        || (r->dmq1 == NULL && dmq1 == NULL)
-        || (r->iqmp == NULL && iqmp == NULL))
-        return 0;
+#if OPENSSL_VERSION_NUMBER < OPENSSL_VERSION_1_1_0_RTM
+	/* If the fields dmp1, dmq1 and iqmp in r are NULL, the corresponding input
+	 * parameters MUST be non-NULL.
+	 */
+	if ((r->dmp1 == NULL && dmp1 == NULL)
+		|| (r->dmq1 == NULL && dmq1 == NULL)
+		|| (r->iqmp == NULL && iqmp == NULL))
+		return 0;
 
-    if (dmp1 != NULL) {
-        _goboringcrypto_BN_clear_free(r->dmp1);
-        r->dmp1 = dmp1;
-    }
-    if (dmq1 != NULL) {
-        _goboringcrypto_BN_clear_free(r->dmq1);
-        r->dmq1 = dmq1;
-    }
-    if (iqmp != NULL) {
-        _goboringcrypto_BN_clear_free(r->iqmp);
-        r->iqmp = iqmp;
-    }
+	if (dmp1 != NULL) {
+		_goboringcrypto_BN_clear_free(r->dmp1);
+		r->dmp1 = dmp1;
+	}
+	if (dmq1 != NULL) {
+		_goboringcrypto_BN_clear_free(r->dmq1);
+		r->dmq1 = dmq1;
+	}
+	if (iqmp != NULL) {
+		_goboringcrypto_BN_clear_free(r->iqmp);
+		r->iqmp = iqmp;
+	}
 
-    return 1;
+	return 1;
 #else
 	return _goboringcrypto_internal_RSA_set0_crt_params(r, dmp1, dmq1, iqmp);
 #endif
@@ -544,13 +609,13 @@ DEFINEFUNCINTERNAL(void, RSA_get0_crt_params,
 		   (r, dmp1, dmq1, iqmp))
 static inline void
 _goboringcrypto_RSA_get0_crt_params(const GO_RSA *r, const GO_BIGNUM **dmp1, const GO_BIGNUM **dmq1, const GO_BIGNUM **iqmp) {
-#if OPENSSL_VERSION_NUMBER < 0x10100000L
-    if (dmp1 != NULL)
-        *dmp1 = r->dmp1;
-    if (dmq1 != NULL)
-        *dmq1 = r->dmq1;
-    if (iqmp != NULL)
-        *iqmp = r->iqmp;
+#if OPENSSL_VERSION_NUMBER < OPENSSL_VERSION_1_1_0_RTM
+	if (dmp1 != NULL)
+		*dmp1 = r->dmp1;
+	if (dmq1 != NULL)
+		*dmq1 = r->dmq1;
+	if (iqmp != NULL)
+		*iqmp = r->iqmp;
 #else
 	_goboringcrypto_internal_RSA_get0_crt_params(r, dmp1, dmq1, iqmp);
 #endif
@@ -562,29 +627,29 @@ DEFINEFUNCINTERNAL(int, RSA_set0_key,
 		   (r, n, e, d))
 static inline int
 _goboringcrypto_RSA_set0_key(GO_RSA * r, GO_BIGNUM *n, GO_BIGNUM *e, GO_BIGNUM *d) {
-#if OPENSSL_VERSION_NUMBER < 0x10100000L
-    /* If the fields n and e in r are NULL, the corresponding input
-     * parameters MUST be non-NULL for n and e.  d may be
-     * left NULL (in case only the public key is used).
-     */
-    if ((r->n == NULL && n == NULL)
-        || (r->e == NULL && e == NULL))
-        return 0;
+#if OPENSSL_VERSION_NUMBER < OPENSSL_VERSION_1_1_0_RTM
+	/* If the fields n and e in r are NULL, the corresponding input
+	 * parameters MUST be non-NULL for n and e.  d may be
+	 * left NULL (in case only the public key is used).
+	 */
+	if ((r->n == NULL && n == NULL)
+		|| (r->e == NULL && e == NULL))
+		return 0;
 
-    if (n != NULL) {
-        _goboringcrypto_BN_free(r->n);
-        r->n = n;
-    }
-    if (e != NULL) {
-        _goboringcrypto_BN_free(r->e);
-        r->e = e;
-    }
-    if (d != NULL) {
-        _goboringcrypto_BN_clear_free(r->d);
-        r->d = d;
-    }
+	if (n != NULL) {
+		_goboringcrypto_BN_free(r->n);
+		r->n = n;
+	}
+	if (e != NULL) {
+		_goboringcrypto_BN_free(r->e);
+		r->e = e;
+	}
+	if (d != NULL) {
+		_goboringcrypto_BN_clear_free(r->d);
+		r->d = d;
+	}
 
-    return 1;
+	return 1;
 #else
 	return _goboringcrypto_internal_RSA_set0_key(r, n, e, d);
 #endif
@@ -595,7 +660,7 @@ DEFINEFUNCINTERNAL(void, RSA_get0_factors,
 		   (rsa, p, q))
 static inline void 
 _goboringcrypto_RSA_get0_factors(const GO_RSA *rsa, const GO_BIGNUM **p, const GO_BIGNUM **q) {
-#if OPENSSL_VERSION_NUMBER < 0x10100000L
+#if OPENSSL_VERSION_NUMBER < OPENSSL_VERSION_1_1_0_RTM
 	if (p)
 		*p = rsa->p;
 	if (q)
@@ -610,7 +675,7 @@ DEFINEFUNCINTERNAL(void, RSA_get0_key,
 		   (rsa, n, e, d))
 static inline void 
 _goboringcrypto_RSA_get0_key(const GO_RSA *rsa, const GO_BIGNUM **n, const GO_BIGNUM **e, const GO_BIGNUM **d) {
-#if OPENSSL_VERSION_NUMBER < 0x10100000L
+#if OPENSSL_VERSION_NUMBER < OPENSSL_VERSION_1_1_0_RTM
 	if (n)
 		*n = rsa->n;
 	if (e)
@@ -709,10 +774,10 @@ DEFINEFUNCINTERNAL(int, RSA_pkey_ctx_ctrl,
 
 static inline int
 _goboringcrypto_EVP_PKEY_CTX_set_rsa_padding(GO_EVP_PKEY_CTX* ctx, int pad) {
-#if OPENSSL_VERSION_NUMBER < 0x10100000L
+#if OPENSSL_VERSION_NUMBER < OPENSSL_VERSION_1_1_0_RTM
 	return _goboringcrypto_EVP_PKEY_CTX_ctrl(ctx, EVP_PKEY_RSA, -1, EVP_PKEY_CTRL_RSA_PADDING, pad, NULL);
 #else
-    return _goboringcrypto_internal_RSA_pkey_ctx_ctrl(ctx, -1, EVP_PKEY_CTRL_RSA_PADDING, pad, NULL);
+	return _goboringcrypto_internal_RSA_pkey_ctx_ctrl(ctx, -1, EVP_PKEY_CTRL_RSA_PADDING, pad, NULL);
 #endif
 }
 
@@ -744,8 +809,8 @@ _goboringcrypto_EVP_PKEY_CTX_set_signature_md(EVP_PKEY_CTX *ctx, const EVP_MD *m
 static inline int
 _goboringcrypto_EVP_PKEY_CTX_set_rsa_mgf1_md(GO_EVP_PKEY_CTX * ctx, const GO_EVP_MD *md) {
 	return _goboringcrypto_EVP_PKEY_CTX_ctrl(ctx, EVP_PKEY_RSA,
-                        EVP_PKEY_OP_TYPE_SIG | EVP_PKEY_OP_TYPE_CRYPT,
-                                EVP_PKEY_CTRL_RSA_MGF1_MD, 0, (void *)md);
+						EVP_PKEY_OP_TYPE_SIG | EVP_PKEY_OP_TYPE_CRYPT,
+								EVP_PKEY_CTRL_RSA_MGF1_MD, 0, (void *)md);
 }
 
 DEFINEFUNC(int, EVP_PKEY_decrypt,
