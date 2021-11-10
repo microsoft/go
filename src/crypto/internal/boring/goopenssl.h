@@ -144,7 +144,9 @@ DEFINEFUNCINTERNAL(void, ERR_error_string_n, (unsigned long e, unsigned char *bu
 
 DEFINEFUNCINTERNAL(int, RAND_poll, (void), ())
 
+#if OPENSSL_VERSION_NUMBER >= OPENSSL_VERSION_1_0_2_RTM
 DEFINEFUNCINTERNAL(void, OPENSSL_init, (void), ())
+#endif
 
 #if OPENSSL_VERSION_NUMBER < OPENSSL_VERSION_1_1_0_RTM
 int _goboringcrypto_OPENSSL_thread_setup(void);
@@ -163,7 +165,9 @@ static int
 _goboringcrypto_OPENSSL_setup(void) {
 	// OPENSSL_init initialize FIPS callbacks and rand generator.
 	// no-op from OpenSSL 1.1.1 onwards.
+#if OPENSSL_VERSION_NUMBER >= OPENSSL_VERSION_1_0_2_RTM
 	_goboringcrypto_internal_OPENSSL_init();
+#endif
 	#if OPENSSL_VERSION_NUMBER < OPENSSL_VERSION_1_1_0_RTM
 		if (_goboringcrypto_OPENSSL_thread_setup() != 1)
 		{
