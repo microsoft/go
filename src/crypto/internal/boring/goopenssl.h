@@ -144,9 +144,10 @@ DEFINEFUNCINTERNAL(void, ERR_error_string_n, (unsigned long e, unsigned char *bu
 
 DEFINEFUNCINTERNAL(int, RAND_poll, (void), ())
 
-int _goboringcrypto_OPENSSL_thread_setup(void);
+DEFINEFUNCINTERNAL(void, OPENSSL_init, (void), ())
 
 #if OPENSSL_VERSION_NUMBER < OPENSSL_VERSION_1_1_0_RTM
+int _goboringcrypto_OPENSSL_thread_setup(void);
 DEFINEFUNCINTERNAL(void, ERR_load_crypto_strings, (void), ())
 DEFINEFUNCINTERNAL(int, CRYPTO_num_locks, (void), ())
 DEFINEFUNCINTERNAL(void, CRYPTO_set_id_callback, (unsigned long (*id_function)(void)), (id_function))
@@ -155,26 +156,20 @@ DEFINEFUNCINTERNAL(void, CRYPTO_set_locking_callback,
 	(locking_function))
 DEFINEFUNCINTERNAL(void, OPENSSL_add_all_algorithms_conf, (void), ())
 #else
-// Only defined in OpenSSL 1.1.1+, has no effect on 1.1.0.
-#ifndef OPENSSL_INIT_NO_ATEXIT
-    #define OPENSSL_INIT_NO_ATEXIT 0x00080000L
-#endif
-DEFINEFUNCINTERNAL(void, OPENSSL_init_ssl, (OPENSSL_init_ssl* ops, const OPENSSL_INIT_SETTINGS *settings), (ops, settings))
+DEFINEFUNCINTERNAL(int, OPENSSL_init_crypto, (uint64_t ops, const OPENSSL_INIT_SETTINGS *settings), (ops, settings))
 #endif
 
 static int
 _goboringcrypto_OPENSSL_setup(void) {
+	// OPENSSL_init initialize FIPS callbacks and rand generator.
+	// no-op from OpenSSL 1.1.1 onwards.
+	_goboringcrypto_internal_OPENSSL_init();
 	#if OPENSSL_VERSION_NUMBER < OPENSSL_VERSION_1_1_0_RTM
-		if (_goboringcrypto_OPENSSL_thread_setup() != 1) {
-			return 0;
-		}
-		int randPollResult = _goboringcrypto_internal_RAND_poll();
-		if (randPollResult < 1)
+		if (_goboringcrypto_OPENSSL_thread_setup() != 1)
 		{
 			return 0;
 		}
-		// Load the SHA-2 hash algorithms, and anything else not in the default
-		// support set.
+		// Load all algorithms and the openssl configuration file.
 		_goboringcrypto_internal_OPENSSL_add_all_algorithms_conf();
 
 		// Ensure that the error message table is loaded.
@@ -184,18 +179,12 @@ _goboringcrypto_OPENSSL_setup(void) {
 	#else
 		// In OpenSSL 1.0 we call OPENSSL_add_all_algorithms_conf() and ERR_load_crypto_strings(),
 		// so do the same for 1.1
-		_goboringcrypto_internal_OPENSSL_init_ssl(
-			// OPENSSL_add_all_algorithms_conf
+		return _goboringcrypto_internal_OPENSSL_init_crypto(
 				OPENSSL_INIT_ADD_ALL_CIPHERS |
 				OPENSSL_INIT_ADD_ALL_DIGESTS |
 				OPENSSL_INIT_LOAD_CONFIG |
-			// Do not unload on process exit, as the CLR may still have threads running
-				OPENSSL_INIT_NO_ATEXIT |
-			// ERR_load_crypto_strings
-				OPENSSL_INIT_LOAD_CRYPTO_STRINGS |
-				OPENSSL_INIT_LOAD_SSL_STRINGS,
+				OPENSSL_INIT_LOAD_CRYPTO_STRINGS,
 			NULL);
-		return 1;
 	#endif
 }
 
