@@ -170,28 +170,28 @@ _goboringcrypto_OPENSSL_setup(void) {
 #if OPENSSL_VERSION_NUMBER >= OPENSSL_VERSION_1_0_2_RTM
 	_goboringcrypto_internal_OPENSSL_init();
 #endif
-	#if OPENSSL_VERSION_NUMBER < OPENSSL_VERSION_1_1_0_RTM
-		if (_goboringcrypto_OPENSSL_thread_setup() != 1)
-		{
-			return 0;
-		}
-		// Load all algorithms and the openssl configuration file.
-		_goboringcrypto_internal_OPENSSL_add_all_algorithms_conf();
+#if OPENSSL_VERSION_NUMBER < OPENSSL_VERSION_1_1_0_RTM
+	if (_goboringcrypto_OPENSSL_thread_setup() != 1)
+	{
+		return 0;
+	}
+	// Load all algorithms and the openssl configuration file.
+	_goboringcrypto_internal_OPENSSL_add_all_algorithms_conf();
 
-		// Ensure that the error message table is loaded.
-		_goboringcrypto_internal_ERR_load_crypto_strings();
-		return 1;
+	// Ensure that the error message table is loaded.
+	_goboringcrypto_internal_ERR_load_crypto_strings();
+	return 1;
 
-	#else
-		// In OpenSSL 1.0 we call OPENSSL_add_all_algorithms_conf() and ERR_load_crypto_strings(),
-		// so do the same for 1.1
-		return _goboringcrypto_internal_OPENSSL_init_crypto(
-				OPENSSL_INIT_ADD_ALL_CIPHERS |
-				OPENSSL_INIT_ADD_ALL_DIGESTS |
-				OPENSSL_INIT_LOAD_CONFIG |
-				OPENSSL_INIT_LOAD_CRYPTO_STRINGS,
+#else
+	// In OpenSSL 1.0 we call OPENSSL_add_all_algorithms_conf() and ERR_load_crypto_strings(),
+	// so do the same for 1.1
+	return _goboringcrypto_internal_OPENSSL_init_crypto(
+			OPENSSL_INIT_ADD_ALL_CIPHERS |
+			OPENSSL_INIT_ADD_ALL_DIGESTS |
+			OPENSSL_INIT_LOAD_CONFIG |
+			OPENSSL_INIT_LOAD_CRYPTO_STRINGS,
 			NULL);
-	#endif
+#endif
 }
 
 DEFINEFUNC(int, FIPS_mode, (void), ())
