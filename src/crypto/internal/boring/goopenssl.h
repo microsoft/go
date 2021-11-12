@@ -136,57 +136,66 @@ _goboringcrypto_DLOPEN_OPENSSL(void)
 
 #include <openssl/opensslv.h>
 #include <openssl/ssl.h>
-
-DEFINEFUNCINTERNAL(int, OPENSSL_init, (void), ())
-
-static void
-_goboringcrypto_OPENSSL_setup(void) {
-	_goboringcrypto_internal_OPENSSL_init();
-}
-
+#include <openssl/crypto.h>
 #include <openssl/err.h>
+#include <openssl/rand.h>
+
 DEFINEFUNCINTERNAL(void, ERR_print_errors_fp, (FILE* fp), (fp))
 DEFINEFUNCINTERNAL(unsigned long, ERR_get_error, (void), ())
 DEFINEFUNCINTERNAL(void, ERR_error_string_n, (unsigned long e, unsigned char *buf, size_t len), (e, buf, len))
 
-#include <openssl/crypto.h>
+DEFINEFUNCINTERNAL(int, RAND_poll, (void), ())
 
+#if OPENSSL_VERSION_NUMBER >= OPENSSL_VERSION_1_0_2_RTM
+DEFINEFUNCINTERNAL(void, OPENSSL_init, (void), ())
+#endif
+
+#if OPENSSL_VERSION_NUMBER < OPENSSL_VERSION_1_1_0_RTM
+int _goboringcrypto_OPENSSL_thread_setup(void);
+DEFINEFUNCINTERNAL(void, ERR_load_crypto_strings, (void), ())
 DEFINEFUNCINTERNAL(int, CRYPTO_num_locks, (void), ())
-static inline int
-_goboringcrypto_CRYPTO_num_locks(void) {
-#if OPENSSL_VERSION_NUMBER < OPENSSL_VERSION_1_1_0_RTM
-	return _goboringcrypto_internal_CRYPTO_num_locks();
-#else
-	return CRYPTO_num_locks();
-#endif
-}
 DEFINEFUNCINTERNAL(void, CRYPTO_set_id_callback, (unsigned long (*id_function)(void)), (id_function))
-static inline void
-_goboringcrypto_CRYPTO_set_id_callback(unsigned long (*id_function)(void)) {
-#if OPENSSL_VERSION_NUMBER < OPENSSL_VERSION_1_1_0_RTM
-	_goboringcrypto_internal_CRYPTO_set_id_callback(id_function);
-#else
-	CRYPTO_set_id_callback(id_function);
-#endif
-}
 DEFINEFUNCINTERNAL(void, CRYPTO_set_locking_callback,
 	(void (*locking_function)(int mode, int n, const char *file, int line)), 
 	(locking_function))
-static inline void
-_goboringcrypto_CRYPTO_set_locking_callback(void (*locking_function)(int mode, int n, const char *file, int line)) {
-#if OPENSSL_VERSION_NUMBER < OPENSSL_VERSION_1_1_0_RTM
-	_goboringcrypto_internal_CRYPTO_set_locking_callback(locking_function);
+DEFINEFUNCINTERNAL(void, OPENSSL_add_all_algorithms_conf, (void), ())
 #else
-	CRYPTO_set_locking_callback(locking_function);
+DEFINEFUNCINTERNAL(int, OPENSSL_init_crypto, (uint64_t ops, const OPENSSL_INIT_SETTINGS *settings), (ops, settings))
+#endif
+
+static int
+_goboringcrypto_OPENSSL_setup(void) {
+	// OPENSSL_init initialize FIPS callbacks and rand generator.
+	// no-op from OpenSSL 1.1.1 onwards.
+#if OPENSSL_VERSION_NUMBER >= OPENSSL_VERSION_1_0_2_RTM
+	_goboringcrypto_internal_OPENSSL_init();
+#endif
+#if OPENSSL_VERSION_NUMBER < OPENSSL_VERSION_1_1_0_RTM
+	if (_goboringcrypto_OPENSSL_thread_setup() != 1)
+	{
+		return 0;
+	}
+	// Load all algorithms and the openssl configuration file.
+	_goboringcrypto_internal_OPENSSL_add_all_algorithms_conf();
+
+	// Ensure that the error message table is loaded.
+	_goboringcrypto_internal_ERR_load_crypto_strings();
+	return 1;
+
+#else
+	// In OpenSSL 1.0 we call OPENSSL_add_all_algorithms_conf() and ERR_load_crypto_strings(),
+	// so do the same for 1.1
+	return _goboringcrypto_internal_OPENSSL_init_crypto(
+			OPENSSL_INIT_ADD_ALL_CIPHERS |
+			OPENSSL_INIT_ADD_ALL_DIGESTS |
+			OPENSSL_INIT_LOAD_CONFIG |
+			OPENSSL_INIT_LOAD_CRYPTO_STRINGS,
+			NULL);
 #endif
 }
 
-int _goboringcrypto_OPENSSL_thread_setup(void);
-
 DEFINEFUNC(int, FIPS_mode, (void), ())
 DEFINEFUNC(int, FIPS_mode_set, (int r), (r))
-
-#include <openssl/rand.h>
 
 DEFINEFUNC(int, RAND_set_rand_method, (const RAND_METHOD *rand), (rand))
 DEFINEFUNC(RAND_METHOD*, RAND_get_rand_method, (void), ())
