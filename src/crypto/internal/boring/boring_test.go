@@ -7,10 +7,22 @@
 
 package boring
 
-import "testing"
+import (
+	"fmt"
+	"os"
+	"testing"
+)
 
 // Test that func init does not panic.
 func TestInit(t *testing.T) {}
+
+func TestMain(m *testing.M) {
+	if !Enabled() {
+		fmt.Sprintln("skipping for non-FIPS enabled machines")
+		os.Exit(0)
+	}
+	os.Exit(m.Run())
+}
 
 // Test that Unreachable panics.
 func TestUnreachable(t *testing.T) {
