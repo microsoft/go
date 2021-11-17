@@ -20,11 +20,6 @@ import (
 	"strings"
 )
 
-const (
-	fipsOn  = C.int(1)
-	fipsOff = C.int(0)
-)
-
 // Enabled controls whether FIPS crypto is enabled.
 var enabled = false
 
@@ -36,35 +31,28 @@ var enabled = false
 var strictFIPS = false
 
 func init() {
-	runtime.LockOSThread()
-	defer runtime.UnlockOSThread()
-
-	// Check if we can `dlopen` OpenSSL
-	if C._goboringcrypto_DLOPEN_OPENSSL() == C.NULL {
+	if os.Getenv("GOLANG_FIPS") != "1" {
 		return
 	}
 
-	// Initialize the OpenSSL library.
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+
+	if C._goboringcrypto_DLOPEN_OPENSSL() == C.NULL {
+		panic("boringcrypto: OpenSSL dlopen failed")
+	}
+
 	if C._goboringcrypto_OPENSSL_setup() != 1 {
 		panic("boringcrypto: OpenSSL setup failed")
 	}
 
-	// Check to see if the system is running in FIPS mode, if so
-	// enable "boring" mode to call into OpenSSL for FIPS compliance.
-	if fipsModeEnabled() {
-		enableBoringFIPSMode()
+	if C._goboringcrypto_FIPS_mode_set(1) != 1 {
+		panic(NewOpenSSLError("boringcrypto: not in FIPS mode"))
 	}
-	sig.BoringCrypto()
-}
 
-func enableBoringFIPSMode() {
 	enabled = true
 	fipstls.Force()
-}
-
-func fipsModeEnabled() bool {
-	return os.Getenv("GOLANG_FIPS") == "1" ||
-		C._goboringcrypto_FIPS_mode() == fipsOn
+	sig.BoringCrypto()
 }
 
 var randstub bool
