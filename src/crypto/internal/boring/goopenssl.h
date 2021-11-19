@@ -13,6 +13,8 @@
 #include <stdint.h> // uint8_t, getenv
 #include <string.h> // strnlen
 
+#include "openssl_funcs.h"
+
 #include <openssl/ossl_typ.h>
 #include <openssl/opensslv.h>
 #include <openssl/ssl.h>
@@ -96,8 +98,6 @@ typedef RSA GO_RSA;
 typedef BN_GENCB GO_BN_GENCB;
 typedef EVP_PKEY GO_EVP_PKEY;
 typedef EVP_PKEY_CTX GO_EVP_PKEY_CTX;
-
-#include "openssl_funcs.h"
 
 // Define pointers to all the used OpenSSL functions.
 // Calling C function pointers from Go is currently not supported.

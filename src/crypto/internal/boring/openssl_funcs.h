@@ -33,7 +33,7 @@ DEFINEFUNCINTERNAL(void, CRYPTO_set_locking_callback, \
 	(void (*locking_function)(int mode, int n, const char *file, int line)),  \
 	(locking_function)) \
 DEFINEFUNCINTERNAL(void, OPENSSL_add_all_algorithms_conf, (void), ()) \
-DEFINEFUNCINTERNAL(int, OPENSSL_init_crypto, (uint64_t ops, const OPENSSL_INIT_SETTINGS *settings), (ops, settings)) \
+DEFINEFUNCINTERNAL(int, OPENSSL_init_crypto, (uint64_t ops, const void *settings), (ops, settings)) \
 DEFINEFUNC(int, FIPS_mode, (void), ()) \
 DEFINEFUNC(int, FIPS_mode_set, (int r), (r)) \
 DEFINEFUNC(int, RAND_set_rand_method, (const RAND_METHOD *rand), (rand)) \
