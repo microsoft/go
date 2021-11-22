@@ -44,7 +44,9 @@ func TestBoringServerProtocolVersion(t *testing.T) {
 		test("VersionTLS11", VersionTLS11, "")
 		test("VersionTLS12", VersionTLS12, "")
 		test("VersionTLS13", VersionTLS13, "")
+	}
 
+	if !fipstls.Required() {
 		fipstls.Force()
 		defer fipstls.Abandon()
 	}
@@ -156,7 +158,6 @@ func TestBoringServerCurves(t *testing.T) {
 
 	for _, curveid := range defaultCurvePreferences {
 		t.Run(fmt.Sprintf("curve=%d", curveid), func(t *testing.T) {
-			fipstls.Abandon()
 			clientHello := &clientHelloMsg{
 				vers:               VersionTLS12,
 				random:             make([]byte, 32),
@@ -310,6 +311,13 @@ func TestBoringCertAlgs(t *testing.T) {
 	// NaCl, arm and wasm time out generating keys. Nothing in this test is architecture-specific, so just don't bother on those.
 	if runtime.GOOS == "nacl" || runtime.GOARCH == "arm" || runtime.GOOS == "js" {
 		t.Skipf("skipping on %s/%s because key generation takes too long", runtime.GOOS, runtime.GOARCH)
+	}
+
+	// OpenSSL gets suck trying to get random numbers
+	// when using a stub rand generator in this test.
+	if boring.Enabled() && boring.RandStubbed() {
+		boring.RestoreOpenSSLRand()
+		defer boring.StubOpenSSLRand()
 	}
 
 	// Set up some roots, intermediate CAs, and leaf certs with various algorithms.

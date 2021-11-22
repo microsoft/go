@@ -11,7 +11,6 @@ package boring
 // #cgo LDFLAGS: -ldl
 import "C"
 import (
-	"crypto/internal/boring/fipstls"
 	"crypto/internal/boring/sig"
 	"errors"
 	"math/big"
@@ -51,7 +50,6 @@ func init() {
 	}
 
 	enabled = true
-	fipstls.Force()
 	sig.BoringCrypto()
 }
 
