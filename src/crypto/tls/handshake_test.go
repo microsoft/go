@@ -7,6 +7,7 @@ package tls
 import (
 	"bufio"
 	"crypto/ed25519"
+	"crypto/internal/boring"
 	"crypto/x509"
 	"encoding/hex"
 	"errors"
@@ -356,6 +357,11 @@ func runMain(m *testing.M) int {
 	if err := checkOpenSSLVersion(); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v", err)
 		os.Exit(1)
+	}
+
+	if boring.Enabled() && !boring.RandStubbed() {
+		boring.StubOpenSSLRand()
+		defer boring.RestoreOpenSSLRand()
 	}
 
 	testConfig = &Config{

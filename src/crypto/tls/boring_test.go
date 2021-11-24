@@ -313,6 +313,12 @@ func TestBoringCertAlgs(t *testing.T) {
 		t.Skipf("skipping on %s/%s because key generation takes too long", runtime.GOOS, runtime.GOARCH)
 	}
 
+	// This test requires real random numbers to succeed.
+	if boring.Enabled() && boring.RandStubbed() {
+		boring.RestoreOpenSSLRand()
+		defer boring.StubOpenSSLRand()
+	}
+
 	// Set up some roots, intermediate CAs, and leaf certs with various algorithms.
 	// X_Y is X signed by Y.
 	R1 := boringCert(t, "R1", boringRSAKey(t, 2048), nil, boringCertCA|boringCertFIPSOK)
