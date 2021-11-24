@@ -44,7 +44,9 @@ func TestBoringServerProtocolVersion(t *testing.T) {
 		test("VersionTLS11", VersionTLS11, "")
 		test("VersionTLS12", VersionTLS12, "")
 		test("VersionTLS13", VersionTLS13, "")
+	}
 
+	if !fipstls.Required() {
 		fipstls.Force()
 		defer fipstls.Abandon()
 	}
@@ -156,7 +158,6 @@ func TestBoringServerCurves(t *testing.T) {
 
 	for _, curveid := range defaultCurvePreferences {
 		t.Run(fmt.Sprintf("curve=%d", curveid), func(t *testing.T) {
-			fipstls.Abandon()
 			clientHello := &clientHelloMsg{
 				vers:               VersionTLS12,
 				random:             make([]byte, 32),
