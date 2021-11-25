@@ -6,6 +6,9 @@
 #include <dlfcn.h>
 #include <stdio.h>
 
+// Approach taken from .Net System.Security.Cryptography.Native
+// https://github.com/dotnet/runtime/blob/f64246ce08fb7a58221b2b7c8e68f69c02522b0d/src/libraries/Native/Unix/System.Security.Cryptography.Native/opensslshim.c
+
 static void* handle = NULL;
 
 // Load all the functions stored in FOR_ALL_OPENSSL_FUNCTIONS
@@ -13,17 +16,46 @@ static void* handle = NULL;
 // defined in goopenssl.h.
 static void
 _goboringcrypto_load_openssl_functions()
-{
+{	
+    // A function defined in libcrypto.so.1.0.0 that is not defined in libcrypto.so.1.1.0
+    const void* v1_0_sentinel = dlsym(handle, "SSL_state");
+
+	// Only permit a single assignment here so that two assemblies both triggering the initializer doesn't cause a
+    // race where the function pointer is nullptr, then properly bound, then goes back to nullptr right before being used (then bound again).
+    void* volatile tmp_ptr;
+
 #define DEFINEFUNC(ret, func, args, argscall) \
-    _g_##func = dlsym(handle, #func); \
+    _g_##func = dlsym(handle, #func);         \
 	if (_g_##func == NULL) { fprintf(stderr, "Cannot get required symbol " #func " from libcrypto\n"); abort(); }
 #define DEFINEFUNCINTERNAL(ret, func, args, argscall) \
-    _g_internal_##func = dlsym(handle, #func);
+    _g_internal_##func = dlsym(handle, #func);        \
+	if (_g_internal_##func == NULL) { fprintf(stderr, "Cannot get required symbol " #func " from libcrypto\n"); abort(); }
+#define DEFINEFUNC_LEGACY(ret, func, args, argscall)  \
+    if (v1_0_sentinel != NULL)                        \
+	{                                                 \
+		DEFINEFUNCINTERNAL(ret, func, args, argscall) \
+	}
+#define DEFINEFUNC_110(ret, func, args, argscall)     \
+    if (v1_0_sentinel == NULL)                        \
+	{                                                 \
+		DEFINEFUNCINTERNAL(ret, func, args, argscall) \
+	}
+#define DEFINEFUNC_RENAMED(ret, func, oldfunc, args, argscall)                                                               \
+    tmp_ptr = dlsym(handle, #func);                                                                                          \
+	if (tmp_ptr == NULL)                                                                                                     \
+	{                                                                                                                        \
+        tmp_ptr = dlsym(handle, #oldfunc);                                                                                   \
+	    if (tmp_ptr == NULL) { fprintf(stderr, "Cannot get required symbol " #oldfunc " from libcrypto\n"); abort(); }       \
+	}                                                                                                                        \
+    _g_internal_##func = tmp_ptr;
 
 FOR_ALL_OPENSSL_FUNCTIONS
 
 #undef DEFINEFUNC
 #undef DEFINEFUNCINTERNAL
+#undef DEFINEFUNC_LEGACY
+#undef DEFINEFUNC_110
+#undef DEFINEFUNC_RENAMED
 }
 
 static void
@@ -39,9 +71,6 @@ _goboringcrypto_internal_DLOPEN_OPENSSL(void)
 	{
 		return handle;
 	}
-
-	// Approach taken from .Net System.Security.Cryptography.Native
-	// https://github.com/dotnet/runtime/blob/f64246ce08fb7a58221b2b7c8e68f69c02522b0d/src/libraries/Native/Unix/System.Security.Cryptography.Native/opensslshim.c#L54
 
 	// If there is an override of the version specified using the GO_OPENSSL_VERSION_OVERRIDE
 	// env variable, try to load that first.
