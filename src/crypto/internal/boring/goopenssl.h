@@ -188,7 +188,7 @@ _goboringcrypto_HMAC_CTX_free(HMAC_CTX *ctx) {
 static inline size_t
 _goboringcrypto_HMAC_size(const GO_HMAC_CTX* arg0) {
 #if OPENSSL_VERSION_NUMBER < OPENSSL_VERSION_1_1_0_RTM
-	return _goboringcrypto_internal_EVP_MD_size(arg0->md);
+	return _goboringcrypto_internal_EVP_MD_get_size(arg0->md);
 #else
 	const EVP_MD* md;
 	md = _goboringcrypto_internal_HMAC_CTX_get_md(arg0);
