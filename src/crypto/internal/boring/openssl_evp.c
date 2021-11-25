@@ -11,7 +11,7 @@ _goboringcrypto_EVP_sign(EVP_MD* md, EVP_PKEY_CTX *ctx, const uint8_t *msg, size
     EVP_MD_CTX *mdctx = NULL;
     int ret = 0;
 
-    if (!(mdctx = _goboringcrypto_EVP_MD_CTX_create()))
+    if (!(mdctx = _goboringcrypto_internal_EVP_MD_CTX_new()))
         goto err;
 
     if (1 != _goboringcrypto_internal_EVP_DigestSignInit(mdctx, &ctx, md, NULL, key))
@@ -32,7 +32,7 @@ _goboringcrypto_EVP_sign(EVP_MD* md, EVP_PKEY_CTX *ctx, const uint8_t *msg, size
 
 err:
     if (mdctx)
-        _goboringcrypto_EVP_MD_CTX_free(mdctx);
+        _goboringcrypto_internal_EVP_MD_CTX_free(mdctx);
 
     return ret;
 }
@@ -42,7 +42,7 @@ _goboringcrypto_EVP_verify(EVP_MD* md, EVP_PKEY_CTX *ctx, const uint8_t *msg, si
     EVP_MD_CTX *mdctx = NULL;
     int ret = 0;
 
-    if (!(mdctx = _goboringcrypto_EVP_MD_CTX_create()))
+    if (!(mdctx = _goboringcrypto_internal_EVP_MD_CTX_new()))
         goto err;
     if (1 != _goboringcrypto_internal_EVP_DigestVerifyInit(mdctx, &ctx, md, NULL, key))
         goto err;
@@ -59,7 +59,7 @@ _goboringcrypto_EVP_verify(EVP_MD* md, EVP_PKEY_CTX *ctx, const uint8_t *msg, si
 
 err:
     if (mdctx)
-        _goboringcrypto_EVP_MD_CTX_free(mdctx);
+        _goboringcrypto_internal_EVP_MD_CTX_free(mdctx);
 
     return ret;
 }

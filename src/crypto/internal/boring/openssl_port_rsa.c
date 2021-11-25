@@ -26,7 +26,7 @@ int _goboringcrypto_RSA_digest_and_sign_pss_mgf1(GO_RSA *rsa, unsigned int *out_
 	unsigned int siglen;
 
 	EVP_PKEY *key = _goboringcrypto_EVP_PKEY_new();
-	if (!_goboringcrypto_EVP_PKEY_assign_RSA(key, rsa))
+	if (!_goboringcrypto_internal_EVP_PKEY_assign(key, EVP_PKEY_RSA, (char *)(rsa)))
 		return 0;
 	ctx = _goboringcrypto_EVP_PKEY_CTX_new(key, NULL /* no engine */);
 	if (!ctx)
@@ -35,7 +35,7 @@ int _goboringcrypto_RSA_digest_and_sign_pss_mgf1(GO_RSA *rsa, unsigned int *out_
 	int ret = 0;
 
 	EVP_MD_CTX *mdctx = NULL;
-	if (!(mdctx = _goboringcrypto_EVP_MD_CTX_create()))
+	if (!(mdctx = _goboringcrypto_internal_EVP_MD_CTX_new()))
 		goto err;
 
 	if (1 != _goboringcrypto_internal_EVP_DigestSignInit(mdctx, &ctx, md, NULL, key))
@@ -47,7 +47,7 @@ int _goboringcrypto_RSA_digest_and_sign_pss_mgf1(GO_RSA *rsa, unsigned int *out_
 		goto err;
 	if (_goboringcrypto_EVP_PKEY_CTX_set_rsa_pss_saltlen(ctx, salt_len) <= 0)
 		goto err;
-	if (_goboringcrypto_EVP_PKEY_CTX_set_signature_md(ctx, md) <= 0)
+	if (_goboringcrypto_internal_EVP_PKEY_CTX_set_signature_md(ctx, md) <= 0)
 		goto err;
 	if (_goboringcrypto_EVP_PKEY_CTX_set_rsa_mgf1_md(ctx, mgf1_md) <= 0)
 		goto err;
@@ -66,7 +66,7 @@ int _goboringcrypto_RSA_digest_and_sign_pss_mgf1(GO_RSA *rsa, unsigned int *out_
 
 err:
 	if (mdctx)
-		_goboringcrypto_EVP_MD_CTX_free(mdctx);
+		_goboringcrypto_internal_EVP_MD_CTX_free(mdctx);
 
 	return ret;
 }
@@ -97,7 +97,7 @@ int _goboringcrypto_RSA_sign_pss_mgf1(GO_RSA *rsa, unsigned int *out_len, uint8_
 		goto err;
 	if (_goboringcrypto_EVP_PKEY_CTX_set_rsa_pss_saltlen(ctx, salt_len) <= 0)
 		goto err;
-	if (_goboringcrypto_EVP_PKEY_CTX_set_signature_md(ctx, md) <= 0)
+	if (_goboringcrypto_internal_EVP_PKEY_CTX_set_signature_md(ctx, md) <= 0)
 		goto err;
 	if (_goboringcrypto_EVP_PKEY_CTX_set_rsa_mgf1_md(ctx, mgf1_md) <= 0)
 		goto err;
@@ -145,7 +145,7 @@ int _goboringcrypto_RSA_verify_pss_mgf1(RSA *rsa, const uint8_t *msg, unsigned i
 		goto err;
 	if (_goboringcrypto_EVP_PKEY_CTX_set_rsa_pss_saltlen(ctx, salt_len) <= 0)
 		goto err;
-	if (_goboringcrypto_EVP_PKEY_CTX_set_signature_md(ctx, md) <= 0)
+	if (_goboringcrypto_internal_EVP_PKEY_CTX_set_signature_md(ctx, md) <= 0)
 		goto err;
 	if (_goboringcrypto_EVP_PKEY_CTX_set_rsa_mgf1_md(ctx, mgf1_md) <= 0)
 		goto err;
@@ -163,7 +163,7 @@ err:
 int _goboringcrypto_EVP_RSA_sign(EVP_MD *md, const uint8_t *msg, unsigned int msgLen, uint8_t *sig, unsigned int *slen, RSA *rsa)
 {
 	EVP_PKEY *key = _goboringcrypto_EVP_PKEY_new();
-	if (!_goboringcrypto_EVP_PKEY_assign_RSA(key, rsa))
+	if (!_goboringcrypto_internal_EVP_PKEY_assign(key, EVP_PKEY_RSA, (char *)(rsa)))
 		return 0;
 	return _goboringcrypto_EVP_sign(md, NULL, msg, msgLen, sig, slen, key);
 }
@@ -171,7 +171,7 @@ int _goboringcrypto_EVP_RSA_sign(EVP_MD *md, const uint8_t *msg, unsigned int ms
 int _goboringcrypto_EVP_RSA_verify(EVP_MD *md, const uint8_t *msg, unsigned int msgLen, const uint8_t *sig, unsigned int slen, GO_RSA *rsa)
 {
 	EVP_PKEY *key = _goboringcrypto_EVP_PKEY_new();
-	if (!_goboringcrypto_EVP_PKEY_assign_RSA(key, rsa))
+	if (!_goboringcrypto_internal_EVP_PKEY_assign(key, EVP_PKEY_RSA, (char *)(rsa)))
 	{
 		return 0;
 	}

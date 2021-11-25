@@ -223,24 +223,6 @@ _goboringcrypto_BN_num_bytes(const GO_BIGNUM* a) {
 	return ((_goboringcrypto_internal_BN_num_bits(a)+7)/8);
 }
 
-static inline EVP_MD_CTX* _goboringcrypto_EVP_MD_CTX_create(void) {
-	return _goboringcrypto_internal_EVP_MD_CTX_new();
-}
-
-static inline int
-_goboringcrypto_EVP_PKEY_assign_EC_KEY(EVP_PKEY *pkey, GO_EC_KEY *eckey) {
-	return _goboringcrypto_internal_EVP_PKEY_assign(pkey, EVP_PKEY_EC, (char *)(eckey));
-}
-
-static inline int
-_goboringcrypto_EVP_PKEY_assign_RSA(EVP_PKEY *pkey, RSA *rsa) {
-	return _goboringcrypto_internal_EVP_PKEY_assign(pkey, EVP_PKEY_RSA, (char *)(rsa));
-}
-
-static inline void _goboringcrypto_EVP_MD_CTX_free(EVP_MD_CTX *ctx) {
-	return _goboringcrypto_internal_EVP_MD_CTX_free(ctx);
-}
-
 static inline int
 _goboringcrypto_RSA_set0_factors(GO_RSA * r, GO_BIGNUM *p, GO_BIGNUM *q) {
 #if OPENSSL_VERSION_NUMBER < OPENSSL_VERSION_1_1_0_RTM
@@ -396,7 +378,7 @@ _goboringcrypto_EVP_PKEY_CTX_set_rsa_pss_saltlen(GO_EVP_PKEY_CTX * arg0, int arg
 }
 
 static inline int
-_goboringcrypto_EVP_PKEY_CTX_set_signature_md(EVP_PKEY_CTX *ctx, const EVP_MD *md) {
+_goboringcrypto_internal_EVP_PKEY_CTX_set_signature_md(EVP_PKEY_CTX *ctx, const EVP_MD *md) {
 	return _goboringcrypto_internal_EVP_PKEY_CTX_ctrl(ctx, -1, EVP_PKEY_OP_TYPE_SIG, EVP_PKEY_CTRL_MD, 0, (void *)md);
 }
 static inline int
