@@ -13,7 +13,7 @@ static const RAND_METHOD *old_rand;
 int _goboringcrypto_stub_openssl_rand(void)
 {
     /* save old rand method */
-    if ((old_rand = _goboringcrypto_RAND_get_rand_method()) == NULL)
+    if ((old_rand = _goboringcrypto_internal_RAND_get_rand_method()) == NULL)
         return 0;
 
     fake_rand = *old_rand;
@@ -21,14 +21,14 @@ int _goboringcrypto_stub_openssl_rand(void)
     fake_rand.bytes = fbytes;
 
     /* set new RAND_METHOD */
-    if (!_goboringcrypto_RAND_set_rand_method(&fake_rand))
+    if (!_goboringcrypto_internal_RAND_set_rand_method(&fake_rand))
         return 0;
     return 1;
 }
 
 int _goboringcrypto_restore_openssl_rand(void)
 {
-    if (!_goboringcrypto_RAND_set_rand_method(old_rand))
+    if (!_goboringcrypto_internal_RAND_set_rand_method(old_rand))
         return 0;
     else
         return 1;

@@ -4,6 +4,7 @@
 #include "goopenssl.h"
 
 #include <dlfcn.h>
+#include <stdio.h>
 
 static void* handle = NULL;
 
@@ -14,7 +15,8 @@ static void
 _goboringcrypto_load_openssl_functions()
 {
 #define DEFINEFUNC(ret, func, args, argscall) \
-    _g_##func = dlsym(handle, #func);
+    _g_##func = dlsym(handle, #func); \
+	if (_g_##func == NULL) { fprintf(stderr, "Cannot get required symbol " #func " from libcrypto\n"); abort(); }
 #define DEFINEFUNCINTERNAL(ret, func, args, argscall) \
     _g_internal_##func = dlsym(handle, #func);
 

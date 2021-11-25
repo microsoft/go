@@ -14,17 +14,17 @@ _goboringcrypto_EVP_sign(EVP_MD* md, EVP_PKEY_CTX *ctx, const uint8_t *msg, size
     if (!(mdctx = _goboringcrypto_EVP_MD_CTX_create()))
         goto err;
 
-    if (1 != _goboringcrypto_EVP_DigestSignInit(mdctx, &ctx, md, NULL, key))
+    if (1 != _goboringcrypto_internal_EVP_DigestSignInit(mdctx, &ctx, md, NULL, key))
         goto err;
 
-    if (1 != _goboringcrypto_EVP_DigestUpdate(mdctx, msg, msgLen))
+    if (1 != _goboringcrypto_internal_EVP_DigestUpdate(mdctx, msg, msgLen))
         goto err;
 
     /* Obtain the signature length */
-    if (1 != _goboringcrypto_EVP_DigestSignFinal(mdctx, NULL, slen))
+    if (1 != _goboringcrypto_internal_EVP_DigestSignFinal(mdctx, NULL, slen))
         goto err;
     /* Obtain the signature */
-    if (1 != _goboringcrypto_EVP_DigestSignFinal(mdctx, sig, slen))
+    if (1 != _goboringcrypto_internal_EVP_DigestSignFinal(mdctx, sig, slen))
         goto err;
 
     /* Success */
@@ -44,13 +44,13 @@ _goboringcrypto_EVP_verify(EVP_MD* md, EVP_PKEY_CTX *ctx, const uint8_t *msg, si
 
     if (!(mdctx = _goboringcrypto_EVP_MD_CTX_create()))
         goto err;
-    if (1 != _goboringcrypto_EVP_DigestVerifyInit(mdctx, &ctx, md, NULL, key))
+    if (1 != _goboringcrypto_internal_EVP_DigestVerifyInit(mdctx, &ctx, md, NULL, key))
         goto err;
 
-    if (1 != _goboringcrypto_EVP_DigestUpdate(mdctx, msg, msgLen))
+    if (1 != _goboringcrypto_internal_EVP_DigestUpdate(mdctx, msg, msgLen))
         goto err;
 
-    if (1 != _goboringcrypto_EVP_DigestVerifyFinal(mdctx, sig, slen)) {
+    if (1 != _goboringcrypto_internal_EVP_DigestVerifyFinal(mdctx, sig, slen)) {
         goto err;
     }
 
