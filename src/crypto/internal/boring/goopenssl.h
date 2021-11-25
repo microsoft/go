@@ -65,15 +65,9 @@ int _goboringcrypto_OPENSSL_thread_setup(void);
 
 enum
 {
-	GO_NID_md5_sha1 = NID_md5_sha1,
-	GO_NID_secp224r1 = NID_secp224r1,
 	GO_NID_X9_62_prime256v1 = NID_X9_62_prime256v1,
 	GO_NID_secp384r1 = NID_secp384r1,
 	GO_NID_secp521r1 = NID_secp521r1,
-	GO_NID_sha224 = NID_sha224,
-	GO_NID_sha256 = NID_sha256,
-	GO_NID_sha384 = NID_sha384,
-	GO_NID_sha512 = NID_sha512,
 	GO_AES_ENCRYPT = 1,
 	GO_AES_DECRYPT = 0,
 	GO_RSA_PKCS1_PADDING = 1,
@@ -87,7 +81,6 @@ typedef SHA256_CTX GO_SHA256_CTX;
 typedef SHA512_CTX GO_SHA512_CTX;
 typedef EVP_MD GO_EVP_MD;
 typedef HMAC_CTX GO_HMAC_CTX;
-typedef ENGINE GO_ENGINE;
 typedef BN_CTX GO_BN_CTX;
 typedef BIGNUM GO_BIGNUM;
 typedef EC_GROUP GO_EC_GROUP;
