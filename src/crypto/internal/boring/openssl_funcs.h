@@ -21,9 +21,8 @@
 // DEFINEFUNCINTERNAL is used for openssl functions that will be wrapped due to signature incompatibility or
 // because it does not exist in all supported openssl versions.
 #define FOR_ALL_OPENSSL_FUNCTIONS \
-DEFINEFUNCINTERNAL(void, ERR_print_errors_fp, (FILE* fp), (fp)) \
-DEFINEFUNCINTERNAL(unsigned long, ERR_get_error, (void), ()) \
-DEFINEFUNCINTERNAL(void, ERR_error_string_n, (unsigned long e, unsigned char *buf, size_t len), (e, buf, len)) \
+DEFINEFUNC(unsigned long, ERR_get_error, (void), ()) \
+DEFINEFUNC(void, ERR_error_string_n, (unsigned long e, unsigned char *buf, size_t len), (e, buf, len)) \
 DEFINEFUNCINTERNAL(int, RAND_poll, (void), ()) \
 DEFINEFUNCINTERNAL(void, OPENSSL_init, (void), ()) \
 DEFINEFUNCINTERNAL(void, ERR_load_crypto_strings, (void), ()) \
