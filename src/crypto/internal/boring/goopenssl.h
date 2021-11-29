@@ -53,15 +53,8 @@ _goboringcrypto_OPENSSL_setup(void)
 #define OPENSSL_VERSION_1_1_1_RTM 0x10101000L
 #define OPENSSL_VERSION_1_1_0_RTM 0x10100000L
 #define OPENSSL_VERSION_1_0_2_RTM 0x10002000L
-#define SONAME_BASE "libcrypto.so."
-#define MAKELIB(v) SONAME_BASE v
 
-int _goboringcrypto_stub_openssl_rand(void);
-int _goboringcrypto_restore_openssl_rand(void);
-int fbytes(unsigned char *buf, int num);
-#if OPENSSL_VERSION_NUMBER < OPENSSL_VERSION_1_1_0_RTM
-int _goboringcrypto_OPENSSL_thread_setup(void);
-#endif
+#include "apibridge_1_1.h"
 
 enum
 {
@@ -114,6 +107,8 @@ typedef EVP_PKEY_CTX GO_EVP_PKEY_CTX;
 	DEFINEFUNCINTERNAL(ret, func, args, argscall)
 #define DEFINEFUNC_RENAMED(ret, func, oldfunc, args, argscall)     \
 	DEFINEFUNCINTERNAL(ret, func, args, argscall)
+#define DEFINEFUNC_FALLBACK(ret, func, args, argscall)     \
+	DEFINEFUNCINTERNAL(ret, func, args, argscall)
 
 FOR_ALL_OPENSSL_FUNCTIONS
 
@@ -122,9 +117,10 @@ FOR_ALL_OPENSSL_FUNCTIONS
 #undef DEFINEFUNC_LEGACY
 #undef DEFINEFUNC_110
 #undef DEFINEFUNC_RENAMED
+#undef DEFINEFUNC_FALLBACK
 
-int _goboringcrypto_HMAC_CTX_copy_ex(GO_HMAC_CTX *dest, const GO_HMAC_CTX *src);
-void _goboringcrypto_EVP_AES_ctr128_enc(EVP_CIPHER_CTX *ctx, const uint8_t *in, uint8_t *out, size_t len);
+int _goboringcrypto_stub_openssl_rand(void);
+int _goboringcrypto_restore_openssl_rand(void);
 int _goboringcrypto_EVP_AES_encrypt(EVP_CIPHER_CTX *ctx, const uint8_t *in, size_t in_len, uint8_t *out);
 void _goboringcrypto_EVP_AES_cbc_encrypt(EVP_CIPHER_CTX *ctx, const uint8_t *arg0, uint8_t *arg1, size_t arg2, const uint8_t *a, const int arg5);
 void EVP_AES_cbc_enc(EVP_CIPHER_CTX *ctx, const uint8_t *in, uint8_t *out, size_t len);
@@ -158,203 +154,102 @@ int _goboringcrypto_EVP_CIPHER_CTX_open(
 	uint8_t *nonce, int nonce_len,
 	uint8_t *plaintext, size_t *plaintext_len);
 
+static inline void
+_goboringcrypto_EVP_AES_ctr128_enc(EVP_CIPHER_CTX *ctx, const uint8_t* in, uint8_t* out, size_t in_len)
+{
+	int len;
+	_goboringcrypto_internal_EVP_EncryptUpdate(ctx, out, &len, in, in_len);
+}
+
 static inline int
-_goboringcrypto_EVP_MD_type(const GO_EVP_MD *md) {
+_goboringcrypto_HMAC_CTX_copy_ex(GO_HMAC_CTX *dest, const GO_HMAC_CTX *src)
+{
+    return _goboringcrypto_HMAC_CTX_copy(dest, (GO_HMAC_CTX *) src);
+}
+
+static inline int
+_goboringcrypto_EVP_MD_type(const GO_EVP_MD *md)
+{
 	return _goboringcrypto_internal_EVP_MD_get_type(md);
 }
 
-const GO_EVP_MD* _goboringcrypto_backport_EVP_md5_sha1(void);
 static inline const GO_EVP_MD*
-_goboringcrypto_EVP_md5_sha1(void) {
-#if OPENSSL_VERSION_NUMBER < OPENSSL_VERSION_1_1_0_RTM
-	return _goboringcrypto_backport_EVP_md5_sha1();
-#else
+_goboringcrypto_EVP_md5_sha1(void)
+{
 	return _goboringcrypto_internal_EVP_md5_sha1();
-#endif
 }
 
 static inline void
-_goboringcrypto_HMAC_CTX_free(HMAC_CTX *ctx) {
-#if OPENSSL_VERSION_NUMBER < OPENSSL_VERSION_1_1_0_RTM
-   if (ctx != NULL) {
-	   _goboringcrypto_internal_HMAC_CTX_cleanup(ctx);
-	   free(ctx);
-   }
-#else
+_goboringcrypto_HMAC_CTX_free(HMAC_CTX *ctx)
+{
 	_goboringcrypto_internal_HMAC_CTX_free(ctx);
-#endif
 }
 
 static inline size_t
-_goboringcrypto_HMAC_size(const GO_HMAC_CTX* arg0) {
-#if OPENSSL_VERSION_NUMBER < OPENSSL_VERSION_1_1_0_RTM
-	return _goboringcrypto_internal_EVP_MD_get_size(arg0->md);
-#else
-	const EVP_MD* md;
-	md = _goboringcrypto_internal_HMAC_CTX_get_md(arg0);
+_goboringcrypto_HMAC_size(const GO_HMAC_CTX* arg0)
+{
+	const EVP_MD* md = _goboringcrypto_internal_HMAC_CTX_get_md(arg0);
 	return _goboringcrypto_internal_EVP_MD_get_size(md);
-#endif
 }
 
 static inline GO_HMAC_CTX*
-_goboringcrypto_HMAC_CTX_new(void) {
-#if OPENSSL_VERSION_NUMBER < OPENSSL_VERSION_1_1_0_RTM
-	GO_HMAC_CTX* ctx = malloc(sizeof(GO_HMAC_CTX));
-	if (ctx != NULL)
-		_goboringcrypto_internal_HMAC_CTX_init(ctx);
-	return ctx;
-#else
+_goboringcrypto_HMAC_CTX_new(void)
+{
 	return _goboringcrypto_internal_HMAC_CTX_new();
-#endif
 }
 
 static inline void
-_goboringcrypto_HMAC_CTX_reset(GO_HMAC_CTX* ctx) {
-#if OPENSSL_VERSION_NUMBER < OPENSSL_VERSION_1_1_0_RTM
-	_goboringcrypto_internal_HMAC_CTX_cleanup(ctx);
-	_goboringcrypto_internal_HMAC_CTX_init(ctx);
-#else
+_goboringcrypto_HMAC_CTX_reset(GO_HMAC_CTX* ctx)
+{
 	_goboringcrypto_internal_HMAC_CTX_reset(ctx);
-#endif
 }
 
 static inline unsigned int
-_goboringcrypto_BN_num_bytes(const GO_BIGNUM* a) {
+_goboringcrypto_BN_num_bytes(const GO_BIGNUM* a)
+{
 	return ((_goboringcrypto_internal_BN_num_bits(a)+7)/8);
 }
 
 static inline int
-_goboringcrypto_RSA_set0_factors(GO_RSA * r, GO_BIGNUM *p, GO_BIGNUM *q) {
-#if OPENSSL_VERSION_NUMBER < OPENSSL_VERSION_1_1_0_RTM
-	/* If the fields p and q in r are NULL, the corresponding input
-	 * parameters MUST be non-NULL.
-	 */
-	if ((r->p == NULL && p == NULL)
-		|| (r->q == NULL && q == NULL))
-		return 0;
-
-	if (p != NULL) {
-		_goboringcrypto_internal_BN_clear_free(r->p);
-		r->p = p;
-	}
-	if (q != NULL) {
-		_goboringcrypto_internal_BN_clear_free(r->q);
-		r->q = q;
-	}
-
-	return 1;
-#else
+_goboringcrypto_RSA_set0_factors(GO_RSA * r, GO_BIGNUM *p, GO_BIGNUM *q)
+{
 	return _goboringcrypto_internal_RSA_set0_factors(r, p, q);
-#endif
 }
 
 static inline int
-_goboringcrypto_RSA_set0_crt_params(GO_RSA * r, GO_BIGNUM *dmp1, GO_BIGNUM *dmq1, GO_BIGNUM *iqmp) {
-#if OPENSSL_VERSION_NUMBER < OPENSSL_VERSION_1_1_0_RTM
-	/* If the fields dmp1, dmq1 and iqmp in r are NULL, the corresponding input
-	 * parameters MUST be non-NULL.
-	 */
-	if ((r->dmp1 == NULL && dmp1 == NULL)
-		|| (r->dmq1 == NULL && dmq1 == NULL)
-		|| (r->iqmp == NULL && iqmp == NULL))
-		return 0;
-
-	if (dmp1 != NULL) {
-		_goboringcrypto_internal_BN_clear_free(r->dmp1);
-		r->dmp1 = dmp1;
-	}
-	if (dmq1 != NULL) {
-		_goboringcrypto_internal_BN_clear_free(r->dmq1);
-		r->dmq1 = dmq1;
-	}
-	if (iqmp != NULL) {
-		_goboringcrypto_internal_BN_clear_free(r->iqmp);
-		r->iqmp = iqmp;
-	}
-
-	return 1;
-#else
+_goboringcrypto_RSA_set0_crt_params(GO_RSA * r, GO_BIGNUM *dmp1, GO_BIGNUM *dmq1, GO_BIGNUM *iqmp)
+{
 	return _goboringcrypto_internal_RSA_set0_crt_params(r, dmp1, dmq1, iqmp);
-#endif
 }
 
 static inline void
-_goboringcrypto_RSA_get0_crt_params(const GO_RSA *r, const GO_BIGNUM **dmp1, const GO_BIGNUM **dmq1, const GO_BIGNUM **iqmp) {
-#if OPENSSL_VERSION_NUMBER < OPENSSL_VERSION_1_1_0_RTM
-	if (dmp1 != NULL)
-		*dmp1 = r->dmp1;
-	if (dmq1 != NULL)
-		*dmq1 = r->dmq1;
-	if (iqmp != NULL)
-		*iqmp = r->iqmp;
-#else
+_goboringcrypto_RSA_get0_crt_params(const GO_RSA *r, const GO_BIGNUM **dmp1, const GO_BIGNUM **dmq1, const GO_BIGNUM **iqmp)
+{
 	_goboringcrypto_internal_RSA_get0_crt_params(r, dmp1, dmq1, iqmp);
-#endif
 }
 
 static inline int
-_goboringcrypto_RSA_set0_key(GO_RSA * r, GO_BIGNUM *n, GO_BIGNUM *e, GO_BIGNUM *d) {
-#if OPENSSL_VERSION_NUMBER < OPENSSL_VERSION_1_1_0_RTM
-	/* If the fields n and e in r are NULL, the corresponding input
-	 * parameters MUST be non-NULL for n and e.  d may be
-	 * left NULL (in case only the public key is used).
-	 */
-	if ((r->n == NULL && n == NULL)
-		|| (r->e == NULL && e == NULL))
-		return 0;
-
-	if (n != NULL) {
-		_goboringcrypto_BN_free(r->n);
-		r->n = n;
-	}
-	if (e != NULL) {
-		_goboringcrypto_BN_free(r->e);
-		r->e = e;
-	}
-	if (d != NULL) {
-		_goboringcrypto_internal_BN_clear_free(r->d);
-		r->d = d;
-	}
-
-	return 1;
-#else
+_goboringcrypto_RSA_set0_key(GO_RSA * r, GO_BIGNUM *n, GO_BIGNUM *e, GO_BIGNUM *d)
+{
 	return _goboringcrypto_internal_RSA_set0_key(r, n, e, d);
-#endif
 }
 
 static inline void 
-_goboringcrypto_RSA_get0_factors(const GO_RSA *rsa, const GO_BIGNUM **p, const GO_BIGNUM **q) {
-#if OPENSSL_VERSION_NUMBER < OPENSSL_VERSION_1_1_0_RTM
-	if (p)
-		*p = rsa->p;
-	if (q)
-		*q = rsa->q;
-#else
+_goboringcrypto_RSA_get0_factors(const GO_RSA *rsa, const GO_BIGNUM **p, const GO_BIGNUM **q)
+{
 	_goboringcrypto_internal_RSA_get0_factors(rsa, p, q);
-#endif
 }
 
 static inline void 
-_goboringcrypto_RSA_get0_key(const GO_RSA *rsa, const GO_BIGNUM **n, const GO_BIGNUM **e, const GO_BIGNUM **d) {
-#if OPENSSL_VERSION_NUMBER < OPENSSL_VERSION_1_1_0_RTM
-	if (n)
-		*n = rsa->n;
-	if (e)
-		*e = rsa->e;
-	if (d)
-		*d = rsa->d;
-#else
+_goboringcrypto_RSA_get0_key(const GO_RSA *rsa, const GO_BIGNUM **n, const GO_BIGNUM **e, const GO_BIGNUM **d)
+{
 	_goboringcrypto_internal_RSA_get0_key(rsa, n, e, d);
-#endif
 }
 
 static inline int
-_goboringcrypto_EVP_PKEY_CTX_set_rsa_padding(GO_EVP_PKEY_CTX* ctx, int pad) {
-#if OPENSSL_VERSION_NUMBER < OPENSSL_VERSION_1_1_0_RTM
-	return _goboringcrypto_internal_EVP_PKEY_CTX_ctrl(ctx, EVP_PKEY_RSA, -1, EVP_PKEY_CTRL_RSA_PADDING, pad, NULL);
-#else
+_goboringcrypto_EVP_PKEY_CTX_set_rsa_padding(GO_EVP_PKEY_CTX* ctx, int pad)
+{
 	return _goboringcrypto_internal_RSA_pkey_ctx_ctrl(ctx, -1, EVP_PKEY_CTRL_RSA_PADDING, pad, NULL);
-#endif
 }
 
 static inline int
@@ -370,7 +265,8 @@ _goboringcrypto_EVP_PKEY_CTX_set_rsa_oaep_md(GO_EVP_PKEY_CTX *ctx, const GO_EVP_
 }
 
 static inline int
-_goboringcrypto_EVP_PKEY_CTX_set_rsa_pss_saltlen(GO_EVP_PKEY_CTX * arg0, int arg1) {
+_goboringcrypto_EVP_PKEY_CTX_set_rsa_pss_saltlen(GO_EVP_PKEY_CTX * arg0, int arg1)
+{
 	return _goboringcrypto_internal_EVP_PKEY_CTX_ctrl(arg0, EVP_PKEY_RSA, 
 		(EVP_PKEY_OP_SIGN|EVP_PKEY_OP_VERIFY), 
 		EVP_PKEY_CTRL_RSA_PSS_SALTLEN, 
@@ -378,11 +274,13 @@ _goboringcrypto_EVP_PKEY_CTX_set_rsa_pss_saltlen(GO_EVP_PKEY_CTX * arg0, int arg
 }
 
 static inline int
-_goboringcrypto_internal_EVP_PKEY_CTX_set_signature_md(EVP_PKEY_CTX *ctx, const EVP_MD *md) {
+_goboringcrypto_internal_EVP_PKEY_CTX_set_signature_md(EVP_PKEY_CTX *ctx, const EVP_MD *md)
+{
 	return _goboringcrypto_internal_EVP_PKEY_CTX_ctrl(ctx, -1, EVP_PKEY_OP_TYPE_SIG, EVP_PKEY_CTRL_MD, 0, (void *)md);
 }
 static inline int
-_goboringcrypto_EVP_PKEY_CTX_set_rsa_mgf1_md(GO_EVP_PKEY_CTX * ctx, const GO_EVP_MD *md) {
+_goboringcrypto_EVP_PKEY_CTX_set_rsa_mgf1_md(GO_EVP_PKEY_CTX * ctx, const GO_EVP_MD *md)
+{
 	return _goboringcrypto_internal_EVP_PKEY_CTX_ctrl(ctx, EVP_PKEY_RSA,
 		EVP_PKEY_OP_TYPE_SIG | EVP_PKEY_OP_TYPE_CRYPT,
 		EVP_PKEY_CTRL_RSA_MGF1_MD, 0, (void *)md);

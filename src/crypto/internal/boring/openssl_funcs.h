@@ -69,7 +69,8 @@ DEFINEFUNC(const GO_EVP_MD *, EVP_sha384, (void), ()) \
 DEFINEFUNC(const GO_EVP_MD *, EVP_sha512, (void), ()) \
 DEFINEFUNC_RENAMED(int, EVP_MD_get_type, EVP_MD_type, (const GO_EVP_MD *arg0), (arg0)) \
 DEFINEFUNC_RENAMED(size_t, EVP_MD_get_size, EVP_MD_size, (const GO_EVP_MD *arg0), (arg0)) \
-DEFINEFUNC_110(const GO_EVP_MD*, EVP_md5_sha1, (void), ()) \
+DEFINEFUNC_FALLBACK(const GO_EVP_MD*, EVP_md5_sha1, (void), ()) \
+DEFINEFUNC_FALLBACK(void*, EVP_MD_CTX_md_data, (EVP_MD_CTX *ctx), (ctx)) \
 DEFINEFUNCINTERNAL(int, MD5_Init, (MD5_CTX *c), (c)) \
 DEFINEFUNCINTERNAL(int, MD5_Update, (MD5_CTX *c, const void *data, size_t len), (c, data, len)) \
 DEFINEFUNCINTERNAL(int, MD5_Final, (unsigned char *md, MD5_CTX *c), (md, c)) \
@@ -81,10 +82,10 @@ DEFINEFUNC(int, HMAC_Init_ex, \
 DEFINEFUNC(int, HMAC_Update, (GO_HMAC_CTX * arg0, const uint8_t *arg1, size_t arg2), (arg0, arg1, arg2)) \
 DEFINEFUNC(int, HMAC_Final, (GO_HMAC_CTX * arg0, uint8_t *arg1, unsigned int *arg2), (arg0, arg1, arg2)) \
 DEFINEFUNC(size_t, HMAC_CTX_copy, (GO_HMAC_CTX *dest, GO_HMAC_CTX *src), (dest, src)) \
-DEFINEFUNC_110(void, HMAC_CTX_free, (GO_HMAC_CTX * arg0), (arg0)) \
-DEFINEFUNC_110(EVP_MD*, HMAC_CTX_get_md, (const GO_HMAC_CTX* ctx), (ctx)) \
-DEFINEFUNC_110(GO_HMAC_CTX*, HMAC_CTX_new, (void), ()) \
-DEFINEFUNC_110(void, HMAC_CTX_reset, (GO_HMAC_CTX * arg0), (arg0)) \
+DEFINEFUNC_FALLBACK(void, HMAC_CTX_free, (GO_HMAC_CTX * arg0), (arg0)) \
+DEFINEFUNC_FALLBACK(const EVP_MD*, HMAC_CTX_get_md, (const GO_HMAC_CTX* ctx), (ctx)) \
+DEFINEFUNC_FALLBACK(GO_HMAC_CTX*, HMAC_CTX_new, (void), ()) \
+DEFINEFUNC_FALLBACK(void, HMAC_CTX_reset, (GO_HMAC_CTX * arg0), (arg0)) \
 DEFINEFUNC(EVP_CIPHER_CTX *, EVP_CIPHER_CTX_new, (void), ()) \
 DEFINEFUNC(int, EVP_CIPHER_CTX_set_padding, (EVP_CIPHER_CTX *x, int padding), (x, padding)) \
 DEFINEFUNC(int, EVP_CipherInit_ex, \
@@ -150,16 +151,16 @@ DEFINEFUNC(int, RSA_verify, \
 DEFINEFUNCINTERNAL(int, RSA_generate_key_ex, \
 	(GO_RSA * arg0, int arg1, GO_BIGNUM *arg2, GO_BN_GENCB *arg3), \
 	(arg0, arg1, arg2, arg3)) \
-DEFINEFUNC_110(int, RSA_set0_factors, (GO_RSA * rsa, GO_BIGNUM *p, GO_BIGNUM *q), (rsa, p, q)) \
-DEFINEFUNC_110(int, RSA_set0_crt_params, \
+DEFINEFUNC_FALLBACK(int, RSA_set0_factors, (GO_RSA * rsa, GO_BIGNUM *p, GO_BIGNUM *q), (rsa, p, q)) \
+DEFINEFUNC_FALLBACK(int, RSA_set0_crt_params, \
 	(GO_RSA * rsa, GO_BIGNUM *dmp1, GO_BIGNUM *dmp2, GO_BIGNUM *iqmp), \
 	(rsa, dmp1, dmp2, iqmp)) \
-DEFINEFUNC_110(void, RSA_get0_crt_params, \
+DEFINEFUNC_FALLBACK(void, RSA_get0_crt_params, \
 	(const GO_RSA *r, const GO_BIGNUM **dmp1, const GO_BIGNUM **dmq1, const GO_BIGNUM **iqmp), \
 	(r, dmp1, dmq1, iqmp)) \
-DEFINEFUNC_110(int, RSA_set0_key, (GO_RSA * r, GO_BIGNUM *n, GO_BIGNUM *e, GO_BIGNUM *d), (r, n, e, d)) \
-DEFINEFUNC_110(void, RSA_get0_factors, (const GO_RSA *rsa, const GO_BIGNUM **p, const GO_BIGNUM **q), (rsa, p, q)) \
-DEFINEFUNC_110(void, RSA_get0_key, \
+DEFINEFUNC_FALLBACK(int, RSA_set0_key, (GO_RSA * r, GO_BIGNUM *n, GO_BIGNUM *e, GO_BIGNUM *d), (r, n, e, d)) \
+DEFINEFUNC_FALLBACK(void, RSA_get0_factors, (const GO_RSA *rsa, const GO_BIGNUM **p, const GO_BIGNUM **q), (rsa, p, q)) \
+DEFINEFUNC_FALLBACK(void, RSA_get0_key, \
 	(const GO_RSA *rsa, const GO_BIGNUM **n, const GO_BIGNUM **e, const GO_BIGNUM **d), \
 	(rsa, n, e, d)) \
 DEFINEFUNC(unsigned int, RSA_size, (const GO_RSA *arg0), (arg0)) \
@@ -202,7 +203,7 @@ DEFINEFUNC(void, EVP_PKEY_CTX_free, (GO_EVP_PKEY_CTX * arg0), (arg0)) \
 DEFINEFUNCINTERNAL(int, EVP_PKEY_CTX_ctrl, \
 	(EVP_PKEY_CTX * ctx, int keytype, int optype, int cmd, int p1, void *p2), \
 	(ctx, keytype, optype, cmd, p1, p2)) \
-DEFINEFUNC_110(int, RSA_pkey_ctx_ctrl, \
+DEFINEFUNC_FALLBACK(int, RSA_pkey_ctx_ctrl, \
 	(EVP_PKEY_CTX *ctx, int optype, int cmd, int p1, void *p2), \
 	(ctx, optype, cmd, p1, p2)) \
 DEFINEFUNC(int, EVP_PKEY_decrypt, \
