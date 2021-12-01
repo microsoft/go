@@ -30,12 +30,15 @@ var enabled = false
 var strictFIPS = false
 
 func init() {
-	if os.Getenv("GOLANG_FIPS") != "1" {
+	if !needFIPS() {
 		return
 	}
 
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
+
+	// We must panic if openssl cannot be correctly setup in FIPS mode
+	// in order to avoid applications unintentionally running without FIPS.
 
 	if C._goboringcrypto_DLOPEN_OPENSSL() == C.NULL {
 		panic("boringcrypto: OpenSSL dlopen failed")
@@ -45,12 +48,34 @@ func init() {
 		panic("boringcrypto: OpenSSL setup failed")
 	}
 
-	if C._goboringcrypto_FIPS_mode_set(1) != 1 {
-		panic(NewOpenSSLError("boringcrypto: not in FIPS mode"))
+	if C._goboringcrypto_FIPS_mode() != 1 {
+		// openssl FIPS mode can be configured from many places:
+		// enviroment variables, config file, kernel parameters, etc.
+		// If we reach this point and FIPS mode is not set, force it or panic.
+		if C._goboringcrypto_FIPS_mode_set(1) != 1 {
+			panic(NewOpenSSLError("boringcrypto: not in FIPS mode"))
+		}
 	}
 
 	enabled = true
 	sig.BoringCrypto()
+}
+
+func needFIPS() bool {
+	if os.Getenv("GOLANG_FIPS") == "1" {
+		// Opt-in to FIPS mode regarthless of Linux kernel mode.
+		return true
+	}
+	if os.Getenv("GOLANG_FIPS") == "0" {
+		// Opt-out to FIPS mode regarthless of Linux kernel mode.
+		return false
+	}
+	// Check if Linux kernel is booted in FIPS mode.
+	buf, err := os.ReadFile("/proc/sys/crypto/fips_enabled")
+	if err != nil {
+		return false
+	}
+	return len(buf) == 1 && buf[0] == '1'
 }
 
 var randstub bool
