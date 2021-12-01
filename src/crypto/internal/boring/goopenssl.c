@@ -40,13 +40,16 @@ _goboringcrypto_load_openssl_functions()
     {                                                 \
         DEFINEFUNCINTERNAL(ret, func, args, argscall) \
     }
-#define DEFINEFUNC_RENAMED(ret, func, oldfunc, args, argscall)                                                               \
-    tmp_ptr = dlsym(handle, #func);                                                                                          \
-    if (tmp_ptr == NULL)                                                                                                     \
-    {                                                                                                                        \
-        tmp_ptr = dlsym(handle, #oldfunc);                                                                                   \
-        if (tmp_ptr == NULL) { fprintf(stderr, "Cannot get required symbol " #oldfunc " from libcrypto\n"); abort(); }       \
-    }                                                                                                                        \
+#define DEFINEFUNC_RENAMED(ret, func, oldfunc, args, argscall)                                              \
+    tmp_ptr = dlsym(handle, #func);                                                                         \
+    if (tmp_ptr == NULL)                                                                                    \
+    {                                                                                                       \
+        tmp_ptr = dlsym(handle, #oldfunc);                                                                  \
+        if (tmp_ptr == NULL) {                                                                              \
+            fprintf(stderr, "Cannot get required symbol " #func " nor " #oldfunc " from libcrypto\n");      \
+            abort();                                                                                        \
+        }                                                                                                   \
+    }                                                                                                       \
     _g_internal_##func = tmp_ptr;
 
 FOR_ALL_OPENSSL_FUNCTIONS
