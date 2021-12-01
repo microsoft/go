@@ -25,7 +25,7 @@ _goboringcrypto_load_openssl_functions()
     // then properly loaded, then goes back to NULL right before being used (then loaded again).
     // To avoid this situation only assign the function pointer when the function has been successfully
     // loaded in tmp_ptr.
-    void* volatile tmp_ptr;
+    void* tmp_ptr;
 
 #define DEFINEFUNC(ret, func, args, argscall) \
     _g_##func = dlsym(handle, #func);         \
