@@ -20,8 +20,11 @@ _goboringcrypto_load_openssl_functions()
     // A function defined in libcrypto.so.1.0.x that is not defined in libcrypto.so.1.1.0
     const void* v1_0_sentinel = dlsym(handle, "EVP_MD_CTX_cleanup");
 
-    // Only permit a single assignment here so that two callers both triggering the initializer doesn't cause a
-    // race where the function pointer is nullptr, then properly bound, then goes back to nullptr right before being used (then bound again).
+    // This function could be called concurrently from different Goroutines unless correctly locked.
+    // If that happen there could be a race in DEFINEFUNC_RENAMED where the global function pointer is NULL,
+    // then properly loaded, then goes back to NULL right before being used (then loaded again).
+    // To avoid this situation only assign the function pointer when the function has been successfully
+    // loaded in tmp_ptr.
     void* volatile tmp_ptr;
 
 #define DEFINEFUNC(ret, func, args, argscall) \
