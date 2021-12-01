@@ -20,7 +20,7 @@ _goboringcrypto_load_openssl_functions()
     // A function defined in libcrypto.so.1.0.x that is not defined in libcrypto.so.1.1.0
     const void* v1_0_sentinel = dlsym(handle, "EVP_MD_CTX_cleanup");
 
-	// Only permit a single assignment here so that two callers both triggering the initializer doesn't cause a
+    // Only permit a single assignment here so that two callers both triggering the initializer doesn't cause a
     // race where the function pointer is nullptr, then properly bound, then goes back to nullptr right before being used (then bound again).
     void* volatile tmp_ptr;
 
