@@ -67,7 +67,7 @@ func needFIPS() bool {
 		return true
 	}
 	if os.Getenv("GOLANG_FIPS") == "0" {
-		// Opt-out to FIPS mode regarthless of Linux kernel mode.
+		// Opt-out to FIPS mode regardless of Linux kernel mode.
 		return false
 	}
 	// Check if Linux kernel is booted in FIPS mode.
