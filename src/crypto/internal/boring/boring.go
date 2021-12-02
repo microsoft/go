@@ -73,6 +73,13 @@ func needFIPS() bool {
 	// Check if Linux kernel is booted in FIPS mode.
 	buf, err := os.ReadFile("/proc/sys/crypto/fips_enabled")
 	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return false
+		}
+		// If there is an error reading we could either panic or assume FIPS is not enabled.
+		// Panicking would be too disruptive for apps that don't require FIPS.
+		// If an app wants to be 100% sure that is running in FIPS mode
+		// it should use boring.Enabled() or GOLANG_FIPS=1.
 		return false
 	}
 	return strings.TrimSpace(string(buf)) == "1"
