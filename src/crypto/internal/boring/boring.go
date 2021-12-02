@@ -50,7 +50,7 @@ func init() {
 
 	if C._goboringcrypto_FIPS_mode() != 1 {
 		// openssl FIPS mode can be configured from many places:
-		// enviroment variables, config file, kernel parameters, etc.
+		// environment variables, config file, kernel parameters, etc.
 		// If we reach this point and FIPS mode is not set, force it or panic.
 		if C._goboringcrypto_FIPS_mode_set(1) != 1 {
 			panic(NewOpenSSLError("boringcrypto: not in FIPS mode"))
