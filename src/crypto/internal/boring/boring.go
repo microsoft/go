@@ -75,7 +75,7 @@ func needFIPS() bool {
 	if err != nil {
 		return false
 	}
-	return len(buf) == 1 && buf[0] == '1'
+	return strings.TrimSpace(string(buf)) == "1"
 }
 
 var randstub bool
