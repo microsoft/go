@@ -63,7 +63,7 @@ func init() {
 
 func needFIPS() bool {
 	if os.Getenv("GOLANG_FIPS") == "1" {
-		// Opt-in to FIPS mode regarthless of Linux kernel mode.
+		// Opt-in to FIPS mode regardless of Linux kernel mode.
 		return true
 	}
 	if os.Getenv("GOLANG_FIPS") == "0" {
