@@ -30,8 +30,8 @@
 // DEFINEFUNC_110 acts like DEFINEFUNCINTERNAL but only aborts the process if function can't be loaded
 // when using 1.1.0 or higher.
 //
-// DEFINEFUNC_RENAMED defines and loads  openssl functions that have been renamed from one version to the other,
-// in which case the old function will be used as fallback.
+// DEFINEFUNC_RENAMED acts like DEFINEFUNCINTERNAL but if the function can't be loaded it will try with another
+// function name, as in some versions jumps openssl has renamed functions without changing the signatur.
 // The process will be aborted if neither function can be loaded.
 //
 #define FOR_ALL_OPENSSL_FUNCTIONS \
