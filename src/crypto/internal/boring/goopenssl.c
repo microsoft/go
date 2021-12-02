@@ -16,7 +16,7 @@
 static void* handle = NULL;
 
 // Load all the functions stored in FOR_ALL_OPENSSL_FUNCTIONS
-// and asign them to their correspoding function pointer
+// and assign them to their corresponding function pointer
 // defined in goopenssl.h.
 static void
 _goboringcrypto_load_openssl_functions(const void* v1_0_sentinel)
