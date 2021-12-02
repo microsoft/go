@@ -24,7 +24,8 @@
 // The process will be aborted if the function can't be loaded.
 //
 // DEFINEFUNC_LEGACY acts like DEFINEFUNCINTERNAL but only aborts the process if function can't be loaded
-// when using 1.0.x.
+// when using 1.0.x. This indicates the function is required when using 1.0.x, but is unused when using later versions.
+// It also might not exist in later versions.
 //
 // DEFINEFUNC_110 acts like DEFINEFUNCINTERNAL but only aborts the process if function can't be loaded
 // when using 1.1.0 or higher.
