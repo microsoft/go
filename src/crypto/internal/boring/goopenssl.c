@@ -48,7 +48,8 @@ _goboringcrypto_load_openssl_functions()
     if (tmp_ptr == NULL)                                                                                    \
     {                                                                                                       \
         tmp_ptr = dlsym(handle, #oldfunc);                                                                  \
-        if (tmp_ptr == NULL) {                                                                              \
+        if (tmp_ptr == NULL)                                                                                \
+        {                                                                                                   \
             fprintf(stderr, "Cannot get required symbol " #func " nor " #oldfunc " from libcrypto\n");      \
             abort();                                                                                        \
         }                                                                                                   \
