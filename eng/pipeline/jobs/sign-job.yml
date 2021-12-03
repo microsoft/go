@@ -6,7 +6,7 @@
 # publishes the signed files and signatures into a consolidated pipeline artifact.
 
 parameters:
-  # [] of { os, arch, config }
+  # [] of { id, os, arch, config, distro? }
   builders: []
 
 jobs:
@@ -15,7 +15,7 @@ jobs:
       # Depend on all build jobs that produced artifacts that need signing.
       dependsOn:
         - ${{ each builder in parameters.builders }}:
-          - ${{ builder.os }}_${{ builder.arch }}_${{ builder.config }}
+          - ${{ builder.id }}
       pool:
         # This is a utility job that doesn't use Go: use a pool that supports signing.
         name: NetCore1ESPool-Internal
@@ -35,22 +35,22 @@ jobs:
 
         - ${{ each builder in parameters.builders }}:
           - download: current
-            artifact: Binaries ${{ builder.os }}_${{ builder.arch }}_${{ builder.config }}
-            displayName: 'Download: Binaries ${{ builder.os }}_${{ builder.arch }}_${{ builder.config }}'
+            artifact: Binaries ${{ builder.id }}
+            displayName: 'Download: Binaries ${{ builder.id }}'
 
           - powershell: |
               $flatDir = "$(Build.StagingDirectory)/ToSign"
               New-Item $flatDir -ItemType Directory -ErrorAction Ignore
 
               Get-ChildItem -Recurse -File -Path @(
-                'Binaries ${{ builder.os }}_${{ builder.arch }}_${{ builder.config }}'
+                'Binaries ${{ builder.id }}'
               ) | %{
                 if (Test-Path "$flatDir\$($_.Name)") {
                   throw "Duplicate filename, unable to flatten: $($_.FullName)"
                 }
                 Copy-Item $_.FullName $flatDir
               }
-            displayName: 'Copy to flat dir: ${{ builder.os }}_${{ builder.arch }}_${{ builder.config }}'
+            displayName: 'Copy to flat dir: ${{ builder.id }}'
             workingDirectory: '$(Pipeline.Workspace)'
 
         - task: DotNetCoreCLI@2
