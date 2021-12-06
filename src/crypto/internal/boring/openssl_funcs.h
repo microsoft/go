@@ -15,7 +15,7 @@
 // The following macros may not be defined at this point,
 // they are not resolved here but just accumulated in FOR_ALL_OPENSSL_FUNCTIONS.
 //
-// DEFINEFUNC defines and loads openssl functions that can be directly called from Go as their signature match
+// DEFINEFUNC defines and loads openssl functions that can be directly called from Go as their signatures match
 // the boringssl and do not require special logic.
 // The process will be aborted if the function can't be loaded.
 //
