@@ -31,7 +31,7 @@
 // when using 1.1.0 or higher.
 //
 // DEFINEFUNC_RENAMED acts like DEFINEFUNCINTERNAL but if the function can't be loaded it will try with another
-// function name, as in some versions jumps openssl has renamed functions without changing the signatur.
+// function name, as in some version jumps openssl has renamed functions without changing the signature.
 // The process will be aborted if neither function can be loaded.
 //
 #define FOR_ALL_OPENSSL_FUNCTIONS \
