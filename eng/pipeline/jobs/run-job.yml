@@ -5,11 +5,11 @@
 # This job runs a builder for any OS.
 
 parameters:
-  # { os, arch, config }
+  # { id, os, arch, config, distro? }
   builder: {}
 
 jobs:
-  - job: ${{ parameters.builder.os }}_${{ parameters.builder.arch }}_${{ parameters.builder.config }}
+  - job: ${{ parameters.builder.id }}
     workspace:
       clean: all
 
@@ -24,7 +24,10 @@ jobs:
         vmImage: ubuntu-18.04
       # The image used for the container this job runs in. The tests run in this container, so it
       # should match what we support as closely as possible.
-      container: mcr.microsoft.com/dotnet-buildtools/prereqs:ubuntu-18.04-20211022152710-047508b
+      ${{ if not(parameters.builder.distro) }}:
+        container: golangpublicimages.azurecr.io/go-infra-images/prereqs:cbl-mariner-1.0.20211027-20211201-0cccc22
+      ${{ if eq(parameters.builder.distro, 'ubuntu') }}:
+        container: mcr.microsoft.com/dotnet-buildtools/prereqs:ubuntu-18.04-20211022152710-047508b
 
     steps:
       - ${{ if eq(parameters.builder.os, 'linux') }}:
@@ -54,7 +57,7 @@ jobs:
           displayName: Build and Pack
 
         - publish: eng/artifacts/bin
-          artifact: Binaries ${{ parameters.builder.os }}_${{ parameters.builder.arch }}_${{ parameters.builder.config }}
+          artifact: Binaries ${{ parameters.builder.id }}
           displayName: Pipeline publish
           condition: succeededOrFailed()
 
@@ -81,7 +84,7 @@ jobs:
           inputs:
             testResultsFormat: JUnit
             testResultsFiles: $(Build.SourcesDirectory)/eng/artifacts/TestResults.xml
-            testRunTitle: ${{ parameters.builder.os }}_${{ parameters.builder.arch }}_${{ parameters.builder.config }}
+            testRunTitle: ${{ parameters.builder.id }}
             buildPlatform: ${{ parameters.builder.arch }}
             buildConfiguration: ${{ parameters.builder.config }}
             publishRunAttachments: true
