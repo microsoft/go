@@ -117,8 +117,12 @@ func build(o *options) error {
 			return err
 		}
 
+		maxAttempts, err := getMaxMakeRetryAttempts()
+		if err != nil {
+			return err
+		}
+
 		buildCommandLine := append(shellPrefix, "make"+scriptExtension)
-		maxAttempts := getMaxMakeRetryAttempts()
 
 		for i := 0; i < maxAttempts; i++ {
 			if maxAttempts > 1 {
@@ -219,11 +223,15 @@ func runCmd(cmd *exec.Cmd) error {
 	return cmd.Run()
 }
 
-func getMaxMakeRetryAttempts() int {
-	a := os.Getenv("GO_MAKE_MAX_RETRY_ATTEMPTS")
-	maxAttempts, err := strconv.Atoi(a)
-	if err != nil {
-		maxAttempts = 1
+func getMaxMakeRetryAttempts() (int, error) {
+	const retryEnvVarName = "GO_MAKE_MAX_RETRY_ATTEMPTS"
+	a := os.Getenv(retryEnvVarName)
+	if a == "" {
+		return 1, nil
 	}
-	return maxAttempts
+	i, err := strconv.Atoi(a)
+	if err != nil {
+		return 0, fmt.Errorf("env var '%v' is not an int: %w", retryEnvVarName, err)
+	}
+	return i, nil
 }
