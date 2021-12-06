@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 
 	"github.com/microsoft/go/_core/archive"
 	"github.com/microsoft/go/_core/patch"
@@ -126,10 +127,33 @@ func build(o *options) error {
 			}
 		}
 
+		// Set GOBUILDEXIT so 'make.bat' exits with exit code upon failure. The ordinary behavior of
+		// 'make.bat' is to always end with 0 exit code even if an error occurred, so 'all.bat' can
+		// handle the error. See https://github.com/golang/go/issues/7806.
+		if err := os.Setenv("GOBUILDEXIT", "1"); err != nil {
+			return err
+		}
+
+		maxAttempts, err := getMaxMakeRetryAttempts()
+		if err != nil {
+			return err
+		}
+
 		buildCommandLine := append(shellPrefix, "make"+scriptExtension)
 
-		if err := runCommandLine(buildCommandLine...); err != nil {
-			return err
+		for i := 0; i < maxAttempts; i++ {
+			if maxAttempts > 1 {
+				fmt.Printf("---- Running 'make' attempt %v of %v...\n", i+1, maxAttempts)
+			}
+			err := runCommandLine(buildCommandLine...)
+			if err != nil {
+				if i+1 < maxAttempts {
+					fmt.Printf("---- Build command failed with error: %v\n", err)
+					continue
+				}
+				return err
+			}
+			break
 		}
 
 		if os.Getenv("CGO_ENABLED") != "0" {
@@ -215,4 +239,17 @@ func runCommandLine(commandLine ...string) error {
 func runCmd(cmd *exec.Cmd) error {
 	fmt.Printf("---- Running command: %v\n", cmd.Args)
 	return cmd.Run()
+}
+
+func getMaxMakeRetryAttempts() (int, error) {
+	const retryEnvVarName = "GO_MAKE_MAX_RETRY_ATTEMPTS"
+	a := os.Getenv(retryEnvVarName)
+	if a == "" {
+		return 1, nil
+	}
+	i, err := strconv.Atoi(a)
+	if err != nil {
+		return 0, fmt.Errorf("env var '%v' is not an int: %w", retryEnvVarName, err)
+	}
+	return i, nil
 }
