@@ -10,6 +10,14 @@
 static RAND_METHOD fake_rand;
 static const RAND_METHOD *old_rand;
 
+int fbytes(unsigned char *buf, int num) {
+    int i;
+    for (i = 0; i < num; i++) {
+        buf[i] = 1;
+    }
+    return 1;
+}
+
 int _goboringcrypto_stub_openssl_rand(void)
 {
     /* save old rand method */
@@ -32,12 +40,4 @@ int _goboringcrypto_restore_openssl_rand(void)
         return 0;
     else
         return 1;
-}
-
-int fbytes(unsigned char *buf, int num) {
-    int i;
-    for (i = 0; i < num; i++) {
-        buf[i] = 1;
-    }
-    return 1;
 }

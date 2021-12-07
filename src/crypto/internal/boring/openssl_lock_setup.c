@@ -6,7 +6,6 @@
 
 #include "goboringcrypto.h"
 
-#if OPENSSL_VERSION_NUMBER < OPENSSL_VERSION_1_1_0_RTM
 #include <stdio.h>
 #include <pthread.h>
 #include <openssl/err.h>
@@ -39,7 +38,7 @@ static unsigned long id_function(void)
 	return ((unsigned long)syscall(__NR_gettid));
 }
  
-int _goboringcrypto_OPENSSL_thread_setup(void)
+int _goboringcrypto_internal_OPENSSL_thread_setup(void)
 {
   int i;
  
@@ -52,4 +51,3 @@ int _goboringcrypto_OPENSSL_thread_setup(void)
   _goboringcrypto_internal_CRYPTO_set_locking_callback(locking_function);
   return 1;
 }
-#endif

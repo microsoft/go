@@ -1,3 +1,7 @@
+// Copyright (c) Microsoft Corporation.
+// Use of this source code is governed by a BSD-style
+// license that can be found in the LICENSE file.
+
 //go:build linux && !android && !no_openssl && !cmd_go_bootstrap && !msan
 // +build linux,!android,!no_openssl,!cmd_go_bootstrap,!msan
 
@@ -12,14 +16,11 @@
 static void* handle = NULL;
 
 // Load all the functions stored in FOR_ALL_OPENSSL_FUNCTIONS
-// and asign them to their correspoding function pointer
+// and assign them to their corresponding function pointer
 // defined in goopenssl.h.
 static void
-_goboringcrypto_load_openssl_functions()
-{	
-    // A function defined in libcrypto.so.1.0.x that is not defined in libcrypto.so.1.1.0
-    const void* v1_0_sentinel = dlsym(handle, "EVP_MD_CTX_cleanup");
-
+_goboringcrypto_load_openssl_functions(const void* v1_0_sentinel)
+{
     // This function could be called concurrently from different Goroutines unless correctly locked.
     // If that happen there could be a race in DEFINEFUNC_RENAMED where the global function pointer is NULL,
     // then properly loaded, then goes back to NULL right before being used (then loaded again).
@@ -55,6 +56,10 @@ _goboringcrypto_load_openssl_functions()
         }                                                                                                   \
     }                                                                                                       \
     _g_internal_##func = tmp_ptr;
+#define DEFINEFUNC_FALLBACK(ret, func, args, argscall)      \
+    tmp_ptr = dlsym(handle, #func);                         \
+    if (tmp_ptr == NULL) { tmp_ptr = (void*)local_##func; } \
+    _g_internal_##func = tmp_ptr;
 
 FOR_ALL_OPENSSL_FUNCTIONS
 
@@ -63,12 +68,16 @@ FOR_ALL_OPENSSL_FUNCTIONS
 #undef DEFINEFUNC_LEGACY
 #undef DEFINEFUNC_110
 #undef DEFINEFUNC_RENAMED
+#undef DEFINEFUNC_FALLBACK
 }
+
+#define SONAME_BASE "libcrypto.so."
+#define MAKELIB(v) SONAME_BASE v
 
 static void
 _goboringcrypto_DLOPEN(const char* libraryName)
 {
-    handle = dlopen(libraryName, RTLD_NOW | RTLD_GLOBAL);
+    handle = dlopen(libraryName, RTLD_LAZY | RTLD_GLOBAL);
 }
 
 void*
@@ -91,12 +100,11 @@ _goboringcrypto_internal_DLOPEN_OPENSSL(void)
         _goboringcrypto_DLOPEN(soName);
     }
 
-#if OPENSSL_VERSION_NUMBER >= OPENSSL_VERSION_3_0_RTM
     if (handle == NULL)
     {
         _goboringcrypto_DLOPEN(MAKELIB("3"));
     }
-#elif OPENSSL_VERSION_NUMBER >= OPENSSL_VERSION_1_1_0_RTM
+
     if (handle == NULL)
     {
         _goboringcrypto_DLOPEN(MAKELIB("1.1"));
@@ -113,7 +121,7 @@ _goboringcrypto_internal_DLOPEN_OPENSSL(void)
     {
         _goboringcrypto_DLOPEN(MAKELIB("111"));
     }
-#else
+
     if (handle == NULL)
     {
         // Debian 9 has dropped support for SSLv3 and so they have bumped their soname. Let's try it
@@ -133,43 +141,44 @@ _goboringcrypto_internal_DLOPEN_OPENSSL(void)
         // Fedora derived distros use different naming for the version 1.0.0
         _goboringcrypto_DLOPEN(MAKELIB("10"));
     }
-#endif
+
     return handle;
 }
 
-#if OPENSSL_VERSION_NUMBER < OPENSSL_VERSION_1_1_0_RTM
-int _goboringcrypto_OPENSSL_thread_setup(void);
-#endif
+int _goboringcrypto_internal_OPENSSL_thread_setup(void);
 
 int
 _goboringcrypto_internal_OPENSSL_setup(void) 
 {
-    _goboringcrypto_load_openssl_functions();
+    // A function defined in libcrypto.so.1.0.x that is not defined in libcrypto.so.1.1.0
+    const void* v1_0_sentinel = dlsym(handle, "EVP_MD_CTX_cleanup");
+    _goboringcrypto_load_openssl_functions(v1_0_sentinel);
     // OPENSSL_init initialize FIPS callbacks and rand generator.
     // no-op from OpenSSL 1.1.1 onwards.
-#if OPENSSL_VERSION_NUMBER >= OPENSSL_VERSION_1_0_2_RTM
     _goboringcrypto_internal_OPENSSL_init();
-#endif
-#if OPENSSL_VERSION_NUMBER < OPENSSL_VERSION_1_1_0_RTM
-    if (_goboringcrypto_OPENSSL_thread_setup() != 1)
+    
+    if (v1_0_sentinel != NULL)
     {
-        return 0;
+        if (_goboringcrypto_internal_OPENSSL_thread_setup() != 1)
+        {
+            return 0;
+        }
+        // Load all algorithms and the openssl configuration file.
+        _goboringcrypto_internal_OPENSSL_add_all_algorithms_conf();
+
+        // Ensure that the error message table is loaded.
+        _goboringcrypto_internal_ERR_load_crypto_strings();
+        return 1;
     }
-    // Load all algorithms and the openssl configuration file.
-    _goboringcrypto_internal_OPENSSL_add_all_algorithms_conf();
-
-    // Ensure that the error message table is loaded.
-    _goboringcrypto_internal_ERR_load_crypto_strings();
-    return 1;
-
-#else
-    // In OpenSSL 1.0 we call OPENSSL_add_all_algorithms_conf() and ERR_load_crypto_strings(),
-    // so do the same for 1.1
-    return _goboringcrypto_internal_OPENSSL_init_crypto(
-            OPENSSL_INIT_ADD_ALL_CIPHERS |
-            OPENSSL_INIT_ADD_ALL_DIGESTS |
-            OPENSSL_INIT_LOAD_CONFIG |
-            OPENSSL_INIT_LOAD_CRYPTO_STRINGS,
-            NULL);
-#endif
+    else
+    {
+        // In OpenSSL 1.0 we call OPENSSL_add_all_algorithms_conf() and ERR_load_crypto_strings(),
+        // so do the same for 1.1
+        return _goboringcrypto_internal_OPENSSL_init_crypto(
+                OPENSSL_INIT_ADD_ALL_CIPHERS |
+                OPENSSL_INIT_ADD_ALL_DIGESTS |
+                OPENSSL_INIT_LOAD_CONFIG |
+                OPENSSL_INIT_LOAD_CRYPTO_STRINGS,
+                NULL);
+    }
 }
