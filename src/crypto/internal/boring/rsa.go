@@ -310,6 +310,15 @@ func SignRSAPKCS1v15(priv *PrivateKeyRSA, h crypto.Hash, hashed []byte) ([]byte,
 }
 
 func VerifyRSAPKCS1v15(pub *PublicKeyRSA, h crypto.Hash, hashed, sig []byte) error {
+	if pub.withKey(func(key *C.GO_RSA) C.int {
+		size := int(C._goboringcrypto_RSA_size(key))
+		if len(sig) < size {
+			return 0
+		}
+		return 1
+	}) == 0 {
+		return errors.New("crypto/rsa: verification error")
+	}
 	md := cryptoHashToMD(h)
 	if md == nil {
 		return errors.New("crypto/rsa: unsupported hash function")
