@@ -106,21 +106,3 @@ err:
 
 	return ret;
 }
-
-int _goboringcrypto_EVP_RSA_sign(EVP_MD *md, const uint8_t *msg, unsigned int msgLen, uint8_t *sig, unsigned int *slen, RSA *rsa)
-{
-	EVP_PKEY *key = _goboringcrypto_EVP_PKEY_new();
-	if (!_goboringcrypto_internal_EVP_PKEY_assign(key, EVP_PKEY_RSA, (char *)(rsa)))
-		return 0;
-	return _goboringcrypto_EVP_sign(md, NULL, msg, msgLen, sig, slen, key);
-}
-
-int _goboringcrypto_EVP_RSA_verify(EVP_MD *md, const uint8_t *msg, unsigned int msgLen, const uint8_t *sig, unsigned int slen, GO_RSA *rsa)
-{
-	EVP_PKEY *key = _goboringcrypto_EVP_PKEY_new();
-	if (!_goboringcrypto_internal_EVP_PKEY_assign(key, EVP_PKEY_RSA, (char *)(rsa)))
-	{
-		return 0;
-	}
-	 return _goboringcrypto_EVP_verify(md, NULL, msg, msgLen, sig, slen, key);
-}

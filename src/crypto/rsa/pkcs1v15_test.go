@@ -226,17 +226,6 @@ func TestVerifyPKCS1v15(t *testing.T) {
 	}
 }
 
-func TestHashVerifyPKCS1v15(t *testing.T) {
-	for i, test := range signPKCS1v15Tests {
-		sig, _ := hex.DecodeString(test.out)
-
-		err := HashVerifyPKCS1v15(&rsaPrivateKey.PublicKey, crypto.SHA1, []byte(test.in), sig)
-		if err != nil {
-			t.Errorf("#%d %s", i, err)
-		}
-	}
-}
-
 func TestOverlongMessagePKCS1v15(t *testing.T) {
 	ciphertext := decodeBase64("fjOVdirUzFoLlukv80dBllMLjXythIf22feqPrNo0YoIjzyzyoMFiLjAc/Y4krkeZ11XFThIrEvw\nkRiZcCq5ng==")
 	_, err := DecryptPKCS1v15(nil, rsaPrivateKey, ciphertext)
