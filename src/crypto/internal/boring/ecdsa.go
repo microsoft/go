@@ -2,11 +2,8 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-// +build linux
-// +build !android
-// +build !no_openssl
-// +build !cmd_go_bootstrap
-// +build !msan
+//go:build linux && !android && !no_openssl && !cmd_go_bootstrap && !msan
+// +build linux,!android,!no_openssl,!cmd_go_bootstrap,!msan
 
 package boring
 
@@ -148,19 +145,15 @@ func SignMarshalECDSA(priv *PrivateKeyECDSA, hash []byte, h crypto.Hash) ([]byte
 	size := C._goboringcrypto_ECDSA_size(priv.key)
 	sig := make([]byte, size)
 	var sigLen C.uint
-	if h == crypto.Hash(0) {
-		ok := C._goboringcrypto_internal_ECDSA_sign(0, base(hash), C.size_t(len(hash)), (*C.uint8_t)(unsafe.Pointer(&sig[0])), &sigLen, priv.key) > 0
-		if !ok {
-			return nil, NewOpenSSLError(("ECDSA_sign failed"))
-		}
-	} else {
-		md := cryptoHashToMD(h)
+	var md *C.GO_EVP_MD
+	if h != crypto.Hash(0) {
+		md = cryptoHashToMD(h)
 		if md == nil {
 			panic("boring: invalid hash")
 		}
-		if C._goboringcrypto_ECDSA_sign(md, base(hash), C.size_t(len(hash)), (*C.uint8_t)(unsafe.Pointer(&sig[0])), &sigLen, priv.key) == 0 {
-			return nil, NewOpenSSLError("ECDSA_sign failed")
-		}
+	}
+	if C._goboringcrypto_ECDSA_sign(md, base(hash), C.size_t(len(hash)), (*C.uint8_t)(unsafe.Pointer(&sig[0])), &sigLen, priv.key) == 0 {
+		return nil, NewOpenSSLError("ECDSA_sign failed")
 	}
 	runtime.KeepAlive(priv)
 	return sig[:sigLen], nil
@@ -174,13 +167,12 @@ func VerifyECDSA(pub *PublicKeyECDSA, msg []byte, r, s *big.Int, h crypto.Hash) 
 	if err != nil {
 		return false
 	}
-	if h == crypto.Hash(0) {
-		ok := C._goboringcrypto_internal_ECDSA_verify(0, base(msg), C.size_t(len(msg)), (*C.uint8_t)(unsafe.Pointer(&sig[0])), C.uint(len(sig)), pub.key) > 0
-		return ok
-	}
-	md := cryptoHashToMD(h)
-	if md == nil {
-		panic("boring: invalid hash")
+	var md *C.GO_EVP_MD
+	if h != crypto.Hash(0) {
+		md = cryptoHashToMD(h)
+		if md == nil {
+			panic("boring: invalid hash")
+		}
 	}
 	ok := C._goboringcrypto_ECDSA_verify(md, base(msg), C.size_t(len(msg)), (*C.uint8_t)(unsafe.Pointer(&sig[0])), C.uint(len(sig)), pub.key) > 0
 	runtime.KeepAlive(pub)

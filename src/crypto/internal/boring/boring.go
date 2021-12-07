@@ -146,12 +146,12 @@ func NewOpenSSLError(msg string) error {
 	b.WriteString("\nopenssl error(s):\n")
 
 	for {
-		e = C._goboringcrypto_internal_ERR_get_error()
+		e = C._goboringcrypto_ERR_get_error()
 		if e == 0 {
 			break
 		}
 		var buf [256]byte
-		C._goboringcrypto_internal_ERR_error_string_n(e, base(buf[:]), 256)
+		C._goboringcrypto_ERR_error_string_n(e, base(buf[:]), 256)
 		b.Write(buf[:])
 		b.WriteByte('\n')
 	}
