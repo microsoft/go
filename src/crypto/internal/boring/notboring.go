@@ -30,9 +30,6 @@ func Unreachable() {
 // when BoringCrypto is in use. It is a no-op without BoringCrypto.
 func UnreachableExceptTests() {}
 
-// This is a noop withotu BoringCrytpo.
-func PanicIfStrictFIPS(v interface{}) {}
-
 type randReader int
 
 func (randReader) Read(b []byte) (int, error) { panic("boringcrypto: not available") }
