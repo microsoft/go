@@ -105,6 +105,11 @@ func (x *operand) Pos() token.Pos {
 // cgofunc    <expr> (               <mode>       of type <typ>)
 //
 func operandString(x *operand, qf Qualifier) string {
+	// special-case nil
+	if x.mode == value && x.typ == Typ[UntypedNil] {
+		return "nil"
+	}
+
 	var buf bytes.Buffer
 
 	var expr string
@@ -166,7 +171,7 @@ func operandString(x *operand, qf Qualifier) string {
 			}
 			buf.WriteString(intro)
 			WriteType(&buf, x.typ, qf)
-			if tpar := asTypeParam(x.typ); tpar != nil {
+			if tpar, _ := x.typ.(*TypeParam); tpar != nil {
 				buf.WriteString(" constrained by ")
 				WriteType(&buf, tpar.bound, qf) // do not compute interface type sets here
 			}
@@ -241,8 +246,8 @@ func (x *operand) assignableTo(check *Checker, T Type, reason *string) (bool, er
 
 	Vu := under(V)
 	Tu := under(T)
-	Vp, _ := Vu.(*TypeParam)
-	Tp, _ := Tu.(*TypeParam)
+	Vp, _ := V.(*TypeParam)
+	Tp, _ := T.(*TypeParam)
 
 	// x is an untyped value representable by a value of type T.
 	if isUntyped(Vu) {
@@ -267,30 +272,55 @@ func (x *operand) assignableTo(check *Checker, T Type, reason *string) (bool, er
 	// Vu is typed
 
 	// x's type V and T have identical underlying types
-	// and at least one of V or T is not a named type.
-	if Identical(Vu, Tu) && (!hasName(V) || !hasName(T)) {
+	// and at least one of V or T is not a named type
+	// and neither V nor T is a type parameter.
+	if Identical(Vu, Tu) && (!hasName(V) || !hasName(T)) && Vp == nil && Tp == nil {
 		return true, 0
 	}
 
 	// T is an interface type and x implements T and T is not a type parameter
-	if Ti, ok := Tu.(*Interface); ok {
+	if Ti, ok := Tu.(*Interface); ok && Tp == nil {
 		if m, wrongType := check.missingMethod(V, Ti, true); m != nil /* Implements(V, Ti) */ {
 			if reason != nil {
-				// TODO(gri) the error messages here should follow the style in Checker.typeAssertion (factor!)
-				if wrongType != nil {
-					if Identical(m.typ, wrongType.typ) {
-						*reason = fmt.Sprintf("missing method %s (%s has pointer receiver)", m.name, m.name)
-					} else {
-						*reason = fmt.Sprintf("wrong type for method %s (have %s, want %s)", m.Name(), wrongType.typ, m.typ)
-					}
-
+				if compilerErrorMessages {
+					*reason = check.sprintf("%s does not implement %s %s", x.typ, T,
+						check.missingMethodReason(x.typ, T, m, wrongType))
 				} else {
-					*reason = "missing method " + m.Name()
+					if wrongType != nil {
+						if Identical(m.typ, wrongType.typ) {
+							*reason = fmt.Sprintf("missing method %s (%s has pointer receiver)", m.name, m.name)
+						} else {
+							*reason = fmt.Sprintf("wrong type for method %s (have %s, want %s)", m.Name(), wrongType.typ, m.typ)
+						}
+
+					} else {
+						*reason = "missing method " + m.Name()
+					}
 				}
 			}
 			return false, _InvalidIfaceAssign
 		}
 		return true, 0
+	}
+
+	// Provide extra detail in compiler error messages in some cases when T is
+	// not an interface.
+	if check != nil && compilerErrorMessages {
+		if isInterfacePtr(Tu) {
+			if reason != nil {
+				*reason = check.sprintf("%s does not implement %s (%s is pointer to interface, not interface)", x.typ, T, T)
+			}
+			return false, _InvalidIfaceAssign
+		}
+		if Vi, _ := Vu.(*Interface); Vi != nil && Vp == nil {
+			if m, _ := check.missingMethod(T, Vi, true); m == nil {
+				// T implements Vi, so give hint about type assertion.
+				if reason != nil {
+					*reason = check.sprintf("need type assertion")
+				}
+				return false, _IncompatibleAssign
+			}
+		}
 	}
 
 	// x is a bidirectional channel value, T is a channel

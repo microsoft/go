@@ -2017,13 +2017,18 @@ func resolveEmbed(pkgdir string, patterns []string) (files []string, pmap map[st
 	for _, pattern = range patterns {
 		pid++
 
+		glob := pattern
+		all := strings.HasPrefix(pattern, "all:")
+		if all {
+			glob = pattern[len("all:"):]
+		}
 		// Check pattern is valid for //go:embed.
-		if _, err := path.Match(pattern, ""); err != nil || !validEmbedPattern(pattern) {
+		if _, err := path.Match(glob, ""); err != nil || !validEmbedPattern(glob) {
 			return nil, nil, fmt.Errorf("invalid pattern syntax")
 		}
 
 		// Glob to find matches.
-		match, err := fsys.Glob(pkgdir + string(filepath.Separator) + filepath.FromSlash(pattern))
+		match, err := fsys.Glob(pkgdir + string(filepath.Separator) + filepath.FromSlash(glob))
 		if err != nil {
 			return nil, nil, err
 		}
@@ -2086,7 +2091,7 @@ func resolveEmbed(pkgdir string, patterns []string) (files []string, pmap map[st
 					}
 					rel := filepath.ToSlash(path[len(pkgdir)+1:])
 					name := info.Name()
-					if path != file && (isBadEmbedName(name) || name[0] == '.' || name[0] == '_') {
+					if path != file && (isBadEmbedName(name) || ((name[0] == '.' || name[0] == '_') && !all)) {
 						// Ignore bad names, assuming they won't go into modules.
 						// Also avoid hidden files that user may not know about.
 						// See golang.org/issue/42328.
@@ -2198,6 +2203,10 @@ func (p *Package) collectDeps() {
 	}
 }
 
+// vcsStatusCache maps repository directories (string)
+// to their VCS information (vcsStatusError).
+var vcsStatusCache par.Cache
+
 // setBuildInfo gathers build information, formats it as a string to be
 // embedded in the binary, then sets p.Internal.BuildInfo to that string.
 // setBuildInfo should only be called on a main package with no errors.
@@ -2276,32 +2285,56 @@ func (p *Package) setBuildInfo() {
 		Deps: deps,
 	}
 	appendSetting := func(key, value string) {
+		value = strings.ReplaceAll(value, "\n", " ") // make value safe
 		info.Settings = append(info.Settings, debug.BuildSetting{Key: key, Value: value})
 	}
 
 	// Add command-line flags relevant to the build.
 	// This is informational, not an exhaustive list.
+	// Please keep the list sorted.
 	if cfg.BuildBuildinfo && !p.Standard {
-		appendSetting("compiler", cfg.BuildContext.Compiler)
+		if cfg.BuildASan {
+			appendSetting("-asan", "true")
+		}
 		if BuildAsmflags.present {
-			appendSetting("asmflags", BuildAsmflags.String())
+			appendSetting("-asmflags", BuildAsmflags.String())
+		}
+		appendSetting("-compiler", cfg.BuildContext.Compiler)
+		if BuildGccgoflags.present && cfg.BuildContext.Compiler == "gccgo" {
+			appendSetting("-gccgoflags", BuildGccgoflags.String())
 		}
 		if BuildGcflags.present && cfg.BuildContext.Compiler == "gc" {
-			appendSetting("gcflags", BuildGcflags.String())
-		}
-		if BuildGccgoflags.present && cfg.BuildContext.Compiler == "gccgo" {
-			appendSetting("gccgoflags", BuildGccgoflags.String())
+			appendSetting("-gcflags", BuildGcflags.String())
 		}
 		if BuildLdflags.present {
-			appendSetting("ldflags", BuildLdflags.String())
+			appendSetting("-ldflags", BuildLdflags.String())
 		}
-		tags := append(cfg.BuildContext.BuildTags, cfg.BuildContext.ToolTags...)
-		appendSetting("tags", strings.Join(tags, ","))
-		appendSetting("CGO_ENABLED", strconv.FormatBool(cfg.BuildContext.CgoEnabled))
+		if cfg.BuildMSan {
+			appendSetting("-msan", "true")
+		}
+		if cfg.BuildRace {
+			appendSetting("-race", "true")
+		}
+		if tags := cfg.BuildContext.BuildTags; len(tags) > 0 {
+			appendSetting("-tags", strings.Join(tags, ","))
+		}
+		cgo := "0"
 		if cfg.BuildContext.CgoEnabled {
-			for _, name := range []string{"CGO_CPPFLAGS", "CGO_CFLAGS", "CGO_CXXFLAGS", "CGO_LDFLAGS"} {
+			cgo = "1"
+		}
+		appendSetting("CGO_ENABLED", cgo)
+		if cfg.BuildContext.CgoEnabled {
+			for _, name := range []string{"CGO_CFLAGS", "CGO_CPPFLAGS", "CGO_CXXFLAGS", "CGO_LDFLAGS"} {
 				appendSetting(name, cfg.Getenv(name))
 			}
+		}
+		appendSetting("GOARCH", cfg.BuildContext.GOARCH)
+		if cfg.GOEXPERIMENT != "" {
+			appendSetting("GOEXPERIMENT", cfg.GOEXPERIMENT)
+		}
+		appendSetting("GOOS", cfg.BuildContext.GOOS)
+		if key, val := cfg.GetArchEnv(); key != "" && val != "" {
+			appendSetting(key, val)
 		}
 	}
 
@@ -2360,19 +2393,29 @@ func (p *Package) setBuildInfo() {
 			return
 		}
 
-		st, err := vcsCmd.Status(vcsCmd, repoDir)
-		if err != nil {
+		type vcsStatusError struct {
+			Status vcs.Status
+			Err    error
+		}
+		cached := vcsStatusCache.Do(repoDir, func() interface{} {
+			st, err := vcsCmd.Status(vcsCmd, repoDir)
+			return vcsStatusError{st, err}
+		}).(vcsStatusError)
+		if err := cached.Err; err != nil {
 			setVCSError(err)
 			return
 		}
+		st := cached.Status
+
+		appendSetting("vcs", vcsCmd.Cmd)
 		if st.Revision != "" {
-			appendSetting(vcsCmd.Cmd+"revision", st.Revision)
+			appendSetting("vcs.revision", st.Revision)
 		}
 		if !st.CommitTime.IsZero() {
 			stamp := st.CommitTime.UTC().Format(time.RFC3339Nano)
-			appendSetting(vcsCmd.Cmd+"committime", stamp)
+			appendSetting("vcs.time", stamp)
 		}
-		appendSetting(vcsCmd.Cmd+"uncommitted", strconv.FormatBool(st.Uncommitted))
+		appendSetting("vcs.modified", strconv.FormatBool(st.Uncommitted))
 	}
 
 	text, err := info.MarshalText()

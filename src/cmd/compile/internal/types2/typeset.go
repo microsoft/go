@@ -108,6 +108,8 @@ func (s *_TypeSet) hasTerms() bool { return !s.terms.isEmpty() && !s.terms.isAll
 func (s *_TypeSet) singleType() Type { return s.terms.singleType() }
 
 // includes reports whether t ∈ s.
+// TODO(gri) This function is not used anywhere anymore. Remove once we
+//           are clear that we don't need it elsewhere in the future.
 func (s *_TypeSet) includes(t Type) bool { return s.terms.includes(t) }
 
 // subsetOf reports whether s1 ⊆ s2.
@@ -268,10 +270,12 @@ func computeInterfaceTypeSet(check *Checker, pos syntax.Pos, ityp *Interface) *_
 		var terms termlist
 		switch u := under(typ).(type) {
 		case *Interface:
+			// For now we don't permit type parameters as constraints.
+			assert(!isTypeParam(typ))
 			tset := computeInterfaceTypeSet(check, pos, u)
 			// If typ is local, an error was already reported where typ is specified/defined.
 			if check != nil && check.isImportedConstraint(typ) && !check.allowVersion(check.pkg, 1, 18) {
-				check.errorf(pos, "embedding constraint interface %s requires go1.18 or later", typ)
+				check.versionErrorf(pos, "go1.18", "embedding constraint interface %s", typ)
 				continue
 			}
 			if tset.comparable {
@@ -283,7 +287,7 @@ func computeInterfaceTypeSet(check *Checker, pos syntax.Pos, ityp *Interface) *_
 			terms = tset.terms
 		case *Union:
 			if check != nil && !check.allowVersion(check.pkg, 1, 18) {
-				check.errorf(pos, "embedding interface element %s requires go1.18 or later", u)
+				check.versionErrorf(pos, "go1.18", "embedding interface element %s", u)
 				continue
 			}
 			tset := computeUnionTypeSet(check, pos, u)
@@ -291,16 +295,12 @@ func computeInterfaceTypeSet(check *Checker, pos syntax.Pos, ityp *Interface) *_
 				continue // ignore invalid unions
 			}
 			terms = tset.terms
-		case *TypeParam:
-			// Embedding stand-alone type parameters is not permitted.
-			// Union parsing reports a (delayed) error, so we can ignore this entry.
-			continue
 		default:
 			if u == Typ[Invalid] {
 				continue
 			}
 			if check != nil && !check.allowVersion(check.pkg, 1, 18) {
-				check.errorf(pos, "embedding non-interface type %s requires go1.18 or later", typ)
+				check.versionErrorf(pos, "go1.18", "embedding non-interface type %s", typ)
 				continue
 			}
 			terms = termlist{{false, typ}}
@@ -369,16 +369,18 @@ func computeUnionTypeSet(check *Checker, pos syntax.Pos, utyp *Union) *_TypeSet 
 	var allTerms termlist
 	for _, t := range utyp.terms {
 		var terms termlist
-		switch u := under(t.typ).(type) {
-		case *Interface:
-			terms = computeInterfaceTypeSet(check, pos, u).terms
-		case *TypeParam:
-			// A stand-alone type parameters is not permitted as union term.
-			// Union parsing reports a (delayed) error, so we can ignore this entry.
+		u := under(t.typ)
+		if ui, _ := u.(*Interface); ui != nil {
+			// For now we don't permit type parameters as constraints.
+			assert(!isTypeParam(t.typ))
+			terms = computeInterfaceTypeSet(check, pos, ui).terms
+		} else if t.typ == Typ[Invalid] {
 			continue
-		default:
-			if t.typ == Typ[Invalid] {
-				continue
+		} else {
+			if t.tilde && !Identical(t.typ, u) {
+				// There is no underlying type which is t.typ.
+				// The corresponding type set is empty.
+				t = nil // ∅ term
 			}
 			terms = termlist{(*term)(t)}
 		}

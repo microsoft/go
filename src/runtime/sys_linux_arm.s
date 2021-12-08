@@ -360,6 +360,7 @@ finish:
 	MOVW	R1, m_vdsoPC(R5)
 
 	MOVW	R0, sec_lo+0(FP)
+	MOVW	$0, R1
 	MOVW	R1, sec_hi+4(FP)
 	MOVW	R2, nsec+8(FP)
 	RET
@@ -455,7 +456,7 @@ finish:
 	MOVW	$1000000000, R3
 	MULLU	R0, R3, (R1, R0)
 	ADD.S	R2, R0
-	ADC	R4, R1
+	ADC	$0, R1	// Add carry bit to upper half.
 
 	MOVW	R0, ret_lo+0(FP)
 	MOVW	R1, ret_hi+4(FP)

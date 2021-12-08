@@ -846,14 +846,19 @@ func TypePtr(t *types.Type) *ir.AddrExpr {
 	return typecheck.Expr(typecheck.NodAddr(n)).(*ir.AddrExpr)
 }
 
-// ITabLsym returns the LSym representing the itab for concreate type typ
-// implementing interface iface.
+// ITabLsym returns the LSym representing the itab for concrete type typ implementing
+// interface iface. A dummy tab will be created in the unusual case where typ doesn't
+// implement iface. Normally, this wouldn't happen, because the typechecker would
+// have reported a compile-time error. This situation can only happen when the
+// destination type of a type assert or a type in a type switch is parameterized, so
+// it may sometimes, but not always, be a type that can't implement the specified
+// interface.
 func ITabLsym(typ, iface *types.Type) *obj.LSym {
 	s, existed := ir.Pkgs.Itab.LookupOK(typ.LinkString() + "," + iface.LinkString())
 	lsym := s.Linksym()
 
 	if !existed {
-		writeITab(lsym, typ, iface)
+		writeITab(lsym, typ, iface, true)
 	}
 	return lsym
 }
@@ -865,7 +870,7 @@ func ITabAddr(typ, iface *types.Type) *ir.AddrExpr {
 	lsym := s.Linksym()
 
 	if !existed {
-		writeITab(lsym, typ, iface)
+		writeITab(lsym, typ, iface, false)
 	}
 
 	n := ir.NewLinksymExpr(base.Pos, lsym, types.Types[types.TUINT8])
@@ -924,11 +929,12 @@ func hashMightPanic(t *types.Type) bool {
 	}
 }
 
-// formalType replaces byte and rune aliases with real types.
+// formalType replaces predeclared aliases with real types.
 // They've been separate internally to make error messages
 // better, but we have to merge them in the reflect tables.
 func formalType(t *types.Type) *types.Type {
-	if t == types.ByteType || t == types.RuneType {
+	switch t {
+	case types.AnyType, types.ByteType, types.RuneType:
 		return types.Types[t.Kind()]
 	}
 	return t
@@ -1276,9 +1282,10 @@ func WriteRuntimeTypes() {
 	}
 }
 
-// writeITab writes the itab for concrete type typ implementing
-// interface iface.
-func writeITab(lsym *obj.LSym, typ, iface *types.Type) {
+// writeITab writes the itab for concrete type typ implementing interface iface. If
+// allowNonImplement is true, allow the case where typ does not implement iface, and just
+// create a dummy itab with zeroed-out method entries.
+func writeITab(lsym *obj.LSym, typ, iface *types.Type, allowNonImplement bool) {
 	// TODO(mdempsky): Fix methodWrapper, geneq, and genhash (and maybe
 	// others) to stop clobbering these.
 	oldpos, oldfn := base.Pos, ir.CurFunc
@@ -1304,14 +1311,9 @@ func writeITab(lsym *obj.LSym, typ, iface *types.Type) {
 				break
 			}
 		}
-		if sigs[0].Sym.Name == "==" {
-			sigs = sigs[1:]
-			if len(sigs) == 0 {
-				break
-			}
-		}
 	}
-	if len(sigs) != 0 {
+	completeItab := len(sigs) == 0
+	if !allowNonImplement && !completeItab {
 		base.Fatalf("incomplete itab")
 	}
 
@@ -1328,7 +1330,12 @@ func writeITab(lsym *obj.LSym, typ, iface *types.Type) {
 	o = objw.Uint32(lsym, o, types.TypeHash(typ)) // copy of type hash
 	o += 4                                        // skip unused field
 	for _, fn := range entries {
-		o = objw.SymPtrWeak(lsym, o, fn, 0) // method pointer for each method
+		if !completeItab {
+			// If typ doesn't implement iface, make method entries be zero.
+			o = objw.Uintptr(lsym, o, 0)
+		} else {
+			o = objw.SymPtrWeak(lsym, o, fn, 0) // method pointer for each method
+		}
 	}
 	// Nothing writes static itabs, so they are read only.
 	objw.Global(lsym, int32(o), int16(obj.DUPOK|obj.RODATA))
@@ -1390,6 +1397,9 @@ func WriteBasicTypes() {
 		}
 		writeType(types.NewPtr(types.Types[types.TSTRING]))
 		writeType(types.NewPtr(types.Types[types.TUNSAFEPTR]))
+		if base.Flag.G > 0 {
+			writeType(types.AnyType)
+		}
 
 		// emit type structs for error and func(error) string.
 		// The latter is the type of an auto-generated wrapper.

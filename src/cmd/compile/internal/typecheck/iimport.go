@@ -81,6 +81,27 @@ func ImportBody(fn *ir.Func) {
 	inimport = false
 }
 
+// HaveInlineBody reports whether we have fn's inline body available
+// for inlining.
+func HaveInlineBody(fn *ir.Func) bool {
+	if fn.Inl == nil {
+		return false
+	}
+
+	// Unified IR is much more conservative about pruning unreachable
+	// methods (at the cost of increased build artifact size).
+	if base.Debug.Unified != 0 {
+		return true
+	}
+
+	if fn.Inl.Body != nil {
+		return true
+	}
+
+	_, ok := inlineImporter[fn.Nname.Sym()]
+	return ok
+}
+
 func importReaderFor(sym *types.Sym, importers map[*types.Sym]iimporterAndOffset) *importReader {
 	x, ok := importers[sym]
 	if !ok {
@@ -1294,9 +1315,15 @@ func (r *importReader) node() ir.Node {
 		return n
 
 	case ir.ONONAME:
+		isKey := r.bool()
 		n := r.qualifiedIdent()
 		if go117ExportTypes {
-			n2 := Resolve(n)
+			var n2 ir.Node = n
+			// Key ONONAME entries should not be resolved - they should
+			// stay as identifiers.
+			if !isKey {
+				n2 = Resolve(n)
+			}
 			typ := r.typ()
 			if n2.Type() == nil {
 				n2.SetType(typ)

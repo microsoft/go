@@ -140,11 +140,17 @@ func sconv2(b *bytes.Buffer, s *Sym, verb rune, mode fmtMode) {
 }
 
 func symfmt(b *bytes.Buffer, s *Sym, verb rune, mode fmtMode) {
+	name := s.Name
 	if q := pkgqual(s.Pkg, verb, mode); q != "" {
 		b.WriteString(q)
 		b.WriteByte('.')
+		if mode == fmtTypeIDName {
+			// If name is a generic instantiation, it might have local package placeholders
+			// in it. Replace those placeholders with the package name. See issue 49547.
+			name = strings.Replace(name, LocalPkg.Prefix, q, -1)
+		}
 	}
-	b.WriteString(s.Name)
+	b.WriteString(name)
 }
 
 // pkgqual returns the qualifier that should be used for printing
@@ -322,8 +328,8 @@ func tconv2(b *bytes.Buffer, t *Type, verb rune, mode fmtMode, visited map[*Type
 		return
 	}
 
-	if t == ByteType || t == RuneType {
-		// in %-T mode collapse rune and byte with their originals.
+	if t == AnyType || t == ByteType || t == RuneType {
+		// in %-T mode collapse predeclared aliases with their originals.
 		switch mode {
 		case fmtTypeIDName, fmtTypeID:
 			t = Types[t.Kind()]

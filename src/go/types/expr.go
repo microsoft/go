@@ -64,10 +64,10 @@ var unaryOpPredicates opPredicates
 func init() {
 	// Setting unaryOpPredicates in init avoids declaration cycles.
 	unaryOpPredicates = opPredicates{
-		token.ADD: isNumeric,
-		token.SUB: isNumeric,
-		token.XOR: isInteger,
-		token.NOT: isBoolean,
+		token.ADD: allNumeric,
+		token.SUB: allNumeric,
+		token.XOR: allInteger,
+		token.NOT: allBoolean,
 	}
 }
 
@@ -103,7 +103,7 @@ func (check *Checker) overflow(x *operand, op token.Token, opPos token.Pos) {
 	// x.typ cannot be a type parameter (type
 	// parameters cannot be constant types).
 	if isTyped(x.typ) {
-		check.representable(x, asBasic(x.typ))
+		check.representable(x, under(x.typ).(*Basic))
 		return
 	}
 
@@ -147,11 +147,10 @@ var op2str2 = [...]string{
 // If typ is a type parameter, underIs returns the result of typ.underIs(f).
 // Otherwise, underIs returns the result of f(under(typ)).
 func underIs(typ Type, f func(Type) bool) bool {
-	u := under(typ)
-	if tpar, _ := u.(*TypeParam); tpar != nil {
+	if tpar, _ := typ.(*TypeParam); tpar != nil {
 		return tpar.underIs(f)
 	}
-	return f(u)
+	return f(under(typ))
 }
 
 // The unary expression e may be nil. It's passed in for better error messages only.
@@ -174,29 +173,26 @@ func (check *Checker) unary(x *operand, e *ast.UnaryExpr) {
 		return
 
 	case token.ARROW:
-		var elem Type
-		if !underIs(x.typ, func(u Type) bool {
-			ch, _ := u.(*Chan)
-			if ch == nil {
-				check.invalidOp(x, _InvalidReceive, "cannot receive from non-channel %s", x)
-				return false
-			}
-			if ch.dir == SendOnly {
-				check.invalidOp(x, _InvalidReceive, "cannot receive from send-only channel %s", x)
-				return false
-			}
-			if elem != nil && !Identical(ch.elem, elem) {
-				check.invalidOp(x, _Todo, "channels of %s must have the same element type", x)
-				return false
-			}
-			elem = ch.elem
-			return true
-		}) {
+		u := structuralType(x.typ)
+		if u == nil {
+			check.invalidOp(x, _InvalidReceive, "cannot receive from %s: no structural type", x)
 			x.mode = invalid
 			return
 		}
+		ch, _ := u.(*Chan)
+		if ch == nil {
+			check.invalidOp(x, _InvalidReceive, "cannot receive from non-channel %s", x)
+			x.mode = invalid
+			return
+		}
+		if ch.dir == SendOnly {
+			check.invalidOp(x, _InvalidReceive, "cannot receive from send-only channel %s", x)
+			x.mode = invalid
+			return
+		}
+
 		x.mode = commaok
-		x.typ = elem
+		x.typ = ch.elem
 		check.hasCallOrRecv = true
 		return
 	}
@@ -556,7 +552,7 @@ func (check *Checker) updateExprType(x ast.Expr, typ Type, final bool) {
 	// If the new type is not final and still untyped, just
 	// update the recorded type.
 	if !final && isUntyped(typ) {
-		old.typ = asBasic(typ)
+		old.typ = under(typ).(*Basic)
 		check.untyped[x] = old
 		return
 	}
@@ -569,7 +565,7 @@ func (check *Checker) updateExprType(x ast.Expr, typ Type, final bool) {
 		// If x is the lhs of a shift, its final type must be integer.
 		// We already know from the shift check that it is representable
 		// as an integer if it is a constant.
-		if !isInteger(typ) {
+		if !allInteger(typ) {
 			check.invalidOp(x, _InvalidShiftOperand, "shifted operand %s (type %s) must be integer", x, typ)
 			return
 		}
@@ -602,7 +598,11 @@ func (check *Checker) updateExprVal(x ast.Expr, val constant.Value) {
 func (check *Checker) convertUntyped(x *operand, target Type) {
 	newType, val, code := check.implicitTypeAndValue(x, target)
 	if code != 0 {
-		check.invalidConversion(code, x, safeUnderlying(target))
+		t := target
+		if !isTypeParam(target) {
+			t = safeUnderlying(target)
+		}
+		check.invalidConversion(code, x, t)
 		x.mode = invalid
 		return
 	}
@@ -641,10 +641,10 @@ func (check *Checker) implicitTypeAndValue(x *operand, target Type) (Type, const
 		return x.typ, nil, 0
 	}
 
-	switch t := under(target).(type) {
+	switch u := under(target).(type) {
 	case *Basic:
 		if x.mode == constant_ {
-			v, code := check.representation(x, t)
+			v, code := check.representation(x, u)
 			if code != 0 {
 				return nil, nil, code
 			}
@@ -680,20 +680,23 @@ func (check *Checker) implicitTypeAndValue(x *operand, target Type) (Type, const
 		default:
 			return nil, nil, _InvalidUntypedConversion
 		}
-	case *TypeParam:
-		// TODO(gri) review this code - doesn't look quite right
-		ok := t.underIs(func(t Type) bool {
-			target, _, _ := check.implicitTypeAndValue(x, t)
-			return target != nil
-		})
-		if !ok {
-			return nil, nil, _InvalidUntypedConversion
-		}
-		// keep nil untyped (was bug #39755)
-		if x.isNil() {
-			return Typ[UntypedNil], nil, 0
-		}
 	case *Interface:
+		if isTypeParam(target) {
+			if !u.typeSet().underIs(func(u Type) bool {
+				if u == nil {
+					return false
+				}
+				t, _, _ := check.implicitTypeAndValue(x, u)
+				return t != nil
+			}) {
+				return nil, nil, _InvalidUntypedConversion
+			}
+			// keep nil untyped (was bug #39755)
+			if x.isNil() {
+				return Typ[UntypedNil], nil, 0
+			}
+			break
+		}
 		// Values must have concrete dynamic types. If the value is nil,
 		// keep it untyped (this is important for tools such as go vet which
 		// need the dynamic type for argument checking of say, print
@@ -702,7 +705,7 @@ func (check *Checker) implicitTypeAndValue(x *operand, target Type) (Type, const
 			return Typ[UntypedNil], nil, 0
 		}
 		// cannot assign untyped values to non-empty interfaces
-		if !t.Empty() {
+		if !u.Empty() {
 			return nil, nil, _InvalidUntypedConversion
 		}
 		return Default(x.typ), nil, 0
@@ -733,7 +736,7 @@ func (check *Checker) comparison(x, y *operand, op token.Token) {
 			defined = Comparable(x.typ) && Comparable(y.typ) || x.isNil() && hasNil(y.typ) || y.isNil() && hasNil(x.typ)
 		case token.LSS, token.LEQ, token.GTR, token.GEQ:
 			// spec: The ordering operators <, <=, >, and >= apply to operands that are ordered."
-			defined = isOrdered(x.typ) && isOrdered(y.typ)
+			defined = allOrdered(x.typ) && allOrdered(y.typ)
 		default:
 			unreachable()
 		}
@@ -784,7 +787,7 @@ func (check *Checker) shift(x, y *operand, e ast.Expr, op token.Token) {
 		xval = constant.ToInt(x.val)
 	}
 
-	if isInteger(x.typ) || isUntyped(x.typ) && xval != nil && xval.Kind() == constant.Int {
+	if allInteger(x.typ) || isUntyped(x.typ) && xval != nil && xval.Kind() == constant.Int {
 		// The lhs is of integer type or an untyped constant representable
 		// as an integer. Nothing to do.
 	} else {
@@ -821,8 +824,8 @@ func (check *Checker) shift(x, y *operand, e ast.Expr, op token.Token) {
 
 	// Check that RHS is otherwise at least of integer type.
 	switch {
-	case isInteger(y.typ):
-		if !isUnsigned(y.typ) && !check.allowVersion(check.pkg, 1, 13) {
+	case allInteger(y.typ):
+		if !allUnsigned(y.typ) && !check.allowVersion(check.pkg, 1, 13) {
 			check.invalidOp(y, _InvalidShiftCount, "signed shift count %s requires go1.13 or later", y)
 			x.mode = invalid
 			return
@@ -910,7 +913,7 @@ func (check *Checker) shift(x, y *operand, e ast.Expr, op token.Token) {
 	}
 
 	// non-constant shift - lhs must be an integer
-	if !isInteger(x.typ) {
+	if !allInteger(x.typ) {
 		check.invalidOp(x, _InvalidShiftOperand, "shifted operand %s must be integer", x)
 		x.mode = invalid
 		return
@@ -924,19 +927,19 @@ var binaryOpPredicates opPredicates
 func init() {
 	// Setting binaryOpPredicates in init avoids declaration cycles.
 	binaryOpPredicates = opPredicates{
-		token.ADD: isNumericOrString,
-		token.SUB: isNumeric,
-		token.MUL: isNumeric,
-		token.QUO: isNumeric,
-		token.REM: isInteger,
+		token.ADD: allNumericOrString,
+		token.SUB: allNumeric,
+		token.MUL: allNumeric,
+		token.QUO: allNumeric,
+		token.REM: allInteger,
 
-		token.AND:     isInteger,
-		token.OR:      isInteger,
-		token.XOR:     isInteger,
-		token.AND_NOT: isInteger,
+		token.AND:     allInteger,
+		token.OR:      allInteger,
+		token.XOR:     allInteger,
+		token.AND_NOT: allInteger,
 
-		token.LAND: isBoolean,
-		token.LOR:  isBoolean,
+		token.LAND: allBoolean,
+		token.LOR:  allBoolean,
 	}
 }
 
@@ -962,14 +965,15 @@ func (check *Checker) binary(x *operand, e ast.Expr, lhs, rhs ast.Expr, op token
 		return
 	}
 
+	// TODO(gri) make canMix more efficient - called for each binary operation
 	canMix := func(x, y *operand) bool {
-		if IsInterface(x.typ) || IsInterface(y.typ) {
+		if IsInterface(x.typ) && !isTypeParam(x.typ) || IsInterface(y.typ) && !isTypeParam(y.typ) {
 			return true
 		}
-		if isBoolean(x.typ) != isBoolean(y.typ) {
+		if allBoolean(x.typ) != allBoolean(y.typ) {
 			return false
 		}
-		if isString(x.typ) != isString(y.typ) {
+		if allString(x.typ) != allString(y.typ) {
 			return false
 		}
 		if x.isNil() && !hasNil(y.typ) {
@@ -1022,7 +1026,7 @@ func (check *Checker) binary(x *operand, e ast.Expr, lhs, rhs ast.Expr, op token
 
 	if op == token.QUO || op == token.REM {
 		// check for zero divisor
-		if (x.mode == constant_ || isInteger(x.typ)) && y.mode == constant_ && constant.Sign(y.val) == 0 {
+		if (x.mode == constant_ || allInteger(x.typ)) && y.mode == constant_ && constant.Sign(y.val) == 0 {
 			check.invalidOp(&y, _DivByZero, "division by zero")
 			x.mode = invalid
 			return
@@ -1116,7 +1120,7 @@ func (check *Checker) nonGeneric(x *operand) {
 		}
 	}
 	if what != "" {
-		check.errorf(x.expr, _Todo, "cannot use generic %s %s without instantiation", what, x.expr)
+		check.errorf(x.expr, _WrongTypeArgCount, "cannot use generic %s %s without instantiation", what, x.expr)
 		x.mode = invalid
 		x.typ = Typ[Invalid]
 	}
@@ -1220,7 +1224,11 @@ func (check *Checker) exprInternal(x *operand, e ast.Expr, hint Type) exprKind {
 		case hint != nil:
 			// no composite literal type present - use hint (element type of enclosing type)
 			typ = hint
-			base, _ = deref(under(typ)) // *T implies &T{}
+			base = typ
+			if !isTypeParam(typ) {
+				base = under(typ)
+			}
+			base, _ = deref(base) // *T implies &T{}
 
 		default:
 			// TODO(gri) provide better error messages depending on context
@@ -1228,8 +1236,14 @@ func (check *Checker) exprInternal(x *operand, e ast.Expr, hint Type) exprKind {
 			goto Error
 		}
 
-		switch utyp := structure(base).(type) {
+		switch utyp := structuralType(base).(type) {
 		case *Struct:
+			// Prevent crash if the struct referred to is not yet set up.
+			// See analogous comment for *Array.
+			if utyp.fields == nil {
+				check.error(e, _InvalidDeclCycle, "illegal cycle in type declaration")
+				goto Error
+			}
 			if len(e.Elts) == 0 {
 				break
 			}
@@ -1356,7 +1370,7 @@ func (check *Checker) exprInternal(x *operand, e ast.Expr, hint Type) exprKind {
 					duplicate := false
 					// if the key is of interface type, the type is also significant when checking for duplicates
 					xkey := keyVal(x.val)
-					if asInterface(utyp.key) != nil {
+					if IsInterface(utyp.key) {
 						for _, vtyp := range visited[xkey] {
 							if Identical(vtyp, x.typ) {
 								duplicate = true
@@ -1427,6 +1441,11 @@ func (check *Checker) exprInternal(x *operand, e ast.Expr, hint Type) exprKind {
 		if x.mode == invalid {
 			goto Error
 		}
+		// TODO(gri) we may want to permit type assertions on type parameter values at some point
+		if isTypeParam(x.typ) {
+			check.invalidOp(x, _InvalidAssert, "cannot use type assertion on type parameter value %s", x)
+			goto Error
+		}
 		xtyp, _ := under(x.typ).(*Interface)
 		if xtyp == nil {
 			check.invalidOp(x, _InvalidAssert, "%s is not an interface", x)
@@ -1466,7 +1485,7 @@ func (check *Checker) exprInternal(x *operand, e ast.Expr, hint Type) exprKind {
 					return false
 				}
 				if base != nil && !Identical(p.base, base) {
-					check.invalidOp(x, _Todo, "pointers of %s must have identical base types", x)
+					check.invalidOp(x, _InvalidIndirection, "pointers of %s must have identical base types", x)
 					return false
 				}
 				base = p.base
@@ -1638,7 +1657,11 @@ func (check *Checker) singleValue(x *operand) {
 		// tuple types are never named - no need for underlying type below
 		if t, ok := x.typ.(*Tuple); ok {
 			assert(t.Len() != 1)
-			check.errorf(x, _TooManyValues, "%d-valued %s where single value is expected", t.Len(), x)
+			if compilerErrorMessages {
+				check.errorf(x, _TooManyValues, "multiple-value %s in single-value context", x)
+			} else {
+				check.errorf(x, _TooManyValues, "%d-valued %s where single value is expected", t.Len(), x)
+			}
 			x.mode = invalid
 		}
 	}

@@ -25,13 +25,15 @@ type uint128 = Uint128
 var (
 	mustPrefix = MustParsePrefix
 	mustIP     = MustParseAddr
+	mustIPPort = MustParseAddrPort
 )
 
 func TestParseAddr(t *testing.T) {
 	var validIPs = []struct {
-		in  string
-		ip  Addr   // output of ParseAddr()
-		str string // output of String(). If "", use in.
+		in      string
+		ip      Addr   // output of ParseAddr()
+		str     string // output of String(). If "", use in.
+		wantErr string
 	}{
 		// Basic zero IPv4 address.
 		{
@@ -45,15 +47,18 @@ func TestParseAddr(t *testing.T) {
 		},
 		// IPv4 address in windows-style "print all the digits" form.
 		{
-			in:  "010.000.015.001",
-			ip:  MkAddr(Mk128(0, 0xffff0a000f01), Z4),
-			str: "10.0.15.1",
+			in:      "010.000.015.001",
+			wantErr: `ParseAddr("010.000.015.001"): IPv4 field has octet with leading zero`,
 		},
 		// IPv4 address with a silly amount of leading zeros.
 		{
-			in:  "000001.00000002.00000003.000000004",
-			ip:  MkAddr(Mk128(0, 0xffff01020304), Z4),
-			str: "1.2.3.4",
+			in:      "000001.00000002.00000003.000000004",
+			wantErr: `ParseAddr("000001.00000002.00000003.000000004"): IPv4 field has octet with leading zero`,
+		},
+		// 4-in-6 with octet with leading zero
+		{
+			in:      "::ffff:1.2.03.4",
+			wantErr: `ParseAddr("::ffff:1.2.03.4"): ParseAddr("1.2.03.4"): IPv4 field has octet with leading zero (at "1.2.03.4")`,
 		},
 		// Basic zero IPv6 address.
 		{
@@ -121,10 +126,16 @@ func TestParseAddr(t *testing.T) {
 		t.Run(test.in, func(t *testing.T) {
 			got, err := ParseAddr(test.in)
 			if err != nil {
+				if err.Error() == test.wantErr {
+					return
+				}
 				t.Fatal(err)
 			}
+			if test.wantErr != "" {
+				t.Fatalf("wanted error %q; got none", test.wantErr)
+			}
 			if got != test.ip {
-				t.Errorf("ParseAddr(%q) got %#v, want %#v", test.in, got, test.ip)
+				t.Errorf("got %#v, want %#v", got, test.ip)
 			}
 
 			// Check that ParseAddr is a pure function.
@@ -322,10 +333,91 @@ func TestAddrMarshalUnmarshalBinary(t *testing.T) {
 	}
 
 	// Cannot unmarshal from unexpected IP length.
-	for _, l := range []int{3, 5} {
+	for _, n := range []int{3, 5} {
 		var ip2 Addr
-		if err := ip2.UnmarshalBinary(bytes.Repeat([]byte{1}, l)); err == nil {
-			t.Fatalf("unmarshaled from unexpected IP length %d", l)
+		if err := ip2.UnmarshalBinary(bytes.Repeat([]byte{1}, n)); err == nil {
+			t.Fatalf("unmarshaled from unexpected IP length %d", n)
+		}
+	}
+}
+
+func TestAddrPortMarshalUnmarshalBinary(t *testing.T) {
+	tests := []struct {
+		ipport   string
+		wantSize int
+	}{
+		{"1.2.3.4:51820", 4 + 2},
+		{"[fd7a:115c:a1e0:ab12:4843:cd96:626b:430b]:80", 16 + 2},
+		{"[::ffff:c000:0280]:65535", 16 + 2},
+		{"[::ffff:c000:0280%eth0]:1", 20 + 2},
+	}
+	for _, tc := range tests {
+		var ipport AddrPort
+		if len(tc.ipport) > 0 {
+			ipport = mustIPPort(tc.ipport)
+		}
+		b, err := ipport.MarshalBinary()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(b) != tc.wantSize {
+			t.Fatalf("%q encoded to size %d; want %d", tc.ipport, len(b), tc.wantSize)
+		}
+		var ipport2 AddrPort
+		if err := ipport2.UnmarshalBinary(b); err != nil {
+			t.Fatal(err)
+		}
+		if ipport != ipport2 {
+			t.Fatalf("got %v; want %v", ipport2, ipport)
+		}
+	}
+
+	// Cannot unmarshal from unexpected lengths.
+	for _, n := range []int{3, 7} {
+		var ipport2 AddrPort
+		if err := ipport2.UnmarshalBinary(bytes.Repeat([]byte{1}, n)); err == nil {
+			t.Fatalf("unmarshaled from unexpected length %d", n)
+		}
+	}
+}
+
+func TestPrefixMarshalUnmarshalBinary(t *testing.T) {
+	type testCase struct {
+		prefix   Prefix
+		wantSize int
+	}
+	tests := []testCase{
+		{mustPrefix("1.2.3.4/24"), 4 + 1},
+		{mustPrefix("fd7a:115c:a1e0:ab12:4843:cd96:626b:430b/118"), 16 + 1},
+		{mustPrefix("::ffff:c000:0280/96"), 16 + 1},
+		{mustPrefix("::ffff:c000:0280%eth0/37"), 16 + 1}, // Zone should be stripped
+	}
+	tests = append(tests,
+		testCase{PrefixFrom(tests[0].prefix.Addr(), 33), tests[0].wantSize},
+		testCase{PrefixFrom(tests[1].prefix.Addr(), 129), tests[1].wantSize})
+	for _, tc := range tests {
+		prefix := tc.prefix
+		b, err := prefix.MarshalBinary()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(b) != tc.wantSize {
+			t.Fatalf("%q encoded to size %d; want %d", tc.prefix, len(b), tc.wantSize)
+		}
+		var prefix2 Prefix
+		if err := prefix2.UnmarshalBinary(b); err != nil {
+			t.Fatal(err)
+		}
+		if prefix != prefix2 {
+			t.Fatalf("got %v; want %v", prefix2, prefix)
+		}
+	}
+
+	// Cannot unmarshal from unexpected lengths.
+	for _, n := range []int{3, 6} {
+		var prefix2 Prefix
+		if err := prefix2.UnmarshalBinary(bytes.Repeat([]byte{1}, n)); err == nil {
+			t.Fatalf("unmarshaled from unexpected length %d", n)
 		}
 	}
 }
@@ -963,7 +1055,7 @@ func TestIs4In6(t *testing.T) {
 		{mustIP("::ffff:192.0.2.128"), true, mustIP("192.0.2.128")},
 		{mustIP("::ffff:192.0.2.128%eth0"), true, mustIP("192.0.2.128")},
 		{mustIP("::fffe:c000:0280"), false, mustIP("::fffe:c000:0280")},
-		{mustIP("::ffff:127.001.002.003"), true, mustIP("127.1.2.3")},
+		{mustIP("::ffff:127.1.2.3"), true, mustIP("127.1.2.3")},
 		{mustIP("::ffff:7f01:0203"), true, mustIP("127.1.2.3")},
 		{mustIP("0:0:0:0:0000:ffff:127.1.2.3"), true, mustIP("127.1.2.3")},
 		{mustIP("0:0:0:0:000000:ffff:127.1.2.3"), true, mustIP("127.1.2.3")},
@@ -1794,5 +1886,32 @@ func TestInvalidAddrPortString(t *testing.T) {
 		if got := tt.ipp.String(); got != tt.want {
 			t.Errorf("(%#v).String() = %q want %q", tt.ipp, got, tt.want)
 		}
+	}
+}
+
+func TestAsSlice(t *testing.T) {
+	tests := []struct {
+		in   Addr
+		want []byte
+	}{
+		{in: Addr{}, want: nil},
+		{in: mustIP("1.2.3.4"), want: []byte{1, 2, 3, 4}},
+		{in: mustIP("ffff::1"), want: []byte{0xff, 0xff, 15: 1}},
+	}
+
+	for _, test := range tests {
+		got := test.in.AsSlice()
+		if !bytes.Equal(got, test.want) {
+			t.Errorf("%v.AsSlice() = %v want %v", test.in, got, test.want)
+		}
+	}
+}
+
+var sink16 [16]byte
+
+func BenchmarkAs16(b *testing.B) {
+	addr := MustParseAddr("1::10")
+	for i := 0; i < b.N; i++ {
+		sink16 = addr.As16()
 	}
 }

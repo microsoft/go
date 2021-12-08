@@ -547,6 +547,20 @@ func allgadd(gp *g) {
 	unlock(&allglock)
 }
 
+// allGsSnapshot returns a snapshot of the slice of all Gs.
+//
+// The world must be stopped or allglock must be held.
+func allGsSnapshot() []*g {
+	assertWorldStoppedOrLockHeld(&allglock)
+
+	// Because the world is stopped or allglock is held, allgadd
+	// cannot happen concurrently with this. allgs grows
+	// monotonically and existing entries never change, so we can
+	// simply return a copy of the slice header. For added safety,
+	// we trim everything past len because that can still change.
+	return allgs[:len(allgs):len(allgs)]
+}
+
 // atomicAllG returns &allgs[0] and len(allgs) for use with atomicAllGIndex.
 func atomicAllG() (**g, uintptr) {
 	length := atomic.Loaduintptr(&allglen)
@@ -980,17 +994,18 @@ func casgstatus(gp *g, oldval, newval uint32) {
 		gp.trackingSeq++
 	}
 	if gp.tracking {
-		now := nanotime()
 		if oldval == _Grunnable {
 			// We transitioned out of runnable, so measure how much
 			// time we spent in this state and add it to
 			// runnableTime.
+			now := nanotime()
 			gp.runnableTime += now - gp.runnableStamp
 			gp.runnableStamp = 0
 		}
 		if newval == _Grunnable {
 			// We just transitioned into runnable, so record what
 			// time that happened.
+			now := nanotime()
 			gp.runnableStamp = now
 		} else if newval == _Grunning {
 			// We're transitioning into running, so turn off
@@ -4711,7 +4726,14 @@ func sigprof(pc, sp, lr uintptr, gp *g, mp *m) {
 	}
 
 	if prof.hz != 0 {
-		cpuprof.add(gp, stk[:n])
+		// Note: it can happen on Windows that we interrupted a system thread
+		// with no g, so gp could nil. The other nil checks are done out of
+		// caution, but not expected to be nil in practice.
+		var tagPtr *unsafe.Pointer
+		if gp != nil && gp.m != nil && gp.m.curg != nil {
+			tagPtr = &gp.m.curg.labels
+		}
+		cpuprof.add(tagPtr, stk[:n])
 	}
 	getg().m.mallocing--
 }
