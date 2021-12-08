@@ -222,15 +222,17 @@ func (n *Named) setUnderlying(typ Type) {
 
 // bestContext returns the best available context. In order of preference:
 // - the given ctxt, if non-nil
-// - check.Config.Context, if check is non-nil
+// - check.ctxt, if check is non-nil
 // - a new Context
 func (check *Checker) bestContext(ctxt *Context) *Context {
 	if ctxt != nil {
 		return ctxt
 	}
 	if check != nil {
-		assert(check.conf.Context != nil)
-		return check.conf.Context
+		if check.ctxt == nil {
+			check.ctxt = NewContext()
+		}
+		return check.ctxt
 	}
 	return NewContext()
 }
@@ -253,9 +255,9 @@ func expandNamed(ctxt *Context, n *Named, instPos token.Pos) (tparams *TypeParam
 	if n.orig.tparams.Len() == n.targs.Len() {
 		// We must always have a context, to avoid infinite recursion.
 		ctxt = check.bestContext(ctxt)
-		h := ctxt.typeHash(n.orig, n.targs.list())
+		h := ctxt.instanceHash(n.orig, n.targs.list())
 		// ensure that an instance is recorded for h to avoid infinite recursion.
-		ctxt.typeForHash(h, n)
+		ctxt.update(h, n.orig, n.TypeArgs().list(), n)
 
 		smap := makeSubstMap(n.orig.tparams.list(), n.targs.list())
 		underlying = n.check.subst(instPos, n.orig.underlying, smap, ctxt)

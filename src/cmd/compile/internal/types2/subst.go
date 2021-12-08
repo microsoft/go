@@ -91,7 +91,9 @@ func (subst *subster) typ(typ Type) Type {
 
 	case *Struct:
 		if fields, copied := subst.varList(t.fields); copied {
-			return &Struct{fields: fields, tags: t.tags}
+			s := &Struct{fields: fields, tags: t.tags}
+			s.markComplete()
+			return s
 		}
 
 	case *Pointer:
@@ -113,8 +115,8 @@ func (subst *subster) typ(typ Type) Type {
 			return &Signature{
 				rparams: t.rparams,
 				// TODO(gri) why can't we nil out tparams here, rather than in instantiate?
-				tparams:  t.tparams,
-				scope:    t.scope,
+				tparams: t.tparams,
+				// instantiated signatures have a nil scope
 				recv:     recv,
 				params:   params,
 				results:  results,
@@ -135,7 +137,7 @@ func (subst *subster) typ(typ Type) Type {
 		methods, mcopied := subst.funcList(t.methods)
 		embeddeds, ecopied := subst.typeList(t.embeddeds)
 		if mcopied || ecopied {
-			iface := &Interface{methods: methods, embeddeds: embeddeds, complete: t.complete}
+			iface := &Interface{methods: methods, embeddeds: embeddeds, implicit: t.implicit, complete: t.complete}
 			return iface
 		}
 
@@ -205,9 +207,9 @@ func (subst *subster) typ(typ Type) Type {
 		}
 
 		// before creating a new named type, check if we have this one already
-		h := subst.ctxt.TypeHash(t.orig, newTArgs)
+		h := subst.ctxt.instanceHash(t.orig, newTArgs)
 		dump(">>> new type hash: %s", h)
-		if named := subst.ctxt.typeForHash(h, nil); named != nil {
+		if named := subst.ctxt.lookup(h, t.orig, newTArgs); named != nil {
 			dump(">>> found %s", named)
 			return named
 		}

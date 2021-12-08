@@ -2274,6 +2274,18 @@ func TestRequestBodyTimeoutClosesConnection(t *testing.T) {
 	}
 }
 
+// cancelableTimeoutContext overwrites the error message to DeadlineExceeded
+type cancelableTimeoutContext struct {
+	context.Context
+}
+
+func (c cancelableTimeoutContext) Err() error {
+	if c.Context.Err() != nil {
+		return context.DeadlineExceeded
+	}
+	return nil
+}
+
 func TestTimeoutHandler_h1(t *testing.T) { testTimeoutHandler(t, h1Mode) }
 func TestTimeoutHandler_h2(t *testing.T) { testTimeoutHandler(t, h2Mode) }
 func testTimeoutHandler(t *testing.T, h2 bool) {
@@ -2286,8 +2298,9 @@ func testTimeoutHandler(t *testing.T, h2 bool) {
 		_, werr := w.Write([]byte("hi"))
 		writeErrors <- werr
 	})
-	timeout := make(chan time.Time, 1) // write to this to force timeouts
-	cst := newClientServerTest(t, h2, NewTestTimeoutHandler(sayHi, timeout))
+	ctx, cancel := context.WithCancel(context.Background())
+	h := NewTestTimeoutHandler(sayHi, cancelableTimeoutContext{ctx})
+	cst := newClientServerTest(t, h2, h)
 	defer cst.close()
 
 	// Succeed without timing out:
@@ -2308,7 +2321,8 @@ func testTimeoutHandler(t *testing.T, h2 bool) {
 	}
 
 	// Times out:
-	timeout <- time.Time{}
+	cancel()
+
 	res, err = cst.c.Get(cst.ts.URL)
 	if err != nil {
 		t.Error(err)
@@ -2429,8 +2443,9 @@ func TestTimeoutHandlerRaceHeaderTimeout(t *testing.T) {
 		_, werr := w.Write([]byte("hi"))
 		writeErrors <- werr
 	})
-	timeout := make(chan time.Time, 1) // write to this to force timeouts
-	cst := newClientServerTest(t, h1Mode, NewTestTimeoutHandler(sayHi, timeout))
+	ctx, cancel := context.WithCancel(context.Background())
+	h := NewTestTimeoutHandler(sayHi, cancelableTimeoutContext{ctx})
+	cst := newClientServerTest(t, h1Mode, h)
 	defer cst.close()
 
 	// Succeed without timing out:
@@ -2451,7 +2466,8 @@ func TestTimeoutHandlerRaceHeaderTimeout(t *testing.T) {
 	}
 
 	// Times out:
-	timeout <- time.Time{}
+	cancel()
+
 	res, err = cst.c.Get(cst.ts.URL)
 	if err != nil {
 		t.Error(err)
@@ -2498,6 +2514,47 @@ func TestTimeoutHandlerStartTimerWhenServing(t *testing.T) {
 	defer res.Body.Close()
 	if res.StatusCode != StatusNoContent {
 		t.Errorf("got res.StatusCode %d, want %v", res.StatusCode, StatusNoContent)
+	}
+}
+
+func TestTimeoutHandlerContextCanceled(t *testing.T) {
+	setParallel(t)
+	defer afterTest(t)
+	writeErrors := make(chan error, 1)
+	sayHi := HandlerFunc(func(w ResponseWriter, r *Request) {
+		w.Header().Set("Content-Type", "text/plain")
+		var err error
+		// The request context has already been canceled, but
+		// retry the write for a while to give the timeout handler
+		// a chance to notice.
+		for i := 0; i < 100; i++ {
+			_, err = w.Write([]byte("a"))
+			if err != nil {
+				break
+			}
+			time.Sleep(1 * time.Millisecond)
+		}
+		writeErrors <- err
+	})
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	h := NewTestTimeoutHandler(sayHi, ctx)
+	cst := newClientServerTest(t, h1Mode, h)
+	defer cst.close()
+
+	res, err := cst.c.Get(cst.ts.URL)
+	if err != nil {
+		t.Error(err)
+	}
+	if g, e := res.StatusCode, StatusServiceUnavailable; g != e {
+		t.Errorf("got res.StatusCode %d; expected %d", g, e)
+	}
+	body, _ := io.ReadAll(res.Body)
+	if g, e := string(body), ""; g != e {
+		t.Errorf("got body %q; expected %q", g, e)
+	}
+	if g, e := <-writeErrors, context.Canceled; g != e {
+		t.Errorf("got unexpected Write in handler: %v, want %g", g, e)
 	}
 }
 
@@ -3018,22 +3075,14 @@ func TestClientWriteShutdown(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CloseWrite: %v", err)
 	}
-	donec := make(chan bool)
-	go func() {
-		defer close(donec)
-		bs, err := io.ReadAll(conn)
-		if err != nil {
-			t.Errorf("ReadAll: %v", err)
-		}
-		got := string(bs)
-		if got != "" {
-			t.Errorf("read %q from server; want nothing", got)
-		}
-	}()
-	select {
-	case <-donec:
-	case <-time.After(10 * time.Second):
-		t.Fatalf("timeout")
+
+	bs, err := io.ReadAll(conn)
+	if err != nil {
+		t.Errorf("ReadAll: %v", err)
+	}
+	got := string(bs)
+	if got != "" {
+		t.Errorf("read %q from server; want nothing", got)
 	}
 }
 
@@ -5949,11 +5998,7 @@ func TestServerHijackGetsBackgroundByte_big(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	select {
-	case <-done:
-	case <-time.After(2 * time.Second):
-		t.Error("timeout")
-	}
+	<-done
 }
 
 // Issue 18319: test that the Server validates the request method.
@@ -6506,7 +6551,7 @@ func TestDisableKeepAliveUpgrade(t *testing.T) {
 
 	rwc, ok := resp.Body.(io.ReadWriteCloser)
 	if !ok {
-		t.Fatalf("Response.Body is not a io.ReadWriteCloser: %T", resp.Body)
+		t.Fatalf("Response.Body is not an io.ReadWriteCloser: %T", resp.Body)
 	}
 
 	_, err = rwc.Write([]byte("hello"))
@@ -6623,5 +6668,65 @@ func testQuerySemicolon(t *testing.T, query string, wantX string, allowSemicolon
 		if strings.Contains(logBuf.String(), "semicolon") {
 			t.Errorf("got %q from ErrorLog, expected no mention of semicolons", logBuf.String())
 		}
+	}
+}
+
+func TestMaxBytesHandler(t *testing.T) {
+	setParallel(t)
+	defer afterTest(t)
+
+	for _, maxSize := range []int64{100, 1_000, 1_000_000} {
+		for _, requestSize := range []int64{100, 1_000, 1_000_000} {
+			t.Run(fmt.Sprintf("max size %d request size %d", maxSize, requestSize),
+				func(t *testing.T) {
+					testMaxBytesHandler(t, maxSize, requestSize)
+				})
+		}
+	}
+}
+
+func testMaxBytesHandler(t *testing.T, maxSize, requestSize int64) {
+	var (
+		handlerN   int64
+		handlerErr error
+	)
+	echo := HandlerFunc(func(w ResponseWriter, r *Request) {
+		var buf bytes.Buffer
+		handlerN, handlerErr = io.Copy(&buf, r.Body)
+		io.Copy(w, &buf)
+	})
+
+	ts := httptest.NewServer(MaxBytesHandler(echo, maxSize))
+	defer ts.Close()
+
+	c := ts.Client()
+	var buf strings.Builder
+	body := strings.NewReader(strings.Repeat("a", int(requestSize)))
+	res, err := c.Post(ts.URL, "text/plain", body)
+	if err != nil {
+		t.Errorf("unexpected connection error: %v", err)
+	} else {
+		_, err = io.Copy(&buf, res.Body)
+		res.Body.Close()
+		if err != nil {
+			t.Errorf("unexpected read error: %v", err)
+		}
+	}
+	if handlerN > maxSize {
+		t.Errorf("expected max request body %d; got %d", maxSize, handlerN)
+	}
+	if requestSize > maxSize && handlerErr == nil {
+		t.Error("expected error on handler side; got nil")
+	}
+	if requestSize <= maxSize {
+		if handlerErr != nil {
+			t.Errorf("%d expected nil error on handler side; got %v", requestSize, handlerErr)
+		}
+		if handlerN != requestSize {
+			t.Errorf("expected request of size %d; got %d", requestSize, handlerN)
+		}
+	}
+	if buf.Len() != int(handlerN) {
+		t.Errorf("expected echo of size %d; got %d", handlerN, buf.Len())
 	}
 }

@@ -28,8 +28,12 @@ import (
 // If source begins with "package generic_" and type parameters are enabled,
 // generic code is permitted.
 func pkgFor(path, source string, info *Info) (*Package, error) {
-	fset := token.NewFileSet()
 	mode := modeForSource(source)
+	return pkgForMode(path, source, info, mode)
+}
+
+func pkgForMode(path, source string, info *Info, mode parser.Mode) (*Package, error) {
+	fset := token.NewFileSet()
 	f, err := parser.ParseFile(fset, path, source, mode)
 	if err != nil {
 		return nil, err
@@ -342,21 +346,21 @@ func TestTypesInfo(t *testing.T) {
 		{broken + `x2; func _() { var a, b string; type x struct {f string}; z := &x{f: a; f: b;}}`, `b`, `string`},
 		{broken + `x3; var x = panic("");`, `panic`, `func(interface{})`},
 		{`package x4; func _() { panic("") }`, `panic`, `func(interface{})`},
-		{broken + `x5; func _() { var x map[string][...]int; x = map[string][...]int{"": {1,2,3}} }`, `x`, `map[string][-1]int`},
+		{broken + `x5; func _() { var x map[string][...]int; x = map[string][...]int{"": {1,2,3}} }`, `x`, `map[string]invalid type`},
 
 		// parameterized functions
-		{genericPkg + `p0; func f[T any](T) {}; var _ = f[int]`, `f`, `func[generic_p0.T interface{}](generic_p0.T)`},
+		{genericPkg + `p0; func f[T any](T) {}; var _ = f[int]`, `f`, `func[T any](T)`},
 		{genericPkg + `p1; func f[T any](T) {}; var _ = f[int]`, `f[int]`, `func(int)`},
 		{genericPkg + `p2; func f[T any](T) {}; func _() { f(42) }`, `f`, `func(int)`},
 		{genericPkg + `p3; func f[T any](T) {}; func _() { f[int](42) }`, `f[int]`, `func(int)`},
-		{genericPkg + `p4; func f[T any](T) {}; func _() { f[int](42) }`, `f`, `func[generic_p4.T interface{}](generic_p4.T)`},
+		{genericPkg + `p4; func f[T any](T) {}; func _() { f[int](42) }`, `f`, `func[T any](T)`},
 		{genericPkg + `p5; func f[T any](T) {}; func _() { f(42) }`, `f(42)`, `()`},
 
 		// type parameters
 		{genericPkg + `t0; type t[] int; var _ t`, `t`, `generic_t0.t`}, // t[] is a syntax error that is ignored in this test in favor of t
-		{genericPkg + `t1; type t[P any] int; var _ t[int]`, `t`, `generic_t1.t[generic_t1.P interface{}]`},
-		{genericPkg + `t2; type t[P interface{}] int; var _ t[int]`, `t`, `generic_t2.t[generic_t2.P interface{}]`},
-		{genericPkg + `t3; type t[P, Q interface{}] int; var _ t[int, int]`, `t`, `generic_t3.t[generic_t3.P, generic_t3.Q interface{}]`},
+		{genericPkg + `t1; type t[P any] int; var _ t[int]`, `t`, `generic_t1.t[P any]`},
+		{genericPkg + `t2; type t[P interface{}] int; var _ t[int]`, `t`, `generic_t2.t[P interface{}]`},
+		{genericPkg + `t3; type t[P, Q interface{}] int; var _ t[int, int]`, `t`, `generic_t3.t[P, Q interface{}]`},
 
 		// TODO (rFindley): compare with types2, which resolves the type broken_t4.t[P₁, Q₂ interface{m()}] here
 		{broken + `t4; type t[P, Q interface{ m() }] int; var _ t[int, int]`, `t`, `broken_t4.t`},
@@ -365,7 +369,7 @@ func TestTypesInfo(t *testing.T) {
 		{genericPkg + `g0; type t[P any] int; var x struct{ f t[int] }; var _ = x.f`, `x.f`, `generic_g0.t[int]`},
 
 		// issue 45096
-		{genericPkg + `issue45096; func _[T interface{ ~int8 | ~int16 | ~int32  }](x T) { _ = x < 0 }`, `0`, `generic_issue45096.T`},
+		{genericPkg + `issue45096; func _[T interface{ ~int8 | ~int16 | ~int32  }](x T) { _ = x < 0 }`, `0`, `T`},
 
 		// issue 47895
 		{`package p; import "unsafe"; type S struct { f int }; var s S; var _ = unsafe.Offsetof(s.f)`, `s.f`, `int`},
@@ -1657,6 +1661,56 @@ func TestAssignableTo(t *testing.T) {
 	}
 }
 
+func TestIdentical(t *testing.T) {
+	// For each test, we compare the types of objects X and Y in the source.
+	tests := []struct {
+		src  string
+		want bool
+	}{
+		// Basic types.
+		{"var X int; var Y int", true},
+		{"var X int; var Y string", false},
+
+		// TODO: add more tests for complex types.
+
+		// Named types.
+		{"type X int; type Y int", false},
+
+		// Aliases.
+		{"type X = int; type Y = int", true},
+
+		// Functions.
+		{`func X(int) string { return "" }; func Y(int) string { return "" }`, true},
+		{`func X() string { return "" }; func Y(int) string { return "" }`, false},
+		{`func X(int) string { return "" }; func Y(int) {}`, false},
+
+		// Generic functions. Type parameters should be considered identical modulo
+		// renaming. See also issue #49722.
+		{`func X[P ~int](){}; func Y[Q ~int]() {}`, true},
+		{`func X[P1 any, P2 ~*P1](){}; func Y[Q1 any, Q2 ~*Q1]() {}`, true},
+		{`func X[P1 any, P2 ~[]P1](){}; func Y[Q1 any, Q2 ~*Q1]() {}`, false},
+		{`func X[P ~int](P){}; func Y[Q ~int](Q) {}`, true},
+		{`func X[P ~string](P){}; func Y[Q ~int](Q) {}`, false},
+		{`func X[P ~int]([]P){}; func Y[Q ~int]([]Q) {}`, true},
+	}
+
+	for _, test := range tests {
+		pkg, err := pkgForMode("test", "package p;"+test.src, nil, 0)
+		if err != nil {
+			t.Errorf("%s: incorrect test case: %s", test.src, err)
+			continue
+		}
+		X := pkg.Scope().Lookup("X")
+		Y := pkg.Scope().Lookup("Y")
+		if X == nil || Y == nil {
+			t.Fatal("test must declare both X and Y")
+		}
+		if got := Identical(X.Type(), Y.Type()); got != test.want {
+			t.Errorf("Identical(%s, %s) = %t, want %t", X.Type(), Y.Type(), got, test.want)
+		}
+	}
+}
+
 func TestIdentical_issue15173(t *testing.T) {
 	// Identical should allow nil arguments and be symmetric.
 	for _, test := range []struct {
@@ -1938,8 +1992,8 @@ func f(x T) T { return foo.F(x) }
 
 func TestInstantiate(t *testing.T) {
 	// eventually we like more tests but this is a start
-	const src = genericPkg + "p; type T[P any] *T[P]"
-	pkg, err := pkgFor(".", src, nil)
+	const src = "package p; type T[P any] *T[P]"
+	pkg, err := pkgForMode(".", src, nil, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1976,8 +2030,8 @@ func TestInstantiateErrors(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		src := genericPkg + "p; " + test.src
-		pkg, err := pkgFor(".", src, nil)
+		src := "package p; " + test.src
+		pkg, err := pkgForMode(".", src, nil, 0)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -2037,5 +2091,109 @@ func TestInstanceIdentity(t *testing.T) {
 	b := imports["generic_b"].Scope().Lookup("B")
 	if !Identical(a.Type(), b.Type()) {
 		t.Errorf("mismatching types: a.A: %s, b.B: %s", a.Type(), b.Type())
+	}
+}
+
+func TestImplements(t *testing.T) {
+	const src = `
+package p
+
+type EmptyIface interface{}
+
+type I interface {
+	m()
+}
+
+type C interface {
+	m()
+	~int
+}
+
+type Integer interface{
+	int8 | int16 | int32 | int64
+}
+
+type EmptyTypeSet interface{
+	Integer
+	~string
+}
+
+type N1 int
+func (N1) m() {}
+
+type N2 int
+func (*N2) m() {}
+
+type N3 int
+func (N3) m(int) {}
+
+type N4 string
+func (N4) m()
+
+type Bad Bad // invalid type
+`
+
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, "p.go", src, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	conf := Config{Error: func(error) {}}
+	pkg, _ := conf.Check(f.Name.Name, fset, []*ast.File{f}, nil)
+
+	scope := pkg.Scope()
+	var (
+		EmptyIface   = scope.Lookup("EmptyIface").Type().Underlying().(*Interface)
+		I            = scope.Lookup("I").Type().(*Named)
+		II           = I.Underlying().(*Interface)
+		C            = scope.Lookup("C").Type().(*Named)
+		CI           = C.Underlying().(*Interface)
+		Integer      = scope.Lookup("Integer").Type().Underlying().(*Interface)
+		EmptyTypeSet = scope.Lookup("EmptyTypeSet").Type().Underlying().(*Interface)
+		N1           = scope.Lookup("N1").Type()
+		N1p          = NewPointer(N1)
+		N2           = scope.Lookup("N2").Type()
+		N2p          = NewPointer(N2)
+		N3           = scope.Lookup("N3").Type()
+		N4           = scope.Lookup("N4").Type()
+		Bad          = scope.Lookup("Bad").Type()
+	)
+
+	tests := []struct {
+		t    Type
+		i    *Interface
+		want bool
+	}{
+		{I, II, true},
+		{I, CI, false},
+		{C, II, true},
+		{C, CI, true},
+		{Typ[Int8], Integer, true},
+		{Typ[Int64], Integer, true},
+		{Typ[String], Integer, false},
+		{EmptyTypeSet, II, true},
+		{EmptyTypeSet, EmptyTypeSet, true},
+		{Typ[Int], EmptyTypeSet, false},
+		{N1, II, true},
+		{N1, CI, true},
+		{N1p, II, true},
+		{N1p, CI, false},
+		{N2, II, false},
+		{N2, CI, false},
+		{N2p, II, true},
+		{N2p, CI, false},
+		{N3, II, false},
+		{N3, CI, false},
+		{N4, II, true},
+		{N4, CI, false},
+		{Bad, II, false},
+		{Bad, CI, false},
+		{Bad, EmptyIface, true},
+	}
+
+	for _, test := range tests {
+		if got := Implements(test.t, test.i); got != test.want {
+			t.Errorf("Implements(%s, %s) = %t, want %t", test.t, test.i, got, test.want)
+		}
 	}
 }

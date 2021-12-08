@@ -160,7 +160,7 @@ func AddImplicitDots(n *ir.SelectorExpr) *ir.SelectorExpr {
 	case path != nil:
 		// rebuild elided dots
 		for c := len(path) - 1; c >= 0; c-- {
-			dot := ir.NewSelectorExpr(base.Pos, ir.ODOT, n.X, path[c].field.Sym)
+			dot := ir.NewSelectorExpr(n.Pos(), ir.ODOT, n.X, path[c].field.Sym)
 			dot.SetImplicit(true)
 			dot.SetType(path[c].field.Type)
 			n.X = dot
@@ -1421,7 +1421,9 @@ func Shapify(t *types.Type, index int) *types.Type {
 
 	// All pointers have the same shape.
 	// TODO: Make unsafe.Pointer the same shape as normal pointers.
-	if u.Kind() == types.TPTR {
+	// Note: pointers to arrays are special because of slice-to-array-pointer
+	// conversions. See issue 49295.
+	if u.Kind() == types.TPTR && u.Elem().Kind() != types.TARRAY {
 		u = types.Types[types.TUINT8].PtrTo()
 	}
 

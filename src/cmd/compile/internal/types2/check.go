@@ -39,22 +39,24 @@ type exprInfo struct {
 	val   constant.Value // constant value; or nil (if not a constant)
 }
 
-// A context represents the context within which an object is type-checked.
-type context struct {
+// An environment represents the environment within which an object is
+// type-checked.
+type environment struct {
 	decl          *declInfo                 // package-level declaration whose init expression/function body is checked
 	scope         *Scope                    // top-most scope for lookups
 	pos           syntax.Pos                // if valid, identifiers are looked up as if at position pos (used by Eval)
 	iota          constant.Value            // value of iota in a constant declaration; nil otherwise
 	errpos        syntax.Pos                // if valid, identifier position of a constant with inherited initializer
+	inTParamList  bool                      // set if inside a type parameter list
 	sig           *Signature                // function signature if inside a function; nil otherwise
 	isPanic       map[*syntax.CallExpr]bool // set of panic call expressions (used for termination check)
 	hasLabel      bool                      // set if a function makes use of labels (only ~1% of functions); unused outside functions
 	hasCallOrRecv bool                      // set if an expression contains a function call or channel receive operation
 }
 
-// lookup looks up name in the current context and returns the matching object, or nil.
-func (ctxt *context) lookup(name string) Object {
-	_, obj := ctxt.scope.LookupParent(name, ctxt.pos)
+// lookup looks up name in the current environment and returns the matching object, or nil.
+func (env *environment) lookup(name string) Object {
+	_, obj := env.scope.LookupParent(name, env.pos)
 	return obj
 }
 
@@ -102,6 +104,7 @@ type Checker struct {
 	// package information
 	// (initialized by NewChecker, valid for the life-time of checker)
 	conf *Config
+	ctxt *Context // context for de-duplicating instances
 	pkg  *Package
 	*Info
 	version version                // accepted language version
@@ -135,9 +138,9 @@ type Checker struct {
 	objPath  []Object                 // path of object dependencies during type inference (for cycle reporting)
 	defTypes []*Named                 // defined types created during type checking, for final validation.
 
-	// context within which the current object is type-checked
-	// (valid only for the duration of type-checking a specific object)
-	context
+	// environment within which the current object is type-checked (valid only
+	// for the duration of type-checking a specific object)
+	environment
 
 	// debugging
 	indent int // indentation for tracing
@@ -199,11 +202,6 @@ func NewChecker(conf *Config, pkg *Package, info *Info) *Checker {
 		conf = new(Config)
 	}
 
-	// make sure we have a context
-	if conf.Context == nil {
-		conf.Context = NewContext()
-	}
-
 	// make sure we have an info struct
 	if info == nil {
 		info = new(Info)
@@ -216,6 +214,7 @@ func NewChecker(conf *Config, pkg *Package, info *Info) *Checker {
 
 	return &Checker{
 		conf:    conf,
+		ctxt:    conf.Context,
 		pkg:     pkg,
 		Info:    info,
 		version: version,
@@ -332,6 +331,7 @@ func (check *Checker) checkFiles(files []*syntax.File) (err error) {
 	check.seenPkgMap = nil
 	check.recvTParamMap = nil
 	check.defTypes = nil
+	check.ctxt = nil
 
 	// TODO(gri) There's more memory we should release at this point.
 
@@ -430,9 +430,9 @@ func (check *Checker) recordTypeAndValue(x syntax.Expr, mode operandMode, typ Ty
 	}
 	if mode == constant_ {
 		assert(val != nil)
-		// We check is(typ, IsConstType) here as constant expressions may be
+		// We check allBasic(typ, IsConstType) here as constant expressions may be
 		// recorded as type parameters.
-		assert(typ == Typ[Invalid] || is(typ, IsConstType))
+		assert(typ == Typ[Invalid] || allBasic(typ, IsConstType))
 	}
 	if m := check.Types; m != nil {
 		m[x] = TypeAndValue{mode, typ, val}
@@ -494,7 +494,7 @@ func (check *Checker) recordInstance(expr syntax.Expr, targs []Type, typ Type) {
 	assert(ident != nil)
 	assert(typ != nil)
 	if m := check.Instances; m != nil {
-		m[ident] = Instance{NewTypeList(targs), typ}
+		m[ident] = Instance{newTypeList(targs), typ}
 	}
 }
 

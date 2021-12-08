@@ -796,21 +796,17 @@ func (p *PageAlloc) Free(base, npages uintptr) {
 		// None of the tests need any higher-level locking, so we just
 		// take the lock internally.
 		lock(pp.mheapLock)
-		pp.free(base, npages)
+		pp.free(base, npages, true)
 		unlock(pp.mheapLock)
 	})
 }
 func (p *PageAlloc) Bounds() (ChunkIdx, ChunkIdx) {
 	return ChunkIdx((*pageAlloc)(p).start), ChunkIdx((*pageAlloc)(p).end)
 }
-func (p *PageAlloc) Scavenge(nbytes uintptr, mayUnlock bool) (r uintptr) {
+func (p *PageAlloc) Scavenge(nbytes uintptr) (r uintptr) {
 	pp := (*pageAlloc)(p)
 	systemstack(func() {
-		// None of the tests need any higher-level locking, so we just
-		// take the lock internally.
-		lock(pp.mheapLock)
-		r = pp.scavenge(nbytes, mayUnlock)
-		unlock(pp.mheapLock)
+		r = pp.scavenge(nbytes)
 	})
 	return
 }
@@ -1052,7 +1048,19 @@ func FreePageAlloc(pp *PageAlloc) {
 //
 // This should not be higher than 0x100*pallocChunkBytes to support
 // mips and mipsle, which only have 31-bit address spaces.
-var BaseChunkIdx = ChunkIdx(chunkIndex(((0xc000*pageAlloc64Bit + 0x100*pageAlloc32Bit) * pallocChunkBytes) + arenaBaseOffset*goos.IsAix))
+var BaseChunkIdx = func() ChunkIdx {
+	var prefix uintptr
+	if pageAlloc64Bit != 0 {
+		prefix = 0xc000
+	} else {
+		prefix = 0x100
+	}
+	baseAddr := prefix * pallocChunkBytes
+	if goos.IsAix != 0 {
+		baseAddr += arenaBaseOffset
+	}
+	return ChunkIdx(chunkIndex(baseAddr))
+}()
 
 // PageBase returns an address given a chunk index and a page index
 // relative to that chunk.
@@ -1290,7 +1298,9 @@ type GCControllerReviseDelta struct {
 func (c *GCController) Revise(d GCControllerReviseDelta) {
 	c.heapLive += uint64(d.HeapLive)
 	c.heapScan += uint64(d.HeapScan)
-	c.scanWork += d.HeapScanWork + d.StackScanWork + d.GlobalsScanWork
+	c.heapScanWork.Add(d.HeapScanWork)
+	c.stackScanWork.Add(d.StackScanWork)
+	c.globalsScanWork.Add(d.GlobalsScanWork)
 	c.revise()
 }
 
@@ -1308,4 +1318,13 @@ func escape(x interface{}) interface{} {
 	escapeSink = x
 	escapeSink = nil
 	return x
+}
+
+// Acquirem blocks preemption.
+func Acquirem() {
+	acquirem()
+}
+
+func Releasem() {
+	releasem(getg().m)
 }

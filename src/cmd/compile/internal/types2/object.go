@@ -389,6 +389,8 @@ func (obj *Func) FullName() string {
 }
 
 // Scope returns the scope of the function's body block.
+// The result is nil for imported or instantiated functions and methods
+// (but there is also no mechanism to get to an instantiated function).
 func (obj *Func) Scope() *Scope { return obj.typ.(*Signature).scope }
 
 // hasPtrRecv reports whether the receiver is of the form *T for the given method obj.
@@ -458,6 +460,9 @@ func writeObject(buf *bytes.Buffer, obj Object, qf Qualifier) {
 	case *TypeName:
 		tname = obj
 		buf.WriteString("type")
+		if isTypeParam(typ) {
+			buf.WriteString(" parameter")
+		}
 
 	case *Var:
 		if obj.isField {
@@ -503,20 +508,32 @@ func writeObject(buf *bytes.Buffer, obj Object, qf Qualifier) {
 	}
 
 	if tname != nil {
-		// We have a type object: Don't print anything more for
-		// basic types since there's no more information (names
-		// are the same; see also comment in TypeName.IsAlias).
-		if _, ok := typ.(*Basic); ok {
+		switch t := typ.(type) {
+		case *Basic:
+			// Don't print anything more for basic types since there's
+			// no more information.
 			return
-		}
-		if named, _ := typ.(*Named); named != nil && named.TypeParams().Len() > 0 {
-			newTypeWriter(buf, qf).tParamList(named.TypeParams().list())
+		case *Named:
+			if t.TypeParams().Len() > 0 {
+				newTypeWriter(buf, qf).tParamList(t.TypeParams().list())
+			}
 		}
 		if tname.IsAlias() {
 			buf.WriteString(" =")
+		} else if t, _ := typ.(*TypeParam); t != nil {
+			typ = t.bound
 		} else {
+			// TODO(gri) should this be fromRHS for *Named?
 			typ = under(typ)
 		}
+	}
+
+	// Special handling for any: because WriteType will format 'any' as 'any',
+	// resulting in the object string `type any = any` rather than `type any =
+	// interface{}`. To avoid this, swap in a different empty interface.
+	if obj == universeAny {
+		assert(Identical(typ, &emptyInterface))
+		typ = &emptyInterface
 	}
 
 	buf.WriteByte(' ')

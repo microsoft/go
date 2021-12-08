@@ -18,7 +18,7 @@ type Signature struct {
 	// We then unpack the *Signature and use the scope for the literal body.
 	rparams  *TypeParamList // receiver type parameters from left to right, or nil
 	tparams  *TypeParamList // type parameters from left to right, or nil
-	scope    *Scope         // function scope, present for package-local signatures
+	scope    *Scope         // function scope for package-local and non-instantiated signatures; nil otherwise
 	recv     *Var           // nil if not a method
 	params   *Tuple         // (incoming) parameters from left to right; or nil
 	results  *Tuple         // (outgoing) results from left to right; or nil
@@ -216,7 +216,7 @@ func (check *Checker) funcType(sig *Signature, recvPar *syntax.Field, tparams []
 			var err string
 			switch T := rtyp.(type) {
 			case *Named:
-				T.resolve(check.conf.Context)
+				T.resolve(check.bestContext(nil))
 				// The receiver type may be an instantiated type referred to
 				// by an alias (which cannot have receiver parameters for now).
 				if T.TypeArgs() != nil && sig.RecvTypeParams() == nil {

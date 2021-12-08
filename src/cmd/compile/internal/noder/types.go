@@ -26,6 +26,8 @@ func (g *irgen) pkg(pkg *types2.Package) *types.Pkg {
 	return types.NewPkg(pkg.Path(), pkg.Name())
 }
 
+var universeAny = types2.Universe.Lookup("any").Type()
+
 // typ converts a types2.Type to a types.Type, including caching of previously
 // translated types.
 func (g *irgen) typ(typ types2.Type) *types.Type {
@@ -53,6 +55,12 @@ func (g *irgen) typ(typ types2.Type) *types.Type {
 // constructed part of a recursive type. Should not be called from outside this
 // file (g.typ is the "external" entry point).
 func (g *irgen) typ1(typ types2.Type) *types.Type {
+	// See issue 49583: the type checker has trouble keeping track of aliases,
+	// but for such a common alias as any we can improve things by preserving a
+	// pointer identity that can be checked when formatting type strings.
+	if typ == universeAny {
+		return types.AnyType
+	}
 	// Cache type2-to-type mappings. Important so that each defined generic
 	// type (instantiated or not) has a single types.Type representation.
 	// Also saves a lot of computation and memory by avoiding re-translating
@@ -221,6 +229,7 @@ func (g *irgen) typ0(typ types2.Type) *types.Type {
 		pkg := g.tpkg(typ)
 		// Create the unique types1 name for a type param, using its context with a
 		// function, type, or method declaration.
+		assert(g.curDecl != "")
 		nm := g.curDecl + "." + typ.Obj().Name()
 		sym := pkg.Lookup(nm)
 		if sym.Def != nil {
@@ -323,11 +332,15 @@ func (g *irgen) fillinMethods(typ *types2.Named, ntyp *types.Type) {
 				tparams := make([]*types.Type, rparams.Len())
 				// Set g.curDecl to be the method context, so type
 				// params in the receiver of the method that we are
-				// translating gets the right unique name.
+				// translating gets the right unique name. We could
+				// be in a top-level typeDecl, so save and restore
+				// the current contents of g.curDecl.
+				savedCurDecl := g.curDecl
 				g.curDecl = typ.Obj().Name() + "." + m.Name()
 				for i := range tparams {
 					tparams[i] = g.typ1(rparams.At(i))
 				}
+				g.curDecl = savedCurDecl
 				assert(len(tparams) == len(targs))
 				ts := typecheck.Tsubster{
 					Tparams: tparams,

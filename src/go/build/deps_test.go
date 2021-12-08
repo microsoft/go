@@ -436,7 +436,7 @@ var depsRules = `
 	CRYPTO-MATH, NET, container/list, encoding/hex, encoding/pem
 	< golang.org/x/crypto/internal/subtle
 	< golang.org/x/crypto/chacha20
-	< golang.org/x/crypto/poly1305
+	< golang.org/x/crypto/internal/poly1305
 	< golang.org/x/crypto/chacha20poly1305
 	< golang.org/x/crypto/hkdf
 	< crypto/x509/internal/macos
@@ -544,6 +544,9 @@ var depsRules = `
 
 	NET, testing, math/rand
 	< golang.org/x/net/nettest;
+
+	syscall
+	< os/exec/internal/fdtest;
 
 	FMT, container/heap, math/rand
 	< internal/trace;

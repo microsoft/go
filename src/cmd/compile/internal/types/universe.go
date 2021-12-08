@@ -59,6 +59,7 @@ func InitTypes(defTypeName func(sym *Sym, typ *Type) Object) {
 
 	Types[TANY] = newType(TANY)
 	Types[TINTER] = NewInterface(LocalPkg, nil, false)
+	CheckSize(Types[TINTER])
 
 	defBasic := func(kind Kind, pkg *Pkg, name string) *Type {
 		typ := newType(kind)
@@ -108,11 +109,14 @@ func InitTypes(defTypeName func(sym *Sym, typ *Type) Object) {
 	ResumeCheckSize()
 
 	// any type (interface)
-	if base.Flag.G > 0 {
-		DeferCheckSize()
-		AnyType = defBasic(TFORW, BuiltinPkg, "any")
-		AnyType.SetUnderlying(NewInterface(NoPkg, []*Field{}, false))
-		ResumeCheckSize()
+	DeferCheckSize()
+	AnyType = defBasic(TFORW, BuiltinPkg, "any")
+	AnyType.SetUnderlying(NewInterface(NoPkg, []*Field{}, false))
+	ResumeCheckSize()
+
+	if base.Flag.G == 0 {
+		ComparableType.Sym().Def = nil
+		AnyType.Sym().Def = nil
 	}
 
 	Types[TUNSAFEPTR] = defBasic(TUNSAFEPTR, UnsafePkg, "Pointer")
@@ -148,8 +152,8 @@ func makeErrorInterface() *Type {
 	return NewInterface(NoPkg, []*Field{method}, false)
 }
 
+// makeComparableInterface makes the the predefined "comparable" interface in the
+// built-in package. It has a unique name, but no methods.
 func makeComparableInterface() *Type {
-	sig := NewSignature(NoPkg, FakeRecv(), nil, nil, nil)
-	method := NewField(src.NoXPos, LocalPkg.Lookup("=="), sig)
-	return NewInterface(NoPkg, []*Field{method}, false)
+	return NewInterface(NoPkg, nil, false)
 }

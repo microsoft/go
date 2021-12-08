@@ -25,6 +25,7 @@
 // 	install     compile and install packages and dependencies
 // 	list        list packages or modules
 // 	mod         module maintenance
+// 	work        workspace maintenance
 // 	run         compile and run Go program
 // 	test        test packages
 // 	tool        run specified go tool
@@ -367,9 +368,8 @@
 // path. The go tool's usual package mechanism does not apply: package path
 // elements like . and ... are not implemented by go doc.
 //
-// When run with two arguments, the first must be a full package path (not just a
-// suffix), and the second is a symbol, or symbol with method or struct field.
-// This is similar to the syntax accepted by godoc:
+// When run with two arguments, the first is a package path (full path or suffix),
+// and the second is a symbol, or symbol with method or struct field:
 //
 // 	go doc <pkg> <sym>[.<methodOrField>]
 //
@@ -1055,10 +1055,8 @@
 //
 // 	download    download modules to local cache
 // 	edit        edit go.mod from tools or scripts
-// 	editwork    edit go.work from tools or scripts
 // 	graph       print module requirement graph
 // 	init        initialize new module in current directory
-// 	initwork    initialize workspace file
 // 	tidy        add missing and remove unused modules
 // 	vendor      make vendored copy of dependencies
 // 	verify      verify dependencies have expected content
@@ -1074,8 +1072,11 @@
 //
 // Download downloads the named modules, which can be module patterns selecting
 // dependencies of the main module or module queries of the form path@version.
-// With no arguments, download applies to all dependencies of the main module
-// (equivalent to 'go mod download all').
+//
+// With no arguments, download applies to the modules needed to build and test
+// the packages in the main module: the modules explicitly required by the main
+// module if it is at 'go 1.17' or higher, or all transitively-required modules
+// if at 'go 1.16' or lower.
 //
 // The go command will automatically download modules as needed during ordinary
 // execution. The "go mod download" command is useful mainly for pre-filling
@@ -1215,77 +1216,6 @@
 // See https://golang.org/ref/mod#go-mod-edit for more about 'go mod edit'.
 //
 //
-// Edit go.work from tools or scripts
-//
-// Usage:
-//
-// 	go mod editwork [editing flags] [go.work]
-//
-// Editwork provides a command-line interface for editing go.work,
-// for use primarily by tools or scripts. It only reads go.work;
-// it does not look up information about the modules involved.
-// If no file is specified, editwork looks for a go.work file in the current
-// directory and its parent directories
-//
-// The editing flags specify a sequence of editing operations.
-//
-// The -fmt flag reformats the go.work file without making other changes.
-// This reformatting is also implied by any other modifications that use or
-// rewrite the go.mod file. The only time this flag is needed is if no other
-// flags are specified, as in 'go mod editwork -fmt'.
-//
-// The -directory=path and -dropdirectory=path flags
-// add and drop a directory from the go.work files set of module directories.
-//
-// The -replace=old[@v]=new[@v] flag adds a replacement of the given
-// module path and version pair. If the @v in old@v is omitted, a
-// replacement without a version on the left side is added, which applies
-// to all versions of the old module path. If the @v in new@v is omitted,
-// the new path should be a local module root directory, not a module
-// path. Note that -replace overrides any redundant replacements for old[@v],
-// so omitting @v will drop existing replacements for specific versions.
-//
-// The -dropreplace=old[@v] flag drops a replacement of the given
-// module path and version pair. If the @v is omitted, a replacement without
-// a version on the left side is dropped.
-//
-// The -directory, -dropdirectory, -replace, and -dropreplace,
-// editing flags may be repeated, and the changes are applied in the order given.
-//
-// The -go=version flag sets the expected Go language version.
-//
-// The -print flag prints the final go.work in its text format instead of
-// writing it back to go.mod.
-//
-// The -json flag prints the final go.work file in JSON format instead of
-// writing it back to go.mod. The JSON output corresponds to these Go types:
-//
-// 	type Module struct {
-// 		Path    string
-// 		Version string
-// 	}
-//
-// 	type GoWork struct {
-// 		Go        string
-// 		Directory []Directory
-// 		Replace   []Replace
-// 	}
-//
-// 	type Directory struct {
-// 		Path       string
-// 		ModulePath string
-// 	}
-//
-// 	type Replace struct {
-// 		Old Module
-// 		New Module
-// 	}
-//
-// See the workspaces design proposal at
-// https://go.googlesource.com/proposal/+/master/design/45713-workspace.md for
-// more information.
-//
-//
 // Print module requirement graph
 //
 // Usage:
@@ -1323,23 +1253,6 @@
 // import module requirements from it.
 //
 // See https://golang.org/ref/mod#go-mod-init for more about 'go mod init'.
-//
-//
-// Initialize workspace file
-//
-// Usage:
-//
-// 	go mod initwork [moddirs]
-//
-// go mod initwork initializes and writes a new go.work file in the current
-// directory, in effect creating a new workspace at the current directory.
-//
-// go mod initwork optionally accepts paths to the workspace modules as arguments.
-// If the argument is omitted, an empty workspace with no modules will be created.
-//
-// See the workspaces design proposal at
-// https://go.googlesource.com/proposal/+/master/design/45713-workspace.md for
-// more information.
 //
 //
 // Add missing and remove unused modules
@@ -1381,7 +1294,7 @@
 //
 // Usage:
 //
-// 	go mod vendor [-e] [-v]
+// 	go mod vendor [-e] [-v] [-o outdir]
 //
 // Vendor resets the main module's vendor directory to include all packages
 // needed to build and test all the main module's packages.
@@ -1392,6 +1305,11 @@
 //
 // The -e flag causes vendor to attempt to proceed despite errors
 // encountered while loading packages.
+//
+// The -o flag causes vendor to create the vendor directory at the given
+// path instead of "vendor". The go command can only use a vendor directory
+// named "vendor" within the module root directory, so this flag is
+// primarily useful for other tools.
 //
 // See https://golang.org/ref/mod#go-mod-vendor for more about 'go mod vendor'.
 //
@@ -1448,6 +1366,148 @@
 // 	$
 //
 // See https://golang.org/ref/mod#go-mod-why for more about 'go mod why'.
+//
+//
+// Workspace maintenance
+//
+// Go workspace provides access to operations on workspaces.
+//
+// Note that support for workspaces is built into many other commands,
+// not just 'go work'.
+//
+// See 'go help modules' for information about Go's module system of
+// which workspaces are a part.
+//
+// A workspace is specified by a go.work file that specifies a set of
+// module directories with the "use" directive. These modules are used
+// as root modules by the go command for builds and related operations.
+// A workspace that does not specify modules to be used cannot be used
+// to do builds from local modules.
+//
+// To determine whether the go command is operating in workspace mode,
+// use the "go env GOWORK" command. This will specify the workspace
+// file being used.
+//
+// Usage:
+//
+// 	go work <command> [arguments]
+//
+// The commands are:
+//
+// 	edit        edit go.work from tools or scripts
+// 	init        initialize workspace file
+// 	sync        sync workspace build list to modules
+// 	use         add modules to workspace file
+//
+// Use "go help work <command>" for more information about a command.
+//
+// Edit go.work from tools or scripts
+//
+// Usage:
+//
+// 	go work edit [editing flags] [go.work]
+//
+// Edit provides a command-line interface for editing go.work,
+// for use primarily by tools or scripts. It only reads go.work;
+// it does not look up information about the modules involved.
+// If no file is specified, Edit looks for a go.work file in the current
+// directory and its parent directories
+//
+// The editing flags specify a sequence of editing operations.
+//
+// The -fmt flag reformats the go.work file without making other changes.
+// This reformatting is also implied by any other modifications that use or
+// rewrite the go.mod file. The only time this flag is needed is if no other
+// flags are specified, as in 'go work edit -fmt'.
+//
+// The -use=path and -dropuse=path flags
+// add and drop a use directive from the go.work file's set of module directories.
+//
+// The -replace=old[@v]=new[@v] flag adds a replacement of the given
+// module path and version pair. If the @v in old@v is omitted, a
+// replacement without a version on the left side is added, which applies
+// to all versions of the old module path. If the @v in new@v is omitted,
+// the new path should be a local module root directory, not a module
+// path. Note that -replace overrides any redundant replacements for old[@v],
+// so omitting @v will drop existing replacements for specific versions.
+//
+// The -dropreplace=old[@v] flag drops a replacement of the given
+// module path and version pair. If the @v is omitted, a replacement without
+// a version on the left side is dropped.
+//
+// The -use, -dropuse, -replace, and -dropreplace,
+// editing flags may be repeated, and the changes are applied in the order given.
+//
+// The -go=version flag sets the expected Go language version.
+//
+// The -print flag prints the final go.work in its text format instead of
+// writing it back to go.mod.
+//
+// The -json flag prints the final go.work file in JSON format instead of
+// writing it back to go.mod. The JSON output corresponds to these Go types:
+//
+// 	type Module struct {
+// 		Path    string
+// 		Version string
+// 	}
+//
+// 	type GoWork struct {
+// 		Go        string
+// 		Directory []Directory
+// 		Replace   []Replace
+// 	}
+//
+// 	type Use struct {
+// 		Path       string
+// 		ModulePath string
+// 	}
+//
+// 	type Replace struct {
+// 		Old Module
+// 		New Module
+// 	}
+//
+// See the workspaces design proposal at
+// https://go.googlesource.com/proposal/+/master/design/45713-workspace.md for
+// more information.
+//
+//
+// Initialize workspace file
+//
+// Usage:
+//
+// 	go work init [moddirs]
+//
+// Init initializes and writes a new go.work file in the current
+// directory, in effect creating a new workspace at the current directory.
+//
+// go work init optionally accepts paths to the workspace modules as arguments.
+// If the argument is omitted, an empty workspace with no modules will be created.
+//
+// See the workspaces design proposal at
+// https://go.googlesource.com/proposal/+/master/design/45713-workspace.md for
+// more information.
+//
+//
+// Sync workspace build list to modules
+//
+// Usage:
+//
+// 	go work sync [moddirs]
+//
+// go work sync
+//
+//
+// Add modules to workspace file
+//
+// Usage:
+//
+// 	go work use [-r] [moddirs]
+//
+// Use provides a command-line interface for adding directories,
+// optionally recursively, to a go.work file.
+//
+// The -r flag searches recursively for modules in the argument directories.
 //
 //
 // Compile and run Go program
@@ -1509,7 +1569,7 @@
 // 'Go test' recompiles each package along with any files with names matching
 // the file pattern "*_test.go".
 // These additional files can contain test functions, benchmark functions, fuzz
-// targets and example functions. See 'go help testfunc' for more.
+// tests and example functions. See 'go help testfunc' for more.
 // Each listed package causes the execution of a separate test binary.
 // Files whose names begin with "_" (including "_test.go") or "." are ignored.
 //
@@ -2758,7 +2818,7 @@
 // 	    Run each test, benchmark, and fuzz seed n times (default 1).
 // 	    If -cpu is set, run n times for each GOMAXPROCS value.
 // 	    Examples are always run once. -count does not apply to
-// 	    fuzz targets matched by -fuzz.
+// 	    fuzz tests matched by -fuzz.
 //
 // 	-cover
 // 	    Enable coverage analysis.
@@ -2786,20 +2846,19 @@
 //
 // 	-cpu 1,2,4
 // 	    Specify a list of GOMAXPROCS values for which the tests, benchmarks or
-// 	    fuzz targets should be executed. The default is the current value
-// 	    of GOMAXPROCS. -cpu does not apply to fuzz targets matched by -fuzz.
+// 	    fuzz tests should be executed. The default is the current value
+// 	    of GOMAXPROCS. -cpu does not apply to fuzz tests matched by -fuzz.
 //
 // 	-failfast
 // 	    Do not start new tests after the first test failure.
 //
 // 	-fuzz regexp
-// 	    Run the fuzz target matching the regular expression. When specified,
+// 	    Run the fuzz test matching the regular expression. When specified,
 // 	    the command line argument must match exactly one package within the
-// 	    main module, and regexp must match exactly one fuzz target within
-// 	    that package. After tests, benchmarks, seed corpora of other fuzz
-// 	    targets, and examples have completed, the matching target will be
-// 	    fuzzed. See the Fuzzing section of the testing package documentation
-// 	    for details.
+// 	    main module, and regexp must match exactly one fuzz test within
+// 	    that package. Fuzzing will occur after tests, benchmarks, seed corpora
+// 	    of other fuzz tests, and examples have completed. See the Fuzzing
+// 	    section of the testing package documentation for details.
 //
 // 	-fuzztime t
 // 	    Run enough iterations of the fuzz test to take t, specified as a
@@ -2813,14 +2872,14 @@
 // 	    same information as the -v flag in a machine-readable format.
 //
 // 	-list regexp
-// 	    List tests, benchmarks, fuzz targets, or examples matching the regular
-// 	    expression. No tests, benchmarks, fuzz targets, or examples will be run.
+// 	    List tests, benchmarks, fuzz tests, or examples matching the regular
+// 	    expression. No tests, benchmarks, fuzz tests, or examples will be run.
 // 	    This will only list top-level tests. No subtest or subbenchmarks will be
 // 	    shown.
 //
 // 	-parallel n
 // 	    Allow parallel execution of test functions that call t.Parallel, and
-// 	    f.Fuzz functions that call t.Parallel when running the seed corpus.
+// 	    fuzz targets that call t.Parallel when running the seed corpus.
 // 	    The value of this flag is the maximum number of tests to run
 // 	    simultaneously.
 // 	    While fuzzing, the value of this flag is the maximum number of
@@ -2835,7 +2894,7 @@
 // 	    (see 'go help build').
 //
 // 	-run regexp
-// 	    Run only those tests, examples, and fuzz targets matching the regular
+// 	    Run only those tests, examples, and fuzz tests matching the regular
 // 	    expression. For tests, the regular expression is split by unbracketed
 // 	    slash (/) characters into a sequence of regular expressions, and each
 // 	    part of a test's identifier must match the corresponding element in
@@ -2851,11 +2910,11 @@
 // 	    exhaustive tests.
 //
 // 	-shuffle off,on,N
-// 		Randomize the execution order of tests and benchmarks.
-// 		It is off by default. If -shuffle is set to on, then it will seed
-// 		the randomizer using the system clock. If -shuffle is set to an
-// 		integer N, then N will be used as the seed value. In both cases,
-// 		the seed will be reported for reproducibility.
+// 	    Randomize the execution order of tests and benchmarks.
+// 	    It is off by default. If -shuffle is set to on, then it will seed
+// 	    the randomizer using the system clock. If -shuffle is set to an
+// 	    integer N, then N will be used as the seed value. In both cases,
+// 	    the seed will be reported for reproducibility.
 //
 // 	-timeout d
 // 	    If a test binary runs longer than duration d, panic.
@@ -3009,7 +3068,7 @@
 //
 // 	func BenchmarkXxx(b *testing.B) { ... }
 //
-// A fuzz target is one named FuzzXxx and should have the signature,
+// A fuzz test is one named FuzzXxx and should have the signature,
 //
 // 	func FuzzXxx(f *testing.F) { ... }
 //
@@ -3052,7 +3111,7 @@
 //
 // The entire test file is presented as the example when it contains a single
 // example function, at least one other function, type, variable, or constant
-// declaration, and no fuzz targets or test or benchmark functions.
+// declaration, and no tests, benchmarks, or fuzz tests.
 //
 // See the documentation of the testing package for more information.
 //

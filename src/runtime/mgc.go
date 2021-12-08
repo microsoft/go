@@ -320,10 +320,19 @@ var work struct {
 	nwait  uint32
 
 	// Number of roots of various root types. Set by gcMarkRootPrepare.
+	//
+	// nStackRoots == len(stackRoots), but we have nStackRoots for
+	// consistency.
 	nDataRoots, nBSSRoots, nSpanRoots, nStackRoots int
 
 	// Base indexes of each root type. Set by gcMarkRootPrepare.
 	baseData, baseBSS, baseSpans, baseStacks, baseEnd uint32
+
+	// stackRoots is a snapshot of all of the Gs that existed
+	// before the beginning of concurrent marking. The backing
+	// store of this must not be modified because it might be
+	// shared with allgs.
+	stackRoots []*g
 
 	// Each type of GC state transition is protected by a lock.
 	// Since multiple threads can simultaneously detect the state
@@ -545,7 +554,7 @@ func (t gcTrigger) test() bool {
 		// own write.
 		return gcController.heapLive >= gcController.trigger
 	case gcTriggerTime:
-		if atomic.Loadint32(&gcController.gcPercent) < 0 {
+		if gcController.gcPercent.Load() < 0 {
 			return false
 		}
 		lastgc := int64(atomic.Load64(&memstats.last_gc_nanotime))
@@ -1084,6 +1093,8 @@ func gcMarkTermination(nextTriggerRatio float64) {
 		print(" ms cpu, ",
 			work.heap0>>20, "->", work.heap1>>20, "->", work.heap2>>20, " MB, ",
 			work.heapGoal>>20, " MB goal, ",
+			gcController.stackScan>>20, " MB stacks, ",
+			gcController.globalsScan>>20, " MB globals, ",
 			work.maxprocs, " P")
 		if work.userForced {
 			print(" (forced)")
@@ -1365,6 +1376,11 @@ func gcMark(startTime int64) {
 	if work.full != 0 {
 		throw("work.full != 0")
 	}
+
+	// Drop allg snapshot. allgs may have grown, in which case
+	// this is the only reference to the old backing store and
+	// there's no need to keep it around.
+	work.stackRoots = nil
 
 	// Clear out buffers and double-check that all gcWork caches
 	// are empty. This should be ensured by gcMarkDone before we

@@ -161,7 +161,13 @@ func (d *tparamsList) index(typ Type) int {
 // If tpar is a type parameter in list, tparamIndex returns the type parameter index.
 // Otherwise, the result is < 0. tpar must not be nil.
 func tparamIndex(list []*TypeParam, tpar *TypeParam) int {
-	if i := tpar.index; i < len(list) && list[i] == tpar {
+	// Once a type parameter is bound its index is >= 0. However, there are some
+	// code paths (namely tracing and type hashing) by which it is possible to
+	// arrive here with a type parameter that has not been bound, hence the check
+	// for 0 <= i below.
+	// TODO(rfindley): investigate a better approach for guarding against using
+	// unbound type parameters.
+	if i := tpar.index; 0 <= i && i < len(list) && list[i] == tpar {
 		return i
 	}
 	return -1
@@ -235,14 +241,12 @@ func (u *unifier) nify(x, y Type, p *ifacePair) bool {
 		// If exact unification is known to fail because we attempt to
 		// match a type name against an unnamed type literal, consider
 		// the underlying type of the named type.
-		// (Subtle: We use hasName to include any type with a name (incl.
-		// basic types and type parameters. We use asNamed because we only
-		// want *Named types.)
-		switch {
-		case !hasName(x) && y != nil && asNamed(y) != nil:
-			return u.nify(x, under(y), p)
-		case x != nil && asNamed(x) != nil && !hasName(y):
-			return u.nify(under(x), y, p)
+		// (We use !hasName to exclude any type with a name, including
+		// basic types and type parameters; the rest are unamed types.)
+		if nx, _ := x.(*Named); nx != nil && !hasName(y) {
+			return u.nify(nx.under(), y, p)
+		} else if ny, _ := y.(*Named); ny != nil && !hasName(x) {
+			return u.nify(x, ny.under(), p)
 		}
 	}
 

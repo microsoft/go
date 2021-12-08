@@ -22,7 +22,7 @@ import (
 )
 
 // Enable extra consistency checks.
-const doubleCheck = true
+const doubleCheck = false
 
 func assert(p bool) {
 	base.Assert(p)
@@ -109,6 +109,13 @@ func (g *genInst) buildInstantiations(preinliningMainScan bool) {
 		// main round of inlining)
 		for _, fun := range g.newInsts {
 			inline.InlineCalls(fun.(*ir.Func))
+			// New instantiations created during inlining should run
+			// ComputeAddrTaken directly, since we are past the main pass
+			// that did ComputeAddrTaken(). We could instead do this
+			// incrementally during stenciling (for all instantiations,
+			// including main ones before inlining), since we have the
+			// type information.
+			typecheck.ComputeAddrtaken(fun.(*ir.Func).Body)
 		}
 	}
 	assert(l == len(g.newInsts))
@@ -500,7 +507,7 @@ func (g *genInst) buildClosure(outer *ir.Func, x ir.Node) ir.Node {
 			// explicitly traverse any embedded fields in the receiver
 			// argument in order to call the method instantiation.
 			arg0 := formalParams[0].Nname.(ir.Node)
-			arg0 = typecheck.AddImplicitDots(ir.NewSelectorExpr(base.Pos, ir.OXDOT, arg0, x.(*ir.SelectorExpr).Sel)).X
+			arg0 = typecheck.AddImplicitDots(ir.NewSelectorExpr(x.Pos(), ir.OXDOT, arg0, x.(*ir.SelectorExpr).Sel)).X
 			if valueMethod && arg0.Type().IsPtr() {
 				// For handling the (*T).M case: if we have a pointer
 				// receiver after following all the embedded fields,
@@ -515,6 +522,7 @@ func (g *genInst) buildClosure(outer *ir.Func, x ir.Node) ir.Node {
 
 	// Build call itself.
 	var innerCall ir.Node = ir.NewCallExpr(pos, ir.OCALL, target.Nname, args)
+	innerCall.(*ir.CallExpr).IsDDD = typ.IsVariadic()
 	if len(formalResults) > 0 {
 		innerCall = ir.NewReturnStmt(pos, []ir.Node{innerCall})
 	}
@@ -615,7 +623,7 @@ func (g *genInst) getDictOrSubdict(declInfo *instInfo, n ir.Node, nameNode *ir.N
 		}
 	}
 	if !usingSubdict {
-		dict = g.getDictionaryValue(nameNode, targs, isMeth)
+		dict = g.getDictionaryValue(n.Pos(), nameNode, targs, isMeth)
 	}
 	return dict, usingSubdict
 }
@@ -801,11 +809,12 @@ func (g *genInst) genericSubst(newsym *types.Sym, nameNode *ir.Name, shapes []*t
 
 	// Make sure name/type of newf is set before substituting the body.
 	newf.Body = subst.list(gf.Body)
-
-	// Add code to check that the dictionary is correct.
-	// TODO: must be adjusted to deal with shapes, but will go away soon when we move
-	// to many->1 shape to concrete mapping.
-	// newf.Body.Prepend(subst.checkDictionary(dictionaryName, shapes)...)
+	if len(newf.Body) == 0 {
+		// Ensure the body is nonempty, for issue 49524.
+		// TODO: have some other way to detect the difference between
+		// a function declared with no body, vs. one with an empty body?
+		newf.Body = append(newf.Body, ir.NewBlockStmt(gf.Pos(), nil))
+	}
 
 	if len(subst.defnMap) > 0 {
 		base.Fatalf("defnMap is not empty")
@@ -859,49 +868,6 @@ func (subst *subster) localvar(name *ir.Name) *ir.Name {
 	return m
 }
 
-// checkDictionary returns code that does runtime consistency checks
-// between the dictionary and the types it should contain.
-func (subst *subster) checkDictionary(name *ir.Name, targs []*types.Type) (code []ir.Node) {
-	if false {
-		return // checking turned off
-	}
-	// TODO: when moving to GCshape, this test will become harder. Call into
-	// runtime to check the expected shape is correct?
-	pos := name.Pos()
-	// Convert dictionary to *[N]uintptr
-	d := ir.NewConvExpr(pos, ir.OCONVNOP, types.Types[types.TUNSAFEPTR], name)
-	d.SetTypecheck(1)
-	d = ir.NewConvExpr(pos, ir.OCONVNOP, types.NewArray(types.Types[types.TUINTPTR], int64(len(targs))).PtrTo(), d)
-	d.SetTypecheck(1)
-	types.CheckSize(d.Type().Elem())
-
-	// Check that each type entry in the dictionary is correct.
-	for i, t := range targs {
-		if t.HasShape() {
-			// Check the concrete type, not the shape type.
-			base.Fatalf("shape type in dictionary %s %+v\n", name.Sym().Name, t)
-		}
-		want := reflectdata.TypePtr(t)
-		typed(types.Types[types.TUINTPTR], want)
-		deref := ir.NewStarExpr(pos, d)
-		typed(d.Type().Elem(), deref)
-		idx := ir.NewConstExpr(constant.MakeUint64(uint64(i)), name) // TODO: what to set orig to?
-		typed(types.Types[types.TUINTPTR], idx)
-		got := ir.NewIndexExpr(pos, deref, idx)
-		typed(types.Types[types.TUINTPTR], got)
-		cond := ir.NewBinaryExpr(pos, ir.ONE, want, got)
-		typed(types.Types[types.TBOOL], cond)
-		panicArg := ir.NewNilExpr(pos)
-		typed(types.NewInterface(types.LocalPkg, nil, false), panicArg)
-		then := ir.NewUnaryExpr(pos, ir.OPANIC, panicArg)
-		then.SetTypecheck(1)
-		x := ir.NewIfStmt(pos, cond, []ir.Node{then}, nil)
-		x.SetTypecheck(1)
-		code = append(code, x)
-	}
-	return
-}
-
 // getDictionaryEntry gets the i'th entry in the dictionary dict.
 func getDictionaryEntry(pos src.XPos, dict *ir.Name, i int, size int) ir.Node {
 	// Convert dictionary to *[N]uintptr
@@ -946,6 +912,10 @@ func (subst *subster) node(n ir.Node) ir.Node {
 	// Use closure to capture all state needed by the ir.EditChildren argument.
 	var edit func(ir.Node) ir.Node
 	edit = func(x ir.Node) ir.Node {
+		// Analogous to ir.SetPos() at beginning of typecheck.typecheck() -
+		// allows using base.Pos during the transform functions, just like
+		// the tc*() functions.
+		ir.SetPos(x)
 		switch x.Op() {
 		case ir.OTYPE:
 			return ir.TypeNode(subst.ts.Typ(x.Type()))
@@ -1136,6 +1106,9 @@ func (subst *subster) node(n ir.Node) ir.Node {
 			case ir.OXDOT:
 				// This is the case of a bound call on a typeparam,
 				// which will be handled in the dictPass.
+				// As with OFUNCINST, we must transform the arguments of the call now,
+				// so any needed CONVIFACE nodes are exposed.
+				transformEarlyCall(call)
 
 			case ir.ODOTTYPE, ir.ODOTTYPE2:
 				// These are DOTTYPEs that could get transformed into
@@ -1270,14 +1243,15 @@ func (g *genInst) dictPass(info *instInfo) {
 				transformDot(mse, false)
 			}
 		case ir.OCALL:
-			op := m.(*ir.CallExpr).X.Op()
+			call := m.(*ir.CallExpr)
+			op := call.X.Op()
 			if op == ir.OMETHVALUE {
 				// Redo the transformation of OXDOT, now that we
 				// know the method value is being called.
-				m.(*ir.CallExpr).X.(*ir.SelectorExpr).SetOp(ir.OXDOT)
-				transformDot(m.(*ir.CallExpr).X.(*ir.SelectorExpr), true)
+				call.X.(*ir.SelectorExpr).SetOp(ir.OXDOT)
+				transformDot(call.X.(*ir.SelectorExpr), true)
 			}
-			transformCall(m.(*ir.CallExpr))
+			transformCall(call)
 
 		case ir.OCONVIFACE:
 			if m.Type().IsEmptyInterface() && m.(*ir.ConvExpr).X.Type().IsEmptyInterface() {
@@ -1592,9 +1566,9 @@ func (g *genInst) getDictionarySym(gf *ir.Name, targs []*types.Type, isMeth bool
 				if se.X.Type().IsShape() {
 					// This is a method call enabled by a type bound.
 
-					// We need this extra check for type expressions, which
-					// don't add in the implicit XDOTs.
-					tmpse := ir.NewSelectorExpr(base.Pos, ir.OXDOT, se.X, se.Sel)
+					// We need this extra check for method expressions,
+					// which don't add in the implicit XDOTs.
+					tmpse := ir.NewSelectorExpr(src.NoXPos, ir.OXDOT, se.X, se.Sel)
 					tmpse = typecheck.AddImplicitDots(tmpse)
 					tparam := tmpse.X.Type()
 					if !tparam.IsShape() {
@@ -1762,7 +1736,7 @@ func (g *genInst) finalizeSyms() {
 	g.dictSymsToFinalize = nil
 }
 
-func (g *genInst) getDictionaryValue(gf *ir.Name, targs []*types.Type, isMeth bool) ir.Node {
+func (g *genInst) getDictionaryValue(pos src.XPos, gf *ir.Name, targs []*types.Type, isMeth bool) ir.Node {
 	sym := g.getDictionarySym(gf, targs, isMeth)
 
 	// Make (or reuse) a node referencing the dictionary symbol.
@@ -1770,15 +1744,18 @@ func (g *genInst) getDictionaryValue(gf *ir.Name, targs []*types.Type, isMeth bo
 	if sym.Def != nil {
 		n = sym.Def.(*ir.Name)
 	} else {
-		n = typecheck.NewName(sym)
+		// We set the position of a static dictionary to be the position of
+		// one of its uses.
+		n = ir.NewNameAt(pos, sym)
+		n.Curfn = ir.CurFunc
 		n.SetType(types.Types[types.TUINTPTR]) // should probably be [...]uintptr, but doesn't really matter
 		n.SetTypecheck(1)
 		n.Class = ir.PEXTERN
 		sym.Def = n
 	}
 
-	// Return the address of the dictionary.
-	np := typecheck.NodAddr(n)
+	// Return the address of the dictionary.  Addr node gets position that was passed in.
+	np := typecheck.NodAddrAt(pos, n)
 	// Note: treat dictionary pointers as uintptrs, so they aren't pointers
 	// with respect to GC. That saves on stack scanning work, write barriers, etc.
 	// We can get away with it because dictionaries are global variables.
@@ -2085,6 +2062,7 @@ func startClosure(pos src.XPos, outer *ir.Func, typ *types.Type) (*ir.Func, []*t
 		fn.Dcl = append(fn.Dcl, arg)
 		f := types.NewField(pos, arg.Sym(), t)
 		f.Nname = arg
+		f.SetIsDDD(typ.Params().Field(i).IsDDD())
 		formalParams = append(formalParams, f)
 	}
 	for i := 0; i < typ.NumResults(); i++ {

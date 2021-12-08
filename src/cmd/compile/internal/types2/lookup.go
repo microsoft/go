@@ -6,6 +6,11 @@
 
 package types2
 
+import (
+	"fmt"
+	"strings"
+)
+
 // Internal use of LookupFieldOrMethod: If the obj result is a method
 // associated with a concrete (non-interface) type, the method's signature
 // may not be fully set up. Call Checker.objDecl(obj, nil) before accessing
@@ -45,9 +50,9 @@ func LookupFieldOrMethod(T Type, addressable bool, pkg *Package, name string) (o
 	// Thus, if we have a named pointer type, proceed with the underlying
 	// pointer type but discard the result if it is a method since we would
 	// not have found it for T (see also issue 8590).
-	if t := asNamed(T); t != nil {
-		if p, _ := safeUnderlying(t).(*Pointer); p != nil {
-			obj, index, indirect = lookupFieldOrMethod(p, false, pkg, name)
+	if t, _ := T.(*Named); t != nil {
+		if p, _ := t.Underlying().(*Pointer); p != nil {
+			obj, index, indirect = lookupFieldOrMethod(p, false, false, pkg, name)
 			if _, ok := obj.(*Func); ok {
 				return nil, nil, false
 			}
@@ -55,7 +60,7 @@ func LookupFieldOrMethod(T Type, addressable bool, pkg *Package, name string) (o
 		}
 	}
 
-	return lookupFieldOrMethod(T, addressable, pkg, name)
+	return lookupFieldOrMethod(T, addressable, false, pkg, name)
 }
 
 // TODO(gri) The named type consolidation and seen maps below must be
@@ -64,7 +69,11 @@ func LookupFieldOrMethod(T Type, addressable bool, pkg *Package, name string) (o
 //           indirectly via different packages.)
 
 // lookupFieldOrMethod should only be called by LookupFieldOrMethod and missingMethod.
-func lookupFieldOrMethod(T Type, addressable bool, pkg *Package, name string) (obj Object, index []int, indirect bool) {
+// If checkFold is true, the lookup for methods will include looking for any method
+// which case-folds to the same as 'name' (used for giving helpful error messages).
+//
+// The resulting object may not be fully type-checked.
+func lookupFieldOrMethod(T Type, addressable, checkFold bool, pkg *Package, name string) (obj Object, index []int, indirect bool) {
 	// WARNING: The code in this function is extremely subtle - do not modify casually!
 
 	if name == "_" {
@@ -73,12 +82,8 @@ func lookupFieldOrMethod(T Type, addressable bool, pkg *Package, name string) (o
 
 	typ, isPtr := deref(T)
 
-	// *typ where typ is an interface or type parameter has no methods.
+	// *typ where typ is an interface has no methods.
 	if isPtr {
-		// don't look at under(typ) here - was bug (issue #47747)
-		if _, ok := typ.(*TypeParam); ok {
-			return
-		}
 		if _, ok := under(typ).(*Interface); ok {
 			return
 		}
@@ -107,7 +112,7 @@ func lookupFieldOrMethod(T Type, addressable bool, pkg *Package, name string) (o
 
 			// If we have a named type, we may have associated methods.
 			// Look for those first.
-			if named := asNamed(typ); named != nil {
+			if named, _ := typ.(*Named); named != nil {
 				if seen[named] {
 					// We have seen this type before, at a more shallow depth
 					// (note that multiples of this type at the current depth
@@ -123,7 +128,7 @@ func lookupFieldOrMethod(T Type, addressable bool, pkg *Package, name string) (o
 
 				// look for a matching attached method
 				named.resolve(nil)
-				if i, m := lookupMethod(named.methods, pkg, name); m != nil {
+				if i, m := lookupMethodFold(named.methods, pkg, name, checkFold); m != nil {
 					// potential match
 					// caution: method may not have a proper signature yet
 					index = concat(e.index, i)
@@ -135,12 +140,8 @@ func lookupFieldOrMethod(T Type, addressable bool, pkg *Package, name string) (o
 					continue // we can't have a matching field or interface method
 				}
 
-				// continue with underlying type, but only if it's not a type parameter
-				// TODO(gri) is this what we want to do for type parameters? (spec question)
+				// continue with underlying type
 				typ = named.under()
-				if asTypeParam(typ) != nil {
-					continue
-				}
 			}
 
 			tpar = nil
@@ -178,7 +179,7 @@ func lookupFieldOrMethod(T Type, addressable bool, pkg *Package, name string) (o
 
 			case *Interface:
 				// look for a matching method
-				if i, m := t.typeSet().LookupMethod(pkg, name); m != nil {
+				if i, m := lookupMethodFold(t.typeSet().methods, pkg, name, checkFold); m != nil {
 					assert(m.typ != nil)
 					index = concat(e.index, i)
 					if obj != nil || e.multiples {
@@ -189,7 +190,7 @@ func lookupFieldOrMethod(T Type, addressable bool, pkg *Package, name string) (o
 				}
 
 			case *TypeParam:
-				if i, m := t.iface().typeSet().LookupMethod(pkg, name); m != nil {
+				if i, m := lookupMethodFold(t.iface().typeSet().methods, pkg, name, checkFold); m != nil {
 					assert(m.typ != nil)
 					index = concat(e.index, i)
 					if obj != nil || e.multiples {
@@ -306,7 +307,7 @@ func (check *Checker) missingMethod(V Type, T *Interface, static bool) (method, 
 		return
 	}
 
-	if ityp := asInterface(V); ityp != nil {
+	if ityp, _ := under(V).(*Interface); ityp != nil {
 		// TODO(gri) the methods are sorted - could do this more efficiently
 		for _, m := range T.typeSet().methods {
 			_, f := ityp.typeSet().LookupMethod(m.pkg, m.name)
@@ -315,6 +316,7 @@ func (check *Checker) missingMethod(V Type, T *Interface, static bool) (method, 
 				if !static {
 					continue
 				}
+				// We don't do any case-fold check if V is an interface.
 				return m, f
 			}
 
@@ -345,14 +347,24 @@ func (check *Checker) missingMethod(V Type, T *Interface, static bool) (method, 
 
 	// A concrete type implements T if it implements all methods of T.
 	for _, m := range T.typeSet().methods {
-		// TODO(gri) should this be calling lookupFieldOrMethod instead (and why not)?
-		obj, _, _ := lookupFieldOrMethod(V, false, m.pkg, m.name)
+		// TODO(gri) should this be calling LookupFieldOrMethod instead (and why not)?
+		obj, _, _ := lookupFieldOrMethod(V, false, false, m.pkg, m.name)
 
 		// Check if *V implements this method of T.
 		if obj == nil {
 			ptr := NewPointer(V)
-			obj, _, _ = lookupFieldOrMethod(ptr, false, m.pkg, m.name)
+			obj, _, _ = lookupFieldOrMethod(ptr, false, false, m.pkg, m.name)
+			if obj == nil {
+				// If we didn't find the exact method (even with pointer
+				// receiver), look to see if there is a method that
+				// matches m.name with case-folding.
+				obj, _, _ = lookupFieldOrMethod(V, false, true, m.pkg, m.name)
+			}
 			if obj != nil {
+				// methods may not have a fully set up signature yet
+				if check != nil {
+					check.objDecl(obj, nil)
+				}
 				return m, obj.(*Func)
 			}
 		}
@@ -406,6 +418,59 @@ func (check *Checker) missingMethod(V Type, T *Interface, static bool) (method, 
 	return
 }
 
+// missingMethodReason returns a string giving the detailed reason for a missing method m,
+// where m is missing from V, but required by T. It puts the reason in parentheses,
+// and may include more have/want info after that. If non-nil, wrongType is a relevant
+// method that matches in some way. It may have the correct name, but wrong type, or
+// it may have a pointer receiver, or it may have the correct name except wrong case.
+func (check *Checker) missingMethodReason(V, T Type, m, wrongType *Func) string {
+	var r string
+	var mname string
+	if check.conf.CompilerErrorMessages {
+		mname = m.Name() + " method"
+	} else {
+		mname = "method " + m.Name()
+	}
+	if wrongType != nil {
+		if Identical(m.typ, wrongType.typ) {
+			if m.Name() == wrongType.Name() {
+				r = fmt.Sprintf("(%s has pointer receiver)", mname)
+			} else {
+				r = fmt.Sprintf("(missing %s)\n\t\thave %s^^%s\n\t\twant %s^^%s",
+					mname, wrongType.Name(), wrongType.typ, m.Name(), m.typ)
+			}
+		} else {
+			if check.conf.CompilerErrorMessages {
+				r = fmt.Sprintf("(wrong type for %s)\n\t\thave %s^^%s\n\t\twant %s^^%s",
+					mname, wrongType.Name(), wrongType.typ, m.Name(), m.typ)
+			} else {
+				r = fmt.Sprintf("(wrong type for %s: have %s, want %s)",
+					mname, wrongType.typ, m.typ)
+			}
+		}
+		// This is a hack to print the function type without the leading
+		// 'func' keyword in the have/want printouts. We could change to have
+		// an extra formatting option for types2.Type that doesn't print out
+		// 'func'.
+		r = strings.Replace(r, "^^func", "", -1)
+	} else if IsInterface(T) && !isTypeParam(T) {
+		if isInterfacePtr(V) {
+			r = fmt.Sprintf("(%s is pointer to interface, not interface)", V)
+		}
+	} else if isInterfacePtr(T) && !isTypeParam(T) {
+		r = fmt.Sprintf("(%s is pointer to interface, not interface)", T)
+	}
+	if r == "" {
+		r = fmt.Sprintf("(missing %s)", mname)
+	}
+	return r
+}
+
+func isInterfacePtr(T Type) bool {
+	p, _ := under(T).(*Pointer)
+	return p != nil && IsInterface(p.base) && !isTypeParam(p.base)
+}
+
 // assertableTo reports whether a value of type V can be asserted to have type T.
 // It returns (nil, false) as affirmative answer. Otherwise it returns a missing
 // method required by V and whether it is missing or just has the wrong type.
@@ -417,7 +482,7 @@ func (check *Checker) assertableTo(V *Interface, T Type) (method, wrongType *Fun
 	// no static check is required if T is an interface
 	// spec: "If T is an interface type, x.(T) asserts that the
 	//        dynamic type of x implements the interface T."
-	if asInterface(T) != nil && !forceStrict {
+	if IsInterface(T) && !forceStrict {
 		return
 	}
 	return check.missingMethod(T, V, false)
@@ -427,6 +492,13 @@ func (check *Checker) assertableTo(V *Interface, T Type) (method, wrongType *Fun
 // Otherwise it returns (typ, false).
 func deref(typ Type) (Type, bool) {
 	if p, _ := typ.(*Pointer); p != nil {
+		// p.base should never be nil, but be conservative
+		if p.base == nil {
+			if debug {
+				panic("pointer with nil base type (possibly due to an invalid cyclic declaration)")
+			}
+			return Typ[Invalid], true
+		}
 		return p.base, true
 	}
 	return typ, false
@@ -435,8 +507,8 @@ func deref(typ Type) (Type, bool) {
 // derefStructPtr dereferences typ if it is a (named or unnamed) pointer to a
 // (named or unnamed) struct and returns its base. Otherwise it returns typ.
 func derefStructPtr(typ Type) Type {
-	if p := asPointer(typ); p != nil {
-		if asStruct(p.base) != nil {
+	if p, _ := under(typ).(*Pointer); p != nil {
+		if _, ok := under(p.base).(*Struct); ok {
 			return p.base
 		}
 	}
@@ -468,6 +540,24 @@ func lookupMethod(methods []*Func, pkg *Package, name string) (int, *Func) {
 	if name != "_" {
 		for i, m := range methods {
 			if m.sameId(pkg, name) {
+				return i, m
+			}
+		}
+	}
+	return -1, nil
+}
+
+// lookupMethodFold is like lookupMethod, but if checkFold is true, it matches a method
+// name if the names are equal with case folding.
+func lookupMethodFold(methods []*Func, pkg *Package, name string, checkFold bool) (int, *Func) {
+	if name != "_" {
+		for i, m := range methods {
+			if m.name != name && !(checkFold && strings.EqualFold(m.name, name)) {
+				continue
+			}
+			// Use m.name, since we've already checked that m.name and
+			// name are equal with folding.
+			if m.sameId(pkg, m.name) {
 				return i, m
 			}
 		}

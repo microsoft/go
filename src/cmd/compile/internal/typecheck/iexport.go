@@ -261,7 +261,7 @@ import (
 const (
 	iexportVersionGo1_11   = 0
 	iexportVersionPosCol   = 1
-	iexportVersionGenerics = 1 // probably change to 2 before release
+	iexportVersionGenerics = 2
 	iexportVersionGo1_18   = 2
 
 	iexportVersionCurrent = 2
@@ -1418,6 +1418,12 @@ func (w *exportWriter) funcExt(n *ir.Name) {
 		w.uint64(1 + uint64(n.Func.Inl.Cost))
 		w.bool(n.Func.Inl.CanDelayResults)
 		if n.Func.ExportInline() || n.Type().HasTParam() {
+			if n.Type().HasTParam() {
+				// If this generic function/method is from another
+				// package, but we didn't use for instantiation in
+				// this package, we may not yet have imported it.
+				ImportedBody(n.Func)
+			}
 			w.p.doInline(n)
 		}
 
@@ -1735,6 +1741,8 @@ func (w *exportWriter) expr(n ir.Node) {
 		n := n.(*ir.Name)
 		if (n.Class == ir.PEXTERN || n.Class == ir.PFUNC) && !ir.IsBlank(n) {
 			w.op(ir.ONONAME)
+			// Indicate that this is not an OKEY entry.
+			w.bool(false)
 			w.qualifiedIdent(n)
 			if go117ExportTypes {
 				w.typ(n.Type())
@@ -1761,7 +1769,9 @@ func (w *exportWriter) expr(n ir.Node) {
 
 	case ir.ONONAME:
 		w.op(ir.ONONAME)
-		// This should only be for OKEY nodes in generic functions
+		// This can only be for OKEY nodes in generic functions. Mark it
+		// as a key entry.
+		w.bool(true)
 		s := n.Sym()
 		w.string(s.Name)
 		w.pkg(s.Pkg)
