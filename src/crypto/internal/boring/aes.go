@@ -368,9 +368,7 @@ func (g *aesGCM) Seal(dst, nonce, plaintext, additionalData []byte) []byte {
 	if err != nil {
 		panic(err)
 	}
-	defer func() {
-		C._goboringcrypto_EVP_CIPHER_CTX_free(ctx)
-	}()
+	defer C._goboringcrypto_EVP_CIPHER_CTX_free(ctx)
 	var ciphertextLen C.size_t
 
 	if C.int(1) != C._goboringcrypto_EVP_CIPHER_CTX_seal(
@@ -418,9 +416,7 @@ func (g *aesGCM) Open(dst, nonce, ciphertext, additionalData []byte) ([]byte, er
 	if err != nil {
 		panic(err)
 	}
-	defer func() {
-		C._goboringcrypto_EVP_CIPHER_CTX_free(ctx)
-	}()
+	defer C._goboringcrypto_EVP_CIPHER_CTX_free(ctx)
 
 	var outLen C.size_t
 
