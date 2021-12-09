@@ -1,9 +1,5 @@
-// +build linux
-// +build !android
-// +build !no_openssl
-// +build !cmd_go_bootstrap
-// +build !msan
-// +build cgo
+//go:build linux && !android && !no_openssl && !cmd_go_bootstrap && !msan && cgo
+// +build linux,!android,!no_openssl,!cmd_go_bootstrap,!msan,cgo
 
 package boring
 
@@ -21,13 +17,17 @@ func TestNewGCMNonce(t *testing.T) {
 		t.Fatal(err)
 	}
 	c := ci.(*aesCipher)
-	_, err = c.NewGCM(gcmStandardNonceSize-1, gcmTagSize)
+	_, err = c.NewGCM(gcmStandardNonceSize-1, gcmTagSize-1)
 	if err == nil {
-		t.Error("expected error for non-standard nonce size, got none")
+		t.Error("expected error for non-standard tag / nonce size, got none")
+	}
+	_, err = c.NewGCM(gcmStandardNonceSize-1, gcmTagSize)
+	if err != nil {
+		t.Errorf("expected no error for standard nonce size, got: %#v", err)
 	}
 	_, err = c.NewGCM(gcmStandardNonceSize, gcmTagSize-1)
-	if err == nil {
-		t.Error("expected error for non-standard tag size, got none")
+	if err != nil {
+		t.Errorf("expected no error for standard tag size, got: %#v", err)
 	}
 	_, err = c.NewGCM(gcmStandardNonceSize, gcmTagSize)
 	if err != nil {
