@@ -2,11 +2,8 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-// +build linux
-// +build !android
-// +build !no_openssl
-// +build !cmd_go_bootstrap
-// +build !msan
+//go:build linux && !android && !no_openssl && !cmd_go_bootstrap && !msan
+// +build linux,!android,!no_openssl,!cmd_go_bootstrap,!msan
 
 package boring
 
@@ -286,19 +283,19 @@ func (c *aesCipher) NewCTR(iv []byte) cipher.Stream {
 	k := (*C.uchar)(unsafe.Pointer(&x.key[0]))
 	vec := (*C.uchar)(unsafe.Pointer(&x.iv[0]))
 
+	var cipher *C.EVP_CIPHER
 	switch len(c.key) * 8 {
 	case 128:
-		if C.int(1) != C._goboringcrypto_EVP_EncryptInit_ex(x.ctx, C._goboringcrypto_EVP_aes_128_ctr(), nil, k, vec) {
-			panic("cipher: unable to initialize EVP cipher ctx")
-		}
+		cipher = C._goboringcrypto_EVP_aes_128_ctr()
 	case 192:
-		if C.int(1) != C._goboringcrypto_EVP_EncryptInit_ex(x.ctx, C._goboringcrypto_EVP_aes_192_ctr(), nil, k, vec) {
-			panic("cipher: unable to initialize EVP cipher ctx")
-		}
+		cipher = C._goboringcrypto_EVP_aes_192_ctr()
 	case 256:
-		if C.int(1) != C._goboringcrypto_EVP_EncryptInit_ex(x.ctx, C._goboringcrypto_EVP_aes_256_ctr(), nil, k, vec) {
-			panic("cipher: unable to initialize EVP cipher ctx")
-		}
+		cipher = C._goboringcrypto_EVP_aes_256_ctr()
+	default:
+		panic("crypto/boring: unsupported key length")
+	}
+	if C.int(1) != C._goboringcrypto_EVP_EncryptInit_ex(x.ctx, cipher, nil, k, vec) {
+		panic("cipher: unable to initialize EVP cipher ctx")
 	}
 
 	runtime.SetFinalizer(x, (*aesCTR).finalize)
