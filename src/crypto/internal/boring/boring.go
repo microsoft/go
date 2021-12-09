@@ -22,13 +22,6 @@ import (
 // Enabled controls whether FIPS crypto is enabled.
 var enabled = false
 
-// When this variable is true, the go crypto API will panic when a caller
-// tries to use the API in a non-compliant manner.  When this is false, the
-// go crytpo API will allow existing go crypto APIs to be used even
-// if they aren't FIPS compliant.  However, all the underlying crypto operations
-// will still be done by OpenSSL.
-var strictFIPS = false
-
 func init() {
 	if !needFIPS() {
 		return
@@ -129,12 +122,6 @@ func UnreachableExceptTests() {
 	if Enabled() && !hasSuffix(name, "_test") && !hasSuffix(name, ".test") {
 		println("boringcrypto: unexpected code execution in", name)
 		panic("boringcrypto: invalid code execution")
-	}
-}
-
-func PanicIfStrictFIPS(msg string) {
-	if os.Getenv("GOLANG_STRICT_FIPS") == "1" || strictFIPS {
-		panic(msg)
 	}
 }
 

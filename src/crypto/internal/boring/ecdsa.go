@@ -10,7 +10,6 @@ package boring
 // #include "goboringcrypto.h"
 import "C"
 import (
-	"crypto"
 	"encoding/asn1"
 	"errors"
 	"math/big"
@@ -125,12 +124,12 @@ func NewPrivateKeyECDSA(curve string, X, Y *big.Int, D *big.Int) (*PrivateKeyECD
 	return k, nil
 }
 
-func SignECDSA(priv *PrivateKeyECDSA, hash []byte, h crypto.Hash) (r, s *big.Int, err error) {
+func SignECDSA(priv *PrivateKeyECDSA, hash []byte) (r, s *big.Int, err error) {
 	// We could use ECDSA_do_sign instead but would need to convert
 	// the resulting BIGNUMs to *big.Int form. If we're going to do a
 	// conversion, converting the ASN.1 form is more convenient and
 	// likely not much more expensive.
-	sig, err := SignMarshalECDSA(priv, hash, h)
+	sig, err := SignMarshalECDSA(priv, hash)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -141,25 +140,18 @@ func SignECDSA(priv *PrivateKeyECDSA, hash []byte, h crypto.Hash) (r, s *big.Int
 	return esig.R, esig.S, nil
 }
 
-func SignMarshalECDSA(priv *PrivateKeyECDSA, hash []byte, h crypto.Hash) ([]byte, error) {
+func SignMarshalECDSA(priv *PrivateKeyECDSA, hash []byte) ([]byte, error) {
 	size := C._goboringcrypto_ECDSA_size(priv.key)
 	sig := make([]byte, size)
 	var sigLen C.uint
-	var md *C.GO_EVP_MD
-	if h != crypto.Hash(0) {
-		md = cryptoHashToMD(h)
-		if md == nil {
-			panic("boring: invalid hash")
-		}
-	}
-	if C._goboringcrypto_ECDSA_sign(md, base(hash), C.size_t(len(hash)), (*C.uint8_t)(unsafe.Pointer(&sig[0])), &sigLen, priv.key) == 0 {
+	if C._goboringcrypto_ECDSA_sign(0, base(hash), C.size_t(len(hash)), (*C.uint8_t)(unsafe.Pointer(&sig[0])), &sigLen, priv.key) == 0 {
 		return nil, NewOpenSSLError("ECDSA_sign failed")
 	}
 	runtime.KeepAlive(priv)
 	return sig[:sigLen], nil
 }
 
-func VerifyECDSA(pub *PublicKeyECDSA, msg []byte, r, s *big.Int, h crypto.Hash) bool {
+func VerifyECDSA(pub *PublicKeyECDSA, hash []byte, r, s *big.Int) bool {
 	// We could use ECDSA_do_verify instead but would need to convert
 	// r and s to BIGNUM form. If we're going to do a conversion, marshaling
 	// to ASN.1 is more convenient and likely not much more expensive.
@@ -167,14 +159,7 @@ func VerifyECDSA(pub *PublicKeyECDSA, msg []byte, r, s *big.Int, h crypto.Hash) 
 	if err != nil {
 		return false
 	}
-	var md *C.GO_EVP_MD
-	if h != crypto.Hash(0) {
-		md = cryptoHashToMD(h)
-		if md == nil {
-			panic("boring: invalid hash")
-		}
-	}
-	ok := C._goboringcrypto_ECDSA_verify(md, base(msg), C.size_t(len(msg)), (*C.uint8_t)(unsafe.Pointer(&sig[0])), C.uint(len(sig)), pub.key) > 0
+	ok := C._goboringcrypto_ECDSA_verify(0, base(hash), C.size_t(len(hash)), (*C.uint8_t)(unsafe.Pointer(&sig[0])), C.uint(len(sig)), pub.key) > 0
 	runtime.KeepAlive(pub)
 	return ok
 }

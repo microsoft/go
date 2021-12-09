@@ -130,26 +130,12 @@ DEFINEFUNC(const GO_BIGNUM *, EC_KEY_get0_private_key, (const GO_EC_KEY *arg0), 
 DEFINEFUNC(const GO_EC_POINT *, EC_KEY_get0_public_key, (const GO_EC_KEY *arg0), (arg0)) \
 DEFINEFUNC(int, ECDSA_do_verify, (const uint8_t *arg0, size_t arg1, const GO_ECDSA_SIG *arg2, const GO_EC_KEY *arg3), (arg0, arg1, arg2, arg3)) \
 DEFINEFUNC(size_t, ECDSA_size, (const GO_EC_KEY *arg0), (arg0)) \
-DEFINEFUNCINTERNAL(int, ECDSA_sign,  \
+DEFINEFUNC(int, ECDSA_sign,  \
     (int type, const unsigned char *dgst, size_t dgstlen, unsigned char *sig, unsigned int *siglen, EC_KEY *eckey), \
     (type, dgst, dgstlen, sig, siglen, eckey)) \
-DEFINEFUNCINTERNAL(int, ECDSA_verify,  \
+DEFINEFUNC(int, ECDSA_verify,  \
     (int type, const unsigned char *dgst, size_t dgstlen, const unsigned char *sig, unsigned int siglen, EC_KEY *eckey), \
     (type, dgst, dgstlen, sig, siglen, eckey)) \
-DEFINEFUNC_RENAMED(EVP_MD_CTX*, EVP_MD_CTX_new, EVP_MD_CTX_create, (void), ()) \
-DEFINEFUNCINTERNAL(int, EVP_PKEY_assign, (EVP_PKEY *pkey, int type, void *eckey), (pkey, type, eckey)) \
-DEFINEFUNCINTERNAL(int, EVP_DigestSignInit, \
-    (EVP_MD_CTX* ctx, EVP_PKEY_CTX **pctx, const EVP_MD *type, ENGINE *e, const EVP_PKEY *pkey), \
-    (ctx, pctx, type, e, pkey)) \
-DEFINEFUNCINTERNAL(int, EVP_DigestUpdate, (EVP_MD_CTX* ctx, const void *d, size_t cnt), (ctx, d, cnt)) \
-DEFINEFUNCINTERNAL(int, EVP_DigestSignFinal, \
-    (EVP_MD_CTX* ctx, unsigned char *sig, unsigned int *siglen), \
-    (ctx, sig, siglen)) \
-DEFINEFUNCINTERNAL(int, EVP_DigestVerifyInit, \
-    (EVP_MD_CTX* ctx, EVP_PKEY_CTX **pctx, const EVP_MD *type, ENGINE *e, const EVP_PKEY *pkey), \
-    (ctx, pctx, type, e, pkey)) \
-DEFINEFUNCINTERNAL(int, EVP_DigestVerifyFinal, (EVP_MD_CTX* ctx, const uint8_t *sig, unsigned int siglen), (ctx, sig, siglen)) \
-DEFINEFUNC_RENAMED(void, EVP_MD_CTX_free, EVP_MD_CTX_destroy, (EVP_MD_CTX *ctx), (ctx)) \
 DEFINEFUNC(GO_RSA *, RSA_new, (void), ()) \
 DEFINEFUNC(void, RSA_free, (GO_RSA * arg0), (arg0)) \
 DEFINEFUNC(int, RSA_sign, \

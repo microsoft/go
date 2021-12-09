@@ -2,11 +2,8 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-// +build linux
-// +build !android
-// +build !no_openssl
-// +build !cmd_go_bootstrap
-// +build !msan
+//go:build linux && !android && !no_openssl && !cmd_go_bootstrap && !msan
+// +build linux,!android,!no_openssl,!cmd_go_bootstrap,!msan
 
 package boring
 
@@ -293,42 +290,26 @@ func VerifyRSAPSS(pub *PublicKeyRSA, h crypto.Hash, hashed, sig []byte, saltLen 
 	return nil
 }
 
-func SignRSAPKCS1v15(priv *PrivateKeyRSA, h crypto.Hash, msg []byte, msgIsHashed bool) ([]byte, error) {
+func SignRSAPKCS1v15(priv *PrivateKeyRSA, h crypto.Hash, hashed []byte) ([]byte, error) {
 	md := cryptoHashToMD(h)
 	if md == nil {
 		return nil, errors.New("crypto/rsa: unsupported hash function: " + strconv.Itoa(int(h)))
 	}
 
+	nid := C._goboringcrypto_EVP_MD_type(md)
 	var out []byte
 	var outLen C.uint
-
-	if msgIsHashed {
-		PanicIfStrictFIPS("You must provide a raw unhashed message for PKCS1v15 signing and use HashSignPKCS1v15 instead of SignPKCS1v15")
-		nid := C._goboringcrypto_EVP_MD_type(md)
-		if priv.withKey(func(key *C.GO_RSA) C.int {
-			out = make([]byte, C._goboringcrypto_RSA_size(key))
-			return C._goboringcrypto_RSA_sign(nid, base(msg), C.uint(len(msg)), base(out), &outLen, key)
-		}) == 0 {
-			return nil, NewOpenSSLError("RSA_sign")
-		}
-		runtime.KeepAlive(priv)
-		return out[:outLen], nil
-	}
-
 	if priv.withKey(func(key *C.GO_RSA) C.int {
-		return C._goboringcrypto_EVP_RSA_sign(md, base(msg), C.uint(len(msg)), base(out), &outLen, key)
+		out = make([]byte, C._goboringcrypto_RSA_size(key))
+		return C._goboringcrypto_RSA_sign(nid, base(hashed), C.uint(len(hashed)),
+			base(out), &outLen, key)
 	}) == 0 {
 		return nil, NewOpenSSLError("RSA_sign")
 	}
 	return out[:outLen], nil
 }
 
-func VerifyRSAPKCS1v15(pub *PublicKeyRSA, h crypto.Hash, msg, sig []byte, msgIsHashed bool) error {
-	md := cryptoHashToMD(h)
-	if md == nil {
-		return errors.New("crypto/rsa: unsupported hash function")
-	}
-
+func VerifyRSAPKCS1v15(pub *PublicKeyRSA, h crypto.Hash, hashed, sig []byte) error {
 	if pub.withKey(func(key *C.GO_RSA) C.int {
 		size := int(C._goboringcrypto_RSA_size(key))
 		if len(sig) < size {
@@ -338,20 +319,14 @@ func VerifyRSAPKCS1v15(pub *PublicKeyRSA, h crypto.Hash, msg, sig []byte, msgIsH
 	}) == 0 {
 		return errors.New("crypto/rsa: verification error")
 	}
-
-	if msgIsHashed {
-		PanicIfStrictFIPS("You must provide a raw unhashed message for PKCS1v15 verification and use HashVerifyPKCS1v15 instead of VerifyPKCS1v15")
-		nid := C._goboringcrypto_EVP_MD_type(md)
-		if pub.withKey(func(key *C.GO_RSA) C.int {
-			return C._goboringcrypto_RSA_verify(nid, base(msg), C.uint(len(msg)), base(sig), C.uint(len(sig)), key)
-		}) == 0 {
-			return NewOpenSSLError("RSA_verify failed")
-		}
-		return nil
+	md := cryptoHashToMD(h)
+	if md == nil {
+		return errors.New("crypto/rsa: unsupported hash function")
 	}
-
+	nid := C._goboringcrypto_EVP_MD_type(md)
 	if pub.withKey(func(key *C.GO_RSA) C.int {
-		return C._goboringcrypto_EVP_RSA_verify(md, base(msg), C.uint(len(msg)), base(sig), C.uint(len(sig)), key)
+		return C._goboringcrypto_RSA_verify(nid, base(hashed), C.uint(len(hashed)),
+			base(sig), C.uint(len(sig)), key)
 	}) == 0 {
 		return NewOpenSSLError("RSA_verify failed")
 	}

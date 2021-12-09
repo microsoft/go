@@ -217,12 +217,11 @@ func Sign(rand io.Reader, priv *PrivateKey, hash []byte) (r, s *big.Int, err err
 	randutil.MaybeReadByte(rand)
 
 	if boring.Enabled() {
-		boring.PanicIfStrictFIPS("ecdsa.Sign disabled in FIPS mode, use HashSign with raw message instead")
 		b, err := boringPrivateKey(priv)
 		if err != nil {
 			return nil, nil, err
 		}
-		return boring.SignECDSA(b, hash, crypto.Hash(0))
+		return boring.SignECDSA(b, hash)
 	}
 	boring.UnreachableExceptTests()
 
@@ -312,35 +311,15 @@ func SignASN1(rand io.Reader, priv *PrivateKey, hash []byte) ([]byte, error) {
 	return priv.Sign(rand, hash, nil)
 }
 
-func HashSign(rand io.Reader, priv *PrivateKey, msg []byte, h crypto.Hash) (r, s *big.Int, err error) {
-	randutil.MaybeReadByte(rand)
-
-	if boring.Enabled() {
-		b, err := boringPrivateKey(priv)
-		if err != nil {
-			return nil, nil, err
-		}
-		return boring.SignECDSA(b, msg, h)
-	}
-	boring.UnreachableExceptTests()
-
-	hash := h.New()
-	hash.Write(msg)
-	d := hash.Sum(nil)
-
-	return Sign(rand, priv, d)
-}
-
 // Verify verifies the signature in r, s of hash using the public key, pub. Its
 // return value records whether the signature is valid.
 func Verify(pub *PublicKey, hash []byte, r, s *big.Int) bool {
 	if boring.Enabled() {
-		boring.PanicIfStrictFIPS("ecdsa.Verify disabled in FIPS mode, use HashVerify with raw message instead")
 		b, err := boringPublicKey(pub)
 		if err != nil {
 			return false
 		}
-		return boring.VerifyECDSA(b, hash, r, s, crypto.Hash(0))
+		return boring.VerifyECDSA(b, hash, r, s)
 	}
 
 	// See [NSA] 3.4.2
@@ -404,23 +383,6 @@ func VerifyASN1(pub *PublicKey, hash, sig []byte) bool {
 		return false
 	}
 	return Verify(pub, hash, r, s)
-}
-
-func HashVerify(pub *PublicKey, msg []byte, r, s *big.Int, h crypto.Hash) bool {
-	if boring.Enabled() {
-		b, err := boringPublicKey(pub)
-		if err != nil {
-			return false
-		}
-		return boring.VerifyECDSA(b, msg, r, s, h)
-	}
-	boring.UnreachableExceptTests()
-
-	hash := h.New()
-	hash.Write(msg)
-	d := hash.Sum(nil)
-
-	return Verify(pub, d, r, s)
 }
 
 type zr struct {

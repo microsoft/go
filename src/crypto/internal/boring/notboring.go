@@ -30,9 +30,6 @@ func Unreachable() {
 // when BoringCrypto is in use. It is a no-op without BoringCrypto.
 func UnreachableExceptTests() {}
 
-// This is a noop withotu BoringCrytpo.
-func PanicIfStrictFIPS(v interface{}) {}
-
 type randReader int
 
 func (randReader) Read(b []byte) (int, error) { panic("boringcrypto: not available") }
@@ -61,13 +58,13 @@ func NewPrivateKeyECDSA(curve string, X, Y, D *big.Int) (*PrivateKeyECDSA, error
 func NewPublicKeyECDSA(curve string, X, Y *big.Int) (*PublicKeyECDSA, error) {
 	panic("boringcrypto: not available")
 }
-func SignECDSA(priv *PrivateKeyECDSA, hash []byte, h crypto.Hash) (r, s *big.Int, err error) {
+func SignECDSA(priv *PrivateKeyECDSA, hash []byte) (r, s *big.Int, err error) {
 	panic("boringcrypto: not available")
 }
-func SignMarshalECDSA(priv *PrivateKeyECDSA, hash []byte, h crypto.Hash) ([]byte, error) {
+func SignMarshalECDSA(priv *PrivateKeyECDSA, hash []byte) ([]byte, error) {
 	panic("boringcrypto: not available")
 }
-func VerifyECDSA(pub *PublicKeyECDSA, hash []byte, r, s *big.Int, h crypto.Hash) bool {
+func VerifyECDSA(pub *PublicKeyECDSA, hash []byte, r, s *big.Int) bool {
 	panic("boringcrypto: not available")
 }
 
@@ -99,13 +96,13 @@ func NewPrivateKeyRSA(N, E, D, P, Q, Dp, Dq, Qinv *big.Int) (*PrivateKeyRSA, err
 	panic("boringcrypto: not available")
 }
 func NewPublicKeyRSA(N, E *big.Int) (*PublicKeyRSA, error) { panic("boringcrypto: not available") }
-func SignRSAPKCS1v15(priv *PrivateKeyRSA, h crypto.Hash, hashed []byte, msgHashed bool) ([]byte, error) {
+func SignRSAPKCS1v15(priv *PrivateKeyRSA, h crypto.Hash, hashed []byte) ([]byte, error) {
 	panic("boringcrypto: not available")
 }
 func SignRSAPSS(priv *PrivateKeyRSA, h crypto.Hash, hashed []byte, saltLen int) ([]byte, error) {
 	panic("boringcrypto: not available")
 }
-func VerifyRSAPKCS1v15(pub *PublicKeyRSA, h crypto.Hash, hashed, sig []byte, msgHashed bool) error {
+func VerifyRSAPKCS1v15(pub *PublicKeyRSA, h crypto.Hash, hashed, sig []byte) error {
 	panic("boringcrypto: not available")
 }
 func VerifyRSAPSS(pub *PublicKeyRSA, h crypto.Hash, hashed, sig []byte, saltLen int) error {
