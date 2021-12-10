@@ -426,14 +426,14 @@ func (g *aesGCM) Open(dst, nonce, ciphertext, additionalData []byte) ([]byte, er
 
 	// Provide any AAD data.
 	if C._goboringcrypto_EVP_DecryptUpdate(ctx, nil, &tmplen, base(additionalData), C.int(len(additionalData))) != C.int(1) {
-		return nil, fail("unable to decrypt additional data")
+		return nil, errOpen
 	}
 
 	// Provide the message to be decrypted, and obtain the plaintext output.
 	ciphertextLen := C.int(len(ciphertext) - gcmTagSize)
 	if C._goboringcrypto_EVP_DecryptUpdate(ctx, base(dst[n:]), &tmplen, base(ciphertext), ciphertextLen) != C.int(1) {
 		zeroDstFn()
-		return nil, fail("unable to decrypt cipher text")
+		return nil, errOpen
 	}
 	outLen := int(tmplen)
 
@@ -441,13 +441,13 @@ func (g *aesGCM) Open(dst, nonce, ciphertext, additionalData []byte) ([]byte, er
 	tag := ciphertext[len(ciphertext)-gcmTagSize:]
 	if C._goboringcrypto_EVP_CIPHER_CTX_ctrl(ctx, C.EVP_CTRL_GCM_SET_TAG, 16, unsafe.Pointer(&tag[0])) != C.int(1) {
 		zeroDstFn()
-		return nil, fail("unable to decrypt tag")
+		return nil, errOpen
 	}
 
 	// Finalise the decryption.
 	if C._goboringcrypto_EVP_DecryptFinal_ex(ctx, base(dst[n+outLen:]), &tmplen) != C.int(1) {
 		zeroDstFn()
-		return nil, fail("unable to finalize decryption")
+		return nil, errOpen
 	}
 	outLen += int(tmplen)
 	if outLen != len(ciphertext)-gcmTagSize {
