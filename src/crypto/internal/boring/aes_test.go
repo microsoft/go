@@ -23,7 +23,7 @@ func TestNewGCMNonce(t *testing.T) {
 	}
 	_, err = c.NewGCM(gcmStandardNonceSize-1, gcmTagSize)
 	if err != nil {
-		t.Errorf("expected no error for standard nonce size, got: %#v", err)
+		t.Errorf("expected no error for non-standard nonce size with standard tag size, got: %#v", err)
 	}
 	_, err = c.NewGCM(gcmStandardNonceSize, gcmTagSize-1)
 	if err != nil {
