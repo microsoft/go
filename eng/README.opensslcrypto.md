@@ -20,11 +20,13 @@ In addition to that, the dev.boringcrypto branch also provides a mechanism to re
 
 ## Microsoft Go fork FIPS compliance
 
-Microsoft's Go runtime has been modified to implement some crypto primitives using CGO and OpenSSL. Similar to BoringSSL, OpenSSL is also FIPS 140-2 certified. To do so we have followed a similar approach as dev.boringcrypto branch, but using many learning, and even code, from the RedHat [go-toolset](https://developers.redhat.com/blog/2019/06/24/go-and-fips-140-2-on-red-hat-enterprise-linux) and also the .NET Runtime OpenSSL cryptography module.  
+Microsoft's Go Linux runtime has been modified to implement several crypto primitives using cgo and OpenSSL. Similar to BoringSSL, certain OpenSSL versions are also FIPS 140-2 certified.
+
+It is important to note that an application built with Microsoft's Go toolchain and running in FIPS compatible mode is not FIPS compliant _per-se_. It is on the application development team to use FIPS-compliant crypto primitives and workflows. The crypto runtime will fall back to Go standard library crypto in case it cannot provide a FIPS-compliant implementation, p.e., when hashing a message using `crypto/md5` hashes or when using an AES-GCM cipher with a non-standard nonce size.  
 
 ## Usage
 
-FIPS mode, and therefore the OpenSSL crypto backend, can be enabled using any of these options:
+FIPS compatibility mode, and therefore the OpenSSL crypto backend, can be enabled using any of these options:
 
 - Explicitly setting the environment variable `GOLANG_FIPS=1`.
 - Implicitly enabling it by booting the Linux Kernel in FIPS mode.
@@ -39,13 +41,17 @@ The whole OpenSSL functionality can be disabled by building your program with `-
 
 ### No code changes required
 
-The Go crypto package implemented using OpenSSL does not require any code change to be used. Enable it as previously described, and the runtime will automatically switch to using OpenSSL.
+Applications requiring FIPS-compliance don't require any code change to activate FIPS compatibility mode. The Go runtime will favor OpenSSL crypto primitives over Go standard library when the application is FIPS-enabled.
 
-### Supported OpenSSL versions
+### Multiple OpenSSL versions allowed
 
-We provide first-class support for OpenSSL v1.1.1, yet we will also run all tests against v1.0.2 and v1.1.1.
+OpenSSL does not maintain ABI compatibility between different releases, even if only the patch version is increased. The Go crypto package has support for multiple OpenSSL versions, yet each version has a different set of guarantees:
 
-Support for OpenSSL v3.0.0 is in process.
+- Guaranteed to work: OpenSSL 1.1.1. The Microsoft CI builds and tests official releases.
+- Guaranteed to build: OpenSSL 1.0.1. The Microsoft CI builds official releases, but automated tests are not run so it may not produce working build.
+- No Guarantees: OpenSSL 1.1.0 and 3.0. The Microsoft CI does not build nor test these versions, so they may or may not work.
+
+Version not listed above are not supported at all.
 
 ### Dynamic OpenSSL linking
 
@@ -70,11 +76,13 @@ The Go TLS stack will automatically use OpenSSL crypto primitives when running i
 
 A program can import the `crypto/tls/fipsonly` package to configure the Go TLS stack so it is compliant with these restrictions. The configuration is done by an `init()` function. Note that this can reduce compatibility with old devices that do not support modern cryptography techniques such as TLS 1.2.
 
-## Limitations
+## Acknowledgements
 
-- FIPS mode is only supported in `linux_amd64`, but we plan to extend it to other platforms.
-- Only the following crypto packages are backed by OpenSSL primitives: `crypto/aes`, `crypto/ecdsa`, `crypto/hmac`, `crypto/rand`, `crypto/rsa`, `crypto/sha1`, `crypto/sha256`, `crypto/sha512`.
-- Hash primitives created by `sha512.New512_224` and `sha512.New512_256` are not backed by OpenSSL.
+The work done to support FIPS compatibility mode leverages code and ideas from other open-source projects:
+
+- All crypto stubs are a mirror of Google's [dev.boringboringcrypto](https://github.com/golang/go/tree/dev.boringcrypto).
+- The mapping between BoringSSL and OpenSSL APIs is taken from RedHat's [Go fork](https://pagure.io/go).
+- Portable OpenSSL implementation ported from Microsoft's [.NET runtime](https://github.com/dotnet/runtime) cryptography module.
 
 ## Disclaimer
 
