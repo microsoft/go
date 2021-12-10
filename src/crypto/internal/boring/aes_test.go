@@ -19,7 +19,7 @@ func TestNewGCMNonce(t *testing.T) {
 	c := ci.(*aesCipher)
 	_, err = c.NewGCM(gcmStandardNonceSize-1, gcmTagSize-1)
 	if err == nil {
-		t.Error("expected error for non-standard tag / nonce size, got none")
+		t.Error("expected error for non-standard tag and nonce size at the same time, got none")
 	}
 	_, err = c.NewGCM(gcmStandardNonceSize-1, gcmTagSize)
 	if err != nil {
