@@ -94,20 +94,38 @@ func TestBlobEncryptBasicBlockEncryption(t *testing.T) {
 	}
 }
 
-func TestDecryptSimple(t *testing.T) {
+func testDecrypt(t *testing.T, resetNonce bool) {
 	key := []byte{
 		0x24, 0xcd, 0x8b, 0x13, 0x37, 0xc5, 0xc1, 0xb1,
 		0x0, 0xbb, 0x27, 0x40, 0x4f, 0xab, 0x5f, 0x7b,
 		0x2d, 0x0, 0x20, 0xf5, 0x1, 0x84, 0x4, 0xbf,
 		0xe3, 0xbd, 0xa1, 0xc4, 0xbf, 0x61, 0x2f, 0xc5,
 	}
+
 	block, err := NewAESCipher(key)
 	if err != nil {
 		panic(err)
 	}
+
 	iv := []byte{
 		0x91, 0xc7, 0xa7, 0x54, 0x52, 0xef, 0x10, 0xdb,
 		0x91, 0xa8, 0x6c, 0xf9, 0x79, 0xd5, 0xac, 0x74,
+	}
+	var encrypter, decrypter cipher.BlockMode
+	if c, ok := block.(*aesCipher); ok {
+		encrypter = c.NewCBCEncrypter(iv)
+		if encrypter == nil {
+			t.Error("unable to create new CBC encrypter")
+		}
+		decrypter = c.NewCBCDecrypter(iv)
+		if decrypter == nil {
+			t.Error("unable to create new CBC decrypter")
+		}
+		if resetNonce {
+			for i := range iv {
+				iv[i] = 0
+			}
+		}
 	}
 
 	plainText := []byte{
@@ -127,13 +145,7 @@ func TestDecryptSimple(t *testing.T) {
 		0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 	}
 	cipherText := make([]byte, len(plainText))
-	var encrypter cipher.BlockMode
-	if c, ok := block.(*aesCipher); ok {
-		encrypter = c.NewCBCEncrypter(iv)
-		if encrypter == nil {
-			t.Error("unable to create new CBC encrypter")
-		}
-	}
+
 	encrypter.CryptBlocks(cipherText, plainText[:64])
 	encrypter.CryptBlocks(cipherText[64:], plainText[64:])
 
@@ -157,13 +169,6 @@ func TestDecryptSimple(t *testing.T) {
 		t.Fail()
 	}
 
-	var decrypter cipher.BlockMode
-	if c, ok := block.(*aesCipher); ok {
-		decrypter = c.NewCBCDecrypter(iv)
-		if decrypter == nil {
-			t.Error("unable to create new CBC decrypter")
-		}
-	}
 	decrypted := make([]byte, len(plainText))
 
 	decrypter.CryptBlocks(decrypted, cipherText[:64])
@@ -176,4 +181,12 @@ func TestDecryptSimple(t *testing.T) {
 	if bytes.Compare(plainText, decrypted) != 0 {
 		t.Errorf("decryption incorrect\nexp %v, got %v\n", plainText, decrypted)
 	}
+}
+
+func TestDecryptSimple(t *testing.T) {
+	testDecrypt(t, false)
+}
+
+func TestDecryptInvariantReusableNonce(t *testing.T) {
+	testDecrypt(t, true)
 }
