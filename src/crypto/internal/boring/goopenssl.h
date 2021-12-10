@@ -141,12 +141,6 @@ int _goboringcrypto_EVP_CIPHER_CTX_seal(
 	uint8_t *aad, size_t aad_len,
 	uint8_t *plaintext, size_t plaintext_len,
 	size_t *ciphertext_len);
-int _goboringcrypto_EVP_CIPHER_CTX_open(
-    EVP_CIPHER_CTX *ctx,
-    uint8_t *ciphertext, int ciphertext_len,
-    uint8_t *aad, int aad_len,
-    uint8_t *tag,
-    uint8_t *plaintext, size_t *plaintext_len);
 
 static inline void
 _goboringcrypto_EVP_AES_ctr128_enc(EVP_CIPHER_CTX *ctx, const uint8_t *in, uint8_t *out, size_t in_len)

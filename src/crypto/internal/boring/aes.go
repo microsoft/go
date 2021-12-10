@@ -410,30 +410,47 @@ func (g *aesGCM) Open(dst, nonce, ciphertext, additionalData []byte) ([]byte, er
 		panic("cipher: invalid buffer overlap")
 	}
 
-	tag := ciphertext[len(ciphertext)-gcmTagSize:]
-
 	ctx, err := initCipherCtx(g.cipher, C.GO_AES_DECRYPT, g.key, nonce)
 	if err != nil {
 		panic(err)
 	}
 	defer C._goboringcrypto_EVP_CIPHER_CTX_free(ctx)
 
-	var outLen C.size_t
-
-	ok := C._goboringcrypto_EVP_CIPHER_CTX_open(
-		ctx,
-		base(ciphertext), C.int(len(ciphertext)-gcmTagSize),
-		base(additionalData), C.int(len(additionalData)),
-		base(tag), base(dst[n:]), &outLen)
-	runtime.KeepAlive(g)
-	if ok == 0 {
-		// Zero output buffer on error.
+	zeroDstFn := func() {
 		for i := range dst {
 			dst[i] = 0
 		}
-		return nil, errOpen
 	}
-	if outLen != C.size_t(len(ciphertext)-gcmTagSize) {
+
+	var tmplen C.int
+
+	// Provide any AAD data.
+	if C._goboringcrypto_EVP_DecryptUpdate(ctx, nil, &tmplen, base(additionalData), C.int(len(additionalData))) != C.int(1) {
+		return nil, fail("unable to decrypt additional data")
+	}
+
+	// Provide the message to be decrypted, and obtain the plaintext output.
+	ciphertextLen := C.int(len(ciphertext) - gcmTagSize)
+	if C._goboringcrypto_EVP_DecryptUpdate(ctx, base(dst[n:]), &tmplen, base(ciphertext), ciphertextLen) != C.int(1) {
+		zeroDstFn()
+		return nil, fail("unable to decrypt cipher text")
+	}
+	outLen := int(tmplen)
+
+	// Set expected tag value. Works in OpenSSL 1.0.1d and later.
+	tag := ciphertext[len(ciphertext)-gcmTagSize:]
+	if C._goboringcrypto_EVP_CIPHER_CTX_ctrl(ctx, C.EVP_CTRL_GCM_SET_TAG, 16, unsafe.Pointer(&tag[0])) != C.int(1) {
+		zeroDstFn()
+		return nil, fail("unable to decrypt tag")
+	}
+
+	// Finalize the decryption.
+	if C._goboringcrypto_EVP_DecryptFinal_ex(ctx, base(dst[n+outLen:]), &tmplen) != C.int(1) {
+		zeroDstFn()
+		return nil, fail("unable to finalize decryption")
+	}
+	outLen += int(tmplen)
+	if outLen != len(ciphertext)-gcmTagSize {
 		panic("internal confusion about GCM tag size")
 	}
 	return dst[:n+int(outLen)], nil
