@@ -136,17 +136,12 @@ int _goboringcrypto_RSA_verify_pss_mgf1(
 	unsigned int msg_len, GO_EVP_MD *md,
 	const GO_EVP_MD *mgf1_md, int salt_len,
 	const uint8_t *sig, unsigned int sig_len);
-int _goboringcrypto_EVP_CIPHER_CTX_seal(
-	EVP_CIPHER_CTX *ctx, uint8_t *out,
-	uint8_t *aad, size_t aad_len,
-	uint8_t *plaintext, size_t plaintext_len,
-	size_t *ciphertext_len);
 
 static inline void
 _goboringcrypto_EVP_AES_ctr128_enc(EVP_CIPHER_CTX *ctx, const uint8_t *in, uint8_t *out, size_t in_len)
 {
 	int len;
-	_goboringcrypto_internal_EVP_EncryptUpdate(ctx, out, &len, in, in_len);
+	_goboringcrypto_EVP_EncryptUpdate(ctx, out, &len, in, in_len);
 }
 
 static inline int

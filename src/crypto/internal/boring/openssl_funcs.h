@@ -163,10 +163,10 @@ DEFINEFUNC(unsigned int, RSA_size, (const GO_RSA *arg0), (arg0)) \
 DEFINEFUNC(int, EVP_EncryptInit_ex, \
     (EVP_CIPHER_CTX *ctx, const EVP_CIPHER *type, ENGINE *impl, const unsigned char *key, const unsigned char *iv), \
     (ctx, type, impl, key, iv)) \
-DEFINEFUNCINTERNAL(int, EVP_EncryptUpdate, \
+DEFINEFUNC(int, EVP_EncryptUpdate, \
     (EVP_CIPHER_CTX *ctx, unsigned char *out, int *outl, const unsigned char *in, int inl), \
     (ctx, out, outl, in, inl)) \
-DEFINEFUNCINTERNAL(int, EVP_EncryptFinal_ex, \
+DEFINEFUNC(int, EVP_EncryptFinal_ex, \
     (EVP_CIPHER_CTX *ctx, unsigned char *out, int *outl), \
     (ctx, out, outl)) \
 DEFINEFUNC(int, EVP_DecryptUpdate, \

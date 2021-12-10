@@ -363,17 +363,31 @@ func (g *aesGCM) Seal(dst, nonce, plaintext, additionalData []byte) []byte {
 		panic(err)
 	}
 	defer C._goboringcrypto_EVP_CIPHER_CTX_free(ctx)
-	var ciphertextLen C.size_t
 
-	if C.int(1) != C._goboringcrypto_EVP_CIPHER_CTX_seal(
-		ctx, (*C.uint8_t)(unsafe.Pointer(&out[0])),
-		base(additionalData), C.size_t(len(additionalData)),
-		base(plaintext), C.size_t(len(plaintext)), &ciphertextLen) {
+	var encLen C.int
+	// Encrypt additional data.
+	if C._goboringcrypto_EVP_EncryptUpdate(ctx, nil, &encLen, base(additionalData), C.int(len(additionalData))) != C.int(1) {
 		panic(fail("EVP_CIPHER_CTX_seal"))
 	}
-	runtime.KeepAlive(g)
 
-	if ciphertextLen != C.size_t(len(plaintext)+gcmTagSize) {
+	// Encrypt plain text.
+	if C._goboringcrypto_EVP_EncryptUpdate(ctx, base(out), &encLen, base(plaintext), C.int(len(plaintext))) != C.int(1) {
+		panic(fail("EVP_CIPHER_CTX_seal"))
+	}
+
+	// Finalise encryption.
+	var encFinalLen C.int
+	if C._goboringcrypto_EVP_EncryptFinal_ex(ctx, base(out[encLen:]), &encFinalLen) != C.int(1) {
+		panic(fail("EVP_CIPHER_CTX_seal"))
+	}
+	encLen += encFinalLen
+
+	if C._goboringcrypto_EVP_CIPHER_CTX_ctrl(ctx, C.EVP_CTRL_GCM_GET_TAG, C.int(16), unsafe.Pointer(&out[encLen])) != C.int(1) {
+		panic(fail("EVP_CIPHER_CTX_seal"))
+	}
+	encLen += 16
+
+	if int(encLen) != len(plaintext)+gcmTagSize {
 		panic("internal confusion about GCM tag size")
 	}
 	return ret
@@ -422,8 +436,8 @@ func (g *aesGCM) Open(dst, nonce, ciphertext, additionalData []byte) ([]byte, er
 	}
 
 	// Provide the message to be decrypted, and obtain the plaintext output.
-	var decryptedLen C.int
-	if C._goboringcrypto_EVP_DecryptUpdate(ctx, base(out), &decryptedLen, base(ciphertext), C.int(len(ciphertext))) != C.int(1) {
+	var decLen C.int
+	if C._goboringcrypto_EVP_DecryptUpdate(ctx, base(out), &decLen, base(ciphertext), C.int(len(ciphertext))) != C.int(1) {
 		zeroDstFn()
 		return nil, errOpen
 	}
@@ -436,12 +450,12 @@ func (g *aesGCM) Open(dst, nonce, ciphertext, additionalData []byte) ([]byte, er
 
 	// Finalise the decryption.
 	var tagLen C.int
-	if C._goboringcrypto_EVP_DecryptFinal_ex(ctx, base(out[int(decryptedLen):]), &tagLen) != C.int(1) {
+	if C._goboringcrypto_EVP_DecryptFinal_ex(ctx, base(out[int(decLen):]), &tagLen) != C.int(1) {
 		zeroDstFn()
 		return nil, errOpen
 	}
 
-	if int(decryptedLen+tagLen) != len(ciphertext) {
+	if int(decLen+tagLen) != len(ciphertext) {
 		panic("internal confusion about GCM tag size")
 	}
 	return ret, nil
