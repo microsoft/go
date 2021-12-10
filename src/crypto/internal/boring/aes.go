@@ -11,6 +11,7 @@ package boring
 import "C"
 import (
 	"crypto/cipher"
+	"crypto/internal/subtle"
 	"errors"
 	"runtime"
 	"strconv"
@@ -77,7 +78,7 @@ func (c *aesCipher) finalize() {
 func (c *aesCipher) BlockSize() int { return aesBlockSize }
 
 func (c *aesCipher) Encrypt(dst, src []byte) {
-	if inexactOverlap(dst, src) {
+	if subtle.InexactOverlap(dst, src) {
 		panic("crypto/cipher: invalid buffer overlap")
 	}
 	if len(src) < aesBlockSize {
@@ -101,7 +102,7 @@ func (c *aesCipher) Encrypt(dst, src []byte) {
 }
 
 func (c *aesCipher) Decrypt(dst, src []byte) {
-	if inexactOverlap(dst, src) {
+	if subtle.InexactOverlap(dst, src) {
 		panic("crypto/cipher: invalid buffer overlap")
 	}
 	if len(src) < aesBlockSize {
@@ -130,7 +131,7 @@ type aesCBC struct {
 func (x *aesCBC) BlockSize() int { return aesBlockSize }
 
 func (x *aesCBC) CryptBlocks(dst, src []byte) {
-	if inexactOverlap(dst, src) {
+	if subtle.InexactOverlap(dst, src) {
 		panic("crypto/cipher: invalid buffer overlap")
 	}
 	if len(src)%aesBlockSize != 0 {
@@ -223,7 +224,7 @@ type aesCTR struct {
 }
 
 func (x *aesCTR) XORKeyStream(dst, src []byte) {
-	if inexactOverlap(dst, src) {
+	if subtle.InexactOverlap(dst, src) {
 		panic("crypto/cipher: invalid buffer overlap")
 	}
 	if len(dst) < len(src) {
@@ -345,22 +346,15 @@ func (g *aesGCM) Seal(dst, nonce, plaintext, additionalData []byte) []byte {
 	if len(nonce) != gcmStandardNonceSize {
 		panic("cipher: incorrect nonce length given to GCM")
 	}
-	if uint64(len(plaintext)) > ((1<<32)-2)*aesBlockSize || len(plaintext)+gcmTagSize < len(plaintext) {
+	if uint64(len(plaintext)) > ((1<<32)-2)*aesBlockSize {
 		panic("cipher: message too large for GCM")
-	}
-	if len(dst)+len(plaintext)+gcmTagSize < len(dst) {
-		panic("cipher: message too large for buffer")
 	}
 
 	// Make room in dst to append plaintext+overhead.
-	n := len(dst)
-	for cap(dst) < n+len(plaintext)+gcmTagSize {
-		dst = append(dst[:cap(dst)], 0)
-	}
-	dst = dst[:n+len(plaintext)+gcmTagSize]
+	ret, out := sliceForAppend(dst, len(plaintext)+gcmTagSize)
 
 	// Check delayed until now to make sure len(dst) is accurate.
-	if inexactOverlap(dst[n:], plaintext) {
+	if subtle.InexactOverlap(out, plaintext) {
 		panic("cipher: invalid buffer overlap")
 	}
 
@@ -372,7 +366,7 @@ func (g *aesGCM) Seal(dst, nonce, plaintext, additionalData []byte) []byte {
 	var ciphertextLen C.size_t
 
 	if C.int(1) != C._goboringcrypto_EVP_CIPHER_CTX_seal(
-		ctx, (*C.uint8_t)(unsafe.Pointer(&dst[n])),
+		ctx, (*C.uint8_t)(unsafe.Pointer(&out[0])),
 		base(additionalData), C.size_t(len(additionalData)),
 		base(plaintext), C.size_t(len(plaintext)), &ciphertextLen) {
 		panic(fail("EVP_CIPHER_CTX_seal"))
@@ -382,7 +376,7 @@ func (g *aesGCM) Seal(dst, nonce, plaintext, additionalData []byte) []byte {
 	if ciphertextLen != C.size_t(len(plaintext)+gcmTagSize) {
 		panic("internal confusion about GCM tag size")
 	}
-	return dst[:n+int(ciphertextLen)]
+	return ret
 }
 
 var errOpen = errors.New("cipher: message authentication failed")
@@ -398,15 +392,14 @@ func (g *aesGCM) Open(dst, nonce, ciphertext, additionalData []byte) ([]byte, er
 		return nil, errOpen
 	}
 
+	tag := ciphertext[len(ciphertext)-gcmTagSize:]
+	ciphertext = ciphertext[:len(ciphertext)-gcmTagSize]
+
 	// Make room in dst to append ciphertext without tag.
-	n := len(dst)
-	for cap(dst) < n+len(ciphertext)-gcmTagSize {
-		dst = append(dst[:cap(dst)], 0)
-	}
-	dst = dst[:n+len(ciphertext)-gcmTagSize]
+	ret, out := sliceForAppend(dst, len(ciphertext))
 
 	// Check delayed until now to make sure len(dst) is accurate.
-	if inexactOverlap(dst[n:], ciphertext) {
+	if subtle.InexactOverlap(out, ciphertext) {
 		panic("cipher: invalid buffer overlap")
 	}
 
@@ -417,58 +410,53 @@ func (g *aesGCM) Open(dst, nonce, ciphertext, additionalData []byte) ([]byte, er
 	defer C._goboringcrypto_EVP_CIPHER_CTX_free(ctx)
 
 	zeroDstFn := func() {
-		for i := range dst {
-			dst[i] = 0
+		for i := range out {
+			out[i] = 0
 		}
 	}
 
-	var tmplen C.int
-
 	// Provide any AAD data.
+	var tmplen C.int
 	if C._goboringcrypto_EVP_DecryptUpdate(ctx, nil, &tmplen, base(additionalData), C.int(len(additionalData))) != C.int(1) {
 		return nil, errOpen
 	}
 
 	// Provide the message to be decrypted, and obtain the plaintext output.
-	ciphertextLen := C.int(len(ciphertext) - gcmTagSize)
-	if C._goboringcrypto_EVP_DecryptUpdate(ctx, base(dst[n:]), &tmplen, base(ciphertext), ciphertextLen) != C.int(1) {
+	var decryptedLen C.int
+	if C._goboringcrypto_EVP_DecryptUpdate(ctx, base(out), &decryptedLen, base(ciphertext), C.int(len(ciphertext))) != C.int(1) {
 		zeroDstFn()
 		return nil, errOpen
 	}
-	outLen := int(tmplen)
 
 	// Set expected tag value. Works in OpenSSL 1.0.1d and later.
-	tag := ciphertext[len(ciphertext)-gcmTagSize:]
 	if C._goboringcrypto_EVP_CIPHER_CTX_ctrl(ctx, C.EVP_CTRL_GCM_SET_TAG, 16, unsafe.Pointer(&tag[0])) != C.int(1) {
 		zeroDstFn()
 		return nil, errOpen
 	}
 
 	// Finalise the decryption.
-	if C._goboringcrypto_EVP_DecryptFinal_ex(ctx, base(dst[n+outLen:]), &tmplen) != C.int(1) {
+	var tagLen C.int
+	if C._goboringcrypto_EVP_DecryptFinal_ex(ctx, base(out[int(decryptedLen):]), &tagLen) != C.int(1) {
 		zeroDstFn()
 		return nil, errOpen
 	}
-	outLen += int(tmplen)
-	if outLen != len(ciphertext)-gcmTagSize {
+
+	if int(decryptedLen+tagLen) != len(ciphertext) {
 		panic("internal confusion about GCM tag size")
 	}
-	return dst[:n+int(outLen)], nil
+	return ret, nil
 }
 
-// anyOverlap is a mirror of golang.org/x/crypto/internal/subtle.AnyOverlap
-func anyOverlap(x, y []byte) bool {
-	return len(x) > 0 && len(y) > 0 &&
-		uintptr(unsafe.Pointer(&x[0])) <= uintptr(unsafe.Pointer(&y[len(y)-1])) &&
-		uintptr(unsafe.Pointer(&y[0])) <= uintptr(unsafe.Pointer(&x[len(x)-1]))
-}
-
-// inexactOverlap is a mirror of golang.org/x/crypto/internal/subtle.InexactOverlap
-func inexactOverlap(x, y []byte) bool {
-	if len(x) == 0 || len(y) == 0 || &x[0] == &y[0] {
-		return false
+// sliceForAppend is a mirror of crypto/cipher.sliceForAppend.
+func sliceForAppend(in []byte, n int) (head, tail []byte) {
+	if total := len(in) + n; cap(in) >= total {
+		head = in[:total]
+	} else {
+		head = make([]byte, total)
+		copy(head, in)
 	}
-	return anyOverlap(x, y)
+	tail = head[len(in):]
+	return
 }
 
 func newCipherCtx(cipher *C.EVP_CIPHER, mode C.int, key, iv []byte) (*C.EVP_CIPHER_CTX, error) {
