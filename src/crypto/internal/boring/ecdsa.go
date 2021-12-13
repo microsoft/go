@@ -43,7 +43,7 @@ var errUnsupportedCurve = errors.New("boringcrypto: unsupported elliptic curve")
 func curveNID(curve string) (C.int, error) {
 	switch curve {
 	case "P-224":
-		return 0, errUnsupportedCurve
+		return C.GO_NID_secp224r1, nil
 	case "P-256":
 		return C.GO_NID_X9_62_prime256v1, nil
 	case "P-384":

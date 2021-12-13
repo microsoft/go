@@ -58,6 +58,7 @@ _goboringcrypto_OPENSSL_setup(void)
 
 enum
 {
+	GO_NID_secp224r1 = NID_secp224r1,
 	GO_NID_X9_62_prime256v1 = NID_X9_62_prime256v1,
 	GO_NID_secp384r1 = NID_secp384r1,
 	GO_NID_secp521r1 = NID_secp521r1,
