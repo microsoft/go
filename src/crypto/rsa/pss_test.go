@@ -9,7 +9,6 @@ import (
 	"bytes"
 	"compress/bzip2"
 	"crypto"
-	"crypto/internal/boring"
 	"crypto/rand"
 	"crypto/sha1"
 	"crypto/sha256"
@@ -235,9 +234,6 @@ func TestPSSSigning(t *testing.T) {
 }
 
 func TestSignWithPSSSaltLengthAuto(t *testing.T) {
-	if boring.Enabled() {
-		t.Skip("skipping in boring mode: invalid key length")
-	}
 	key, err := GenerateKey(rand.Reader, 513)
 	if err != nil {
 		t.Fatal(err)
