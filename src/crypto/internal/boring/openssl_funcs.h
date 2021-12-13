@@ -107,7 +107,7 @@ DEFINEFUNC(int, EVP_CipherUpdate, \
 DEFINEFUNC(GO_BIGNUM *, BN_new, (void), ()) \
 DEFINEFUNC(void, BN_free, (GO_BIGNUM * arg0), (arg0)) \
 DEFINEFUNCINTERNAL(void, BN_clear_free, (GO_BIGNUM * arg0), (arg0)) \
-DEFINEFUNCINTERNAL(int, BN_set_word, (BIGNUM *a, BN_ULONG w), (a, w)) \
+DEFINEFUNC(int, BN_set_word, (GO_BIGNUM *a, BN_ULONG w), (a, w)) \
 DEFINEFUNCINTERNAL(unsigned int, BN_num_bits, (const GO_BIGNUM *arg0), (arg0)) \
 DEFINEFUNC(GO_BIGNUM *, BN_bin2bn, (const uint8_t *arg0, size_t arg1, GO_BIGNUM *arg2), (arg0, arg1, arg2)) \
 DEFINEFUNC(size_t, BN_bn2bin, (const GO_BIGNUM *arg0, uint8_t *arg1), (arg0, arg1)) \
@@ -144,7 +144,7 @@ DEFINEFUNC(int, RSA_sign, \
 DEFINEFUNC(int, RSA_verify, \
     (int arg0, const uint8_t *arg1, unsigned int arg2, const uint8_t *arg3, unsigned int arg4, GO_RSA *arg5), \
     (arg0, arg1, arg2, arg3, arg4, arg5)) \
-DEFINEFUNCINTERNAL(int, RSA_generate_key_ex, \
+DEFINEFUNC(int, RSA_generate_key_ex, \
     (GO_RSA * arg0, int arg1, GO_BIGNUM *arg2, GO_BN_GENCB *arg3), \
     (arg0, arg1, arg2, arg3)) \
 DEFINEFUNC_FALLBACK(int, RSA_set0_factors, (GO_RSA * rsa, GO_BIGNUM *p, GO_BIGNUM *q), (rsa, p, q)) \
@@ -191,16 +191,16 @@ DEFINEFUNCINTERNAL(int, EVP_CIPHER_CTX_ctrl, (EVP_CIPHER_CTX *ctx, int type, int
 DEFINEFUNC(GO_EVP_PKEY *, EVP_PKEY_new, (void), ()) \
 DEFINEFUNC(void, EVP_PKEY_free, (GO_EVP_PKEY * arg0), (arg0)) \
 DEFINEFUNC(int, EVP_PKEY_set1_RSA, (GO_EVP_PKEY * arg0, GO_RSA *arg1), (arg0, arg1)) \
-DEFINEFUNCINTERNAL(int, EVP_PKEY_verify, \
-    (EVP_PKEY_CTX *ctx, const unsigned char *sig, unsigned int siglen, const unsigned char *tbs, size_t tbslen), \
+DEFINEFUNC(int, EVP_PKEY_verify, \
+    (GO_EVP_PKEY_CTX *ctx, const uint8_t *sig, unsigned int siglen, const uint8_t *tbs, unsigned int tbslen), \
     (ctx, sig, siglen, tbs, tbslen)) \
 DEFINEFUNC(GO_EVP_PKEY_CTX *, EVP_PKEY_CTX_new, (GO_EVP_PKEY * arg0, ENGINE *arg1), (arg0, arg1)) \
 DEFINEFUNC(void, EVP_PKEY_CTX_free, (GO_EVP_PKEY_CTX * arg0), (arg0)) \
 DEFINEFUNCINTERNAL(int, EVP_PKEY_CTX_ctrl, \
-    (EVP_PKEY_CTX * ctx, int keytype, int optype, int cmd, int p1, void *p2), \
+    (GO_EVP_PKEY_CTX * ctx, int keytype, int optype, int cmd, int p1, void *p2), \
     (ctx, keytype, optype, cmd, p1, p2)) \
 DEFINEFUNC_FALLBACK(int, RSA_pkey_ctx_ctrl, \
-    (EVP_PKEY_CTX *ctx, int optype, int cmd, int p1, void *p2), \
+    (GO_EVP_PKEY_CTX *ctx, int optype, int cmd, int p1, void *p2), \
     (ctx, optype, cmd, p1, p2)) \
 DEFINEFUNC(int, EVP_PKEY_decrypt, \
     (GO_EVP_PKEY_CTX * arg0, uint8_t *arg1, unsigned int *arg2, const uint8_t *arg3, unsigned int arg4), \
@@ -210,8 +210,8 @@ DEFINEFUNC(int, EVP_PKEY_encrypt, \
     (arg0, arg1, arg2, arg3, arg4)) \
 DEFINEFUNC(int, EVP_PKEY_decrypt_init, (GO_EVP_PKEY_CTX * arg0), (arg0)) \
 DEFINEFUNC(int, EVP_PKEY_encrypt_init, (GO_EVP_PKEY_CTX * arg0), (arg0)) \
-DEFINEFUNCINTERNAL(int, EVP_PKEY_sign_init, (GO_EVP_PKEY_CTX * arg0), (arg0)) \
-DEFINEFUNCINTERNAL(int, EVP_PKEY_verify_init, (GO_EVP_PKEY_CTX * arg0), (arg0)) \
-DEFINEFUNCINTERNAL(int, EVP_PKEY_sign, \
-    (GO_EVP_PKEY_CTX * arg0, uint8_t *arg1, size_t *arg2, const uint8_t *arg3, size_t arg4), \
+DEFINEFUNC(int, EVP_PKEY_sign_init, (GO_EVP_PKEY_CTX * arg0), (arg0)) \
+DEFINEFUNC(int, EVP_PKEY_verify_init, (GO_EVP_PKEY_CTX * arg0), (arg0)) \
+DEFINEFUNC(int, EVP_PKEY_sign, \
+    (GO_EVP_PKEY_CTX * arg0, uint8_t *arg1, unsigned int *arg2, const uint8_t *arg3, unsigned int arg4), \
     (arg0, arg1, arg2, arg3, arg4))
