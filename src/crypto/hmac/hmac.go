@@ -133,8 +133,7 @@ func New(h func() hash.Hash, key []byte) hash.Hash {
 		if hm != nil {
 			return hm
 		}
-		// BoringCrypto did not recognize h.
-		boring.UnreachableExceptTests()
+		// BoringCrypto did not recognize h, so fall through to standard Go code.
 	}
 	hm := new(hmac)
 	hm.outer = h()
