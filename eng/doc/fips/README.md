@@ -45,11 +45,11 @@ Applications requiring FIPS-compliance don't require any code change to activate
 
 ### Multiple OpenSSL versions allowed
 
-OpenSSL does not maintain ABI compatibility between different releases, even if only the patch version is increased. The Go crypto package has support for multiple OpenSSL versions, yet each version has a different set of guarantees:
+OpenSSL does not maintain ABI compatibility between different releases, even if only the patch version is increased. The Go crypto package has support for multiple OpenSSL versions, yet each version has a different amount of automated validation:
 
-- Guaranteed to work: OpenSSL 1.1.1. The Microsoft CI builds and tests official releases.
-- Guaranteed to build: OpenSSL 1.0.1. The Microsoft CI builds official releases, but automated tests are not run so it may not produce working build.
-- No Guarantees: OpenSSL 1.1.0 and 3.0. The Microsoft CI does not build nor test these versions, so they may or may not work.
+- OpenSSL 1.1.1: the Microsoft CI builds official releases and runs automated tests with this version.
+- OpenSSL 1.0.1: the Microsoft CI builds official releases, but doesn't run tests, so it may not produce working applications.
+- OpenSSL 1.1.0 and 3.0: the Microsoft CI does not build nor test these versions, so they may or may not work.
 
 Version not listed above are not supported at all.
 
