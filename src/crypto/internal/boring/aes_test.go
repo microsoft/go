@@ -58,7 +58,7 @@ func TestSealAndOpen(t *testing.T) {
 	}
 }
 
-func TestSealAndOpenAuthenticatinError(t *testing.T) {
+func TestSealAndOpenAuthenticationError(t *testing.T) {
 	key := []byte("D249BF6DEC97B1EBD69BC4D6B3A3C49D")
 	ci, err := NewAESCipher(key)
 	if err != nil {
