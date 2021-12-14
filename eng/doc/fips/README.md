@@ -22,7 +22,7 @@ In addition to that, the dev.boringcrypto branch also provides a mechanism to re
 
 Microsoft's Go Linux runtime has been modified to implement several crypto primitives using cgo and OpenSSL. Similar to BoringSSL, certain OpenSSL versions are also FIPS 140-2 certified.
 
-It is important to note that an application built with Microsoft's Go toolchain and running in FIPS compatible mode is not FIPS compliant _per-se_. It is on the application development team to use FIPS-compliant crypto primitives and workflows. The crypto runtime will fall back to Go standard library crypto in case it cannot provide a FIPS-compliant implementation, p.e., when hashing a message using `crypto/md5` hashes or when using an AES-GCM cipher with a non-standard nonce size.  
+It is important to note that an application built with Microsoft's Go toolchain and running in FIPS compatible mode is not FIPS compliant _per-se_. It is on the application development team to use FIPS-compliant crypto primitives and workflows. The crypto runtime will fall back to Go standard library crypto in case it cannot provide a FIPS-compliant implementation, e.g. when hashing a message using `crypto/md5` hashes or when using an AES-GCM cipher with a non-standard nonce size.
 
 ## Usage
 
