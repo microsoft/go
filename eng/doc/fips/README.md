@@ -62,7 +62,7 @@ The `libcrypto` shared library file name varies among different platforms, so a 
 - The base name is always `libcrypto.so.`
 - Well-known version strings are appended to the base name, until the file is found, in the following order: `3` -> `1.1` -> `11` -> `111` -> `1.0.2` -> `1.0.0`.
 
-This algorithm can be overridden by setting the environment variable `GO_OPENSSL_VERSION_OVERRIDE` to the desired version string, such as `GO_OPENSSL_VERSION_OVERRIDE="1.1.1k-fips"`, which will look for a the shared library `libcrypto.so.1.1.1k-fips`.
+This algorithm can be overridden by setting the environment variable `GO_OPENSSL_VERSION_OVERRIDE` to the desired version string. For example, `GO_OPENSSL_VERSION_OVERRIDE="1.1.1k-fips"` makes the runtime look for the shared library `libcrypto.so.1.1.1k-fips` before running the checks for well-known versions.
 
 ### Portable OpenSSL
 
