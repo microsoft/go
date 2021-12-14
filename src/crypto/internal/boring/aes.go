@@ -423,10 +423,11 @@ func (g *aesGCM) Open(dst, nonce, ciphertext, additionalData []byte) ([]byte, er
 	}
 	defer C._goboringcrypto_EVP_CIPHER_CTX_free(ctx)
 
-	zeroDstFn := func() {
+	clearAndFail := func(err error) ([]byte, error) {
 		for i := range out {
 			out[i] = 0
 		}
+		return nil, err
 	}
 
 	// Provide any AAD data.
@@ -438,21 +439,18 @@ func (g *aesGCM) Open(dst, nonce, ciphertext, additionalData []byte) ([]byte, er
 	// Provide the message to be decrypted, and obtain the plaintext output.
 	var decLen C.int
 	if C._goboringcrypto_EVP_DecryptUpdate(ctx, base(out), &decLen, base(ciphertext), C.int(len(ciphertext))) != C.int(1) {
-		zeroDstFn()
-		return nil, errOpen
+		return clearAndFail(errOpen)
 	}
 
 	// Set expected tag value. Works in OpenSSL 1.0.1d and later.
 	if C._goboringcrypto_EVP_CIPHER_CTX_ctrl(ctx, C.EVP_CTRL_GCM_SET_TAG, 16, unsafe.Pointer(&tag[0])) != C.int(1) {
-		zeroDstFn()
-		return nil, errOpen
+		return clearAndFail(errOpen)
 	}
 
 	// Finalise the decryption.
 	var tagLen C.int
 	if C._goboringcrypto_EVP_DecryptFinal_ex(ctx, base(out[int(decLen):]), &tagLen) != C.int(1) {
-		zeroDstFn()
-		return nil, errOpen
+		return clearAndFail(errOpen)
 	}
 
 	if int(decLen+tagLen) != len(ciphertext) {

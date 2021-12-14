@@ -232,5 +232,7 @@ func TestDecryptSimple(t *testing.T) {
 }
 
 func TestDecryptInvariantReusableNonce(t *testing.T) {
+	// Test that changing the iv slice after creating the encrypter
+	// and decrypter doesn't change the encrypter/decrypter state."
 	testDecrypt(t, true)
 }
