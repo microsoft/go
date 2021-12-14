@@ -346,8 +346,11 @@ func (g *aesGCM) Seal(dst, nonce, plaintext, additionalData []byte) []byte {
 	if len(nonce) != gcmStandardNonceSize {
 		panic("cipher: incorrect nonce length given to GCM")
 	}
-	if uint64(len(plaintext)) > ((1<<32)-2)*aesBlockSize {
+	if uint64(len(plaintext)) > ((1<<32)-2)*aesBlockSize || len(plaintext)+gcmTagSize < len(plaintext) {
 		panic("cipher: message too large for GCM")
+	}
+	if len(dst)+len(plaintext)+gcmTagSize < len(dst) {
+		panic("cipher: message too large for buffer")
 	}
 
 	// Make room in dst to append plaintext+overhead.
@@ -433,7 +436,7 @@ func (g *aesGCM) Open(dst, nonce, ciphertext, additionalData []byte) ([]byte, er
 	// Provide any AAD data.
 	var tmplen C.int
 	if C._goboringcrypto_EVP_DecryptUpdate(ctx, nil, &tmplen, base(additionalData), C.int(len(additionalData))) != C.int(1) {
-		return nil, errOpen
+		return clearAndFail(errOpen)
 	}
 
 	// Provide the message to be decrypted, and obtain the plaintext output.

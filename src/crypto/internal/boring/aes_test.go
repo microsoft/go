@@ -6,6 +6,7 @@ package boring
 import (
 	"bytes"
 	"crypto/cipher"
+	"math"
 	"testing"
 )
 
@@ -77,6 +78,35 @@ func TestSealAndOpenAuthenticationError(t *testing.T) {
 	if err != errOpen {
 		t.Errorf("expected authentication error, got: %#v", err)
 	}
+}
+
+func assertPanic(t *testing.T, f func()) {
+	t.Helper()
+	defer func() {
+		if r := recover(); r == nil {
+			t.Errorf("The code did not panic")
+		}
+	}()
+	f()
+}
+
+func TestSealPanic(t *testing.T) {
+	ci, err := NewAESCipher([]byte("D249BF6DEC97B1EBD69BC4D6B3A3C49D"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := ci.(*aesCipher)
+	gcm, err := c.NewGCM(gcmStandardNonceSize, gcmTagSize)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertPanic(t, func() {
+		gcm.Seal(nil, make([]byte, gcmStandardNonceSize-1), []byte{0x01, 0x02, 0x03}, nil)
+	})
+	assertPanic(t, func() {
+		gcm.Seal(nil, make([]byte, gcmStandardNonceSize), make([]byte, math.MaxInt), nil)
+	})
+
 }
 
 func TestBlobEncryptBasicBlockEncryption(t *testing.T) {
