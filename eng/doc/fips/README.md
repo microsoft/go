@@ -51,7 +51,7 @@ OpenSSL does not maintain ABI compatibility between different releases, even if 
 - OpenSSL 1.0.1: the Microsoft CI builds official releases, but doesn't run tests, so it may not produce working applications.
 - OpenSSL 1.1.0 and 3.0: the Microsoft CI does not build nor test these versions, so they may or may not work.
 
-Version not listed above are not supported at all.
+Versions not listed above are not supported at all.
 
 ### Dynamic OpenSSL linking
 
