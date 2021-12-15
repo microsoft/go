@@ -262,7 +262,7 @@ func GenerateKey(random io.Reader, bits int) (*PrivateKey, error) {
 func GenerateMultiPrimeKey(random io.Reader, nprimes int, bits int) (*PrivateKey, error) {
 	randutil.MaybeReadByte(random)
 
-	if boring.Enabled() && nprimes == 2 && (bits == 2048 || bits == 3072) {
+	if boring.Enabled() && random == boring.RandReader && nprimes == 2 && (bits == 2048 || bits == 3072) {
 		N, E, D, P, Q, Dp, Dq, Qinv, err := boring.GenerateKeyRSA(bits)
 		if err != nil {
 			return nil, err
@@ -450,7 +450,7 @@ func EncryptOAEP(hash hash.Hash, random io.Reader, pub *PublicKey, msg []byte, l
 		return nil, ErrMessageTooLong
 	}
 
-	if boring.Enabled() {
+	if boring.Enabled() && random == boring.RandReader {
 		bkey, err := boringPublicKey(pub)
 		if err != nil {
 			return nil, err
