@@ -1,38 +1,111 @@
-// +build linux
-// +build !android
-// +build !no_openssl
-// +build !cmd_go_bootstrap
-// +build !msan
-// +build cgo
+//go:build linux && !android && !no_openssl && !cmd_go_bootstrap && !msan && cgo
+// +build linux,!android,!no_openssl,!cmd_go_bootstrap,!msan,cgo
 
 package boring
 
 import (
 	"bytes"
 	"crypto/cipher"
+	"math"
 	"testing"
 )
 
 func TestNewGCMNonce(t *testing.T) {
-	// Should return an error for non-standard nonce size.
 	key := []byte("D249BF6DEC97B1EBD69BC4D6B3A3C49D")
 	ci, err := NewAESCipher(key)
 	if err != nil {
 		t.Fatal(err)
 	}
 	c := ci.(*aesCipher)
-	_, err = c.NewGCM(gcmStandardNonceSize-1, gcmTagSize)
+	_, err = c.NewGCM(gcmStandardNonceSize-1, gcmTagSize-1)
 	if err == nil {
-		t.Error("expected error for non-standard nonce size, got none")
+		t.Error("expected error for non-standard tag and nonce size at the same time, got none")
+	}
+	_, err = c.NewGCM(gcmStandardNonceSize-1, gcmTagSize)
+	if err != nil {
+		t.Errorf("expected no error for non-standard nonce size with standard tag size, got: %#v", err)
 	}
 	_, err = c.NewGCM(gcmStandardNonceSize, gcmTagSize-1)
-	if err == nil {
-		t.Error("expected error for non-standard tag size, got none")
+	if err != nil {
+		t.Errorf("expected no error for standard tag size, got: %#v", err)
 	}
 	_, err = c.NewGCM(gcmStandardNonceSize, gcmTagSize)
 	if err != nil {
 		t.Errorf("expected no error for standard tag / nonce size, got: %#v", err)
 	}
+}
+
+func TestSealAndOpen(t *testing.T) {
+	key := []byte("D249BF6DEC97B1EBD69BC4D6B3A3C49D")
+	ci, err := NewAESCipher(key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := ci.(*aesCipher)
+	gcm, err := c.NewGCM(gcmStandardNonceSize, gcmTagSize)
+	if err != nil {
+		t.Fatal(err)
+	}
+	nonce := []byte{0x91, 0xc7, 0xa7, 0x54, 0x52, 0xef, 0x10, 0xdb, 0x91, 0xa8, 0x6c, 0xf9}
+	plainText := []byte{0x01, 0x02, 0x03}
+	additionalData := []byte{0x05, 0x05, 0x07}
+	sealed := gcm.Seal(nil, nonce, plainText, additionalData)
+	decrypted, err := gcm.Open(nil, nonce, sealed, additionalData)
+	if err != nil {
+		t.Error(err)
+	}
+	if !bytes.Equal(decrypted, plainText) {
+		t.Errorf("unexpected decrypted result\ngot: %#v\nexp: %#v", decrypted, plainText)
+	}
+}
+
+func TestSealAndOpenAuthenticationError(t *testing.T) {
+	key := []byte("D249BF6DEC97B1EBD69BC4D6B3A3C49D")
+	ci, err := NewAESCipher(key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := ci.(*aesCipher)
+	gcm, err := c.NewGCM(gcmStandardNonceSize, gcmTagSize)
+	if err != nil {
+		t.Fatal(err)
+	}
+	nonce := []byte{0x91, 0xc7, 0xa7, 0x54, 0x52, 0xef, 0x10, 0xdb, 0x91, 0xa8, 0x6c, 0xf9}
+	plainText := []byte{0x01, 0x02, 0x03}
+	additionalData := []byte{0x05, 0x05, 0x07}
+	sealed := gcm.Seal(nil, nonce, plainText, additionalData)
+	_, err = gcm.Open(nil, nonce, sealed, nil)
+	if err != errOpen {
+		t.Errorf("expected authentication error, got: %#v", err)
+	}
+}
+
+func assertPanic(t *testing.T, f func()) {
+	t.Helper()
+	defer func() {
+		if r := recover(); r == nil {
+			t.Errorf("The code did not panic")
+		}
+	}()
+	f()
+}
+
+func TestSealPanic(t *testing.T) {
+	ci, err := NewAESCipher([]byte("D249BF6DEC97B1EBD69BC4D6B3A3C49D"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := ci.(*aesCipher)
+	gcm, err := c.NewGCM(gcmStandardNonceSize, gcmTagSize)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertPanic(t, func() {
+		gcm.Seal(nil, make([]byte, gcmStandardNonceSize-1), []byte{0x01, 0x02, 0x03}, nil)
+	})
+	assertPanic(t, func() {
+		gcm.Seal(nil, make([]byte, gcmStandardNonceSize), make([]byte, math.MaxInt), nil)
+	})
 }
 
 func TestBlobEncryptBasicBlockEncryption(t *testing.T) {
@@ -94,20 +167,38 @@ func TestBlobEncryptBasicBlockEncryption(t *testing.T) {
 	}
 }
 
-func TestDecryptSimple(t *testing.T) {
+func testDecrypt(t *testing.T, resetNonce bool) {
 	key := []byte{
 		0x24, 0xcd, 0x8b, 0x13, 0x37, 0xc5, 0xc1, 0xb1,
 		0x0, 0xbb, 0x27, 0x40, 0x4f, 0xab, 0x5f, 0x7b,
 		0x2d, 0x0, 0x20, 0xf5, 0x1, 0x84, 0x4, 0xbf,
 		0xe3, 0xbd, 0xa1, 0xc4, 0xbf, 0x61, 0x2f, 0xc5,
 	}
+
 	block, err := NewAESCipher(key)
 	if err != nil {
 		panic(err)
 	}
+
 	iv := []byte{
 		0x91, 0xc7, 0xa7, 0x54, 0x52, 0xef, 0x10, 0xdb,
 		0x91, 0xa8, 0x6c, 0xf9, 0x79, 0xd5, 0xac, 0x74,
+	}
+	var encrypter, decrypter cipher.BlockMode
+	if c, ok := block.(*aesCipher); ok {
+		encrypter = c.NewCBCEncrypter(iv)
+		if encrypter == nil {
+			t.Error("unable to create new CBC encrypter")
+		}
+		decrypter = c.NewCBCDecrypter(iv)
+		if decrypter == nil {
+			t.Error("unable to create new CBC decrypter")
+		}
+		if resetNonce {
+			for i := range iv {
+				iv[i] = 0
+			}
+		}
 	}
 
 	plainText := []byte{
@@ -127,13 +218,7 @@ func TestDecryptSimple(t *testing.T) {
 		0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 	}
 	cipherText := make([]byte, len(plainText))
-	var encrypter cipher.BlockMode
-	if c, ok := block.(*aesCipher); ok {
-		encrypter = c.NewCBCEncrypter(iv)
-		if encrypter == nil {
-			t.Error("unable to create new CBC encrypter")
-		}
-	}
+
 	encrypter.CryptBlocks(cipherText, plainText[:64])
 	encrypter.CryptBlocks(cipherText[64:], plainText[64:])
 
@@ -157,13 +242,6 @@ func TestDecryptSimple(t *testing.T) {
 		t.Fail()
 	}
 
-	var decrypter cipher.BlockMode
-	if c, ok := block.(*aesCipher); ok {
-		decrypter = c.NewCBCDecrypter(iv)
-		if decrypter == nil {
-			t.Error("unable to create new CBC decrypter")
-		}
-	}
 	decrypted := make([]byte, len(plainText))
 
 	decrypter.CryptBlocks(decrypted, cipherText[:64])
@@ -176,4 +254,14 @@ func TestDecryptSimple(t *testing.T) {
 	if bytes.Compare(plainText, decrypted) != 0 {
 		t.Errorf("decryption incorrect\nexp %v, got %v\n", plainText, decrypted)
 	}
+}
+
+func TestDecryptSimple(t *testing.T) {
+	testDecrypt(t, false)
+}
+
+func TestDecryptInvariantReusableNonce(t *testing.T) {
+	// Test that changing the iv slice after creating the encrypter
+	// and decrypter doesn't change the encrypter/decrypter state."
+	testDecrypt(t, true)
 }
