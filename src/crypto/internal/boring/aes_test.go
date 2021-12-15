@@ -106,7 +106,6 @@ func TestSealPanic(t *testing.T) {
 	assertPanic(t, func() {
 		gcm.Seal(nil, make([]byte, gcmStandardNonceSize), make([]byte, math.MaxInt), nil)
 	})
-
 }
 
 func TestBlobEncryptBasicBlockEncryption(t *testing.T) {
