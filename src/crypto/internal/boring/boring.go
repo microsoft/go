@@ -78,26 +78,6 @@ func needFIPS() bool {
 	return strings.TrimSpace(string(buf)) == "1"
 }
 
-var randstub bool
-
-func RandStubbed() bool {
-	return randstub
-}
-
-func StubOpenSSLRand() {
-	if !randstub {
-		randstub = true
-		C._goboringcrypto_stub_openssl_rand()
-	}
-}
-
-func RestoreOpenSSLRand() {
-	if randstub {
-		randstub = false
-		C._goboringcrypto_restore_openssl_rand()
-	}
-}
-
 // Unreachable marks code that should be unreachable
 // when BoringCrypto is in use. It panics only when
 // the system is in FIPS mode.

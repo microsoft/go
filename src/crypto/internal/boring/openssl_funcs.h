@@ -53,8 +53,6 @@ DEFINEFUNC_LEGACY(void, OPENSSL_add_all_algorithms_conf, (void), ()) \
 DEFINEFUNC_110(int, OPENSSL_init_crypto, (uint64_t ops, const void *settings), (ops, settings)) \
 DEFINEFUNC(int, FIPS_mode, (void), ()) \
 DEFINEFUNC(int, FIPS_mode_set, (int r), (r)) \
-DEFINEFUNCINTERNAL(int, RAND_set_rand_method, (const RAND_METHOD *rand), (rand)) \
-DEFINEFUNCINTERNAL(RAND_METHOD*, RAND_get_rand_method, (void), ()) \
 DEFINEFUNC(int, RAND_bytes, (uint8_t * arg0, size_t arg1), (arg0, arg1)) \
 DEFINEFUNC(int, SHA1_Init, (GO_SHA_CTX * arg0), (arg0)) \
 DEFINEFUNC(int, SHA1_Update, (GO_SHA_CTX * arg0, const void *arg1, size_t arg2), (arg0, arg1, arg2)) \

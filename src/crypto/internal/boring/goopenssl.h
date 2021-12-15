@@ -119,8 +119,6 @@ FOR_ALL_OPENSSL_FUNCTIONS
 #undef DEFINEFUNC_RENAMED
 #undef DEFINEFUNC_FALLBACK
 
-int _goboringcrypto_stub_openssl_rand(void);
-int _goboringcrypto_restore_openssl_rand(void);
 int _goboringcrypto_EVP_AES_encrypt(EVP_CIPHER_CTX *ctx, const uint8_t *in, size_t in_len, uint8_t *out);
 void _goboringcrypto_EVP_AES_cbc_encrypt(EVP_CIPHER_CTX *ctx, const uint8_t *arg0, uint8_t *arg1, size_t arg2, const uint8_t *a, const int arg5);
 void EVP_AES_cbc_enc(EVP_CIPHER_CTX *ctx, const uint8_t *in, uint8_t *out, size_t len);
