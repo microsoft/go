@@ -163,19 +163,16 @@ DEFINEFUNC(unsigned int, RSA_size, (const GO_RSA *arg0), (arg0)) \
 DEFINEFUNC(int, EVP_EncryptInit_ex, \
     (EVP_CIPHER_CTX *ctx, const EVP_CIPHER *type, ENGINE *impl, const unsigned char *key, const unsigned char *iv), \
     (ctx, type, impl, key, iv)) \
-DEFINEFUNCINTERNAL(int, EVP_EncryptUpdate, \
+DEFINEFUNC(int, EVP_EncryptUpdate, \
     (EVP_CIPHER_CTX *ctx, unsigned char *out, int *outl, const unsigned char *in, int inl), \
     (ctx, out, outl, in, inl)) \
-DEFINEFUNCINTERNAL(int, EVP_EncryptFinal_ex, \
+DEFINEFUNC(int, EVP_EncryptFinal_ex, \
     (EVP_CIPHER_CTX *ctx, unsigned char *out, int *outl), \
     (ctx, out, outl)) \
-DEFINEFUNCINTERNAL(int, EVP_DecryptInit_ex, \
-    (EVP_CIPHER_CTX *ctx, const EVP_CIPHER *type, ENGINE *impl, const unsigned char *key, const unsigned char *iv), \
-    (ctx, type, impl, key, iv)) \
-DEFINEFUNCINTERNAL(int, EVP_DecryptUpdate, \
+DEFINEFUNC(int, EVP_DecryptUpdate, \
     (EVP_CIPHER_CTX *ctx, unsigned char *out, int *outl, const unsigned char *in, int inl),	(ctx, out, outl, in, inl)) \
-DEFINEFUNCINTERNAL(int, EVP_DecryptFinal_ex, (EVP_CIPHER_CTX *ctx, unsigned char *outm, int *outl),	(ctx, outm, outl)) \
-DEFINEFUNCINTERNAL(const EVP_CIPHER*, EVP_aes_128_gcm, (void), ()) \
+DEFINEFUNC(int, EVP_DecryptFinal_ex, (EVP_CIPHER_CTX *ctx, unsigned char *outm, int *outl),	(ctx, outm, outl)) \
+DEFINEFUNC(const EVP_CIPHER*, EVP_aes_128_gcm, (void), ()) \
 DEFINEFUNC(const EVP_CIPHER*, EVP_aes_128_cbc, (void), ()) \
 DEFINEFUNC(const EVP_CIPHER*, EVP_aes_128_ctr, (void), ()) \
 DEFINEFUNC(const EVP_CIPHER*, EVP_aes_128_ecb, (void), ()) \
@@ -185,9 +182,9 @@ DEFINEFUNC(const EVP_CIPHER*, EVP_aes_192_ecb, (void), ()) \
 DEFINEFUNC(const EVP_CIPHER*, EVP_aes_256_cbc, (void), ()) \
 DEFINEFUNC(const EVP_CIPHER*, EVP_aes_256_ctr, (void), ()) \
 DEFINEFUNC(const EVP_CIPHER*, EVP_aes_256_ecb, (void), ()) \
-DEFINEFUNCINTERNAL(const EVP_CIPHER*, EVP_aes_256_gcm, (void), ()) \
+DEFINEFUNC(const EVP_CIPHER*, EVP_aes_256_gcm, (void), ()) \
 DEFINEFUNC(void, EVP_CIPHER_CTX_free, (EVP_CIPHER_CTX* arg0), (arg0)) \
-DEFINEFUNCINTERNAL(int, EVP_CIPHER_CTX_ctrl, (EVP_CIPHER_CTX *ctx, int type, int arg, void *ptr), (ctx, type, arg, ptr)) \
+DEFINEFUNC(int, EVP_CIPHER_CTX_ctrl, (EVP_CIPHER_CTX *ctx, int type, int arg, void *ptr), (ctx, type, arg, ptr)) \
 DEFINEFUNC(GO_EVP_PKEY *, EVP_PKEY_new, (void), ()) \
 DEFINEFUNC(void, EVP_PKEY_free, (GO_EVP_PKEY * arg0), (arg0)) \
 DEFINEFUNC(int, EVP_PKEY_set1_RSA, (GO_EVP_PKEY * arg0, GO_RSA *arg1), (arg0, arg1)) \

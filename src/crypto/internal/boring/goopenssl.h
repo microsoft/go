@@ -121,23 +121,12 @@ FOR_ALL_OPENSSL_FUNCTIONS
 
 int _goboringcrypto_stub_openssl_rand(void);
 int _goboringcrypto_restore_openssl_rand(void);
-int _goboringcrypto_EVP_CIPHER_CTX_seal(
-	uint8_t *out, uint8_t *nonce,
-	uint8_t *aad, size_t aad_len,
-	uint8_t *plaintext, size_t plaintext_len,
-	size_t *ciphertext_len, uint8_t *key, int key_size);
-int _goboringcrypto_EVP_CIPHER_CTX_open(
-	uint8_t *ciphertext, int ciphertext_len,
-	uint8_t *aad, int aad_len,
-	uint8_t *tag, uint8_t *key, int key_size,
-	uint8_t *nonce, int nonce_len,
-	uint8_t *plaintext, size_t *plaintext_len);
 
 static inline void
 _goboringcrypto_EVP_AES_ctr128_enc(EVP_CIPHER_CTX *ctx, const uint8_t *in, uint8_t *out, size_t in_len)
 {
 	int len;
-	_goboringcrypto_internal_EVP_EncryptUpdate(ctx, out, &len, in, in_len);
+	_goboringcrypto_EVP_EncryptUpdate(ctx, out, &len, in, in_len);
 }
 
 static inline int

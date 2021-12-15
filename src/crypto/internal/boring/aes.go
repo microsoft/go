@@ -2,11 +2,8 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-// +build linux
-// +build !android
-// +build !no_openssl
-// +build !cmd_go_bootstrap
-// +build !msan
+//go:build linux && !android && !no_openssl && !cmd_go_bootstrap && !msan
+// +build linux,!android,!no_openssl,!cmd_go_bootstrap,!msan
 
 package boring
 
@@ -14,6 +11,7 @@ package boring
 import "C"
 import (
 	"crypto/cipher"
+	"crypto/internal/subtle"
 	"errors"
 	"runtime"
 	"strconv"
@@ -80,7 +78,7 @@ func (c *aesCipher) finalize() {
 func (c *aesCipher) BlockSize() int { return aesBlockSize }
 
 func (c *aesCipher) Encrypt(dst, src []byte) {
-	if inexactOverlap(dst, src) {
+	if subtle.InexactOverlap(dst, src) {
 		panic("crypto/cipher: invalid buffer overlap")
 	}
 	if len(src) < aesBlockSize {
@@ -91,15 +89,10 @@ func (c *aesCipher) Encrypt(dst, src []byte) {
 	}
 
 	if c.enc_ctx == nil {
-		c.enc_ctx = C._goboringcrypto_EVP_CIPHER_CTX_new()
-		if c.enc_ctx == nil {
-			panic("cipher: unable to create EVP cipher ctx")
-		}
-
-		k := (*C.uchar)(unsafe.Pointer(&c.key[0]))
-
-		if C.int(1) != C._goboringcrypto_EVP_CipherInit_ex(c.enc_ctx, c.cipher, nil, k, nil, C.GO_AES_ENCRYPT) {
-			panic("cipher: unable to initialize EVP cipher ctx")
+		var err error
+		c.enc_ctx, err = newCipherCtx(c.cipher, C.GO_AES_ENCRYPT, c.key, nil)
+		if err != nil {
+			panic(err)
 		}
 	}
 
@@ -109,7 +102,7 @@ func (c *aesCipher) Encrypt(dst, src []byte) {
 }
 
 func (c *aesCipher) Decrypt(dst, src []byte) {
-	if inexactOverlap(dst, src) {
+	if subtle.InexactOverlap(dst, src) {
 		panic("crypto/cipher: invalid buffer overlap")
 	}
 	if len(src) < aesBlockSize {
@@ -119,15 +112,10 @@ func (c *aesCipher) Decrypt(dst, src []byte) {
 		panic("crypto/aes: output not full block")
 	}
 	if c.dec_ctx == nil {
-		c.dec_ctx = C._goboringcrypto_EVP_CIPHER_CTX_new()
-		if c.dec_ctx == nil {
-			panic("cipher: unable to create EVP cipher ctx")
-		}
-
-		k := (*C.uchar)(unsafe.Pointer(&c.key[0]))
-
-		if C.int(1) != C._goboringcrypto_EVP_CipherInit_ex(c.dec_ctx, c.cipher, nil, k, nil, C.GO_AES_DECRYPT) {
-			panic("cipher: unable to initialize EVP cipher ctx")
+		var err error
+		c.dec_ctx, err = newCipherCtx(c.cipher, C.GO_AES_DECRYPT, c.key, nil)
+		if err != nil {
+			panic(err)
 		}
 	}
 
@@ -137,16 +125,13 @@ func (c *aesCipher) Decrypt(dst, src []byte) {
 }
 
 type aesCBC struct {
-	key  []byte
-	mode C.int
-	iv   [aesBlockSize]byte
-	ctx  *C.EVP_CIPHER_CTX
+	ctx *C.EVP_CIPHER_CTX
 }
 
 func (x *aesCBC) BlockSize() int { return aesBlockSize }
 
 func (x *aesCBC) CryptBlocks(dst, src []byte) {
-	if inexactOverlap(dst, src) {
+	if subtle.InexactOverlap(dst, src) {
 		panic("crypto/cipher: invalid buffer overlap")
 	}
 	if len(src)%aesBlockSize != 0 {
@@ -161,7 +146,7 @@ func (x *aesCBC) CryptBlocks(dst, src []byte) {
 			x.ctx,
 			base(dst), &outlen,
 			base(src), C.int(len(src)),
-		) != 1 {
+		) != C.int(1) {
 			panic("crypto/cipher: CipherUpdate failed")
 		}
 		runtime.KeepAlive(x)
@@ -172,23 +157,13 @@ func (x *aesCBC) SetIV(iv []byte) {
 	if len(iv) != aesBlockSize {
 		panic("cipher: incorrect length IV")
 	}
-	copy(x.iv[:], iv)
-	if C.int(1) != C._goboringcrypto_EVP_CipherInit_ex(x.ctx, nil, nil, nil, (*C.uchar)(unsafe.Pointer(&x.iv[0])), -1) {
+	if C.int(1) != C._goboringcrypto_EVP_CipherInit_ex(x.ctx, nil, nil, nil, (*C.uchar)(unsafe.Pointer(&iv[0])), -1) {
 		panic("cipher: unable to initialize EVP cipher ctx")
 	}
 }
 
 func (c *aesCipher) NewCBCEncrypter(iv []byte) cipher.BlockMode {
-	x := &aesCBC{key: c.key, mode: C.GO_AES_ENCRYPT}
-	copy(x.iv[:], iv)
-
-	x.ctx = C._goboringcrypto_EVP_CIPHER_CTX_new()
-	if x.ctx == nil {
-		panic("cipher: unable to create EVP cipher ctx")
-	}
-
-	k := (*C.uchar)(unsafe.Pointer(&x.key[0]))
-	vec := (*C.uchar)(unsafe.Pointer(&x.iv[0]))
+	x := new(aesCBC)
 
 	var cipher *C.EVP_CIPHER
 	switch len(c.key) * 8 {
@@ -201,8 +176,10 @@ func (c *aesCipher) NewCBCEncrypter(iv []byte) cipher.BlockMode {
 	default:
 		panic("crypto/boring: unsupported key length")
 	}
-	if C.int(1) != C._goboringcrypto_EVP_CipherInit_ex(x.ctx, cipher, nil, k, vec, x.mode) {
-		panic("cipher: unable to initialize EVP cipher ctx")
+	var err error
+	x.ctx, err = newCipherCtx(cipher, C.GO_AES_ENCRYPT, c.key, iv)
+	if err != nil {
+		panic(err)
 	}
 
 	runtime.SetFinalizer(x, (*aesCBC).finalize)
@@ -215,16 +192,7 @@ func (c *aesCBC) finalize() {
 }
 
 func (c *aesCipher) NewCBCDecrypter(iv []byte) cipher.BlockMode {
-	x := &aesCBC{key: c.key, mode: C.GO_AES_DECRYPT}
-	copy(x.iv[:], iv)
-
-	x.ctx = C._goboringcrypto_EVP_CIPHER_CTX_new()
-	if x.ctx == nil {
-		panic("cipher: unable to create EVP cipher ctx")
-	}
-
-	k := (*C.uchar)(unsafe.Pointer(&x.key[0]))
-	vec := (*C.uchar)(unsafe.Pointer(&x.iv[0]))
+	x := new(aesCBC)
 
 	var cipher *C.EVP_CIPHER
 	switch len(c.key) * 8 {
@@ -237,8 +205,11 @@ func (c *aesCipher) NewCBCDecrypter(iv []byte) cipher.BlockMode {
 	default:
 		panic("crypto/boring: unsupported key length")
 	}
-	if C.int(1) != C._goboringcrypto_EVP_CipherInit_ex(x.ctx, cipher, nil, k, vec, x.mode) {
-		panic("cipher: unable to initialize EVP cipher ctx")
+
+	var err error
+	x.ctx, err = newCipherCtx(cipher, C.GO_AES_DECRYPT, c.key, iv)
+	if err != nil {
+		panic(err)
 	}
 	if C.int(1) != C._goboringcrypto_EVP_CIPHER_CTX_set_padding(x.ctx, 0) {
 		panic("cipher: unable to set padding")
@@ -249,15 +220,11 @@ func (c *aesCipher) NewCBCDecrypter(iv []byte) cipher.BlockMode {
 }
 
 type aesCTR struct {
-	key        []byte
-	iv         [aesBlockSize]byte
-	ctx        *C.EVP_CIPHER_CTX
-	num        C.uint
-	ecount_buf [16]C.uint8_t
+	ctx *C.EVP_CIPHER_CTX
 }
 
 func (x *aesCTR) XORKeyStream(dst, src []byte) {
-	if inexactOverlap(dst, src) {
+	if subtle.InexactOverlap(dst, src) {
 		panic("crypto/cipher: invalid buffer overlap")
 	}
 	if len(dst) < len(src) {
@@ -275,30 +242,23 @@ func (x *aesCTR) XORKeyStream(dst, src []byte) {
 }
 
 func (c *aesCipher) NewCTR(iv []byte) cipher.Stream {
-	x := &aesCTR{key: c.key}
-	copy(x.iv[:], iv)
+	x := new(aesCTR)
 
-	x.ctx = C._goboringcrypto_EVP_CIPHER_CTX_new()
-	if x.ctx == nil {
-		panic("cipher: unable to create EVP cipher ctx")
-	}
-
-	k := (*C.uchar)(unsafe.Pointer(&x.key[0]))
-	vec := (*C.uchar)(unsafe.Pointer(&x.iv[0]))
-
+	var cipher *C.EVP_CIPHER
 	switch len(c.key) * 8 {
 	case 128:
-		if C.int(1) != C._goboringcrypto_EVP_EncryptInit_ex(x.ctx, C._goboringcrypto_EVP_aes_128_ctr(), nil, k, vec) {
-			panic("cipher: unable to initialize EVP cipher ctx")
-		}
+		cipher = C._goboringcrypto_EVP_aes_128_ctr()
 	case 192:
-		if C.int(1) != C._goboringcrypto_EVP_EncryptInit_ex(x.ctx, C._goboringcrypto_EVP_aes_192_ctr(), nil, k, vec) {
-			panic("cipher: unable to initialize EVP cipher ctx")
-		}
+		cipher = C._goboringcrypto_EVP_aes_192_ctr()
 	case 256:
-		if C.int(1) != C._goboringcrypto_EVP_EncryptInit_ex(x.ctx, C._goboringcrypto_EVP_aes_256_ctr(), nil, k, vec) {
-			panic("cipher: unable to initialize EVP cipher ctx")
-		}
+		cipher = C._goboringcrypto_EVP_aes_256_ctr()
+	default:
+		panic("crypto/boring: unsupported key length")
+	}
+	var err error
+	x.ctx, err = newCipherCtx(cipher, C.GO_AES_ENCRYPT, c.key, iv)
+	if err != nil {
+		panic(err)
 	}
 
 	runtime.SetFinalizer(x, (*aesCTR).finalize)
@@ -311,8 +271,9 @@ func (c *aesCTR) finalize() {
 }
 
 type aesGCM struct {
-	key []byte
-	tls bool
+	key    []byte
+	tls    bool
+	cipher *C.EVP_CIPHER
 }
 
 const (
@@ -332,11 +293,15 @@ type noGCM struct {
 }
 
 func (c *aesCipher) NewGCM(nonceSize, tagSize int) (cipher.AEAD, error) {
+	if nonceSize != gcmStandardNonceSize && tagSize != gcmTagSize {
+		return nil, errors.New("crypto/aes: GCM tag and nonce sizes can't be non-standard at the same time")
+	}
+	// Fall back to standard library for GCM with non-standard nonce or tag size.
 	if nonceSize != gcmStandardNonceSize {
-		return nil, errors.New("crypto/aes: GCM nonce size can't be non-standard")
+		return cipher.NewGCMWithNonceSize(&noGCM{c}, nonceSize)
 	}
 	if tagSize != gcmTagSize {
-		return nil, errors.New("crypto/aes: GCM tag size can't be non-standard")
+		return cipher.NewGCMWithTagSize(&noGCM{c}, tagSize)
 	}
 	return c.newGCM(false)
 }
@@ -346,19 +311,15 @@ func (c *aesCipher) NewGCMTLS() (cipher.AEAD, error) {
 }
 
 func (c *aesCipher) newGCM(tls bool) (cipher.AEAD, error) {
-	keyLen := len(c.key) * 8
-
-	if keyLen != 128 && keyLen != 256 {
-		// Return error for GCM with non-standard key size.
-		return nil, fail("GCM invoked with non-standard key size")
-	}
-
 	g := &aesGCM{key: c.key, tls: tls}
-	if g.NonceSize() != gcmStandardNonceSize {
-		panic("boringcrypto: internal confusion about nonce size")
-	}
-	if g.Overhead() != gcmTagSize {
-		panic("boringcrypto: internal confusion about tag size")
+	switch len(c.key) * 8 {
+	case 128:
+		g.cipher = C._goboringcrypto_EVP_aes_128_gcm()
+	case 256:
+		g.cipher = C._goboringcrypto_EVP_aes_256_gcm()
+	default:
+		// Fall back to standard library for GCM with non-standard key size.
+		return cipher.NewGCMWithNonceSize(&noGCM{c}, gcmStandardNonceSize)
 	}
 
 	return g, nil
@@ -393,32 +354,46 @@ func (g *aesGCM) Seal(dst, nonce, plaintext, additionalData []byte) []byte {
 	}
 
 	// Make room in dst to append plaintext+overhead.
-	n := len(dst)
-	for cap(dst) < n+len(plaintext)+gcmTagSize {
-		dst = append(dst[:cap(dst)], 0)
-	}
-	dst = dst[:n+len(plaintext)+gcmTagSize]
+	ret, out := sliceForAppend(dst, len(plaintext)+gcmTagSize)
 
 	// Check delayed until now to make sure len(dst) is accurate.
-	if inexactOverlap(dst[n:], plaintext) {
+	if subtle.InexactOverlap(out, plaintext) {
 		panic("cipher: invalid buffer overlap")
 	}
 
-	var ciphertextLen C.size_t
-
-	if ok := C._goboringcrypto_EVP_CIPHER_CTX_seal(
-		(*C.uint8_t)(unsafe.Pointer(&dst[n])),
-		base(nonce), base(additionalData), C.size_t(len(additionalData)),
-		base(plaintext), C.size_t(len(plaintext)), &ciphertextLen,
-		base(g.key), C.int(len(g.key)*8)); ok != 1 {
-		panic("boringcrypto: EVP_CIPHER_CTX_seal fail")
+	ctx, err := newCipherCtx(g.cipher, C.GO_AES_ENCRYPT, g.key, nonce)
+	if err != nil {
+		panic(err)
 	}
-	runtime.KeepAlive(g)
+	defer C._goboringcrypto_EVP_CIPHER_CTX_free(ctx)
 
-	if ciphertextLen != C.size_t(len(plaintext)+gcmTagSize) {
-		panic("boringcrypto: [seal] internal confusion about GCM tag size")
+	var encLen C.int
+	// Encrypt additional data.
+	if C._goboringcrypto_EVP_EncryptUpdate(ctx, nil, &encLen, base(additionalData), C.int(len(additionalData))) != C.int(1) {
+		panic(fail("EVP_CIPHER_CTX_seal"))
 	}
-	return dst[:n+int(ciphertextLen)]
+
+	// Encrypt plain text.
+	if C._goboringcrypto_EVP_EncryptUpdate(ctx, base(out), &encLen, base(plaintext), C.int(len(plaintext))) != C.int(1) {
+		panic(fail("EVP_CIPHER_CTX_seal"))
+	}
+
+	// Finalise encryption.
+	var encFinalLen C.int
+	if C._goboringcrypto_EVP_EncryptFinal_ex(ctx, base(out[encLen:]), &encFinalLen) != C.int(1) {
+		panic(fail("EVP_CIPHER_CTX_seal"))
+	}
+	encLen += encFinalLen
+
+	if C._goboringcrypto_EVP_CIPHER_CTX_ctrl(ctx, C.EVP_CTRL_GCM_GET_TAG, C.int(16), unsafe.Pointer(&out[encLen])) != C.int(1) {
+		panic(fail("EVP_CIPHER_CTX_seal"))
+	}
+	encLen += 16
+
+	if int(encLen) != len(plaintext)+gcmTagSize {
+		panic("internal confusion about GCM tag size")
+	}
+	return ret
 }
 
 var errOpen = errors.New("cipher: message authentication failed")
@@ -434,51 +409,78 @@ func (g *aesGCM) Open(dst, nonce, ciphertext, additionalData []byte) ([]byte, er
 		return nil, errOpen
 	}
 
+	tag := ciphertext[len(ciphertext)-gcmTagSize:]
+	ciphertext = ciphertext[:len(ciphertext)-gcmTagSize]
+
 	// Make room in dst to append ciphertext without tag.
-	n := len(dst)
-	for cap(dst) < n+len(ciphertext)-gcmTagSize {
-		dst = append(dst[:cap(dst)], 0)
-	}
-	dst = dst[:n+len(ciphertext)-gcmTagSize]
+	ret, out := sliceForAppend(dst, len(ciphertext))
 
 	// Check delayed until now to make sure len(dst) is accurate.
-	if inexactOverlap(dst[n:], ciphertext) {
+	if subtle.InexactOverlap(out, ciphertext) {
 		panic("cipher: invalid buffer overlap")
 	}
 
-	tag := ciphertext[len(ciphertext)-gcmTagSize:]
+	ctx, err := newCipherCtx(g.cipher, C.GO_AES_DECRYPT, g.key, nonce)
+	if err != nil {
+		panic(err)
+	}
+	defer C._goboringcrypto_EVP_CIPHER_CTX_free(ctx)
 
-	var outLen C.size_t
-
-	ok := C._goboringcrypto_EVP_CIPHER_CTX_open(
-		base(ciphertext), C.int(len(ciphertext)-gcmTagSize),
-		base(additionalData), C.int(len(additionalData)),
-		base(tag), base(g.key), C.int(len(g.key)*8),
-		base(nonce), C.int(len(nonce)),
-		base(dst[n:]), &outLen)
-	runtime.KeepAlive(g)
-	if ok == 0 {
-		// Zero output buffer on error.
-		for i := range dst {
-			dst[i] = 0
+	clearAndFail := func(err error) ([]byte, error) {
+		for i := range out {
+			out[i] = 0
 		}
-		return nil, errOpen
+		return nil, err
 	}
-	if outLen != C.size_t(len(ciphertext)-gcmTagSize) {
-		panic("boringcrypto: [open] internal confusion about GCM tag size")
+
+	// Provide any AAD data.
+	var tmplen C.int
+	if C._goboringcrypto_EVP_DecryptUpdate(ctx, nil, &tmplen, base(additionalData), C.int(len(additionalData))) != C.int(1) {
+		return clearAndFail(errOpen)
 	}
-	return dst[:n+int(outLen)], nil
+
+	// Provide the message to be decrypted, and obtain the plaintext output.
+	var decLen C.int
+	if C._goboringcrypto_EVP_DecryptUpdate(ctx, base(out), &decLen, base(ciphertext), C.int(len(ciphertext))) != C.int(1) {
+		return clearAndFail(errOpen)
+	}
+
+	// Set expected tag value. Works in OpenSSL 1.0.1d and later.
+	if C._goboringcrypto_EVP_CIPHER_CTX_ctrl(ctx, C.EVP_CTRL_GCM_SET_TAG, 16, unsafe.Pointer(&tag[0])) != C.int(1) {
+		return clearAndFail(errOpen)
+	}
+
+	// Finalise the decryption.
+	var tagLen C.int
+	if C._goboringcrypto_EVP_DecryptFinal_ex(ctx, base(out[int(decLen):]), &tagLen) != C.int(1) {
+		return clearAndFail(errOpen)
+	}
+
+	if int(decLen+tagLen) != len(ciphertext) {
+		panic("internal confusion about GCM tag size")
+	}
+	return ret, nil
 }
 
-func anyOverlap(x, y []byte) bool {
-	return len(x) > 0 && len(y) > 0 &&
-		uintptr(unsafe.Pointer(&x[0])) <= uintptr(unsafe.Pointer(&y[len(y)-1])) &&
-		uintptr(unsafe.Pointer(&y[0])) <= uintptr(unsafe.Pointer(&x[len(x)-1]))
+// sliceForAppend is a mirror of crypto/cipher.sliceForAppend.
+func sliceForAppend(in []byte, n int) (head, tail []byte) {
+	if total := len(in) + n; cap(in) >= total {
+		head = in[:total]
+	} else {
+		head = make([]byte, total)
+		copy(head, in)
+	}
+	tail = head[len(in):]
+	return
 }
 
-func inexactOverlap(x, y []byte) bool {
-	if len(x) == 0 || len(y) == 0 || &x[0] == &y[0] {
-		return false
+func newCipherCtx(cipher *C.EVP_CIPHER, mode C.int, key, iv []byte) (*C.EVP_CIPHER_CTX, error) {
+	ctx := C._goboringcrypto_EVP_CIPHER_CTX_new()
+	if ctx == nil {
+		return nil, fail("unable to create EVP cipher ctx")
 	}
-	return anyOverlap(x, y)
+	if C.int(1) != C._goboringcrypto_EVP_CipherInit_ex(ctx, cipher, nil, base(key), base(iv), mode) {
+		return nil, fail("unable to initialize EVP cipher ctx")
+	}
+	return ctx, nil
 }

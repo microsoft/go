@@ -7,6 +7,7 @@ package hmac
 import (
 	"bytes"
 	"crypto/internal/boring"
+	"crypto/md5"
 	"crypto/sha1"
 	"crypto/sha256"
 	"crypto/sha512"
@@ -77,6 +78,16 @@ var hmacTests = []hmacTest{
 		"bcf41eab8bb2d802f3d05caf7cb092ecf8d1a3aa",
 		sha1.Size,
 		sha1.BlockSize,
+	},
+
+	// Test from Plan 9.
+	{
+		md5.New,
+		[]byte("Jefe"),
+		[]byte("what do ya want for nothing?"),
+		"750c783e6ab0b503eaa86e310a5db738",
+		md5.Size,
+		md5.BlockSize,
 	},
 
 	// Tests from RFC 4231
