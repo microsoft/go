@@ -769,7 +769,11 @@ func (ip Addr) String() string {
 	default:
 		if ip.Is4In6() {
 			// TODO(bradfitz): this could alloc less.
-			return "::ffff:" + ip.Unmap().String()
+			if z := ip.Zone(); z != "" {
+				return "::ffff:" + ip.Unmap().String() + "%" + z
+			} else {
+				return "::ffff:" + ip.Unmap().String()
+			}
 		}
 		return ip.string6()
 	}
@@ -787,7 +791,12 @@ func (ip Addr) AppendTo(b []byte) []byte {
 	default:
 		if ip.Is4In6() {
 			b = append(b, "::ffff:"...)
-			return ip.Unmap().appendTo4(b)
+			b = ip.Unmap().appendTo4(b)
+			if z := ip.Zone(); z != "" {
+				b = append(b, '%')
+				b = append(b, z...)
+			}
+			return b
 		}
 		return ip.appendTo6(b)
 	}
@@ -947,10 +956,16 @@ func (ip Addr) MarshalText() ([]byte, error) {
 		b := make([]byte, 0, max)
 		if ip.Is4In6() {
 			b = append(b, "::ffff:"...)
-			return ip.Unmap().appendTo4(b), nil
+			b = ip.Unmap().appendTo4(b)
+			if z := ip.Zone(); z != "" {
+				b = append(b, '%')
+				b = append(b, z...)
+			}
+			return b, nil
 		}
 		return ip.appendTo6(b), nil
 	}
+
 }
 
 // UnmarshalText implements the encoding.TextUnmarshaler interface.
@@ -1142,8 +1157,17 @@ func (p AddrPort) AppendTo(b []byte) []byte {
 	case z4:
 		b = p.ip.appendTo4(b)
 	default:
-		b = append(b, '[')
-		b = p.ip.appendTo6(b)
+		if p.ip.Is4In6() {
+			b = append(b, "[::ffff:"...)
+			b = p.ip.Unmap().appendTo4(b)
+			if z := p.ip.Zone(); z != "" {
+				b = append(b, '%')
+				b = append(b, z...)
+			}
+		} else {
+			b = append(b, '[')
+			b = p.ip.appendTo6(b)
+		}
 		b = append(b, ']')
 	}
 	b = append(b, ':')
@@ -1398,7 +1422,12 @@ func (p Prefix) AppendTo(b []byte) []byte {
 	if p.ip.z == z4 {
 		b = p.ip.appendTo4(b)
 	} else {
-		b = p.ip.appendTo6(b)
+		if p.ip.Is4In6() {
+			b = append(b, "::ffff:"...)
+			b = p.ip.Unmap().appendTo4(b)
+		} else {
+			b = p.ip.appendTo6(b)
+		}
 	}
 
 	b = append(b, '/')

@@ -32,10 +32,25 @@ Do not send CLs removing the interior tags from such phrases.
   <a href="https://go.googlesource.com/proposal/+/refs/heads/master/design/43651-type-parameters.md">Type
     Parameters Proposal</a>.
   This includes major - but fully backward-compatible - changes to the language.
+</p>
+
+<p>
+  These new language changes required a large amount of new code that
+  has not had significant testing in production settings. That will
+  only happen as more people write and use generic code. We believe
+  that this feature is well implemented and high quality. However,
+  unlike most aspects of Go, we can't back up that belief with real
+  world experience. Therefore, while we encourage the use of generics
+  where it makes sense, please use appropriate caution when deploying
+  generic code in production.
+</p>
+
+<p>
   The following is a list of the most visible changes. For a more comprehensive overview, see the
   <a href="https://go.googlesource.com/proposal/+/refs/heads/master/design/43651-type-parameters.md">proposal</a>.
   For details see the <a href="https://golang.org/ref/spec">language spec</a>.
 </p>
+
 <ul>
   <li>
     The syntax for
@@ -82,6 +97,12 @@ Do not send CLs removing the interior tags from such phrases.
       The Go compiler cannot currently handle type declarations inside generic functions
       or methods. We hope to provide support for this feature in Go 1.19.
     </li>
+    <li><!-- https://golang.org/issue/49030 -->
+      Embedding a type parameter, or a pointer to a type parameter, as
+      an unnamed field in a struct type is not permitted. Similarly
+      embedding a type parameter in an interface type is not permitted.
+      Whether these will ever be permitted is unclear at present.
+    </li>
   </ul>
 </p>
 
@@ -101,7 +122,7 @@ Do not send CLs removing the interior tags from such phrases.
 
 <p>
   The Go 1.18 compiler now reports an overflow when passing a rune constant expression
-  such as <code>'1' << 32</code> as an argument to the predeclared functions
+  such as <code>'1' &lt;&lt; 32</code> as an argument to the predeclared functions
   <code>print</code> and <code>println</code>, consistent with the behavior of
   user-defined functions. Before Go 1.18, the compiler did not report an error
   in such cases but silently accepted such constant arguments if they fit into an
@@ -229,6 +250,15 @@ Do not send CLs removing the interior tags from such phrases.
   package.
 </p>
 
+<p><!-- CL 369977 -->
+  The underlying data format of the embedded build information can change with
+  new go releases, so an older version of <code>go</code> may not handle the
+  build information produced with a newer version of <code>go</code>.
+  To read the version information from a binary built with <code>go</code> 1.18,
+  use the <code>go</code> <code>version</code> command and the
+  <code>debug/buildinfo</code> package from <code>go</code> 1.18+.
+</p>
+
 <p><!-- https://golang.org/issue/44435 -->
   If the main module's <code>go.mod</code> file
   specifies <a href="/ref/mod#go-mod-file-go"><code>go</code> <code>1.17</code></a>
@@ -256,6 +286,17 @@ Do not send CLs removing the interior tags from such phrases.
   now support an <code>-asan</code> flag that enables interoperation
   with C (or C++) code compiled with the address sanitizer (C compiler
   option <code>-fsanitize=address</code>).
+</p>
+
+<p><!-- https://golang.org/issue/45713 -->
+  The <code>go</code> command now supports a "Workspace" mode. If a
+  <code>go.work</code> file is found in the working directory or a
+  parent directory, or one is specified using the <code>-workfile</code>
+  flag, it will put the <code>go</code> command into workspace mode.
+  In workspace mode, the <code>go.work</code> file will be used to
+  determine the set of main modules used as the roots for module
+  resolution, instead of using the normally-found <code>go.mod</code>
+  file to specify the single main module.
 </p>
 
 <h3 id="gofmt"><code>gofmt</code></h3>
@@ -286,6 +327,21 @@ Do not send CLs removing the interior tags from such phrases.
 	<pre>func PrintString(x string) {
 	fmt.Printf("%d", x)
 }</pre>
+</p>
+
+<h4 id="vet-precision">Precision improvements for existing checkers</h4>
+
+<p><!-- CL 323589 356830 319689 355730 351553 338529 -->
+  The <code>cmd/vet</code> checkers <code>copylock</code>, <code>printf</code>,
+  <code>sortslice</code>, <code>testinggoroutine</code>, and <code>tests</code>
+  have all had moderate precision improvements to handle additional code patterns.
+  This may lead to newly reported errors in existing packages. For example, the
+  <code>printf</code> checker now tracks formatting strings created by
+  concatenating string constants. So <code>vet</code> will report an error in:
+<pre>
+  // fmt.Printf formatting directive %d is being passed to Println.
+  fmt.Println("%d"+` ≡ x (mod 2)`+"\n", x%2)
+</pre>
 </p>
 
 <h2 id="runtime">Runtime</h2>
@@ -367,6 +423,18 @@ Do not send CLs removing the interior tags from such phrases.
   generic functions.
 </p>
 
+<h3 id="debug/buildinfo">New <code>debug/buildinfo</code> package</h3>
+
+<p><!-- golang.org/issue/39301 -->
+  The new <a href="/pkg/debug/buildinfo"><code>debug/buildinfo</code></a> package
+  provides access to module versions, version control information, and build
+  flags embedded in executable files built by the <code>go</code> command.
+  The same information is also available via
+  <a href="/pkg/runtime/debug#ReadBuildInfo"><code>runtime/debug.ReadBuildInfo</code></a>
+  for the currently running binary and via <code>go</code>
+  <code>version</code> <code>-m</code> on the command line.
+</p>
+
 <h3 id="netip">New <code>net/netip</code> package</h3>
 
 <p>
@@ -389,17 +457,11 @@ Do not send CLs removing the interior tags from such phrases.
   methods that parallel existing methods, but
   return <code>netip.AddrPort</code> instead of the
   heavier-weight <a href="/pkg/net/#IP"><code>net.IP</code></a> or
-  <a href="/pkg/net/#UDPAddr"<code>*net.UDPAddr</code></a> types.
+  <a href="/pkg/net/#UDPAddr"><code>*net.UDPAddr</code></a> types.
   The <code>net</code> package also now includes functions and methods
   to convert between the existing
-  <a href="/pkg/net/#TCPAddr"><code>TCPAddr</code>/<a href="/pkg/net/#UDPAddr"><code>UDPAddr</code>
+  <a href="/pkg/net/#TCPAddr"><code>TCPAddr</code></a>/<a href="/pkg/net/#UDPAddr"><code>UDPAddr</code></a>
   types and <code>netip.AddrPort</code>.
-</p>
-
-<h3>TODO</h3>
-
-<p>
-  TODO: complete this section
 </p>
 
 <h3 id="minor_library_changes">Minor changes to the library</h3>
@@ -408,10 +470,6 @@ Do not send CLs removing the interior tags from such phrases.
   As always, there are various minor changes and updates to the library,
   made with the Go 1 <a href="/doc/go1compat">promise of compatibility</a>
   in mind.
-</p>
-
-<p>
-  TODO: complete this section
 </p>
 
 <dl id="bufio"><dt><a href="/pkg/bufio/">bufio</a></dt>
@@ -467,19 +525,6 @@ Do not send CLs removing the interior tags from such phrases.
     </p>
   </dd>
 </dl><!-- crypto/tls -->
-
-<dl id="debug/buildinfo"><dt><a href="/pkg/debug/buildinfo">debug/buildinfo</a></dt>
-  <dd>
-    <p><!-- golang.org/issue/39301 -->
-      This new package provides access to module versions, version control
-      information, and build flags embedded in executable files built by
-      the <code>go</code> command. The same information is also available via
-      <a href="/pkg/runtime/debug#ReadBuildInfo"><code>runtime/debug.ReadBuildInfo</code></a>
-      for the currently running binary and via <code>go</code>
-      <code>version</code> <code>-m</code> on the command line.
-    </p>
-  </dd>
-</dl>
 
 <dl id="go/ast"><dt><a href="/pkg/go/ast/">go/ast</a></dt>
   <dd>
@@ -823,7 +868,7 @@ Do not send CLs removing the interior tags from such phrases.
       The precedence of <code>/</code> in the argument for <code>-run</code> and
       <code>-bench</code> has been increased. <code>A/B|C/D</code> used to be
       treated as <code>A/(B|C)/D</code> and is now treated as
-      <code>(A/B)/(C/D)</code>.
+      <code>(A/B)|(C/D)</code>.
     </p>
 
     <p><!-- CL 356669 -->

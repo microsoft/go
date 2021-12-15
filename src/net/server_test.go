@@ -7,9 +7,7 @@
 package net
 
 import (
-	"fmt"
 	"os"
-	"reflect"
 	"testing"
 )
 
@@ -79,10 +77,7 @@ func TestTCPServer(t *testing.T) {
 				}
 			}()
 			for i := 0; i < N; i++ {
-				ls, err := (&streamListener{Listener: ln}).newLocalServer()
-				if err != nil {
-					t.Fatal(err)
-				}
+				ls := (&streamListener{Listener: ln}).newLocalServer()
 				lss = append(lss, ls)
 				tpchs = append(tpchs, make(chan error, 1))
 			}
@@ -127,19 +122,19 @@ func TestTCPServer(t *testing.T) {
 	}
 }
 
-var unixAndUnixpacketServerTests = []struct {
-	network, address string
-}{
-	{"unix", testUnixAddr()},
-	{"unix", "@nettest/go/unix"},
-
-	{"unixpacket", testUnixAddr()},
-	{"unixpacket", "@nettest/go/unixpacket"},
-}
-
 // TestUnixAndUnixpacketServer tests concurrent accept-read-write
 // servers
 func TestUnixAndUnixpacketServer(t *testing.T) {
+	var unixAndUnixpacketServerTests = []struct {
+		network, address string
+	}{
+		{"unix", testUnixAddr(t)},
+		{"unix", "@nettest/go/unix"},
+
+		{"unixpacket", testUnixAddr(t)},
+		{"unixpacket", "@nettest/go/unixpacket"},
+	}
+
 	const N = 3
 
 	for i, tt := range unixAndUnixpacketServerTests {
@@ -164,10 +159,7 @@ func TestUnixAndUnixpacketServer(t *testing.T) {
 			}
 		}()
 		for i := 0; i < N; i++ {
-			ls, err := (&streamListener{Listener: ln}).newLocalServer()
-			if err != nil {
-				t.Fatal(err)
-			}
+			ls := (&streamListener{Listener: ln}).newLocalServer()
 			lss = append(lss, ls)
 			tpchs = append(tpchs, make(chan error, 1))
 		}
@@ -190,32 +182,9 @@ func TestUnixAndUnixpacketServer(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			// We really just want to defer os.Remove(c.LocalAddr().String()) here,
-			// but sometimes that panics due to a nil dereference on the
-			// solaris-amd64-oraclerel builder (https://golang.org/issue/34611).
-			// The source of the nil panic is not obvious because there are many
-			// nillable types involved, so we will temporarily inspect all of them to
-			// try to get a better idea of what is happening on that platform.
-			checkNils := func() {
-				if c == nil {
-					panic("Dial returned a nil Conn")
-				}
-				if rc := reflect.ValueOf(c); rc.Kind() == reflect.Pointer && rc.IsNil() {
-					panic(fmt.Sprintf("Dial returned a nil %T", c))
-				}
-				addr := c.LocalAddr()
-				if addr == nil {
-					panic(fmt.Sprintf("(%T).LocalAddr returned a nil Addr", c))
-				}
-				if raddr := reflect.ValueOf(addr); raddr.Kind() == reflect.Pointer && raddr.IsNil() {
-					panic(fmt.Sprintf("(%T).LocalAddr returned a nil %T", c, addr))
-				}
+			if addr := c.LocalAddr(); addr != nil {
+				t.Logf("connected %s->%s", addr, lss[i].Listener.Addr())
 			}
-			defer func() {
-				checkNils()
-				os.Remove(c.LocalAddr().String())
-			}()
-			checkNils()
 
 			defer c.Close()
 			trchs = append(trchs, make(chan error, 1))
@@ -295,10 +264,7 @@ func TestUDPServer(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		ls, err := (&packetListener{PacketConn: c1}).newLocalServer()
-		if err != nil {
-			t.Fatal(err)
-		}
+		ls := (&packetListener{PacketConn: c1}).newLocalServer()
 		defer ls.teardown()
 		tpch := make(chan error, 1)
 		handler := func(ls *localPacketServer, c PacketConn) { packetTransponder(c, tpch) }
@@ -347,18 +313,18 @@ func TestUDPServer(t *testing.T) {
 	}
 }
 
-var unixgramServerTests = []struct {
-	saddr string // server endpoint
-	caddr string // client endpoint
-	dial  bool   // test with Dial
-}{
-	{saddr: testUnixAddr(), caddr: testUnixAddr()},
-	{saddr: testUnixAddr(), caddr: testUnixAddr(), dial: true},
-
-	{saddr: "@nettest/go/unixgram/server", caddr: "@nettest/go/unixgram/client"},
-}
-
 func TestUnixgramServer(t *testing.T) {
+	var unixgramServerTests = []struct {
+		saddr string // server endpoint
+		caddr string // client endpoint
+		dial  bool   // test with Dial
+	}{
+		{saddr: testUnixAddr(t), caddr: testUnixAddr(t)},
+		{saddr: testUnixAddr(t), caddr: testUnixAddr(t), dial: true},
+
+		{saddr: "@nettest/go/unixgram/server", caddr: "@nettest/go/unixgram/client"},
+	}
+
 	for i, tt := range unixgramServerTests {
 		if !testableListenArgs("unixgram", tt.saddr, "") {
 			t.Logf("skipping %s test", "unixgram "+tt.saddr+"<-"+tt.caddr)
@@ -373,10 +339,7 @@ func TestUnixgramServer(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		ls, err := (&packetListener{PacketConn: c1}).newLocalServer()
-		if err != nil {
-			t.Fatal(err)
-		}
+		ls := (&packetListener{PacketConn: c1}).newLocalServer()
 		defer ls.teardown()
 		tpch := make(chan error, 1)
 		handler := func(ls *localPacketServer, c PacketConn) { packetTransponder(c, tpch) }

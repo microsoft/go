@@ -93,10 +93,7 @@ func TestDialTimeout(t *testing.T) {
 }
 
 func TestDialTimeoutMaxDuration(t *testing.T) {
-	ln, err := newLocalListener("tcp")
-	if err != nil {
-		t.Fatal(err)
-	}
+	ln := newLocalListener(t, "tcp")
 	defer func() {
 		if err := ln.Close(); err != nil {
 			t.Error(err)
@@ -147,10 +144,7 @@ func TestAcceptTimeout(t *testing.T) {
 		t.Skipf("not supported on %s", runtime.GOOS)
 	}
 
-	ln, err := newLocalListener("tcp")
-	if err != nil {
-		t.Fatal(err)
-	}
+	ln := newLocalListener(t, "tcp")
 	defer ln.Close()
 
 	var wg sync.WaitGroup
@@ -203,10 +197,7 @@ func TestAcceptTimeoutMustReturn(t *testing.T) {
 		t.Skipf("not supported on %s", runtime.GOOS)
 	}
 
-	ln, err := newLocalListener("tcp")
-	if err != nil {
-		t.Fatal(err)
-	}
+	ln := newLocalListener(t, "tcp")
 	defer ln.Close()
 
 	max := time.NewTimer(time.Second)
@@ -249,10 +240,7 @@ func TestAcceptTimeoutMustNotReturn(t *testing.T) {
 		t.Skipf("not supported on %s", runtime.GOOS)
 	}
 
-	ln, err := newLocalListener("tcp")
-	if err != nil {
-		t.Fatal(err)
-	}
+	ln := newLocalListener(t, "tcp")
 	defer ln.Close()
 
 	max := time.NewTimer(100 * time.Millisecond)
@@ -302,10 +290,7 @@ func TestReadTimeout(t *testing.T) {
 		c.Write([]byte("READ TIMEOUT TEST"))
 		defer c.Close()
 	}
-	ls, err := newLocalServer("tcp")
-	if err != nil {
-		t.Fatal(err)
-	}
+	ls := newLocalServer(t, "tcp")
 	defer ls.teardown()
 	if err := ls.buildup(handler); err != nil {
 		t.Fatal(err)
@@ -354,10 +339,7 @@ func TestReadTimeoutMustNotReturn(t *testing.T) {
 		t.Skipf("not supported on %s", runtime.GOOS)
 	}
 
-	ln, err := newLocalListener("tcp")
-	if err != nil {
-		t.Fatal(err)
-	}
+	ln := newLocalListener(t, "tcp")
 	defer ln.Close()
 
 	c, err := Dial(ln.Addr().Network(), ln.Addr().String())
@@ -421,10 +403,7 @@ func TestReadFromTimeout(t *testing.T) {
 			c.WriteTo([]byte("READFROM TIMEOUT TEST"), dst)
 		}
 	}
-	ls, err := newLocalPacketServer("udp")
-	if err != nil {
-		t.Fatal(err)
-	}
+	ls := newLocalPacketServer(t, "udp")
 	defer ls.teardown()
 	if err := ls.buildup(handler); err != nil {
 		t.Fatal(err)
@@ -484,10 +463,7 @@ var writeTimeoutTests = []struct {
 func TestWriteTimeout(t *testing.T) {
 	t.Parallel()
 
-	ln, err := newLocalListener("tcp")
-	if err != nil {
-		t.Fatal(err)
-	}
+	ln := newLocalListener(t, "tcp")
 	defer ln.Close()
 
 	for i, tt := range writeTimeoutTests {
@@ -532,10 +508,7 @@ func TestWriteTimeoutMustNotReturn(t *testing.T) {
 		t.Skipf("not supported on %s", runtime.GOOS)
 	}
 
-	ln, err := newLocalListener("tcp")
-	if err != nil {
-		t.Fatal(err)
-	}
+	ln := newLocalListener(t, "tcp")
 	defer ln.Close()
 
 	c, err := Dial(ln.Addr().Network(), ln.Addr().String())
@@ -584,24 +557,10 @@ func TestWriteTimeoutMustNotReturn(t *testing.T) {
 	}
 }
 
-var writeToTimeoutTests = []struct {
-	timeout time.Duration
-	xerrs   [2]error // expected errors in transition
-}{
-	// Tests that write deadlines work, even if there's buffer
-	// space available to write.
-	{-5 * time.Second, [2]error{os.ErrDeadlineExceeded, os.ErrDeadlineExceeded}},
-
-	{10 * time.Millisecond, [2]error{nil, os.ErrDeadlineExceeded}},
-}
-
 func TestWriteToTimeout(t *testing.T) {
 	t.Parallel()
 
-	c1, err := newLocalPacketListener("udp")
-	if err != nil {
-		t.Fatal(err)
-	}
+	c1 := newLocalPacketListener(t, "udp")
 	defer c1.Close()
 
 	host, _, err := SplitHostPort(c1.LocalAddr().String())
@@ -609,37 +568,58 @@ func TestWriteToTimeout(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	for i, tt := range writeToTimeoutTests {
-		c2, err := ListenPacket(c1.LocalAddr().Network(), JoinHostPort(host, "0"))
-		if err != nil {
-			t.Fatal(err)
-		}
-		defer c2.Close()
+	timeouts := []time.Duration{
+		-5 * time.Second,
+		10 * time.Millisecond,
+	}
 
-		if err := c2.SetWriteDeadline(time.Now().Add(tt.timeout)); err != nil {
-			t.Fatalf("#%d: %v", i, err)
-		}
-		for j, xerr := range tt.xerrs {
-			for {
+	for _, timeout := range timeouts {
+		t.Run(fmt.Sprint(timeout), func(t *testing.T) {
+			c2, err := ListenPacket(c1.LocalAddr().Network(), JoinHostPort(host, "0"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer c2.Close()
+
+			if err := c2.SetWriteDeadline(time.Now().Add(timeout)); err != nil {
+				t.Fatalf("SetWriteDeadline: %v", err)
+			}
+			backoff := 1 * time.Millisecond
+			nDeadlineExceeded := 0
+			for j := 0; nDeadlineExceeded < 2; j++ {
 				n, err := c2.WriteTo([]byte("WRITETO TIMEOUT TEST"), c1.LocalAddr())
-				if xerr != nil {
-					if perr := parseWriteError(err); perr != nil {
-						t.Errorf("#%d/%d: %v", i, j, perr)
-					}
-					if !isDeadlineExceeded(err) {
-						t.Fatalf("#%d/%d: %v", i, j, err)
-					}
-				}
-				if err == nil {
-					time.Sleep(tt.timeout / 3)
+				t.Logf("#%d: WriteTo: %d, %v", j, n, err)
+				if err == nil && timeout >= 0 && nDeadlineExceeded == 0 {
+					// If the timeout is nonnegative, some number of WriteTo calls may
+					// succeed before the timeout takes effect.
+					t.Logf("WriteTo succeeded; sleeping %v", timeout/3)
+					time.Sleep(timeout / 3)
 					continue
 				}
-				if n != 0 {
-					t.Fatalf("#%d/%d: wrote %d; want 0", i, j, n)
+				if isENOBUFS(err) {
+					t.Logf("WriteTo: %v", err)
+					// We're looking for a deadline exceeded error, but if the kernel's
+					// network buffers are saturated we may see ENOBUFS instead (see
+					// https://go.dev/issue/49930). Give it some time to unsaturate.
+					time.Sleep(backoff)
+					backoff *= 2
+					continue
 				}
-				break
+				if perr := parseWriteError(err); perr != nil {
+					t.Errorf("failed to parse error: %v", perr)
+				}
+				if !isDeadlineExceeded(err) {
+					t.Errorf("error is not 'deadline exceeded'")
+				}
+				if n != 0 {
+					t.Errorf("unexpectedly wrote %d bytes", n)
+				}
+				if !t.Failed() {
+					t.Logf("WriteTo timed out as expected")
+				}
+				nDeadlineExceeded++
 			}
-		}
+		})
 	}
 }
 
@@ -687,10 +667,7 @@ func nextTimeout(actual time.Duration) (next time.Duration, ok bool) {
 }
 
 func TestReadTimeoutFluctuation(t *testing.T) {
-	ln, err := newLocalListener("tcp")
-	if err != nil {
-		t.Fatal(err)
-	}
+	ln := newLocalListener(t, "tcp")
 	defer ln.Close()
 
 	c, err := Dial(ln.Addr().Network(), ln.Addr().String())
@@ -746,10 +723,7 @@ func TestReadTimeoutFluctuation(t *testing.T) {
 }
 
 func TestReadFromTimeoutFluctuation(t *testing.T) {
-	c1, err := newLocalPacketListener("udp")
-	if err != nil {
-		t.Fatal(err)
-	}
+	c1 := newLocalPacketListener(t, "udp")
 	defer c1.Close()
 
 	c2, err := Dial(c1.LocalAddr().Network(), c1.LocalAddr().String())
@@ -810,10 +784,7 @@ func TestWriteTimeoutFluctuation(t *testing.T) {
 		t.Skipf("not supported on %s", runtime.GOOS)
 	}
 
-	ln, err := newLocalListener("tcp")
-	if err != nil {
-		t.Fatal(err)
-	}
+	ln := newLocalListener(t, "tcp")
 	defer ln.Close()
 
 	c, err := Dial(ln.Addr().Network(), ln.Addr().String())
@@ -938,10 +909,7 @@ func testVariousDeadlines(t *testing.T) {
 			c.Close()
 		}
 	}
-	ls, err := newLocalServer("tcp")
-	if err != nil {
-		t.Fatal(err)
-	}
+	ls := newLocalServer(t, "tcp")
 	defer ls.teardown()
 	if err := ls.buildup(handler); err != nil {
 		t.Fatal(err)
@@ -979,35 +947,23 @@ func testVariousDeadlines(t *testing.T) {
 			name := fmt.Sprintf("%v %d/%d", timeout, run, numRuns)
 			t.Log(name)
 
-			tooSlow := time.NewTimer(5 * time.Second)
-			defer tooSlow.Stop()
-
 			c, err := Dial(ls.Listener.Addr().Network(), ls.Listener.Addr().String())
 			if err != nil {
 				t.Fatal(err)
 			}
 
-			ch := make(chan result, 1)
-			go func() {
-				t0 := time.Now()
-				if err := c.SetDeadline(t0.Add(timeout)); err != nil {
-					t.Error(err)
-				}
-				n, err := io.Copy(io.Discard, c)
-				dt := time.Since(t0)
-				c.Close()
-				ch <- result{n, err, dt}
-			}()
+			t0 := time.Now()
+			if err := c.SetDeadline(t0.Add(timeout)); err != nil {
+				t.Error(err)
+			}
+			n, err := io.Copy(io.Discard, c)
+			dt := time.Since(t0)
+			c.Close()
 
-			select {
-			case res := <-ch:
-				if nerr, ok := res.err.(Error); ok && nerr.Timeout() {
-					t.Logf("%v: good timeout after %v; %d bytes", name, res.d, res.n)
-				} else {
-					t.Fatalf("%v: Copy = %d, %v; want timeout", name, res.n, res.err)
-				}
-			case <-tooSlow.C:
-				t.Fatalf("%v: client stuck in Dial+Copy", name)
+			if nerr, ok := err.(Error); ok && nerr.Timeout() {
+				t.Logf("%v: good timeout after %v; %d bytes", name, dt, n)
+			} else {
+				t.Fatalf("%v: Copy = %d, %v; want timeout", name, n, err)
 			}
 		}
 	}
@@ -1073,10 +1029,7 @@ func TestReadWriteProlongedTimeout(t *testing.T) {
 		}()
 		wg.Wait()
 	}
-	ls, err := newLocalServer("tcp")
-	if err != nil {
-		t.Fatal(err)
-	}
+	ls := newLocalServer(t, "tcp")
 	defer ls.teardown()
 	if err := ls.buildup(handler); err != nil {
 		t.Fatal(err)
@@ -1103,10 +1056,7 @@ func TestReadWriteDeadlineRace(t *testing.T) {
 		N = 50
 	}
 
-	ln, err := newLocalListener("tcp")
-	if err != nil {
-		t.Fatal(err)
-	}
+	ln := newLocalListener(t, "tcp")
 	defer ln.Close()
 
 	c, err := Dial(ln.Addr().Network(), ln.Addr().String())
@@ -1156,10 +1106,7 @@ func TestReadWriteDeadlineRace(t *testing.T) {
 
 // Issue 35367.
 func TestConcurrentSetDeadline(t *testing.T) {
-	ln, err := newLocalListener("tcp")
-	if err != nil {
-		t.Fatal(err)
-	}
+	ln := newLocalListener(t, "tcp")
 	defer ln.Close()
 
 	const goroutines = 8
@@ -1168,6 +1115,7 @@ func TestConcurrentSetDeadline(t *testing.T) {
 
 	var c [conns]Conn
 	for i := 0; i < conns; i++ {
+		var err error
 		c[i], err = Dial(ln.Addr().Network(), ln.Addr().String())
 		if err != nil {
 			t.Fatal(err)

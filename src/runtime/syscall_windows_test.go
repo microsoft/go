@@ -288,7 +288,7 @@ func TestCallbackInAnotherThread(t *testing.T) {
 }
 
 type cbFunc struct {
-	goFunc interface{}
+	goFunc any
 }
 
 func (f cbFunc) cName(cdecl bool) string {
@@ -770,6 +770,7 @@ func TestSyscallN(t *testing.T) {
 	for arglen := 0; arglen <= runtime.MaxArgs; arglen++ {
 		arglen := arglen
 		t.Run(fmt.Sprintf("arg-%d", arglen), func(t *testing.T) {
+			t.Parallel()
 			args := make([]string, arglen)
 			rets := make([]string, arglen+1)
 			params := make([]uintptr, arglen)

@@ -130,7 +130,7 @@ func (subst *subster) typ(typ Type) Type {
 			// term list substitution may introduce duplicate terms (unlikely but possible).
 			// This is ok; lazy type set computation will determine the actual type set
 			// in normal form.
-			return &Union{terms, nil}
+			return &Union{terms}
 		}
 
 	case *Interface:
@@ -156,13 +156,13 @@ func (subst *subster) typ(typ Type) Type {
 
 	case *Named:
 		// dump is for debugging
-		dump := func(string, ...interface{}) {}
+		dump := func(string, ...any) {}
 		if subst.check != nil && trace {
 			subst.check.indent++
 			defer func() {
 				subst.check.indent--
 			}()
-			dump = func(format string, args ...interface{}) {
+			dump = func(format string, args ...any) {
 				subst.check.trace(subst.pos, format, args...)
 			}
 		}
