@@ -80,8 +80,8 @@ A program can import the `crypto/tls/fipsonly` package to configure the Go TLS s
 
 The work done to support FIPS compatibility mode leverages code and ideas from other open-source projects:
 
-- All crypto stubs are a mirror of Google's [dev.boringboringcrypto](https://github.com/golang/go/tree/dev.boringcrypto).
-- The mapping between BoringSSL and OpenSSL APIs is taken from RedHat's [Go fork](https://pagure.io/go).
+- All crypto stubs are a mirror of Google's [dev.boringcrypto branch](https://github.com/golang/go/tree/dev.boringcrypto) and the release branch ports of that branch.
+- The mapping between BoringSSL and OpenSSL APIs is taken from Fedora's [Go fork](https://pagure.io/go).
 - Portable OpenSSL implementation ported from Microsoft's [.NET runtime](https://github.com/dotnet/runtime) cryptography module.
 
 ## Disclaimer
