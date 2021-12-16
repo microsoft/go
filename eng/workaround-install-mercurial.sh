@@ -22,6 +22,6 @@ fetch() {
 }
 
 # Install mercurial to test Go integration.
-fetch mercurial.deb 'http://security.ubuntu.com/ubuntu/pool/universe/m/mercurial/mercurial_4.5.3-1ubuntu2.1_amd64.deb' b78465669b0e3acdebead196881a617091b0acbc0fac488220361225db8642d8
-fetch mercurial-common.deb 'http://security.ubuntu.com/ubuntu/pool/universe/m/mercurial/mercurial-common_4.5.3-1ubuntu2.1_all.deb' 537693dae1c193c724da306e3669f8561cff5cf594863b8746c3b44f66a28616
+fetch mercurial.deb 'http://security.ubuntu.com/ubuntu/pool/universe/m/mercurial/mercurial_4.5.3-1ubuntu2.2_amd64.deb' 6f5ce6968cc9da1c122b3ec67f47a3e5f7621ec72cd82bed8bacc94faab1682a
+fetch mercurial-common.deb 'http://security.ubuntu.com/ubuntu/pool/universe/m/mercurial/mercurial-common_4.5.3-1ubuntu2.2_all.deb' b4e695920304d7fa42c77c671cd77fd4f0ef9c205b81435a31cdb074d682cb17
 sudo apt install ./mercurial.deb ./mercurial-common.deb

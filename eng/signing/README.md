@@ -16,6 +16,8 @@ This infrastructure runs on Windows only.
    ```
    dotnet restore
    ```
+   * You may need to add the MicroBuild feed into a NuGet.Config file:  
+     `https://pkgs.dev.azure.com/dnceng/_packaging/MicroBuildToolset/nuget/v3/index.json`
 1. Run a "test sign" job to exercise the tooling:
    ```
    dotnet msbuild /t:SignGoFiles /p:SignFilesDir=tosign /p:SigningType=test /bl
