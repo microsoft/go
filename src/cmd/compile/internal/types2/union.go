@@ -11,8 +11,7 @@ import "cmd/compile/internal/syntax"
 
 // A Union represents a union of terms embedded in an interface.
 type Union struct {
-	terms []*Term   // list of syntactical terms (not a canonicalized termlist)
-	tset  *_TypeSet // type set described by this union, computed lazily
+	terms []*Term // list of syntactical terms (not a canonicalized termlist)
 }
 
 // NewUnion returns a new Union type with the given terms.
@@ -21,7 +20,7 @@ func NewUnion(terms []*Term) *Union {
 	if len(terms) == 0 {
 		panic("empty union")
 	}
-	return &Union{terms, nil}
+	return &Union{terms}
 }
 
 func (u *Union) Len() int         { return len(u.terms) }
@@ -49,23 +48,37 @@ const maxTermCount = 100
 // parseUnion parses uexpr as a union of expressions.
 // The result is a Union type, or Typ[Invalid] for some errors.
 func parseUnion(check *Checker, uexpr syntax.Expr) Type {
-	tlist := flattenUnion(nil, uexpr)
+	blist, tlist := flattenUnion(nil, uexpr)
+	assert(len(blist) == len(tlist)-1)
 
 	var terms []*Term
-	for _, x := range tlist {
-		tilde, typ := parseTilde(check, x)
-		if len(tlist) == 1 && !tilde {
+
+	var u Type
+	for i, x := range tlist {
+		term := parseTilde(check, x)
+		if len(tlist) == 1 && !term.tilde {
 			// Single type. Ok to return early because all relevant
 			// checks have been performed in parseTilde (no need to
 			// run through term validity check below).
-			return typ // typ already recorded through check.typ in parseTilde
+			return term.typ // typ already recorded through check.typ in parseTilde
 		}
 		if len(terms) >= maxTermCount {
-			check.errorf(x, "cannot handle more than %d union terms (implementation limitation)", maxTermCount)
-			check.recordTypeAndValue(uexpr, typexpr, Typ[Invalid], nil)
-			return Typ[Invalid]
+			if u != Typ[Invalid] {
+				check.errorf(x, "cannot handle more than %d union terms (implementation limitation)", maxTermCount)
+				u = Typ[Invalid]
+			}
+		} else {
+			terms = append(terms, term)
+			u = &Union{terms}
 		}
-		terms = append(terms, NewTerm(tilde, typ))
+
+		if i > 0 {
+			check.recordTypeAndValue(blist[i-1], typexpr, u, nil)
+		}
+	}
+
+	if u == Typ[Invalid] {
+		return u
 	}
 
 	// Check validity of terms.
@@ -95,7 +108,16 @@ func parseUnion(check *Checker, uexpr syntax.Expr) Type {
 			// in the beginning. Embedded interfaces with tilde are excluded above. If we reach
 			// here, we must have at least two terms in the union.
 			if f != nil && !f.typeSet().IsTypeSet() {
-				check.errorf(tlist[i], "cannot use %s in union (interface contains methods)", t)
+				switch {
+				case f.typeSet().NumMethods() != 0:
+					check.errorf(tlist[i], "cannot use %s in union (%s contains methods)", t, t)
+				case t.typ == universeComparable.Type():
+					check.error(tlist[i], "cannot use comparable in union")
+				case f.typeSet().comparable:
+					check.errorf(tlist[i], "cannot use %s in union (%s embeds comparable)", t, t)
+				default:
+					panic("not a type set but no methods and not comparable")
+				}
 				continue // don't report another error for t
 			}
 
@@ -107,17 +129,17 @@ func parseUnion(check *Checker, uexpr syntax.Expr) Type {
 		}
 	})
 
-	u := &Union{terms, nil}
-	check.recordTypeAndValue(uexpr, typexpr, u, nil)
 	return u
 }
 
-func parseTilde(check *Checker, x syntax.Expr) (tilde bool, typ Type) {
+func parseTilde(check *Checker, tx syntax.Expr) *Term {
+	x := tx
+	var tilde bool
 	if op, _ := x.(*syntax.Operation); op != nil && op.Op == syntax.Tilde {
 		x = op.X
 		tilde = true
 	}
-	typ = check.typ(x)
+	typ := check.typ(x)
 	// Embedding stand-alone type parameters is not permitted (issue #47127).
 	// We don't need this restriction anymore if we make the underlying type of a type
 	// parameter its constraint interface: if we embed a lone type parameter, we will
@@ -127,7 +149,11 @@ func parseTilde(check *Checker, x syntax.Expr) (tilde bool, typ Type) {
 		check.error(x, "cannot embed a type parameter")
 		typ = Typ[Invalid]
 	}
-	return
+	term := NewTerm(tilde, typ)
+	if tilde {
+		check.recordTypeAndValue(tx, typexpr, &Union{[]*Term{term}}, nil)
+	}
+	return term
 }
 
 // overlappingTerm reports the index of the term x in terms which is
@@ -148,10 +174,13 @@ func overlappingTerm(terms []*Term, y *Term) int {
 	return -1
 }
 
-func flattenUnion(list []syntax.Expr, x syntax.Expr) []syntax.Expr {
+// flattenUnion walks a union type expression of the form A | B | C | ...,
+// extracting both the binary exprs (blist) and leaf types (tlist).
+func flattenUnion(list []syntax.Expr, x syntax.Expr) (blist, tlist []syntax.Expr) {
 	if o, _ := x.(*syntax.Operation); o != nil && o.Op == syntax.Or {
-		list = flattenUnion(list, o.X)
+		blist, tlist = flattenUnion(list, o.X)
+		blist = append(blist, o)
 		x = o.Y
 	}
-	return append(list, x)
+	return blist, append(tlist, x)
 }
