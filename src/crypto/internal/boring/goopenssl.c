@@ -13,6 +13,22 @@
 // Approach taken from .Net System.Security.Cryptography.Native
 // https://github.com/dotnet/runtime/blob/f64246ce08fb7a58221b2b7c8e68f69c02522b0d/src/libraries/Native/Unix/System.Security.Cryptography.Native/opensslshim.c
 
+#define DEFINEFUNC(ret, func, args, argscall)                  ret (*_g_##func)args;                                       
+#define DEFINEFUNCINTERNAL(ret, func, args, argscall)          ret (*_g_internal_##func)args;                              
+#define DEFINEFUNC_LEGACY(ret, func, args, argscall)           DEFINEFUNCINTERNAL(ret, func, args, argscall)
+#define DEFINEFUNC_110(ret, func, args, argscall)              DEFINEFUNCINTERNAL(ret, func, args, argscall)
+#define DEFINEFUNC_RENAMED(ret, func, oldfunc, args, argscall) DEFINEFUNCINTERNAL(ret, func, args, argscall)
+#define DEFINEFUNC_FALLBACK(ret, func, args, argscall)         DEFINEFUNCINTERNAL(ret, func, args, argscall)
+
+FOR_ALL_OPENSSL_FUNCTIONS
+
+#undef DEFINEFUNC
+#undef DEFINEFUNCINTERNAL
+#undef DEFINEFUNC_LEGACY
+#undef DEFINEFUNC_110
+#undef DEFINEFUNC_RENAMED
+#undef DEFINEFUNC_FALLBACK
+
 static void* handle = NULL;
 
 // Load all the functions stored in FOR_ALL_OPENSSL_FUNCTIONS
