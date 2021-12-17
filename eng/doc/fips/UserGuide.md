@@ -47,7 +47,7 @@ Package aes implements AES encryption (formerly Rijndael), as defined in U.S. Fe
 #### func [NewCipher](https://pkg.go.dev/crypto/aes#NewCipher)
 
 ```go
-func aes.NewCipher(key \[\]byte) (cipher cipher.Block, err error)
+func aes.NewCipher(key []byte) (cipher cipher.Block, err error)
 ```
 
 NewCipher creates and returns a new [cipher.Block](https://pkg.go.dev/crypto/cipher#Block).
