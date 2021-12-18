@@ -60,9 +60,9 @@ NewCipher creates and returns a new [cipher.Block](https://pkg.go.dev/crypto/cip
 
 `Cipher` implements the cipher.Block interface using an OpenSSL cipher function that depends on the `key` length:
 
-- If `len(key) == 16` then the cipher user is [EVP_aes_128_ecb](https://www.openssl.org/docs/man3.0/man3/EVP_aes_128_ecb.html).
-- If `len(key) == 24` then the cipher user is [EVP_aes_192_ecb](https://www.openssl.org/docs/man3.0/man3/EVP_aes_192_ecb.html).
-- If `len(key) == 32` then the cipher user is [EVP_aes_256_ecb](https://www.openssl.org/docs/man3.0/man3/EVP_aes_256_ecb.html).
+- If `len(key) == 16` then the cipher used is [EVP_aes_128_ecb](https://www.openssl.org/docs/man3.0/man3/EVP_aes_128_ecb.html).
+- If `len(key) == 24` then the cipher used is [EVP_aes_192_ecb](https://www.openssl.org/docs/man3.0/man3/EVP_aes_192_ecb.html).
+- If `len(key) == 32` then the cipher used is [EVP_aes_256_ecb](https://www.openssl.org/docs/man3.0/man3/EVP_aes_256_ecb.html).
 
 The cipher.Block methods are implemented as follows:
 
@@ -93,9 +93,9 @@ If `cipher` is FIPS compliant then `aead` implements the cipher.AEAD interface a
 - `NonceSize() int` always returns `12`.
 - `Overhead() int` always returns `16`.
 - The cipher used in `Seal` and `Open` depends on the key length used in `aes.NewCipher(key []byte)`:
-  - If `len(key) == 16` then the cipher user is [EVP_aes_128_gcm](https://www.openssl.org/docs/man3.0/man3/EVP_aes_128_gcm.html).
-  - If `len(key) == 24` then the cipher user is [EVP_aes_192_gcm](https://www.openssl.org/docs/man3.0/man3/EVP_aes_192_gcm.html).
-  - If `len(key) == 32` then the cipher user is [EVP_aes_256_gcm](https://www.openssl.org/docs/man3.0/man3/EVP_aes_256_gcm.html).
+  - If `len(key) == 16` then the cipher used is [EVP_aes_128_gcm](https://www.openssl.org/docs/man3.0/man3/EVP_aes_128_gcm.html).
+  - If `len(key) == 24` then the cipher used is [EVP_aes_192_gcm](https://www.openssl.org/docs/man3.0/man3/EVP_aes_192_gcm.html).
+  - If `len(key) == 32` then the cipher used is [EVP_aes_256_gcm](https://www.openssl.org/docs/man3.0/man3/EVP_aes_256_gcm.html).
 - `Seal(dst, nonce, plaintext, additionalData []byte) []byte` encrypts plaintext and uses additionalData to authenticate. It uses [EVP_EncryptUpdate](https://www.openssl.org/docs/man3.0/man3/EVP_EncryptUpdate.html) for the encryption and [EVP_EncryptFinal_ex](https://www.openssl.org/docs/man3.0/man3/EVP_EncryptFinal_ex.html) for authenticating.
 - `Open(dst, nonce, ciphertext, additionalData []byte) ([]byte, error)` decrypts plaintext and uses additionalData to authenticate. It uses [EVP_DecryptUpdate](https://www.openssl.org/docs/man3.0/man3/EVP_DecryptUpdate.html) for the decryption and [EVP_DecryptFinal_ex](https://www.openssl.org/docs/man3.0/man3/EVP_DecryptFinal_ex.html) for authenticating.
 
@@ -157,9 +157,9 @@ NewCBCDecrypter returns a BlockMode which decrypts in cipher block chaining mode
 
 If `block` is FIPS compliant then `cbc` implements the cipher.BlockMode using an OpenSSL cipher that depends on the `block` key length:
 
-- If `len(key) == 16` then the cipher user is [EVP_aes_128_cbc](https://www.openssl.org/docs/man3.0/man3/EVP_aes_128_cbc.html).
-- If `len(key) == 24` then the cipher user is [EVP_aes_192_cbc](https://www.openssl.org/docs/man3.0/man3/EVP_aes_192_cbc.html).
-- If `len(key) == 32` then the cipher user is [EVP_aes_256_cbc](https://www.openssl.org/docs/man3.0/man3/EVP_aes_256_cbc.html).
+- If `len(key) == 16` then the cipher used is [EVP_aes_128_cbc](https://www.openssl.org/docs/man3.0/man3/EVP_aes_128_cbc.html).
+- If `len(key) == 24` then the cipher used is [EVP_aes_192_cbc](https://www.openssl.org/docs/man3.0/man3/EVP_aes_192_cbc.html).
+- If `len(key) == 32` then the cipher used is [EVP_aes_256_cbc](https://www.openssl.org/docs/man3.0/man3/EVP_aes_256_cbc.html).
 
 In all cases the cipher will have the padding disabled using [EVP_CIPHER_CTX_set_padding](https://www.openssl.org/docs/man3.0/man3/EVP_CIPHER_CTX_set_padding.html).
 
@@ -186,9 +186,9 @@ NewCBCEncrypter returns a BlockMode which encrypts in cipher block chaining mode
 
 If `block` is FIPS compliant then `cbc` implements the cipher.BlockMode using an OpenSSL cipher that depends on the `block` key length:
 
-- If `len(key) == 16` then the cipher user is [EVP_aes_128_cbc](https://www.openssl.org/docs/man3.0/man3/EVP_aes_128_cbc.html).
-- If `len(key) == 24` then the cipher user is [EVP_aes_192_cbc](https://www.openssl.org/docs/man3.0/man3/EVP_aes_192_cbc.html).
-- If `len(key) == 32` then the cipher user is [EVP_aes_256_cbc](https://www.openssl.org/docs/man3.0/man3/EVP_aes_256_cbc.html).
+- If `len(key) == 16` then the cipher used is [EVP_aes_128_cbc](https://www.openssl.org/docs/man3.0/man3/EVP_aes_128_cbc.html).
+- If `len(key) == 24` then the cipher used is [EVP_aes_192_cbc](https://www.openssl.org/docs/man3.0/man3/EVP_aes_192_cbc.html).
+- If `len(key) == 32` then the cipher used is [EVP_aes_256_cbc](https://www.openssl.org/docs/man3.0/man3/EVP_aes_256_cbc.html).
 
 
 The cipher.BlockMode methods are implemented as follows:
@@ -222,9 +222,9 @@ NewCTR returns a Stream which encrypts/decrypts using the given Block in counter
 
 If `block` is FIPS compliant then `ctr` implements the cipher.Stream using an OpenSSL cipher that depends on the `block` key length:
 
-- If `len(key) == 16` then the cipher user is [EVP_aes_128_ctr](https://www.openssl.org/docs/man3.0/man3/EVP_aes_128_ctr.html).
-- If `len(key) == 24` then the cipher user is [EVP_aes_192_ctr](https://www.openssl.org/docs/man3.0/man3/EVP_aes_192_ctr.html).
-- If `len(key) == 32` then the cipher user is [EVP_aes_256_ctr](https://www.openssl.org/docs/man3.0/man3/EVP_aes_256_ctr.html).
+- If `len(key) == 16` then the cipher used is [EVP_aes_128_ctr](https://www.openssl.org/docs/man3.0/man3/EVP_aes_128_ctr.html).
+- If `len(key) == 24` then the cipher used is [EVP_aes_192_ctr](https://www.openssl.org/docs/man3.0/man3/EVP_aes_192_ctr.html).
+- If `len(key) == 32` then the cipher used is [EVP_aes_256_ctr](https://www.openssl.org/docs/man3.0/man3/EVP_aes_256_ctr.html).
 
 
 The cipher.Stream methods are implemented as follows:
