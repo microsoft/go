@@ -113,7 +113,7 @@ If `cipher` is not FIPS compliant then `aead` is implemented by the standard Go 
 #### func [NewGCMWithNonceSize](https://pkg.go.dev/crypto/cipher#NewGCMWithNonceSize)
 
 ```go
-func NewGCMWithNonceSize(cipher cipher.Block, size int) (aead cipher.AEAD, error)
+func cipher.NewGCMWithNonceSize(cipher cipher.Block, size int) (aead cipher.AEAD, error)
 ```
 
 NewGCMWithNonceSize returns the given 128-bit, block cipher wrapped in Galois Counter Mode, which accepts nonces of the given length.
@@ -133,7 +133,7 @@ NewGCMWithNonceSize returns the given 128-bit, block cipher wrapped in Galois Co
 #### func [NewGCMWithTagSize](https://pkg.go.dev/crypto/cipher#NewGCMWithTagSize)
 
 ```go
-func NewGCMWithTagSize(cipher cipher.Block, tagSize int) (aead cipher.AEAD, error)
+func cipher.NewGCMWithTagSize(cipher cipher.Block, tagSize int) (aead cipher.AEAD, error)
 ```
 
 NewGCMWithTagSize returns the given 128-bit, block cipher wrapped in Galois Counter Mode, which generates tags with the given length.
@@ -153,7 +153,7 @@ NewGCMWithTagSize returns the given 128-bit, block cipher wrapped in Galois Coun
 #### func [NewCBCDecrypter](https://pkg.go.dev/crypto/cipher#NewCBCDecrypter)
 
 ```go
-func NewCBCDecrypter(block Block, iv []byte) (cbc cipher.BlockMode)
+func cipher.NewCBCDecrypter(block Block, iv []byte) (cbc cipher.BlockMode)
 ```
 
 NewCBCDecrypter returns a BlockMode which decrypts in cipher block chaining mode, using the given Block.
@@ -182,7 +182,7 @@ If `block` is not FIPS compliant then `cbc` is implemented by the standard Go li
 #### func [NewCBCEncrypter](https://pkg.go.dev/crypto/cipher#NewCBCEncrypter)
 
 ```go
-func NewCBCEncrypter(block Block, iv []byte) (cbc cipher.BlockMode)
+func cipher.NewCBCEncrypter(block Block, iv []byte) (cbc cipher.BlockMode)
 ```
 
 NewCBCEncrypter returns a BlockMode which encrypts in cipher block chaining mode, using the given Block.
@@ -218,7 +218,7 @@ NewCFBEncrypter is not FIPS compliant.
 #### func [NewCTR](https://pkg.go.dev/crypto/cipher#NewCTR)
 
 ```go
-func NewCTR(block Block, iv []byte) (ctr cipher.BlockMode)
+func cipher.NewCTR(block Block, iv []byte) (ctr cipher.BlockMode)
 ```
 
 NewCTR returns a Stream which encrypts/decrypts using the given Block in counter mode.
@@ -248,7 +248,7 @@ NewOFB is not FIPS compliant.
 #### func [StreamReader.Read](https://pkg.go.dev/crypto/cipher#StreamReader.Read)
 
 ```go
-func (r StreamReader) Read(dst []byte) (n int, err error)
+func (r cipher.StreamReader) Read(dst []byte) (n int, err error)
 ```
 
 Can be used in a FIPS compliant manner if `r.S` is an object created using cipher.NewCTR with FIPS compliant parameters.
@@ -256,7 +256,7 @@ Can be used in a FIPS compliant manner if `r.S` is an object created using ciphe
 #### func [StreamWriter.Write](https://pkg.go.dev/crypto/cipher#StreamWriter.Write)
 
 ```go
-func (w StreamWriter) Write(src []byte) (n int, err error)
+func (w cipher.StreamWriter) Write(src []byte) (n int, err error)
 ```
 
 Can be used in a FIPS 140-2 compliant manner if `w.S` is an object created using cipher.NewCTR with FIPS compliant parameters.
@@ -264,7 +264,7 @@ Can be used in a FIPS 140-2 compliant manner if `w.S` is an object created using
 #### func [StreamWriter.Close](https://pkg.go.dev/crypto/cipher#StreamWriter.Close)
 
 ```go
-func (w StreamWriter) Close() error
+func (w cipher.StreamWriter) Close() error
 ```
 
 Can be used in a FIPS 140-2 compliant manner if `w.S` is an object created using cipher.NewCTR with FIPS compliant parameters.
@@ -288,7 +288,7 @@ Package ecdsa implements the Elliptic Curve Digital Signature Algorithm, as defi
 #### func [Sign](https://pkg.go.dev/crypto/ecdsa#Sign)
 
 ```go
-func Sign(rand io.Reader, priv *ecdsa.PrivateKey, hash []byte) (r, s *big.Int, err error)
+func ecdsa.Sign(rand io.Reader, priv *ecdsa.PrivateKey, hash []byte) (r, s *big.Int, err error)
 ```
 
 Sign signs a hash using the private key.
@@ -306,7 +306,7 @@ Sign signs a hash using the private key.
 #### func [SignASN1](https://pkg.go.dev/crypto/ecdsa#SignASN1)
 
 ```go
-func SignASN1(rand io.Reader, priv *ecdsa.PrivateKey, hash []byte) (sig []byte, err error)
+func ecdsa.SignASN1(rand io.Reader, priv *ecdsa.PrivateKey, hash []byte) (sig []byte, err error)
 ```
 
 Sign signs a hash using the private key. It behaves as ecdsa.Sign but returns an ASN.1 encoded signature instead.
@@ -314,7 +314,7 @@ Sign signs a hash using the private key. It behaves as ecdsa.Sign but returns an
 #### func [Verify](https://pkg.go.dev/crypto/ecdsa#Verify)
 
 ```go
-func Verify(pub *ecdsa.PublicKey, hash []byte, r, s *big.Int) bool
+func ecdsa.Verify(pub *ecdsa.PublicKey, hash []byte, r, s *big.Int) bool
 ```
 
 Verify verifies the signature in r, s of hash using the public key.
@@ -330,7 +330,7 @@ Returns `true` if the signature is valid using [ECDSA_verify](https://www.openss
 #### func [VerifyASN1](https://pkg.go.dev/crypto/ecdsa#VerifyASN1)
 
 ```go
-func VerifyASN1(pub *ecdsa.PublicKey, hash, sig []byte) bool
+func ecdsa.VerifyASN1(pub *ecdsa.PublicKey, hash, sig []byte) bool
 ```
 
 VerifyASN1 verifies the ASN.1 encoded signature, sig, of hash using the public key. It behaves as ecdsa.VerifyASN1 but accepting an ASN.1 encoded signature instead.
@@ -338,7 +338,7 @@ VerifyASN1 verifies the ASN.1 encoded signature, sig, of hash using the public k
 #### func [SignASN1](https://pkg.go.dev/crypto/ecdsa#SignASN1)
 
 ```go
-func SignASN1(rand io.Reader, priv *ecdsa.PrivateKey, hash []byte) (sig []byte, err error)
+func ecdsa.SignASN1(rand io.Reader, priv *ecdsa.PrivateKey, hash []byte) (sig []byte, err error)
 ```
 
 Sign signs a hash using the private key. It behaves as ecdsa.Sign but returns an ASN.1 encoded signature instead.
@@ -346,7 +346,7 @@ Sign signs a hash using the private key. It behaves as ecdsa.Sign but returns an
 #### func [GenerateKey](https://pkg.go.dev/crypto/ecdsa#GenerateKey)
 
 ```go
-func GenerateKey(c elliptic.Curve, rand io.Reader) (priv *ecdsa.PrivateKey, err error)
+func ecdsa.GenerateKey(c elliptic.Curve, rand io.Reader) (priv *ecdsa.PrivateKey, err error)
 ```
 
 GenerateKey generates a public and private key pair.
@@ -366,10 +366,10 @@ The `priv` curve algorithm depends on the value of `c`:
 
 Other `c` values will result in an error.
 
-#### func [PrivateKey.Sign](https://pkg.go.dev/crypto/cipher#StreamWriter.Sign)
+#### func [PrivateKey.Sign](https://pkg.go.dev/crypto/ecdsa#PrivateKey.Sign)
 
 ```go
-func (priv *PrivateKey) Sign(rand io.Reader, digest []byte, opts crypto.SignerOpts) ([]byte, error)
+func (priv *ecdsa.PrivateKey) Sign(rand io.Reader, digest []byte, opts crypto.SignerOpts) ([]byte, error)
 ```
 
 Sign signs digest with `priv`.
@@ -399,7 +399,7 @@ Package hmac implements the Keyed-Hash Message Authentication Code (HMAC) as def
 #### func [Equal](https://pkg.go.dev/crypto/hmac#Equal)
 
 ```go
-func Equal(mac1, mac2 []byte) bool
+func hmac.Equal(mac1, mac2 []byte) bool
 ```
 
 Equal compares two MACs for equality without leaking timing information.
@@ -409,7 +409,7 @@ This function does not implement any cryptographic algorithm, therefore out of F
 #### func [New](https://pkg.go.dev/crypto/hmac#New)
 
 ```go
-func New(h func() hash.Hash, key []byte) hash.Hash
+func hmac.New(h func() hash.Hash, key []byte) hash.Hash
 ```
 
 New returns a new HMAC hash using the given hash.Hash type and key.
