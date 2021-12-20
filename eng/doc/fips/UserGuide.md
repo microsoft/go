@@ -25,6 +25,13 @@ The Go crypto documentation is available online at https://pkg.go.dev/crypto.
     - [crypto/dsa](#cryptodsa)
     - [crypto/dsa](#cryptodsa-1)
     - [crypto/ecdsa](#cryptoecdsa)
+      - [func Sign](#func-sign)
+      - [func SignASN1](#func-signasn1)
+      - [func Verify](#func-verify)
+      - [func VerifyASN1](#func-verifyasn1)
+      - [func SignASN1](#func-signasn1-1)
+      - [func GenerateKey](#func-generatekey)
+      - [func PrivateKey.Sign](#func-privatekeysign)
     - [crypto/ed25519](#cryptoed25519)
     - [crypto/elliptic](#cryptoelliptic)
     - [crypto/hmac](#cryptohmac)
@@ -38,7 +45,7 @@ The Go crypto documentation is available online at https://pkg.go.dev/crypto.
 
 ## Using Go crypto APIs
 
-This section describes how to use Go crypto APIs in a FIPS compliant manner. Packages and functions that do not appear here are not FIPS.
+This section describes how to use Go crypto APIs in a FIPS compliant manner.
 
 ### [crypto/aes](https://pkg.go.dev/crypto/aes)
 
@@ -274,7 +281,104 @@ Not FIPS compliant.
 
 ### [crypto/ecdsa](https://pkg.go.dev/crypto/ecdsa)
 
-TODO
+#### func [Sign](https://pkg.go.dev/crypto/ecdsa#Sign)
+
+```go
+func Sign(rand io.Reader, priv *ecdsa.PrivateKey, hash []byte) (r, s *big.Int, err error)
+```
+
+Sign signs a hash using the private key.
+
+**Parameters**
+
+`rand` must be boring.RandReader, else Sign will panic. `crypto/rand.Reader` normally meet this invariant as it is assigned to boring.RandReader in the crypto/rand init function.
+
+`hash` must be the result of hashing a larger message using a FIPS compliant hashing algorithm. If this invariant is not met, Sign won't be FIPS compliant but still will sign the message.
+
+**Return values**
+
+`r` and `s` are generated using [ECDSA_sign](https://www.openssl.org/docs/man3.0/man3/ECDSA_sign.html).
+
+#### func [SignASN1](https://pkg.go.dev/crypto/ecdsa#SignASN1)
+
+```go
+func SignASN1(rand io.Reader, priv *ecdsa.PrivateKey, hash []byte) (sig []byte, err error)
+```
+
+Sign signs a hash using the private key. It behaves as ecdsa.Sign but returns an ASN.1 encoded signature instead.
+
+#### func [Verify](https://pkg.go.dev/crypto/ecdsa#Verify)
+
+```go
+func Verify(pub *ecdsa.PublicKey, hash []byte, r, s *big.Int) bool
+```
+
+Verify verifies the signature in r, s of hash using the public key.
+
+**Parameters**
+
+There are no specific parameters requirements in order to be FIPS compliant.
+
+**Return values**
+
+Returns `true` if the signature is valid using [ECDSA_verify](https://www.openssl.org/docs/man3.0/man3/ECDSA_verify.html).
+
+#### func [VerifyASN1](https://pkg.go.dev/crypto/ecdsa#VerifyASN1)
+
+```go
+func VerifyASN1(pub *ecdsa.PublicKey, hash, sig []byte) bool
+```
+
+VerifyASN1 verifies the ASN.1 encoded signature, sig, of hash using the public key. It behaves as ecdsa.VerifyASN1 but accepting an ASN.1 encoded signature instead.
+
+#### func [SignASN1](https://pkg.go.dev/crypto/ecdsa#SignASN1)
+
+```go
+func SignASN1(rand io.Reader, priv *ecdsa.PrivateKey, hash []byte) (sig []byte, err error)
+```
+
+Sign signs a hash using the private key. It behaves as ecdsa.Sign but returns an ASN.1 encoded signature instead.
+
+#### func [GenerateKey](https://pkg.go.dev/crypto/ecdsa#GenerateKey)
+
+```go
+func GenerateKey(c elliptic.Curve, rand io.Reader) (priv *ecdsa.PrivateKey, err error)
+```
+
+GenerateKey generates a public and private key pair.
+
+**Parameters**
+
+`rand` must be boring.RandReader, else Sign will panic. `crypto/rand.Reader` normally meet this invariant as it is assigned to boring.RandReader in the crypto/rand init function.
+
+**Return values**
+
+The `priv` curve algorithm depends on the value of `c`:
+
+- If `c == "P-224"` then curve is `NID_secp224r1`.
+- If `c == "P-256"` then curve is `NID_X9_62_prime256v1`.
+- If `c == "P-384"` then curve is `NID_secp384r1`.
+- If `c == "P-521"` then curve is `NID_secp521r1`.
+
+Other `c` values will result in an error.
+
+#### func [PrivateKey.Sign](https://pkg.go.dev/crypto/cipher#StreamWriter.Sign)
+
+```go
+func (priv *PrivateKey) Sign(rand io.Reader, digest []byte, opts crypto.SignerOpts) ([]byte, error)
+```
+
+Sign signs digest with `priv`.
+
+**Parameters**
+
+`rand` must be boring.RandReader, else Sign will panic. `crypto/rand.Reader` normally meet this invariant as it is assigned to boring.RandReader in the crypto/rand init function.
+
+`digest` must be the result of hashing a larger message using a FIPS compliant hashing algorithm. If this invariant is not met, Sign won't be FIPS compliant but still will sign the message.
+
+**Return values**
+
+Signed messaged using [ECDSA_sign](https://www.openssl.org/docs/man3.0/man3/ECDSA_sign.html).
 
 ### [crypto/ed25519](https://pkg.go.dev/crypto/ed25519)
 
