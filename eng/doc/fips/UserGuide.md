@@ -45,8 +45,22 @@ The Go crypto documentation is available online at https://pkg.go.dev/crypto.
       - [func Read](#func-read)
     - [crypto/rc4](#cryptorc4)
     - [crypto/sha1](#cryptosha1)
+      - [func New](#func-new-1)
+      - [func Sum](#func-sum)
     - [crypto/sha256](#cryptosha256)
+      - [func New](#func-new-2)
+      - [func New224](#func-new224)
+      - [func Sum224](#func-sum224)
+      - [func Sum256](#func-sum256)
     - [crypto/sha512](#cryptosha512)
+      - [func New](#func-new-3)
+      - [func New384](#func-new384)
+      - [func New512_224](#func-new512_224)
+      - [func New512_256](#func-new512_256)
+      - [func Sum384](#func-sum384)
+      - [func Sum512](#func-sum512)
+      - [func Sum512_224](#func-sum512_224)
+      - [func Sum512_256](#func-sum512_256)
     - [crypto/subtle](#cryptosubtle)
 
 ## Using Go crypto APIs
@@ -213,11 +227,11 @@ If `block` is not FIPS compliant then `cbc` is implemented by the standard Go li
 
 #### func [NewCFBDecrypter](https://pkg.go.dev/crypto/cipher#NewCFBDecrypter)
 
-NewCFBDecrypter is not FIPS compliant.
+cipher.NewCFBDecrypter is not FIPS compliant.
 
 #### func [NewCFBEncrypter](https://pkg.go.dev/crypto/cipher#NewCFBEncrypter)
 
-NewCFBEncrypter is not FIPS compliant.
+cipher.NewCFBEncrypter is not FIPS compliant.
 
 #### func [NewCTR](https://pkg.go.dev/crypto/cipher#NewCTR)
 
@@ -247,7 +261,7 @@ If `block` is not FIPS compliant then `ctr` is implemented by the standard Go li
 
 #### func [NewOFB](https://pkg.go.dev/crypto/cipher#NewOFB)
 
-NewOFB is not FIPS compliant.
+cipher.NewOFB is not FIPS compliant.
 
 #### func [StreamReader.Read](https://pkg.go.dev/crypto/cipher#StreamReader.Read)
 
@@ -425,6 +439,7 @@ New returns a new HMAC hash using the given hash.Hash type and key.
 **Return values**
 
 The hash.Hash methods are implemented as follows:
+
 - `Write(p []byte) (int, error)` using [HMAC_Update](https://www.openssl.org/docs/manmaster/man3/HMAC_Update.html).
 - `Sum(in []byte) []byte` using [HMAC_Final](https://www.openssl.org/docs/manmaster/man3/HMAC_Final.html).
 - `Reset()` using [HMAC_Init_ex](https://www.openssl.org/docs/manmaster/man3/HMAC_Init_ex.html).
@@ -434,6 +449,8 @@ The hash.Hash methods are implemented as follows:
 Not FIPS compliant.
 
 ### [crypto/rand](https://pkg.go.dev/crypto/rand)
+
+Package rand implements a cryptographically secure random number generator.
 
 #### var [Reader](https://pkg.go.dev/crypto/rand#pkg-variables)
 
@@ -483,15 +500,157 @@ Not FIPS compliant.
 
 ### [crypto/sha1](https://pkg.go.dev/crypto/sha1)
 
-TODO
+Package sha1 implements the SHA-1 hash algorithm as defined in RFC 3174.
+
+#### func [New](https://pkg.go.dev/crypto/sha1#New)
+
+```go
+func sha1.New() hash.Hash
+```
+
+New returns a new hash.Hash computing the SHA1 checksum.
+
+**Return values**
+
+The hash.Hash methods are implemented as follows:
+
+- `Write(p []byte) (int, error)` using [SHA1_Update](https://www.openssl.org/docs/manmaster/man3/SHA1_Update.html).
+- `Sum(in []byte) []byte` using [SHA1_Final](https://www.openssl.org/docs/manmaster/man3/SHA1_Final.html).
+- `Reset()` using [SHA1_Init](https://www.openssl.org/docs/manmaster/man3/SHA1_Init.html).
+
+#### func [Sum](https://pkg.go.dev/crypto/sha1#Sum)
+
+```go
+func sha1.Sum(data []byte) [20]byte
+```
+
+Sum returns the SHA-1 checksum of the data.
+It internally uses sha1.New() to compute the checksum.
 
 ### [crypto/sha256](https://pkg.go.dev/crypto/sha256)
 
-TODO
+Package sha256 implements the SHA224 and SHA256 hash algorithms as defined in FIPS 180-4.
+
+#### func [New](https://pkg.go.dev/crypto/sha256#New)
+
+```go
+func sha256.New() hash.Hash
+```
+
+New returns a new hash.Hash computing the SHA256 checksum.
+
+**Return values**
+
+The hash.Hash methods are implemented as follows:
+
+- `Write(p []byte) (int, error)` using [SHA256_Update](https://www.openssl.org/docs/manmaster/man3/SHA256_Update.html).
+- `Sum(in []byte) []byte` using [SHA256_Final](https://www.openssl.org/docs/manmaster/man3/SHA256_Final.html).
+- `Reset()` using [SHA256_Init](https://www.openssl.org/docs/manmaster/man3/SHA256_Init.html).
+
+
+#### func [New224](https://pkg.go.dev/crypto/sha256#New224)
+
+```go
+func sha256.New224() hash.Hash
+```
+
+New224 returns a new hash.Hash computing the SHA224 checksum.
+
+**Return values**
+
+The hash.Hash methods are implemented as follows:
+
+- `Write(p []byte) (int, error)` using [SHA224_Update](https://www.openssl.org/docs/manmaster/man3/SHA224_Update.html).
+- `Sum(in []byte) []byte` using [SHA224_Final](https://www.openssl.org/docs/manmaster/man3/SHA224_Final.html).
+- `Reset()` using [SHA224_Init](https://www.openssl.org/docs/manmaster/man3/SHA224_Init.html).
+
+#### func [Sum224](https://pkg.go.dev/crypto/sha256#Sum224)
+
+```go
+func sha256.Sum224(data []byte) [24]byte
+```
+
+Sum224 returns the SHA224 checksum of the data.
+It internally uses sha224.New() to compute the checksum.
+
+#### func [Sum256](https://pkg.go.dev/crypto/sha256#Sum256)
+
+```go
+func sha256.Sum256(data []byte) [32]byte
+```
+
+Sum256 returns the SHA256 checksum of the data.
+It internally uses sha256.New() to compute the checksum.
 
 ### [crypto/sha512](https://pkg.go.dev/crypto/sha512)
 
-TODO
+Package sha512 implements the SHA-384, SHA-512, SHA-512/224, and SHA-512/256 hash algorithms as defined in FIPS 180-4.
+
+#### func [New](https://pkg.go.dev/crypto/sha512#New)
+
+```go
+func sha512.New() hash.Hash
+```
+
+New returns a new hash.Hash computing the SHA-512 checksum.
+
+**Return values**
+
+The hash.Hash methods are implemented as follows:
+
+- `Write(p []byte) (int, error)` using [SHA512_Update](https://www.openssl.org/docs/manmaster/man3/SHA512_Update.html).
+- `Sum(in []byte) []byte` using [SHA512_Final](https://www.openssl.org/docs/manmaster/man3/SHA512_Final.html).
+- `Reset()` using [SHA512_Init](https://www.openssl.org/docs/manmaster/man3/SHA512_Init.html).
+
+#### func [New384](https://pkg.go.dev/crypto/sha512#New384)
+
+```go
+func sha512.New384() hash.Hash
+```
+
+New384 returns a new hash.Hash computing the SHA-384 checksum.
+
+**Return values**
+
+The hash.Hash methods are implemented as follows:
+
+- `Write(p []byte) (int, error)` using [SHA384_Update](https://www.openssl.org/docs/manmaster/man3/SHA384_Update.html).
+- `Sum(in []byte) []byte` using [SHA384_Final](https://www.openssl.org/docs/manmaster/man3/SHA384_Final.html).
+- `Reset()` using [SHA384_Init](https://www.openssl.org/docs/manmaster/man3/SHA384_Init.html).
+
+#### func [New512_224](https://pkg.go.dev/crypto/sha512#New512_224)
+
+sha512.New512_224 is not FIPS compliant.
+
+#### func [New512_256](https://pkg.go.dev/crypto/sha512#New512_256)
+
+sha512.New512_256 is not FIPS compliant.
+
+#### func [Sum384](https://pkg.go.dev/crypto/sha512#Sum384)
+
+```go
+func sha512.Sum384(data []byte) [48]byte
+```
+
+Sum384 returns the SHA384 checksum of the data.
+It internally uses sha512.New384() to compute the checksum.
+
+#### func [Sum512](https://pkg.go.dev/crypto/sha512#Sum512)
+
+```go
+func sha512.Sum512(data []byte) [64]byte
+```
+
+Sum512 returns the SHA512 checksum of the data.
+It internally uses sha512.New() to compute the checksum.
+
+#### func [Sum512_224](https://pkg.go.dev/crypto/sha512#Sum512_224)
+
+sha512.Sum512_224 is not FIPS compliant.
+
+#### func [Sum512_256](https://pkg.go.dev/crypto/sha512#Sum512_256)
+
+sha512.Sum512_256 is not FIPS compliant.
 
 ### [crypto/subtle](https://pkg.go.dev/crypto/subtle)
 
