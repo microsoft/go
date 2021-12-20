@@ -442,7 +442,8 @@ var Reader io.Reader
 ```
 
 Reader is a global, shared instance of a cryptographically secure random number generator.
-it is assigned to boring.RandReader in the crypto/rand init function.
+It is assigned to boring.RandReader in the crypto/rand init function, which implements `io.Reader` by using the OpenSSL function [RAND_bytes](https://www.openssl.org/docs/man3.0/man3/RAND_bytes.html).
+
 
 #### func [Int](https://pkg.go.dev/crypto/rand#Int)
 
@@ -475,7 +476,6 @@ func Read(b []byte) (n int, err error)
 ```
 
 Read is a helper function that calls rand.Reader.Read using io.ReadFull. It is FIPS compliant as long as `rand.Reader == boring.RandReader`.
-
 
 ### [crypto/rc4](https://pkg.go.dev/crypto/rc4)
 
