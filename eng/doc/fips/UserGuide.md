@@ -39,6 +39,10 @@ The Go crypto documentation is available online at https://pkg.go.dev/crypto.
       - [func New](#func-new)
     - [crypto/md5](#cryptomd5)
     - [crypto/rand](#cryptorand)
+      - [var Reader](#var-reader)
+      - [func Int](#func-int)
+      - [func Prime](#func-prime)
+      - [func Read](#func-read)
     - [crypto/rc4](#cryptorc4)
     - [crypto/sha1](#cryptosha1)
     - [crypto/sha256](#cryptosha256)
@@ -431,7 +435,47 @@ Not FIPS compliant.
 
 ### [crypto/rand](https://pkg.go.dev/crypto/rand)
 
-TODO
+#### var [Reader](https://pkg.go.dev/crypto/rand#pkg-variables)
+
+```go
+var Reader io.Reader
+```
+
+Reader is a global, shared instance of a cryptographically secure random number generator.
+it is assigned to boring.RandReader in the crypto/rand init function.
+
+#### func [Int](https://pkg.go.dev/crypto/rand#Int)
+
+```go
+func rand.Int(rand io.Reader, max *big.Int) (n *big.Int, err error)
+```
+
+Int returns a uniform random value in [0, max). It panics if max <= 0.
+
+**Parameters**
+
+`rand` must be boring.RandReader in order to be FIPS compliant. `crypto/rand.Reader` normally meet this invariant as it is assigned to boring.RandReader in the crypto/rand init function.
+
+#### func [Prime](https://pkg.go.dev/crypto/rand#Prime)
+
+```go
+func Prime(rand io.Reader, bits int) (p *big.Int, err error)
+```
+
+func Prime(rand io.Reader, bits int) (p *big.Int, err error)
+
+**Parameters**
+
+`rand` must be boring.RandReader in order to be FIPS compliant. `crypto/rand.Reader` normally meet this invariant as it is assigned to boring.RandReader in the crypto/rand init function.
+
+#### func [Read](https://pkg.go.dev/crypto/rand#Read)
+
+```go
+func Read(b []byte) (n int, err error)
+```
+
+Read is a helper function that calls rand.Reader.Read using io.ReadFull. It is FIPS compliant as long as `rand.Reader == boring.RandReader`.
+
 
 ### [crypto/rc4](https://pkg.go.dev/crypto/rc4)
 
