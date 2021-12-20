@@ -35,6 +35,8 @@ The Go crypto documentation is available online at https://pkg.go.dev/crypto.
     - [crypto/ed25519](#cryptoed25519)
     - [crypto/elliptic](#cryptoelliptic)
     - [crypto/hmac](#cryptohmac)
+      - [func Equal](#func-equal)
+      - [func New](#func-new)
     - [crypto/md5](#cryptomd5)
     - [crypto/rand](#cryptorand)
     - [crypto/rc4](#cryptorc4)
@@ -281,6 +283,8 @@ Not FIPS compliant.
 
 ### [crypto/ecdsa](https://pkg.go.dev/crypto/ecdsa)
 
+Package ecdsa implements the Elliptic Curve Digital Signature Algorithm, as defined in FIPS 186-3.
+
 #### func [Sign](https://pkg.go.dev/crypto/ecdsa#Sign)
 
 ```go
@@ -355,10 +359,10 @@ GenerateKey generates a public and private key pair.
 
 The `priv` curve algorithm depends on the value of `c`:
 
-- If `c == "P-224"` then curve is `NID_secp224r1`.
-- If `c == "P-256"` then curve is `NID_X9_62_prime256v1`.
-- If `c == "P-384"` then curve is `NID_secp384r1`.
-- If `c == "P-521"` then curve is `NID_secp521r1`.
+- If `c.Params().Name == "P-224"` then curve is `NID_secp224r1`.
+- If `c.Params().Name == "P-256"` then curve is `NID_X9_62_prime256v1`.
+- If `c.Params().Name == "P-384"` then curve is `NID_secp384r1`.
+- If `c.Params().Name == "P-521"` then curve is `NID_secp521r1`.
 
 Other `c` values will result in an error.
 
@@ -386,11 +390,40 @@ Not FIPS compliant.
 
 ### [crypto/elliptic](https://pkg.go.dev/crypto/elliptic)
 
-TODO
+Not FIPS compliant.
 
 ### [crypto/hmac](https://pkg.go.dev/crypto/hmac)
 
-TODO
+Package hmac implements the Keyed-Hash Message Authentication Code (HMAC) as defined in U.S. Federal Information Processing Standards Publication 198.
+
+#### func [Equal](https://pkg.go.dev/crypto/hmac#Equal)
+
+```go
+func Equal(mac1, mac2 []byte) bool
+```
+
+Equal compares two MACs for equality without leaking timing information.
+
+This function does not implement any cryptographic algorithm, therefore out of FIPS scope.
+
+#### func [New](https://pkg.go.dev/crypto/hmac#New)
+
+```go
+func New(h func() hash.Hash, key []byte) hash.Hash
+```
+
+New returns a new HMAC hash using the given hash.Hash type and key.
+
+**Parameters**
+
+`h` must be one of the following functions in order to be FIPS compliant: sha1.New, sha256.New, or sha512.New.
+
+**Return values**
+
+The hash.Hash methods are implemented as follows:
+- `Write(p []byte) (int, error)` using [HMAC_Update](https://www.openssl.org/docs/manmaster/man3/HMAC_Update.html).
+- `Sum(in []byte) []byte` using [HMAC_Final](https://www.openssl.org/docs/manmaster/man3/HMAC_Final.html).
+- `Reset()` using [HMAC_Init_ex](https://www.openssl.org/docs/manmaster/man3/HMAC_Init_ex.html).
 
 ### [crypto/md5](https://pkg.go.dev/crypto/md5)
 
