@@ -62,6 +62,7 @@ The Go crypto documentation is available online at https://pkg.go.dev/crypto.
       - [func Sum512_224](#func-sum512_224)
       - [func Sum512_256](#func-sum512_256)
     - [crypto/subtle](#cryptosubtle)
+    - [crypto/tls](#cryptotls)
 
 ## Using Go crypto APIs
 
@@ -655,3 +656,9 @@ sha512.Sum512_256 is not FIPS compliant.
 ### [crypto/subtle](https://pkg.go.dev/crypto/subtle)
 
 Does not contain crypto primitives, out of FIPS scope.
+
+### [crypto/tls](https://pkg.go.dev/crypto/tls)
+
+Package tls partially implements TLS 1.2, as specified in RFC 5246, and TLS 1.3, as specified in RFC 8446.
+
+Package tls will automatically use FIPS compliant primitives implemented in other crypto packages, but it will accept non-FIPS ciphers and signature algorithms unless `crypto/tls/fipsonly` is imported.
