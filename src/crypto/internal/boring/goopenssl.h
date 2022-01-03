@@ -90,25 +90,25 @@ typedef EVP_PKEY_CTX GO_EVP_PKEY_CTX;
 // It is possible to circumvent this by using a C function wrapper.
 // https://pkg.go.dev/cmd/cgo
 #define DEFINEFUNC(ret, func, args, argscall)      \
-	ret (*_g_##func)args;                          \
-	static inline ret _goboringcrypto_##func args  \
-	{                                              \
-		return _g_##func argscall;                 \
-	}
+    extern ret (*_g_##func)args;                   \
+    static inline ret _goboringcrypto_##func args  \
+    {                                              \
+    	return _g_##func argscall;                 \
+    }
 #define DEFINEFUNCINTERNAL(ret, func, args, argscall)       \
-	ret (*_g_internal_##func)args;                          \
-	static inline ret _goboringcrypto_internal_##func args  \
-	{                                                       \
-		return _g_internal_##func argscall;                 \
-	}
+    extern ret (*_g_internal_##func)args;                   \
+    static inline ret _goboringcrypto_internal_##func args  \
+    {                                                       \
+        return _g_internal_##func argscall;                 \
+    }
 #define DEFINEFUNC_LEGACY(ret, func, args, argscall)  \
-	DEFINEFUNCINTERNAL(ret, func, args, argscall)
+    DEFINEFUNCINTERNAL(ret, func, args, argscall)
 #define DEFINEFUNC_110(ret, func, args, argscall)     \
-	DEFINEFUNCINTERNAL(ret, func, args, argscall)
+    DEFINEFUNCINTERNAL(ret, func, args, argscall)
 #define DEFINEFUNC_RENAMED(ret, func, oldfunc, args, argscall)     \
-	DEFINEFUNCINTERNAL(ret, func, args, argscall)
+    DEFINEFUNCINTERNAL(ret, func, args, argscall)
 #define DEFINEFUNC_FALLBACK(ret, func, args, argscall)     \
-	DEFINEFUNCINTERNAL(ret, func, args, argscall)
+    DEFINEFUNCINTERNAL(ret, func, args, argscall)
 
 FOR_ALL_OPENSSL_FUNCTIONS
 
