@@ -118,7 +118,7 @@ func main() {
 			// Use the dist test command directly, because 'src/run.bash' isn't compatible with
 			// longtest. 'src/run.bash' sets 'GOPATH=/nonexist-gopath', which breaks modconv tests
 			// that download modules.
-			"bin/go", "tool", "dist", "test",
+			"go/bin/go", "tool", "dist", "test",
 		}
 
 		if goos == "linux" {

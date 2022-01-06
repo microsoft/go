@@ -8,6 +8,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"github.com/microsoft/go/_core/archive"
 )
@@ -23,7 +24,9 @@ func main() {
 		panic(err)
 	}
 
-	source := flag.String("source", repoRootDir, "The path of the Go directory to archive.")
+	goRootDir := filepath.Join(repoRootDir, "go")
+
+	source := flag.String("source", goRootDir, "The path of the Go directory to archive.")
 	output := flag.String("o", "", "The path of the archive file to create. Format depends on extension. Default: a GOOS/GOARCH-dependent archive file in 'eng/artifacts/bin'.")
 
 	var help = flag.Bool("h", false, "Print this help message.")
