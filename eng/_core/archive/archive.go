@@ -46,7 +46,7 @@ func CreateFromBuild(source string, output string) error {
 		}
 
 		archiveName := fmt.Sprintf("go.%v.%v-%v%v", archiveVersion, runtime.GOOS, runtime.GOARCH, archiveExtension)
-		binDir := filepath.Join(source, "eng", "artifacts", "bin")
+		binDir := filepath.Join(source, "..", "eng", "artifacts", "bin")
 
 		output = filepath.Join(binDir, archiveName)
 	}

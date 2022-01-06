@@ -44,11 +44,32 @@ jobs:
           Get-Stage0GoRoot
         displayName: Init stage 0 Go toolset
 
+      - pwsh: |
+          function fetch_submodule() {
+            eng/run.ps1 submodule-refresh -shallow @args
+          }
+
+          if ("$env:FETCH_BEARER_TOKEN") {
+            fetch_submodule `
+              -origin 'https://dnceng@dev.azure.com/dnceng/internal/_git/microsoft-go-mirror' `
+              -fetch-bearer-token $env:FETCH_BEARER_TOKEN
+          } else {
+            fetch_submodule
+          }
+        # If non-public, use access token to fetch from repo. If public, don't use the access token,
+        # because anonymous auth is fine.
+        ${{ if ne(variables['System.TeamProject'], 'public') }}:
+          env:
+            FETCH_BEARER_TOKEN: $(System.AccessToken)
+          displayName: Set up submodule from internal mirror
+        ${{ if eq(variables['System.TeamProject'], 'public') }}:
+          displayName: Set up submodule
+
       # Use build script directly for "buildandpack". If we used run-builder, we would need to
       # download its external module dependencies.
       - ${{ if eq(parameters.builder.config, 'buildandpack' ) }}:
         - pwsh: |
-            eng/run.ps1 build --pack
+            eng/run.ps1 build -pack
           displayName: Build and Pack
 
         - publish: eng/artifacts/bin
