@@ -1,0 +1,63 @@
+From be418f20052ddea746451bafe21fdbf2bb1c915d Mon Sep 17 00:00:00 2001
+From: Davis Goodin <dagood@microsoft.com>
+Date: Tue, 4 Jan 2022 11:23:27 -0600
+Subject: [PATCH] cmd/dist: add JSON output support for some tests
+
+This change adds a "-json" flag to "dist test" that causes dist to pass
+"-json" to the "go test" commands it runs, when possible. The "-json"
+flag for "go test" produces machine-readable JSON output, which can be
+useful for CI.
+
+Dist runs some tests without using "go test", or runs them in a way that
+isn't compatible with "-json". The output of these tests is unchanged.
+This means that even with the "-json" flag, not all test results will be
+in JSON format, and the ordinary logs are still important.
+---
+ src/cmd/dist/test.go | 11 ++++++++++-
+ 1 file changed, 10 insertions(+), 1 deletion(-)
+
+diff --git a/src/cmd/dist/test.go b/src/cmd/dist/test.go
+index 50a2e5936c..0436c63063 100644
+--- a/src/cmd/dist/test.go
++++ b/src/cmd/dist/test.go
+@@ -29,6 +29,7 @@ func cmdtest() {
+ 	var t tester
+ 	var noRebuild bool
+ 	flag.BoolVar(&t.listMode, "list", false, "list available tests")
++	flag.BoolVar(&t.jsonMode, "json", false, "pass -json to inner go test commands")
+ 	flag.BoolVar(&t.rebuild, "rebuild", false, "rebuild everything first")
+ 	flag.BoolVar(&noRebuild, "no-rebuild", false, "overrides -rebuild (historical dreg)")
+ 	flag.BoolVar(&t.keepGoing, "k", false, "keep going even when error occurred")
+@@ -50,6 +51,7 @@ func cmdtest() {
+ type tester struct {
+ 	race        bool
+ 	listMode    bool
++	jsonMode    bool
+ 	rebuild     bool
+ 	failed      bool
+ 	keepGoing   bool
+@@ -294,9 +296,13 @@ func short() string {
+ // Callers should use goTest and then pass flags overriding these
+ // defaults as later arguments in the command line.
+ func (t *tester) goTest() []string {
+-	return []string{
++	cmdline := []string{
+ 		"go", "test", "-short=" + short(), "-count=1", t.tags(), t.runFlag(""),
+ 	}
++	if t.jsonMode {
++		cmdline = append(cmdline, "-json")
++	}
++	return cmdline
+ }
+ 
+ func (t *tester) tags() string {
+@@ -379,6 +385,9 @@ func (t *tester) registerStdTest(pkg string, useG3 bool) {
+ 				t.timeout(timeoutSec),
+ 				"-gcflags=all=" + gcflags,
+ 			}
++			if t.jsonMode {
++				args = append(args, "-json")
++			}
+ 			if t.race {
+ 				args = append(args, "-race")
+ 			}
