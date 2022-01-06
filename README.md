@@ -3,14 +3,11 @@
 Go is an open source programming language that makes it easy to build simple,
 reliable, and efficient software.
 
-This repository, https://github.com/microsoft/go, contains the source for Go and
-the infrastructure used by Microsoft to build Go. See
-[`eng/README.md`](eng/README.md) for more information.
-
-![Gopher image](https://golang.org/doc/gopher/fiveyears.jpg)
-*Gopher image by [Renee French][rf], licensed under [Creative Commons 3.0 Attributions license][cc3-by].*
-
-The canonical Git repository is located at https://go.googlesource.com/go.
+This repository, https://github.com/microsoft/go, contains the infrastructure
+Microsoft uses to build Go. The submodule named `go` contains the Go source
+code. By default, the submodule clones the GitHub mirror of Go,
+https://github.com/golang/go. The canonical Git repository for Go source code is
+located at https://go.googlesource.com/go.
 
 Unless otherwise noted, the Go source files are distributed under the
 BSD-style license found in the LICENSE file.

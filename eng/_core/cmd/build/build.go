@@ -14,6 +14,8 @@ import (
 	"strconv"
 
 	"github.com/microsoft/go/_core/archive"
+	"github.com/microsoft/go/_core/patch"
+	"github.com/microsoft/go/_core/submodule"
 )
 
 const description = `
@@ -41,6 +43,11 @@ func main() {
 	flag.BoolVar(&o.JSON, "json", false, "Runs tests with -json flag to emit verbose results in JSON format. For use in CI.")
 	flag.BoolVar(&o.Pack, "pack", false, "Enable creating an archive file similar to the official Go binary release.")
 
+	flag.BoolVar(
+		&o.Refresh, "refresh", false,
+		"Refresh Go submodule: clean untracked files, reset tracked files, and apply patches before building.\n"+
+			"For more refresh options, use the top level 'submodule-refresh' command instead of 'build'.")
+
 	flag.Usage = func() {
 		fmt.Fprintf(flag.CommandLine.Output(), "Usage:\n")
 		flag.PrintDefaults()
@@ -67,6 +74,7 @@ type options struct {
 	Test      bool
 	JSON      bool
 	Pack      bool
+	Refresh   bool
 }
 
 func build(o *options) error {
@@ -88,9 +96,18 @@ func build(o *options) error {
 		return err
 	}
 
+	if o.Refresh {
+		if err := submodule.Reset(rootDir); err != nil {
+			return err
+		}
+		if err := patch.Apply(rootDir, patch.ApplyModeIndex); err != nil {
+			return err
+		}
+	}
+
 	// The upstream build scripts in {repo-root}/src require your working directory to be src, or
 	// they instantly fail. Change the current process dir so that we can run them.
-	if err := os.Chdir("src"); err != nil {
+	if err := os.Chdir("go/src"); err != nil {
 		return err
 	}
 
@@ -202,7 +219,8 @@ func build(o *options) error {
 	}
 
 	if o.Pack {
-		if err := archive.CreateFromBuild(rootDir, ""); err != nil {
+		goRootDir := filepath.Join(rootDir, "go")
+		if err := archive.CreateFromBuild(goRootDir, ""); err != nil {
 			return err
 		}
 	}
