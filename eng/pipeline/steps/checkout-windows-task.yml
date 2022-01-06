@@ -1,0 +1,36 @@
+# Copyright (c) Microsoft Corporation.
+# Use of this source code is governed by a BSD-style
+# license that can be found in the LICENSE file.
+
+# Shallow checkout sources on Windows
+steps:
+  # If this is a PR to a private GitHub repo, AzDO needs to know so it can generate a token with
+  # GitHub access. This workaround can be removed once our GitHub repo is public.
+  - ${{ if in(variables['Build.DefinitionName'], 'microsoft-go-private-github', 'microsoft-go-pr-outerloop') }}:
+    - checkout: self
+      fetchDepth: 1
+
+  - ${{ if not(in(variables['Build.DefinitionName'], 'microsoft-go-private-github', 'microsoft-go-pr-outerloop')) }}:
+    - checkout: none
+
+  - powershell: |
+      git init
+      git remote add ci-origin "$(Build.Repository.Uri)"
+
+      function shallow_fetch() {
+        git @args fetch --progress --no-tags --depth=1 ci-origin "$(Build.SourceVersion)"
+      }
+
+      if ("$env:FETCH_BEARER_TOKEN") {
+        shallow_fetch -c http.extraheader="AUTHORIZATION: bearer $env:FETCH_BEARER_TOKEN"
+      } else {
+        shallow_fetch
+      }
+
+      git checkout "$(Build.SourceVersion)"
+    env:
+      # If non-public, use access token to fetch from repo. If public, don't use the access token,
+      # because anonymous auth is fine.
+      ${{ if ne(variables['System.TeamProject'], 'public') }}:
+        FETCH_BEARER_TOKEN: $(System.AccessToken)
+    displayName: Shallow Checkout

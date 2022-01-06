@@ -1,0 +1,100 @@
+# Copyright (c) Microsoft Corporation.
+# Use of this source code is governed by a BSD-style
+# license that can be found in the LICENSE file.
+
+# This pipeline builds Go, runs inner loop tests, signs the packages, and publishes. It only runs
+# internally, via commit trigger.
+
+trigger:
+  batch: true
+  branches:
+    include:
+      - microsoft/*
+      - dev/official/*
+pr: none
+
+stages:
+  - stage: Build
+    jobs:
+      - template: jobs/go-builder-matrix-jobs.yml
+        parameters:
+          innerloop: true
+          sign: true
+
+  - stage: Publish
+    dependsOn: Build
+    jobs:
+      - job: Publish
+        pool:
+          # This is a utility job: use generic recent LTS for publishing.
+          vmImage: ubuntu-20.04
+        variables:
+          - name: blobDestinationUrl
+            value: 'https://dotnetbuildoutput.blob.core.windows.net/golang/microsoft/$(PublishBranchAlias)/$(Build.BuildNumber)'
+          - group: go-storage
+        workspace:
+          clean: all
+        steps:
+          - template: steps/checkout-unix-task.yml
+          - template: steps/init-pwsh-task.yml
+
+          - pwsh: |
+              function TrimStart($s, $prefix) {
+                if ($s.StartsWith($prefix)) {
+                  return $s.Substring($prefix.Length)
+                }
+                return $s
+              }
+              $branch = "$(Build.SourceBranch)"
+              Write-Host "For Build.SourceBranch '$branch',"
+
+              # $(Build.SourceBranchName) only gives us "feature" for "refs/heads/dev/feature". We
+              # want to publish this as "dev/feature". So, use $(Build.SourceBranch) and figure it
+              # out ourselves.
+              $branch = TrimStart $branch "refs/heads/"
+
+              # Don't include "microsoft/" virtual directory prefix: we are already in the
+              # "microsoft" container, so this would result in "microsoft/microsoft/main".
+              $branch = TrimStart $branch "microsoft/"
+
+              Write-Host "PublishBranchAlias is: $branch"
+              Write-Host "##vso[task.setvariable variable=PublishBranchAlias;]$branch"
+            displayName: Find publish branch alias
+
+          - download: current
+            artifact: Binaries Signed
+            displayName: 'Download: Binaries Signed'
+
+          - pwsh: |
+              eng/run.ps1 createbuildassetjson `
+                -artifacts-dir '$(Pipeline.Workspace)/Binaries Signed/' `
+                -source-dir '$(Build.SourcesDirectory)' `
+                -destination-url '$(blobDestinationUrl)' `
+                -branch '$(PublishBranchAlias)' `
+                -o '$(Pipeline.Workspace)/Binaries Signed/assets.json'
+            displayName: 'Create build asset JSON'
+
+          - publish: $(Pipeline.Workspace)/Binaries Signed/assets.json
+            artifact: BuildAssets
+            displayName: Publish build asset JSON
+
+          - task: AzureCLI@2
+            displayName: Upload to blob storage
+            inputs:
+              azureSubscription: GoLang
+              scriptType: bash
+              scriptLocation: inlineScript
+              # Send literal '*' to az: it handles the wildcard itself. Az copy only accepts one
+              # "from" argument, so we can't use the shell's wildcard expansion.
+              inlineScript: |
+                az storage copy -s '*' -d '$(blobDestinationUrl)' --sas-token '$(dotnetbuildoutput-golang-write-sas-query)'
+              workingDirectory: '$(Pipeline.Workspace)/Binaries Signed/'
+
+          - script: |
+              echo 'Generated links to artifacts in blob storage:'
+              echo ''
+              for f in *; do
+                echo "$(blobDestinationUrl)/$f"
+              done
+            displayName: Show uploaded URLs
+            workingDirectory: '$(Pipeline.Workspace)/Binaries Signed/'
