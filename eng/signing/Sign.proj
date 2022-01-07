@@ -1,0 +1,100 @@
+<!-- Copyright (c) Microsoft Corporation. Use of this source code is governed by a BSD-style license that can be found in the LICENSE file. -->
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <Import Project="Sign.props" />
+
+  <PropertyGroup>
+    <TargetFramework>net5.0</TargetFramework>
+
+    <MicrosoftDotNetSignToolVersion>5.0.0-beta.21112.3</MicrosoftDotNetSignToolVersion>
+    <VSWhereVersion>2.8.4</VSWhereVersion>
+    <MicroBuildCoreVersion>0.3.0</MicroBuildCoreVersion>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.DotNet.SignTool" Version="$(MicrosoftDotNetSignToolVersion)" />
+    <PackageReference Include="vswhere" Version="$(VSWhereVersion)" />
+    <PackageReference Include="MicroBuild.Core" Version="$(MicroBuildCoreVersion)" />
+  </ItemGroup>
+
+  <Target Name="SignGoFiles">
+    <Error Condition="'$(SigningType)' != 'real' AND '$(SigningType)' != 'test'" Text="Unexpected SigningType '$(SigningType)'" />
+    <PropertyGroup>
+      <IsTestSign>true</IsTestSign>
+      <IsTestSign Condition="'$(SigningType)' == 'real'">false</IsTestSign>
+    </PropertyGroup>
+
+    <Error Condition="'$(SignFilesDir)' == ''" Text="'SignFilesDir' required." />
+    <Message Text="Signing files in $(SignFilesDir)." Importance="high" />
+
+    <ItemGroup>
+      <LinuxGoFile Include="$([MSBuild]::NormalizeDirectory('$(SignFilesDir)'))**/go.*.tar.gz" />
+
+      <LinuxGoSigFile Include="@(LinuxGoFile -> '%(Identity).sig')" />
+      <ItemsToSign Include="@(LinuxGoSigFile)" />
+
+      <GoZipFile Include="$([MSBuild]::NormalizeDirectory('$(SignFilesDir)'))**/go.*.zip" />
+      <GoZipFile ExtractedDir="$([MSBuild]::NormalizeDirectory('%(Identity).extracted'))" />
+
+      <FileExtensionSignInfo Include=".sig" CertificateName="LinuxSignManagedLanguageCompiler" />
+    </ItemGroup>
+
+    <Error Condition="'@(ItemsToSign)' == ''" Text="No files found to be signed." />
+
+    <!-- Prepare files that we want to sign. -->
+
+    <!--
+      Copy the "tar.gz" file to "tar.gz.sig". The signing process sends the "tar.gz.sig" file to get
+      a signature, then replaces the "tar.gz.sig" file's content in-place with the result. We need
+      to preemptively make a renamed copy of the file so we end up with both the original file and
+      sig on the machine.
+    -->
+    <Copy SourceFiles="@(LinuxGoFile)" DestinationFiles="@(LinuxGoSigFile)" />
+    <!--
+      SignTool notices zip containers and tries to extract them and update them in-place. The way it
+      does this is very slow (30 minutes), so unpack/repack ourselves, instead.
+    -->
+    <Unzip
+      SourceFiles="%(GoZipFile.Identity)"
+      DestinationFolder="%(GoZipFile.ExtractedDir)" />
+    <ItemGroup>
+      <ItemsToSign Include="%(GoZipFile.ExtractedDir)**" />
+      <!--
+        Remove test data: some files (especially zip files) are set up in very particular ways that
+        SignTool doesn't reconstruct properly after recursing into the container. This causes "go
+        tool dist test" to fail when run on a signed build.
+      -->
+      <ItemsToSign Remove="%(GoZipFile.ExtractedDir)**\testdata\**" />
+    </ItemGroup>
+
+    <!-- Find .NET Framework MSBuild. -->
+    <Exec
+      Command='"$(NuGetPackageRoot)vswhere\$(VSWhereVersion)\tools\vswhere.exe" -latest -prerelease -property installationPath -requires Microsoft.Component.MSBuild'
+      ConsoleToMsBuild="true"
+      StandardErrorImportance="high">
+      <Output TaskParameter="ConsoleOutput" PropertyName="_VSInstallDir" />
+    </Exec>
+
+    <Microsoft.DotNet.SignTool.SignToolTask
+      DryRun="false"
+      TestSign="$(IsTestSign)"
+      DoStrongNameCheck="false"
+      TempDir="$(MSBuildProjectDirectory)\signing-temp"
+      LogDir="$(MSBuildProjectDirectory)\signing-log"
+      ItemsToSign="@(ItemsToSign)"
+      MSBuildPath="$(_VSInstallDir)\MSBuild\Current\Bin\msbuild.exe"
+      FileSignInfo="@(FileSignInfo)"
+      FileExtensionSignInfo="@(FileExtensionSignInfo)"
+      MicroBuildCorePath="$(NuGetPackageRoot)microbuild.core\$(MicroBuildCoreVersion)"/>
+    
+    <!--
+      Now that the contents are signed (in place), re-pack the zip file. Use our "pack" command
+      (rather than MSBuild's ZipDirectory task) so we also generate a new checksum file
+      automatically. Signing the zip's contents has invalidated the old checksum.
+    -->
+    <Exec Command="pwsh ..\run.ps1 pack -source %(GoZipFile.ExtractedDir)go -o %(GoZipFile.Identity)" />
+    <!-- Remove the large extracted dir so the build job doesn't upload it. -->
+    <RemoveDir Directories="@(GoZipFile -> '%(ExtractedDir)')" />
+  </Target>
+
+</Project>
