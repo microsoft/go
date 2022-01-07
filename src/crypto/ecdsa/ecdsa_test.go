@@ -8,7 +8,6 @@ import (
 	"bufio"
 	"compress/bzip2"
 	"crypto/elliptic"
-	"crypto/internal/boring"
 	"crypto/rand"
 	"crypto/sha1"
 	"crypto/sha256"
@@ -36,9 +35,6 @@ func testAllCurves(t *testing.T, f func(*testing.T, elliptic.Curve)) {
 		tests = tests[:1]
 	}
 	for _, test := range tests {
-		if boring.Enabled() && test.name == "P224" {
-			t.Skip("p224 not supported in FIPS mode")
-		}
 		curve := test.curve
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
@@ -227,9 +223,6 @@ func TestVectors(t *testing.T) {
 
 			switch parts[0] {
 			case "P-224":
-				if boring.Enabled() { // P-224 not supported in RHEL OpenSSL.
-					continue
-				}
 				pub.Curve = elliptic.P224()
 			case "P-256":
 				pub.Curve = elliptic.P256()
