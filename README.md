@@ -3,14 +3,34 @@
 Go is an open source programming language that makes it easy to build simple,
 reliable, and efficient software.
 
-This repository, https://github.com/microsoft/go, contains the infrastructure
-Microsoft uses to build Go. The submodule named `go` contains the Go source
-code. By default, the submodule clones the GitHub mirror of Go,
-https://github.com/golang/go. The canonical Git repository for Go source code is
-located at https://go.googlesource.com/go.
+This repository, [microsoft/go](https://github.com/microsoft/go), contains the
+infrastructure Microsoft uses to build Go. The submodule named `go` contains the
+Go source code. By default, the submodule's remote URL is the official GitHub
+mirror of Go, [golang/go](https://github.com/golang/go).
+
+This project is not involved in producing the [official binary distributions
+of Go](https://go.dev/dl/).
+
+The canonical Git repository for Go source code is located at
+https://go.googlesource.com/go.
 
 Unless otherwise noted, the Go source files are distributed under the
 BSD-style license found in the LICENSE file.
+
+## Is this repository a fork?
+
+We believe it is accurate to call this repository a fork. Its branches do not
+share Git ancestry with the Go repository, but the repository serves the same
+purpose as a Git fork: maintaining a modified version of the Go source code over
+time.
+
+This fork exists to produce a version of Go that can be FIPS 140-2 certified
+using an OpenSSL backend. Our goal is to share this implementation with others
+in the Go community who have the same requirement, and to merge this capability
+into upstream Go as soon as possible. See
+[eng/doc/fips@dev/official/go1.17-openssl-fips](https://github.com/microsoft/go/tree/dev/official/go1.17-openssl-fips/eng/doc/fips)
+for more information about this feature and the history of FIPS 140-2 compliance
+in Go.
 
 ## Contributing
 
