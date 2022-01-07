@@ -182,6 +182,7 @@ DEFINEFUNC(const EVP_CIPHER*, EVP_aes_128_gcm, (void), ()) \
 DEFINEFUNC(const EVP_CIPHER*, EVP_aes_128_cbc, (void), ()) \
 DEFINEFUNC(const EVP_CIPHER*, EVP_aes_128_ctr, (void), ()) \
 DEFINEFUNC(const EVP_CIPHER*, EVP_aes_128_ecb, (void), ()) \
+DEFINEFUNC(const EVP_CIPHER*, EVP_aes_192_gcm, (void), ()) \
 DEFINEFUNC(const EVP_CIPHER*, EVP_aes_192_cbc, (void), ()) \
 DEFINEFUNC(const EVP_CIPHER*, EVP_aes_192_ctr, (void), ()) \
 DEFINEFUNC(const EVP_CIPHER*, EVP_aes_192_ecb, (void), ()) \
