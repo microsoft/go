@@ -82,11 +82,11 @@ NewCipher creates and returns a new [cipher.Block](https://pkg.go.dev/crypto/cip
 
 **Parameters**
 
-`Key` is an AES key of length 16, 24, or 32 bytes.
+`key` is an AES key of length 16, 24, or 32 bytes.
 
 **Return values**
 
-`Cipher` implements the cipher.Block interface using an OpenSSL cipher function that depends on the `key` length:
+`cipher` implements the cipher.Block interface using an OpenSSL cipher function that depends on the `key` length:
 
 - If `len(key) == 16` then the cipher used is [EVP_aes_128_ecb](https://www.openssl.org/docs/man3.0/man3/EVP_aes_128_ecb.html).
 - If `len(key) == 24` then the cipher used is [EVP_aes_192_ecb](https://www.openssl.org/docs/man3.0/man3/EVP_aes_192_ecb.html).
@@ -112,7 +112,7 @@ NewGCM returns the given 128-bit, block cipher wrapped in Galois Counter Mode wi
 
 **Parameters**
 
-`Cipher` must be an object created by [aes.NewCipher](https://pkg.go.dev/crypto/aes#NewCipher) in order to be FIPS compliant.
+`cipher` must be an object created by [aes.NewCipher](https://pkg.go.dev/crypto/aes#NewCipher) in order to be FIPS compliant.
 
 **Return values**
 
@@ -139,11 +139,11 @@ NewGCMWithNonceSize returns the given 128-bit, block cipher wrapped in Galois Co
 
 **Parameters**
 
-`Cipher` must be an object created by aes.NewCipher and `size = 12` in order to be FIPS compliant, else the function will fall back to standard Go crypto.
+`cipher` must be an object created by aes.NewCipher and `size = 12` in order to be FIPS compliant, else the function will fall back to standard Go crypto.
 
 **Return values**
 
-`Aead` can have different implementations depending on the supplied parameters:
+`aead` can have different implementations depending on the supplied parameters:
 
 - If the parameters are FIPS compliant then `aead` behaves exactly as if it was created with cipher.NewGCM.
 - If `cipher` is an object created by aes.NewCipher and `size != 12` then `aead` is implemented by the standard Go library and OpenSSL is only used for encryption and decryption.
@@ -159,11 +159,11 @@ NewGCMWithTagSize returns the given 128-bit, block cipher wrapped in Galois Coun
 
 **Parameters**
 
-`Cipher` must be an object created by aes.NewCipher and `tagSize = 16` in order to be FIPS compliant, else the function will fall back to standard Go crypto.
+`cipher` must be an object created by aes.NewCipher and `tagSize = 16` in order to be FIPS compliant, else the function will fall back to standard Go crypto.
 
 **Return values**
 
-`Aead` can have different implementations depending on the supplied parameters:
+`aead` can have different implementations depending on the supplied parameters:
 
 - If the parameters are FIPS compliant then `aead` behaves exactly as if it was created with cipher.NewGCM.
 - If `cipher` is an object created by aes.NewCipher and `tagSize != 16` then `aead` is implemented by the standard Go library using OpenSSL for encryption and decryption.
