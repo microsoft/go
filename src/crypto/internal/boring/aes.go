@@ -315,11 +315,12 @@ func (c *aesCipher) newGCM(tls bool) (cipher.AEAD, error) {
 	switch len(c.key) * 8 {
 	case 128:
 		g.cipher = C._goboringcrypto_EVP_aes_128_gcm()
+	case 192:
+		g.cipher = C._goboringcrypto_EVP_aes_192_gcm()
 	case 256:
 		g.cipher = C._goboringcrypto_EVP_aes_256_gcm()
 	default:
-		// Fall back to standard library for GCM with non-standard key size.
-		return cipher.NewGCMWithNonceSize(&noGCM{c}, gcmStandardNonceSize)
+		panic("crypto/boring: unsupported key length")
 	}
 
 	return g, nil

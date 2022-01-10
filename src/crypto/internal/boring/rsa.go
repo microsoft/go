@@ -11,6 +11,7 @@ package boring
 import "C"
 import (
 	"crypto"
+	"crypto/subtle"
 	"errors"
 	"hash"
 	"math/big"
@@ -297,6 +298,21 @@ func VerifyRSAPSS(pub *PublicKeyRSA, h crypto.Hash, hashed, sig []byte, saltLen 
 }
 
 func SignRSAPKCS1v15(priv *PrivateKeyRSA, h crypto.Hash, hashed []byte) ([]byte, error) {
+	if h == 0 {
+		// No hashing.
+		var out []byte
+		var outLen C.int
+		if priv.withKey(func(key *C.GO_RSA) C.int {
+			out = make([]byte, C._goboringcrypto_RSA_size(key))
+			outLen = C._goboringcrypto_RSA_private_encrypt(C.int(len(hashed)), base(hashed),
+				base(out), key, C.GO_RSA_PKCS1_PADDING)
+			return outLen
+		}) <= 0 {
+			return nil, NewOpenSSLError("RSA_private_encrypt")
+		}
+		return out[:outLen], nil
+	}
+
 	md := cryptoHashToMD(h)
 	if md == nil {
 		return nil, errors.New("crypto/rsa: unsupported hash function: " + strconv.Itoa(int(h)))
@@ -324,6 +340,21 @@ func VerifyRSAPKCS1v15(pub *PublicKeyRSA, h crypto.Hash, hashed, sig []byte) err
 		return 1
 	}) == 0 {
 		return errors.New("crypto/rsa: verification error")
+	}
+	if h == 0 {
+		var out []byte
+		var outLen C.int
+		if pub.withKey(func(key *C.GO_RSA) C.int {
+			out = make([]byte, C._goboringcrypto_RSA_size(key))
+			outLen = C._goboringcrypto_RSA_public_decrypt(C.int(len(sig)), base(sig), base(out), key, C.GO_RSA_PKCS1_PADDING)
+			return outLen
+		}) <= 0 {
+			return NewOpenSSLError("RSA_verify")
+		}
+		if subtle.ConstantTimeCompare(hashed, out[:outLen]) != 1 {
+			return fail("RSA_verify")
+		}
+		return nil
 	}
 	md := cryptoHashToMD(h)
 	if md == nil {

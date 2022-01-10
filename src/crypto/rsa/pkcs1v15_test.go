@@ -7,7 +7,6 @@ package rsa
 import (
 	"bytes"
 	"crypto"
-	"crypto/internal/boring"
 	"crypto/rand"
 	"crypto/sha1"
 	"crypto/sha256"
@@ -235,9 +234,6 @@ func TestOverlongMessagePKCS1v15(t *testing.T) {
 }
 
 func TestUnpaddedSignature(t *testing.T) {
-	if boring.Enabled() {
-		t.Skip("skipping in boring mode")
-	}
 	msg := []byte("Thu Dec 19 18:06:16 EST 2013\n")
 	// This base64 value was generated with:
 	// % echo Thu Dec 19 18:06:16 EST 2013 > /tmp/msg

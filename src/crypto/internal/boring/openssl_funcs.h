@@ -144,6 +144,12 @@ DEFINEFUNC(int, RSA_sign, \
 DEFINEFUNC(int, RSA_verify, \
     (int arg0, const uint8_t *arg1, unsigned int arg2, const uint8_t *arg3, unsigned int arg4, GO_RSA *arg5), \
     (arg0, arg1, arg2, arg3, arg4, arg5)) \
+DEFINEFUNC(int, RSA_private_encrypt, \
+    (int flen, uint8_t *from, uint8_t *to, GO_RSA *rsa, int padding), \
+    (flen, from, to, rsa, padding)) \
+DEFINEFUNC(int, RSA_public_decrypt, \
+    (int flen, uint8_t *from, uint8_t *to, GO_RSA *rsa, int padding), \
+    (flen, from, to, rsa, padding)) \
 DEFINEFUNC(int, RSA_generate_key_ex, \
     (GO_RSA * arg0, int arg1, GO_BIGNUM *arg2, GO_BN_GENCB *arg3), \
     (arg0, arg1, arg2, arg3)) \
@@ -176,6 +182,7 @@ DEFINEFUNC(const EVP_CIPHER*, EVP_aes_128_gcm, (void), ()) \
 DEFINEFUNC(const EVP_CIPHER*, EVP_aes_128_cbc, (void), ()) \
 DEFINEFUNC(const EVP_CIPHER*, EVP_aes_128_ctr, (void), ()) \
 DEFINEFUNC(const EVP_CIPHER*, EVP_aes_128_ecb, (void), ()) \
+DEFINEFUNC(const EVP_CIPHER*, EVP_aes_192_gcm, (void), ()) \
 DEFINEFUNC(const EVP_CIPHER*, EVP_aes_192_cbc, (void), ()) \
 DEFINEFUNC(const EVP_CIPHER*, EVP_aes_192_ctr, (void), ()) \
 DEFINEFUNC(const EVP_CIPHER*, EVP_aes_192_ecb, (void), ()) \
