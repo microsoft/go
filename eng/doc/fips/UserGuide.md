@@ -82,7 +82,7 @@ NewCipher creates and returns a new [cipher.Block](https://pkg.go.dev/crypto/cip
 
 **Parameters**
 
-`Key` is an AES key of length 16, 24, or 32.
+`Key` is an AES key of length 16, 24, or 32 bytes.
 
 **Return values**
 
@@ -139,14 +139,14 @@ NewGCMWithNonceSize returns the given 128-bit, block cipher wrapped in Galois Co
 
 **Parameters**
 
-`Cipher` must be an object created by aes.NewCipher and `size=12` in order to be FIPS compliant, else it will fall back to standard Go crypto.
+`Cipher` must be an object created by aes.NewCipher and `size = 12` in order to be FIPS compliant, else the function will fall back to standard Go crypto.
 
 **Return values**
 
 `Aead` can have different implementations depending on the supplied parameters:
 
 - If the parameters are FIPS compliant then `aead` behaves exactly as if it was created with cipher.NewGCM.
-- If `cipher` is an object created by aes.NewCipher and `size != 12` then `aead` is implemented by the standard Go library using OpenSSL for encryption and decryption.
+- If `cipher` is an object created by aes.NewCipher and `size != 12` then `aead` is implemented by the standard Go library and OpenSSL is only used for encryption and decryption.
 - Else `aead` is completely implemented by the standard Go library.
 
 #### func [NewGCMWithTagSize](https://pkg.go.dev/crypto/cipher#NewGCMWithTagSize)
@@ -159,7 +159,7 @@ NewGCMWithTagSize returns the given 128-bit, block cipher wrapped in Galois Coun
 
 **Parameters**
 
-`Cipher` must be an object created by aes.NewCipher and `tagSize=16` in order to be FIPS compliant, else it will fall back to standard Go crypto.
+`Cipher` must be an object created by aes.NewCipher and `tagSize = 16` in order to be FIPS compliant, else the function will fall back to standard Go crypto.
 
 **Return values**
 
@@ -314,7 +314,7 @@ Sign signs a hash using the private key.
 
 **Parameters**
 
-`rand` must be boring.RandReader, else Sign will panic. `crypto/rand.Reader` normally meet this invariant as it is assigned to boring.RandReader in the crypto/rand init function.
+`rand` must be boring.RandReader, else Sign will panic. `crypto/rand.Reader` normally meets this invariant, as it is assigned to boring.RandReader in the crypto/rand init function.
 
 `hash` must be the result of hashing a larger message using a FIPS compliant hashing algorithm. If this invariant is not met, Sign won't be FIPS compliant but still will sign the message.
 
@@ -328,7 +328,7 @@ Sign signs a hash using the private key.
 func ecdsa.SignASN1(rand io.Reader, priv *ecdsa.PrivateKey, hash []byte) (sig []byte, err error)
 ```
 
-Sign signs a hash using the private key. It behaves as ecdsa.Sign but returns an ASN.1 encoded signature instead.
+SignASN1 signs a hash using the private key. It behaves as ecdsa.Sign but returns an ASN.1 encoded signature instead.
 
 #### func [Verify](https://pkg.go.dev/crypto/ecdsa#Verify)
 
@@ -352,7 +352,7 @@ Returns `true` if the signature is valid using [ECDSA_verify](https://www.openss
 func ecdsa.VerifyASN1(pub *ecdsa.PublicKey, hash, sig []byte) bool
 ```
 
-VerifyASN1 verifies the ASN.1 encoded signature, sig, of hash using the public key. It behaves as ecdsa.VerifyASN1 but accepting an ASN.1 encoded signature instead.
+VerifyASN1 verifies the ASN.1 encoded signature, sig, of hash using the public key. It behaves as ecdsa.Verify but accepts an ASN.1 encoded signature instead.
 
 #### func [SignASN1](https://pkg.go.dev/crypto/ecdsa#SignASN1)
 
@@ -391,7 +391,7 @@ Other `c` values will result in an error.
 func (priv *ecdsa.PrivateKey) Sign(rand io.Reader, digest []byte, opts crypto.SignerOpts) ([]byte, error)
 ```
 
-Sign signs digest with `priv`.
+Sign signs `digest` with `priv`.
 
 **Parameters**
 
