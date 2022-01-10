@@ -29,7 +29,6 @@ The Go crypto documentation is available online at https://pkg.go.dev/crypto.
       - [func SignASN1](#func-signasn1)
       - [func Verify](#func-verify)
       - [func VerifyASN1](#func-verifyasn1)
-      - [func SignASN1](#func-signasn1-1)
       - [func GenerateKey](#func-generatekey)
       - [func PrivateKey.Sign](#func-privatekeysign)
     - [crypto/ed25519](#cryptoed25519)
@@ -95,8 +94,8 @@ NewCipher creates and returns a new [cipher.Block](https://pkg.go.dev/crypto/cip
 The cipher.Block methods are implemented as follows:
 
 - `BlockSize() int` always returns `16`.
-- `Encrypt(dst, src []byte)` encrypts `src` into `dst` using [EVP_EncryptUpdate](https://www.openssl.org/docs/manmaster/man3/EVP_EncryptUpdate.html).
-- `Decrypt(dst, src []byte` decrypts `src` into `dst` using [EVP_DecryptUpdate](https://www.openssl.org/docs/manmaster/man3/EVP_DecryptUpdate.html).
+- `Encrypt(dst, src []byte)` encrypts `src` into `dst` using [EVP_EncryptUpdate].
+- `Decrypt(dst, src []byte` decrypts `src` into `dst` using [EVP_DecryptUpdate].
 
 ### [crypto/cipher](https://pkg.go.dev/crypto/cipher)
 
@@ -124,8 +123,8 @@ If `cipher` is FIPS compliant then `aead` implements the cipher.AEAD interface a
   - If `len(key) == 16` then the cipher used is [EVP_aes_128_gcm](https://www.openssl.org/docs/man3.0/man3/EVP_aes_128_gcm.html).
   - If `len(key) == 24` then the cipher used is [EVP_aes_192_gcm](https://www.openssl.org/docs/man3.0/man3/EVP_aes_192_gcm.html).
   - If `len(key) == 32` then the cipher used is [EVP_aes_256_gcm](https://www.openssl.org/docs/man3.0/man3/EVP_aes_256_gcm.html).
-- `Seal(dst, nonce, plaintext, additionalData []byte) []byte` encrypts plaintext and uses additionalData to authenticate. It uses [EVP_EncryptUpdate](https://www.openssl.org/docs/man3.0/man3/EVP_EncryptUpdate.html) for the encryption and [EVP_EncryptFinal_ex](https://www.openssl.org/docs/man3.0/man3/EVP_EncryptFinal_ex.html) for authenticating.
-- `Open(dst, nonce, ciphertext, additionalData []byte) ([]byte, error)` decrypts plaintext and uses additionalData to authenticate. It uses [EVP_DecryptUpdate](https://www.openssl.org/docs/man3.0/man3/EVP_DecryptUpdate.html) for the decryption and [EVP_DecryptFinal_ex](https://www.openssl.org/docs/man3.0/man3/EVP_DecryptFinal_ex.html) for authenticating.
+- `Seal(dst, nonce, plaintext, additionalData []byte) []byte` encrypts plaintext and uses additionalData to authenticate. It uses [EVP_EncryptUpdate] for the encryption and [EVP_EncryptFinal_ex](https://www.openssl.org/docs/man3.0/man3/EVP_EncryptFinal_ex.html) for authenticating.
+- `Open(dst, nonce, ciphertext, additionalData []byte) ([]byte, error)` decrypts plaintext and uses additionalData to authenticate. It uses [EVP_DecryptUpdate] for the decryption and [EVP_DecryptFinal_ex](https://www.openssl.org/docs/man3.0/man3/EVP_DecryptFinal_ex.html) for authenticating.
 
 If `cipher` is not FIPS compliant then `aead` is implemented by the standard Go library.
 
@@ -194,7 +193,7 @@ In all cases the cipher will have the padding disabled using [EVP_CIPHER_CTX_set
 The cipher.BlockMode methods are implemented as follows:
 
 - `BlockSize() int` always returns `16`.
-- `CryptBlocks(dst, src []byte)` decrypts `src` into `dst` using [EVP_DecryptUpdate](https://www.openssl.org/docs/manmaster/man3/EVP_DecryptUpdate.html).
+- `CryptBlocks(dst, src []byte)` decrypts `src` into `dst` using [EVP_DecryptUpdate].
 
 If `block` is not FIPS compliant then `cbc` is implemented by the standard Go library.
 
@@ -218,11 +217,10 @@ If `block` is FIPS compliant then `cbc` implements the cipher.BlockMode using an
 - If `len(key) == 24` then the cipher used is [EVP_aes_192_cbc](https://www.openssl.org/docs/man3.0/man3/EVP_aes_192_cbc.html).
 - If `len(key) == 32` then the cipher used is [EVP_aes_256_cbc](https://www.openssl.org/docs/man3.0/man3/EVP_aes_256_cbc.html).
 
-
 The cipher.BlockMode methods are implemented as follows:
 
 - `BlockSize() int` always returns `16`.
-- `CryptBlocks(dst, src []byte)` encrypts `src` into `dst` using [EVP_EncryptUpdate](https://www.openssl.org/docs/manmaster/man3/EVP_EncryptUpdate.html).
+- `CryptBlocks(dst, src []byte)` encrypts `src` into `dst` using [EVP_EncryptUpdate].
 
 If `block` is not FIPS compliant then `cbc` is implemented by the standard Go library.
 
@@ -256,7 +254,7 @@ If `block` is FIPS compliant then `ctr` implements the cipher.Stream using an Op
 
 
 The cipher.Stream methods are implemented as follows:
-- `XORKeyStream(dst, src []byte)` XORs each byte in the given slice using [EVP_EncryptUpdate](https://www.openssl.org/docs/manmaster/man3/EVP_EncryptUpdate.html).
+- `XORKeyStream(dst, src []byte)` XORs each byte in the given slice using [EVP_EncryptUpdate].
 
 If `block` is not FIPS compliant then `ctr` is implemented by the standard Go library.
 
@@ -316,7 +314,7 @@ Sign signs a hash using the private key.
 
 `rand` must be boring.RandReader, else Sign will panic. `crypto/rand.Reader` normally meets this invariant, as it is assigned to boring.RandReader in the crypto/rand init function.
 
-`hash` must be the result of hashing a larger message using a FIPS compliant hashing algorithm. If this invariant is not met, Sign won't be FIPS compliant but still will sign the message.
+`hash` must be the result of hashing a message using a FIPS compliant hashing algorithm. If this invariant is not met, Sign won't be FIPS compliant but still will sign the message.
 
 **Return values**
 
@@ -354,14 +352,6 @@ func ecdsa.VerifyASN1(pub *ecdsa.PublicKey, hash, sig []byte) bool
 
 VerifyASN1 verifies the ASN.1 encoded signature, sig, of hash using the public key. It behaves as ecdsa.Verify but accepts an ASN.1 encoded signature instead.
 
-#### func [SignASN1](https://pkg.go.dev/crypto/ecdsa#SignASN1)
-
-```go
-func ecdsa.SignASN1(rand io.Reader, priv *ecdsa.PrivateKey, hash []byte) (sig []byte, err error)
-```
-
-Sign signs a hash using the private key. It behaves as ecdsa.Sign but returns an ASN.1 encoded signature instead.
-
 #### func [GenerateKey](https://pkg.go.dev/crypto/ecdsa#GenerateKey)
 
 ```go
@@ -397,7 +387,7 @@ Sign signs `digest` with `priv`.
 
 `rand` must be boring.RandReader, else Sign will panic. `crypto/rand.Reader` normally meet this invariant as it is assigned to boring.RandReader in the crypto/rand init function.
 
-`digest` must be the result of hashing a larger message using a FIPS compliant hashing algorithm. If this invariant is not met, Sign won't be FIPS compliant but still will sign the message.
+`digest` must be the result of hashing a message using a FIPS compliant hashing algorithm. If this invariant is not met, Sign won't be FIPS compliant but still will sign the message.
 
 **Return values**
 
@@ -502,6 +492,8 @@ Not FIPS compliant.
 ### [crypto/sha1](https://pkg.go.dev/crypto/sha1)
 
 Package sha1 implements the SHA-1 hash algorithm as defined in RFC 3174.
+
+SHA-1 is an approved FIPS 140-2 hash algorithm although is cryptographically broken and should not be used for secure applications.
 
 #### func [New](https://pkg.go.dev/crypto/sha1#New)
 
@@ -662,3 +654,34 @@ Does not contain crypto primitives, out of FIPS scope.
 Package tls partially implements TLS 1.2, as specified in RFC 5246, and TLS 1.3, as specified in RFC 8446.
 
 Package tls will automatically use FIPS compliant primitives implemented in other crypto packages, but it will accept non-FIPS ciphers and signature algorithms unless `crypto/tls/fipsonly` is imported.
+
+When using TLS in FIPS-only mode the TLS handshake has the following restrictions:
+
+- TLS versions: `tls.VersionTLS12`
+- ECDSA elliptic curves:
+  - `tls.CurveP256`
+  - `tls.CurveP384`
+  - `tls.CurveP521`
+- Cipher suites:
+  - `tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256`
+  - `tls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384`
+  - `tls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256`
+  - `tls.TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384`
+  - `tls.TLS_RSA_WITH_AES_128_GCM_SHA256`
+  - `tls.TLS_RSA_WITH_AES_256_GCM_SHA384`
+- x509 certificate public key:
+  - `rsa.PublicKey` with a bit length of 2048 or 3072. Bit length of 4096 is still not supported, see [this issue](https://github.com/golang/go/issues/41147) for more info.
+  - `ecdsa.PublicKey`  with a supported elliptic curve.
+- Signature algorithms:
+  - `tls.PSSWithSHA256`
+  - `tls.PSSWithSHA384`
+  - `tls.PSSWithSHA512`
+  - `tls.PKCS1WithSHA256`
+  - `tls.ECDSAWithP256AndSHA256`
+  - `tls.PKCS1WithSHA384`
+  - `tls.ECDSAWithP384AndSHA384`
+  - `tls.PKCS1WithSHA512`
+  - `tls.ECDSAWithP521AndSHA512`
+
+[EVP_EncryptUpdate]: https://www.openssl.org/docs/manmaster/man3/EVP_EncryptUpdate.html
+[EVP_DecryptUpdate]: (https://www.openssl.org/docs/manmaster/man3/EVP_DecryptUpdate.html)
