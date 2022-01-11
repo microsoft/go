@@ -12,7 +12,7 @@ package openssl
 
 import (
 	"crypto/internal/boring/sig"
-	"crypto/internal/openssl/internal/openssl"
+	"crypto/internal/backend/internal/openssl"
 	"errors"
 	"os"
 	"strings"
