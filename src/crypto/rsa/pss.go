@@ -294,7 +294,7 @@ func SignPSS(rand io.Reader, priv *PrivateKey, hash crypto.Hash, digest []byte, 
 		hash = opts.Hash
 	}
 
-	if boring.Enabled() {
+	if boring.Enabled() && rand == boring.RandReader {
 		bkey, err := boringPrivateKey(priv)
 		if err != nil {
 			return nil, err

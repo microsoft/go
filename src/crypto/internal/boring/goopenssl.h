@@ -120,9 +120,6 @@ FOR_ALL_OPENSSL_FUNCTIONS
 #undef DEFINEFUNC_RENAMED
 #undef DEFINEFUNC_FALLBACK
 
-int _goboringcrypto_stub_openssl_rand(void);
-int _goboringcrypto_restore_openssl_rand(void);
-
 static inline void
 _goboringcrypto_EVP_AES_ctr128_enc(EVP_CIPHER_CTX *ctx, const uint8_t *in, uint8_t *out, size_t in_len)
 {

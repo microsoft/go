@@ -108,12 +108,3 @@ func VerifyRSAPKCS1v15(pub *PublicKeyRSA, h crypto.Hash, hashed, sig []byte) err
 func VerifyRSAPSS(pub *PublicKeyRSA, h crypto.Hash, hashed, sig []byte, saltLen int) error {
 	panic("boringcrypto: not available")
 }
-func RandStubbed() bool {
-	panic("boringcrypto: not available")
-}
-func StubOpenSSLRand() {
-	panic("boringcrypto: not available")
-}
-func RestoreOpenSSLRand() {
-	panic("boringcrypto: not available")
-}

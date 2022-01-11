@@ -615,14 +615,6 @@ func (test *serverTest) connFromCommand() (conn *recordingConn, child *exec.Cmd,
 }
 
 func (test *serverTest) dataPath() string {
-	if boring.Enabled() {
-		// Go creates deterministic reference openssl connections by stubbing
-		// its own random number generator to always return '\0'.
-		// This cannot be done using native openssl algorithms because they get stuck in an infinite loop
-		// unless random numbers contain non-NULL characters.
-		// Therefore, reference connections can't be the same.
-		return filepath.Join("testdata", "boring", "Server-"+test.name)
-	}
 	return filepath.Join("testdata", "Server-"+test.name)
 }
 
