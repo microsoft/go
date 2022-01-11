@@ -95,7 +95,9 @@ func GenerateKeyRSA(bits int) (N, E, D, P, Q, Dp, Dq, Qinv *big.Int, err error) 
 func NewPrivateKeyRSA(N, E, D, P, Q, Dp, Dq, Qinv *big.Int) (*PrivateKeyRSA, error) {
 	panic("opensslcrypto: not available")
 }
-func NewPublicKeyRSA(N, E *big.Int) (*PublicKeyRSA, error) { panic("opensslcrypto: not available") }
+func NewPublicKeyRSA(N, E *big.Int) (*PublicKeyRSA, error) {
+	panic("opensslcrypto: not available")
+}
 func SignRSAPKCS1v15(priv *PrivateKeyRSA, h crypto.Hash, hashed []byte) ([]byte, error) {
 	panic("opensslcrypto: not available")
 }
