@@ -58,6 +58,7 @@ _goboringcrypto_OPENSSL_setup(void)
 
 enum
 {
+	GO_NID_secp224r1 = NID_secp224r1,
 	GO_NID_X9_62_prime256v1 = NID_X9_62_prime256v1,
 	GO_NID_secp384r1 = NID_secp384r1,
 	GO_NID_secp521r1 = NID_secp521r1,
@@ -90,25 +91,25 @@ typedef EVP_PKEY_CTX GO_EVP_PKEY_CTX;
 // It is possible to circumvent this by using a C function wrapper.
 // https://pkg.go.dev/cmd/cgo
 #define DEFINEFUNC(ret, func, args, argscall)      \
-	ret (*_g_##func)args;                          \
-	static inline ret _goboringcrypto_##func args  \
-	{                                              \
-		return _g_##func argscall;                 \
-	}
+    extern ret (*_g_##func)args;                   \
+    static inline ret _goboringcrypto_##func args  \
+    {                                              \
+    	return _g_##func argscall;                 \
+    }
 #define DEFINEFUNCINTERNAL(ret, func, args, argscall)       \
-	ret (*_g_internal_##func)args;                          \
-	static inline ret _goboringcrypto_internal_##func args  \
-	{                                                       \
-		return _g_internal_##func argscall;                 \
-	}
+    extern ret (*_g_internal_##func)args;                   \
+    static inline ret _goboringcrypto_internal_##func args  \
+    {                                                       \
+        return _g_internal_##func argscall;                 \
+    }
 #define DEFINEFUNC_LEGACY(ret, func, args, argscall)  \
-	DEFINEFUNCINTERNAL(ret, func, args, argscall)
+    DEFINEFUNCINTERNAL(ret, func, args, argscall)
 #define DEFINEFUNC_110(ret, func, args, argscall)     \
-	DEFINEFUNCINTERNAL(ret, func, args, argscall)
+    DEFINEFUNCINTERNAL(ret, func, args, argscall)
 #define DEFINEFUNC_RENAMED(ret, func, oldfunc, args, argscall)     \
-	DEFINEFUNCINTERNAL(ret, func, args, argscall)
+    DEFINEFUNCINTERNAL(ret, func, args, argscall)
 #define DEFINEFUNC_FALLBACK(ret, func, args, argscall)     \
-	DEFINEFUNCINTERNAL(ret, func, args, argscall)
+    DEFINEFUNCINTERNAL(ret, func, args, argscall)
 
 FOR_ALL_OPENSSL_FUNCTIONS
 
@@ -118,22 +119,6 @@ FOR_ALL_OPENSSL_FUNCTIONS
 #undef DEFINEFUNC_110
 #undef DEFINEFUNC_RENAMED
 #undef DEFINEFUNC_FALLBACK
-
-int _goboringcrypto_EVP_AES_encrypt(EVP_CIPHER_CTX *ctx, const uint8_t *in, size_t in_len, uint8_t *out);
-void _goboringcrypto_EVP_AES_cbc_encrypt(EVP_CIPHER_CTX *ctx, const uint8_t *arg0, uint8_t *arg1, size_t arg2, const uint8_t *a, const int arg5);
-void EVP_AES_cbc_enc(EVP_CIPHER_CTX *ctx, const uint8_t *in, uint8_t *out, size_t len);
-void EVP_AES_cbc_dec(EVP_CIPHER_CTX *ctx, const uint8_t *in, uint8_t *out, size_t len);
-int _goboringcrypto_RSA_generate_key_fips(GO_RSA *, int, GO_BN_GENCB *);
-int _goboringcrypto_RSA_sign_pss_mgf1(
-	GO_RSA *, unsigned int *out_len,
-    uint8_t *out, unsigned int max_out,
-	const uint8_t *in, unsigned int in_len,
-	GO_EVP_MD *md, const GO_EVP_MD *mgf1_md, int salt_len);
-int _goboringcrypto_RSA_verify_pss_mgf1(
-	GO_RSA *, const uint8_t *msg,
-	unsigned int msg_len, GO_EVP_MD *md,
-	const GO_EVP_MD *mgf1_md, int salt_len,
-	const uint8_t *sig, unsigned int sig_len);
 
 static inline void
 _goboringcrypto_EVP_AES_ctr128_enc(EVP_CIPHER_CTX *ctx, const uint8_t *in, uint8_t *out, size_t in_len)
@@ -255,14 +240,7 @@ _goboringcrypto_EVP_PKEY_CTX_set_rsa_pss_saltlen(GO_EVP_PKEY_CTX * arg0, int arg
 }
 
 static inline int
-_goboringcrypto_internal_EVP_PKEY_CTX_set_signature_md(EVP_PKEY_CTX *ctx, const EVP_MD *md)
+_goboringcrypto_EVP_PKEY_CTX_set_signature_md(EVP_PKEY_CTX *ctx, const EVP_MD *md)
 {
 	return _goboringcrypto_internal_EVP_PKEY_CTX_ctrl(ctx, -1, EVP_PKEY_OP_TYPE_SIG, EVP_PKEY_CTRL_MD, 0, (void *)md);
-}
-static inline int
-_goboringcrypto_EVP_PKEY_CTX_set_rsa_mgf1_md(GO_EVP_PKEY_CTX * ctx, const GO_EVP_MD *md)
-{
-	return _goboringcrypto_internal_EVP_PKEY_CTX_ctrl(ctx, EVP_PKEY_RSA,
-		EVP_PKEY_OP_TYPE_SIG | EVP_PKEY_OP_TYPE_CRYPT,
-		EVP_PKEY_CTRL_RSA_MGF1_MD, 0, (void *)md);
 }
