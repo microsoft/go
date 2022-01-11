@@ -493,7 +493,7 @@ Not FIPS compliant.
 
 Package sha1 implements the SHA-1 hash algorithm as defined in RFC 3174.
 
-SHA-1 is an approved FIPS 140-2 hash algorithm although is cryptographically broken and should not be used for secure applications.
+SHA-1 is an approved FIPS 140-2 hash algorithm although it is cryptographically broken and should not be used for secure applications.
 
 #### func [New](https://pkg.go.dev/crypto/sha1#New)
 
@@ -684,4 +684,4 @@ When using TLS in FIPS-only mode the TLS handshake has the following restriction
   - `tls.ECDSAWithP521AndSHA512`
 
 [EVP_EncryptUpdate]: https://www.openssl.org/docs/manmaster/man3/EVP_EncryptUpdate.html
-[EVP_DecryptUpdate]: (https://www.openssl.org/docs/manmaster/man3/EVP_DecryptUpdate.html)
+[EVP_DecryptUpdate]: https://www.openssl.org/docs/manmaster/man3/EVP_DecryptUpdate.html
