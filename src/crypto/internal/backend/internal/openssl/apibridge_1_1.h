@@ -2,8 +2,8 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-//go:build linux
-// +build linux
+//go:build linux && !android
+// +build linux,!android
 
 // Functions based on OpenSSL 1.1 API, used when building against/running with OpenSSL 1.0.x
 
