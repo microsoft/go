@@ -400,7 +400,11 @@ var depsRules = `
 	< crypto/ed25519/internal/edwards25519
 	< crypto/cipher
 	< encoding/asn1
-	< crypto/internal/boring
+	< CRYPTO;
+
+	CRYPTO < crypto/internal/boring;
+	
+	CRYPTO
 	< crypto/internal/backend/internal/openssl
 	< crypto/internal/backend
 	< crypto/aes, crypto/des, crypto/hmac, crypto/md5, crypto/rc4,
@@ -432,7 +436,7 @@ var depsRules = `
 	crypto/internal/boring/sig, crypto/internal/boring/fipstls
 	< crypto/tls/fipsonly;
 
-	crypto/internal/boring
+	crypto/internal/backend
 	< crypto/boring;
 
 	# crypto-aware packages
