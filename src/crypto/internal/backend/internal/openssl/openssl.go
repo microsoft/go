@@ -55,6 +55,8 @@ func init() {
 }
 
 func needFIPS() bool {
+	// TODO: use runtime instead of os.
+	// https://github.com/microsoft/go/issues/360
 	if os.Getenv("GOLANG_FIPS") == "1" {
 		// Opt-in to FIPS mode regardless of Linux kernel mode.
 		return true
@@ -86,10 +88,6 @@ func Unreachable() {
 		panic("boringcrypto: invalid code execution")
 	}
 }
-
-// provided by runtime to avoid os import
-func runtime_arg0() string
-
 func hasSuffix(s, t string) bool {
 	return len(s) > len(t) && s[len(s)-len(t):] == t
 }
@@ -97,7 +95,9 @@ func hasSuffix(s, t string) bool {
 // UnreachableExceptTests marks code that should be unreachable
 // when BoringCrypto is in use. It panics.
 func UnreachableExceptTests() {
-	name := runtime_arg0()
+	// TODO: use runtime instead of os.
+	// https://github.com/microsoft/go/issues/360
+	name := os.Args[0]
 	// If BoringCrypto ran on Windows we'd need to allow _test.exe and .test.exe as well.
 	if Enabled() && !hasSuffix(name, "_test") && !hasSuffix(name, ".test") {
 		println("boringcrypto: unexpected code execution in", name)
