@@ -402,6 +402,7 @@ var depsRules = `
 	< encoding/asn1
 	< crypto/internal/boring
 	< crypto/internal/backend/internal/openssl
+	< crypto/internal/backend
 	< crypto/aes, crypto/des, crypto/hmac, crypto/md5, crypto/rc4,
 	  crypto/sha1, crypto/sha256, crypto/sha512
 	< crypto/rand
