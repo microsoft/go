@@ -27,21 +27,21 @@ func GenerateKeyRSA(bits int) (N, E, D, P, Q, Dp, Dq, Qinv *big.Int, err error) 
 
 	key := C._goboringcrypto_RSA_new()
 	if key == nil {
-		return bad(NewOpenSSLError("RSA_new failed"))
+		return bad(newOpenSSLError("RSA_new failed"))
 	}
 	defer C._goboringcrypto_RSA_free(key)
 
 	bn := C._goboringcrypto_BN_new()
 	if bn == nil {
-		return bad(NewOpenSSLError("BN_new failed"))
+		return bad(newOpenSSLError("BN_new failed"))
 	}
 	defer C._goboringcrypto_BN_free(bn)
 
 	if C._goboringcrypto_BN_set_word(bn, C.RSA_F4) != C.int(1) {
-		return bad(NewOpenSSLError("BN_set_word failed"))
+		return bad(newOpenSSLError("BN_set_word failed"))
 	}
 	if C._goboringcrypto_RSA_generate_key_ex(key, C.int(bits), bn, nil) != C.int(1) {
-		return bad(NewOpenSSLError("RSA_generate_key_ex failed"))
+		return bad(newOpenSSLError("RSA_generate_key_ex failed"))
 	}
 
 	var n, e, d, p, q, dp, dq, qinv *C.GO_BIGNUM
@@ -59,7 +59,7 @@ type PublicKeyRSA struct {
 func NewPublicKeyRSA(N, E *big.Int) (*PublicKeyRSA, error) {
 	key := C._goboringcrypto_RSA_new()
 	if key == nil {
-		return nil, NewOpenSSLError("RSA_new failed")
+		return nil, newOpenSSLError("RSA_new failed")
 	}
 	var n, e *C.GO_BIGNUM
 	n = bigToBN(N)
@@ -90,7 +90,7 @@ type PrivateKeyRSA struct {
 func NewPrivateKeyRSA(N, E, D, P, Q, Dp, Dq, Qinv *big.Int) (*PrivateKeyRSA, error) {
 	key := C._goboringcrypto_RSA_new()
 	if key == nil {
-		return nil, NewOpenSSLError("RSA_new failed")
+		return nil, newOpenSSLError("RSA_new failed")
 	}
 	var n, e, d, p, q, dp, dq, qinv *C.GO_BIGNUM
 	n = bigToBN(N)
@@ -143,7 +143,7 @@ func setupRSA(withKey func(func(*C.GO_RSA) C.int) C.int,
 
 	pkey = C._goboringcrypto_EVP_PKEY_new()
 	if pkey == nil {
-		return nil, nil, NewOpenSSLError("EVP_PKEY_new failed")
+		return nil, nil, newOpenSSLError("EVP_PKEY_new failed")
 	}
 	if withKey(func(key *C.GO_RSA) C.int {
 		return C._goboringcrypto_EVP_PKEY_set1_RSA(pkey, key)
@@ -152,13 +152,13 @@ func setupRSA(withKey func(func(*C.GO_RSA) C.int) C.int,
 	}
 	ctx = C._goboringcrypto_EVP_PKEY_CTX_new(pkey, nil)
 	if ctx == nil {
-		return nil, nil, NewOpenSSLError("EVP_PKEY_CTX_new failed")
+		return nil, nil, newOpenSSLError("EVP_PKEY_CTX_new failed")
 	}
 	if init(ctx) == 0 {
-		return nil, nil, NewOpenSSLError("EVP_PKEY_operation_init failed")
+		return nil, nil, newOpenSSLError("EVP_PKEY_operation_init failed")
 	}
 	if C._goboringcrypto_EVP_PKEY_CTX_set_rsa_padding(ctx, padding) == 0 {
-		return nil, nil, NewOpenSSLError("EVP_PKEY_CTX_set_rsa_padding failed")
+		return nil, nil, newOpenSSLError("EVP_PKEY_CTX_set_rsa_padding failed")
 	}
 	if padding == C.GO_RSA_PKCS1_OAEP_PADDING {
 		md := hashToMD(h)
@@ -166,7 +166,7 @@ func setupRSA(withKey func(func(*C.GO_RSA) C.int) C.int,
 			return nil, nil, errors.New("crypto/rsa: unsupported hash function")
 		}
 		if C._goboringcrypto_EVP_PKEY_CTX_set_rsa_oaep_md(ctx, md) == 0 {
-			return nil, nil, NewOpenSSLError("EVP_PKEY_set_rsa_oaep_md failed")
+			return nil, nil, newOpenSSLError("EVP_PKEY_set_rsa_oaep_md failed")
 		}
 		// ctx takes ownership of label, so malloc a copy for BoringCrypto to free.
 		clabel := (*C.uint8_t)(C.malloc(C.size_t(len(label))))
@@ -175,13 +175,13 @@ func setupRSA(withKey func(func(*C.GO_RSA) C.int) C.int,
 		}
 		copy((*[1 << 30]byte)(unsafe.Pointer(clabel))[:len(label)], label)
 		if C._goboringcrypto_EVP_PKEY_CTX_set0_rsa_oaep_label(ctx, clabel, C.int(len(label))) == 0 {
-			return nil, nil, NewOpenSSLError("EVP_PKEY_CTX_set0_rsa_oaep_label failed")
+			return nil, nil, newOpenSSLError("EVP_PKEY_CTX_set0_rsa_oaep_label failed")
 		}
 	}
 	if padding == C.GO_RSA_PKCS1_PSS_PADDING {
 		if saltLen != 0 {
 			if C._goboringcrypto_EVP_PKEY_CTX_set_rsa_pss_saltlen(ctx, C.int(saltLen)) == 0 {
-				return nil, nil, NewOpenSSLError("EVP_PKEY_set_rsa_pss_saltlen failed")
+				return nil, nil, newOpenSSLError("EVP_PKEY_set_rsa_pss_saltlen failed")
 			}
 		}
 		md := cryptoHashToMD(ch)
@@ -189,7 +189,7 @@ func setupRSA(withKey func(func(*C.GO_RSA) C.int) C.int,
 			return nil, nil, errors.New("crypto/rsa: unsupported hash function")
 		}
 		if C._goboringcrypto_EVP_PKEY_CTX_set_signature_md(ctx, md) == 0 {
-			return nil, nil, NewOpenSSLError("EVP_PKEY_CTX_set_signature_md failed")
+			return nil, nil, newOpenSSLError("EVP_PKEY_CTX_set_signature_md failed")
 		}
 	}
 
@@ -212,14 +212,14 @@ func cryptRSA(withKey func(func(*C.GO_RSA) C.int) C.int,
 	var outLen C.uint
 	if out == nil {
 		if crypt(ctx, nil, &outLen, base(in), C.uint(len(in))) == 0 {
-			return nil, NewOpenSSLError("EVP_PKEY_decrypt/encrypt failed")
+			return nil, newOpenSSLError("EVP_PKEY_decrypt/encrypt failed")
 		}
 		out = make([]byte, outLen)
 	} else {
 		outLen = C.uint(len(out))
 	}
 	if crypt(ctx, base(out), &outLen, base(in), C.uint(len(in))) <= 0 {
-		return nil, NewOpenSSLError("EVP_PKEY_decrypt/encrypt failed")
+		return nil, newOpenSSLError("EVP_PKEY_decrypt/encrypt failed")
 	}
 	return out[:outLen], nil
 }
@@ -308,7 +308,7 @@ func SignRSAPKCS1v15(priv *PrivateKeyRSA, h crypto.Hash, hashed []byte) ([]byte,
 				base(out), key, C.GO_RSA_PKCS1_PADDING)
 			return outLen
 		}) <= 0 {
-			return nil, NewOpenSSLError("RSA_private_encrypt")
+			return nil, newOpenSSLError("RSA_private_encrypt")
 		}
 		return out[:outLen], nil
 	}
@@ -326,7 +326,7 @@ func SignRSAPKCS1v15(priv *PrivateKeyRSA, h crypto.Hash, hashed []byte) ([]byte,
 		return C._goboringcrypto_RSA_sign(nid, base(hashed), C.uint(len(hashed)),
 			base(out), &outLen, key)
 	}) == 0 {
-		return nil, NewOpenSSLError("RSA_sign")
+		return nil, newOpenSSLError("RSA_sign")
 	}
 	return out[:outLen], nil
 }
@@ -349,7 +349,7 @@ func VerifyRSAPKCS1v15(pub *PublicKeyRSA, h crypto.Hash, hashed, sig []byte) err
 			outLen = C._goboringcrypto_RSA_public_decrypt(C.int(len(sig)), base(sig), base(out), key, C.GO_RSA_PKCS1_PADDING)
 			return outLen
 		}) <= 0 {
-			return NewOpenSSLError("RSA_verify")
+			return newOpenSSLError("RSA_verify")
 		}
 		if subtle.ConstantTimeCompare(hashed, out[:outLen]) != 1 {
 			return fail("RSA_verify")
@@ -365,7 +365,7 @@ func VerifyRSAPKCS1v15(pub *PublicKeyRSA, h crypto.Hash, hashed, sig []byte) err
 		return C._goboringcrypto_RSA_verify(nid, base(hashed), C.uint(len(hashed)),
 			base(sig), C.uint(len(sig)), key)
 	}) == 0 {
-		return NewOpenSSLError("RSA_verify failed")
+		return newOpenSSLError("RSA_verify failed")
 	}
 	return nil
 }
