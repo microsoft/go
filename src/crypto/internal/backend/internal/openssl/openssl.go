@@ -50,12 +50,12 @@ func SetFIPS(enabled bool) error {
 		mode = C.int(0)
 	}
 	if C._goboringcrypto_FIPS_mode_set(mode) != 1 {
-		return NewOpenSSLError("boringcrypto: set FIPS mode")
+		return newOpenSSLError("boringcrypto: set FIPS mode")
 	}
 	return nil
 }
 
-func NewOpenSSLError(msg string) error {
+func newOpenSSLError(msg string) error {
 	var b strings.Builder
 	var e C.ulong
 
