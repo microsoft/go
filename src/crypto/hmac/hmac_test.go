@@ -6,7 +6,7 @@ package hmac
 
 import (
 	"bytes"
-	"crypto/internal/boring"
+	boring "crypto/internal/backend"
 	"crypto/md5"
 	"crypto/sha1"
 	"crypto/sha256"

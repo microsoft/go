@@ -13,7 +13,7 @@ import (
 	"internal/cpu"
 )
 
-import "crypto/internal/boring"
+import boring "crypto/internal/backend"
 
 // defined in asm_*.s
 

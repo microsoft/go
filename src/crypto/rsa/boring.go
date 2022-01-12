@@ -5,7 +5,7 @@
 package rsa
 
 import (
-	"crypto/internal/boring"
+	boring "crypto/internal/backend"
 	"math/big"
 	"sync/atomic"
 	"unsafe"

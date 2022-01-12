@@ -15,7 +15,7 @@ import (
 	"testing"
 )
 
-import "crypto/internal/boring"
+import boring "crypto/internal/backend"
 
 func TestKeyGeneration(t *testing.T) {
 	for _, size := range []int{128, 1024, 2048, 3072} {

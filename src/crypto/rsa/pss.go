@@ -15,7 +15,7 @@ import (
 	"math/big"
 )
 
-import "crypto/internal/boring"
+import boring "crypto/internal/backend"
 
 // Per RFC 8017, Section 9.1
 //

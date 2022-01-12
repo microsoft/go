@@ -23,7 +23,7 @@ import (
 	"time"
 )
 
-import "crypto/internal/boring"
+import boring "crypto/internal/backend"
 
 const urandomDevice = "/dev/urandom"
 

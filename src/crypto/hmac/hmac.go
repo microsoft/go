@@ -26,7 +26,7 @@ import (
 	"hash"
 )
 
-import "crypto/internal/boring"
+import boring "crypto/internal/backend"
 
 // FIPS 198-1:
 // https://csrc.nist.gov/publications/fips/fips198-1/FIPS-198-1_final.pdf

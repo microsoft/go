@@ -4,7 +4,7 @@
 
 package tls
 
-import "crypto/internal/boring"
+import boring "crypto/internal/backend"
 
 import (
 	"crypto"
