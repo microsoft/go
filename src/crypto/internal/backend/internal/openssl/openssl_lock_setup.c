@@ -4,7 +4,7 @@
 // +build !cmd_go_bootstrap
 // +build !msan
 
-#include "goboringcrypto.h"
+#include "goopenssl.h"
 
 #include <stdio.h>
 #include <pthread.h>

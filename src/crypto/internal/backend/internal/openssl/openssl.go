@@ -7,7 +7,7 @@
 
 package boring
 
-// #include "goboringcrypto.h"
+// #include "goopenssl.h"
 // #cgo LDFLAGS: -ldl
 import "C"
 import (

@@ -10,7 +10,7 @@
 
 package boring
 
-// #include "goboringcrypto.h"
+// #include "goopenssl.h"
 import "C"
 import "unsafe"
 
