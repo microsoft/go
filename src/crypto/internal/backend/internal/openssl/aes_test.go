@@ -2,8 +2,8 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-//go:build linux && !android && !no_openssl && !cmd_go_bootstrap && !msan && cgo
-// +build linux,!android,!no_openssl,!cmd_go_bootstrap,!msan,cgo
+//go:build linux
+// +build linux
 
 package openssl
 
