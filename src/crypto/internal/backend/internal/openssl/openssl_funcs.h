@@ -2,9 +2,6 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-//go:build linux && !android && !no_openssl && !cmd_go_bootstrap && !msan
-// +build linux,!android,!no_openssl,!cmd_go_bootstrap,!msan
-
 #include <stdlib.h> // size_t
 #include <stdint.h> // uint8_t
 
