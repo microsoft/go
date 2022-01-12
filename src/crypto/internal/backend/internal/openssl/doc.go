@@ -1,0 +1,14 @@
+// Copyright 2017 The Go Authors. All rights reserved.
+// Use of this source code is governed by a BSD-style
+// license that can be found in the LICENSE file.
+
+// Package boring provides access to BoringCrypto implementation functions.
+// Check the constant Enabled to find out whether BoringCrypto is available.
+// If BoringCrypto is not available, the functions in this package all panic.
+package boring
+
+// Enabled returns whether or not the boring package is enabled. When
+// the boring package is enabled that means FIPS mode is enabled.
+func Enabled() bool {
+	return enabled
+}
