@@ -8,7 +8,7 @@
 // +build !cmd_go_bootstrap
 // +build !msan
 
-package boring
+package openssl
 
 // #include "goopenssl.h"
 import "C"

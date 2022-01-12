@@ -1,7 +1,7 @@
 //go:build linux && !android && !no_openssl && !cmd_go_bootstrap && !msan && cgo
 // +build linux,!android,!no_openssl,!cmd_go_bootstrap,!msan,cgo
 
-package boring
+package openssl
 
 import (
 	"bytes"

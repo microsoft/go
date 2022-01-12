@@ -5,7 +5,7 @@
 //go:build linux && !android && !no_openssl && !cmd_go_bootstrap && !msan
 // +build linux,!android,!no_openssl,!cmd_go_bootstrap,!msan
 
-package boring
+package openssl
 
 // #include "goopenssl.h"
 // #cgo LDFLAGS: -ldl

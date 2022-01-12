@@ -5,7 +5,7 @@
 // Most functionality in this package is tested by replacing existing code
 // and inheriting that code's tests.
 
-package boring
+package openssl
 
 import (
 	"fmt"

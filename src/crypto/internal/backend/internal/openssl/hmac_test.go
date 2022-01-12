@@ -1,4 +1,4 @@
-package boring
+package openssl
 
 import (
 	"testing"

@@ -5,7 +5,7 @@
 //go:build !linux || !cgo || android || cmd_go_bootstrap || msan || no_openssl
 // +build !linux !cgo android cmd_go_bootstrap msan no_openssl
 
-package boring
+package openssl
 
 import (
 	"crypto"
