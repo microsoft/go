@@ -8,9 +8,6 @@ import (
 	"testing"
 )
 
-// Test that func init does not panic.
-func TestInit(t *testing.T) {}
-
 // Test that Unreachable panics.
 func TestUnreachable(t *testing.T) {
 	defer func() {
