@@ -20,8 +20,8 @@ import (
 	"strings"
 )
 
-// Init loads and initialized OpenSSL.
-// It must be called before any other openssl call.
+// Init loads and initializes OpenSSL.
+// It must be called before any other OpenSSL call.
 func Init() error {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
