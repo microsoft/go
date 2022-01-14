@@ -245,7 +245,7 @@ func DecryptRSANoPadding(priv *PrivateKeyRSA, ciphertext []byte) ([]byte, error)
 	if err != nil {
 		return nil, err
 	}
-	// We could return here but Go expects DecryptRSANoPadding to verify the result
+	// We could return here, but the Go standard library test expects DecryptRSANoPadding to verify the result
 	// in order to defend against errors in the CRT computation.
 	var n, e, d *C.GO_BIGNUM
 	priv.withKey(func(key *C.GO_RSA) C.int {
