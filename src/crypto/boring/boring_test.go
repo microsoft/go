@@ -11,7 +11,7 @@ import (
 )
 
 func TestEnabled(t *testing.T) {
-	t.Skip("We do not enable boring in the same way as upstream")
+	t.Skip("upstream assumes boring is enabled at build time, we don't")
 	supportedPlatform := runtime.GOOS == "linux" && runtime.GOARCH == "amd64"
 	if supportedPlatform && !boring.Enabled() {
 		t.Error("Enabled returned false on a supported platform")
