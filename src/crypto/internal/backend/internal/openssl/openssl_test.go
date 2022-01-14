@@ -2,8 +2,8 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-// Most functionality in this package is tested by replacing existing code
-// and inheriting that code's tests.
+//go:build linux && !android
+// +build linux,!android
 
 package openssl
 
@@ -13,34 +13,12 @@ import (
 	"testing"
 )
 
-// Test that func init does not panic.
-func TestInit(t *testing.T) {}
-
 func TestMain(m *testing.M) {
-	if !Enabled() {
-		fmt.Sprintln("skipping for non-FIPS enabled machines")
+	err := Init()
+	if err != nil {
+		fmt.Println("skipping on linux platform without OpenSSL")
 		os.Exit(0)
 	}
+	_ = SetFIPS(true) // Skip the error as we still want to run the tests on machines without FIPS support.
 	os.Exit(m.Run())
-}
-
-// Test that Unreachable panics.
-func TestUnreachable(t *testing.T) {
-	defer func() {
-		if Enabled() {
-			if err := recover(); err == nil {
-				t.Fatal("expected Unreachable to panic")
-			}
-		} else {
-			if err := recover(); err != nil {
-				t.Fatalf("expected Unreachable to be a no-op")
-			}
-		}
-	}()
-	Unreachable()
-}
-
-// Test that UnreachableExceptTests does not panic (this is a test).
-func TestUnreachableExceptTests(t *testing.T) {
-	UnreachableExceptTests()
 }

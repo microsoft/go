@@ -2,8 +2,8 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-//go:build linux && !android && !no_openssl && !cmd_go_bootstrap && !msan
-// +build linux,!android,!no_openssl,!cmd_go_bootstrap,!msan
+//go:build linux && !android
+// +build linux,!android
 
 package openssl
 
@@ -75,13 +75,13 @@ func newECKey(curve string, X, Y *big.Int) (*C.GO_EC_KEY, error) {
 	}
 	key := C._goboringcrypto_EC_KEY_new_by_curve_name(nid)
 	if key == nil {
-		return nil, NewOpenSSLError("EC_KEY_new_by_curve_name failed")
+		return nil, newOpenSSLError("EC_KEY_new_by_curve_name failed")
 	}
 	group := C._goboringcrypto_EC_KEY_get0_group(key)
 	pt := C._goboringcrypto_EC_POINT_new(group)
 	if pt == nil {
 		C._goboringcrypto_EC_KEY_free(key)
-		return nil, NewOpenSSLError("EC_POINT_new failed")
+		return nil, newOpenSSLError("EC_POINT_new failed")
 	}
 	bx := bigToBN(X)
 	by := bigToBN(Y)
@@ -96,7 +96,7 @@ func newECKey(curve string, X, Y *big.Int) (*C.GO_EC_KEY, error) {
 	C._goboringcrypto_EC_POINT_free(pt)
 	if !ok {
 		C._goboringcrypto_EC_KEY_free(key)
-		return nil, NewOpenSSLError("EC_POINT_free failed")
+		return nil, newOpenSSLError("EC_POINT_free failed")
 	}
 	return key, nil
 }
@@ -113,7 +113,7 @@ func NewPrivateKeyECDSA(curve string, X, Y *big.Int, D *big.Int) (*PrivateKeyECD
 	}
 	if !ok {
 		C._goboringcrypto_EC_KEY_free(key)
-		return nil, NewOpenSSLError("EC_KEY_set_private_key failed")
+		return nil, newOpenSSLError("EC_KEY_set_private_key failed")
 	}
 	k := &PrivateKeyECDSA{key}
 	// Note: Because of the finalizer, any time k.key is passed to cgo,
@@ -145,7 +145,7 @@ func SignMarshalECDSA(priv *PrivateKeyECDSA, hash []byte) ([]byte, error) {
 	sig := make([]byte, size)
 	var sigLen C.uint
 	if C._goboringcrypto_ECDSA_sign(0, base(hash), C.size_t(len(hash)), (*C.uint8_t)(unsafe.Pointer(&sig[0])), &sigLen, priv.key) == 0 {
-		return nil, NewOpenSSLError("ECDSA_sign failed")
+		return nil, newOpenSSLError("ECDSA_sign failed")
 	}
 	runtime.KeepAlive(priv)
 	return sig[:sigLen], nil
@@ -171,30 +171,30 @@ func GenerateKeyECDSA(curve string) (X, Y, D *big.Int, err error) {
 	}
 	key := C._goboringcrypto_EC_KEY_new_by_curve_name(nid)
 	if key == nil {
-		return nil, nil, nil, NewOpenSSLError("EC_KEY_new_by_curve_name failed")
+		return nil, nil, nil, newOpenSSLError("EC_KEY_new_by_curve_name failed")
 	}
 	defer C._goboringcrypto_EC_KEY_free(key)
 	if C._goboringcrypto_EC_KEY_generate_key(key) == 0 {
-		return nil, nil, nil, NewOpenSSLError("EC_KEY_generate_key failed")
+		return nil, nil, nil, newOpenSSLError("EC_KEY_generate_key failed")
 	}
 	group := C._goboringcrypto_EC_KEY_get0_group(key)
 	pt := C._goboringcrypto_EC_KEY_get0_public_key(key)
 	bd := C._goboringcrypto_EC_KEY_get0_private_key(key)
 	if pt == nil || bd == nil {
-		return nil, nil, nil, NewOpenSSLError("EC_KEY_get0_private_key failed")
+		return nil, nil, nil, newOpenSSLError("EC_KEY_get0_private_key failed")
 	}
 	bx := C._goboringcrypto_BN_new()
 	if bx == nil {
-		return nil, nil, nil, NewOpenSSLError("BN_new failed")
+		return nil, nil, nil, newOpenSSLError("BN_new failed")
 	}
 	defer C._goboringcrypto_BN_free(bx)
 	by := C._goboringcrypto_BN_new()
 	if by == nil {
-		return nil, nil, nil, NewOpenSSLError("BN_new failed")
+		return nil, nil, nil, newOpenSSLError("BN_new failed")
 	}
 	defer C._goboringcrypto_BN_free(by)
 	if C._goboringcrypto_EC_POINT_get_affine_coordinates_GFp(group, pt, bx, by, nil) == 0 {
-		return nil, nil, nil, NewOpenSSLError("EC_POINT_get_affine_coordinates_GFp failed")
+		return nil, nil, nil, newOpenSSLError("EC_POINT_get_affine_coordinates_GFp failed")
 	}
 	return bnToBig(bx), bnToBig(by), bnToBig(bd), nil
 }

@@ -2,110 +2,60 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-//go:build linux && !android && !no_openssl && !cmd_go_bootstrap && !msan
-// +build linux,!android,!no_openssl,!cmd_go_bootstrap,!msan
+//go:build linux && !android
+// +build linux,!android
 
+// Package openssl provides access to OpenSSLCrypto implementation functions.
+// Check the constant Enabled to find out whether OpenSSLCrypto is available.
+// If OpenSSLCrypto is not available, the functions in this package all panic.
 package openssl
 
 // #include "goopenssl.h"
 // #cgo LDFLAGS: -ldl
 import "C"
 import (
-	"crypto/internal/boring/sig"
 	"errors"
 	"math/big"
-	"os"
 	"runtime"
 	"strings"
 )
 
-// Enabled controls whether FIPS crypto is enabled.
-var enabled = false
-
-func init() {
-	if !needFIPS() {
-		return
-	}
-
+// Init loads and initializes OpenSSL.
+// It must be called before any other OpenSSL call.
+func Init() error {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
 
-	// We must panic if openssl cannot be correctly setup in FIPS mode
-	// in order to avoid applications unintentionally running without FIPS.
-
 	if C._goboringcrypto_DLOPEN_OPENSSL() == C.NULL {
-		panic("boringcrypto: OpenSSL dlopen failed")
+		return errors.New("boringcrypto: OpenSSL dlopen failed")
 	}
 
 	if C._goboringcrypto_OPENSSL_setup() != 1 {
-		panic("boringcrypto: OpenSSL setup failed")
+		return errors.New("boringcrypto: OpenSSL setup failed")
 	}
-
-	if C._goboringcrypto_FIPS_mode() != 1 {
-		// openssl FIPS mode can be configured from many places:
-		// environment variables, config file, kernel parameters, etc.
-		// If we reach this point and FIPS mode is not set, force it or panic.
-		if C._goboringcrypto_FIPS_mode_set(1) != 1 {
-			panic(NewOpenSSLError("boringcrypto: not in FIPS mode"))
-		}
-	}
-
-	enabled = true
-	sig.BoringCrypto()
+	return nil
 }
 
-func needFIPS() bool {
-	// TODO: use runtime instead of os.
-	// https://github.com/microsoft/go/issues/360
-	if os.Getenv("GOLANG_FIPS") == "1" {
-		// Opt-in to FIPS mode regardless of Linux kernel mode.
-		return true
-	}
-	if os.Getenv("GOLANG_FIPS") == "0" {
-		// Opt-out to FIPS mode regardless of Linux kernel mode.
-		return false
-	}
-	// Check if Linux kernel is booted in FIPS mode.
-	buf, err := os.ReadFile("/proc/sys/crypto/fips_enabled")
-	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return false
-		}
-		// If there is an error reading we could either panic or assume FIPS is not enabled.
-		// Panicking would be too disruptive for apps that don't require FIPS.
-		// If an app wants to be 100% sure that is running in FIPS mode
-		// it should use boring.Enabled() or GOLANG_FIPS=1.
-		return false
-	}
-	return strings.TrimSpace(string(buf)) == "1"
+// FIPS returns true if OpenSSL is running in FIPS mode, else returns false.
+func FIPS() bool {
+	return C._goboringcrypto_FIPS_mode() == 1
 }
 
-// Unreachable marks code that should be unreachable
-// when BoringCrypto is in use. It panics only when
-// the system is in FIPS mode.
-func Unreachable() {
-	if Enabled() {
-		panic("boringcrypto: invalid code execution")
+// SetFIPS enables or disables FIPS mode.
+func SetFIPS(enabled bool) error {
+	var mode C.int
+	if enabled {
+		mode = C.int(1)
+	} else {
+		mode = C.int(0)
 	}
-}
-func hasSuffix(s, t string) bool {
-	return len(s) > len(t) && s[len(s)-len(t):] == t
+	if C._goboringcrypto_FIPS_mode_set(mode) != 1 {
+		return newOpenSSLError("boringcrypto: set FIPS mode")
+	}
+	return nil
 }
 
-// UnreachableExceptTests marks code that should be unreachable
-// when BoringCrypto is in use. It panics.
-func UnreachableExceptTests() {
-	// TODO: use runtime instead of os.
-	// https://github.com/microsoft/go/issues/360
-	name := os.Args[0]
-	// If BoringCrypto ran on Windows we'd need to allow _test.exe and .test.exe as well.
-	if Enabled() && !hasSuffix(name, "_test") && !hasSuffix(name, ".test") {
-		println("boringcrypto: unexpected code execution in", name)
-		panic("boringcrypto: invalid code execution")
-	}
-}
-
-func NewOpenSSLError(msg string) error {
+func newOpenSSLError(msg string) error {
 	var b strings.Builder
 	var e C.ulong
 
