@@ -310,7 +310,7 @@ L:
 			}
 		}
 		seen[T] = e
-		if T != nil {
+		if T != nil && xtyp != nil {
 			check.typeAssertion(e, x, xtyp, T)
 		}
 	}
@@ -503,27 +503,25 @@ func (check *Checker) stmt(ctxt stmtContext, s ast.Stmt) {
 
 	case *ast.ReturnStmt:
 		res := check.sig.results
-		if res.Len() > 0 {
-			// function returns results
-			// (if one, say the first, result parameter is named, all of them are named)
-			if len(s.Results) == 0 && res.vars[0].name != "" {
-				// spec: "Implementation restriction: A compiler may disallow an empty expression
-				// list in a "return" statement if a different entity (constant, type, or variable)
-				// with the same name as a result parameter is in scope at the place of the return."
-				for _, obj := range res.vars {
-					if alt := check.lookup(obj.name); alt != nil && alt != obj {
-						check.errorf(s, _OutOfScopeResult, "result parameter %s not in scope at return", obj.name)
-						check.errorf(alt, _OutOfScopeResult, "\tinner declaration of %s", obj)
-						// ok to continue
-					}
+		// Return with implicit results allowed for function with named results.
+		// (If one is named, all are named.)
+		if len(s.Results) == 0 && res.Len() > 0 && res.vars[0].name != "" {
+			// spec: "Implementation restriction: A compiler may disallow an empty expression
+			// list in a "return" statement if a different entity (constant, type, or variable)
+			// with the same name as a result parameter is in scope at the place of the return."
+			for _, obj := range res.vars {
+				if alt := check.lookup(obj.name); alt != nil && alt != obj {
+					check.errorf(s, _OutOfScopeResult, "result parameter %s not in scope at return", obj.name)
+					check.errorf(alt, _OutOfScopeResult, "\tinner declaration of %s", obj)
+					// ok to continue
 				}
-			} else {
-				// return has results or result parameters are unnamed
-				check.initVars(res.vars, s.Results, s)
 			}
-		} else if len(s.Results) > 0 {
-			check.error(s.Results[0], _WrongResultCount, "no result values expected")
-			check.use(s.Results...)
+		} else {
+			var lhs []*Var
+			if res.Len() > 0 {
+				lhs = res.vars
+			}
+			check.initVars(lhs, s.Results, s)
 		}
 
 	case *ast.BranchStmt:
@@ -686,14 +684,14 @@ func (check *Checker) stmt(ctxt stmtContext, s ast.Stmt) {
 			return
 		}
 		// TODO(gri) we may want to permit type switches on type parameter values at some point
+		var xtyp *Interface
 		if isTypeParam(x.typ) {
 			check.errorf(&x, _InvalidTypeSwitch, "cannot use type switch on type parameter value %s", &x)
-			return
-		}
-		xtyp, _ := under(x.typ).(*Interface)
-		if xtyp == nil {
-			check.errorf(&x, _InvalidTypeSwitch, "%s is not an interface", &x)
-			return
+		} else {
+			xtyp, _ = under(x.typ).(*Interface)
+			if xtyp == nil {
+				check.errorf(&x, _InvalidTypeSwitch, "%s is not an interface", &x)
+			}
 		}
 
 		check.multipleDefaults(s.Body.List)
