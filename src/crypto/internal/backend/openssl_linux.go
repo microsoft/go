@@ -11,11 +11,12 @@
 package backend
 
 import (
-	"crypto/internal/backend/internal/openssl"
 	"crypto/internal/boring/sig"
 	"errors"
 	"os"
 	"strings"
+
+	"github.com/microsoft/go-crypto-openssl/openssl"
 )
 
 // Enabled controls whether FIPS crypto is enabled.

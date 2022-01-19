@@ -405,7 +405,8 @@ var depsRules = `
 	CRYPTO < crypto/internal/boring;
 	
 	CRYPTO
-	< crypto/internal/backend/internal/openssl
+	< github.com/microsoft/go-crypto-openssl/openssl/internal/subtle
+	< github.com/microsoft/go-crypto-openssl/openssl
 	< crypto/internal/backend
 	< crypto/aes, crypto/des, crypto/hmac, crypto/md5, crypto/rc4,
 	  crypto/sha1, crypto/sha256, crypto/sha512
@@ -629,7 +630,7 @@ var buildIgnore = []byte("\n// +build ignore")
 
 func findImports(pkg string) ([]string, error) {
 	vpkg := pkg
-	if strings.HasPrefix(pkg, "golang.org") {
+	if strings.HasPrefix(pkg, "golang.org") || strings.HasPrefix(pkg, "github.com") {
 		vpkg = "vendor/" + pkg
 	}
 	dir := filepath.Join(Default.GOROOT, "src", vpkg)
