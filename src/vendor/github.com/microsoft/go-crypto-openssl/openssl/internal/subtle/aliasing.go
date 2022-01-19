@@ -6,7 +6,7 @@
 // code but require careful thought to use correctly.
 //
 // This is a mirror of golang.org/x/crypto/internal/subtle.
-package subtle // import "crypto/internal/subtle"
+package subtle
 
 import "unsafe"
 
