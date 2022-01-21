@@ -9,6 +9,7 @@ package importer
 
 import (
 	"cmd/compile/internal/syntax"
+	"cmd/compile/internal/typecheck"
 	"cmd/compile/internal/types2"
 	"encoding/binary"
 	"fmt"
@@ -126,7 +127,7 @@ func ImportData(imports map[string]*types2.Package, data, path string) (pkg *typ
 		typCache: make(map[uint64]types2.Type),
 		// Separate map for typeparams, keyed by their package and unique
 		// name (name with subscript).
-		tparamIndex: make(map[ident]types2.Type),
+		tparamIndex: make(map[ident]*types2.TypeParam),
 	}
 
 	for i, pt := range predeclared {
@@ -202,7 +203,7 @@ type iimporter struct {
 	declData    string
 	pkgIndex    map[*types2.Package]map[string]uint64
 	typCache    map[uint64]types2.Type
-	tparamIndex map[ident]types2.Type
+	tparamIndex map[ident]*types2.TypeParam
 
 	interfaceList []*types2.Interface
 }
@@ -376,12 +377,12 @@ func (r *importReader) obj(name string) {
 		if r.p.exportVersion < iexportVersionGenerics {
 			errorf("unexpected type param type")
 		}
-		// Remove the "path" from the type param name that makes it unique
-		ix := strings.LastIndex(name, ".")
-		if ix < 0 {
-			errorf("missing path for type param")
+		name0 := typecheck.TparamName(name)
+		if name0 == "" {
+			errorf("malformed type parameter export name %s: missing prefix", name)
 		}
-		tn := types2.NewTypeName(pos, r.currPkg, name[ix+1:], nil)
+
+		tn := types2.NewTypeName(pos, r.currPkg, name0, nil)
 		t := types2.NewTypeParam(tn, nil)
 		// To handle recursive references to the typeparam within its
 		// bound, save the partial type in tparamIndex before reading the bounds.
