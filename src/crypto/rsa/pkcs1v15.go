@@ -14,7 +14,7 @@ import (
 	"crypto/internal/randutil"
 )
 
-import "crypto/internal/boring"
+import boring "crypto/internal/backend"
 
 // This file implements encryption and decryption using PKCS #1 v1.5 padding.
 

@@ -16,7 +16,7 @@ import (
 	"testing"
 )
 
-import "crypto/internal/boring"
+import boring "crypto/internal/backend"
 
 type sha256Test struct {
 	out       string

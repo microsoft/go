@@ -10,7 +10,7 @@ import (
 	"strconv"
 )
 
-import "crypto/internal/boring"
+import boring "crypto/internal/backend"
 
 // The AES block size in bytes.
 const BlockSize = 16

@@ -13,7 +13,7 @@ import (
 	"hash"
 )
 
-import "crypto/internal/boring"
+import boring "crypto/internal/backend"
 
 func init() {
 	crypto.RegisterHash(crypto.SHA224, New224)

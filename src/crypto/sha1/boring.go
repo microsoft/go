@@ -11,11 +11,11 @@
 package sha1
 
 import (
-	"crypto/internal/boring"
+	boring "crypto/internal/backend"
 	"hash"
 )
 
-const boringEnabled = boring.Enabled
+var boringEnabled = boring.Enabled
 
 func boringNewSHA1() hash.Hash { return boring.NewSHA1() }
 

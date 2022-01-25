@@ -42,7 +42,7 @@ import (
 )
 
 import (
-	"crypto/internal/boring"
+	boring "crypto/internal/backend"
 	"unsafe"
 )
 

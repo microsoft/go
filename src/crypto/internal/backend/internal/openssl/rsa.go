@@ -241,7 +241,29 @@ func EncryptRSAPKCS1(pub *PublicKeyRSA, msg []byte) ([]byte, error) {
 }
 
 func DecryptRSANoPadding(priv *PrivateKeyRSA, ciphertext []byte) ([]byte, error) {
-	return cryptRSA(priv.withKey, C.GO_RSA_NO_PADDING, nil, nil, 0, 0, decryptInit, decrypt, nil, ciphertext)
+	ret, err := cryptRSA(priv.withKey, C.GO_RSA_NO_PADDING, nil, nil, 0, 0, decryptInit, decrypt, nil, ciphertext)
+	if err != nil {
+		return nil, err
+	}
+	// We could return here, but the Go standard library test expects DecryptRSANoPadding to verify the result
+	// in order to defend against errors in the CRT computation.
+	var n, e, d *C.GO_BIGNUM
+	priv.withKey(func(key *C.GO_RSA) C.int {
+		C._goboringcrypto_RSA_get0_key(key, &n, &e, &d)
+		return 1
+	})
+	pub, err := NewPublicKeyRSA(bnToBig(n), bnToBig(e))
+	if err != nil {
+		return nil, err
+	}
+	enc, err := EncryptRSANoPadding(pub, ret)
+	if err != nil {
+		return nil, err
+	}
+	if subtle.ConstantTimeCompare(ciphertext, enc) != 1 {
+		return nil, errors.New("rsa: internal error")
+	}
+	return ret, nil
 }
 
 func EncryptRSANoPadding(pub *PublicKeyRSA, msg []byte) ([]byte, error) {
