@@ -24,9 +24,9 @@ share Git ancestry with the Go repository, but the repository serves the same
 purpose as a Git fork: maintaining a modified version of the Go source code over
 time.
 
-This fork exists to produce a version of Go that can be FIPS 140-2 certified
-using an OpenSSL backend. Our goal is to share this implementation with others
-in the Go community who have the same requirement, and to merge this capability
+This fork exists to produce a version of Go that can be used to build FIPS 140-2
+compliant applications. Our goal is to share this implementation with others in
+the Go community who have the same requirement, and to merge this capability
 into upstream Go as soon as possible. See
 [eng/doc/fips@dev/official/go1.17-openssl-fips](https://github.com/microsoft/go/tree/dev/official/go1.17-openssl-fips/eng/doc/fips)
 for more information about this feature and the history of FIPS 140-2 compliance
