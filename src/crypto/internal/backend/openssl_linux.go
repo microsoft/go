@@ -2,8 +2,8 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-//go:build linux && !android && !no_openssl && !cmd_go_bootstrap && !msan
-// +build linux,!android,!no_openssl,!cmd_go_bootstrap,!msan
+//go:build linux && !android && !gocrypt && !cmd_go_bootstrap && !msan
+// +build linux,!android,!gocrypt,!cmd_go_bootstrap,!msan
 
 // Package openssl provides access to OpenSSLCrypto implementation functions.
 // Check the variable Enabled to find out whether OpenSSLCrypto is available.
