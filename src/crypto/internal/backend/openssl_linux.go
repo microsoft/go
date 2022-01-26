@@ -40,6 +40,10 @@ func init() {
 }
 
 func needFIPS() bool {
+	if envFips, ok := syscall.Getenv("GOFIPS"); ok {
+		return envFips != "0"
+	}
+	// TODO: Remove GOLANG_FIPS once our CI uses GOFIPS.
 	if envFips, ok := syscall.Getenv("GOLANG_FIPS"); ok {
 		return envFips != "0"
 	}
@@ -59,7 +63,7 @@ func needFIPS() bool {
 			// If there is an error reading we could either panic or assume FIPS is not enabled.
 			// Panicking would be too disruptive for apps that don't require FIPS.
 			// If an app wants to be 100% sure that is running in FIPS mode
-			// it should use boring.Enabled() or GOLANG_FIPS=1.
+			// it should use boring.Enabled() or GOFIPS=1.
 			return false
 		}
 	}
