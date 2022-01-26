@@ -12,9 +12,7 @@ package backend
 
 import (
 	"crypto/internal/boring/sig"
-	"errors"
-	"os"
-	"strings"
+	"syscall"
 
 	"github.com/microsoft/go-crypto-openssl/openssl"
 )
@@ -42,29 +40,34 @@ func init() {
 }
 
 func needFIPS() bool {
-	// TODO: use runtime instead of os.
-	// https://github.com/microsoft/go/issues/360
-	if os.Getenv("GOLANG_FIPS") == "1" {
-		// Opt-in to FIPS mode regardless of Linux kernel mode.
-		return true
+	if envFips, ok := syscall.Getenv("GOLANG_FIPS"); ok {
+		return envFips != "0"
 	}
-	if os.Getenv("GOLANG_FIPS") == "0" {
-		// Opt-out of FIPS mode regardless of Linux kernel mode.
-		return false
-	}
-	// Check if Linux kernel is booted in FIPS mode.
-	buf, err := os.ReadFile("/proc/sys/crypto/fips_enabled")
-	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
+	var fd int
+	for {
+		var err error
+		fd, err = syscall.Open("/proc/sys/crypto/fips_enabled", syscall.O_RDONLY, 0)
+		if err == nil {
+			break
+		}
+		switch err {
+		case syscall.EINTR:
+			continue
+		case syscall.ENOENT:
+			return false
+		default:
+			// If there is an error reading we could either panic or assume FIPS is not enabled.
+			// Panicking would be too disruptive for apps that don't require FIPS.
+			// If an app wants to be 100% sure that is running in FIPS mode
+			// it should use boring.Enabled() or GOLANG_FIPS=1.
 			return false
 		}
-		// If there is an error reading we could either panic or assume FIPS is not enabled.
-		// Panicking would be too disruptive for apps that don't require FIPS.
-		// If an app wants to be 100% sure that is running in FIPS mode
-		// it should use boring.Enabled() or GOLANG_FIPS=1.
-		return false
 	}
-	return strings.TrimSpace(string(buf)) == "1"
+	defer syscall.Close(fd)
+	var tmp [1]byte
+	syscall.Read(fd, tmp[:])
+	// fips_enabled can be either '0' or '1'.
+	return tmp[0] != '0'
 }
 
 // Unreachable marks code that should be unreachable
@@ -76,6 +79,9 @@ func Unreachable() {
 	}
 }
 
+// provided by runtime to avoid os import
+func runtime_arg0() string
+
 func hasSuffix(s, t string) bool {
 	return len(s) > len(t) && s[len(s)-len(t):] == t
 }
@@ -83,9 +89,7 @@ func hasSuffix(s, t string) bool {
 // UnreachableExceptTests marks code that should be unreachable
 // when OpenSSLCrypto is in use. It panics.
 func UnreachableExceptTests() {
-	// TODO: use runtime instead of os.
-	// https://github.com/microsoft/go/issues/360
-	name := os.Args[0]
+	name := runtime_arg0()
 	// If OpenSSLCrypto ran on Windows we'd need to allow _test.exe and .test.exe as well.
 	if Enabled && !hasSuffix(name, "_test") && !hasSuffix(name, ".test") {
 		println("opensslcrypto: unexpected code execution in", name)
