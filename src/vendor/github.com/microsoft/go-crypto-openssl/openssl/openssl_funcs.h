@@ -1,6 +1,5 @@
-// Copyright 2017 The Go Authors. All rights reserved.
-// Use of this source code is governed by a BSD-style
-// license that can be found in the LICENSE file.
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT License.
 
 #include <stdlib.h> // size_t
 #include <stdint.h> // uint8_t

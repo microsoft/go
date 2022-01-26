@@ -3,6 +3,7 @@ module std
 go 1.17
 
 require (
+	github.com/microsoft/go-crypto-openssl v0.0.0-20220124101237-183c44c3cf71
 	golang.org/x/crypto v0.0.0-20211215165025-cf75a172585e
 	golang.org/x/net v0.0.0-20220106012031-21a9c9cfe9c3
 )

@@ -1,6 +1,5 @@
-// Copyright 2017 The Go Authors. All rights reserved.
-// Use of this source code is governed by a BSD-style
-// license that can be found in the LICENSE file.
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT License.
 
 //go:build linux && !android
 // +build linux,!android
@@ -11,11 +10,12 @@ package openssl
 import "C"
 import (
 	"crypto/cipher"
-	"crypto/internal/subtle"
 	"errors"
 	"runtime"
 	"strconv"
 	"unsafe"
+
+	"github.com/microsoft/go-crypto-openssl/openssl/internal/subtle"
 )
 
 type aesKeySizeError int
