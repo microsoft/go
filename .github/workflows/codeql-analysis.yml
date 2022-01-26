@@ -1,0 +1,57 @@
+# Copyright (c) Microsoft Corporation.
+# Use of this source code is governed by a BSD-style
+# license that can be found in the LICENSE file.
+
+# This is a CodeQL analysis job that runs on each PR to point out whether it
+# adds new potentially insecure code patterns. It also runs on a periodic basis
+# to analyze the checked-in code.
+
+# For more overall info about CodeQL: https://docs.github.com/en/code-security/secure-coding/automatically-scanning-your-code-for-vulnerabilities-and-errors/about-code-scanning
+# More about the CodeQL actions: https://github.com/github/codeql-action
+# OneNote page with more internal info: https://microsoft.sharepoint.com/teams/managedlanguages/_layouts/OneNote.aspx?id=%2Fteams%2Fmanagedlanguages%2Ffiles%2FTeam%20Notebook%2FGoLang%20Team&wd=target%28Main.one%7C62B655D4-14E7-41D6-A063-0869C28D63FC%2FSDL%20Tools%7C3908F727-3751-4ACC-8C71-6CEB2DF277B4%2F%29
+
+name: "CodeQL"
+
+on:
+  push:
+    branches: [ microsoft/* ]
+  pull_request:
+    branches: [ microsoft/* ]
+  schedule:
+    # Run at 08:39 UTC each Thursday.
+    - cron: '39 8 * * 4'
+
+jobs:
+  analyze:
+    name: Analyze
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [ 'cpp', 'go' ]
+
+    env:
+      # Instead of running "go build" during the analysis step, instrument our custom build.
+      CODEQL_EXTRACTOR_GO_BUILD_TRACING: "on"
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v2
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v1
+        with:
+          languages: ${{ matrix.language }}
+
+      # Custom build command. The Go repo itself doesn't have a module at the
+      # root, so typical Go module build commands don't work.
+      - run: |
+          pwsh eng/run.ps1 build -refresh
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v1
