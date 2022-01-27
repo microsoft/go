@@ -69,9 +69,13 @@ func needFIPS() bool {
 	}
 	defer syscall.Close(fd)
 	var tmp [1]byte
-	syscall.Read(fd, tmp[:])
+	n, err := syscall.Read(fd, tmp[:])
+	if n != 1 || err != nil {
+		// We return false instead of panicing for the same reason as before.
+		return false
+	}
 	// fips_enabled can be either '0' or '1'.
-	return tmp[0] != '0'
+	return tmp[0] == '1'
 }
 
 // Unreachable marks code that should be unreachable
