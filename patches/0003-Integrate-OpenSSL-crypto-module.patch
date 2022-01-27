@@ -1,0 +1,702 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: microsoft-golang-bot <microsoft-golang-bot@users.noreply.github.com>
+Date: Thu, 27 Jan 2022 11:45:14 -0600
+Subject: [PATCH] Integrate OpenSSL crypto module
+
+---
+ src/cmd/link/internal/ld/lib.go              |   2 +-
+ src/crypto/aes/cipher.go                     |   2 +-
+ src/crypto/aes/cipher_asm.go                 |   2 +-
+ src/crypto/boring/boring.go                  |   2 +-
+ src/crypto/boring/boring_test.go             |   1 +
+ src/crypto/ecdsa/boring.go                   |   2 +-
+ src/crypto/ecdsa/ecdsa.go                    |   2 +-
+ src/crypto/hmac/hmac.go                      |   2 +-
+ src/crypto/hmac/hmac_test.go                 |   2 +-
+ src/crypto/internal/backend/backend_test.go  |  30 ++++
+ src/crypto/internal/backend/dummy.s          |  10 ++
+ src/crypto/internal/backend/nobackend.go     | 112 ++++++++++++++
+ src/crypto/internal/backend/openssl_linux.go | 145 +++++++++++++++++++
+ src/crypto/rand/rand_unix.go                 |   2 +-
+ src/crypto/rsa/boring.go                     |   2 +-
+ src/crypto/rsa/pkcs1v15.go                   |   2 +-
+ src/crypto/rsa/pss.go                        |   2 +-
+ src/crypto/rsa/rsa.go                        |   2 +-
+ src/crypto/rsa/rsa_test.go                   |   2 +-
+ src/crypto/sha1/boring.go                    |   4 +-
+ src/crypto/sha1/sha1_test.go                 |   2 +-
+ src/crypto/sha256/sha256.go                  |   2 +-
+ src/crypto/sha256/sha256_test.go             |   2 +-
+ src/crypto/sha512/sha512.go                  |   2 +-
+ src/crypto/sha512/sha512_test.go             |   2 +-
+ src/crypto/tls/cipher_suites.go              |   2 +-
+ src/go/build/deps_test.go                    |  13 +-
+ src/runtime/runtime_boring.go                |   5 +
+ 28 files changed, 335 insertions(+), 25 deletions(-)
+ create mode 100644 src/crypto/internal/backend/backend_test.go
+ create mode 100644 src/crypto/internal/backend/dummy.s
+ create mode 100644 src/crypto/internal/backend/nobackend.go
+ create mode 100644 src/crypto/internal/backend/openssl_linux.go
+
+diff --git a/src/cmd/link/internal/ld/lib.go b/src/cmd/link/internal/ld/lib.go
+index d7e408669e..09c5dd152c 100644
+--- a/src/cmd/link/internal/ld/lib.go
++++ b/src/cmd/link/internal/ld/lib.go
+@@ -1013,7 +1013,7 @@ var hostobj []Hostobj
+ // These packages can use internal linking mode.
+ // Others trigger external mode.
+ var internalpkg = []string{
+-	"crypto/internal/boring",
++	"vendor/github.com/microsoft/go-crypto-openssl/openssl",
+ 	"crypto/x509",
+ 	"net",
+ 	"os/user",
+diff --git a/src/crypto/aes/cipher.go b/src/crypto/aes/cipher.go
+index 29d01796eb..f3680ad6b4 100644
+--- a/src/crypto/aes/cipher.go
++++ b/src/crypto/aes/cipher.go
+@@ -10,7 +10,7 @@ import (
+ 	"strconv"
+ )
+ 
+-import "crypto/internal/boring"
++import boring "crypto/internal/backend"
+ 
+ // The AES block size in bytes.
+ const BlockSize = 16
+diff --git a/src/crypto/aes/cipher_asm.go b/src/crypto/aes/cipher_asm.go
+index 846f56ab56..e8666b40b6 100644
+--- a/src/crypto/aes/cipher_asm.go
++++ b/src/crypto/aes/cipher_asm.go
+@@ -13,7 +13,7 @@ import (
+ 	"internal/cpu"
+ )
+ 
+-import "crypto/internal/boring"
++import boring "crypto/internal/backend"
+ 
+ // defined in asm_*.s
+ 
+diff --git a/src/crypto/boring/boring.go b/src/crypto/boring/boring.go
+index 19e2a0876f..2829231f4a 100644
+--- a/src/crypto/boring/boring.go
++++ b/src/crypto/boring/boring.go
+@@ -11,7 +11,7 @@
+ // is satisfied, so that applications can tag files that use this package.
+ package boring
+ 
+-import "crypto/internal/boring"
++import boring "crypto/internal/backend"
+ 
+ // Enabled reports whether BoringCrypto handles supported crypto operations.
+ func Enabled() bool {
+diff --git a/src/crypto/boring/boring_test.go b/src/crypto/boring/boring_test.go
+index ace50de0c2..83ef05d872 100644
+--- a/src/crypto/boring/boring_test.go
++++ b/src/crypto/boring/boring_test.go
+@@ -11,6 +11,7 @@ import (
+ )
+ 
+ func TestEnabled(t *testing.T) {
++	t.Skip("upstream assumes boring is enabled at build time, we don't")
+ 	supportedPlatform := runtime.GOOS == "linux" && runtime.GOARCH == "amd64"
+ 	if supportedPlatform && !boring.Enabled() {
+ 		t.Error("Enabled returned false on a supported platform")
+diff --git a/src/crypto/ecdsa/boring.go b/src/crypto/ecdsa/boring.go
+index fa15ecb850..92c42e28d5 100644
+--- a/src/crypto/ecdsa/boring.go
++++ b/src/crypto/ecdsa/boring.go
+@@ -5,7 +5,7 @@
+ package ecdsa
+ 
+ import (
+-	"crypto/internal/boring"
++	boring "crypto/internal/backend"
+ 	"math/big"
+ 	"sync/atomic"
+ 	"unsafe"
+diff --git a/src/crypto/ecdsa/ecdsa.go b/src/crypto/ecdsa/ecdsa.go
+index 1a7635ec2b..6d27b818dd 100644
+--- a/src/crypto/ecdsa/ecdsa.go
++++ b/src/crypto/ecdsa/ecdsa.go
+@@ -42,7 +42,7 @@ import (
+ )
+ 
+ import (
+-	"crypto/internal/boring"
++	boring "crypto/internal/backend"
+ 	"unsafe"
+ )
+ 
+diff --git a/src/crypto/hmac/hmac.go b/src/crypto/hmac/hmac.go
+index 34805765d5..79fd58d0da 100644
+--- a/src/crypto/hmac/hmac.go
++++ b/src/crypto/hmac/hmac.go
+@@ -26,7 +26,7 @@ import (
+ 	"hash"
+ )
+ 
+-import "crypto/internal/boring"
++import boring "crypto/internal/backend"
+ 
+ // FIPS 198-1:
+ // https://csrc.nist.gov/publications/fips/fips198-1/FIPS-198-1_final.pdf
+diff --git a/src/crypto/hmac/hmac_test.go b/src/crypto/hmac/hmac_test.go
+index 55415abf02..904925377b 100644
+--- a/src/crypto/hmac/hmac_test.go
++++ b/src/crypto/hmac/hmac_test.go
+@@ -6,7 +6,7 @@ package hmac
+ 
+ import (
+ 	"bytes"
+-	"crypto/internal/boring"
++	boring "crypto/internal/backend"
+ 	"crypto/md5"
+ 	"crypto/sha1"
+ 	"crypto/sha256"
+diff --git a/src/crypto/internal/backend/backend_test.go b/src/crypto/internal/backend/backend_test.go
+new file mode 100644
+index 0000000000..c2c06d3bff
+--- /dev/null
++++ b/src/crypto/internal/backend/backend_test.go
+@@ -0,0 +1,30 @@
++// Copyright 2017 The Go Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style
++// license that can be found in the LICENSE file.
++
++package backend
++
++import (
++	"testing"
++)
++
++// Test that Unreachable panics.
++func TestUnreachable(t *testing.T) {
++	defer func() {
++		if Enabled {
++			if err := recover(); err == nil {
++				t.Fatal("expected Unreachable to panic")
++			}
++		} else {
++			if err := recover(); err != nil {
++				t.Fatalf("expected Unreachable to be a no-op")
++			}
++		}
++	}()
++	Unreachable()
++}
++
++// Test that UnreachableExceptTests does not panic (this is a test).
++func TestUnreachableExceptTests(t *testing.T) {
++	UnreachableExceptTests()
++}
+diff --git a/src/crypto/internal/backend/dummy.s b/src/crypto/internal/backend/dummy.s
+new file mode 100644
+index 0000000000..157adeeeb3
+--- /dev/null
++++ b/src/crypto/internal/backend/dummy.s
+@@ -0,0 +1,10 @@
++// Copyright 2017 The Go Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style
++// license that can be found in the LICENSE file.
++
++// runtime_arg0 is declared in openssl_linux.go without a body.
++// It's provided by package runtime,
++// but the go command doesn't know that.
++// Having this assembly file keeps the go command
++// from complaining about the missing body
++// (because the implementation might be here).
+diff --git a/src/crypto/internal/backend/nobackend.go b/src/crypto/internal/backend/nobackend.go
+new file mode 100644
+index 0000000000..4de8d404f8
+--- /dev/null
++++ b/src/crypto/internal/backend/nobackend.go
+@@ -0,0 +1,112 @@
++// Copyright 2017 The Go Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style
++// license that can be found in the LICENSE file.
++
++//go:build !linux || !cgo || android || cmd_go_bootstrap || msan || gocrypt
++// +build !linux !cgo android cmd_go_bootstrap msan gocrypt
++
++package backend
++
++import (
++	"crypto"
++	"crypto/cipher"
++	"crypto/internal/boring/sig"
++	"hash"
++	"math/big"
++)
++
++const Enabled = false
++
++// Unreachable marks code that should be unreachable
++// when OpenSSLCrypto is in use. It is a no-op without OpenSSLCrypto.
++func Unreachable() {
++	// Code that's unreachable when using OpenSSLCrypto
++	// is exactly the code we want to detect for reporting
++	// standard Go crypto.
++	sig.StandardCrypto()
++}
++
++// UnreachableExceptTests marks code that should be unreachable
++// when OpenSSLCrypto is in use. It is a no-op without OpenSSLCrypto.
++func UnreachableExceptTests() {}
++
++type randReader int
++
++func (randReader) Read(b []byte) (int, error) { panic("opensslcrypto: not available") }
++
++const RandReader = randReader(0)
++
++func NewSHA1() hash.Hash   { panic("opensslcrypto: not available") }
++func NewSHA224() hash.Hash { panic("opensslcrypto: not available") }
++func NewSHA256() hash.Hash { panic("opensslcrypto: not available") }
++func NewSHA384() hash.Hash { panic("opensslcrypto: not available") }
++func NewSHA512() hash.Hash { panic("opensslcrypto: not available") }
++
++func NewHMAC(h func() hash.Hash, key []byte) hash.Hash { panic("opensslcrypto: not available") }
++
++func NewAESCipher(key []byte) (cipher.Block, error) { panic("opensslcrypto: not available") }
++
++type PublicKeyECDSA struct{ _ int }
++type PrivateKeyECDSA struct{ _ int }
++
++func GenerateKeyECDSA(curve string) (X, Y, D *big.Int, err error) {
++	panic("opensslcrypto: not available")
++}
++func NewPrivateKeyECDSA(curve string, X, Y, D *big.Int) (*PrivateKeyECDSA, error) {
++	panic("opensslcrypto: not available")
++}
++func NewPublicKeyECDSA(curve string, X, Y *big.Int) (*PublicKeyECDSA, error) {
++	panic("opensslcrypto: not available")
++}
++func SignECDSA(priv *PrivateKeyECDSA, hash []byte) (r, s *big.Int, err error) {
++	panic("opensslcrypto: not available")
++}
++func SignMarshalECDSA(priv *PrivateKeyECDSA, hash []byte) ([]byte, error) {
++	panic("opensslcrypto: not available")
++}
++func VerifyECDSA(pub *PublicKeyECDSA, hash []byte, r, s *big.Int) bool {
++	panic("opensslcrypto: not available")
++}
++
++type PublicKeyRSA struct{ _ int }
++type PrivateKeyRSA struct{ _ int }
++
++func DecryptRSAOAEP(h hash.Hash, priv *PrivateKeyRSA, ciphertext, label []byte) ([]byte, error) {
++	panic("opensslcrypto: not available")
++}
++func DecryptRSAPKCS1(priv *PrivateKeyRSA, ciphertext []byte) ([]byte, error) {
++	panic("opensslcrypto: not available")
++}
++func DecryptRSANoPadding(priv *PrivateKeyRSA, ciphertext []byte) ([]byte, error) {
++	panic("opensslcrypto: not available")
++}
++func EncryptRSAOAEP(h hash.Hash, pub *PublicKeyRSA, msg, label []byte) ([]byte, error) {
++	panic("opensslcrypto: not available")
++}
++func EncryptRSAPKCS1(pub *PublicKeyRSA, msg []byte) ([]byte, error) {
++	panic("opensslcrypto: not available")
++}
++func EncryptRSANoPadding(pub *PublicKeyRSA, msg []byte) ([]byte, error) {
++	panic("opensslcrypto: not available")
++}
++func GenerateKeyRSA(bits int) (N, E, D, P, Q, Dp, Dq, Qinv *big.Int, err error) {
++	panic("opensslcrypto: not available")
++}
++func NewPrivateKeyRSA(N, E, D, P, Q, Dp, Dq, Qinv *big.Int) (*PrivateKeyRSA, error) {
++	panic("opensslcrypto: not available")
++}
++func NewPublicKeyRSA(N, E *big.Int) (*PublicKeyRSA, error) {
++	panic("opensslcrypto: not available")
++}
++func SignRSAPKCS1v15(priv *PrivateKeyRSA, h crypto.Hash, hashed []byte) ([]byte, error) {
++	panic("opensslcrypto: not available")
++}
++func SignRSAPSS(priv *PrivateKeyRSA, h crypto.Hash, hashed []byte, saltLen int) ([]byte, error) {
++	panic("opensslcrypto: not available")
++}
++func VerifyRSAPKCS1v15(pub *PublicKeyRSA, h crypto.Hash, hashed, sig []byte) error {
++	panic("opensslcrypto: not available")
++}
++func VerifyRSAPSS(pub *PublicKeyRSA, h crypto.Hash, hashed, sig []byte, saltLen int) error {
++	panic("opensslcrypto: not available")
++}
+diff --git a/src/crypto/internal/backend/openssl_linux.go b/src/crypto/internal/backend/openssl_linux.go
+new file mode 100644
+index 0000000000..c1656d6576
+--- /dev/null
++++ b/src/crypto/internal/backend/openssl_linux.go
+@@ -0,0 +1,145 @@
++// Copyright 2017 The Go Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style
++// license that can be found in the LICENSE file.
++
++//go:build linux && !android && !gocrypt && !cmd_go_bootstrap && !msan
++// +build linux,!android,!gocrypt,!cmd_go_bootstrap,!msan
++
++// Package openssl provides access to OpenSSLCrypto implementation functions.
++// Check the variable Enabled to find out whether OpenSSLCrypto is available.
++// If OpenSSLCrypto is not available, the functions in this package all panic.
++package backend
++
++import (
++	"crypto/internal/boring/sig"
++	"syscall"
++
++	"github.com/microsoft/go-crypto-openssl/openssl"
++)
++
++// Enabled controls whether FIPS crypto is enabled.
++var Enabled = false
++
++func init() {
++	if !needFIPS() {
++		return
++	}
++	err := openssl.Init()
++	if err != nil {
++		panic(err)
++	}
++
++	if !openssl.FIPS() {
++		if err = openssl.SetFIPS(true); err != nil {
++			panic(err)
++		}
++	}
++
++	Enabled = true
++	sig.BoringCrypto()
++}
++
++func needFIPS() bool {
++	if envFips, ok := syscall.Getenv("GOFIPS"); ok {
++		return envFips != "0"
++	}
++	// TODO: Remove GOLANG_FIPS once our CI uses GOFIPS.
++	if envFips, ok := syscall.Getenv("GOLANG_FIPS"); ok {
++		return envFips != "0"
++	}
++	var fd int
++	for {
++		var err error
++		fd, err = syscall.Open("/proc/sys/crypto/fips_enabled", syscall.O_RDONLY, 0)
++		if err == nil {
++			break
++		}
++		switch err {
++		case syscall.EINTR:
++			continue
++		case syscall.ENOENT:
++			return false
++		default:
++			// If there is an error reading we could either panic or assume FIPS is not enabled.
++			// Panicking would be too disruptive for apps that don't require FIPS.
++			// If an app wants to be 100% sure that is running in FIPS mode
++			// it should use boring.Enabled() or GOFIPS=1.
++			return false
++		}
++	}
++	defer syscall.Close(fd)
++	var tmp [1]byte
++	n, err := syscall.Read(fd, tmp[:])
++	if n != 1 || err != nil {
++		// We return false instead of panicing for the same reason as before.
++		return false
++	}
++	// fips_enabled can be either '0' or '1'.
++	return tmp[0] == '1'
++}
++
++// Unreachable marks code that should be unreachable
++// when OpenSSLCrypto is in use. It panics only when
++// the system is in FIPS mode.
++func Unreachable() {
++	if Enabled {
++		panic("opensslcrypto: invalid code execution")
++	}
++}
++
++// Provided by runtime.crypto_backend_runtime_arg0 to avoid os import.
++func runtime_arg0() string
++
++func hasSuffix(s, t string) bool {
++	return len(s) > len(t) && s[len(s)-len(t):] == t
++}
++
++// UnreachableExceptTests marks code that should be unreachable
++// when OpenSSLCrypto is in use. It panics.
++func UnreachableExceptTests() {
++	name := runtime_arg0()
++	// If OpenSSLCrypto ran on Windows we'd need to allow _test.exe and .test.exe as well.
++	if Enabled && !hasSuffix(name, "_test") && !hasSuffix(name, ".test") {
++		println("opensslcrypto: unexpected code execution in", name)
++		panic("opensslcrypto: invalid code execution")
++	}
++}
++
++const RandReader = openssl.RandReader
++
++var NewSHA1 = openssl.NewSHA1
++var NewSHA224 = openssl.NewSHA224
++var NewSHA256 = openssl.NewSHA256
++var NewSHA384 = openssl.NewSHA384
++var NewSHA512 = openssl.NewSHA512
++
++var NewHMAC = openssl.NewHMAC
++
++var NewAESCipher = openssl.NewAESCipher
++
++type PublicKeyECDSA = openssl.PublicKeyECDSA
++type PrivateKeyECDSA = openssl.PrivateKeyECDSA
++
++var GenerateKeyECDSA = openssl.GenerateKeyECDSA
++var NewPrivateKeyECDSA = openssl.NewPrivateKeyECDSA
++var NewPublicKeyECDSA = openssl.NewPublicKeyECDSA
++var SignECDSA = openssl.SignECDSA
++var SignMarshalECDSA = openssl.SignMarshalECDSA
++var VerifyECDSA = openssl.VerifyECDSA
++
++type PublicKeyRSA = openssl.PublicKeyRSA
++type PrivateKeyRSA = openssl.PrivateKeyRSA
++
++var DecryptRSAOAEP = openssl.DecryptRSAOAEP
++var DecryptRSAPKCS1 = openssl.DecryptRSAPKCS1
++var DecryptRSANoPadding = openssl.DecryptRSANoPadding
++var EncryptRSAOAEP = openssl.EncryptRSAOAEP
++var EncryptRSAPKCS1 = openssl.EncryptRSAPKCS1
++var EncryptRSANoPadding = openssl.EncryptRSANoPadding
++var GenerateKeyRSA = openssl.GenerateKeyRSA
++var NewPrivateKeyRSA = openssl.NewPrivateKeyRSA
++var NewPublicKeyRSA = openssl.NewPublicKeyRSA
++var SignRSAPKCS1v15 = openssl.SignRSAPKCS1v15
++var SignRSAPSS = openssl.SignRSAPSS
++var VerifyRSAPKCS1v15 = openssl.VerifyRSAPKCS1v15
++var VerifyRSAPSS = openssl.VerifyRSAPSS
+diff --git a/src/crypto/rand/rand_unix.go b/src/crypto/rand/rand_unix.go
+index 34f4481a9b..486d71e7a3 100644
+--- a/src/crypto/rand/rand_unix.go
++++ b/src/crypto/rand/rand_unix.go
+@@ -23,7 +23,7 @@ import (
+ 	"time"
+ )
+ 
+-import "crypto/internal/boring"
++import boring "crypto/internal/backend"
+ 
+ const urandomDevice = "/dev/urandom"
+ 
+diff --git a/src/crypto/rsa/boring.go b/src/crypto/rsa/boring.go
+index 0f362a2f16..856bc26aea 100644
+--- a/src/crypto/rsa/boring.go
++++ b/src/crypto/rsa/boring.go
+@@ -5,7 +5,7 @@
+ package rsa
+ 
+ import (
+-	"crypto/internal/boring"
++	boring "crypto/internal/backend"
+ 	"math/big"
+ 	"sync/atomic"
+ 	"unsafe"
+diff --git a/src/crypto/rsa/pkcs1v15.go b/src/crypto/rsa/pkcs1v15.go
+index 213ddb4add..5a44b4a71c 100644
+--- a/src/crypto/rsa/pkcs1v15.go
++++ b/src/crypto/rsa/pkcs1v15.go
+@@ -14,7 +14,7 @@ import (
+ 	"crypto/internal/randutil"
+ )
+ 
+-import "crypto/internal/boring"
++import boring "crypto/internal/backend"
+ 
+ // This file implements encryption and decryption using PKCS #1 v1.5 padding.
+ 
+diff --git a/src/crypto/rsa/pss.go b/src/crypto/rsa/pss.go
+index 16ebc0e6a7..54afa8992e 100644
+--- a/src/crypto/rsa/pss.go
++++ b/src/crypto/rsa/pss.go
+@@ -15,7 +15,7 @@ import (
+ 	"math/big"
+ )
+ 
+-import "crypto/internal/boring"
++import boring "crypto/internal/backend"
+ 
+ // Per RFC 8017, Section 9.1
+ //
+diff --git a/src/crypto/rsa/rsa.go b/src/crypto/rsa/rsa.go
+index eef967f826..550e66fdd9 100644
+--- a/src/crypto/rsa/rsa.go
++++ b/src/crypto/rsa/rsa.go
+@@ -36,7 +36,7 @@ import (
+ )
+ 
+ import (
+-	"crypto/internal/boring"
++	boring "crypto/internal/backend"
+ 	"unsafe"
+ )
+ 
+diff --git a/src/crypto/rsa/rsa_test.go b/src/crypto/rsa/rsa_test.go
+index 766d9a954f..f2602b94ab 100644
+--- a/src/crypto/rsa/rsa_test.go
++++ b/src/crypto/rsa/rsa_test.go
+@@ -15,7 +15,7 @@ import (
+ 	"testing"
+ )
+ 
+-import "crypto/internal/boring"
++import boring "crypto/internal/backend"
+ 
+ func TestKeyGeneration(t *testing.T) {
+ 	for _, size := range []int{128, 1024, 2048, 3072} {
+diff --git a/src/crypto/sha1/boring.go b/src/crypto/sha1/boring.go
+index 44c26092ee..ed00d7cd8f 100644
+--- a/src/crypto/sha1/boring.go
++++ b/src/crypto/sha1/boring.go
+@@ -11,11 +11,11 @@
+ package sha1
+ 
+ import (
+-	"crypto/internal/boring"
++	boring "crypto/internal/backend"
+ 	"hash"
+ )
+ 
+-const boringEnabled = boring.Enabled
++var boringEnabled = boring.Enabled
+ 
+ func boringNewSHA1() hash.Hash { return boring.NewSHA1() }
+ 
+diff --git a/src/crypto/sha1/sha1_test.go b/src/crypto/sha1/sha1_test.go
+index e369c3b7f4..af10f68853 100644
+--- a/src/crypto/sha1/sha1_test.go
++++ b/src/crypto/sha1/sha1_test.go
+@@ -16,7 +16,7 @@ import (
+ 	"testing"
+ )
+ 
+-import "crypto/internal/boring"
++import boring "crypto/internal/backend"
+ 
+ type sha1Test struct {
+ 	out       string
+diff --git a/src/crypto/sha256/sha256.go b/src/crypto/sha256/sha256.go
+index 8b54a427d7..c6aa7a3788 100644
+--- a/src/crypto/sha256/sha256.go
++++ b/src/crypto/sha256/sha256.go
+@@ -13,7 +13,7 @@ import (
+ 	"hash"
+ )
+ 
+-import "crypto/internal/boring"
++import boring "crypto/internal/backend"
+ 
+ func init() {
+ 	crypto.RegisterHash(crypto.SHA224, New224)
+diff --git a/src/crypto/sha256/sha256_test.go b/src/crypto/sha256/sha256_test.go
+index 91a4edde04..71eacf53a7 100644
+--- a/src/crypto/sha256/sha256_test.go
++++ b/src/crypto/sha256/sha256_test.go
+@@ -16,7 +16,7 @@ import (
+ 	"testing"
+ )
+ 
+-import "crypto/internal/boring"
++import boring "crypto/internal/backend"
+ 
+ type sha256Test struct {
+ 	out       string
+diff --git a/src/crypto/sha512/sha512.go b/src/crypto/sha512/sha512.go
+index 1a2cef317c..b6b390a1b8 100644
+--- a/src/crypto/sha512/sha512.go
++++ b/src/crypto/sha512/sha512.go
+@@ -17,7 +17,7 @@ import (
+ 	"hash"
+ )
+ 
+-import "crypto/internal/boring"
++import boring "crypto/internal/backend"
+ 
+ func init() {
+ 	crypto.RegisterHash(crypto.SHA384, New384)
+diff --git a/src/crypto/sha512/sha512_test.go b/src/crypto/sha512/sha512_test.go
+index 966cd51d15..44e3769b0b 100644
+--- a/src/crypto/sha512/sha512_test.go
++++ b/src/crypto/sha512/sha512_test.go
+@@ -17,7 +17,7 @@ import (
+ 	"testing"
+ )
+ 
+-import "crypto/internal/boring"
++import boring "crypto/internal/backend"
+ 
+ type sha512Test struct {
+ 	out       string
+diff --git a/src/crypto/tls/cipher_suites.go b/src/crypto/tls/cipher_suites.go
+index e07d742bd3..3f72b1e5a0 100644
+--- a/src/crypto/tls/cipher_suites.go
++++ b/src/crypto/tls/cipher_suites.go
+@@ -4,7 +4,7 @@
+ 
+ package tls
+ 
+-import "crypto/internal/boring"
++import boring "crypto/internal/backend"
+ 
+ import (
+ 	"crypto"
+diff --git a/src/go/build/deps_test.go b/src/go/build/deps_test.go
+index c399946435..ed5b74ee7b 100644
+--- a/src/go/build/deps_test.go
++++ b/src/go/build/deps_test.go
+@@ -400,7 +400,14 @@ var depsRules = `
+ 	< crypto/ed25519/internal/edwards25519
+ 	< crypto/cipher
+ 	< encoding/asn1
+-	< crypto/internal/boring
++	< CRYPTO;
++
++	CRYPTO < crypto/internal/boring;
++	
++	CRYPTO
++	< github.com/microsoft/go-crypto-openssl/openssl/internal/subtle
++	< github.com/microsoft/go-crypto-openssl/openssl
++	< crypto/internal/backend
+ 	< crypto/aes, crypto/des, crypto/hmac, crypto/md5, crypto/rc4,
+ 	  crypto/sha1, crypto/sha256, crypto/sha512
+ 	< crypto/rand
+@@ -430,7 +437,7 @@ var depsRules = `
+ 	crypto/internal/boring/sig, crypto/internal/boring/fipstls
+ 	< crypto/tls/fipsonly;
+ 
+-	crypto/internal/boring
++	crypto/internal/backend
+ 	< crypto/boring;
+ 
+ 	# crypto-aware packages
+@@ -623,7 +630,7 @@ var buildIgnore = []byte("\n// +build ignore")
+ 
+ func findImports(pkg string) ([]string, error) {
+ 	vpkg := pkg
+-	if strings.HasPrefix(pkg, "golang.org") {
++	if strings.HasPrefix(pkg, "golang.org") || strings.HasPrefix(pkg, "github.com") {
+ 		vpkg = "vendor/" + pkg
+ 	}
+ 	dir := filepath.Join(Default.GOROOT, "src", vpkg)
+diff --git a/src/runtime/runtime_boring.go b/src/runtime/runtime_boring.go
+index 5a98b20253..9042f2c279 100644
+--- a/src/runtime/runtime_boring.go
++++ b/src/runtime/runtime_boring.go
+@@ -17,3 +17,8 @@ func boring_runtime_arg0() string {
+ 
+ //go:linkname fipstls_runtime_arg0 crypto/internal/boring/fipstls.runtime_arg0
+ func fipstls_runtime_arg0() string { return boring_runtime_arg0() }
++
++//go:linkname crypto_backend_runtime_arg0 crypto/internal/backend.runtime_arg0
++func crypto_backend_runtime_arg0() string {
++	return boring_runtime_arg0()
++}
