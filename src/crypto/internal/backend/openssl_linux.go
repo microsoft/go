@@ -83,7 +83,7 @@ func Unreachable() {
 	}
 }
 
-// provided by runtime to avoid os import
+// Provided by runtime.crypto_backend_runtime_arg0 to avoid os import.
 func runtime_arg0() string
 
 func hasSuffix(s, t string) bool {

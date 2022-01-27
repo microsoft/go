@@ -22,6 +22,3 @@ func fipstls_runtime_arg0() string { return boring_runtime_arg0() }
 func crypto_backend_runtime_arg0() string {
 	return boring_runtime_arg0()
 }
-
-//go:linkname crypto_backend_runtime_envs crypto/internal/backend.runtime_envs
-func crypto_backend_runtime_envs() []string { return append([]string{}, envs...) }

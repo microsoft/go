@@ -2,7 +2,7 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-// runtime_arg0 is declared in tls.go without a body.
+// runtime_arg0 is declared in openssl_linux.go without a body.
 // It's provided by package runtime,
 // but the go command doesn't know that.
 // Having this assembly file keeps the go command
