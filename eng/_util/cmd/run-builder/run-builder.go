@@ -88,6 +88,9 @@ func main() {
 		env("GOEXPERIMENT", "staticlockranking")
 	}
 
+	// Extend the test timeout to allow slower build agents.
+	env("GO_TEST_TIMEOUT_SCALE", "10")
+
 	runOrPanic("pwsh", "eng/run.ps1", "build")
 
 	// After the build completes, run builder-specific commands.

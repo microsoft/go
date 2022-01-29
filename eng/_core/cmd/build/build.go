@@ -165,6 +165,11 @@ func build(o *options) error {
 			}
 		}
 
+		// Extend the test timeout to allow slower build agents.
+		if err := os.Setenv("GO_TEST_TIMEOUT_SCALE", "10"); err != nil {
+			return err
+		}
+
 		// "-json": Get test results as lines of JSON.
 		if o.JSON {
 			testCommandLine = append(testCommandLine, "-json")
