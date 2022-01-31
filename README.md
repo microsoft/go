@@ -28,7 +28,7 @@ This fork exists to produce a version of Go that can be used to build FIPS 140-2
 compliant applications. Our goal is to share this implementation with others in
 the Go community who have the same requirement, and to merge this capability
 into upstream Go as soon as possible. See
-[eng/doc/fips@dev/official/go1.17-openssl-fips](https://github.com/microsoft/go/tree/dev/official/go1.17-openssl-fips/eng/doc/fips)
+[eng/doc/fips@microsoft/dev.boringcrypto.go1.17](https://github.com/microsoft/go/tree/microsoft/dev.boringcrypto.go1.17/eng/doc/fips)
 for more information about this feature and the history of FIPS 140-2 compliance
 in Go.
 
