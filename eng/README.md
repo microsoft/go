@@ -10,28 +10,36 @@ because the [dotnet/arcade](https://github.com/dotnet/arcade) auto-update
 process specifically looks for `eng/Version.Details.xml` and `eng/common/`
 absolute paths.
 
-## Prerequisites
-
-* [PowerShell 6+](https://docs.microsoft.com/en-us/powershell/scripting/install/installing-powershell)
-
 ## Building Go
 
-To build Go using the Microsoft scripts, run `./run.ps1 build`, or run
-`eng/run.ps1 build` from the root of the repository. To run the build from a
-shell other than PowerShell without switching, use `pwsh eng/run.ps1 build`.
-This script is cross-platform.
+In the root of the repository, run this command:
 
-The standard way to build the upstream Go repository is to run `./make.bash` in
-the `src` directory. Running `eng/run.ps1 build` accomplishes the same end
-result, but it will automatically download a version of Go and use that to
-build, and `eng/run.ps1 build` will also build the race runtime once the
-standard build is complete.
+```pwsh
+pwsh eng/run.ps1 build -refresh
+```
 
-Run `eng/run.ps1 build -h` for more information.
+* `-refresh` refreshes the Go submodule (updates it, cleans it, and applies
+  patches) before the command builds the repository. Remove `-refresh` if you've
+  made changes in the submodule (`go`) that you want to keep.
+* Add `-test` to run tests after the build completes.
+* Add `-pack` to create an archive file containing the Go build in
+  `eng/artifacts/bin`. (A `.tar.gz` or `.zip` file, depending on GOOS)
 
-The `build` tool supports these OS/architectures:
-* `linux_amd64`
-* `windows_amd64`
+Run this command for more information:
+
+```
+pwsh eng/run.ps1 build -h
+```
+
+### Building upstream Go
+The standard way to build the upstream Go repository is documented at
+[https://go.dev/doc/install/source](https://go.dev/doc/install/source): run
+`./make.bash` in Go's `src` directory.
+
+The `eng/run.ps1 build` script uses the same upstream scripts, but wraps them
+and provides extra functionality. It automatically downloads a version of Go and
+uses that to build, and also builds the race runtime once the standard build is
+complete, to match the content of the official binary releases of Go.
 
 ## Change containment
 
