@@ -17,6 +17,22 @@ https://go.googlesource.com/go.
 Unless otherwise noted, the Go source files are distributed under the
 BSD-style license found in the LICENSE file.
 
+## How to build
+
+### Prerequisites
+* [PowerShell 6+](https://docs.microsoft.com/en-us/powershell/scripting/install/installing-powershell)
+
+### Build command
+```
+pwsh eng/run.ps1 build -refresh
+```
+
+The build script supports these OS/Arch combinations:
+* `linux_amd64`
+* `windows_amd64`
+
+See [eng/README.md](eng/README.md) for more details.
+
 ## Is this repository a fork?
 
 We believe it is accurate to call this repository a fork. Its branches do not
