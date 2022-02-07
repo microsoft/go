@@ -35,7 +35,9 @@ func CreateFromSource(source string, output string) error {
 
 	// Ensure the target directory exists.
 	archiveDir := filepath.Dir(output)
-	_ = os.MkdirAll(archiveDir, os.ModeDir|os.ModePerm)
+	if err := os.MkdirAll(archiveDir, os.ModeDir|os.ModePerm); err != nil {
+		return err
+	}
 
 	// Use "^{tree}" to avoid Git including a global extended pax header. The commit it would list
 	// is a temporary commit, and would only be confusing. See https://git-scm.com/docs/git-archive.
