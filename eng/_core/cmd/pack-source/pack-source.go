@@ -17,10 +17,9 @@ const description = `
 This command creates a source archive of the Go submodule at HEAD.
 `
 
-var output = flag.String("o", "", "The path of the archive file to create, including extension. Default: a tar.gz file including build number in 'eng/artifacts/bin'.")
-
 func main() {
-	var help = flag.Bool("h", false, "Print this help message.")
+	output := flag.String("o", "", "The path of the archive file to create, including extension. Default: a tar.gz file including build number in 'eng/artifacts/bin'.")
+	help := flag.Bool("h", false, "Print this help message.")
 
 	flag.Usage = func() {
 		fmt.Fprintf(flag.CommandLine.Output(), "Usage:\n")
