@@ -16,11 +16,48 @@ import (
 	"io"
 	"io/fs"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"time"
 )
+
+// CreateFromSource runs a Git command to generate an archive file from the Go source code at
+// "source". If output is "", the archive is produced in the build directory inside the
+// "eng/artifacts/bin" directory. A checksum file is also produced.
+func CreateFromSource(source string, output string) error {
+	fmt.Printf("---- Creating Go source archive (tarball) from '%v'...\n", source)
+
+	if output == "" {
+		output = filepath.Join(getBinDir(source), fmt.Sprintf("go.%v.src.tar.gz", getBuildID()))
+	}
+
+	// Ensure the target directory exists.
+	archiveDir := filepath.Dir(output)
+	if err := os.MkdirAll(archiveDir, os.ModeDir|os.ModePerm); err != nil {
+		return err
+	}
+
+	// Use "^{tree}" to avoid Git including a global extended pax header. The commit it would list
+	// is a temporary commit, and would only be confusing. See https://git-scm.com/docs/git-archive.
+	cmd := exec.Command("git", "archive", "-o", output, "--prefix=go/", "HEAD^{tree}")
+	cmd.Dir = source
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	fmt.Printf("---- Running command: %v\n", cmd.Args)
+	if err := cmd.Run(); err != nil {
+		return err
+	}
+
+	fmt.Printf("---- Creating checksum file...\n")
+	if err := writeSHA256ChecksumFile(output); err != nil {
+		return err
+	}
+
+	fmt.Printf("---- Pack complete.\n")
+	return nil
+}
 
 // CreateFromBuild walks the Go build directory at "source" and produces an archive with the path
 // "output". If output is "", CreateFromBuild produces a file in the build directory inside the
@@ -34,21 +71,14 @@ func CreateFromBuild(source string, output string) error {
 	fmt.Printf("---- Creating Go archive (zip/tarball) from '%v'...\n", source)
 
 	if output == "" {
-		// If BUILD_BUILDNUMBER is defined (e.g. a CI build), use it. For local builds, use "dev".
-		archiveVersion := os.Getenv("BUILD_BUILDNUMBER")
-		if archiveVersion == "" {
-			archiveVersion = "dev"
-		}
-
+		archiveVersion := getBuildID()
 		archiveExtension := ".tar.gz"
 		if runtime.GOOS == "windows" {
 			archiveExtension = ".zip"
 		}
 
 		archiveName := fmt.Sprintf("go.%v.%v-%v%v", archiveVersion, runtime.GOOS, runtime.GOARCH, archiveExtension)
-		binDir := filepath.Join(source, "..", "eng", "artifacts", "bin")
-
-		output = filepath.Join(binDir, archiveName)
+		output = filepath.Join(getBinDir(source), archiveName)
 	}
 
 	// Ensure the target directory exists.
@@ -186,10 +216,25 @@ func CreateFromBuild(source string, output string) error {
 	}
 
 	fmt.Printf("---- Creating checksum file...\n")
-	writeSHA256ChecksumFile(output)
+	if err := writeSHA256ChecksumFile(output); err != nil {
+		return err
+	}
 
 	fmt.Printf("---- Pack complete.\n")
 	return nil
+}
+
+// getBuildID returns BUILD_BUILDNUMBER if defined (e.g. a CI build). Otherwise, "dev".
+func getBuildID() string {
+	archiveVersion := os.Getenv("BUILD_BUILDNUMBER")
+	if archiveVersion == "" {
+		return "dev"
+	}
+	return archiveVersion
+}
+
+func getBinDir(source string) string {
+	return filepath.Join(source, "..", "eng", "artifacts", "bin")
 }
 
 // getArchivePathRuntime takes a path like "go1.7.linux-amd64.tar.gz" and extension like ".tar.gz",
