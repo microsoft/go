@@ -19,6 +19,7 @@ applies patches to the stage by default, or optionally as commits.
 `
 
 var commits = flag.Bool("commits", false, "Apply the patches as commits.")
+var skipPatch = flag.Bool("skip-patch", false, "Skip applying patches.")
 var origin = flag.String("origin", "", "Use this origin instead of the default defined in '.gitmodules' to fetch the repository.")
 var shallow = flag.Bool("shallow", false, "Clone the submodule with depth 1.")
 var fetchBearerToken = flag.String("fetch-bearer-token", "", "Use this bearer token to fetch the submodule repository.")
@@ -55,6 +56,10 @@ func refresh(rootDir string) error {
 
 	if err := submodule.Reset(rootDir); err != nil {
 		return err
+	}
+
+	if *skipPatch {
+		return nil
 	}
 
 	mode := patch.ApplyModeIndex
