@@ -7,6 +7,7 @@
 parameters:
   # { id, os, arch, config, distro? }
   builder: {}
+  createSourceArchive: false
 
 jobs:
   - job: ${{ parameters.builder.id }}
@@ -41,7 +42,6 @@ jobs:
             Write-Host "##vso[task.setvariable variable=GO_MAKE_MAX_RETRY_ATTEMPTS]5"
           displayName: Increase 'make' retry attempts
 
-
       # Initialize stage 0 toolset ahead of time so we can track timing data separately from the
       # build operations. When we call this script again later, it won't download Go again.
       - pwsh: |
@@ -49,26 +49,23 @@ jobs:
           Get-Stage0GoRoot
         displayName: Init stage 0 Go toolset
 
-      - pwsh: |
-          function fetch_submodule() {
-            eng/run.ps1 submodule-refresh -shallow @args
-          }
+      - template: ../steps/init-submodule-task.yml
 
-          if ("$env:FETCH_BEARER_TOKEN") {
-            fetch_submodule `
-              -origin 'https://dnceng@dev.azure.com/dnceng/internal/_git/microsoft-go-mirror' `
-              -fetch-bearer-token $env:FETCH_BEARER_TOKEN
-          } else {
-            fetch_submodule
-          }
-        # If non-public, use access token to fetch from repo. If public, don't use the access token,
-        # because anonymous auth is fine.
-        ${{ if ne(variables['System.TeamProject'], 'public') }}:
-          env:
-            FETCH_BEARER_TOKEN: $(System.AccessToken)
-          displayName: Set up submodule from internal mirror
-        ${{ if eq(variables['System.TeamProject'], 'public') }}:
-          displayName: Set up submodule
+      # Create the source archive on one job only. The os choice is arbitrary.
+      - ${{ if and(eq(parameters.createSourceArchive, true), eq(parameters.builder.config, 'buildandpack'), eq(parameters.builder.os, 'linux')) }}:
+        - pwsh: |
+            git config --global user.name "microsoft-golang-bot"
+            git config --global user.email "microsoft-golang-bot@users.noreply.github.com"
+
+            # Turn the patches into commits, so HEAD includes the changes.
+            eng/run.ps1 submodule-refresh -commits
+            eng/run.ps1 pack-source
+          displayName: Archive submodule source
+
+      - pwsh: |
+          # Apply the patches as staged changes, so the HEAD commit is the same as upstream.
+          eng/run.ps1 submodule-refresh
+        displayName: Apply patches
 
       # Use build script directly for "buildandpack". If we used run-builder, we would need to
       # download its external module dependencies.
