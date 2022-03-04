@@ -30,15 +30,23 @@ stages:
           # This is a utility job: use generic recent LTS for publishing.
           vmImage: ubuntu-20.04
         variables:
+          - name: buildNumber
+            value: $(Build.BuildNumber)
           - name: blobDestinationUrl
-            value: 'https://dotnetbuildoutput.blob.core.windows.net/golang/microsoft/$(PublishBranchAlias)/$(Build.BuildNumber)'
+            value: 'https://dotnetbuildoutput.blob.core.windows.net/golang/microsoft/$(PublishBranchAlias)/$(buildNumber)'
           - group: go-storage
+          - group: go-akams-auth
         workspace:
           clean: all
         steps:
           - template: steps/checkout-unix-task.yml
           - template: steps/init-pwsh-task.yml
           - template: steps/init-submodule-task.yml
+
+          - task: UseDotNet@2
+            displayName: 'Use .NET SDK'
+            inputs:
+              version: 6.x
 
           - pwsh: |
               function TrimStart($s, $prefix) {
@@ -100,3 +108,19 @@ stages:
               done
             displayName: Show uploaded URLs
             workingDirectory: '$(Pipeline.Workspace)/Binaries Signed/'
+
+          - script: |
+              dotnet build '$(Build.SourcesDirectory)/eng/publishing/UpdateAkaMSLinks/UpdateAkaMSLinks.csproj' \
+                /p:AkaMSClientId=$(akams-client-id) \
+                /p:AkaMSClientSecret=$(akams-client-secret) \
+                /p:UploadedDir="$(Pipeline.Workspace)/Binaries Signed/" \
+                /p:PublishBranchAlias="$(PublishBranchAlias)" \
+                /p:BlobDestinationUrl="$(blobDestinationUrl)" \
+                /p:BuildNumber="$(buildNumber)" \
+                /bl:UpdateAkaMSLinks.binlog
+            displayName: Update aka.ms links
+
+          - publish: 'UpdateAkaMSLinks.binlog'
+            artifact: UpdateAkaMSLinksBinlog
+            displayName: Publish UpdateAkaMSLinksBinlog
+            condition: always()

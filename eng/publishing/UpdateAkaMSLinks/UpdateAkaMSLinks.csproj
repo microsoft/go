@@ -1,0 +1,72 @@
+<!-- Copyright (c) Microsoft Corporation. Use of this source code is governed by a BSD-style license that can be found in the LICENSE file. -->
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    This is a 'csproj' even though it has no C# code. It is simply a csproj to take advantage of the
+    .NET SDK's default csproj handling, which lets us easily download the Links package and use its
+    task. Our target hooks into "Build", so "dotnet build" should be used to run this project in a
+    way that automatically restores the Links package and runs our target.
+  -->
+
+  <Import Project="$([MSBuild]::GetPathOfFileAbove(Versions.props))" />
+
+  <PropertyGroup>
+    <TargetFramework>net6.0</TargetFramework>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.DotNet.Deployment.Tasks.Links" Version="$(MicrosoftDotNetDeploymentTasksLinksVersion)" />
+  </ItemGroup>
+
+  <!-- Fix Links package issue: wrong task name. https://github.com/dotnet/arcade/issues/8573 -->
+  <UsingTask
+    TaskName="CreateAkaMSLinks"
+    AssemblyFile="$(MicrosoftDotNetDeploymentTasksLinksTaskAssembly)"
+    Condition="'$(MicrosoftDotNetDeploymentTasksLinksTaskAssembly)' != ''" />
+
+  <Target Name="UpdateAkaMSLinks" BeforeTargets="Build">
+    <PropertyGroup>
+      <BranchPrefix>golang/daily/$(PublishBranchAlias)/</BranchPrefix>
+      <TargetPrefix>$(BlobDestinationUrl)/</TargetPrefix>
+    </PropertyGroup>
+
+    <Message Text="Updating aka.ms links for branch: $(PublishBranchAlias)" Importance="high" />
+    <Message Text="Pointing from 'https://aka.ms/$(BranchPrefix)' to $(TargetPrefix)" Importance="high" />
+
+    <ItemGroup>
+      <!--
+        Generate an aka.ms link for each file that was uploaded. Remove version number so we end up
+        generating a stable link that points at the latest build.
+      -->
+      <UploadedFile Include="$([MSBuild]::NormalizeDirectory('$(UploadedDir)'))*" />
+      <UploadedFileNameExtension
+        Include="%(UploadedFile.Filename)%(UploadedFile.Extension)"
+        WithoutVersion="$([System.String]::new('%(UploadedFile.Filename)%(UploadedFile.Extension)').Replace('$(BuildNumber)', 'latest'))" />
+      <AkaMSLink
+        Include="@(UploadedFileNameExtension -> '$(BranchPrefix)%(WithoutVersion)')"
+        TargetUrl="$(TargetPrefix)%(Identity)" />
+    </ItemGroup>
+
+    <Message Text="%0A@(AkaMSLink -> 'https://aka.ms/%(Identity) -> %(TargetUrl)', '%0A')%0A" Importance="high" />
+
+    <PropertyGroup>
+      <!-- https://github.com/dotnet/arcade/blob/8b368b64f181855148d55aa76fd8932c46cf8387/src/Microsoft.DotNet.Arcade.Sdk/tools/SdkTasks/PublishArtifactsInManifest.proj#L96-L99 -->
+      <AkaMSTenant Condition="'$(AkaMSTenant)' == ''">ncd</AkaMSTenant>
+      <AkaMSOwners Condition="'$(AkaMSOwners)' == ''">jamshedd;leecow;rbhanda;v-susles</AkaMSOwners>
+      <AkaMSCreatedBy Condition="'$(AkaMSCreatedBy)' == ''">dn-bot</AkaMSCreatedBy>
+      <AkaMSGroupOwner Condition="'$(AkaMSGroupOwner)' == ''">ddfwlink</AkaMSGroupOwner>
+    </PropertyGroup>
+
+    <Message Text="Now running CreateAkaMSLinks..." Importance="high" />
+    <CreateAkaMSLinks
+      Links="@(AkaMSLink)"
+      ClientId="$(AkaMSClientId)"
+      ClientSecret="$(AkaMSClientSecret)"
+      Tenant="$(AkaMSTenant)"
+      Owners="$(AkaMSOwners)"
+      CreatedBy="$(AkaMSCreatedBy)"
+      GroupOwner="$(AkaMSGroupOwner)"
+      />
+  </Target>
+
+</Project>
