@@ -6,47 +6,72 @@ reliable, and efficient software.
 This repository, [microsoft/go](https://github.com/microsoft/go), contains the
 infrastructure Microsoft uses to build Go. The submodule named `go` contains the
 Go source code. By default, the submodule's remote URL is the official GitHub
-mirror of Go, [golang/go](https://github.com/golang/go).
+mirror of Go, [golang/go](https://github.com/golang/go).  The canonical Git
+repository for Go source code is located at https://go.googlesource.com/go.
 
 This project is not involved in producing the [official binary distributions
 of Go](https://go.dev/dl/).
 
-The canonical Git repository for Go source code is located at
-https://go.googlesource.com/go.
-
 Unless otherwise noted, the Go source files are distributed under the
 BSD-style license found in the LICENSE file.
 
-## How to build
+## Why does this fork exist?
 
-### Prerequisites
+The `microsoft/dev.boringcrypto*` branches produce a modified version of Go that
+can be used to build FIPS 140-2 compliant applications. Our goal is to share
+this implementation with others in the Go community who have the same
+requirement, and to merge this capability into upstream Go as soon as possible.
+See [eng/doc/fips](eng/doc/fips) for more information about this feature and the
+history of FIPS 140-2 compliance in Go.
+
+The `microsoft/release-branch.go*` branches rebuild released versions of Go with
+no significant changes, for use within Microsoft.
+
+We call this repository a fork even though it isn't a traditional Git fork. Its
+branches do not share Git ancestry with the Go repository. However, the
+repository serves the same purpose as a Git fork: maintaining a modified version
+of the Go source code over time.
+
+## Download and install
+
+This repository's infrastructure currently supports these OS/Arch combinations:
+
+* `linux_amd64`
+* `windows_amd64`
+
+See [eng/README.md](eng/README.md) for more details about the infrastructure.
+
+### Build from source
+
+Prerequisites:
+
 * [PowerShell 6+](https://docs.microsoft.com/en-us/powershell/scripting/install/installing-powershell)
+* [Go install from source prerequisites](https://go.dev/doc/install/source)
+  * Exception: this repository's build script automatically downloads a
+    bootstrap version of Go.
 
-### Build command
+After cloning the repository, use the following build command. You can pass the
+`-help` flag to show more options:
+
 ```
 pwsh eng/run.ps1 build -refresh
 ```
 
-The build script supports these OS/Arch combinations:
-* `linux_amd64`
-* `windows_amd64`
+The resulting Go binary is at `go/bin/go`.
 
-See [eng/README.md](eng/README.md) for more details.
+> If you download a source archive from a GitHub release, use the official Go
+> install from source instructions. These source archives only include the `go`
+> directory, not the microsoft/go build infrastructure.
 
-## Is this repository a fork?
+### Binary distribution
 
-We believe it is accurate to call this repository a fork. Its branches do not
-share Git ancestry with the Go repository, but the repository serves the same
-purpose as a Git fork: maintaining a modified version of the Go source code over
-time.
+[microsoft/go-images](https://github.com/microsoft/go-images) distributes the
+binaries of this Go fork by producing Docker images. The Dockerfiles contain
+URLs that point at the tar.gz or zip binary distribution file used for a
+particular image.
 
-This fork exists to produce a version of Go that can be used to build FIPS 140-2
-compliant applications. Our goal is to share this implementation with others in
-the Go community who have the same requirement, and to merge this capability
-into upstream Go as soon as possible. See
-[eng/doc/fips@microsoft/dev.boringcrypto.go1.17](https://github.com/microsoft/go/tree/microsoft/dev.boringcrypto.go1.17/eng/doc/fips)
-for more information about this feature and the history of FIPS 140-2 compliance
-in Go.
+More options are planned in the future.
+[![](https://img.shields.io/github/labels/microsoft/go/Area-Release)](https://github.com/microsoft/go/labels/Area-Release)
 
 ## Contributing
 
