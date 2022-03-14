@@ -19,27 +19,6 @@ if ($host.Version.Major -lt 6) {
   throw "Missing prerequisites; see logs above for details."
 }
 
-# Machine architecture query based on: https://github.com/dotnet/install-scripts/blob/df8f863720a462448ad244f03ffeb619f0631bad/src/dotnet-install.ps1#L191-L219
-function Get-Machine-Architecture() {
-  # On PS x86, PROCESSOR_ARCHITECTURE reports x86 even on x64 systems.
-  # To get the correct architecture, we need to use PROCESSOR_ARCHITEW6432.
-  # PS x64 doesn't define this, so we fall back to PROCESSOR_ARCHITECTURE.
-  # Possible values: amd64, x64, x86, arm64, arm
-  if( $ENV:PROCESSOR_ARCHITEW6432 -ne $null ) {
-    $arch = $ENV:PROCESSOR_ARCHITEW6432
-  } else {
-    $arch = $ENV:PROCESSOR_ARCHITECTURE
-  }
-
-  switch ($arch.ToLowerInvariant()) {
-    { ($_ -eq "amd64") -or ($_ -eq "x64") } { return "x64" }
-    { $_ -eq "x86" } { return "x86" }
-    { $_ -eq "arm" } { return "arm" }
-    { $_ -eq "arm64" } { return "arm64" }
-    default { throw "Architecture '$Architecture' not supported." }
-  }
-}
-
 function Get-Stage0GoRoot() {
   # We need Go installed in order to build Go, but our common build environment doesn't have it
   # pre-installed. This CI script installs a consistent, official version of Go to a directory in
@@ -47,9 +26,9 @@ function Get-Stage0GoRoot() {
   # specific version of Go. The downloaded copy of Go is called the "stage 0" version.
   $stage0_go_version = '1.17.8'
 
+  $proc_arch = ([System.Runtime.InteropServices.RuntimeInformation]::ProcessArchitecture).ToString().ToLowerInvariant()
   if ($IsWindows) {
-    $proc_arch = Get-Machine-Architecture
-    switch ($proc_arch.ToLowerInvariant()) {
+    switch ($proc_arch) {
       'x64' {
         $stage0_go_sha256 = '85ccf2608dca6ea9a46b6538c9e75e7cf2aebdf502379843b248e26b8bb110be'
         $stage0_go_suffix = 'windows-amd64.zip'
@@ -58,12 +37,11 @@ function Get-Stage0GoRoot() {
         $stage0_go_sha256 = '4a0d960f5c0cbff1edaf54f333cf857a2779f6ae4c8e759b7872b44fde5ae43f'
         $stage0_go_suffix = 'windows-arm64.zip'
       }
-      Default { throw "Unable to match Windows machine architecture '$proc_arch' to a supported arch." }
+      Default { throw "Unable to match Windows '$proc_arch' to an architecture supported by the Microsoft scripts to build Go." }
     }
   } elseif ($IsLinux) {
-    $proc_arch = ([System.Runtime.InteropServices.RuntimeInformation]::ProcessArchitecture).ToString()
-    switch ($proc_arch.ToLowerInvariant()) {
-      'x64' { 
+    switch ($proc_arch) {
+      'x64' {
         $stage0_go_sha256 = '980e65a863377e69fd9b67df9d8395fd8e93858e7a24c9f55803421e453f4f99'
         $stage0_go_suffix = 'linux-amd64.tar.gz'
       }
@@ -71,7 +49,7 @@ function Get-Stage0GoRoot() {
         $stage0_go_sha256 = '57a9171682e297df1a5bd287be056ed0280195ad079af90af16dcad4f64710cb'
         $stage0_go_suffix = 'linux-arm64.tar.gz'
       }
-      Default { throw "Unable to match Linux process architecture '$proc_arch' to a supported arch." }
+      Default { throw "Unable to match Linux '$proc_arch' to an architecture supported by the Microsoft scripts to build Go." }
     }
   } else {
     throw "Current OS/Platform is not supported by the Microsoft scripts to build Go."
