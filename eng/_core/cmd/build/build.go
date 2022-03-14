@@ -141,19 +141,10 @@ func build(o *options) error {
 
 		buildCommandLine := append(shellPrefix, "make"+scriptExtension)
 
-		for i := 0; i < maxAttempts; i++ {
-			if maxAttempts > 1 {
-				fmt.Printf("---- Running 'make' attempt %v of %v...\n", i+1, maxAttempts)
-			}
-			err := runCommandLine(buildCommandLine...)
-			if err != nil {
-				if i+1 < maxAttempts {
-					fmt.Printf("---- Build command failed with error: %v\n", err)
-					continue
-				}
-				return err
-			}
-			break
+		if err := retry(maxAttempts, func() error {
+			return runCommandLine(buildCommandLine...)
+		}); err != nil {
+			return err
 		}
 
 		if os.Getenv("CGO_ENABLED") != "0" {
@@ -189,6 +180,11 @@ func build(o *options) error {
 			}
 		}
 
+		maxAttempts, err := getMaxTestRetryAttempts()
+		if err != nil {
+			return err
+		}
+
 		// "-json": Get test results as lines of JSON.
 		if o.JSON {
 			testCommandLine = append(testCommandLine, "-json")
@@ -212,6 +208,10 @@ func build(o *options) error {
 		// The stderr output isn't used to determine whether the tests succeeded or not. (The
 		// redirect doesn't cause an issue where tests succeed that should have failed.)
 		testCmd.Stderr = os.Stdout
+
+		if err := retry(maxAttempts, func() error { return runCmd(testCmd) }); err != nil {
+			return err
+		}
 
 		if err := runCmd(testCmd); err != nil {
 			return err
@@ -241,15 +241,43 @@ func runCmd(cmd *exec.Cmd) error {
 	return cmd.Run()
 }
 
+func retry(attempts int, f func() error) error {
+	var i = 0
+	for ; i < attempts; i++ {
+		if attempts > 1 {
+			fmt.Printf("---- Running attempt %v of %v...\n", i+1, attempts)
+		}
+		err := f()
+		if err != nil {
+			if i+1 < attempts {
+				fmt.Printf("---- Attempt failed with error: %v\n", err)
+				continue
+			}
+			fmt.Printf("---- Final attempt failed.\n")
+			return err
+		}
+		break
+	}
+	fmt.Printf("---- Successful on attempt %v of %v.\n", i+1, attempts)
+	return nil
+}
+
 func getMaxMakeRetryAttempts() (int, error) {
-	const retryEnvVarName = "GO_MAKE_MAX_RETRY_ATTEMPTS"
-	a := os.Getenv(retryEnvVarName)
+	return getEnvIntOrDefault("GO_MAKE_MAX_RETRY_ATTEMPTS", 1)
+}
+
+func getMaxTestRetryAttempts() (int, error) {
+	return getEnvIntOrDefault("GO_TEST_MAX_RETRY_ATTEMPTS", 1)
+}
+
+func getEnvIntOrDefault(varName string, defaultValue int) (int, error) {
+	a := os.Getenv(varName)
 	if a == "" {
-		return 1, nil
+		return defaultValue, nil
 	}
 	i, err := strconv.Atoi(a)
 	if err != nil {
-		return 0, fmt.Errorf("env var '%v' is not an int: %w", retryEnvVarName, err)
+		return 0, fmt.Errorf("env var '%v' is not an int: %w", varName, err)
 	}
 	return i, nil
 }
