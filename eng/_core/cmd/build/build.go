@@ -7,6 +7,7 @@ package main
 import (
 	"flag"
 	"fmt"
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -48,6 +49,16 @@ func main() {
 		"Refresh Go submodule: clean untracked files, reset tracked files, and apply patches before building.\n"+
 			"For more refresh options, use the top level 'submodule-refresh' command instead of 'build'.")
 
+	var err error
+	o.MaxMakeAttempts, err = getEnvIntOrDefault("GO_MAKE_MAX_RETRY_ATTEMPTS", 1)
+	if err != nil {
+		log.Fatal(err)
+	}
+	o.MaxTestAttempts, err = getEnvIntOrDefault("GO_TEST_MAX_RETRY_ATTEMPTS", 1)
+	if err != nil {
+		log.Fatal(err)
+	}
+
 	flag.Usage = func() {
 		fmt.Fprintf(flag.CommandLine.Output(), "Usage:\n")
 		flag.PrintDefaults()
@@ -75,6 +86,9 @@ type options struct {
 	JSON      bool
 	Pack      bool
 	Refresh   bool
+
+	MaxMakeAttempts int
+	MaxTestAttempts int
 }
 
 func build(o *options) error {
@@ -134,14 +148,9 @@ func build(o *options) error {
 			return err
 		}
 
-		maxAttempts, err := getMaxMakeRetryAttempts()
-		if err != nil {
-			return err
-		}
-
 		buildCommandLine := append(shellPrefix, "make"+scriptExtension)
 
-		if err := retry(maxAttempts, func() error {
+		if err := retry(o.MaxMakeAttempts, func() error {
 			return runCommandLine(buildCommandLine...)
 		}); err != nil {
 			return err
@@ -180,11 +189,6 @@ func build(o *options) error {
 			}
 		}
 
-		maxAttempts, err := getMaxTestRetryAttempts()
-		if err != nil {
-			return err
-		}
-
 		// "-json": Get test results as lines of JSON.
 		if o.JSON {
 			testCommandLine = append(testCommandLine, "-json")
@@ -209,7 +213,7 @@ func build(o *options) error {
 		// redirect doesn't cause an issue where tests succeed that should have failed.)
 		testCmd.Stderr = os.Stdout
 
-		if err := retry(maxAttempts, func() error { return runCmd(testCmd) }); err != nil {
+		if err := retry(o.MaxTestAttempts, func() error { return runCmd(testCmd) }); err != nil {
 			return err
 		}
 
@@ -262,18 +266,15 @@ func retry(attempts int, f func() error) error {
 	return nil
 }
 
-func getMaxMakeRetryAttempts() (int, error) {
-	return getEnvIntOrDefault("GO_MAKE_MAX_RETRY_ATTEMPTS", 1)
-}
-
-func getMaxTestRetryAttempts() (int, error) {
-	return getEnvIntOrDefault("GO_TEST_MAX_RETRY_ATTEMPTS", 1)
-}
-
 func getEnvIntOrDefault(varName string, defaultValue int) (int, error) {
-	a := os.Getenv(varName)
-	if a == "" {
+	a, ok := os.LookupEnv(varName)
+	if !ok {
 		return defaultValue, nil
+	}
+	if a == "" {
+		return 0, fmt.Errorf(
+			"env var '%v' is set to empty string, which is not an int. To use the default value '%v', unset the env var",
+			varName, defaultValue)
 	}
 	i, err := strconv.Atoi(a)
 	if err != nil {
