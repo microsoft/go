@@ -49,15 +49,8 @@ func main() {
 		"Refresh Go submodule: clean untracked files, reset tracked files, and apply patches before building.\n"+
 			"For more refresh options, use the top level 'submodule-refresh' command instead of 'build'.")
 
-	var err error
-	o.MaxMakeAttempts, err = getEnvIntOrDefault("GO_MAKE_MAX_RETRY_ATTEMPTS", 1)
-	if err != nil {
-		log.Fatal(err)
-	}
-	o.MaxTestAttempts, err = getEnvIntOrDefault("GO_TEST_MAX_RETRY_ATTEMPTS", 1)
-	if err != nil {
-		log.Fatal(err)
-	}
+	o.MaxMakeAttempts = getMaxAttemptsOrExit("GO_MAKE_MAX_RETRY_ATTEMPTS", 1)
+	o.MaxTestAttempts = getMaxAttemptsOrExit("GO_TEST_MAX_RETRY_ATTEMPTS", 1)
 
 	flag.Usage = func() {
 		fmt.Fprintf(flag.CommandLine.Output(), "Usage:\n")
@@ -194,30 +187,30 @@ func build(o *options) error {
 			testCommandLine = append(testCommandLine, "-json")
 		}
 
-		testCmd := exec.Command(testCommandLine[0], testCommandLine[1:]...)
-		testCmd.Stdout = os.Stdout
-		// Redirect stderr to stdout. We expect some lines of stderr to always show up during the
-		// test run, but "build"'s caller might not understand that.
-		//
-		// For example, if we're running in CI, gotestsum may be capturing our output to report in a
-		// JUnit file. If gotestsum detects output in stderr, it prints it in an error message. This
-		// error message stands out, and could mislead someone trying to diagnose a failed test run.
-		// Redirecting all stderr output avoids this scenario. (See /eng/_core/README.md for more
-		// info on why we may be wrapped by gotestsum.)
-		//
-		// An example of benign stderr output is when the tests check for machine capabilities. A
-		// Cgo static linking test emits "/usr/bin/ld: cannot find -lc" when it checks the
-		// capabilities of "ld" on the current system.
-		//
-		// The stderr output isn't used to determine whether the tests succeeded or not. (The
-		// redirect doesn't cause an issue where tests succeed that should have failed.)
-		testCmd.Stderr = os.Stdout
+		test := func() error {
+			testCmd := exec.Command(testCommandLine[0], testCommandLine[1:]...)
+			testCmd.Stdout = os.Stdout
+			// Redirect stderr to stdout. We expect some lines of stderr to always show up during the
+			// test run, but "build"'s caller might not understand that.
+			//
+			// For example, if we're running in CI, gotestsum may be capturing our output to report in a
+			// JUnit file. If gotestsum detects output in stderr, it prints it in an error message. This
+			// error message stands out, and could mislead someone trying to diagnose a failed test run.
+			// Redirecting all stderr output avoids this scenario. (See /eng/_core/README.md for more
+			// info on why we may be wrapped by gotestsum.)
+			//
+			// An example of benign stderr output is when the tests check for machine capabilities. A
+			// Cgo static linking test emits "/usr/bin/ld: cannot find -lc" when it checks the
+			// capabilities of "ld" on the current system.
+			//
+			// The stderr output isn't used to determine whether the tests succeeded or not. (The
+			// redirect doesn't cause an issue where tests succeed that should have failed.)
+			testCmd.Stderr = os.Stdout
 
-		if err := retry(o.MaxTestAttempts, func() error { return runCmd(testCmd) }); err != nil {
-			return err
+			return runCmd(testCmd)
 		}
 
-		if err := runCmd(testCmd); err != nil {
+		if err := retry(o.MaxTestAttempts, test); err != nil {
 			return err
 		}
 	}
@@ -266,6 +259,17 @@ func retry(attempts int, f func() error) error {
 	return nil
 }
 
+func getMaxAttemptsOrExit(varName string, defaultValue int) int {
+	attempts, err := getEnvIntOrDefault(varName, defaultValue)
+	if err != nil {
+		log.Fatal(err)
+	}
+	if attempts <= 0 {
+		log.Fatalf("Expected positive integer for environment variable %q, but found: %v\n", varName, attempts)
+	}
+	return attempts
+}
+
 func getEnvIntOrDefault(varName string, defaultValue int) (int, error) {
 	a, ok := os.LookupEnv(varName)
 	if !ok {
@@ -273,12 +277,12 @@ func getEnvIntOrDefault(varName string, defaultValue int) (int, error) {
 	}
 	if a == "" {
 		return 0, fmt.Errorf(
-			"env var '%v' is set to empty string, which is not an int. To use the default value '%v', unset the env var",
+			"env var %q is set to empty string, which is not an int. To use the default value %v, unset the env var",
 			varName, defaultValue)
 	}
 	i, err := strconv.Atoi(a)
 	if err != nil {
-		return 0, fmt.Errorf("env var '%v' is not an int: %w", varName, err)
+		return 0, fmt.Errorf("env var %q is not an int: %w", varName, err)
 	}
 	return i, nil
 }
