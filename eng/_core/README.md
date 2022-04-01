@@ -8,13 +8,9 @@ Unlike `_util`, the `_core` module should have zero external dependencies and
 only requires a stage 0 Go toolset to build. The commands in this module are
 used to produce the signed Microsoft binaries.
 
-`_core` has a `_` prefix so `cmd/internal/moddeps/moddeps_test.go` ignores it.
-The moddeps tests enforce stricter requirements than this module needs to
-follow.
-
 ### Support for gotestsum wrapping
 The `_util` module implements a gotestsum wrapper around `_core`'s `build`
-command. This requires some features in `_core` that accomodate gotestsum but
+command. This requires some features in `_core` that accommodate gotestsum but
 don't make sense as standalone features a dev would use. For example, JSON test
 output and stderr redirection to stdout.
 
