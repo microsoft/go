@@ -24,14 +24,33 @@ function Get-Stage0GoRoot() {
   # pre-installed. This CI script installs a consistent, official version of Go to a directory in
   # $HOME to handle this. This also makes it easier to locally repro issues in CI that involve a
   # specific version of Go. The downloaded copy of Go is called the "stage 0" version.
-  $stage0_go_version = '1.16.5'
+  $stage0_go_version = '1.17.8'
 
+  $proc_arch = ([System.Runtime.InteropServices.RuntimeInformation]::ProcessArchitecture).ToString().ToLowerInvariant()
   if ($IsWindows) {
-    $stage0_go_sha256 = '0a3fa279ae5b91bc8c88017198c8f1ba5d9925eb6e5d7571316e567c73add39d'
-    $stage0_go_suffix = 'windows-amd64.zip'
+    switch ($proc_arch) {
+      'x64' {
+        $stage0_go_sha256 = '85ccf2608dca6ea9a46b6538c9e75e7cf2aebdf502379843b248e26b8bb110be'
+        $stage0_go_suffix = 'windows-amd64.zip'
+      }
+      'arm64' {
+        $stage0_go_sha256 = '4a0d960f5c0cbff1edaf54f333cf857a2779f6ae4c8e759b7872b44fde5ae43f'
+        $stage0_go_suffix = 'windows-arm64.zip'
+      }
+      Default { throw "Unable to match Windows '$proc_arch' to an architecture supported by the Microsoft scripts to build Go." }
+    }
   } elseif ($IsLinux) {
-    $stage0_go_sha256 = 'b12c23023b68de22f74c0524f10b753e7b08b1504cb7e417eccebdd3fae49061'
-    $stage0_go_suffix = 'linux-amd64.tar.gz'
+    switch ($proc_arch) {
+      'x64' {
+        $stage0_go_sha256 = '980e65a863377e69fd9b67df9d8395fd8e93858e7a24c9f55803421e453f4f99'
+        $stage0_go_suffix = 'linux-amd64.tar.gz'
+      }
+      'arm64' {
+        $stage0_go_sha256 = '57a9171682e297df1a5bd287be056ed0280195ad079af90af16dcad4f64710cb'
+        $stage0_go_suffix = 'linux-arm64.tar.gz'
+      }
+      Default { throw "Unable to match Linux '$proc_arch' to an architecture supported by the Microsoft scripts to build Go." }
+    }
   } else {
     throw "Current OS/Platform is not supported by the Microsoft scripts to build Go."
   }
