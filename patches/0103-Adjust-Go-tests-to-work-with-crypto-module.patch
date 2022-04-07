@@ -3,12 +3,50 @@ From: microsoft-golang-bot <microsoft-golang-bot@users.noreply.github.com>
 Date: Thu, 31 Mar 2022 13:11:06 -0500
 Subject: [PATCH] Adjust Go tests to work with crypto module
 
+use gocrypt tag for cgo static tests
 ---
+ misc/cgo/test/pkg_test.go                        |  4 +++-
+ src/cmd/dist/test.go                             |  6 ++++--
  src/cmd/go/testdata/script/gopath_std_vendor.txt |  1 +
  src/crypto/boring/boring_test.go                 |  1 +
  src/go/build/deps_test.go                        | 13 ++++++++++---
- 3 files changed, 12 insertions(+), 3 deletions(-)
+ 5 files changed, 19 insertions(+), 6 deletions(-)
 
+diff --git a/misc/cgo/test/pkg_test.go b/misc/cgo/test/pkg_test.go
+index 14013a4cd9..83bb5f5323 100644
+--- a/misc/cgo/test/pkg_test.go
++++ b/misc/cgo/test/pkg_test.go
+@@ -50,7 +50,9 @@ func TestCrossPackageTests(t *testing.T) {
+ 		t.Fatal(err)
+ 	}
+ 
+-	cmd := exec.Command("go", "test")
++	// Use build tag 'gocrypt' to avoid importing go-crypto-openssl, which makes TestSetgid hang.
++	// See go.dev/issues/52141.
++	cmd := exec.Command("go", "test", "-tags=gocrypt")
+ 	if testing.Verbose() {
+ 		cmd.Args = append(cmd.Args, "-v")
+ 	}
+diff --git a/src/cmd/dist/test.go b/src/cmd/dist/test.go
+index f65d9bf980..564d870af3 100644
+--- a/src/cmd/dist/test.go
++++ b/src/cmd/dist/test.go
+@@ -1195,11 +1195,13 @@ func (t *tester) cgoTest(dt *distTest) error {
+ 				t.addCmd(dt, "misc/cgo/nocgo", t.goTest(), "-ldflags", `-linkmode=external`)
+ 				if goos != "android" {
+ 					t.addCmd(dt, "misc/cgo/nocgo", t.goTest(), "-ldflags", `-linkmode=external -extldflags "-static -pthread"`)
+-					t.addCmd(dt, "misc/cgo/test", t.goTest(), "-tags=static", "-ldflags", `-linkmode=external -extldflags "-static -pthread"`)
++					// Use build tag 'gocrypt' to avoid importing go-crypto-openssl, which makes TestSetgid hang.
++					// See go.dev/issues/52141.
++					t.addCmd(dt, "misc/cgo/test", t.goTest(), "-tags=static,gocrypt", "-ldflags", `-linkmode=external -extldflags "-static -pthread"`)
+ 					// -static in CGO_LDFLAGS triggers a different code path
+ 					// than -static in -extldflags, so test both.
+ 					// See issue #16651.
+-					cmd := t.addCmd(dt, "misc/cgo/test", t.goTest(), "-tags=static")
++					cmd := t.addCmd(dt, "misc/cgo/test", t.goTest(), "-tags=static,gocrypt")
+ 					setEnv(cmd, "CGO_LDFLAGS", "-static -pthread")
+ 				}
+ 			}
 diff --git a/src/cmd/go/testdata/script/gopath_std_vendor.txt b/src/cmd/go/testdata/script/gopath_std_vendor.txt
 index a0a41a50de..8c39d9a2bd 100644
 --- a/src/cmd/go/testdata/script/gopath_std_vendor.txt
