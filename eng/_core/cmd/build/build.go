@@ -7,6 +7,7 @@ package main
 import (
 	"flag"
 	"fmt"
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -48,6 +49,9 @@ func main() {
 		"Refresh Go submodule: clean untracked files, reset tracked files, and apply patches before building.\n"+
 			"For more refresh options, use the top level 'submodule-refresh' command instead of 'build'.")
 
+	o.MaxMakeAttempts = getMaxAttemptsOrExit("GO_MAKE_MAX_RETRY_ATTEMPTS", 1)
+	o.MaxTestAttempts = getMaxAttemptsOrExit("GO_TEST_MAX_RETRY_ATTEMPTS", 1)
+
 	flag.Usage = func() {
 		fmt.Fprintf(flag.CommandLine.Output(), "Usage:\n")
 		flag.PrintDefaults()
@@ -75,6 +79,9 @@ type options struct {
 	JSON      bool
 	Pack      bool
 	Refresh   bool
+
+	MaxMakeAttempts int
+	MaxTestAttempts int
 }
 
 func build(o *options) error {
@@ -134,26 +141,12 @@ func build(o *options) error {
 			return err
 		}
 
-		maxAttempts, err := getMaxMakeRetryAttempts()
-		if err != nil {
-			return err
-		}
-
 		buildCommandLine := append(shellPrefix, "make"+scriptExtension)
 
-		for i := 0; i < maxAttempts; i++ {
-			if maxAttempts > 1 {
-				fmt.Printf("---- Running 'make' attempt %v of %v...\n", i+1, maxAttempts)
-			}
-			err := runCommandLine(buildCommandLine...)
-			if err != nil {
-				if i+1 < maxAttempts {
-					fmt.Printf("---- Build command failed with error: %v\n", err)
-					continue
-				}
-				return err
-			}
-			break
+		if err := retry(o.MaxMakeAttempts, func() error {
+			return runCommandLine(buildCommandLine...)
+		}); err != nil {
+			return err
 		}
 
 		if os.Getenv("CGO_ENABLED") != "0" {
@@ -194,26 +187,30 @@ func build(o *options) error {
 			testCommandLine = append(testCommandLine, "-json")
 		}
 
-		testCmd := exec.Command(testCommandLine[0], testCommandLine[1:]...)
-		testCmd.Stdout = os.Stdout
-		// Redirect stderr to stdout. We expect some lines of stderr to always show up during the
-		// test run, but "build"'s caller might not understand that.
-		//
-		// For example, if we're running in CI, gotestsum may be capturing our output to report in a
-		// JUnit file. If gotestsum detects output in stderr, it prints it in an error message. This
-		// error message stands out, and could mislead someone trying to diagnose a failed test run.
-		// Redirecting all stderr output avoids this scenario. (See /eng/_core/README.md for more
-		// info on why we may be wrapped by gotestsum.)
-		//
-		// An example of benign stderr output is when the tests check for machine capabilities. A
-		// Cgo static linking test emits "/usr/bin/ld: cannot find -lc" when it checks the
-		// capabilities of "ld" on the current system.
-		//
-		// The stderr output isn't used to determine whether the tests succeeded or not. (The
-		// redirect doesn't cause an issue where tests succeed that should have failed.)
-		testCmd.Stderr = os.Stdout
+		test := func() error {
+			testCmd := exec.Command(testCommandLine[0], testCommandLine[1:]...)
+			testCmd.Stdout = os.Stdout
+			// Redirect stderr to stdout. We expect some lines of stderr to always show up during the
+			// test run, but "build"'s caller might not understand that.
+			//
+			// For example, if we're running in CI, gotestsum may be capturing our output to report in a
+			// JUnit file. If gotestsum detects output in stderr, it prints it in an error message. This
+			// error message stands out, and could mislead someone trying to diagnose a failed test run.
+			// Redirecting all stderr output avoids this scenario. (See /eng/_core/README.md for more
+			// info on why we may be wrapped by gotestsum.)
+			//
+			// An example of benign stderr output is when the tests check for machine capabilities. A
+			// Cgo static linking test emits "/usr/bin/ld: cannot find -lc" when it checks the
+			// capabilities of "ld" on the current system.
+			//
+			// The stderr output isn't used to determine whether the tests succeeded or not. (The
+			// redirect doesn't cause an issue where tests succeed that should have failed.)
+			testCmd.Stderr = os.Stdout
 
-		if err := runCmd(testCmd); err != nil {
+			return runCmd(testCmd)
+		}
+
+		if err := retry(o.MaxTestAttempts, test); err != nil {
 			return err
 		}
 	}
@@ -241,15 +238,51 @@ func runCmd(cmd *exec.Cmd) error {
 	return cmd.Run()
 }
 
-func getMaxMakeRetryAttempts() (int, error) {
-	const retryEnvVarName = "GO_MAKE_MAX_RETRY_ATTEMPTS"
-	a := os.Getenv(retryEnvVarName)
+func retry(attempts int, f func() error) error {
+	var i = 0
+	for ; i < attempts; i++ {
+		if attempts > 1 {
+			fmt.Printf("---- Running attempt %v of %v...\n", i+1, attempts)
+		}
+		err := f()
+		if err != nil {
+			if i+1 < attempts {
+				fmt.Printf("---- Attempt failed with error: %v\n", err)
+				continue
+			}
+			fmt.Printf("---- Final attempt failed.\n")
+			return err
+		}
+		break
+	}
+	fmt.Printf("---- Successful on attempt %v of %v.\n", i+1, attempts)
+	return nil
+}
+
+func getMaxAttemptsOrExit(varName string, defaultValue int) int {
+	attempts, err := getEnvIntOrDefault(varName, defaultValue)
+	if err != nil {
+		log.Fatal(err)
+	}
+	if attempts <= 0 {
+		log.Fatalf("Expected positive integer for environment variable %q, but found: %v\n", varName, attempts)
+	}
+	return attempts
+}
+
+func getEnvIntOrDefault(varName string, defaultValue int) (int, error) {
+	a, ok := os.LookupEnv(varName)
+	if !ok {
+		return defaultValue, nil
+	}
 	if a == "" {
-		return 1, nil
+		return 0, fmt.Errorf(
+			"env var %q is set to empty string, which is not an int. To use the default value %v, unset the env var",
+			varName, defaultValue)
 	}
 	i, err := strconv.Atoi(a)
 	if err != nil {
-		return 0, fmt.Errorf("env var '%v' is not an int: %w", retryEnvVarName, err)
+		return 0, fmt.Errorf("env var %q is not an int: %w", varName, err)
 	}
 	return i, nil
 }
