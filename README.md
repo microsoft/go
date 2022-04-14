@@ -65,12 +65,20 @@ The resulting Go binary is at `go/bin/go`.
 
 ### Binary distribution
 
-[microsoft/go-images](https://github.com/microsoft/go-images) distributes the
-binaries of this Go fork by producing Docker images. The Dockerfiles contain
-URLs that point at the tar.gz or zip binary distribution file used for a
-particular image.
+* **[microsoft/go-images](https://github.com/microsoft/go-images)** distributes
+  the binaries of this Go fork by producing Docker images that are published to
+  the Microsoft Container Registry. This is the recommended way to use the
+  Microsoft build of Go.
 
-More options are planned in the future.
+* [**Binary archives**: visit the `microsoft/main` branch `eng/doc/Downloads.md`
+  file](https://github.com/microsoft/go/blob/microsoft/main/eng/doc/Downloads.md)
+  to download binaries and source tarballs built by supported release branches.
+
+* [**GitHub Releases**: the microsoft/go GitHub
+  releases](https://github.com/microsoft/go/releases) have source code archive
+  attachments.
+
+More options are planned in the future. See the issue tag:
 [![](https://img.shields.io/github/labels/microsoft/go/Area-Release)](https://github.com/microsoft/go/labels/Area-Release)
 
 ## Contributing
