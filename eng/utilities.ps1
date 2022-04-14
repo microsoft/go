@@ -130,13 +130,14 @@ function Invoke-CrossGoBlock([string] $GOOS, [string] $GOARCH, [ScriptBlock] $bl
   $oldGOOS = $env:GOOS
   $oldGOARCH = $env:GOARCH
 
-  $env:GOOS = $GOOS
-  $env:GOARCH = $GOARCH
-
-  & $block
-
-  $env:GOOS = $oldGOOS
-  $env:GOARCH = $oldGOARCH
+  try {
+    $env:GOOS = $GOOS
+    $env:GOARCH = $GOARCH
+    & $block
+  } finally {
+    $env:GOOS = $oldGOOS
+    $env:GOARCH = $oldGOARCH
+  }
 }
 
 # Utility method to unzip a file to a specific path.
