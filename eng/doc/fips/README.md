@@ -35,9 +35,9 @@ FIPS compatibility mode, and therefore the OpenSSL crypto backend, can be enable
   - Linux FIPS mode sets the content of `/proc/sys/crypto/fips_enabled` to `1`. The Go runtime reads this file.
   - To opt out, set `GOFIPS=0`.
 
-Whichever is the approach used, the program initialization will panic if FIPS mode is requested but the Go runtime can't find a suitable OpenSSL shared library or OPENSSL FIPS mode can't be enabled.
+Whichever is the approach used, the program initialization will panic if FIPS mode is requested but the Go runtime can't find a suitable OpenSSL shared library or OpenSSL FIPS mode can't be enabled.
 
-The whole OpenSSL functionality can be disabled by building your program with `-tags gocrypto`.
+The whole OpenSSL functionality can be disabled by building your program with `-tags gocrypt`.
 
 ## Features
 
