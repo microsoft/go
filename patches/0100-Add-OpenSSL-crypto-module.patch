@@ -7,14 +7,18 @@ github.com/microsoft/go-infra/cmd/git-go-patch command: patch number 0100
 ---
  src/crypto/internal/backend/backend_test.go  |  30 ++++
  src/crypto/internal/backend/dummy.s          |  10 ++
- src/crypto/internal/backend/nobackend.go     | 112 ++++++++++++++
+ src/crypto/internal/backend/iscgo.go         |  10 ++
+ src/crypto/internal/backend/nobackend.go     | 124 ++++++++++++++++
+ src/crypto/internal/backend/nocgo.go         |  10 ++
  src/crypto/internal/backend/openssl_linux.go | 145 +++++++++++++++++++
  src/go.mod                                   |   1 +
  src/go.sum                                   |   2 +
- 6 files changed, 300 insertions(+)
+ 8 files changed, 332 insertions(+)
  create mode 100644 src/crypto/internal/backend/backend_test.go
  create mode 100644 src/crypto/internal/backend/dummy.s
+ create mode 100644 src/crypto/internal/backend/iscgo.go
  create mode 100644 src/crypto/internal/backend/nobackend.go
+ create mode 100644 src/crypto/internal/backend/nocgo.go
  create mode 100644 src/crypto/internal/backend/openssl_linux.go
 
 diff --git a/src/crypto/internal/backend/backend_test.go b/src/crypto/internal/backend/backend_test.go
@@ -69,12 +73,28 @@ index 0000000000..157adeeeb3
 +// Having this assembly file keeps the go command
 +// from complaining about the missing body
 +// (because the implementation might be here).
+diff --git a/src/crypto/internal/backend/iscgo.go b/src/crypto/internal/backend/iscgo.go
+new file mode 100644
+index 0000000000..ab5227fb86
+--- /dev/null
++++ b/src/crypto/internal/backend/iscgo.go
+@@ -0,0 +1,10 @@
++// Copyright 2022 The Go Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style
++// license that can be found in the LICENSE file.
++
++//go:build cgo
++// +build cgo
++
++package backend
++
++const iscgo = true
 diff --git a/src/crypto/internal/backend/nobackend.go b/src/crypto/internal/backend/nobackend.go
 new file mode 100644
-index 0000000000..4de8d404f8
+index 0000000000..ed2155f2bd
 --- /dev/null
 +++ b/src/crypto/internal/backend/nobackend.go
-@@ -0,0 +1,112 @@
+@@ -0,0 +1,124 @@
 +// Copyright 2017 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -90,9 +110,21 @@ index 0000000000..4de8d404f8
 +	"crypto/internal/boring/sig"
 +	"hash"
 +	"math/big"
++	"runtime"
++	"syscall"
 +)
 +
 +const Enabled = false
++
++func init() {
++	if v, ok := syscall.Getenv("GOFIPS"); ok && v == "1" {
++		if runtime.GOOS != "linux" {
++			panic("FIPS mode requested (GOFIPS=1) but not supported on " + runtime.GOOS)
++		} else if !iscgo {
++			panic("FIPS mode requested (GOFIPS=1) but not supported with cgo disabled")
++		}
++	}
++}
 +
 +// Unreachable marks code that should be unreachable
 +// when OpenSSLCrypto is in use. It is a no-op without OpenSSLCrypto.
@@ -187,6 +219,22 @@ index 0000000000..4de8d404f8
 +func VerifyRSAPSS(pub *PublicKeyRSA, h crypto.Hash, hashed, sig []byte, saltLen int) error {
 +	panic("opensslcrypto: not available")
 +}
+diff --git a/src/crypto/internal/backend/nocgo.go b/src/crypto/internal/backend/nocgo.go
+new file mode 100644
+index 0000000000..f035e3f41b
+--- /dev/null
++++ b/src/crypto/internal/backend/nocgo.go
+@@ -0,0 +1,10 @@
++// Copyright 2022 The Go Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style
++// license that can be found in the LICENSE file.
++
++//go:build !cgo
++// +build !cgo
++
++package backend
++
++const iscgo = false
 diff --git a/src/crypto/internal/backend/openssl_linux.go b/src/crypto/internal/backend/openssl_linux.go
 new file mode 100644
 index 0000000000..9fa156894a
