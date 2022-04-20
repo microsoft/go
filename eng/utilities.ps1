@@ -24,17 +24,17 @@ function Get-Stage0GoRoot() {
   # pre-installed. This CI script installs a consistent, official version of Go to a directory in
   # $HOME to handle this. This also makes it easier to locally repro issues in CI that involve a
   # specific version of Go. The downloaded copy of Go is called the "stage 0" version.
-  $stage0_go_version = '1.17.8'
+  $stage0_go_version = '1.18'
 
   $proc_arch = ([System.Runtime.InteropServices.RuntimeInformation]::ProcessArchitecture).ToString().ToLowerInvariant()
   if ($IsWindows) {
     switch ($proc_arch) {
       'x64' {
-        $stage0_go_sha256 = '85ccf2608dca6ea9a46b6538c9e75e7cf2aebdf502379843b248e26b8bb110be'
+        $stage0_go_sha256 = '65c5c0c709a7ca1b357091b10b795b439d8b50e579d3893edab4c7e9b384f435'
         $stage0_go_suffix = 'windows-amd64.zip'
       }
       'arm64' {
-        $stage0_go_sha256 = '4a0d960f5c0cbff1edaf54f333cf857a2779f6ae4c8e759b7872b44fde5ae43f'
+        $stage0_go_sha256 = '1c454eb60c64d481965a165c623ff1ed6cf32d68c6b31f36069c8768d908f093'
         $stage0_go_suffix = 'windows-arm64.zip'
       }
       Default { throw "Unable to match Windows '$proc_arch' to an architecture supported by the Microsoft scripts to build Go." }
@@ -42,11 +42,11 @@ function Get-Stage0GoRoot() {
   } elseif ($IsLinux) {
     switch ($proc_arch) {
       'x64' {
-        $stage0_go_sha256 = '980e65a863377e69fd9b67df9d8395fd8e93858e7a24c9f55803421e453f4f99'
+        $stage0_go_sha256 = 'e85278e98f57cdb150fe8409e6e5df5343ecb13cebf03a5d5ff12bd55a80264f'
         $stage0_go_suffix = 'linux-amd64.tar.gz'
       }
       'arm64' {
-        $stage0_go_sha256 = '57a9171682e297df1a5bd287be056ed0280195ad079af90af16dcad4f64710cb'
+        $stage0_go_sha256 = '7ac7b396a691e588c5fb57687759e6c4db84a2a3bbebb0765f4b38e5b1c5b00e'
         $stage0_go_suffix = 'linux-arm64.tar.gz'
       }
       Default { throw "Unable to match Linux '$proc_arch' to an architecture supported by the Microsoft scripts to build Go." }
@@ -123,6 +123,20 @@ function Invoke-WithRetry([ScriptBlock]$ScriptBlock, [int]$MaxAttempts = 3, [int
         throw
       }
     }
+  }
+}
+
+function Invoke-CrossGoBlock([string] $GOOS, [string] $GOARCH, [ScriptBlock] $block) {
+  $oldGOOS = $env:GOOS
+  $oldGOARCH = $env:GOARCH
+
+  try {
+    $env:GOOS = $GOOS
+    $env:GOARCH = $GOARCH
+    & $block
+  } finally {
+    $env:GOOS = $oldGOOS
+    $env:GOARCH = $oldGOARCH
   }
 }
 
