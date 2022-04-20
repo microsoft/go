@@ -99,12 +99,18 @@ try {
   # Use a module-local path so Go resolves imports correctly.
   $module_local_script_path = Join-Path "." "cmd" "$tool"
 
-  Write-Host "In '$tool_module', building '$module_local_script_path' -> $tool_output"
-  & (Join-Path $stage0_goroot "bin" "go") build -o $tool_output $module_local_script_path
-  if ($LASTEXITCODE) {
-    Write-Host "Failed to build tool."
-    exit 1
+  # The caller may have passed in GOOS/GOARCH to cross-compile Go. We can't use those values here:
+  # we need to be able to run the tool on the host, so we must always target the host OS/ARCH. Clear
+  # out the GOOS/GOARCH values (empty string) to detect host OS/ARCH automatically for the tools.
+  Invoke-CrossGoBlock "" "" {
+    Write-Host "In '$tool_module', building '$module_local_script_path' -> $tool_output"
+    & (Join-Path $stage0_goroot "bin" "go") build -o $tool_output $module_local_script_path
+    if ($LASTEXITCODE) {
+      Write-Host "Failed to build tool."
+      exit 1
+    }
   }
+
   Write-Host "Building done."
 } finally {
   Pop-Location

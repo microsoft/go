@@ -67,18 +67,14 @@ func CreateFromSource(source string, output string) error {
 // The inclusion of some files depends on the OS/ARCH. If output is specified, its filename must
 // follow the pattern "*{GOOS}-{GOARCH}{extension}" so OS and ARCH can be detected. If output is not
 // specified, the current Go runtime's OS and ARCH are used.
-func CreateFromBuild(source string, output string) error {
+//
+// If runtime.GOOS and runtime.GOARCH don't match the OS/ARCH of the output file name, the build
+// directory is treated as a cross-compiled build of Go.
+func CreateFromBuild(source, output string) error {
 	fmt.Printf("---- Creating Go archive (zip/tarball) from '%v'...\n", source)
 
 	if output == "" {
-		archiveVersion := getBuildID()
-		archiveExtension := ".tar.gz"
-		if runtime.GOOS == "windows" {
-			archiveExtension = ".zip"
-		}
-
-		archiveName := fmt.Sprintf("go.%v.%v-%v%v", archiveVersion, runtime.GOOS, runtime.GOARCH, archiveExtension)
-		output = filepath.Join(getBinDir(source), archiveName)
+		output = DefaultBuildOutputPath(source, "", "")
 	}
 
 	// Ensure the target directory exists.
@@ -111,6 +107,22 @@ func CreateFromBuild(source string, output string) error {
 		filepath.Join("pkg", "tool", os+"_"+arch, "api.exe"),
 	}
 
+	hostOS := runtime.GOOS
+	hostArch := runtime.GOARCH
+	if hostOS != os || hostArch != arch {
+		fmt.Printf("Handling cross-compile: %v-%v host to %v-%v target\n", hostOS, hostArch, os, arch)
+		skipPaths = append(skipPaths, []string{
+			// Don't include binaries that were built for the host toolchain.
+			filepath.Join("pkg", hostOS+"_"+hostArch),
+			filepath.Join("pkg", "tool", hostOS+"_"+hostArch),
+			// Don't include the host binaries: the target binaries are in a subdir.
+			filepath.Join("bin", "go"),
+			filepath.Join("bin", "go.exe"),
+			filepath.Join("bin", "gofmt"),
+			filepath.Join("bin", "gofmt.exe"),
+		}...)
+	}
+
 	// Figure out what the race detection syso (precompiled binary) is named for the current
 	// os/arch. We want to exclude all race syso files other than this one.
 	targetRuntimeRaceSyso := fmt.Sprintf("race_%v_%v.syso", os, arch)
@@ -119,7 +131,13 @@ func CreateFromBuild(source string, output string) error {
 	// data the script has processed to avoid appearing unresponsive.
 	lastProgressUpdate := time.Now()
 
-	filepath.WalkDir(source, func(path string, info fs.DirEntry, err error) error {
+	// Keep track of target paths added to the archive (key) and the source path that it comes from
+	// (value). This map ensures no target files are double-added.
+	addedPaths := make(map[string]string)
+	// Keep track of dir entries that have been added.
+	addedDirs := make(map[string]struct{})
+
+	err := filepath.WalkDir(source, func(path string, info fs.DirEntry, err error) error {
 		if err != nil {
 			fmt.Printf("Failure accessing a path %q: %v\n", path, err)
 			return err
@@ -127,8 +145,11 @@ func CreateFromBuild(source string, output string) error {
 
 		relPath, err := filepath.Rel(source, path)
 		if err != nil {
-			panic(err)
+			return err
 		}
+
+		// targetPath is where relPath should be placed in the output archive, if it belongs inside.
+		targetPath := relPath
 
 		// Walk every dir/file in the root of the repository.
 		if relPath == "." {
@@ -168,6 +189,11 @@ func CreateFromBuild(source string, output string) error {
 				}
 			}
 
+			// Include "bin/{OS}_{ARCH}/go" as "bin/go" if this is a cross-compilation build.
+			if filepath.Dir(relPath) == filepath.Join("bin", os+"_"+arch) {
+				targetPath = filepath.Join("bin", filepath.Base(relPath))
+			}
+
 			// Skip race detection syso file if it doesn't match the target runtime.
 			//
 			// Ignore error: the only possible error is one that says the pattern is invalid (see
@@ -181,16 +207,52 @@ func CreateFromBuild(source string, output string) error {
 
 		if info.IsDir() {
 			// We want to continue the recursive search in this directory for more files, but we
-			// don't need to add it to the archive. Return nil to continue.
+			// don't necessarily want to add this dir to the archive. Return nil to continue.
 			return nil
 		}
 
-		// At this point, we know "path" is a file that should be included. Add it.
-		archiver.AddFile(
-			path,
-			// Store everything in a root "go" directory to match upstream Go archives.
-			filepath.Join("go", relPath),
-		)
+		if relPath != targetPath {
+			fmt.Printf("Archiving %#q as %#q\n", relPath, targetPath)
+		}
+
+		if otherSource, ok := addedPaths[targetPath]; ok {
+			return fmt.Errorf(
+				"adding archive file %#q from %#q, but target already added from %#q",
+				targetPath, relPath, otherSource)
+		}
+		addedPaths[targetPath] = relPath
+
+		// At this point, we know "path" is a file that should be included. Add it. Store everything
+		// in a root "go" directory to match upstream Go archives.
+		goTargetPath := filepath.Join("go", targetPath)
+		if err := archiver.AddFile(path, goTargetPath); err != nil {
+			return err
+		}
+
+		// Add all dirs that are ancestors of this target file. Even though explicitly added dirs
+		// aren't necessary to create a valid archive file, upstream does this, so we do too. This
+		// reduces the diff, e.g. when comparing results with tools like "tar -tf".
+		dir := goTargetPath
+		for {
+			dir = filepath.Dir(dir)
+			if dir == "." {
+				break
+			}
+			if dir == "/" {
+				return fmt.Errorf("unexpected rooted target path: %#q", goTargetPath)
+			}
+
+			if _, ok := addedDirs[dir]; ok {
+				break
+			}
+			// Use root repository dir as a stand-in for any filesystem information. This is simpler
+			// than reproducing the actual dir's path based on the target path, especially
+			// considering the target path may not match up with a directory that actually exists.
+			if err := archiver.AddFile(source, dir); err != nil {
+				return err
+			}
+			addedDirs[dir] = struct{}{}
+		}
 
 		// If it's been long enough, log an update on our progress.
 		now := time.Now()
@@ -204,6 +266,9 @@ func CreateFromBuild(source string, output string) error {
 
 		return nil
 	})
+	if err != nil {
+		return err
+	}
 
 	fmt.Printf(
 		"Complete! %v (%v kB uncompressed data archived)\n",
@@ -222,6 +287,31 @@ func CreateFromBuild(source string, output string) error {
 
 	fmt.Printf("---- Pack complete.\n")
 	return nil
+}
+
+// DefaultBuildOutputPath returns the default path to place the output archive given a built Go
+// directory. Optionally takes os and arch, or detects their values from the environment and runtime
+// if empty string.
+func DefaultBuildOutputPath(source, os, arch string) string {
+	if os == "" {
+		os = runtime.GOOS
+	}
+	if arch == "" {
+		arch = runtime.GOARCH
+	}
+	// Add "v6l" suffix to "arm" arch. More robust handling would be necessary if there were
+	// multiple "arm" builds with GOARM=6 and GOARM=7, but there are not, and "arm64" obsoletes it.
+	if arch == "arm" {
+		arch += "v6l"
+	}
+
+	ext := ".tar.gz"
+	if runtime.GOOS == "windows" {
+		ext = ".zip"
+	}
+
+	archiveName := fmt.Sprintf("go.%v.%v-%v%v", getBuildID(), os, arch, ext)
+	return filepath.Join(getBinDir(source), archiveName)
 }
 
 // getBuildID returns BUILD_BUILDNUMBER if defined (e.g. a CI build). Otherwise, "dev".
@@ -244,7 +334,8 @@ func getArchivePathRuntime(path string, ext string) (os string, arch string) {
 	pathNoExt := path[0 : len(path)-len(ext)]
 	firstRuntimeIndex := strings.LastIndex(pathNoExt, ".") + 1
 	osArch := strings.Split(pathNoExt[firstRuntimeIndex:], "-")
-	return osArch[0], osArch[1]
+	// "v6l" is added to the end of the "arm" arch filename, but is not part of the arch. Remove it.
+	return osArch[0], strings.TrimSuffix(osArch[1], "v6l")
 }
 
 // writeSHA256ChecksumFile reads the content of the file at the given path into a SHA256 hasher, and

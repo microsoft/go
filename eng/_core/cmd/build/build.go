@@ -112,6 +112,19 @@ func build(o *options) error {
 		}
 	}
 
+	// Get the target platform information. If the environment variable is different from the
+	// runtime value, this means we're doing a cross-compiled build. These values are used for
+	// capability checks and to make sure that if Pack is enabled, the output archive is formatted
+	// correctly and uses the right filename.
+	targetOS, err := getEnvOrDefault("GOOS", runtime.GOOS)
+	if err != nil {
+		return err
+	}
+	targetArch, err := getEnvOrDefault("GOARCH", runtime.GOARCH)
+	if err != nil {
+		return err
+	}
+
 	// The upstream build scripts in {repo-root}/src require your working directory to be src, or
 	// they instantly fail. Change the current process dir so that we can run them.
 	if err := os.Chdir("go/src"); err != nil {
@@ -149,7 +162,10 @@ func build(o *options) error {
 			return err
 		}
 
-		if os.Getenv("CGO_ENABLED") != "0" {
+		// The race runtime requires cgo.
+		// It isn't supported on arm.
+		// It's supported on arm64, but the official linux-arm64 distribution doesn't include it.
+		if os.Getenv("CGO_ENABLED") != "0" && targetArch != "arm" && targetArch != "arm64" {
 			fmt.Println("---- Building race runtime...")
 			err := runCommandLine(
 				filepath.Join("..", "bin", "go"+executableExtension),
@@ -217,7 +233,8 @@ func build(o *options) error {
 
 	if o.Pack {
 		goRootDir := filepath.Join(rootDir, "go")
-		if err := archive.CreateFromBuild(goRootDir, ""); err != nil {
+		output := archive.DefaultBuildOutputPath(goRootDir, targetOS, targetArch)
+		if err := archive.CreateFromBuild(goRootDir, output); err != nil {
 			return err
 		}
 	}
@@ -271,18 +288,34 @@ func getMaxAttemptsOrExit(varName string, defaultValue int) int {
 }
 
 func getEnvIntOrDefault(varName string, defaultValue int) (int, error) {
-	a, ok := os.LookupEnv(varName)
-	if !ok {
-		return defaultValue, nil
-	}
-	if a == "" {
-		return 0, fmt.Errorf(
-			"env var %q is set to empty string, which is not an int. To use the default value %v, unset the env var",
-			varName, defaultValue)
+	a, err := getEnvOrDefault(varName, strconv.Itoa(defaultValue))
+	if err != nil {
+		return 0, err
 	}
 	i, err := strconv.Atoi(a)
 	if err != nil {
 		return 0, fmt.Errorf("env var %q is not an int: %w", varName, err)
 	}
 	return i, nil
+}
+
+// getEnvOrDefault find an environment variable with name varName and returns its value. If the env
+// var is not set, returns defaultValue.
+//
+// If the env var is found and its value is empty string, returns an error. This can't happen on
+// Windows because setting an env var to empty string deletes it. However, on Linux, it is possible.
+// It's likely a mistake, so we let the user know what happened with an error. For example, the env
+// var might be empty string because it was set by "example=$(someCommand)" and someCommand
+// encountered an error and didn't send any output to stdout.
+func getEnvOrDefault(varName, defaultValue string) (string, error) {
+	v, ok := os.LookupEnv(varName)
+	if !ok {
+		return defaultValue, nil
+	}
+	if v == "" {
+		return "", fmt.Errorf(
+			"env var %q is empty, not a valid string. To use the default string %v, unset the env var",
+			varName, defaultValue)
+	}
+	return v, nil
 }
