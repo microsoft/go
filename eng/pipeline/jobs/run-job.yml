@@ -5,7 +5,7 @@
 # This job runs a builder for any OS.
 
 parameters:
-  # { id, os, arch, config, distro? }
+  # { id, os, arch, hostArch, config, distro? }
   builder: {}
   createSourceArchive: false
 
@@ -19,7 +19,7 @@ jobs:
         vmImage: windows-2019
 
     ${{ if eq(parameters.builder.os, 'linux') }}:
-      ${{ if eq(parameters.builder.arch, 'amd64') }}:
+      ${{ if eq(parameters.builder.hostArch, 'amd64') }}:
         pool:
           # The VM image of the Docker host. This doesn't need to match the container image, but it may
           # give slightly better coverage by matching the kernel version.
@@ -30,7 +30,7 @@ jobs:
           container: golangpublicimages.azurecr.io/go-infra-images/prereqs:cbl-mariner-1.0.20211027-20211201-0cccc22
         ${{ if eq(parameters.builder.distro, 'ubuntu') }}:
           container: mcr.microsoft.com/dotnet-buildtools/prereqs:ubuntu-18.04-20211022152710-047508b
-      ${{ if eq(parameters.builder.arch, 'arm64') }}:
+      ${{ if eq(parameters.builder.hostArch, 'arm64') }}:
         pool:
           name: Docker-Linux-Arm-Internal
         ${{ if not(parameters.builder.distro) }}:
@@ -85,6 +85,13 @@ jobs:
           # Apply the patches as staged changes, so the HEAD commit is the same as upstream.
           eng/run.ps1 submodule-refresh
         displayName: Apply patches
+
+      - ${{ if ne(parameters.builder.hostArch, parameters.builder.arch) }}:
+        - pwsh: Write-Host "##vso[task.setvariable variable=GOARCH]${{ parameters.builder.arch }}"
+          displayName: Set GOARCH for cross-compile
+        - ${{ if eq(parameters.builder.arch, 'arm') }}:
+          - pwsh: Write-Host "##vso[task.setvariable variable=GOARM]6"
+            displayName: Set GOARM for cross-compile
 
       # Use build script directly for "buildandpack". If we used run-builder, we would need to
       # download its external module dependencies.

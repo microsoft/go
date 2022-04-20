@@ -88,14 +88,20 @@ func (a *tarGzArchiver) AddFile(filePath string, archivePath string) error {
 
 	// tar.FileInfoHeader only takes base name, so set full path here. See FileInfoHeader doc.
 	header.Name = archivePath
+	if stat.IsDir() {
+		header.Name += "/"
+	}
 
 	if err := a.tarWriter.WriteHeader(header); err != nil {
 		return err
 	}
 
-	n, err := io.Copy(a.tarWriter, fileReader)
-	a.processedBytes += n
-	return err
+	if !stat.IsDir() {
+		n, err := io.Copy(a.tarWriter, fileReader)
+		a.processedBytes += n
+		return err
+	}
+	return nil
 }
 
 func (a *tarGzArchiver) Close() error {
@@ -129,20 +135,36 @@ func newZipArchiver(path string) *zipArchiver {
 }
 
 func (a *zipArchiver) AddFile(filePath string, archivePath string) error {
-	archiveFileWriter, err := a.writer.Create(archivePath)
-	if err != nil {
-		return err
-	}
-
 	fileReader, err := os.Open(filePath)
 	if err != nil {
 		return err
 	}
 	defer fileReader.Close()
 
-	n, err := io.Copy(archiveFileWriter, fileReader)
-	a.processedBytes += n
-	return err
+	stat, err := fileReader.Stat()
+	if err != nil {
+		return err
+	}
+
+	// Upstream Go uses "/" for archive dir separators, even on Windows.
+	archivePath = filepath.ToSlash(archivePath)
+
+	// Give dirs a trailing forward slash to indicate to the zip writer that it's a dir.
+	if stat.IsDir() {
+		archivePath += "/"
+	}
+
+	archiveFileWriter, err := a.writer.Create(archivePath)
+	if err != nil {
+		return err
+	}
+
+	if !stat.IsDir() {
+		n, err := io.Copy(archiveFileWriter, fileReader)
+		a.processedBytes += n
+		return err
+	}
+	return nil
 }
 
 func (a *zipArchiver) Close() error {

@@ -16,6 +16,11 @@ import (
 const description = `
 This command packs a built Go directory into an archive file and produces a
 checksum file for the archive. It filters out the files that aren't necessary.
+
+Pack does not support packing cross-compiled Go directories. Use the "-pack"
+argument with the build command for this, instead. The Pack command is intended
+to repackage an extracted Go archive that was already in the correct format.
+To re-run pack quickly on a cross-compiled build, use "build -skipbuild -pack".
 `
 
 func main() {
