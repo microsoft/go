@@ -7,6 +7,6 @@ module github.com/microsoft/go/_util
 go 1.16
 
 require (
-	github.com/microsoft/go-infra v0.0.0-20220209233812-d528ea99adb8
+	github.com/microsoft/go-infra v0.0.0-20220419195018-e437e0d7a6f9
 	gotest.tools/gotestsum v1.6.5-0.20210515201937-ecb7c6956f6d
 )
