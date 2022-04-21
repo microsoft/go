@@ -7,14 +7,13 @@ package main
 import (
 	"flag"
 	"fmt"
-	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
-	"strconv"
 
 	"github.com/microsoft/go/_core/archive"
+	"github.com/microsoft/go/_core/buildutil"
 	"github.com/microsoft/go/_core/patch"
 	"github.com/microsoft/go/_core/submodule"
 )
@@ -49,8 +48,8 @@ func main() {
 		"Refresh Go submodule: clean untracked files, reset tracked files, and apply patches before building.\n"+
 			"For more refresh options, use the top level 'submodule-refresh' command instead of 'build'.")
 
-	o.MaxMakeAttempts = getMaxAttemptsOrExit("GO_MAKE_MAX_RETRY_ATTEMPTS", 1)
-	o.MaxTestAttempts = getMaxAttemptsOrExit("GO_TEST_MAX_RETRY_ATTEMPTS", 1)
+	o.MaxMakeAttempts = buildutil.MaxMakeRetryAttemptsOrExit()
+	o.MaxTestAttempts = buildutil.MaxTestRetryAttemptsOrExit()
 
 	flag.Usage = func() {
 		fmt.Fprintf(flag.CommandLine.Output(), "Usage:\n")
@@ -156,7 +155,7 @@ func build(o *options) error {
 
 		buildCommandLine := append(shellPrefix, "make"+scriptExtension)
 
-		if err := retry(o.MaxMakeAttempts, func() error {
+		if err := buildutil.Retry(o.MaxMakeAttempts, func() error {
 			return runCommandLine(buildCommandLine...)
 		}); err != nil {
 			return err
@@ -226,7 +225,7 @@ func build(o *options) error {
 			return runCmd(testCmd)
 		}
 
-		if err := retry(o.MaxTestAttempts, test); err != nil {
+		if err := buildutil.Retry(o.MaxTestAttempts, test); err != nil {
 			return err
 		}
 	}
@@ -253,69 +252,4 @@ func runCommandLine(commandLine ...string) error {
 func runCmd(cmd *exec.Cmd) error {
 	fmt.Printf("---- Running command: %v\n", cmd.Args)
 	return cmd.Run()
-}
-
-func retry(attempts int, f func() error) error {
-	var i = 0
-	for ; i < attempts; i++ {
-		if attempts > 1 {
-			fmt.Printf("---- Running attempt %v of %v...\n", i+1, attempts)
-		}
-		err := f()
-		if err != nil {
-			if i+1 < attempts {
-				fmt.Printf("---- Attempt failed with error: %v\n", err)
-				continue
-			}
-			fmt.Printf("---- Final attempt failed.\n")
-			return err
-		}
-		break
-	}
-	fmt.Printf("---- Successful on attempt %v of %v.\n", i+1, attempts)
-	return nil
-}
-
-func getMaxAttemptsOrExit(varName string, defaultValue int) int {
-	attempts, err := getEnvIntOrDefault(varName, defaultValue)
-	if err != nil {
-		log.Fatal(err)
-	}
-	if attempts <= 0 {
-		log.Fatalf("Expected positive integer for environment variable %q, but found: %v\n", varName, attempts)
-	}
-	return attempts
-}
-
-func getEnvIntOrDefault(varName string, defaultValue int) (int, error) {
-	a, err := getEnvOrDefault(varName, strconv.Itoa(defaultValue))
-	if err != nil {
-		return 0, err
-	}
-	i, err := strconv.Atoi(a)
-	if err != nil {
-		return 0, fmt.Errorf("env var %q is not an int: %w", varName, err)
-	}
-	return i, nil
-}
-
-// getEnvOrDefault find an environment variable with name varName and returns its value. If the env
-// var is not set, returns defaultValue.
-//
-// If the env var is found and its value is empty string, returns an error. This can't happen on
-// Windows because setting an env var to empty string deletes it. However, on Linux, it is possible.
-// It's likely a mistake, so we let the user know what happened with an error. For example, the env
-// var might be empty string because it was set by "example=$(someCommand)" and someCommand
-// encountered an error and didn't send any output to stdout.
-func getEnvOrDefault(varName, defaultValue string) (string, error) {
-	v, ok := os.LookupEnv(varName)
-	if !ok {
-		return defaultValue, nil
-	}
-	if v == "" {
-		return "", fmt.Errorf(
-			"env var %q is empty, not a valid string. To use the default string %v, unset the env var",
-			varName, defaultValue)
-	}
-	return v, nil
 }

@@ -7,10 +7,12 @@ package main
 import (
 	"flag"
 	"fmt"
+	"log"
 	"os"
 	"os/exec"
 	"strings"
 
+	"github.com/microsoft/go/_core/buildutil"
 	gotestsumcmd "gotest.tools/gotestsum/cmd"
 )
 
@@ -67,6 +69,8 @@ func main() {
 	if *builder == "linux-amd64-longtest" {
 		runOrPanic("eng/workaround-install-mercurial.sh")
 	}
+
+	maxTestRetries := buildutil.MaxTestRetryAttemptsOrExit()
 
 	// Some builder configurations need extra env variables set up during the build, not just while
 	// running tests:
@@ -138,7 +142,18 @@ func main() {
 			)
 		}
 
-		runTest(cmdline, *jUnitFile)
+		err := buildutil.Retry(maxTestRetries, func() error {
+			return runTest(cmdline, *jUnitFile)
+		})
+		// If we got an ExitError, the error message was already printed by the command. We just
+		// need to exit with the same exit code.
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			os.Exit(exitErr.ExitCode())
+		}
+		if err != nil {
+			// Something else happened: alert the user.
+			log.Fatal(err)
+		}
 	}
 }
 
@@ -174,7 +189,7 @@ func runOrPanic(cmdline ...string) {
 // runTest runs a testing command. If given a JUnit XML file path, runs the test command inside a
 // gotestsum command that converts the JSON output into JUnit XML and writes it to a file at this
 // path.
-func runTest(cmdline []string, jUnitFile string) {
+func runTest(cmdline []string, jUnitFile string) error {
 	if jUnitFile != "" {
 		// Emit verbose JSON results in stdout for conversion.
 		cmdline = append(cmdline, "-json")
@@ -182,10 +197,8 @@ func runTest(cmdline []string, jUnitFile string) {
 
 	if *dryRun {
 		fmt.Printf("---- Dry run. Would have run test command: %v\n", cmdline)
-		return
+		return nil
 	}
-
-	var err error
 
 	if jUnitFile != "" {
 		// Set up gotestsum args. We rely on gotestsum to run the command, capture its output, and
@@ -231,19 +244,8 @@ func runTest(cmdline []string, jUnitFile string) {
 		// binary and there is no actual 'gotestsum' program. We could pass run-builder's path, but
 		// that would be misleading if it ever shows up in gotestsum's output unexpectedly. Instead,
 		// pass an obvious placeholder.
-		err = gotestsumcmd.Run("ARG_0_PLACEHOLDER", gotestsumArgs)
-	} else {
-		// If we don't have a jUnitFile target, run the command normally.
-		err = run(cmdline...)
+		return gotestsumcmd.Run("ARG_0_PLACEHOLDER", gotestsumArgs)
 	}
-
-	if err != nil {
-		// If we got an ExitError, the error message was already printed by the command. We just
-		// need to exit with the same exit code.
-		if exitErr, ok := err.(*exec.ExitError); ok {
-			os.Exit(exitErr.ExitCode())
-		}
-		// Something else happened: alert the user.
-		panic(err)
-	}
+	// If we don't have a jUnitFile target, run the command normally.
+	return run(cmdline...)
 }
