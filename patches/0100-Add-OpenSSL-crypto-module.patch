@@ -6,15 +6,15 @@ Subject: [PATCH] Add OpenSSL crypto module
 github.com/microsoft/go-infra/cmd/git-go-patch command: patch number 0100
 ---
  src/crypto/internal/backend/backend_test.go  |  30 ++++
- src/crypto/internal/backend/common.go        |  19 +++
+ src/crypto/internal/backend/common.go        |  35 +++++
  src/crypto/internal/backend/dummy.s          |  10 ++
  src/crypto/internal/backend/iscgo.go         |  10 ++
- src/crypto/internal/backend/nobackend.go     | 123 ++++++++++++++++
+ src/crypto/internal/backend/nobackend.go     | 112 +++++++++++++++
  src/crypto/internal/backend/nocgo.go         |  10 ++
  src/crypto/internal/backend/openssl_linux.go | 141 +++++++++++++++++++
  src/go.mod                                   |   1 +
  src/go.sum                                   |   2 +
- 9 files changed, 346 insertions(+)
+ 9 files changed, 351 insertions(+)
  create mode 100644 src/crypto/internal/backend/backend_test.go
  create mode 100644 src/crypto/internal/backend/common.go
  create mode 100644 src/crypto/internal/backend/dummy.s
@@ -61,17 +61,33 @@ index 0000000000..c2c06d3bff
 +}
 diff --git a/src/crypto/internal/backend/common.go b/src/crypto/internal/backend/common.go
 new file mode 100644
-index 0000000000..d703ba79e9
+index 0000000000..d33bafd1b0
 --- /dev/null
 +++ b/src/crypto/internal/backend/common.go
-@@ -0,0 +1,19 @@
+@@ -0,0 +1,35 @@
 +// Copyright 2022 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
 +
++//go:build !cmd_go_bootstrap && !msan && !gocrypt
++// +build !cmd_go_bootstrap,!msan,!gocrypt
++
 +package backend
 +
-+import "syscall"
++import (
++	"runtime"
++	"syscall"
++)
++
++func init() {
++	if v, _ := envgofips(); v == "1" {
++		if runtime.GOOS != "linux" {
++			panic("FIPS mode requested (GOFIPS=1) but not supported on " + runtime.GOOS)
++		} else if !iscgo {
++			panic("FIPS mode requested (GOFIPS=1) but not supported with cgo disabled")
++		}
++	}
++}
 +
 +func envgofips() (string, bool) {
 +	if v, ok := syscall.Getenv("GOFIPS"); ok {
@@ -118,10 +134,10 @@ index 0000000000..1e0d3cf8c1
 +const iscgo = true
 diff --git a/src/crypto/internal/backend/nobackend.go b/src/crypto/internal/backend/nobackend.go
 new file mode 100644
-index 0000000000..475b98fd73
+index 0000000000..4de8d404f8
 --- /dev/null
 +++ b/src/crypto/internal/backend/nobackend.go
-@@ -0,0 +1,123 @@
+@@ -0,0 +1,112 @@
 +// Copyright 2017 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -137,20 +153,9 @@ index 0000000000..475b98fd73
 +	"crypto/internal/boring/sig"
 +	"hash"
 +	"math/big"
-+	"runtime"
 +)
 +
 +const Enabled = false
-+
-+func init() {
-+	if v, _ := envgofips(); v == "1" {
-+		if runtime.GOOS != "linux" {
-+			panic("FIPS mode requested (GOFIPS=1) but not supported on " + runtime.GOOS)
-+		} else if !iscgo {
-+			panic("FIPS mode requested (GOFIPS=1) but not supported with cgo disabled")
-+		}
-+	}
-+}
 +
 +// Unreachable marks code that should be unreachable
 +// when OpenSSLCrypto is in use. It is a no-op without OpenSSLCrypto.
