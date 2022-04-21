@@ -6,15 +6,17 @@ Subject: [PATCH] Add OpenSSL crypto module
 github.com/microsoft/go-infra/cmd/git-go-patch command: patch number 0100
 ---
  src/crypto/internal/backend/backend_test.go  |  30 ++++
+ src/crypto/internal/backend/common.go        |  19 +++
  src/crypto/internal/backend/dummy.s          |  10 ++
  src/crypto/internal/backend/iscgo.go         |  10 ++
- src/crypto/internal/backend/nobackend.go     | 124 ++++++++++++++++
+ src/crypto/internal/backend/nobackend.go     | 123 ++++++++++++++++
  src/crypto/internal/backend/nocgo.go         |  10 ++
- src/crypto/internal/backend/openssl_linux.go | 145 +++++++++++++++++++
+ src/crypto/internal/backend/openssl_linux.go | 141 +++++++++++++++++++
  src/go.mod                                   |   1 +
  src/go.sum                                   |   2 +
- 8 files changed, 332 insertions(+)
+ 9 files changed, 346 insertions(+)
  create mode 100644 src/crypto/internal/backend/backend_test.go
+ create mode 100644 src/crypto/internal/backend/common.go
  create mode 100644 src/crypto/internal/backend/dummy.s
  create mode 100644 src/crypto/internal/backend/iscgo.go
  create mode 100644 src/crypto/internal/backend/nobackend.go
@@ -57,6 +59,31 @@ index 0000000000..c2c06d3bff
 +func TestUnreachableExceptTests(t *testing.T) {
 +	UnreachableExceptTests()
 +}
+diff --git a/src/crypto/internal/backend/common.go b/src/crypto/internal/backend/common.go
+new file mode 100644
+index 0000000000..d703ba79e9
+--- /dev/null
++++ b/src/crypto/internal/backend/common.go
+@@ -0,0 +1,19 @@
++// Copyright 2022 The Go Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style
++// license that can be found in the LICENSE file.
++
++package backend
++
++import "syscall"
++
++func envgofips() (string, bool) {
++	if v, ok := syscall.Getenv("GOFIPS"); ok {
++		return v, true
++	}
++	// TODO: Decide which environment variable to use.
++	// See https://github.com/microsoft/go/issues/397.
++	if v, ok := syscall.Getenv("GOLANG_FIPS"); ok {
++		return v, true
++	}
++	return "", false
++}
 diff --git a/src/crypto/internal/backend/dummy.s b/src/crypto/internal/backend/dummy.s
 new file mode 100644
 index 0000000000..157adeeeb3
@@ -75,7 +102,7 @@ index 0000000000..157adeeeb3
 +// (because the implementation might be here).
 diff --git a/src/crypto/internal/backend/iscgo.go b/src/crypto/internal/backend/iscgo.go
 new file mode 100644
-index 0000000000..ab5227fb86
+index 0000000000..1e0d3cf8c1
 --- /dev/null
 +++ b/src/crypto/internal/backend/iscgo.go
 @@ -0,0 +1,10 @@
@@ -91,10 +118,10 @@ index 0000000000..ab5227fb86
 +const iscgo = true
 diff --git a/src/crypto/internal/backend/nobackend.go b/src/crypto/internal/backend/nobackend.go
 new file mode 100644
-index 0000000000..ed2155f2bd
+index 0000000000..475b98fd73
 --- /dev/null
 +++ b/src/crypto/internal/backend/nobackend.go
-@@ -0,0 +1,124 @@
+@@ -0,0 +1,123 @@
 +// Copyright 2017 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -111,13 +138,12 @@ index 0000000000..ed2155f2bd
 +	"hash"
 +	"math/big"
 +	"runtime"
-+	"syscall"
 +)
 +
 +const Enabled = false
 +
 +func init() {
-+	if v, ok := syscall.Getenv("GOFIPS"); ok && v == "1" {
++	if v, _ := envgofips(); v == "1" {
 +		if runtime.GOOS != "linux" {
 +			panic("FIPS mode requested (GOFIPS=1) but not supported on " + runtime.GOOS)
 +		} else if !iscgo {
@@ -221,7 +247,7 @@ index 0000000000..ed2155f2bd
 +}
 diff --git a/src/crypto/internal/backend/nocgo.go b/src/crypto/internal/backend/nocgo.go
 new file mode 100644
-index 0000000000..f035e3f41b
+index 0000000000..63c13fc4b0
 --- /dev/null
 +++ b/src/crypto/internal/backend/nocgo.go
 @@ -0,0 +1,10 @@
@@ -237,10 +263,10 @@ index 0000000000..f035e3f41b
 +const iscgo = false
 diff --git a/src/crypto/internal/backend/openssl_linux.go b/src/crypto/internal/backend/openssl_linux.go
 new file mode 100644
-index 0000000000..9fa156894a
+index 0000000000..8d140dc62b
 --- /dev/null
 +++ b/src/crypto/internal/backend/openssl_linux.go
-@@ -0,0 +1,145 @@
+@@ -0,0 +1,141 @@
 +// Copyright 2017 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -283,12 +309,8 @@ index 0000000000..9fa156894a
 +}
 +
 +func needFIPS() bool {
-+	if envFips, ok := syscall.Getenv("GOFIPS"); ok {
-+		return envFips != "0"
-+	}
-+	// TODO: Remove GOLANG_FIPS once our CI uses GOFIPS.
-+	if envFips, ok := syscall.Getenv("GOLANG_FIPS"); ok {
-+		return envFips != "0"
++	if v, ok := envgofips(); ok {
++		return v != "0"
 +	}
 +	var fd int
 +	for {
