@@ -56,7 +56,7 @@ func maxAttemptsOrExit(varName string) int {
 }
 
 func getEnvIntOrDefault(varName string, defaultValue int) (int, error) {
-	a, err := getEnvOrDefault(varName, strconv.Itoa(defaultValue))
+	a, err := GetEnvOrDefault(varName, strconv.Itoa(defaultValue))
 	if err != nil {
 		return 0, err
 	}
@@ -67,7 +67,7 @@ func getEnvIntOrDefault(varName string, defaultValue int) (int, error) {
 	return i, nil
 }
 
-// getEnvOrDefault find an environment variable with name varName and returns its value. If the env
+// GetEnvOrDefault find an environment variable with name varName and returns its value. If the env
 // var is not set, returns defaultValue.
 //
 // If the env var is found and its value is empty string, returns an error. This can't happen on
@@ -75,7 +75,7 @@ func getEnvIntOrDefault(varName string, defaultValue int) (int, error) {
 // It's likely a mistake, so we let the user know what happened with an error. For example, the env
 // var might be empty string because it was set by "example=$(someCommand)" and someCommand
 // encountered an error and didn't send any output to stdout.
-func getEnvOrDefault(varName, defaultValue string) (string, error) {
+func GetEnvOrDefault(varName, defaultValue string) (string, error) {
 	v, ok := os.LookupEnv(varName)
 	if !ok {
 		return defaultValue, nil

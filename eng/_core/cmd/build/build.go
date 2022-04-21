@@ -115,11 +115,11 @@ func build(o *options) error {
 	// runtime value, this means we're doing a cross-compiled build. These values are used for
 	// capability checks and to make sure that if Pack is enabled, the output archive is formatted
 	// correctly and uses the right filename.
-	targetOS, err := getEnvOrDefault("GOOS", runtime.GOOS)
+	targetOS, err := buildutil.GetEnvOrDefault("GOOS", runtime.GOOS)
 	if err != nil {
 		return err
 	}
-	targetArch, err := getEnvOrDefault("GOARCH", runtime.GOARCH)
+	targetArch, err := buildutil.GetEnvOrDefault("GOARCH", runtime.GOARCH)
 	if err != nil {
 		return err
 	}
