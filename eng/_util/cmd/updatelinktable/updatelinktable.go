@@ -24,6 +24,7 @@ var supported = []version{
 		map[string]struct{}{
 			"linux-amd64":   {},
 			"linux-arm64":   {},
+			"linux-armv6l":  {},
 			"windows-amd64": {},
 			"src":           {},
 		},
@@ -33,6 +34,7 @@ var supported = []version{
 		map[string]struct{}{
 			"linux-amd64":   {},
 			"linux-arm64":   {},
+			"linux-armv6l":  {},
 			"windows-amd64": {},
 			"src":           {},
 		},
