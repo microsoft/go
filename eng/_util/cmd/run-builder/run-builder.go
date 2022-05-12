@@ -37,6 +37,7 @@ var dryRun = flag.Bool("n", false, "Enable dry run: print the commands that woul
 
 func main() {
 	var builder = flag.String("builder", "", "[Required] Specify a builder to run. Note, this may be destructive!")
+	var experiment = flag.String("experiment", "", "Include this string in GOEXPERIMENT.")
 	var jUnitFile = flag.String("junitfile", "", "Write a JUnit XML file to this path if this builder runs tests.")
 	var help = flag.Bool("h", false, "Print this help message.")
 
@@ -85,14 +86,22 @@ func main() {
 	case "noopt":
 		env("GO_GCFLAGS", "-N -l")
 	case "regabi":
-		env("GOEXPERIMENT", "regabi")
+		buildutil.AppendExperimentEnv("regabi")
 	case "ssacheck":
 		env("GO_GCFLAGS", "-d=ssa/check/on,dclstack")
 	case "staticlockranking":
-		env("GOEXPERIMENT", "staticlockranking")
+		buildutil.AppendExperimentEnv("staticlockranking")
 	}
 
-	runOrPanic("pwsh", "eng/run.ps1", "build")
+	buildCmdline := []string{"pwsh", "eng/run.ps1", "build"}
+
+	// run.ps1 compiles Go code, so we can't use the experiment yet. We must pass the experiment
+	// setting to the build command as an arg, so it can set it for the actual Go toolset build.
+	if *experiment != "" {
+		buildCmdline = append(buildCmdline, "-experiment", *experiment)
+	}
+
+	runOrPanic(buildCmdline...)
 
 	// After the build completes, run builder-specific commands.
 	switch config {
@@ -100,11 +109,16 @@ func main() {
 		// "devscript" is specific to the Microsoft infrastructure. It means the builder should
 		// validate the run.ps1 script with "build" tool works to build and test Go. It runs a
 		// subset of the "test" builder's tests, but it uses the dev workflow.
-		cmdline := []string{"pwsh", "eng/run.ps1", "build", "-skipbuild", "-test"}
-		runTest(cmdline, *jUnitFile)
+		testCmdline := append(buildCmdline, "-skipbuild", "-test")
+		runTest(testCmdline, *jUnitFile)
 
 	default:
 		// Most builder configurations use "bin/go tool dist test" directly, which is the default.
+
+		// Set GOEXPERIMENT in the environment now that we're using the just-built version of Go.
+		if *experiment != "" {
+			buildutil.AppendExperimentEnv(*experiment)
+		}
 
 		// The tests read GO_BUILDER_NAME and make decisions based on it. For some configurations,
 		// we only need to set this env var.

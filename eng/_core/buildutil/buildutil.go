@@ -87,3 +87,15 @@ func GetEnvOrDefault(varName, defaultValue string) (string, error) {
 	}
 	return v, nil
 }
+
+// AppendExperimentEnv sets the GOEXPERIMENT env var to the given value, or if GOEXPERIMENT is
+// already set, appends a comma separator and then the given value.
+func AppendExperimentEnv(experiment string) {
+	if v, ok := os.LookupEnv("GOEXPERIMENT"); ok {
+		experiment = v + "," + experiment
+	}
+	fmt.Printf("Setting GOEXPERIMENT: %v\n", experiment)
+	if err := os.Setenv("GOEXPERIMENT", experiment); err != nil {
+		panic(err)
+	}
+}
