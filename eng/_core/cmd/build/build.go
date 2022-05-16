@@ -48,6 +48,8 @@ func main() {
 		"Refresh Go submodule: clean untracked files, reset tracked files, and apply patches before building.\n"+
 			"For more refresh options, use the top level 'submodule-refresh' command instead of 'build'.")
 
+	flag.StringVar(&o.Experiment, "experiment", "", "Include this string in GOEXPERIMENT.")
+
 	o.MaxMakeAttempts = buildutil.MaxMakeRetryAttemptsOrExit()
 	o.MaxTestAttempts = buildutil.MaxTestRetryAttemptsOrExit()
 
@@ -73,11 +75,12 @@ func main() {
 }
 
 type options struct {
-	SkipBuild bool
-	Test      bool
-	JSON      bool
-	Pack      bool
-	Refresh   bool
+	SkipBuild  bool
+	Test       bool
+	JSON       bool
+	Pack       bool
+	Refresh    bool
+	Experiment string
 
 	MaxMakeAttempts int
 	MaxTestAttempts int
@@ -128,6 +131,10 @@ func build(o *options) error {
 	// they instantly fail. Change the current process dir so that we can run them.
 	if err := os.Chdir("go/src"); err != nil {
 		return err
+	}
+
+	if o.Experiment != "" {
+		buildutil.AppendExperimentEnv(o.Experiment)
 	}
 
 	if !o.SkipBuild {
