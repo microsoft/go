@@ -17,6 +17,12 @@ jobs:
     workspace:
       clean: all
 
+    ${{ if eq(parameters.builder.config, 'longtest') }}:
+      # longtest has been seen to succeed after 53 minutes. Give around 3x headroom. In the future,
+      # we should also give the tests a shorter timeout to make sure this doesn't balloon too far:
+      # https://github.com/microsoft/go/issues/568
+      timeoutInMinutes: 180
+
     ${{ if eq(parameters.builder.os, 'windows') }}:
       pool:
         vmImage: windows-2019
@@ -75,14 +81,16 @@ jobs:
 
       # Create the source archive on one job only. The os choice is arbitrary.
       - ${{ if and(eq(parameters.createSourceArchive, true), eq(parameters.builder.config, 'buildandpack'), eq(parameters.builder.os, 'linux'), eq(parameters.builder.arch, 'amd64')) }}:
+        - template: ../steps/set-bot-git-author-task.yml
         - pwsh: |
-            git config --global user.name "microsoft-golang-bot"
-            git config --global user.email "microsoft-golang-bot@users.noreply.github.com"
-
             # Turn the patches into commits, so HEAD includes the changes.
             eng/run.ps1 submodule-refresh -commits
             eng/run.ps1 pack-source
           displayName: Archive submodule source
+
+      - ${{ if eq(parameters.builder.config, 'longtest') }}:
+        # Set Git authorship info for 'cmd/go TestScript/build_buildvcs_auto'.
+        - template: ../steps/set-bot-git-author-task.yml
 
       - pwsh: |
           # Apply the patches as staged changes, so the HEAD commit is the same as upstream.

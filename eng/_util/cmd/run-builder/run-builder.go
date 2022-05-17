@@ -67,10 +67,6 @@ func main() {
 	goos, goarch, config := builderParts[0], builderParts[1], strings.Join(builderParts[2:], "-")
 	fmt.Printf("Found os '%s', arch '%s', config '%s'\n", goos, goarch, config)
 
-	if *builder == "linux-amd64-longtest" {
-		runOrPanic("eng/workaround-install-mercurial.sh")
-	}
-
 	maxTestRetries := buildutil.MaxTestRetryAttemptsOrExit()
 
 	// Some builder configurations need extra env variables set up during the build, not just while
