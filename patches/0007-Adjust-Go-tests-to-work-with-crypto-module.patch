@@ -1,0 +1,78 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Quim Muntal <qmuntaldiaz@microsoft.com>
+Date: Mon, 23 May 2022 12:59:54 +0000
+Subject: [PATCH] Adjust Go tests to work with crypto module
+
+---
+ src/crypto/ed25519/ed25519_test.go |  6 ++++++
+ src/go/build/deps_test.go          | 10 ++++++++--
+ 2 files changed, 14 insertions(+), 2 deletions(-)
+
+diff --git a/src/crypto/ed25519/ed25519_test.go b/src/crypto/ed25519/ed25519_test.go
+index bf29780070c..e73aa8d58ac 100644
+--- a/src/crypto/ed25519/ed25519_test.go
++++ b/src/crypto/ed25519/ed25519_test.go
+@@ -12,6 +12,7 @@ import (
+ 	boring "crypto/internal/backend"
+ 	"crypto/rand"
+ 	"encoding/hex"
++	"internal/goexperiment"
+ 	"os"
+ 	"strings"
+ 	"testing"
+@@ -190,6 +191,11 @@ func TestAllocations(t *testing.T) {
+ 	if boring.Enabled {
+ 		t.Skip("skipping allocations test with BoringCrypto")
+ 	}
++	if goexperiment.OpenSSLCrypto {
++		// OpenSSL-enabled toolchain allocates even if OpenSSL is disabled
++		// because boring.Enabled can't be resolved at compile time.
++		t.Skip("skipping allocations test with OpenSSLCrypto")
++	}
+ 	if strings.HasSuffix(os.Getenv("GO_BUILDER_NAME"), "-noopt") {
+ 		t.Skip("skipping allocations test without relevant optimizations")
+ 	}
+diff --git a/src/go/build/deps_test.go b/src/go/build/deps_test.go
+index 5b971b93e20..e003fe6ca67 100644
+--- a/src/go/build/deps_test.go
++++ b/src/go/build/deps_test.go
+@@ -411,7 +411,10 @@ var depsRules = `
+ 	< crypto/internal/edwards25519/field, golang.org/x/crypto/curve25519/internal/field
+ 	< crypto/internal/edwards25519
+ 	< crypto/cipher
++	< github.com/microsoft/go-crypto-openssl/openssl/internal/subtle
++	< github.com/microsoft/go-crypto-openssl/openssl
+ 	< crypto/internal/boring
++	< crypto/internal/backend
+ 	< crypto/boring
+ 	< crypto/aes, crypto/des, crypto/hmac, crypto/md5, crypto/rc4,
+ 	  crypto/sha1, crypto/sha256, crypto/sha512
+@@ -421,7 +424,10 @@ var depsRules = `
+ 
+ 	# CRYPTO-MATH is core bignum-based crypto - no cgo, net; fmt now ok.
+ 	CRYPTO, FMT, math/big, embed
++	< github.com/microsoft/go-crypto-openssl/openssl/bbig
+ 	< crypto/internal/boring/bbig
++	< crypto/internal/backend/bbig
++	< crypto/internal/backend/bcache
+ 	< crypto/internal/randutil
+ 	< crypto/rand
+ 	< crypto/ed25519
+@@ -639,7 +645,7 @@ var buildIgnore = []byte("\n//go:build ignore")
+ 
+ func findImports(pkg string) ([]string, error) {
+ 	vpkg := pkg
+-	if strings.HasPrefix(pkg, "golang.org") {
++	if strings.HasPrefix(pkg, "golang.org") || strings.HasPrefix(pkg, "github.com") {
+ 		vpkg = "vendor/" + pkg
+ 	}
+ 	dir := filepath.Join(Default.GOROOT, "src", vpkg)
+@@ -649,7 +655,7 @@ func findImports(pkg string) ([]string, error) {
+ 	}
+ 	var imports []string
+ 	var haveImport = map[string]bool{}
+-	if pkg == "crypto/internal/boring" {
++	if pkg == "crypto/internal/boring" || pkg == "github.com/microsoft/go-crypto-openssl/openssl" {
+ 		haveImport["C"] = true // kludge: prevent C from appearing in crypto/internal/boring imports
+ 	}
+ 	fset := token.NewFileSet()
