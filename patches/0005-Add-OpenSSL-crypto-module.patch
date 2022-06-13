@@ -10,14 +10,14 @@ Subject: [PATCH] Add OpenSSL crypto module
  .../internal/backend/bbig/big_openssl.go      |  12 ++
  src/crypto/internal/backend/common.go         |  34 ++++
  src/crypto/internal/backend/iscgo.go          |  10 ++
- src/crypto/internal/backend/nobackend.go      | 115 ++++++++++++++
+ src/crypto/internal/backend/nobackend.go      | 116 +++++++++++++
  src/crypto/internal/backend/nocgo.go          |  10 ++
- src/crypto/internal/backend/openssl_linux.go  | 145 ++++++++++++++++++
+ src/crypto/internal/backend/openssl_linux.go  | 159 ++++++++++++++++++
  src/crypto/internal/backend/stub.s            |  10 ++
  src/go.mod                                    |   1 +
  src/go.sum                                    |   2 +
  src/runtime/runtime_boring.go                 |   5 +
- 13 files changed, 403 insertions(+)
+ 13 files changed, 418 insertions(+)
  create mode 100644 src/crypto/internal/backend/backend_test.go
  create mode 100644 src/crypto/internal/backend/bbig/big.go
  create mode 100644 src/crypto/internal/backend/bbig/big_boring.go
@@ -31,7 +31,7 @@ Subject: [PATCH] Add OpenSSL crypto module
 
 diff --git a/src/crypto/internal/backend/backend_test.go b/src/crypto/internal/backend/backend_test.go
 new file mode 100644
-index 00000000000..c2c06d3bff8
+index 0000000000..c2c06d3bff
 --- /dev/null
 +++ b/src/crypto/internal/backend/backend_test.go
 @@ -0,0 +1,30 @@
@@ -67,7 +67,7 @@ index 00000000000..c2c06d3bff8
 +}
 diff --git a/src/crypto/internal/backend/bbig/big.go b/src/crypto/internal/backend/bbig/big.go
 new file mode 100644
-index 00000000000..51bc3c68048
+index 0000000000..51bc3c6804
 --- /dev/null
 +++ b/src/crypto/internal/backend/bbig/big.go
 @@ -0,0 +1,17 @@
@@ -90,7 +90,7 @@ index 00000000000..51bc3c68048
 +}
 diff --git a/src/crypto/internal/backend/bbig/big_boring.go b/src/crypto/internal/backend/bbig/big_boring.go
 new file mode 100644
-index 00000000000..0b62cef6854
+index 0000000000..0b62cef685
 --- /dev/null
 +++ b/src/crypto/internal/backend/bbig/big_boring.go
 @@ -0,0 +1,12 @@
@@ -108,7 +108,7 @@ index 00000000000..0b62cef6854
 +var Dec = bbig.Dec
 diff --git a/src/crypto/internal/backend/bbig/big_openssl.go b/src/crypto/internal/backend/bbig/big_openssl.go
 new file mode 100644
-index 00000000000..61ef3fdd90b
+index 0000000000..61ef3fdd90
 --- /dev/null
 +++ b/src/crypto/internal/backend/bbig/big_openssl.go
 @@ -0,0 +1,12 @@
@@ -126,7 +126,7 @@ index 00000000000..61ef3fdd90b
 +var Dec = bbig.Dec
 diff --git a/src/crypto/internal/backend/common.go b/src/crypto/internal/backend/common.go
 new file mode 100644
-index 00000000000..11ac2df4089
+index 0000000000..11ac2df408
 --- /dev/null
 +++ b/src/crypto/internal/backend/common.go
 @@ -0,0 +1,34 @@
@@ -166,7 +166,7 @@ index 00000000000..11ac2df4089
 +}
 diff --git a/src/crypto/internal/backend/iscgo.go b/src/crypto/internal/backend/iscgo.go
 new file mode 100644
-index 00000000000..1e0d3cf8c18
+index 0000000000..1e0d3cf8c1
 --- /dev/null
 +++ b/src/crypto/internal/backend/iscgo.go
 @@ -0,0 +1,10 @@
@@ -182,10 +182,10 @@ index 00000000000..1e0d3cf8c18
 +const iscgo = true
 diff --git a/src/crypto/internal/backend/nobackend.go b/src/crypto/internal/backend/nobackend.go
 new file mode 100644
-index 00000000000..337107921bc
+index 0000000000..0fd83b3b6d
 --- /dev/null
 +++ b/src/crypto/internal/backend/nobackend.go
-@@ -0,0 +1,115 @@
+@@ -0,0 +1,116 @@
 +// Copyright 2017 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -239,6 +239,7 @@ index 00000000000..337107921bc
 +func NewHMAC(h func() hash.Hash, key []byte) hash.Hash { panic("opensslcrypto: not available") }
 +
 +func NewAESCipher(key []byte) (cipher.Block, error) { panic("opensslcrypto: not available") }
++func NewGCMTLS(c cipher.Block) (cipher.AEAD, error) { panic("opensslcrypto: not available") }
 +
 +type PublicKeyECDSA struct{ _ int }
 +type PrivateKeyECDSA struct{ _ int }
@@ -303,7 +304,7 @@ index 00000000000..337107921bc
 +}
 diff --git a/src/crypto/internal/backend/nocgo.go b/src/crypto/internal/backend/nocgo.go
 new file mode 100644
-index 00000000000..63c13fc4b01
+index 0000000000..63c13fc4b0
 --- /dev/null
 +++ b/src/crypto/internal/backend/nocgo.go
 @@ -0,0 +1,10 @@
@@ -319,10 +320,10 @@ index 00000000000..63c13fc4b01
 +const iscgo = false
 diff --git a/src/crypto/internal/backend/openssl_linux.go b/src/crypto/internal/backend/openssl_linux.go
 new file mode 100644
-index 00000000000..4fb400ea521
+index 0000000000..59aa1f86b1
 --- /dev/null
 +++ b/src/crypto/internal/backend/openssl_linux.go
-@@ -0,0 +1,145 @@
+@@ -0,0 +1,159 @@
 +// Copyright 2017 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -335,6 +336,7 @@ index 00000000000..4fb400ea521
 +package backend
 +
 +import (
++	"crypto/cipher"
 +	"crypto/internal/boring/sig"
 +	"syscall"
 +
@@ -442,6 +444,19 @@ index 00000000000..4fb400ea521
 +var NewHMAC = openssl.NewHMAC
 +
 +var NewAESCipher = openssl.NewAESCipher
++var NewGCMTLS = func(aes cipher.Block) (cipher.AEAD, error) {
++	// This is a translation layer that bridges the gap for an upstream refactor. Based on before:
++	// https://github.com/golang/go/commit/ea5d7cbc2644643331bd675b1ebdf0aaac7419f1#diff-fa1ebabc009bcc9a9f27168612adf5b4d56f9f40d613a62f86830861acb85803
++	type gcmtls interface {
++		// Invented for BoringCrypto.
++		NewGCMTLS() (cipher.AEAD, error)
++	}
++	if aesTLS, ok := aes.(gcmtls); ok {
++		return aesTLS.NewGCMTLS()
++	}
++	Unreachable()
++	return cipher.NewGCM(aes)
++}
 +
 +type PublicKeyECDSA = openssl.PublicKeyECDSA
 +type PrivateKeyECDSA = openssl.PrivateKeyECDSA
@@ -470,7 +485,7 @@ index 00000000000..4fb400ea521
 +var VerifyRSAPSS = openssl.VerifyRSAPSS
 diff --git a/src/crypto/internal/backend/stub.s b/src/crypto/internal/backend/stub.s
 new file mode 100644
-index 00000000000..157adeeeb37
+index 0000000000..157adeeeb3
 --- /dev/null
 +++ b/src/crypto/internal/backend/stub.s
 @@ -0,0 +1,10 @@
@@ -485,7 +500,7 @@ index 00000000000..157adeeeb37
 +// from complaining about the missing body
 +// (because the implementation might be here).
 diff --git a/src/go.mod b/src/go.mod
-index 2b4d8b4b753..b757201682f 100644
+index 2b4d8b4b75..b757201682 100644
 --- a/src/go.mod
 +++ b/src/go.mod
 @@ -3,6 +3,7 @@ module std
@@ -497,7 +512,7 @@ index 2b4d8b4b753..b757201682f 100644
  	golang.org/x/net v0.0.0-20220517181318-183a9ca12b87
  )
 diff --git a/src/go.sum b/src/go.sum
-index 5c710268b85..ab78e52ded8 100644
+index 5c710268b8..ab78e52ded 100644
 --- a/src/go.sum
 +++ b/src/go.sum
 @@ -1,3 +1,5 @@
@@ -507,7 +522,7 @@ index 5c710268b85..ab78e52ded8 100644
  golang.org/x/crypto v0.0.0-20220516162934-403b01795ae8/go.mod h1:IxCIyHEi3zRg3s0A5j5BB6A9Jmi73HwBIUl50j+osU4=
  golang.org/x/net v0.0.0-20220517181318-183a9ca12b87 h1:cCR+9mKLOGyX4Zx+uBZDXEDAQsvKQ/XbW4vreG5v1jU=
 diff --git a/src/runtime/runtime_boring.go b/src/runtime/runtime_boring.go
-index 5a98b202531..9042f2c2795 100644
+index 5a98b20253..9042f2c279 100644
 --- a/src/runtime/runtime_boring.go
 +++ b/src/runtime/runtime_boring.go
 @@ -17,3 +17,8 @@ func boring_runtime_arg0() string {
