@@ -1,0 +1,673 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: qmuntal <qmuntaldiaz@microsoft.com>
+Date: Thu, 30 Jun 2022 10:03:03 +0200
+Subject: [PATCH] Add crypto backend foundation
+
+---
+ src/crypto/aes/cipher.go                    |   2 +-
+ src/crypto/aes/cipher_asm.go                |   2 +-
+ src/crypto/boring/boring.go                 |   2 +-
+ src/crypto/ecdsa/boring.go                  |   4 +-
+ src/crypto/ecdsa/ecdsa.go                   |   4 +-
+ src/crypto/ecdsa/notboring.go               |   2 +-
+ src/crypto/ed25519/ed25519_test.go          |   2 +-
+ src/crypto/hmac/hmac.go                     |   2 +-
+ src/crypto/hmac/hmac_test.go                |   2 +-
+ src/crypto/internal/backend/backend_test.go |  30 ++++++
+ src/crypto/internal/backend/bbig/big.go     |  17 ++++
+ src/crypto/internal/backend/common.go       |  65 +++++++++++++
+ src/crypto/internal/backend/iscgo.go        |  10 ++
+ src/crypto/internal/backend/nobackend.go    | 102 ++++++++++++++++++++
+ src/crypto/internal/backend/nocgo.go        |  10 ++
+ src/crypto/internal/backend/stub.s          |  10 ++
+ src/crypto/rand/rand_unix.go                |   2 +-
+ src/crypto/rsa/boring.go                    |   4 +-
+ src/crypto/rsa/notboring.go                 |   2 +-
+ src/crypto/rsa/pkcs1v15.go                  |   2 +-
+ src/crypto/rsa/pss.go                       |   2 +-
+ src/crypto/rsa/rsa.go                       |   4 +-
+ src/crypto/rsa/rsa_test.go                  |   2 +-
+ src/crypto/sha1/boring.go                   |   2 +-
+ src/crypto/sha1/sha1_test.go                |   2 +-
+ src/crypto/sha256/sha256.go                 |   2 +-
+ src/crypto/sha256/sha256_test.go            |   2 +-
+ src/crypto/sha512/sha512.go                 |   2 +-
+ src/crypto/sha512/sha512_test.go            |   2 +-
+ src/crypto/tls/cipher_suites.go             |   2 +-
+ src/go/build/deps_test.go                   |   2 +
+ src/runtime/runtime_boring.go               |   5 +
+ 32 files changed, 278 insertions(+), 27 deletions(-)
+ create mode 100644 src/crypto/internal/backend/backend_test.go
+ create mode 100644 src/crypto/internal/backend/bbig/big.go
+ create mode 100644 src/crypto/internal/backend/common.go
+ create mode 100644 src/crypto/internal/backend/iscgo.go
+ create mode 100644 src/crypto/internal/backend/nobackend.go
+ create mode 100644 src/crypto/internal/backend/nocgo.go
+ create mode 100644 src/crypto/internal/backend/stub.s
+
+diff --git a/src/crypto/aes/cipher.go b/src/crypto/aes/cipher.go
+index db0ee38b78cea5..19b0f52249d93f 100644
+--- a/src/crypto/aes/cipher.go
++++ b/src/crypto/aes/cipher.go
+@@ -6,7 +6,7 @@ package aes
+ 
+ import (
+ 	"crypto/cipher"
+-	"crypto/internal/boring"
++	boring "crypto/internal/backend"
+ 	"crypto/internal/subtle"
+ 	"strconv"
+ )
+diff --git a/src/crypto/aes/cipher_asm.go b/src/crypto/aes/cipher_asm.go
+index 1482b22d08b5f4..5f545148bbeddd 100644
+--- a/src/crypto/aes/cipher_asm.go
++++ b/src/crypto/aes/cipher_asm.go
+@@ -8,7 +8,7 @@ package aes
+ 
+ import (
+ 	"crypto/cipher"
+-	"crypto/internal/boring"
++	boring "crypto/internal/backend"
+ 	"crypto/internal/subtle"
+ 	"internal/cpu"
+ 	"internal/goarch"
+diff --git a/src/crypto/boring/boring.go b/src/crypto/boring/boring.go
+index 097c37e343fdb8..1cf43edba40359 100644
+--- a/src/crypto/boring/boring.go
++++ b/src/crypto/boring/boring.go
+@@ -13,7 +13,7 @@
+ // is satisfied, so that applications can tag files that use this package.
+ package boring
+ 
+-import "crypto/internal/boring"
++import boring "crypto/internal/backend"
+ 
+ // Enabled reports whether BoringCrypto handles supported crypto operations.
+ func Enabled() bool {
+diff --git a/src/crypto/ecdsa/boring.go b/src/crypto/ecdsa/boring.go
+index 4495730b84ffdc..b7666369e737f3 100644
+--- a/src/crypto/ecdsa/boring.go
++++ b/src/crypto/ecdsa/boring.go
+@@ -7,8 +7,8 @@
+ package ecdsa
+ 
+ import (
+-	"crypto/internal/boring"
+-	"crypto/internal/boring/bbig"
++	boring "crypto/internal/backend"
++	"crypto/internal/backend/bbig"
+ 	"crypto/internal/boring/bcache"
+ 	"math/big"
+ 	"unsafe"
+diff --git a/src/crypto/ecdsa/ecdsa.go b/src/crypto/ecdsa/ecdsa.go
+index d0e52ad864d811..58d3bc69568f35 100644
+--- a/src/crypto/ecdsa/ecdsa.go
++++ b/src/crypto/ecdsa/ecdsa.go
+@@ -24,8 +24,8 @@ import (
+ 	"crypto/aes"
+ 	"crypto/cipher"
+ 	"crypto/elliptic"
+-	"crypto/internal/boring"
+-	"crypto/internal/boring/bbig"
++	boring "crypto/internal/backend"
++	"crypto/internal/backend/bbig"
+ 	"crypto/internal/randutil"
+ 	"crypto/sha512"
+ 	"errors"
+diff --git a/src/crypto/ecdsa/notboring.go b/src/crypto/ecdsa/notboring.go
+index 039bd82ed21f9f..19188518e85e65 100644
+--- a/src/crypto/ecdsa/notboring.go
++++ b/src/crypto/ecdsa/notboring.go
+@@ -6,7 +6,7 @@
+ 
+ package ecdsa
+ 
+-import "crypto/internal/boring"
++import boring "crypto/internal/backend"
+ 
+ func boringPublicKey(*PublicKey) (*boring.PublicKeyECDSA, error) {
+ 	panic("boringcrypto: not available")
+diff --git a/src/crypto/ed25519/ed25519_test.go b/src/crypto/ed25519/ed25519_test.go
+index 7c5181788f60a6..bf29780070ca9d 100644
+--- a/src/crypto/ed25519/ed25519_test.go
++++ b/src/crypto/ed25519/ed25519_test.go
+@@ -9,7 +9,7 @@ import (
+ 	"bytes"
+ 	"compress/gzip"
+ 	"crypto"
+-	"crypto/internal/boring"
++	boring "crypto/internal/backend"
+ 	"crypto/rand"
+ 	"encoding/hex"
+ 	"os"
+diff --git a/src/crypto/hmac/hmac.go b/src/crypto/hmac/hmac.go
+index ed3ebc06027092..99eeac3def197b 100644
+--- a/src/crypto/hmac/hmac.go
++++ b/src/crypto/hmac/hmac.go
+@@ -22,7 +22,7 @@ timing side-channels:
+ package hmac
+ 
+ import (
+-	"crypto/internal/boring"
++	boring "crypto/internal/backend"
+ 	"crypto/subtle"
+ 	"hash"
+ )
+diff --git a/src/crypto/hmac/hmac_test.go b/src/crypto/hmac/hmac_test.go
+index 55415abf020799..904925377bba44 100644
+--- a/src/crypto/hmac/hmac_test.go
++++ b/src/crypto/hmac/hmac_test.go
+@@ -6,7 +6,7 @@ package hmac
+ 
+ import (
+ 	"bytes"
+-	"crypto/internal/boring"
++	boring "crypto/internal/backend"
+ 	"crypto/md5"
+ 	"crypto/sha1"
+ 	"crypto/sha256"
+diff --git a/src/crypto/internal/backend/backend_test.go b/src/crypto/internal/backend/backend_test.go
+new file mode 100644
+index 00000000000000..c2c06d3bff8c74
+--- /dev/null
++++ b/src/crypto/internal/backend/backend_test.go
+@@ -0,0 +1,30 @@
++// Copyright 2017 The Go Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style
++// license that can be found in the LICENSE file.
++
++package backend
++
++import (
++	"testing"
++)
++
++// Test that Unreachable panics.
++func TestUnreachable(t *testing.T) {
++	defer func() {
++		if Enabled {
++			if err := recover(); err == nil {
++				t.Fatal("expected Unreachable to panic")
++			}
++		} else {
++			if err := recover(); err != nil {
++				t.Fatalf("expected Unreachable to be a no-op")
++			}
++		}
++	}()
++	Unreachable()
++}
++
++// Test that UnreachableExceptTests does not panic (this is a test).
++func TestUnreachableExceptTests(t *testing.T) {
++	UnreachableExceptTests()
++}
+diff --git a/src/crypto/internal/backend/bbig/big.go b/src/crypto/internal/backend/bbig/big.go
+new file mode 100644
+index 00000000000000..85bd3ed083f5b2
+--- /dev/null
++++ b/src/crypto/internal/backend/bbig/big.go
+@@ -0,0 +1,17 @@
++// Copyright 2022 The Go Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style
++// license that can be found in the LICENSE file.
++
++//go:build !boringcrypto
++
++package bbig
++
++import "math/big"
++
++func Enc(b *big.Int) []uint {
++	return nil
++}
++
++func Dec(b []uint) *big.Int {
++	return nil
++}
+diff --git a/src/crypto/internal/backend/common.go b/src/crypto/internal/backend/common.go
+new file mode 100644
+index 00000000000000..007d8070538247
+--- /dev/null
++++ b/src/crypto/internal/backend/common.go
+@@ -0,0 +1,65 @@
++// Copyright 2022 The Go Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style
++// license that can be found in the LICENSE file.
++
++package backend
++
++import (
++	"crypto/internal/boring/sig"
++	"runtime"
++	"syscall"
++)
++
++func init() {
++	if v, _ := envGoFIPS(); v == "1" {
++		if runtime.GOOS != "linux" {
++			panic("FIPS mode requested (GOFIPS=1) but not supported on " + runtime.GOOS)
++		} else if !iscgo {
++			panic("FIPS mode requested (GOFIPS=1) but not supported with cgo disabled")
++		}
++	}
++}
++
++func envGoFIPS() (string, bool) {
++	if v, ok := syscall.Getenv("GOFIPS"); ok {
++		return v, true
++	}
++	// TODO: Decide which environment variable to use.
++	// See https://github.com/microsoft/go/issues/397.
++	if v, ok := syscall.Getenv("GOLANG_FIPS"); ok {
++		return v, true
++	}
++	return "", false
++}
++
++// Unreachable marks code that should be unreachable
++// when backend is in use.
++func Unreachable() {
++	if Enabled {
++		panic("cryptobackend: invalid code execution")
++	} else {
++		// Code that's unreachable is exactly the code
++		// we want to detect for reporting standard Go crypto.
++		sig.StandardCrypto()
++	}
++}
++
++// Provided by runtime.crypto_backend_runtime_arg0 to avoid os import.
++func runtime_arg0() string
++
++func hasSuffix(s, t string) bool {
++	return len(s) > len(t) && s[len(s)-len(t):] == t
++}
++
++// UnreachableExceptTests marks code that should be unreachable
++// when backend is in use. It panics.
++func UnreachableExceptTests() {
++	if Enabled {
++		name := runtime_arg0()
++		// If ran on Windows we'd need to allow _test.exe and .test.exe as well.
++		if !hasSuffix(name, "_test") && !hasSuffix(name, ".test") {
++			println("cryptobackend: unexpected code execution in", name)
++			panic("cryptobackend: invalid code execution")
++		}
++	}
++}
+diff --git a/src/crypto/internal/backend/iscgo.go b/src/crypto/internal/backend/iscgo.go
+new file mode 100644
+index 00000000000000..1e0d3cf8c18b55
+--- /dev/null
++++ b/src/crypto/internal/backend/iscgo.go
+@@ -0,0 +1,10 @@
++// Copyright 2022 The Go Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style
++// license that can be found in the LICENSE file.
++
++//go:build cgo
++// +build cgo
++
++package backend
++
++const iscgo = true
+diff --git a/src/crypto/internal/backend/nobackend.go b/src/crypto/internal/backend/nobackend.go
+new file mode 100644
+index 00000000000000..45d9702eb455c6
+--- /dev/null
++++ b/src/crypto/internal/backend/nobackend.go
+@@ -0,0 +1,102 @@
++// Copyright 2017 The Go Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style
++// license that can be found in the LICENSE file.
++
++//go:build !boringcrypto || !linux || !cgo || android || cmd_go_bootstrap || msan
++
++package backend
++
++import (
++	"crypto"
++	"crypto/cipher"
++	"hash"
++)
++
++const Enabled = false
++
++type BigInt = []uint
++
++type randReader int
++
++func (randReader) Read(b []byte) (int, error) { panic("cryptobackend: not available") }
++
++const RandReader = randReader(0)
++
++func NewSHA1() hash.Hash   { panic("cryptobackend: not available") }
++func NewSHA224() hash.Hash { panic("cryptobackend: not available") }
++func NewSHA256() hash.Hash { panic("cryptobackend: not available") }
++func NewSHA384() hash.Hash { panic("cryptobackend: not available") }
++func NewSHA512() hash.Hash { panic("cryptobackend: not available") }
++
++func SHA1(p []byte) (sum [20]byte)   { panic("cryptobackend: not available") }
++func SHA224(p []byte) (sum [28]byte) { panic("cryptobackend: not available") }
++func SHA256(p []byte) (sum [32]byte) { panic("cryptobackend: not available") }
++func SHA384(p []byte) (sum [48]byte) { panic("cryptobackend: not available") }
++func SHA512(p []byte) (sum [64]byte) { panic("cryptobackend: not available") }
++
++func NewHMAC(h func() hash.Hash, key []byte) hash.Hash { panic("cryptobackend: not available") }
++
++func NewAESCipher(key []byte) (cipher.Block, error) { panic("cryptobackend: not available") }
++func NewGCMTLS(c cipher.Block) (cipher.AEAD, error) { panic("cryptobackend: not available") }
++
++type PublicKeyECDSA struct{ _ int }
++type PrivateKeyECDSA struct{ _ int }
++
++func GenerateKeyECDSA(curve string) (X, Y, D BigInt, err error) {
++	panic("cryptobackend: not available")
++}
++func NewPrivateKeyECDSA(curve string, X, Y, D BigInt) (*PrivateKeyECDSA, error) {
++	panic("cryptobackend: not available")
++}
++func NewPublicKeyECDSA(curve string, X, Y BigInt) (*PublicKeyECDSA, error) {
++	panic("cryptobackend: not available")
++}
++func SignMarshalECDSA(priv *PrivateKeyECDSA, hash []byte) ([]byte, error) {
++	panic("cryptobackend: not available")
++}
++func VerifyECDSA(pub *PublicKeyECDSA, hash []byte, sig []byte) bool {
++	panic("cryptobackend: not available")
++}
++
++type PublicKeyRSA struct{ _ int }
++type PrivateKeyRSA struct{ _ int }
++
++func DecryptRSAOAEP(h hash.Hash, priv *PrivateKeyRSA, ciphertext, label []byte) ([]byte, error) {
++	panic("cryptobackend: not available")
++}
++func DecryptRSAPKCS1(priv *PrivateKeyRSA, ciphertext []byte) ([]byte, error) {
++	panic("cryptobackend: not available")
++}
++func DecryptRSANoPadding(priv *PrivateKeyRSA, ciphertext []byte) ([]byte, error) {
++	panic("cryptobackend: not available")
++}
++func EncryptRSAOAEP(h hash.Hash, pub *PublicKeyRSA, msg, label []byte) ([]byte, error) {
++	panic("cryptobackend: not available")
++}
++func EncryptRSAPKCS1(pub *PublicKeyRSA, msg []byte) ([]byte, error) {
++	panic("cryptobackend: not available")
++}
++func EncryptRSANoPadding(pub *PublicKeyRSA, msg []byte) ([]byte, error) {
++	panic("cryptobackend: not available")
++}
++func GenerateKeyRSA(bits int) (N, E, D, P, Q, Dp, Dq, Qinv BigInt, err error) {
++	panic("cryptobackend: not available")
++}
++func NewPrivateKeyRSA(N, E, D, P, Q, Dp, Dq, Qinv BigInt) (*PrivateKeyRSA, error) {
++	panic("cryptobackend: not available")
++}
++func NewPublicKeyRSA(N, E BigInt) (*PublicKeyRSA, error) {
++	panic("cryptobackend: not available")
++}
++func SignRSAPKCS1v15(priv *PrivateKeyRSA, h crypto.Hash, hashed []byte) ([]byte, error) {
++	panic("cryptobackend: not available")
++}
++func SignRSAPSS(priv *PrivateKeyRSA, h crypto.Hash, hashed []byte, saltLen int) ([]byte, error) {
++	panic("cryptobackend: not available")
++}
++func VerifyRSAPKCS1v15(pub *PublicKeyRSA, h crypto.Hash, hashed, sig []byte) error {
++	panic("cryptobackend: not available")
++}
++func VerifyRSAPSS(pub *PublicKeyRSA, h crypto.Hash, hashed, sig []byte, saltLen int) error {
++	panic("cryptobackend: not available")
++}
+diff --git a/src/crypto/internal/backend/nocgo.go b/src/crypto/internal/backend/nocgo.go
+new file mode 100644
+index 00000000000000..63c13fc4b01cba
+--- /dev/null
++++ b/src/crypto/internal/backend/nocgo.go
+@@ -0,0 +1,10 @@
++// Copyright 2022 The Go Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style
++// license that can be found in the LICENSE file.
++
++//go:build !cgo
++// +build !cgo
++
++package backend
++
++const iscgo = false
+diff --git a/src/crypto/internal/backend/stub.s b/src/crypto/internal/backend/stub.s
+new file mode 100644
+index 00000000000000..5e4b436554d44d
+--- /dev/null
++++ b/src/crypto/internal/backend/stub.s
+@@ -0,0 +1,10 @@
++// Copyright 2017 The Go Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style
++// license that can be found in the LICENSE file.
++
++// runtime_arg0 is declared in common.go without a body.
++// It's provided by package runtime,
++// but the go command doesn't know that.
++// Having this assembly file keeps the go command
++// from complaining about the missing body
++// (because the implementation might be here).
+diff --git a/src/crypto/rand/rand_unix.go b/src/crypto/rand/rand_unix.go
+index 746e90cc919a4e..1bd1ccefd828af 100644
+--- a/src/crypto/rand/rand_unix.go
++++ b/src/crypto/rand/rand_unix.go
+@@ -10,7 +10,7 @@
+ package rand
+ 
+ import (
+-	"crypto/internal/boring"
++	boring "crypto/internal/backend"
+ 	"errors"
+ 	"io"
+ 	"os"
+diff --git a/src/crypto/rsa/boring.go b/src/crypto/rsa/boring.go
+index 9b1db564c36f3c..09dc65f064c00c 100644
+--- a/src/crypto/rsa/boring.go
++++ b/src/crypto/rsa/boring.go
+@@ -7,8 +7,8 @@
+ package rsa
+ 
+ import (
+-	"crypto/internal/boring"
+-	"crypto/internal/boring/bbig"
++	boring "crypto/internal/backend"
++	"crypto/internal/backend/bbig"
+ 	"crypto/internal/boring/bcache"
+ 	"math/big"
+ 	"unsafe"
+diff --git a/src/crypto/rsa/notboring.go b/src/crypto/rsa/notboring.go
+index 2abc0436405f8a..34c22c8fbba7da 100644
+--- a/src/crypto/rsa/notboring.go
++++ b/src/crypto/rsa/notboring.go
+@@ -6,7 +6,7 @@
+ 
+ package rsa
+ 
+-import "crypto/internal/boring"
++import boring "crypto/internal/backend"
+ 
+ func boringPublicKey(*PublicKey) (*boring.PublicKeyRSA, error) {
+ 	panic("boringcrypto: not available")
+diff --git a/src/crypto/rsa/pkcs1v15.go b/src/crypto/rsa/pkcs1v15.go
+index ab19229a6c2822..99b3dba5df63b2 100644
+--- a/src/crypto/rsa/pkcs1v15.go
++++ b/src/crypto/rsa/pkcs1v15.go
+@@ -6,7 +6,7 @@ package rsa
+ 
+ import (
+ 	"crypto"
+-	"crypto/internal/boring"
++	boring "crypto/internal/backend"
+ 	"crypto/internal/randutil"
+ 	"crypto/subtle"
+ 	"errors"
+diff --git a/src/crypto/rsa/pss.go b/src/crypto/rsa/pss.go
+index 29e79bd3427993..372248f04697c1 100644
+--- a/src/crypto/rsa/pss.go
++++ b/src/crypto/rsa/pss.go
+@@ -9,7 +9,7 @@ package rsa
+ import (
+ 	"bytes"
+ 	"crypto"
+-	"crypto/internal/boring"
++	boring "crypto/internal/backend"
+ 	"errors"
+ 	"hash"
+ 	"io"
+diff --git a/src/crypto/rsa/rsa.go b/src/crypto/rsa/rsa.go
+index c941124fb26a10..5ef07fdbe9ebb3 100644
+--- a/src/crypto/rsa/rsa.go
++++ b/src/crypto/rsa/rsa.go
+@@ -24,8 +24,8 @@ package rsa
+ 
+ import (
+ 	"crypto"
+-	"crypto/internal/boring"
+-	"crypto/internal/boring/bbig"
++	boring "crypto/internal/backend"
++	"crypto/internal/backend/bbig"
+ 	"crypto/internal/randutil"
+ 	"crypto/rand"
+ 	"crypto/subtle"
+diff --git a/src/crypto/rsa/rsa_test.go b/src/crypto/rsa/rsa_test.go
+index 766d9a954f8d13..f2602b94ab881b 100644
+--- a/src/crypto/rsa/rsa_test.go
++++ b/src/crypto/rsa/rsa_test.go
+@@ -15,7 +15,7 @@ import (
+ 	"testing"
+ )
+ 
+-import "crypto/internal/boring"
++import boring "crypto/internal/backend"
+ 
+ func TestKeyGeneration(t *testing.T) {
+ 	for _, size := range []int{128, 1024, 2048, 3072} {
+diff --git a/src/crypto/sha1/boring.go b/src/crypto/sha1/boring.go
+index b5786d1bf4ea92..e82a21c44a57c8 100644
+--- a/src/crypto/sha1/boring.go
++++ b/src/crypto/sha1/boring.go
+@@ -12,7 +12,7 @@
+ package sha1
+ 
+ import (
+-	"crypto/internal/boring"
++	boring "crypto/internal/backend"
+ 	"hash"
+ )
+ 
+diff --git a/src/crypto/sha1/sha1_test.go b/src/crypto/sha1/sha1_test.go
+index 85ed12609154ff..bc169888786321 100644
+--- a/src/crypto/sha1/sha1_test.go
++++ b/src/crypto/sha1/sha1_test.go
+@@ -8,7 +8,7 @@ package sha1
+ 
+ import (
+ 	"bytes"
+-	"crypto/internal/boring"
++	boring "crypto/internal/backend"
+ 	"crypto/rand"
+ 	"encoding"
+ 	"fmt"
+diff --git a/src/crypto/sha256/sha256.go b/src/crypto/sha256/sha256.go
+index e3c15e66ca300e..e071a0fa2e62dd 100644
+--- a/src/crypto/sha256/sha256.go
++++ b/src/crypto/sha256/sha256.go
+@@ -8,7 +8,7 @@ package sha256
+ 
+ import (
+ 	"crypto"
+-	"crypto/internal/boring"
++	boring "crypto/internal/backend"
+ 	"encoding/binary"
+ 	"errors"
+ 	"hash"
+diff --git a/src/crypto/sha256/sha256_test.go b/src/crypto/sha256/sha256_test.go
+index 7304678346b32e..7437655badee23 100644
+--- a/src/crypto/sha256/sha256_test.go
++++ b/src/crypto/sha256/sha256_test.go
+@@ -8,7 +8,7 @@ package sha256
+ 
+ import (
+ 	"bytes"
+-	"crypto/internal/boring"
++	boring "crypto/internal/backend"
+ 	"crypto/rand"
+ 	"encoding"
+ 	"fmt"
+diff --git a/src/crypto/sha512/sha512.go b/src/crypto/sha512/sha512.go
+index c800a294a27516..008c0475459705 100644
+--- a/src/crypto/sha512/sha512.go
++++ b/src/crypto/sha512/sha512.go
+@@ -12,7 +12,7 @@ package sha512
+ 
+ import (
+ 	"crypto"
+-	"crypto/internal/boring"
++	boring "crypto/internal/backend"
+ 	"encoding/binary"
+ 	"errors"
+ 	"hash"
+diff --git a/src/crypto/sha512/sha512_test.go b/src/crypto/sha512/sha512_test.go
+index 921cdbb7bbd477..2fef7ddae07480 100644
+--- a/src/crypto/sha512/sha512_test.go
++++ b/src/crypto/sha512/sha512_test.go
+@@ -8,7 +8,7 @@ package sha512
+ 
+ import (
+ 	"bytes"
+-	"crypto/internal/boring"
++	boring "crypto/internal/backend"
+ 	"crypto/rand"
+ 	"encoding"
+ 	"encoding/hex"
+diff --git a/src/crypto/tls/cipher_suites.go b/src/crypto/tls/cipher_suites.go
+index 9a1fa3104b7acc..74f027ebae1a9d 100644
+--- a/src/crypto/tls/cipher_suites.go
++++ b/src/crypto/tls/cipher_suites.go
+@@ -10,7 +10,7 @@ import (
+ 	"crypto/cipher"
+ 	"crypto/des"
+ 	"crypto/hmac"
+-	"crypto/internal/boring"
++	boring "crypto/internal/backend"
+ 	"crypto/rc4"
+ 	"crypto/sha1"
+ 	"crypto/sha256"
+diff --git a/src/go/build/deps_test.go b/src/go/build/deps_test.go
+index 84cc9de8e786e0..db3627e5a2ac31 100644
+--- a/src/go/build/deps_test.go
++++ b/src/go/build/deps_test.go
+@@ -415,6 +415,7 @@ var depsRules = `
+ 	crypto/cipher,
+ 	crypto/internal/boring/bcache
+ 	< crypto/internal/boring
++	< crypto/internal/backend
+ 	< crypto/boring
+ 	< crypto/aes, crypto/des, crypto/hmac, crypto/md5, crypto/rc4,
+ 	  crypto/sha1, crypto/sha256, crypto/sha512
+@@ -425,6 +426,7 @@ var depsRules = `
+ 	# CRYPTO-MATH is core bignum-based crypto - no cgo, net; fmt now ok.
+ 	CRYPTO, FMT, math/big, embed
+ 	< crypto/internal/boring/bbig
++	< crypto/internal/backend/bbig
+ 	< crypto/internal/randutil
+ 	< crypto/rand
+ 	< crypto/ed25519
+diff --git a/src/runtime/runtime_boring.go b/src/runtime/runtime_boring.go
+index 5a98b20253181c..9042f2c2795e19 100644
+--- a/src/runtime/runtime_boring.go
++++ b/src/runtime/runtime_boring.go
+@@ -17,3 +17,8 @@ func boring_runtime_arg0() string {
+ 
+ //go:linkname fipstls_runtime_arg0 crypto/internal/boring/fipstls.runtime_arg0
+ func fipstls_runtime_arg0() string { return boring_runtime_arg0() }
++
++//go:linkname crypto_backend_runtime_arg0 crypto/internal/backend.runtime_arg0
++func crypto_backend_runtime_arg0() string {
++	return boring_runtime_arg0()
++}
