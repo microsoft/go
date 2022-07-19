@@ -20,9 +20,23 @@ To reproduce, run 'go mod vendor' in 'go/src'.
  .../openssl/openssl_lock_setup.c              |  53 ++
  .../go-crypto-openssl/openssl/rand.go         |  24 +
  .../go-crypto-openssl/openssl/rsa.go          | 302 +++++++++
- .../go-crypto-openssl/openssl/sha.go          | 580 ++++++++++++++++++
- src/vendor/modules.txt                        |   5 +
- 17 files changed, 3015 insertions(+)
+ .../go-crypto-openssl/openssl/sha.go          | 584 ++++++++++++++++++
+ .../microsoft/go-crypto-winnative/LICENSE     |  21 +
+ .../microsoft/go-crypto-winnative/cng/aes.go  | 375 +++++++++++
+ .../go-crypto-winnative/cng/bbig/big.go       |  31 +
+ .../microsoft/go-crypto-winnative/cng/big.go  |  14 +
+ .../microsoft/go-crypto-winnative/cng/cng.go  |  99 +++
+ .../go-crypto-winnative/cng/ecdsa.go          | 258 ++++++++
+ .../microsoft/go-crypto-winnative/cng/hmac.go |  55 ++
+ .../microsoft/go-crypto-winnative/cng/rand.go |  28 +
+ .../microsoft/go-crypto-winnative/cng/rsa.go  | 358 +++++++++++
+ .../microsoft/go-crypto-winnative/cng/sha.go  | 198 ++++++
+ .../internal/bcrypt/bcrypt_windows.go         | 194 ++++++
+ .../internal/bcrypt/zsyscall_windows.go       | 345 +++++++++++
+ .../internal/subtle/aliasing.go               |  32 +
+ .../internal/sysdll/sys_windows.go            |  55 ++
+ src/vendor/modules.txt                        |  12 +
+ 31 files changed, 5059 insertions(+)
  create mode 100644 src/vendor/github.com/microsoft/go-crypto-openssl/LICENSE
  create mode 100644 src/vendor/github.com/microsoft/go-crypto-openssl/openssl/aes.go
  create mode 100644 src/vendor/github.com/microsoft/go-crypto-openssl/openssl/bbig/big.go
@@ -39,6 +53,20 @@ To reproduce, run 'go mod vendor' in 'go/src'.
  create mode 100644 src/vendor/github.com/microsoft/go-crypto-openssl/openssl/rand.go
  create mode 100644 src/vendor/github.com/microsoft/go-crypto-openssl/openssl/rsa.go
  create mode 100644 src/vendor/github.com/microsoft/go-crypto-openssl/openssl/sha.go
+ create mode 100644 src/vendor/github.com/microsoft/go-crypto-winnative/LICENSE
+ create mode 100644 src/vendor/github.com/microsoft/go-crypto-winnative/cng/aes.go
+ create mode 100644 src/vendor/github.com/microsoft/go-crypto-winnative/cng/bbig/big.go
+ create mode 100644 src/vendor/github.com/microsoft/go-crypto-winnative/cng/big.go
+ create mode 100644 src/vendor/github.com/microsoft/go-crypto-winnative/cng/cng.go
+ create mode 100644 src/vendor/github.com/microsoft/go-crypto-winnative/cng/ecdsa.go
+ create mode 100644 src/vendor/github.com/microsoft/go-crypto-winnative/cng/hmac.go
+ create mode 100644 src/vendor/github.com/microsoft/go-crypto-winnative/cng/rand.go
+ create mode 100644 src/vendor/github.com/microsoft/go-crypto-winnative/cng/rsa.go
+ create mode 100644 src/vendor/github.com/microsoft/go-crypto-winnative/cng/sha.go
+ create mode 100644 src/vendor/github.com/microsoft/go-crypto-winnative/internal/bcrypt/bcrypt_windows.go
+ create mode 100644 src/vendor/github.com/microsoft/go-crypto-winnative/internal/bcrypt/zsyscall_windows.go
+ create mode 100644 src/vendor/github.com/microsoft/go-crypto-winnative/internal/subtle/aliasing.go
+ create mode 100644 src/vendor/github.com/microsoft/go-crypto-winnative/internal/sysdll/sys_windows.go
 
 diff --git a/src/vendor/github.com/microsoft/go-crypto-openssl/LICENSE b/src/vendor/github.com/microsoft/go-crypto-openssl/LICENSE
 new file mode 100644
@@ -3147,16 +3175,2170 @@ index 00000000000000..bb96a9bcaee7d4
 +	x := uint32(b[3]) | uint32(b[2])<<8 | uint32(b[1])<<16 | uint32(b[0])<<24
 +	return b[4:], x
 +}
+diff --git a/src/vendor/github.com/microsoft/go-crypto-winnative/LICENSE b/src/vendor/github.com/microsoft/go-crypto-winnative/LICENSE
+new file mode 100644
+index 00000000000000..9e841e7a26e4eb
+--- /dev/null
++++ b/src/vendor/github.com/microsoft/go-crypto-winnative/LICENSE
+@@ -0,0 +1,21 @@
++    MIT License
++
++    Copyright (c) Microsoft Corporation.
++
++    Permission is hereby granted, free of charge, to any person obtaining a copy
++    of this software and associated documentation files (the "Software"), to deal
++    in the Software without restriction, including without limitation the rights
++    to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
++    copies of the Software, and to permit persons to whom the Software is
++    furnished to do so, subject to the following conditions:
++
++    The above copyright notice and this permission notice shall be included in all
++    copies or substantial portions of the Software.
++
++    THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
++    IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
++    FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
++    AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
++    LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
++    OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
++    SOFTWARE
+diff --git a/src/vendor/github.com/microsoft/go-crypto-winnative/cng/aes.go b/src/vendor/github.com/microsoft/go-crypto-winnative/cng/aes.go
+new file mode 100644
+index 00000000000000..d58a995f3de843
+--- /dev/null
++++ b/src/vendor/github.com/microsoft/go-crypto-winnative/cng/aes.go
+@@ -0,0 +1,375 @@
++// Copyright (c) Microsoft Corporation.
++// Licensed under the MIT License.
++
++//go:build windows
++// +build windows
++
++package cng
++
++import (
++	"crypto/cipher"
++	"errors"
++	"runtime"
++	"unsafe"
++
++	"github.com/microsoft/go-crypto-winnative/internal/bcrypt"
++	"github.com/microsoft/go-crypto-winnative/internal/subtle"
++)
++
++const aesBlockSize = 16
++
++type aesAlgorithm struct {
++	handle          bcrypt.ALG_HANDLE
++	allowedKeySizes []int
++}
++
++func loadAes(mode string) (aesAlgorithm, error) {
++	v, err := loadOrStoreAlg(bcrypt.AES_ALGORITHM, bcrypt.ALG_NONE_FLAG, mode, func(h bcrypt.ALG_HANDLE) (interface{}, error) {
++		// Windows 8 added support to set the CipherMode value on a key,
++		// but Windows 7 requires that it be set on the algorithm before key creation.
++		err := setString(bcrypt.HANDLE(h), bcrypt.CHAINING_MODE, mode)
++		if err != nil {
++			return nil, err
++		}
++		var info bcrypt.KEY_LENGTHS_STRUCT
++		var discard uint32
++		err = bcrypt.GetProperty(bcrypt.HANDLE(h), utf16PtrFromString(bcrypt.KEY_LENGTHS), (*[unsafe.Sizeof(info)]byte)(unsafe.Pointer(&info))[:], &discard, 0)
++		if err != nil {
++			return nil, err
++		}
++		if info.Increment == 0 || info.MinLength > info.MaxLength {
++			return nil, errors.New("invalid BCRYPT_KEY_LENGTHS_STRUCT")
++		}
++		var allowedKeySizes []int
++		for size := info.MinLength; size <= info.MaxLength; size += info.Increment {
++			allowedKeySizes = append(allowedKeySizes, int(size))
++		}
++		return aesAlgorithm{h, allowedKeySizes}, nil
++	})
++	if err != nil {
++		return aesAlgorithm{}, nil
++	}
++	return v.(aesAlgorithm), nil
++}
++
++type aesCipher struct {
++	kh  bcrypt.KEY_HANDLE
++	key []byte
++}
++
++func NewAESCipher(key []byte) (cipher.Block, error) {
++	h, err := loadAes(bcrypt.CHAIN_MODE_ECB)
++	if err != nil {
++		return nil, err
++	}
++	var allowedKeySize bool
++	for _, size := range h.allowedKeySizes {
++		if len(key)*8 == size {
++			allowedKeySize = true
++			break
++		}
++	}
++	if !allowedKeySize {
++		return nil, errors.New("crypto/cipher: invalid key size")
++	}
++	c := &aesCipher{key: make([]byte, len(key))}
++	copy(c.key, key)
++	err = bcrypt.GenerateSymmetricKey(h.handle, &c.kh, nil, c.key, 0)
++	if err != nil {
++		return nil, err
++	}
++	runtime.SetFinalizer(c, (*aesCipher).finalize)
++	return c, nil
++}
++
++func (c *aesCipher) finalize() {
++	bcrypt.DestroyKey(c.kh)
++}
++
++func (c *aesCipher) BlockSize() int { return aesBlockSize }
++
++func (c *aesCipher) Encrypt(dst, src []byte) {
++	if subtle.InexactOverlap(dst, src) {
++		panic("crypto/cipher: invalid buffer overlap")
++	}
++	if len(src) < aesBlockSize {
++		panic("crypto/aes: input not full block")
++	}
++	if len(dst) < aesBlockSize {
++		panic("crypto/aes: output not full block")
++	}
++	var ret uint32
++	err := bcrypt.Encrypt(c.kh, src, nil, nil, dst, &ret, 0)
++	if err != nil {
++		panic(err)
++	}
++	if int(ret) != len(src) {
++		panic("crypto/aes: plaintext not fully encrypted")
++	}
++	runtime.KeepAlive(c)
++}
++
++func (c *aesCipher) Decrypt(dst, src []byte) {
++	if subtle.InexactOverlap(dst, src) {
++		panic("crypto/cipher: invalid buffer overlap")
++	}
++	if len(src) < aesBlockSize {
++		panic("crypto/aes: input not full block")
++	}
++	if len(dst) < aesBlockSize {
++		panic("crypto/aes: output not full block")
++	}
++
++	var ret uint32
++	err := bcrypt.Decrypt(c.kh, src, nil, nil, dst, &ret, 0)
++	if err != nil {
++		panic(err)
++	}
++	if int(ret) != len(src) {
++		panic("crypto/aes: plaintext not fully decrypted")
++	}
++	runtime.KeepAlive(c)
++}
++
++func (c *aesCipher) NewCBCEncrypter(iv []byte) cipher.BlockMode {
++	return newCBC(true, c.key, iv)
++}
++
++func (c *aesCipher) NewCBCDecrypter(iv []byte) cipher.BlockMode {
++	return newCBC(false, c.key, iv)
++}
++
++type noGCM struct {
++	cipher.Block
++}
++
++func (c *aesCipher) NewGCM(nonceSize, tagSize int) (cipher.AEAD, error) {
++	if nonceSize != gcmStandardNonceSize && tagSize != gcmTagSize {
++		return nil, errors.New("crypto/aes: GCM tag and nonce sizes can't be non-standard at the same time")
++	}
++	// Fall back to standard library for GCM with non-standard nonce or tag size.
++	if nonceSize != gcmStandardNonceSize {
++		return cipher.NewGCMWithNonceSize(&noGCM{c}, nonceSize)
++	}
++	if tagSize != gcmTagSize {
++		return cipher.NewGCMWithTagSize(&noGCM{c}, tagSize)
++	}
++	return newGCM(c.key, false)
++}
++
++// NewGCMTLS returns a GCM cipher specific to TLS
++// and should not be used for non-TLS purposes.
++func NewGCMTLS(c cipher.Block) (cipher.AEAD, error) {
++	return c.(*aesCipher).NewGCMTLS()
++}
++
++func (c *aesCipher) NewGCMTLS() (cipher.AEAD, error) {
++	return newGCM(c.key, true)
++}
++
++type aesCBC struct {
++	kh      bcrypt.KEY_HANDLE
++	iv      [aesBlockSize]byte
++	encrypt bool
++}
++
++func newCBC(encrypt bool, key, iv []byte) *aesCBC {
++	h, err := loadAes(bcrypt.CHAIN_MODE_CBC)
++	if err != nil {
++		panic(err)
++	}
++	x := &aesCBC{encrypt: encrypt}
++	x.SetIV(iv)
++	err = bcrypt.GenerateSymmetricKey(h.handle, &x.kh, nil, key, 0)
++	if err != nil {
++		panic(err)
++	}
++	runtime.SetFinalizer(x, (*aesCBC).finalize)
++	return x
++}
++
++func (x *aesCBC) finalize() {
++	bcrypt.DestroyKey(x.kh)
++}
++
++func (x *aesCBC) BlockSize() int { return aesBlockSize }
++
++func (x *aesCBC) CryptBlocks(dst, src []byte) {
++	if subtle.InexactOverlap(dst, src) {
++		panic("crypto/cipher: invalid buffer overlap")
++	}
++	if len(src)%aesBlockSize != 0 {
++		panic("crypto/cipher: input not full blocks")
++	}
++	if len(dst) < len(src) {
++		panic("crypto/cipher: output smaller than input")
++	}
++	if len(src) == 0 {
++		return
++	}
++	var ret uint32
++	var err error
++	if x.encrypt {
++		err = bcrypt.Encrypt(x.kh, src, nil, x.iv[:], dst, &ret, 0)
++	} else {
++		err = bcrypt.Decrypt(x.kh, src, nil, x.iv[:], dst, &ret, 0)
++	}
++	if err != nil {
++		panic(err)
++	}
++	if int(ret) != len(src) {
++		panic("crypto/aes: plaintext not fully encrypted")
++	}
++	runtime.KeepAlive(x)
++}
++
++func (x *aesCBC) SetIV(iv []byte) {
++	if len(iv) != aesBlockSize {
++		panic("cipher: incorrect length IV")
++	}
++	copy(x.iv[:], iv)
++}
++
++const (
++	gcmTagSize           = 16
++	gcmStandardNonceSize = 12
++	gcmTlsAddSize        = 13
++	gcmTlsFixedNonceSize = 4
++)
++
++type aesGCM struct {
++	kh           bcrypt.KEY_HANDLE
++	tls          bool
++	minNextNonce uint64
++}
++
++func (g *aesGCM) finalize() {
++	bcrypt.DestroyKey(g.kh)
++}
++
++func newGCM(key []byte, tls bool) (*aesGCM, error) {
++	h, err := loadAes(bcrypt.CHAIN_MODE_GCM)
++	if err != nil {
++		return nil, err
++	}
++	g := &aesGCM{tls: tls}
++	err = bcrypt.GenerateSymmetricKey(h.handle, &g.kh, nil, key, 0)
++	if err != nil {
++		return nil, err
++	}
++	runtime.SetFinalizer(g, (*aesGCM).finalize)
++	return g, nil
++}
++
++func (g *aesGCM) NonceSize() int {
++	return gcmStandardNonceSize
++}
++
++func (g *aesGCM) Overhead() int {
++	return gcmTagSize
++}
++
++func (g *aesGCM) Seal(dst, nonce, plaintext, additionalData []byte) []byte {
++	if len(nonce) != gcmStandardNonceSize {
++		panic("cipher: incorrect nonce length given to GCM")
++	}
++	if uint64(len(plaintext)) > ((1<<32)-2)*aesBlockSize || len(plaintext)+gcmTagSize < len(plaintext) {
++		panic("cipher: message too large for GCM")
++	}
++	if len(dst)+len(plaintext)+gcmTagSize < len(dst) {
++		panic("cipher: message too large for buffer")
++	}
++	if g.tls {
++		if len(additionalData) != gcmTlsAddSize {
++			panic("cipher: incorrect additional data length given to GCM TLS")
++		}
++		// BoringCrypto enforces strictly monotonically increasing explicit nonces
++		// and to fail after 2^64 - 1 keys as per FIPS 140-2 IG A.5,
++		// but BCrypt does not perform this check, so it is implemented here.
++		const maxUint64 = 1<<64 - 1
++		counter := bigUint64(nonce[gcmTlsFixedNonceSize:])
++		if counter == maxUint64 {
++			panic("cipher: nonce counter must be less than 2^64 - 1")
++		}
++		if counter < g.minNextNonce {
++			panic("cipher: nonce counter must be strictly monotonically increasing")
++		}
++		defer func() {
++			g.minNextNonce = counter + 1
++		}()
++	}
++	// Make room in dst to append plaintext+overhead.
++	ret, out := sliceForAppend(dst, len(plaintext)+gcmTagSize)
++
++	// Check delayed until now to make sure len(dst) is accurate.
++	if subtle.InexactOverlap(out, plaintext) {
++		panic("cipher: invalid buffer overlap")
++	}
++
++	info := bcrypt.NewAUTHENTICATED_CIPHER_MODE_INFO(nonce, additionalData, out[len(out)-gcmTagSize:])
++	var encSize uint32
++	err := bcrypt.Encrypt(g.kh, plaintext, unsafe.Pointer(info), nil, out, &encSize, 0)
++	if err != nil {
++		panic(err)
++	}
++	if int(encSize) != len(plaintext) {
++		panic("crypto/aes: plaintext not fully encrypted")
++	}
++	runtime.KeepAlive(g)
++	return ret
++}
++
++var errOpen = errors.New("cipher: message authentication failed")
++
++func (g *aesGCM) Open(dst, nonce, ciphertext, additionalData []byte) ([]byte, error) {
++	if len(nonce) != gcmStandardNonceSize {
++		panic("cipher: incorrect nonce length given to GCM")
++	}
++	if len(ciphertext) < gcmTagSize {
++		return nil, errOpen
++	}
++	if uint64(len(ciphertext)) > ((1<<32)-2)*aesBlockSize+gcmTagSize {
++		return nil, errOpen
++	}
++
++	tag := ciphertext[len(ciphertext)-gcmTagSize:]
++	ciphertext = ciphertext[:len(ciphertext)-gcmTagSize]
++
++	// Make room in dst to append ciphertext without tag.
++	ret, out := sliceForAppend(dst, len(ciphertext))
++
++	// Check delayed until now to make sure len(dst) is accurate.
++	if subtle.InexactOverlap(out, ciphertext) {
++		panic("cipher: invalid buffer overlap")
++	}
++
++	info := bcrypt.NewAUTHENTICATED_CIPHER_MODE_INFO(nonce, additionalData, tag)
++	var decSize uint32
++	err := bcrypt.Decrypt(g.kh, ciphertext, unsafe.Pointer(info), nil, out, &decSize, 0)
++	if err != nil || int(decSize) != len(ciphertext) {
++		for i := range out {
++			out[i] = 0
++		}
++		return nil, errOpen
++	}
++	runtime.KeepAlive(g)
++	return ret, nil
++}
++
++// sliceForAppend is a mirror of crypto/cipher.sliceForAppend.
++func sliceForAppend(in []byte, n int) (head, tail []byte) {
++	if total := len(in) + n; cap(in) >= total {
++		head = in[:total]
++	} else {
++		head = make([]byte, total)
++		copy(head, in)
++	}
++	tail = head[len(in):]
++	return
++}
++
++func bigUint64(b []byte) uint64 {
++	_ = b[7] // bounds check hint to compiler; see go.dev/issue/14808
++	return uint64(b[7]) | uint64(b[6])<<8 | uint64(b[5])<<16 | uint64(b[4])<<24 |
++		uint64(b[3])<<32 | uint64(b[2])<<40 | uint64(b[1])<<48 | uint64(b[0])<<56
++}
+diff --git a/src/vendor/github.com/microsoft/go-crypto-winnative/cng/bbig/big.go b/src/vendor/github.com/microsoft/go-crypto-winnative/cng/bbig/big.go
+new file mode 100644
+index 00000000000000..584f2069b1cd0a
+--- /dev/null
++++ b/src/vendor/github.com/microsoft/go-crypto-winnative/cng/bbig/big.go
+@@ -0,0 +1,31 @@
++// Copyright (c) Microsoft Corporation.
++// Licensed under the MIT License.
++
++package bbig
++
++import (
++	"math/big"
++
++	"github.com/microsoft/go-crypto-winnative/cng"
++)
++
++func Enc(b *big.Int) cng.BigInt {
++	if b == nil {
++		return nil
++	}
++	x := b.Bytes()
++	if len(x) == 0 {
++		return cng.BigInt{}
++	}
++	return x
++}
++
++func Dec(b cng.BigInt) *big.Int {
++	if b == nil {
++		return nil
++	}
++	if len(b) == 0 {
++		return new(big.Int)
++	}
++	return new(big.Int).SetBytes(b)
++}
+diff --git a/src/vendor/github.com/microsoft/go-crypto-winnative/cng/big.go b/src/vendor/github.com/microsoft/go-crypto-winnative/cng/big.go
+new file mode 100644
+index 00000000000000..0069d31976e4f5
+--- /dev/null
++++ b/src/vendor/github.com/microsoft/go-crypto-winnative/cng/big.go
+@@ -0,0 +1,14 @@
++// Copyright (c) Microsoft Corporation.
++// Licensed under the MIT License.
++package cng
++
++// This file does not have build constraints to
++// facilitate using BigInt in Go crypto.
++// Go crypto references BigInt unconditionally,
++// even if it is not finally used.
++
++// A BigInt is the big-endian bytes from a math/big BigInt.
++// Windows BCrypt accepts this specific data format.
++// This definition allows us to avoid importing math/big.
++// Conversion between BigInt and *big.Int is in cng/bbig.
++type BigInt []byte
+diff --git a/src/vendor/github.com/microsoft/go-crypto-winnative/cng/cng.go b/src/vendor/github.com/microsoft/go-crypto-winnative/cng/cng.go
+new file mode 100644
+index 00000000000000..46e4f383cc613d
+--- /dev/null
++++ b/src/vendor/github.com/microsoft/go-crypto-winnative/cng/cng.go
+@@ -0,0 +1,99 @@
++// Copyright (c) Microsoft Corporation.
++// Licensed under the MIT License.
++
++//go:build windows
++// +build windows
++
++package cng
++
++import (
++	"math"
++	"reflect"
++	"runtime"
++	"sync"
++	"syscall"
++	"unsafe"
++
++	"github.com/microsoft/go-crypto-winnative/internal/bcrypt"
++)
++
++func FIPS() (bool, error) {
++	var enabled bool
++	err := bcrypt.GetFipsAlgorithmMode(&enabled)
++	if err != nil {
++		return false, err
++	}
++	return enabled, nil
++}
++
++// lenU32 clamps s length so it can fit into a Win32 ULONG,
++// which is a 32-bit unsigned integer, without overflowing.
++func lenU32(s []byte) int {
++	if len(s) > math.MaxUint32 {
++		return math.MaxUint32
++	}
++	return len(s)
++}
++
++var algCache sync.Map
++
++type newAlgEntryFn func(h bcrypt.ALG_HANDLE) (interface{}, error)
++
++func loadOrStoreAlg(id string, flags bcrypt.AlgorithmProviderFlags, mode string, fn newAlgEntryFn) (interface{}, error) {
++	var entryKey = struct {
++		id    string
++		flags bcrypt.AlgorithmProviderFlags
++		mode  string
++	}{id, flags, mode}
++
++	if v, ok := algCache.Load(entryKey); ok {
++		return v, nil
++	}
++	var h bcrypt.ALG_HANDLE
++	err := bcrypt.OpenAlgorithmProvider(&h, utf16PtrFromString(id), nil, flags)
++	if err != nil {
++		return nil, err
++	}
++	v, err := fn(h)
++	if err != nil {
++		bcrypt.CloseAlgorithmProvider(h, 0)
++		return nil, err
++	}
++	if existing, loaded := algCache.LoadOrStore(entryKey, v); loaded {
++		// We can safely use a provider that has already been cached in another concurrent goroutine.
++		bcrypt.CloseAlgorithmProvider(h, 0)
++		v = existing
++	}
++	return v, nil
++}
++
++func utf16PtrFromString(s string) *uint16 {
++	str, err := syscall.UTF16PtrFromString(s)
++	if err != nil {
++		panic(err)
++	}
++	return str
++}
++
++func utf16FromString(s string) []uint16 {
++	str, err := syscall.UTF16FromString(s)
++	if err != nil {
++		panic(err)
++	}
++	return str
++}
++
++func setString(h bcrypt.HANDLE, name, val string) error {
++	str := utf16FromString(val)
++	defer runtime.KeepAlive(str)
++	in := make([]byte, len(val)+1)
++	sh := (*reflect.SliceHeader)(unsafe.Pointer(&in))
++	sh.Data = uintptr(unsafe.Pointer(&str[0]))
++	return bcrypt.SetProperty(h, utf16PtrFromString(name), in, 0)
++}
++
++func getUint32(h bcrypt.HANDLE, name string) (uint32, error) {
++	var prop, discard uint32
++	err := bcrypt.GetProperty(h, utf16PtrFromString(name), (*[4]byte)(unsafe.Pointer(&prop))[:], &discard, 0)
++	return prop, err
++}
+diff --git a/src/vendor/github.com/microsoft/go-crypto-winnative/cng/ecdsa.go b/src/vendor/github.com/microsoft/go-crypto-winnative/cng/ecdsa.go
+new file mode 100644
+index 00000000000000..71058891c750cd
+--- /dev/null
++++ b/src/vendor/github.com/microsoft/go-crypto-winnative/cng/ecdsa.go
+@@ -0,0 +1,258 @@
++// Copyright (c) Microsoft Corporation.
++// Licensed under the MIT License.
++
++//go:build windows
++// +build windows
++
++package cng
++
++import (
++	"errors"
++	"runtime"
++	"unsafe"
++
++	"github.com/microsoft/go-crypto-winnative/internal/bcrypt"
++)
++
++var errUnknownCurve = errors.New("openssl: unknown elliptic curve")
++var errUnsupportedCurve = errors.New("openssl: unsupported elliptic curve")
++
++type ecdsaAlgorithm struct {
++	handle bcrypt.ALG_HANDLE
++}
++
++func loadEcdsa(id string) (h ecdsaAlgorithm, err error) {
++	if v, ok := algCache.Load(id); ok {
++		return v.(ecdsaAlgorithm), nil
++	}
++	err = bcrypt.OpenAlgorithmProvider(&h.handle, utf16PtrFromString(id), nil, bcrypt.ALG_NONE_FLAG)
++	if err != nil {
++		return
++	}
++	algCache.Store(id, h)
++	return
++}
++
++const sizeOfECCBlobHeader = uint32(unsafe.Sizeof(bcrypt.ECCKEY_BLOB{}))
++
++func GenerateKeyECDSA(curve string) (X, Y, D BigInt, err error) {
++	var id string
++	var bits uint32
++	id, bits, err = curveToID(curve)
++	if err != nil {
++		return
++	}
++	var h ecdsaAlgorithm
++	h, err = loadEcdsa(id)
++	if err != nil {
++		return
++	}
++	var hkey bcrypt.KEY_HANDLE
++	err = bcrypt.GenerateKeyPair(h.handle, &hkey, bits, 0)
++	if err != nil {
++		return
++	}
++	defer bcrypt.DestroyKey(hkey)
++	// The key cannot be used until BCryptFinalizeKeyPair has been called.
++	err = bcrypt.FinalizeKeyPair(hkey, 0)
++	if err != nil {
++		return
++	}
++	var size uint32
++	err = bcrypt.ExportKey(hkey, 0, utf16PtrFromString(bcrypt.ECCPRIVATE_BLOB), nil, &size, 0)
++	if err != nil {
++		return
++	}
++	blob := make([]byte, size)
++	err = bcrypt.ExportKey(hkey, 0, utf16PtrFromString(bcrypt.ECCPRIVATE_BLOB), blob, &size, 0)
++	if err != nil {
++		return
++	}
++	hdr := (*(*bcrypt.ECCKEY_BLOB)(unsafe.Pointer(&blob[0])))
++	if hdr.KeySize != (bits+7)/8 {
++		err = errors.New("crypto/ecdsa: exported key is corrupted")
++		return
++	}
++	data := blob[sizeOfECCBlobHeader:]
++	consumeBigInt := func(size uint32) BigInt {
++		b := make(BigInt, size)
++		copy(b, data)
++		data = data[size:]
++		return b
++	}
++	X = consumeBigInt(hdr.KeySize)
++	Y = consumeBigInt(hdr.KeySize)
++	D = consumeBigInt(hdr.KeySize)
++	return
++}
++
++func curveToID(curve string) (string, uint32, error) {
++	switch curve {
++	case "P-224":
++		return "", 0, errUnsupportedCurve
++	case "P-256":
++		return bcrypt.ECDSA_P256_ALGORITHM, 256, nil
++	case "P-384":
++		return bcrypt.ECDSA_P384_ALGORITHM, 384, nil
++	case "P-521":
++		return bcrypt.ECDSA_P521_ALGORITHM, 521, nil
++	}
++	return "", 0, errUnknownCurve
++}
++
++type PublicKeyECDSA struct {
++	pkey bcrypt.KEY_HANDLE
++	size int
++}
++
++func NewPublicKeyECDSA(curve string, X, Y BigInt) (*PublicKeyECDSA, error) {
++	id, bits, err := curveToID(curve)
++	if err != nil {
++		return nil, err
++	}
++	h, err := loadEcdsa(id)
++	if err != nil {
++		return nil, err
++	}
++	blob, err := encodeECDSAKey(id, bits, X, Y, nil)
++	if err != nil {
++		return nil, err
++	}
++	k := new(PublicKeyECDSA)
++	err = bcrypt.ImportKeyPair(h.handle, 0, utf16PtrFromString(bcrypt.ECCPUBLIC_BLOB), &k.pkey, blob, 0)
++	if err != nil {
++		return nil, err
++	}
++	k.size = (int(bits) + 7) / 8
++	runtime.SetFinalizer(k, (*PublicKeyECDSA).finalize)
++	return k, nil
++}
++
++func (k *PublicKeyECDSA) finalize() {
++	bcrypt.DestroyKey(k.pkey)
++}
++
++type PrivateKeyECDSA struct {
++	pkey bcrypt.KEY_HANDLE
++	size int
++}
++
++func NewPrivateKeyECDSA(curve string, X, Y, D BigInt) (*PrivateKeyECDSA, error) {
++	id, bits, err := curveToID(curve)
++	if err != nil {
++		return nil, err
++	}
++	h, err := loadEcdsa(id)
++	if err != nil {
++		return nil, err
++	}
++	blob, err := encodeECDSAKey(id, bits, X, Y, D)
++	if err != nil {
++		return nil, err
++	}
++	k := new(PrivateKeyECDSA)
++	err = bcrypt.ImportKeyPair(h.handle, 0, utf16PtrFromString(bcrypt.ECCPRIVATE_BLOB), &k.pkey, blob, 0)
++	if err != nil {
++		return nil, err
++	}
++	k.size = (int(bits) + 7) / 8
++	runtime.SetFinalizer(k, (*PrivateKeyECDSA).finalize)
++	return k, nil
++}
++
++func (k *PrivateKeyECDSA) finalize() {
++	bcrypt.DestroyKey(k.pkey)
++}
++
++func encodeECDSAKey(id string, bits uint32, X, Y, D BigInt) ([]byte, error) {
++	var magic bcrypt.KeyBlobMagicNumber
++	switch id {
++	case bcrypt.ECDSA_P256_ALGORITHM:
++		if D != nil {
++			magic = bcrypt.ECDSA_PRIVATE_P256_MAGIC
++		} else {
++			magic = bcrypt.ECDSA_PUBLIC_P256_MAGIC
++		}
++	case bcrypt.ECDSA_P384_ALGORITHM:
++		if D != nil {
++			magic = bcrypt.ECDSA_PRIVATE_P384_MAGIC
++		} else {
++			magic = bcrypt.ECDSA_PUBLIC_P384_MAGIC
++		}
++	case bcrypt.ECDSA_P521_ALGORITHM:
++		if D != nil {
++			magic = bcrypt.ECDSA_PRIVATE_P521_MAGIC
++		} else {
++			magic = bcrypt.ECDSA_PUBLIC_P521_MAGIC
++		}
++	}
++	hdr := bcrypt.ECCKEY_BLOB{
++		Magic:   magic,
++		KeySize: (bits + 7) / 8,
++	}
++	if len(X) > int(hdr.KeySize) || len(Y) > int(hdr.KeySize) || len(D) > int(hdr.KeySize) {
++		return nil, errors.New("crypto/ecdsa: invalid parameters")
++	}
++	var blob []byte
++	if D == nil {
++		blob = make([]byte, sizeOfECCBlobHeader+hdr.KeySize*2)
++	} else {
++		blob = make([]byte, sizeOfECCBlobHeader+hdr.KeySize*3)
++	}
++	copy(blob, (*(*[sizeOfECCBlobHeader]byte)(unsafe.Pointer(&hdr)))[:])
++	data := blob[sizeOfECCBlobHeader:]
++	encode := func(b BigInt, size uint32) {
++		// b might be shorter than size if the original big number contained leading zeros.
++		leadingZeros := int(size) - len(b)
++		copy(data[leadingZeros:], b)
++		data = data[size:]
++	}
++	encode(X, hdr.KeySize)
++	encode(Y, hdr.KeySize)
++	if D != nil {
++		encode(D, hdr.KeySize)
++	}
++	return blob, nil
++}
++
++// SignECDSA signs a hash (which should be the result of hashing a larger message),
++// using the private key, priv.
++//
++// We provide this function instead of a boring.SignMarshalECDSA equivalent
++// because BCryptSignHash returns the signature encoded using P1363 instead of ASN.1,
++// so we would have to transform P1363 to ASN.1 using encoding/asn1, which we can't import here,
++// only to be decoded into raw big.Int by the caller.
++func SignECDSA(priv *PrivateKeyECDSA, hash []byte) (r, s BigInt, err error) {
++	sig, err := keySign(priv.pkey, nil, hash, bcrypt.PAD_UNDEFINED)
++	if err != nil {
++		return nil, nil, err
++	}
++	// BCRYPTSignHash generates ECDSA signatures in P1363 format,
++	// which is simply (r, s), each of them exactly half of the array.
++	if len(sig) != priv.size*2 {
++		return nil, nil, errors.New("crypto/ecdsa: invalid signature size from bcrypt")
++	}
++	return sig[:priv.size], sig[priv.size:], nil
++}
++
++// VerifyECDSA verifies the signature in r, s of hash using the public key, pub.
++func VerifyECDSA(pub *PublicKeyECDSA, hash []byte, r, s BigInt) bool {
++	// r and s might be shorter than size
++	// if the original big number contained leading zeros,
++	// but they must not be longer than the public key size.
++	if len(r) > pub.size || len(s) > pub.size {
++		return false
++	}
++	sig := make([]byte, 0, pub.size*2)
++	prependZeros := func(nonZeroBytes int) {
++		if zeros := pub.size - nonZeroBytes; zeros > 0 {
++			sig = append(sig, make([]byte, zeros)...)
++		}
++	}
++	prependZeros(len(r))
++	sig = append(sig, r...)
++	prependZeros(len(s))
++	sig = append(sig, s...)
++	defer runtime.KeepAlive(pub)
++	return keyVerify(pub.pkey, nil, hash, sig, bcrypt.PAD_UNDEFINED) == nil
++}
+diff --git a/src/vendor/github.com/microsoft/go-crypto-winnative/cng/hmac.go b/src/vendor/github.com/microsoft/go-crypto-winnative/cng/hmac.go
+new file mode 100644
+index 00000000000000..736472d5b4e700
+--- /dev/null
++++ b/src/vendor/github.com/microsoft/go-crypto-winnative/cng/hmac.go
+@@ -0,0 +1,55 @@
++// Copyright (c) Microsoft Corporation.
++// Licensed under the MIT License.
++
++//go:build windows
++// +build windows
++
++package cng
++
++import (
++	"hash"
++
++	"github.com/microsoft/go-crypto-winnative/internal/bcrypt"
++)
++
++// hashToID converts a hash.Hash implementation from this package
++// to a CNG hash ID
++func hashToID(h hash.Hash) string {
++	if _, ok := h.(*shaXHash); !ok {
++		return ""
++	}
++	var id string
++	switch h.Size() {
++	case 20:
++		id = bcrypt.SHA1_ALGORITHM
++	case 256 / 8:
++		id = bcrypt.SHA256_ALGORITHM
++	case 384 / 8:
++		id = bcrypt.SHA384_ALGORITHM
++	case 512 / 8:
++		id = bcrypt.SHA512_ALGORITHM
++	}
++	return id
++}
++
++// NewHMAC returns a new HMAC using BCrypt.
++// The function h must return a hash implemented by
++// CNG (for example, h could be cng.NewSHA256).
++// If h is not recognized, NewHMAC returns nil.
++func NewHMAC(h func() hash.Hash, key []byte) hash.Hash {
++	ch := h()
++	id := hashToID(ch)
++	if id == "" {
++		return nil
++	}
++	if len(key) > ch.BlockSize() {
++		// Keys longer than BlockSize are first hashed using
++		// the same hash function, according to RFC 2104, Section 3.
++		// BCrypt already does that, but if we hash the key on our side
++		// we avoid allocating unnecessary memory and
++		// allow keys longer than math.MaxUint32 bytes.
++		ch.Write(key)
++		key = ch.Sum(nil)
++	}
++	return newSHAX(id, bcrypt.ALG_HANDLE_HMAC_FLAG, key)
++}
+diff --git a/src/vendor/github.com/microsoft/go-crypto-winnative/cng/rand.go b/src/vendor/github.com/microsoft/go-crypto-winnative/cng/rand.go
+new file mode 100644
+index 00000000000000..5265394c936a82
+--- /dev/null
++++ b/src/vendor/github.com/microsoft/go-crypto-winnative/cng/rand.go
+@@ -0,0 +1,28 @@
++// Copyright (c) Microsoft Corporation.
++// Licensed under the MIT License.
++
++//go:build windows
++// +build windows
++
++package cng
++
++import (
++	"github.com/microsoft/go-crypto-winnative/internal/bcrypt"
++)
++
++type randReader int
++
++func (randReader) Read(b []byte) (int, error) {
++	if len(b) == 0 {
++		return 0, nil
++	}
++	n := lenU32(b)
++	const flags = bcrypt.USE_SYSTEM_PREFERRED_RNG
++	err := bcrypt.GenRandom(0, b[:n], flags)
++	if err != nil {
++		return 0, err
++	}
++	return n, nil
++}
++
++const RandReader = randReader(0)
+diff --git a/src/vendor/github.com/microsoft/go-crypto-winnative/cng/rsa.go b/src/vendor/github.com/microsoft/go-crypto-winnative/cng/rsa.go
+new file mode 100644
+index 00000000000000..a3bd4eefeed653
+--- /dev/null
++++ b/src/vendor/github.com/microsoft/go-crypto-winnative/cng/rsa.go
+@@ -0,0 +1,358 @@
++// Copyright (c) Microsoft Corporation.
++// Licensed under the MIT License.
++
++//go:build windows
++// +build windows
++
++package cng
++
++import (
++	"crypto"
++	"errors"
++	"hash"
++	"runtime"
++	"unsafe"
++
++	"github.com/microsoft/go-crypto-winnative/internal/bcrypt"
++)
++
++type rsaAlgorithm struct {
++	handle bcrypt.ALG_HANDLE
++}
++
++func loadRsa() (rsaAlgorithm, error) {
++	v, err := loadOrStoreAlg(bcrypt.RSA_ALGORITHM, bcrypt.ALG_NONE_FLAG, "", func(h bcrypt.ALG_HANDLE) (interface{}, error) {
++		return rsaAlgorithm{h}, nil
++	})
++	if err != nil {
++		return rsaAlgorithm{}, err
++	}
++	return v.(rsaAlgorithm), nil
++}
++
++const sizeOfRSABlobHeader = uint32(unsafe.Sizeof(bcrypt.RSAKEY_BLOB{}))
++
++func GenerateKeyRSA(bits int) (N, E, D, P, Q, Dp, Dq, Qinv BigInt, err error) {
++	bad := func(e error) (N, E, D, P, Q, Dp, Dq, Qinv BigInt, err error) {
++		return nil, nil, nil, nil, nil, nil, nil, nil, e
++	}
++	h, err := loadRsa()
++	if err != nil {
++		return bad(err)
++	}
++	var hkey bcrypt.KEY_HANDLE
++	err = bcrypt.GenerateKeyPair(h.handle, &hkey, uint32(bits), 0)
++	if err != nil {
++		return bad(err)
++	}
++	defer bcrypt.DestroyKey(hkey)
++	// The key cannot be used until BcryptFinalizeKeyPair has been called.
++	err = bcrypt.FinalizeKeyPair(hkey, 0)
++	if err != nil {
++		return bad(err)
++	}
++
++	var size uint32
++	err = bcrypt.ExportKey(hkey, 0, utf16PtrFromString(bcrypt.RSAFULLPRIVATE_BLOB), nil, &size, 0)
++	if err != nil {
++		return bad(err)
++	}
++
++	if size < sizeOfRSABlobHeader {
++		return bad(errors.New("crypto/rsa: exported key is corrupted"))
++	}
++
++	blob := make([]byte, size)
++	err = bcrypt.ExportKey(hkey, 0, utf16PtrFromString(bcrypt.RSAFULLPRIVATE_BLOB), blob, &size, 0)
++	if err != nil {
++		return bad(err)
++	}
++	hdr := (*(*bcrypt.RSAKEY_BLOB)(unsafe.Pointer(&blob[0])))
++	if hdr.Magic != bcrypt.RSAFULLPRIVATE_MAGIC || hdr.BitLength != uint32(bits) {
++		return bad(errors.New("crypto/rsa: exported key is corrupted"))
++	}
++	data := blob[sizeOfRSABlobHeader:]
++	consumeBigInt := func(size uint32) BigInt {
++		b := make(BigInt, size)
++		copy(b, data)
++		data = data[size:]
++		return b
++	}
++	E = consumeBigInt(hdr.PublicExpSize)
++	N = consumeBigInt(hdr.ModulusSize)
++	P = consumeBigInt(hdr.Prime1Size)
++	Q = consumeBigInt(hdr.Prime2Size)
++	Dp = consumeBigInt(hdr.Prime1Size)
++	Dq = consumeBigInt(hdr.Prime2Size)
++	Qinv = consumeBigInt(hdr.Prime1Size)
++	D = consumeBigInt(hdr.ModulusSize)
++	return
++}
++
++type PublicKeyRSA struct {
++	pkey bcrypt.KEY_HANDLE
++}
++
++func NewPublicKeyRSA(N, E BigInt) (*PublicKeyRSA, error) {
++	h, err := loadRsa()
++	if err != nil {
++		return nil, err
++	}
++	blob, err := encodeRSAKey(N, E, nil, nil, nil, nil, nil, nil)
++	if err != nil {
++		return nil, err
++	}
++	k := new(PublicKeyRSA)
++	err = bcrypt.ImportKeyPair(h.handle, 0, utf16PtrFromString(bcrypt.RSAPUBLIC_KEY_BLOB), &k.pkey, blob, 0)
++	if err != nil {
++		return nil, err
++	}
++	runtime.SetFinalizer(k, (*PublicKeyRSA).finalize)
++	return k, nil
++}
++
++func (k *PublicKeyRSA) finalize() {
++	bcrypt.DestroyKey(k.pkey)
++}
++
++type PrivateKeyRSA struct {
++	pkey bcrypt.KEY_HANDLE
++}
++
++func (k *PrivateKeyRSA) finalize() {
++	bcrypt.DestroyKey(k.pkey)
++}
++
++func NewPrivateKeyRSA(N, E, D, P, Q, Dp, Dq, Qinv BigInt) (*PrivateKeyRSA, error) {
++	h, err := loadRsa()
++	if err != nil {
++		return nil, err
++	}
++	blob, err := encodeRSAKey(N, E, D, P, Q, Dp, Dq, Qinv)
++	if err != nil {
++		return nil, err
++	}
++	k := new(PrivateKeyRSA)
++	err = bcrypt.ImportKeyPair(h.handle, 0, utf16PtrFromString(bcrypt.RSAFULLPRIVATE_BLOB), &k.pkey, blob, 0)
++	if err != nil {
++		return nil, err
++	}
++	runtime.SetFinalizer(k, (*PrivateKeyRSA).finalize)
++	return k, nil
++}
++
++func encodeRSAKey(N, E, D, P, Q, Dp, Dq, Qinv BigInt) ([]byte, error) {
++	hdr := bcrypt.RSAKEY_BLOB{
++		BitLength:     uint32(len(N) * 8),
++		PublicExpSize: uint32(len(E)),
++		ModulusSize:   uint32(len(N)),
++	}
++	var blob []byte
++	if D == nil {
++		hdr.Magic = bcrypt.RSAPUBLIC_MAGIC
++		blob = make([]byte, sizeOfRSABlobHeader+hdr.PublicExpSize+hdr.ModulusSize)
++	} else {
++		hdr.Magic = bcrypt.RSAFULLPRIVATE_MAGIC
++		hdr.Prime1Size = uint32(len(P))
++		hdr.Prime2Size = uint32(len(Q))
++		blob = make([]byte, sizeOfRSABlobHeader+hdr.PublicExpSize+hdr.ModulusSize*2+hdr.Prime1Size*3+hdr.Prime2Size*2)
++	}
++	copy(blob, (*(*[sizeOfRSABlobHeader]byte)(unsafe.Pointer(&hdr)))[:])
++	data := blob[sizeOfRSABlobHeader:]
++	var err error
++	encode := func(b BigInt, size uint32) {
++		if err != nil {
++			return
++		}
++		// b might be shorter than size if the original big number contained leading zeros.
++		leadingZeros := int(size) - len(b)
++		if leadingZeros < 0 {
++			err = errors.New("crypto/rsa: invalid parameters")
++			return
++		}
++		copy(data[leadingZeros:], b)
++		data = data[size:]
++	}
++	encode(E, hdr.PublicExpSize)
++	encode(N, hdr.ModulusSize)
++	if D != nil {
++		encode(P, hdr.Prime1Size)
++		encode(Q, hdr.Prime2Size)
++		encode(Dp, hdr.Prime1Size)
++		encode(Dq, hdr.Prime2Size)
++		encode(Qinv, hdr.Prime1Size)
++		encode(D, hdr.ModulusSize)
++	}
++	if err != nil {
++		return nil, err
++	}
++	return blob, nil
++}
++
++func DecryptRSAOAEP(h hash.Hash, priv *PrivateKeyRSA, ciphertext, label []byte) ([]byte, error) {
++	defer runtime.KeepAlive(priv)
++	return rsaOAEP(h, priv.pkey, ciphertext, label, false)
++}
++
++func EncryptRSAOAEP(h hash.Hash, pub *PublicKeyRSA, msg, label []byte) ([]byte, error) {
++	defer runtime.KeepAlive(pub)
++	return rsaOAEP(h, pub.pkey, msg, label, true)
++}
++
++func DecryptRSAPKCS1(priv *PrivateKeyRSA, ciphertext []byte) ([]byte, error) {
++	defer runtime.KeepAlive(priv)
++	return rsaCrypt(priv.pkey, nil, ciphertext, bcrypt.PAD_PKCS1, false)
++}
++
++func EncryptRSAPKCS1(pub *PublicKeyRSA, msg []byte) ([]byte, error) {
++	defer runtime.KeepAlive(pub)
++	return rsaCrypt(pub.pkey, nil, msg, bcrypt.PAD_PKCS1, true)
++}
++
++func DecryptRSANoPadding(priv *PrivateKeyRSA, ciphertext []byte) ([]byte, error) {
++	defer runtime.KeepAlive(priv)
++	return rsaCrypt(priv.pkey, nil, ciphertext, bcrypt.PAD_NONE, false)
++
++}
++
++func EncryptRSANoPadding(pub *PublicKeyRSA, msg []byte) ([]byte, error) {
++	defer runtime.KeepAlive(pub)
++	return rsaCrypt(pub.pkey, nil, msg, bcrypt.PAD_NONE, true)
++}
++
++func SignRSAPSS(priv *PrivateKeyRSA, h crypto.Hash, hashed []byte, saltLen int) ([]byte, error) {
++	defer runtime.KeepAlive(priv)
++	info, err := newPSS_PADDING_INFO(h, saltLen)
++	if err != nil {
++		return nil, err
++	}
++	return keySign(priv.pkey, unsafe.Pointer(&info), hashed, bcrypt.PAD_PSS)
++}
++
++func VerifyRSAPSS(pub *PublicKeyRSA, h crypto.Hash, hashed, sig []byte, saltLen int) error {
++	defer runtime.KeepAlive(pub)
++	info, err := newPSS_PADDING_INFO(h, saltLen)
++	if err != nil {
++		return err
++	}
++	return keyVerify(pub.pkey, unsafe.Pointer(&info), hashed, sig, bcrypt.PAD_PSS)
++}
++
++func SignRSAPKCS1v15(priv *PrivateKeyRSA, h crypto.Hash, hashed []byte) ([]byte, error) {
++	defer runtime.KeepAlive(priv)
++	info, err := newPKCS1_PADDING_INFO(h)
++	if err != nil {
++		return nil, err
++	}
++	return keySign(priv.pkey, unsafe.Pointer(&info), hashed, bcrypt.PAD_PKCS1)
++}
++
++func VerifyRSAPKCS1v15(pub *PublicKeyRSA, h crypto.Hash, hashed, sig []byte) error {
++	defer runtime.KeepAlive(pub)
++	info, err := newPKCS1_PADDING_INFO(h)
++	if err != nil {
++		return err
++	}
++	return keyVerify(pub.pkey, unsafe.Pointer(&info), hashed, sig, bcrypt.PAD_PKCS1)
++}
++
++func rsaCrypt(pkey bcrypt.KEY_HANDLE, info unsafe.Pointer, in []byte, flags bcrypt.PadMode, encrypt bool) ([]byte, error) {
++	var size uint32
++	var err error
++	if encrypt {
++		err = bcrypt.Encrypt(pkey, in, info, nil, nil, &size, flags)
++	} else {
++		err = bcrypt.Decrypt(pkey, in, info, nil, nil, &size, flags)
++	}
++	if err != nil {
++		return nil, err
++	}
++	out := make([]byte, size)
++	if encrypt {
++		err = bcrypt.Encrypt(pkey, in, info, nil, out, &size, flags)
++	} else {
++		err = bcrypt.Decrypt(pkey, in, info, nil, out, &size, flags)
++	}
++	if err != nil {
++		return nil, err
++	}
++	return out[:size], nil
++}
++
++func rsaOAEP(h hash.Hash, pkey bcrypt.KEY_HANDLE, in, label []byte, encrypt bool) ([]byte, error) {
++	hashID := hashToID(h)
++	if hashID == "" {
++		return nil, errors.New("crypto/rsa: unsupported hash function")
++	}
++	info := bcrypt.OAEP_PADDING_INFO{
++		AlgId:     utf16PtrFromString(hashID),
++		LabelSize: uint32(len(label)),
++	}
++	if len(label) > 0 {
++		info.Label = &label[0]
++	}
++	return rsaCrypt(pkey, unsafe.Pointer(&info), in, bcrypt.PAD_OAEP, encrypt)
++}
++
++func keySign(pkey bcrypt.KEY_HANDLE, info unsafe.Pointer, hashed []byte, flags bcrypt.PadMode) ([]byte, error) {
++	var size uint32
++	err := bcrypt.SignHash(pkey, info, hashed, nil, &size, flags)
++	if err != nil {
++		return nil, err
++	}
++	out := make([]byte, size)
++	err = bcrypt.SignHash(pkey, info, hashed, out, &size, flags)
++	if err != nil {
++		return nil, err
++	}
++	return out[:size], nil
++}
++
++func keyVerify(pkey bcrypt.KEY_HANDLE, info unsafe.Pointer, hashed, sig []byte, flags bcrypt.PadMode) error {
++	return bcrypt.VerifySignature(pkey, info, hashed, sig, flags)
++}
++
++func newPSS_PADDING_INFO(h crypto.Hash, saltLen int) (info bcrypt.PSS_PADDING_INFO, err error) {
++	hashID := cryptoHashToID(h)
++	if hashID == "" {
++		return info, errors.New("crypto/rsa: unsupported hash function")
++	}
++	info.AlgId = utf16PtrFromString(hashID)
++	switch saltLen {
++	case -1: // rsa.PSSSaltLengthEqualsHash
++		info.Salt = uint32(h.Size())
++	case 0: // rsa.PSSSaltLengthAuto
++		err = errors.New("crypto/rsa: rsa.PSSSaltLengthAuto not supported")
++	default:
++		info.Salt = uint32(saltLen)
++	}
++	return
++}
++
++func newPKCS1_PADDING_INFO(h crypto.Hash) (info bcrypt.PKCS1_PADDING_INFO, err error) {
++	if h != 0 {
++		hashID := cryptoHashToID(h)
++		if hashID == "" {
++			err = errors.New("crypto/rsa: unsupported hash function")
++		} else {
++			info.AlgId = utf16PtrFromString(hashID)
++		}
++	}
++	return
++}
++
++func cryptoHashToID(ch crypto.Hash) string {
++	switch ch {
++	case crypto.MD5:
++		return bcrypt.MD5_ALGORITHM
++	case crypto.SHA1:
++		return bcrypt.SHA1_ALGORITHM
++	case crypto.SHA256:
++		return bcrypt.SHA256_ALGORITHM
++	case crypto.SHA384:
++		return bcrypt.SHA384_ALGORITHM
++	case crypto.SHA512:
++		return bcrypt.SHA512_ALGORITHM
++	}
++	return ""
++}
+diff --git a/src/vendor/github.com/microsoft/go-crypto-winnative/cng/sha.go b/src/vendor/github.com/microsoft/go-crypto-winnative/cng/sha.go
+new file mode 100644
+index 00000000000000..624d898728f29f
+--- /dev/null
++++ b/src/vendor/github.com/microsoft/go-crypto-winnative/cng/sha.go
+@@ -0,0 +1,198 @@
++// Copyright (c) Microsoft Corporation.
++// Licensed under the MIT License.
++
++//go:build windows
++// +build windows
++
++package cng
++
++import (
++	"hash"
++	"runtime"
++
++	"github.com/microsoft/go-crypto-winnative/internal/bcrypt"
++)
++
++func shaOneShot(id string, p, sum []byte) error {
++	h, err := loadSha(id, 0)
++	if err != nil {
++		return err
++	}
++	return bcrypt.Hash(h.handle, nil, p, sum)
++}
++
++func SHA1(p []byte) (sum [20]byte) {
++	if err := shaOneShot(bcrypt.SHA1_ALGORITHM, p, sum[:]); err != nil {
++		panic("bcrypt: SHA1 failed")
++	}
++	return
++}
++
++func SHA256(p []byte) (sum [32]byte) {
++	if err := shaOneShot(bcrypt.SHA256_ALGORITHM, p, sum[:]); err != nil {
++		panic("bcrypt: SHA256 failed")
++	}
++	return
++}
++
++func SHA384(p []byte) (sum [48]byte) {
++	if err := shaOneShot(bcrypt.SHA384_ALGORITHM, p, sum[:]); err != nil {
++		panic("bcrypt: SHA384 failed")
++	}
++	return
++}
++
++func SHA512(p []byte) (sum [64]byte) {
++	if err := shaOneShot(bcrypt.SHA512_ALGORITHM, p, sum[:]); err != nil {
++		panic("bcrypt: SHA512 failed")
++	}
++	return
++}
++
++// NewSHA1 returns a new SHA1 hash.
++func NewSHA1() hash.Hash {
++	return newSHAX(bcrypt.SHA1_ALGORITHM, bcrypt.ALG_NONE_FLAG, nil)
++}
++
++// NewSHA256 returns a new SHA256 hash.
++func NewSHA256() hash.Hash {
++	return newSHAX(bcrypt.SHA256_ALGORITHM, bcrypt.ALG_NONE_FLAG, nil)
++}
++
++// NewSHA384 returns a new SHA384 hash.
++func NewSHA384() hash.Hash {
++	return newSHAX(bcrypt.SHA384_ALGORITHM, bcrypt.ALG_NONE_FLAG, nil)
++}
++
++// NewSHA512 returns a new SHA512 hash.
++func NewSHA512() hash.Hash {
++	return newSHAX(bcrypt.SHA512_ALGORITHM, bcrypt.ALG_NONE_FLAG, nil)
++}
++
++type shaAlgorithm struct {
++	handle    bcrypt.ALG_HANDLE
++	size      uint32
++	blockSize uint32
++}
++
++func loadSha(id string, flags bcrypt.AlgorithmProviderFlags) (shaAlgorithm, error) {
++	v, err := loadOrStoreAlg(id, flags, "", func(h bcrypt.ALG_HANDLE) (interface{}, error) {
++		size, err := getUint32(bcrypt.HANDLE(h), bcrypt.HASH_LENGTH)
++		if err != nil {
++			return nil, err
++		}
++		blockSize, err := getUint32(bcrypt.HANDLE(h), bcrypt.HASH_BLOCK_LENGTH)
++		if err != nil {
++			return nil, err
++		}
++		return shaAlgorithm{h, size, blockSize}, nil
++	})
++	if err != nil {
++		return shaAlgorithm{}, err
++	}
++	return v.(shaAlgorithm), nil
++}
++
++type shaXHash struct {
++	h         bcrypt.ALG_HANDLE
++	ctx       bcrypt.HASH_HANDLE
++	size      int
++	blockSize int
++	buf       []byte
++	key       []byte
++}
++
++func newSHAX(id string, flag bcrypt.AlgorithmProviderFlags, key []byte) *shaXHash {
++	h, err := loadSha(id, flag)
++	if err != nil {
++		panic(err)
++	}
++	sha := new(shaXHash)
++	sha.h = h.handle
++	sha.size = int(h.size)
++	sha.blockSize = int(h.blockSize)
++	sha.buf = make([]byte, sha.size)
++	if len(key) > 0 {
++		sha.key = make([]byte, len(key))
++		copy(sha.key, key)
++	}
++	sha.Reset()
++	runtime.SetFinalizer(sha, (*shaXHash).finalize)
++	return sha
++}
++
++func (h *shaXHash) finalize() {
++	if h.ctx != 0 {
++		bcrypt.DestroyHash(h.ctx)
++	}
++}
++
++func (h *shaXHash) Clone() (hash.Hash, error) {
++	h2 := &shaXHash{
++		h:         h.h,
++		size:      h.size,
++		blockSize: h.blockSize,
++		buf:       make([]byte, len(h.buf)),
++		key:       make([]byte, len(h.key)),
++	}
++	copy(h2.key, h.key)
++	err := bcrypt.DuplicateHash(h.ctx, &h2.ctx, nil, 0)
++	if err != nil {
++		return nil, err
++	}
++	runtime.KeepAlive(h)
++	return h2, nil
++}
++
++func (h *shaXHash) Reset() {
++	if h.ctx != 0 {
++		bcrypt.DestroyHash(h.ctx)
++		h.ctx = 0
++	}
++	err := bcrypt.CreateHash(h.h, &h.ctx, nil, h.key, 0)
++	if err != nil {
++		panic(err)
++	}
++	runtime.KeepAlive(h)
++}
++
++func (h *shaXHash) Write(p []byte) (n int, err error) {
++	for n < len(p) && err == nil {
++		nn := lenU32(p[n:])
++		err = bcrypt.HashData(h.ctx, p[n:n+nn], 0)
++		n += nn
++	}
++	if err != nil {
++		// hash.Hash interface mandates Write should never return an error.
++		panic(err)
++	}
++	runtime.KeepAlive(h)
++	return len(p), nil
++}
++
++func (h *shaXHash) Size() int {
++	return h.size
++}
++
++func (h *shaXHash) BlockSize() int {
++	return h.blockSize
++}
++
++func (h *shaXHash) Sum(in []byte) []byte {
++	h.sum(h.buf)
++	return append(in, h.buf...)
++}
++
++func (h *shaXHash) sum(out []byte) {
++	var ctx2 bcrypt.HASH_HANDLE
++	err := bcrypt.DuplicateHash(h.ctx, &ctx2, nil, 0)
++	if err != nil {
++		panic(err)
++	}
++	defer bcrypt.DestroyHash(ctx2)
++	err = bcrypt.FinishHash(ctx2, out, 0)
++	if err != nil {
++		panic(err)
++	}
++	runtime.KeepAlive(h)
++}
+diff --git a/src/vendor/github.com/microsoft/go-crypto-winnative/internal/bcrypt/bcrypt_windows.go b/src/vendor/github.com/microsoft/go-crypto-winnative/internal/bcrypt/bcrypt_windows.go
+new file mode 100644
+index 00000000000000..4e5c4b26adcaa9
+--- /dev/null
++++ b/src/vendor/github.com/microsoft/go-crypto-winnative/internal/bcrypt/bcrypt_windows.go
+@@ -0,0 +1,194 @@
++// Copyright (c) Microsoft Corporation.
++// Licensed under the MIT License.
++
++//go:generate go run github.com/microsoft/go-crypto-winnative/cmd/mksyscall -output zsyscall_windows.go bcrypt_windows.go
++
++package bcrypt
++
++import (
++	"syscall"
++	"unsafe"
++)
++
++const (
++	SHA1_ALGORITHM       = "SHA1"
++	SHA256_ALGORITHM     = "SHA256"
++	SHA384_ALGORITHM     = "SHA384"
++	SHA512_ALGORITHM     = "SHA512"
++	AES_ALGORITHM        = "AES"
++	RSA_ALGORITHM        = "RSA"
++	MD5_ALGORITHM        = "MD5"
++	ECDSA_P256_ALGORITHM = "ECDSA_P256"
++	ECDSA_P384_ALGORITHM = "ECDSA_P384"
++	ECDSA_P521_ALGORITHM = "ECDSA_P521"
++)
++
++const (
++	HASH_LENGTH       = "HashDigestLength"
++	HASH_BLOCK_LENGTH = "HashBlockLength"
++	CHAINING_MODE     = "ChainingMode"
++	CHAIN_MODE_ECB    = "ChainingModeECB"
++	CHAIN_MODE_CBC    = "ChainingModeCBC"
++	CHAIN_MODE_GCM    = "ChainingModeGCM"
++	KEY_LENGTHS       = "KeyLengths"
++	BLOCK_LENGTH      = "BlockLength"
++)
++
++const (
++	RSAPUBLIC_KEY_BLOB  = "RSAPUBLICBLOB"
++	RSAFULLPRIVATE_BLOB = "RSAFULLPRIVATEBLOB"
++	ECCPUBLIC_BLOB      = "ECCPUBLICBLOB"
++	ECCPRIVATE_BLOB     = "ECCPRIVATEBLOB"
++)
++
++const (
++	USE_SYSTEM_PREFERRED_RNG = 0x00000002
++)
++
++type PadMode uint32
++
++const (
++	PAD_UNDEFINED PadMode = 0x0
++	PAD_NONE      PadMode = 0x1
++	PAD_PKCS1     PadMode = 0x2
++	PAD_OAEP      PadMode = 0x4
++	PAD_PSS       PadMode = 0x8
++)
++
++type AlgorithmProviderFlags uint32
++
++const (
++	ALG_NONE_FLAG        AlgorithmProviderFlags = 0x00000000
++	ALG_HANDLE_HMAC_FLAG AlgorithmProviderFlags = 0x00000008
++)
++
++type KeyBlobMagicNumber uint32
++
++const (
++	RSAPUBLIC_MAGIC      KeyBlobMagicNumber = 0x31415352
++	RSAFULLPRIVATE_MAGIC KeyBlobMagicNumber = 0x33415352
++
++	ECDSA_PUBLIC_P256_MAGIC     KeyBlobMagicNumber = 0x31534345
++	ECDSA_PRIVATE_P256_MAGIC    KeyBlobMagicNumber = 0x32534345
++	ECDSA_PUBLIC_P384_MAGIC     KeyBlobMagicNumber = 0x33534345
++	ECDSA_PRIVATE_P384_MAGIC    KeyBlobMagicNumber = 0x34534345
++	ECDSA_PUBLIC_P521_MAGIC     KeyBlobMagicNumber = 0x35534345
++	ECDSA_PRIVATE_P521_MAGIC    KeyBlobMagicNumber = 0x36534345
++	ECDSA_PUBLIC_GENERIC_MAGIC  KeyBlobMagicNumber = 0x50444345
++	ECDSA_PRIVATE_GENERIC_MAGIC KeyBlobMagicNumber = 0x56444345
++)
++
++type (
++	HANDLE      syscall.Handle
++	ALG_HANDLE  HANDLE
++	HASH_HANDLE HANDLE
++	KEY_HANDLE  HANDLE
++)
++
++// https://docs.microsoft.com/en-us/windows/win32/api/bcrypt/ns-bcrypt-bcrypt_key_lengths_struct
++type KEY_LENGTHS_STRUCT struct {
++	MinLength uint32
++	MaxLength uint32
++	Increment uint32
++}
++
++// https://docs.microsoft.com/en-us/windows/win32/api/bcrypt/ns-bcrypt-bcrypt_authenticated_cipher_mode_info
++type AUTHENTICATED_CIPHER_MODE_INFO struct {
++	Size           uint32
++	InfoVersion    uint32
++	Nonce          *byte
++	NonceSize      uint32
++	AuthData       *byte
++	AuthDataSize   uint32
++	Tag            *byte
++	TagSize        uint32
++	MacContext     *byte
++	MacContextSize uint32
++	AADSize        uint32
++	DataSize       uint64
++	Flags          uint32
++}
++
++func NewAUTHENTICATED_CIPHER_MODE_INFO(nonce, additionalData, tag []byte) *AUTHENTICATED_CIPHER_MODE_INFO {
++	var aad *byte
++	if len(additionalData) > 0 {
++		aad = &additionalData[0]
++	}
++	info := AUTHENTICATED_CIPHER_MODE_INFO{
++		InfoVersion:  1,
++		Nonce:        &nonce[0],
++		NonceSize:    uint32(len(nonce)),
++		AuthData:     aad,
++		AuthDataSize: uint32(len(additionalData)),
++		Tag:          &tag[0],
++		TagSize:      uint32(len(tag)),
++	}
++	info.Size = uint32(unsafe.Sizeof(info))
++	return &info
++}
++
++// https://docs.microsoft.com/en-us/windows/win32/api/bcrypt/ns-bcrypt-bcrypt_oaep_padding_info
++type OAEP_PADDING_INFO struct {
++	AlgId     *uint16
++	Label     *byte
++	LabelSize uint32
++}
++
++// https://docs.microsoft.com/en-us/windows/win32/api/bcrypt/ns-bcrypt-bcrypt_pkcs1_padding_info
++type PKCS1_PADDING_INFO struct {
++	AlgId *uint16
++}
++
++// https://docs.microsoft.com/en-us/windows/win32/api/bcrypt/ns-bcrypt-bcrypt_pss_padding_info
++type PSS_PADDING_INFO struct {
++	AlgId *uint16
++	Salt  uint32
++}
++
++// https://docs.microsoft.com/en-us/windows/win32/api/bcrypt/ns-bcrypt-bcrypt_rsakey_blob
++type RSAKEY_BLOB struct {
++	Magic         KeyBlobMagicNumber
++	BitLength     uint32
++	PublicExpSize uint32
++	ModulusSize   uint32
++	Prime1Size    uint32
++	Prime2Size    uint32
++}
++
++// https://docs.microsoft.com/en-us/windows/win32/api/bcrypt/ns-bcrypt-bcrypt_ecckey_blob
++type ECCKEY_BLOB struct {
++	Magic   KeyBlobMagicNumber
++	KeySize uint32
++}
++
++//sys	GetFipsAlgorithmMode(enabled *bool) (s error) = bcrypt.BCryptGetFipsAlgorithmMode
++//sys	SetProperty(hObject HANDLE, pszProperty *uint16, pbInput []byte, dwFlags uint32) (s error) = bcrypt.BCryptSetProperty
++//sys	GetProperty(hObject HANDLE, pszProperty *uint16, pbOutput []byte, pcbResult *uint32, dwFlags uint32) (s error) = bcrypt.BCryptGetProperty
++//sys	OpenAlgorithmProvider(phAlgorithm *ALG_HANDLE, pszAlgId *uint16, pszImplementation *uint16, dwFlags AlgorithmProviderFlags) (s error) = bcrypt.BCryptOpenAlgorithmProvider
++//sys	CloseAlgorithmProvider(hAlgorithm ALG_HANDLE, dwFlags uint32) (s error) = bcrypt.BCryptCloseAlgorithmProvider
++
++// SHA and HMAC
++
++//sys	Hash(hAlgorithm ALG_HANDLE, pbSecret []byte, pbInput []byte, pbOutput []byte) (s error) = bcrypt.BCryptHash
++//sys	CreateHash(hAlgorithm ALG_HANDLE, phHash *HASH_HANDLE, pbHashObject []byte, pbSecret []byte, dwFlags uint32) (s error) = bcrypt.BCryptCreateHash
++//sys	DestroyHash(hHash HASH_HANDLE) (s error) = bcrypt.BCryptDestroyHash
++//sys   HashData(hHash HASH_HANDLE, pbInput []byte, dwFlags uint32) (s error) = bcrypt.BCryptHashData
++//sys   DuplicateHash(hHash HASH_HANDLE,  phNewHash *HASH_HANDLE, pbHashObject []byte, dwFlags uint32) (s error) = bcrypt.BCryptDuplicateHash
++//sys   FinishHash(hHash HASH_HANDLE, pbOutput []byte, dwFlags uint32) (s error) = bcrypt.BCryptFinishHash
++
++// Rand
++
++//sys   GenRandom(hAlgorithm ALG_HANDLE, pbBuffer []byte, dwFlags uint32) (s error) = bcrypt.BCryptGenRandom
++
++// Keys
++
++//sys   GenerateSymmetricKey(hAlgorithm ALG_HANDLE, phKey *KEY_HANDLE, pbKeyObject []byte, pbSecret []byte, dwFlags uint32) (s error) = bcrypt.BCryptGenerateSymmetricKey
++//sys   GenerateKeyPair(hAlgorithm ALG_HANDLE, phKey *KEY_HANDLE, dwLength uint32, dwFlags uint32) (s error) = bcrypt.BCryptGenerateKeyPair
++//sys   FinalizeKeyPair(hKey KEY_HANDLE, dwFlags uint32) (s error) = bcrypt.BCryptFinalizeKeyPair
++//sys   ImportKeyPair (hAlgorithm ALG_HANDLE, hImportKey KEY_HANDLE, pszBlobType *uint16, phKey *KEY_HANDLE, pbInput []byte, dwFlags uint32) (s error) = bcrypt.BCryptImportKeyPair
++//sys   ExportKey(hKey KEY_HANDLE, hExportKey KEY_HANDLE, pszBlobType *uint16, pbOutput []byte, pcbResult *uint32, dwFlags uint32) (s error) = bcrypt.BCryptExportKey
++//sys   DestroyKey(hKey KEY_HANDLE) (s error) = bcrypt.BCryptDestroyKey
++//sys   Encrypt(hKey KEY_HANDLE, pbInput []byte, pPaddingInfo unsafe.Pointer, pbIV []byte, pbOutput []byte, pcbResult *uint32, dwFlags PadMode) (s error) = bcrypt.BCryptEncrypt
++//sys   Decrypt(hKey KEY_HANDLE, pbInput []byte, pPaddingInfo unsafe.Pointer, pbIV []byte, pbOutput []byte, pcbResult *uint32, dwFlags PadMode) (s error) = bcrypt.BCryptDecrypt
++//sys   SignHash (hKey KEY_HANDLE, pPaddingInfo unsafe.Pointer, pbInput []byte, pbOutput []byte, pcbResult *uint32, dwFlags PadMode) (s error) = bcrypt.BCryptSignHash
++//sys   VerifySignature(hKey KEY_HANDLE, pPaddingInfo unsafe.Pointer, pbHash []byte, pbSignature []byte, dwFlags PadMode) (s error) = bcrypt.BCryptVerifySignature
+diff --git a/src/vendor/github.com/microsoft/go-crypto-winnative/internal/bcrypt/zsyscall_windows.go b/src/vendor/github.com/microsoft/go-crypto-winnative/internal/bcrypt/zsyscall_windows.go
+new file mode 100644
+index 00000000000000..3ffcf8720d760a
+--- /dev/null
++++ b/src/vendor/github.com/microsoft/go-crypto-winnative/internal/bcrypt/zsyscall_windows.go
+@@ -0,0 +1,345 @@
++// Code generated by 'go generate'; DO NOT EDIT.
++
++package bcrypt
++
++import (
++	"github.com/microsoft/go-crypto-winnative/internal/sysdll"
++	"syscall"
++	"unsafe"
++)
++
++var _ unsafe.Pointer
++
++// Do the interface allocations only once for common
++// Errno values.
++const (
++	errnoERROR_IO_PENDING = 997
++)
++
++var (
++	errERROR_IO_PENDING error = syscall.Errno(errnoERROR_IO_PENDING)
++	errERROR_EINVAL     error = syscall.EINVAL
++)
++
++// errnoErr returns common boxed Errno values, to prevent
++// allocations at runtime.
++func errnoErr(e syscall.Errno) error {
++	switch e {
++	case 0:
++		return errERROR_EINVAL
++	case errnoERROR_IO_PENDING:
++		return errERROR_IO_PENDING
++	}
++	// TODO: add more here, after collecting data on the common
++	// error values see on Windows. (perhaps when running
++	// all.bat?)
++	return e
++}
++
++var (
++	modbcrypt = syscall.NewLazyDLL(sysdll.Add("bcrypt.dll"))
++
++	procBCryptCloseAlgorithmProvider = modbcrypt.NewProc("BCryptCloseAlgorithmProvider")
++	procBCryptCreateHash             = modbcrypt.NewProc("BCryptCreateHash")
++	procBCryptDecrypt                = modbcrypt.NewProc("BCryptDecrypt")
++	procBCryptDestroyHash            = modbcrypt.NewProc("BCryptDestroyHash")
++	procBCryptDestroyKey             = modbcrypt.NewProc("BCryptDestroyKey")
++	procBCryptDuplicateHash          = modbcrypt.NewProc("BCryptDuplicateHash")
++	procBCryptEncrypt                = modbcrypt.NewProc("BCryptEncrypt")
++	procBCryptExportKey              = modbcrypt.NewProc("BCryptExportKey")
++	procBCryptFinalizeKeyPair        = modbcrypt.NewProc("BCryptFinalizeKeyPair")
++	procBCryptFinishHash             = modbcrypt.NewProc("BCryptFinishHash")
++	procBCryptGenRandom              = modbcrypt.NewProc("BCryptGenRandom")
++	procBCryptGenerateKeyPair        = modbcrypt.NewProc("BCryptGenerateKeyPair")
++	procBCryptGenerateSymmetricKey   = modbcrypt.NewProc("BCryptGenerateSymmetricKey")
++	procBCryptGetFipsAlgorithmMode   = modbcrypt.NewProc("BCryptGetFipsAlgorithmMode")
++	procBCryptGetProperty            = modbcrypt.NewProc("BCryptGetProperty")
++	procBCryptHash                   = modbcrypt.NewProc("BCryptHash")
++	procBCryptHashData               = modbcrypt.NewProc("BCryptHashData")
++	procBCryptImportKeyPair          = modbcrypt.NewProc("BCryptImportKeyPair")
++	procBCryptOpenAlgorithmProvider  = modbcrypt.NewProc("BCryptOpenAlgorithmProvider")
++	procBCryptSetProperty            = modbcrypt.NewProc("BCryptSetProperty")
++	procBCryptSignHash               = modbcrypt.NewProc("BCryptSignHash")
++	procBCryptVerifySignature        = modbcrypt.NewProc("BCryptVerifySignature")
++)
++
++func CloseAlgorithmProvider(hAlgorithm ALG_HANDLE, dwFlags uint32) (s error) {
++	r0, _, _ := syscall.Syscall(procBCryptCloseAlgorithmProvider.Addr(), 2, uintptr(hAlgorithm), uintptr(dwFlags), 0)
++	if r0 != 0 {
++		s = syscall.Errno(r0)
++	}
++	return
++}
++
++func CreateHash(hAlgorithm ALG_HANDLE, phHash *HASH_HANDLE, pbHashObject []byte, pbSecret []byte, dwFlags uint32) (s error) {
++	var _p0 *byte
++	if len(pbHashObject) > 0 {
++		_p0 = &pbHashObject[0]
++	}
++	var _p1 *byte
++	if len(pbSecret) > 0 {
++		_p1 = &pbSecret[0]
++	}
++	r0, _, _ := syscall.Syscall9(procBCryptCreateHash.Addr(), 7, uintptr(hAlgorithm), uintptr(unsafe.Pointer(phHash)), uintptr(unsafe.Pointer(_p0)), uintptr(len(pbHashObject)), uintptr(unsafe.Pointer(_p1)), uintptr(len(pbSecret)), uintptr(dwFlags), 0, 0)
++	if r0 != 0 {
++		s = syscall.Errno(r0)
++	}
++	return
++}
++
++func Decrypt(hKey KEY_HANDLE, pbInput []byte, pPaddingInfo unsafe.Pointer, pbIV []byte, pbOutput []byte, pcbResult *uint32, dwFlags PadMode) (s error) {
++	var _p0 *byte
++	if len(pbInput) > 0 {
++		_p0 = &pbInput[0]
++	}
++	var _p1 *byte
++	if len(pbIV) > 0 {
++		_p1 = &pbIV[0]
++	}
++	var _p2 *byte
++	if len(pbOutput) > 0 {
++		_p2 = &pbOutput[0]
++	}
++	r0, _, _ := syscall.Syscall12(procBCryptDecrypt.Addr(), 10, uintptr(hKey), uintptr(unsafe.Pointer(_p0)), uintptr(len(pbInput)), uintptr(pPaddingInfo), uintptr(unsafe.Pointer(_p1)), uintptr(len(pbIV)), uintptr(unsafe.Pointer(_p2)), uintptr(len(pbOutput)), uintptr(unsafe.Pointer(pcbResult)), uintptr(dwFlags), 0, 0)
++	if r0 != 0 {
++		s = syscall.Errno(r0)
++	}
++	return
++}
++
++func DestroyHash(hHash HASH_HANDLE) (s error) {
++	r0, _, _ := syscall.Syscall(procBCryptDestroyHash.Addr(), 1, uintptr(hHash), 0, 0)
++	if r0 != 0 {
++		s = syscall.Errno(r0)
++	}
++	return
++}
++
++func DestroyKey(hKey KEY_HANDLE) (s error) {
++	r0, _, _ := syscall.Syscall(procBCryptDestroyKey.Addr(), 1, uintptr(hKey), 0, 0)
++	if r0 != 0 {
++		s = syscall.Errno(r0)
++	}
++	return
++}
++
++func DuplicateHash(hHash HASH_HANDLE, phNewHash *HASH_HANDLE, pbHashObject []byte, dwFlags uint32) (s error) {
++	var _p0 *byte
++	if len(pbHashObject) > 0 {
++		_p0 = &pbHashObject[0]
++	}
++	r0, _, _ := syscall.Syscall6(procBCryptDuplicateHash.Addr(), 5, uintptr(hHash), uintptr(unsafe.Pointer(phNewHash)), uintptr(unsafe.Pointer(_p0)), uintptr(len(pbHashObject)), uintptr(dwFlags), 0)
++	if r0 != 0 {
++		s = syscall.Errno(r0)
++	}
++	return
++}
++
++func Encrypt(hKey KEY_HANDLE, pbInput []byte, pPaddingInfo unsafe.Pointer, pbIV []byte, pbOutput []byte, pcbResult *uint32, dwFlags PadMode) (s error) {
++	var _p0 *byte
++	if len(pbInput) > 0 {
++		_p0 = &pbInput[0]
++	}
++	var _p1 *byte
++	if len(pbIV) > 0 {
++		_p1 = &pbIV[0]
++	}
++	var _p2 *byte
++	if len(pbOutput) > 0 {
++		_p2 = &pbOutput[0]
++	}
++	r0, _, _ := syscall.Syscall12(procBCryptEncrypt.Addr(), 10, uintptr(hKey), uintptr(unsafe.Pointer(_p0)), uintptr(len(pbInput)), uintptr(pPaddingInfo), uintptr(unsafe.Pointer(_p1)), uintptr(len(pbIV)), uintptr(unsafe.Pointer(_p2)), uintptr(len(pbOutput)), uintptr(unsafe.Pointer(pcbResult)), uintptr(dwFlags), 0, 0)
++	if r0 != 0 {
++		s = syscall.Errno(r0)
++	}
++	return
++}
++
++func ExportKey(hKey KEY_HANDLE, hExportKey KEY_HANDLE, pszBlobType *uint16, pbOutput []byte, pcbResult *uint32, dwFlags uint32) (s error) {
++	var _p0 *byte
++	if len(pbOutput) > 0 {
++		_p0 = &pbOutput[0]
++	}
++	r0, _, _ := syscall.Syscall9(procBCryptExportKey.Addr(), 7, uintptr(hKey), uintptr(hExportKey), uintptr(unsafe.Pointer(pszBlobType)), uintptr(unsafe.Pointer(_p0)), uintptr(len(pbOutput)), uintptr(unsafe.Pointer(pcbResult)), uintptr(dwFlags), 0, 0)
++	if r0 != 0 {
++		s = syscall.Errno(r0)
++	}
++	return
++}
++
++func FinalizeKeyPair(hKey KEY_HANDLE, dwFlags uint32) (s error) {
++	r0, _, _ := syscall.Syscall(procBCryptFinalizeKeyPair.Addr(), 2, uintptr(hKey), uintptr(dwFlags), 0)
++	if r0 != 0 {
++		s = syscall.Errno(r0)
++	}
++	return
++}
++
++func FinishHash(hHash HASH_HANDLE, pbOutput []byte, dwFlags uint32) (s error) {
++	var _p0 *byte
++	if len(pbOutput) > 0 {
++		_p0 = &pbOutput[0]
++	}
++	r0, _, _ := syscall.Syscall6(procBCryptFinishHash.Addr(), 4, uintptr(hHash), uintptr(unsafe.Pointer(_p0)), uintptr(len(pbOutput)), uintptr(dwFlags), 0, 0)
++	if r0 != 0 {
++		s = syscall.Errno(r0)
++	}
++	return
++}
++
++func GenRandom(hAlgorithm ALG_HANDLE, pbBuffer []byte, dwFlags uint32) (s error) {
++	var _p0 *byte
++	if len(pbBuffer) > 0 {
++		_p0 = &pbBuffer[0]
++	}
++	r0, _, _ := syscall.Syscall6(procBCryptGenRandom.Addr(), 4, uintptr(hAlgorithm), uintptr(unsafe.Pointer(_p0)), uintptr(len(pbBuffer)), uintptr(dwFlags), 0, 0)
++	if r0 != 0 {
++		s = syscall.Errno(r0)
++	}
++	return
++}
++
++func GenerateKeyPair(hAlgorithm ALG_HANDLE, phKey *KEY_HANDLE, dwLength uint32, dwFlags uint32) (s error) {
++	r0, _, _ := syscall.Syscall6(procBCryptGenerateKeyPair.Addr(), 4, uintptr(hAlgorithm), uintptr(unsafe.Pointer(phKey)), uintptr(dwLength), uintptr(dwFlags), 0, 0)
++	if r0 != 0 {
++		s = syscall.Errno(r0)
++	}
++	return
++}
++
++func GenerateSymmetricKey(hAlgorithm ALG_HANDLE, phKey *KEY_HANDLE, pbKeyObject []byte, pbSecret []byte, dwFlags uint32) (s error) {
++	var _p0 *byte
++	if len(pbKeyObject) > 0 {
++		_p0 = &pbKeyObject[0]
++	}
++	var _p1 *byte
++	if len(pbSecret) > 0 {
++		_p1 = &pbSecret[0]
++	}
++	r0, _, _ := syscall.Syscall9(procBCryptGenerateSymmetricKey.Addr(), 7, uintptr(hAlgorithm), uintptr(unsafe.Pointer(phKey)), uintptr(unsafe.Pointer(_p0)), uintptr(len(pbKeyObject)), uintptr(unsafe.Pointer(_p1)), uintptr(len(pbSecret)), uintptr(dwFlags), 0, 0)
++	if r0 != 0 {
++		s = syscall.Errno(r0)
++	}
++	return
++}
++
++func GetFipsAlgorithmMode(enabled *bool) (s error) {
++	var _p0 uint32
++	if *enabled {
++		_p0 = 1
++	}
++	r0, _, _ := syscall.Syscall(procBCryptGetFipsAlgorithmMode.Addr(), 1, uintptr(unsafe.Pointer(&_p0)), 0, 0)
++	*enabled = _p0 != 0
++	if r0 != 0 {
++		s = syscall.Errno(r0)
++	}
++	return
++}
++
++func GetProperty(hObject HANDLE, pszProperty *uint16, pbOutput []byte, pcbResult *uint32, dwFlags uint32) (s error) {
++	var _p0 *byte
++	if len(pbOutput) > 0 {
++		_p0 = &pbOutput[0]
++	}
++	r0, _, _ := syscall.Syscall6(procBCryptGetProperty.Addr(), 6, uintptr(hObject), uintptr(unsafe.Pointer(pszProperty)), uintptr(unsafe.Pointer(_p0)), uintptr(len(pbOutput)), uintptr(unsafe.Pointer(pcbResult)), uintptr(dwFlags))
++	if r0 != 0 {
++		s = syscall.Errno(r0)
++	}
++	return
++}
++
++func Hash(hAlgorithm ALG_HANDLE, pbSecret []byte, pbInput []byte, pbOutput []byte) (s error) {
++	var _p0 *byte
++	if len(pbSecret) > 0 {
++		_p0 = &pbSecret[0]
++	}
++	var _p1 *byte
++	if len(pbInput) > 0 {
++		_p1 = &pbInput[0]
++	}
++	var _p2 *byte
++	if len(pbOutput) > 0 {
++		_p2 = &pbOutput[0]
++	}
++	r0, _, _ := syscall.Syscall9(procBCryptHash.Addr(), 7, uintptr(hAlgorithm), uintptr(unsafe.Pointer(_p0)), uintptr(len(pbSecret)), uintptr(unsafe.Pointer(_p1)), uintptr(len(pbInput)), uintptr(unsafe.Pointer(_p2)), uintptr(len(pbOutput)), 0, 0)
++	if r0 != 0 {
++		s = syscall.Errno(r0)
++	}
++	return
++}
++
++func HashData(hHash HASH_HANDLE, pbInput []byte, dwFlags uint32) (s error) {
++	var _p0 *byte
++	if len(pbInput) > 0 {
++		_p0 = &pbInput[0]
++	}
++	r0, _, _ := syscall.Syscall6(procBCryptHashData.Addr(), 4, uintptr(hHash), uintptr(unsafe.Pointer(_p0)), uintptr(len(pbInput)), uintptr(dwFlags), 0, 0)
++	if r0 != 0 {
++		s = syscall.Errno(r0)
++	}
++	return
++}
++
++func ImportKeyPair(hAlgorithm ALG_HANDLE, hImportKey KEY_HANDLE, pszBlobType *uint16, phKey *KEY_HANDLE, pbInput []byte, dwFlags uint32) (s error) {
++	var _p0 *byte
++	if len(pbInput) > 0 {
++		_p0 = &pbInput[0]
++	}
++	r0, _, _ := syscall.Syscall9(procBCryptImportKeyPair.Addr(), 7, uintptr(hAlgorithm), uintptr(hImportKey), uintptr(unsafe.Pointer(pszBlobType)), uintptr(unsafe.Pointer(phKey)), uintptr(unsafe.Pointer(_p0)), uintptr(len(pbInput)), uintptr(dwFlags), 0, 0)
++	if r0 != 0 {
++		s = syscall.Errno(r0)
++	}
++	return
++}
++
++func OpenAlgorithmProvider(phAlgorithm *ALG_HANDLE, pszAlgId *uint16, pszImplementation *uint16, dwFlags AlgorithmProviderFlags) (s error) {
++	r0, _, _ := syscall.Syscall6(procBCryptOpenAlgorithmProvider.Addr(), 4, uintptr(unsafe.Pointer(phAlgorithm)), uintptr(unsafe.Pointer(pszAlgId)), uintptr(unsafe.Pointer(pszImplementation)), uintptr(dwFlags), 0, 0)
++	if r0 != 0 {
++		s = syscall.Errno(r0)
++	}
++	return
++}
++
++func SetProperty(hObject HANDLE, pszProperty *uint16, pbInput []byte, dwFlags uint32) (s error) {
++	var _p0 *byte
++	if len(pbInput) > 0 {
++		_p0 = &pbInput[0]
++	}
++	r0, _, _ := syscall.Syscall6(procBCryptSetProperty.Addr(), 5, uintptr(hObject), uintptr(unsafe.Pointer(pszProperty)), uintptr(unsafe.Pointer(_p0)), uintptr(len(pbInput)), uintptr(dwFlags), 0)
++	if r0 != 0 {
++		s = syscall.Errno(r0)
++	}
++	return
++}
++
++func SignHash(hKey KEY_HANDLE, pPaddingInfo unsafe.Pointer, pbInput []byte, pbOutput []byte, pcbResult *uint32, dwFlags PadMode) (s error) {
++	var _p0 *byte
++	if len(pbInput) > 0 {
++		_p0 = &pbInput[0]
++	}
++	var _p1 *byte
++	if len(pbOutput) > 0 {
++		_p1 = &pbOutput[0]
++	}
++	r0, _, _ := syscall.Syscall9(procBCryptSignHash.Addr(), 8, uintptr(hKey), uintptr(pPaddingInfo), uintptr(unsafe.Pointer(_p0)), uintptr(len(pbInput)), uintptr(unsafe.Pointer(_p1)), uintptr(len(pbOutput)), uintptr(unsafe.Pointer(pcbResult)), uintptr(dwFlags), 0)
++	if r0 != 0 {
++		s = syscall.Errno(r0)
++	}
++	return
++}
++
++func VerifySignature(hKey KEY_HANDLE, pPaddingInfo unsafe.Pointer, pbHash []byte, pbSignature []byte, dwFlags PadMode) (s error) {
++	var _p0 *byte
++	if len(pbHash) > 0 {
++		_p0 = &pbHash[0]
++	}
++	var _p1 *byte
++	if len(pbSignature) > 0 {
++		_p1 = &pbSignature[0]
++	}
++	r0, _, _ := syscall.Syscall9(procBCryptVerifySignature.Addr(), 7, uintptr(hKey), uintptr(pPaddingInfo), uintptr(unsafe.Pointer(_p0)), uintptr(len(pbHash)), uintptr(unsafe.Pointer(_p1)), uintptr(len(pbSignature)), uintptr(dwFlags), 0, 0)
++	if r0 != 0 {
++		s = syscall.Errno(r0)
++	}
++	return
++}
+diff --git a/src/vendor/github.com/microsoft/go-crypto-winnative/internal/subtle/aliasing.go b/src/vendor/github.com/microsoft/go-crypto-winnative/internal/subtle/aliasing.go
+new file mode 100644
+index 00000000000000..db09e4aae64f8c
+--- /dev/null
++++ b/src/vendor/github.com/microsoft/go-crypto-winnative/internal/subtle/aliasing.go
+@@ -0,0 +1,32 @@
++// Copyright 2018 The Go Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style
++// license that can be found in the LICENSE file.
++
++// Package subtle implements functions that are often useful in cryptographic
++// code but require careful thought to use correctly.
++//
++// This is a mirror of golang.org/x/crypto/internal/subtle.
++package subtle
++
++import "unsafe"
++
++// AnyOverlap reports whether x and y share memory at any (not necessarily
++// corresponding) index. The memory beyond the slice length is ignored.
++func AnyOverlap(x, y []byte) bool {
++	return len(x) > 0 && len(y) > 0 &&
++		uintptr(unsafe.Pointer(&x[0])) <= uintptr(unsafe.Pointer(&y[len(y)-1])) &&
++		uintptr(unsafe.Pointer(&y[0])) <= uintptr(unsafe.Pointer(&x[len(x)-1]))
++}
++
++// InexactOverlap reports whether x and y share memory at any non-corresponding
++// index. The memory beyond the slice length is ignored. Note that x and y can
++// have different lengths and still not have any inexact overlap.
++//
++// InexactOverlap can be used to implement the requirements of the crypto/cipher
++// AEAD, Block, BlockMode and Stream interfaces.
++func InexactOverlap(x, y []byte) bool {
++	if len(x) == 0 || len(y) == 0 || &x[0] == &y[0] {
++		return false
++	}
++	return AnyOverlap(x, y)
++}
+diff --git a/src/vendor/github.com/microsoft/go-crypto-winnative/internal/sysdll/sys_windows.go b/src/vendor/github.com/microsoft/go-crypto-winnative/internal/sysdll/sys_windows.go
+new file mode 100644
+index 00000000000000..1722410e5af193
+--- /dev/null
++++ b/src/vendor/github.com/microsoft/go-crypto-winnative/internal/sysdll/sys_windows.go
+@@ -0,0 +1,55 @@
++// Copyright (c) Microsoft Corporation.
++// Licensed under the MIT License.
++
++// Package sysdll is a custom version of the standard library internal/syscall/windows/sysdll package.
++// sysdll is used to guard against Windows DLL preloading attacks.
++// We can't call Go's sysdll.Add function from within go-crypto-winnative because sysdll is an internal package,
++// so we have reimplemented the sysdll.Add function in a way that it always returns
++// DLL absolute paths rooted at the system directory.
++// See go.dev/issues/14959 for more info.
++package sysdll
++
++import (
++	"syscall"
++	"unsafe"
++)
++
++var (
++	// kernel32.dll is a known system DLL used by Go,
++	// so protected against DLL preloading attacks.
++	modkernel32             = syscall.NewLazyDLL("kernel32.dll")
++	procGetSystemDirectoryW = modkernel32.NewProc("GetSystemDirectoryW")
++)
++
++func getSystemDirectoryW(dir *uint16, dirLen uint32) (len uint32, err error) {
++	r0, _, e1 := syscall.Syscall(procGetSystemDirectoryW.Addr(), 2, uintptr(unsafe.Pointer(dir)), uintptr(dirLen), 0)
++	len = uint32(r0)
++	if len == 0 {
++		err = e1
++	}
++	return
++}
++
++// getSystemDirectory retrieves the path to current location of the system
++// directory, which is typically, though not always, `C:\Windows\System32`.
++func getSystemDirectory() string {
++	n := uint32(syscall.MAX_PATH)
++	for {
++		b := make([]uint16, n)
++		l, e := getSystemDirectoryW(&b[0], n)
++		if e != nil {
++			panic(e)
++		}
++		if l <= n {
++			return syscall.UTF16ToString(b[:l])
++		}
++		n = l
++	}
++}
++
++// Add returns the absolute path of the dll.
++// The returned path points to the system directory,
++// so it is secure against DLL preloading attacks.
++func Add(dll string) string {
++	return getSystemDirectory() + "\\" + dll
++}
 diff --git a/src/vendor/modules.txt b/src/vendor/modules.txt
-index dfb87abf137cca..b7474d5a9f9233 100644
+index dfb87abf137cca..a85432c81e84d4 100644
 --- a/src/vendor/modules.txt
 +++ b/src/vendor/modules.txt
-@@ -1,3 +1,8 @@
-+# github.com/microsoft/go-crypto-openssl v0.0.0-20220727182410-f0cde275907d
+@@ -1,3 +1,15 @@
++# github.com/microsoft/go-crypto-openssl v0.0.0-20220620233145-561693b272da
 +## explicit; go 1.16
 +github.com/microsoft/go-crypto-openssl/openssl
 +github.com/microsoft/go-crypto-openssl/openssl/bbig
 +github.com/microsoft/go-crypto-openssl/openssl/internal/subtle
++# github.com/microsoft/go-crypto-winnative v0.0.0-20220720213928-fb960ea5e37c
++## explicit; go 1.16
++github.com/microsoft/go-crypto-winnative/cng
++github.com/microsoft/go-crypto-winnative/cng/bbig
++github.com/microsoft/go-crypto-winnative/internal/bcrypt
++github.com/microsoft/go-crypto-winnative/internal/subtle
++github.com/microsoft/go-crypto-winnative/internal/sysdll
  # golang.org/x/crypto v0.0.0-20220516162934-403b01795ae8
  ## explicit; go 1.17
  golang.org/x/crypto/chacha20

@@ -1,0 +1,664 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: qmuntal <qmuntaldiaz@microsoft.com>
+Date: Tue, 19 Jul 2022 15:58:02 +0200
+Subject: [PATCH] Add CNG crypto backend
+
+---
+ src/cmd/api/goapi_boring_test.go              |   2 +-
+ src/cmd/go/go_boring_test.go                  |   2 +-
+ src/crypto/boring/boring.go                   |   2 +-
+ src/crypto/ecdsa/boring.go                    |   2 +-
+ src/crypto/ecdsa/notboring.go                 |   2 +-
+ src/crypto/internal/backend/bbig/big.go       |   2 +-
+ src/crypto/internal/backend/bbig/big_cng.go   |  12 ++
+ src/crypto/internal/backend/cng_windows.go    | 171 ++++++++++++++++++
+ src/crypto/internal/backend/common.go         |   5 +-
+ src/crypto/internal/backend/nobackend.go      |   2 +-
+ src/crypto/internal/boring/fipstls/stub.s     |   2 +-
+ src/crypto/internal/boring/fipstls/tls.go     |   2 +-
+ src/crypto/rand/rand_windows.go               |   9 +-
+ src/crypto/rsa/boring.go                      |   2 +-
+ src/crypto/rsa/boring_test.go                 |   2 +-
+ src/crypto/rsa/notboring.go                   |   2 +-
+ src/crypto/sha1/boring.go                     |   5 +-
+ src/crypto/sha1/notboring.go                  |   4 +-
+ src/crypto/tls/boring.go                      |   2 +-
+ src/crypto/tls/boring_test.go                 |   2 +-
+ src/crypto/tls/fipsonly/fipsonly.go           |   2 +-
+ src/crypto/tls/fipsonly/fipsonly_test.go      |   2 +-
+ src/crypto/tls/notboring.go                   |   2 +-
+ src/crypto/x509/boring.go                     |   2 +-
+ src/crypto/x509/boring_test.go                |   2 +-
+ src/crypto/x509/notboring.go                  |   2 +-
+ src/go.mod                                    |   1 +
+ src/go.sum                                    |   3 +
+ src/go/build/deps_test.go                     |   5 +
+ .../goexperiment/exp_cngcrypto_off.go         |   9 +
+ src/internal/goexperiment/exp_cngcrypto_on.go |   9 +
+ src/internal/goexperiment/flags.go            |   1 +
+ 32 files changed, 247 insertions(+), 27 deletions(-)
+ create mode 100644 src/crypto/internal/backend/bbig/big_cng.go
+ create mode 100644 src/crypto/internal/backend/cng_windows.go
+ create mode 100644 src/internal/goexperiment/exp_cngcrypto_off.go
+ create mode 100644 src/internal/goexperiment/exp_cngcrypto_on.go
+
+diff --git a/src/cmd/api/goapi_boring_test.go b/src/cmd/api/goapi_boring_test.go
+index 0e9aceeb832d3b..aecf81b09c8ad3 100644
+--- a/src/cmd/api/goapi_boring_test.go
++++ b/src/cmd/api/goapi_boring_test.go
+@@ -2,7 +2,7 @@
+ // Use of this source code is governed by a BSD-style
+ // license that can be found in the LICENSE file.
+ 
+-//go:build boringcrypto || goexperiment.opensslcrypto
++//go:build boringcrypto || goexperiment.opensslcrypto || goexperiment.cngcrypto
+ 
+ package main
+ 
+diff --git a/src/cmd/go/go_boring_test.go b/src/cmd/go/go_boring_test.go
+index 5376227f74cfaa..492ccf79d66b45 100644
+--- a/src/cmd/go/go_boring_test.go
++++ b/src/cmd/go/go_boring_test.go
+@@ -2,7 +2,7 @@
+ // Use of this source code is governed by a BSD-style
+ // license that can be found in the LICENSE file.
+ 
+-//go:build boringcrypto || goexperiment.opensslcrypto
++//go:build boringcrypto || goexperiment.opensslcrypto || goexperiment.cngcrypto
+ 
+ package main_test
+ 
+diff --git a/src/crypto/boring/boring.go b/src/crypto/boring/boring.go
+index 7b04f14ebdd618..8bdafb72f2c51a 100644
+--- a/src/crypto/boring/boring.go
++++ b/src/crypto/boring/boring.go
+@@ -2,7 +2,7 @@
+ // Use of this source code is governed by a BSD-style
+ // license that can be found in the LICENSE file.
+ 
+-//go:build boringcrypto || goexperiment.opensslcrypto
++//go:build boringcrypto || goexperiment.opensslcrypto || goexperiment.cngcrypto
+ 
+ // Package boring exposes functions that are only available when building with
+ // Go+BoringCrypto. This package is available on all targets as long as the
+diff --git a/src/crypto/ecdsa/boring.go b/src/crypto/ecdsa/boring.go
+index 09c86fb90482dd..77221d8444bdab 100644
+--- a/src/crypto/ecdsa/boring.go
++++ b/src/crypto/ecdsa/boring.go
+@@ -2,7 +2,7 @@
+ // Use of this source code is governed by a BSD-style
+ // license that can be found in the LICENSE file.
+ 
+-//go:build boringcrypto || goexperiment.opensslcrypto
++//go:build boringcrypto || goexperiment.opensslcrypto || goexperiment.cngcrypto
+ 
+ package ecdsa
+ 
+diff --git a/src/crypto/ecdsa/notboring.go b/src/crypto/ecdsa/notboring.go
+index 3cc16ecab567a0..dbbc6e3897e153 100644
+--- a/src/crypto/ecdsa/notboring.go
++++ b/src/crypto/ecdsa/notboring.go
+@@ -2,7 +2,7 @@
+ // Use of this source code is governed by a BSD-style
+ // license that can be found in the LICENSE file.
+ 
+-//go:build !boringcrypto && !goexperiment.opensslcrypto
++//go:build !boringcrypto && !goexperiment.opensslcrypto && !goexperiment.cngcrypto
+ 
+ package ecdsa
+ 
+diff --git a/src/crypto/internal/backend/bbig/big.go b/src/crypto/internal/backend/bbig/big.go
+index 51bc3c68048d51..15f9833c9fcd20 100644
+--- a/src/crypto/internal/backend/bbig/big.go
++++ b/src/crypto/internal/backend/bbig/big.go
+@@ -2,7 +2,7 @@
+ // Use of this source code is governed by a BSD-style
+ // license that can be found in the LICENSE file.
+ 
+-//go:build !boringcrypto && !goexperiment.opensslcrypto
++//go:build !boringcrypto && !goexperiment.opensslcrypto && !goexperiment.cngcrypto
+ 
+ package bbig
+ 
+diff --git a/src/crypto/internal/backend/bbig/big_cng.go b/src/crypto/internal/backend/bbig/big_cng.go
+new file mode 100644
+index 00000000000000..92623031fd87d0
+--- /dev/null
++++ b/src/crypto/internal/backend/bbig/big_cng.go
+@@ -0,0 +1,12 @@
++// Copyright 2022 The Go Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style
++// license that can be found in the LICENSE file.
++
++//go:build goexperiment.cngcrypto
++
++package bbig
++
++import "github.com/microsoft/go-crypto-winnative/cng/bbig"
++
++var Enc = bbig.Enc
++var Dec = bbig.Dec
+diff --git a/src/crypto/internal/backend/cng_windows.go b/src/crypto/internal/backend/cng_windows.go
+new file mode 100644
+index 00000000000000..63bbc4fc9dc8c3
+--- /dev/null
++++ b/src/crypto/internal/backend/cng_windows.go
+@@ -0,0 +1,171 @@
++// Copyright 2017 The Go Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style
++// license that can be found in the LICENSE file.
++
++//go:build goexperiment.cngcrypto && windows && !cmd_go_bootstrap && !msan
++
++// Package cng provides access to CNGCrypto implementation functions.
++// Check the variable Enabled to find out whether CNGCrypto is available.
++// If CNGCrypto is not available, the functions in this package all panic.
++package backend
++
++import (
++	"crypto"
++	"crypto/cipher"
++	"crypto/internal/boring/sig"
++	"hash"
++
++	"github.com/microsoft/go-crypto-winnative/cng"
++)
++
++// Enabled controls whether FIPS crypto is enabled.
++const Enabled = true
++
++func init() {
++	if v, ok := envGoFIPS(); ok && v == "1" {
++		enabled, err := cng.FIPS()
++		if err != nil {
++			panic("cngcrypto: unknown FIPS mode: " + err.Error())
++		}
++		if !enabled {
++			panic("cngcrypto: not in FIPS mode")
++		}
++	}
++	sig.BoringCrypto()
++}
++
++const RandReader = cng.RandReader
++
++func NewSHA1() hash.Hash {
++	return cng.NewSHA1()
++}
++
++func NewSHA224() hash.Hash { panic("cngcrypto: not available") }
++
++func NewSHA256() hash.Hash {
++	return cng.NewSHA256()
++}
++
++func NewSHA384() hash.Hash {
++	return cng.NewSHA384()
++}
++
++func NewSHA512() hash.Hash {
++	return cng.NewSHA512()
++}
++
++func SHA1(p []byte) (sum [20]byte) {
++	return cng.SHA1(p)
++}
++
++func SHA224(p []byte) (sum [28]byte) { panic("cngcrypto: not available") }
++
++func SHA256(p []byte) (sum [32]byte) {
++	return cng.SHA256(p)
++}
++
++func SHA384(p []byte) (sum [48]byte) {
++	return cng.SHA384(p)
++}
++
++func SHA512(p []byte) (sum [64]byte) {
++	return cng.SHA512(p)
++}
++
++func NewHMAC(h func() hash.Hash, key []byte) hash.Hash {
++	return cng.NewHMAC(h, key)
++}
++
++func NewAESCipher(key []byte) (cipher.Block, error) {
++	return cng.NewAESCipher(key)
++}
++
++func NewGCMTLS(c cipher.Block) (cipher.AEAD, error) {
++	return cng.NewGCMTLS(c)
++}
++
++type PublicKeyECDSA = cng.PublicKeyECDSA
++type PrivateKeyECDSA = cng.PrivateKeyECDSA
++
++func GenerateKeyECDSA(curve string) (X, Y, D cng.BigInt, err error) {
++	return cng.GenerateKeyECDSA(curve)
++}
++
++func NewPrivateKeyECDSA(curve string, X, Y, D cng.BigInt) (*cng.PrivateKeyECDSA, error) {
++	return cng.NewPrivateKeyECDSA(curve, X, Y, D)
++}
++
++func NewPublicKeyECDSA(curve string, X, Y cng.BigInt) (*cng.PublicKeyECDSA, error) {
++	return cng.NewPublicKeyECDSA(curve, X, Y)
++}
++
++func SignMarshalECDSA(priv *cng.PrivateKeyECDSA, hash []byte) ([]byte, error) {
++	panic("cngcrypto: not available")
++}
++
++func VerifyECDSA(pub *cng.PublicKeyECDSA, hash []byte, sig []byte) bool {
++	panic("cngcrypto: not available")
++}
++
++func SignECDSA(priv *cng.PrivateKeyECDSA, hash []byte) (r, s cng.BigInt, err error) {
++	return cng.SignECDSA(priv, hash)
++}
++
++func VerifyECDSARaw(pub *cng.PublicKeyECDSA, hash []byte, r, s cng.BigInt) bool {
++	return cng.VerifyECDSA(pub, hash, r, s)
++}
++
++type PublicKeyRSA = cng.PublicKeyRSA
++type PrivateKeyRSA = cng.PrivateKeyRSA
++
++func DecryptRSAOAEP(h hash.Hash, priv *cng.PrivateKeyRSA, ciphertext, label []byte) ([]byte, error) {
++	return cng.DecryptRSAOAEP(h, priv, ciphertext, label)
++}
++
++func DecryptRSAPKCS1(priv *cng.PrivateKeyRSA, ciphertext []byte) ([]byte, error) {
++	return cng.DecryptRSAPKCS1(priv, ciphertext)
++}
++
++func DecryptRSANoPadding(priv *cng.PrivateKeyRSA, ciphertext []byte) ([]byte, error) {
++	return cng.DecryptRSANoPadding(priv, ciphertext)
++}
++
++func EncryptRSAOAEP(h hash.Hash, pub *cng.PublicKeyRSA, msg, label []byte) ([]byte, error) {
++	return cng.EncryptRSAOAEP(h, pub, msg, label)
++}
++
++func EncryptRSAPKCS1(pub *cng.PublicKeyRSA, msg []byte) ([]byte, error) {
++	return cng.EncryptRSAPKCS1(pub, msg)
++}
++
++func EncryptRSANoPadding(pub *cng.PublicKeyRSA, msg []byte) ([]byte, error) {
++	return cng.EncryptRSANoPadding(pub, msg)
++}
++
++func GenerateKeyRSA(bits int) (N, E, D, P, Q, Dp, Dq, Qinv cng.BigInt, err error) {
++	return cng.GenerateKeyRSA(bits)
++}
++
++func NewPrivateKeyRSA(N, E, D, P, Q, Dp, Dq, Qinv cng.BigInt) (*cng.PrivateKeyRSA, error) {
++	return cng.NewPrivateKeyRSA(N, E, D, P, Q, Dp, Dq, Qinv)
++}
++
++func NewPublicKeyRSA(N, E cng.BigInt) (*cng.PublicKeyRSA, error) {
++	return cng.NewPublicKeyRSA(N, E)
++}
++
++func SignRSAPKCS1v15(priv *cng.PrivateKeyRSA, h crypto.Hash, hashed []byte) ([]byte, error) {
++	return cng.SignRSAPKCS1v15(priv, h, hashed)
++}
++
++func SignRSAPSS(priv *cng.PrivateKeyRSA, h crypto.Hash, hashed []byte, saltLen int) ([]byte, error) {
++	return cng.SignRSAPSS(priv, h, hashed, saltLen)
++}
++
++func VerifyRSAPKCS1v15(pub *cng.PublicKeyRSA, h crypto.Hash, hashed, sig []byte) error {
++	return cng.VerifyRSAPKCS1v15(pub, h, hashed, sig)
++}
++
++func VerifyRSAPSS(pub *cng.PublicKeyRSA, h crypto.Hash, hashed, sig []byte, saltLen int) error {
++	return cng.VerifyRSAPSS(pub, h, hashed, sig, saltLen)
++}
+diff --git a/src/crypto/internal/backend/common.go b/src/crypto/internal/backend/common.go
+index 007d8070538247..bf75be84409f0f 100644
+--- a/src/crypto/internal/backend/common.go
++++ b/src/crypto/internal/backend/common.go
+@@ -12,9 +12,10 @@ import (
+ 
+ func init() {
+ 	if v, _ := envGoFIPS(); v == "1" {
+-		if runtime.GOOS != "linux" {
++		if runtime.GOOS != "linux" && runtime.GOOS != "windows" {
+ 			panic("FIPS mode requested (GOFIPS=1) but not supported on " + runtime.GOOS)
+-		} else if !iscgo {
++		}
++		if runtime.GOOS == "linux" && !iscgo {
+ 			panic("FIPS mode requested (GOFIPS=1) but not supported with cgo disabled")
+ 		}
+ 	}
+diff --git a/src/crypto/internal/backend/nobackend.go b/src/crypto/internal/backend/nobackend.go
+index df1eb2d8c87c83..e0263df3ddcca0 100644
+--- a/src/crypto/internal/backend/nobackend.go
++++ b/src/crypto/internal/backend/nobackend.go
+@@ -2,7 +2,7 @@
+ // Use of this source code is governed by a BSD-style
+ // license that can be found in the LICENSE file.
+ 
+-//go:build (!boringcrypto && !goexperiment.opensslcrypto) || !linux || !cgo || android || cmd_go_bootstrap || msan
++//go:build (!boringcrypto && !goexperiment.opensslcrypto && !goexperiment.cngcrypto) || (!linux && !windows) || (linux && !cgo) || android || cmd_go_bootstrap || msan
+ 
+ package backend
+ 
+diff --git a/src/crypto/internal/boring/fipstls/stub.s b/src/crypto/internal/boring/fipstls/stub.s
+index 1dc7116efdff2e..b4c321d1d2babb 100644
+--- a/src/crypto/internal/boring/fipstls/stub.s
++++ b/src/crypto/internal/boring/fipstls/stub.s
+@@ -2,7 +2,7 @@
+ // Use of this source code is governed by a BSD-style
+ // license that can be found in the LICENSE file.
+ 
+-//go:build boringcrypto || goexperiment.opensslcrypto
++//go:build boringcrypto || goexperiment.opensslcrypto || goexperiment.cngcrypto
+ 
+ // runtime_arg0 is declared in tls.go without a body.
+ // It's provided by package runtime,
+diff --git a/src/crypto/internal/boring/fipstls/tls.go b/src/crypto/internal/boring/fipstls/tls.go
+index 703df619b77dba..ff8f469666455a 100644
+--- a/src/crypto/internal/boring/fipstls/tls.go
++++ b/src/crypto/internal/boring/fipstls/tls.go
+@@ -2,7 +2,7 @@
+ // Use of this source code is governed by a BSD-style
+ // license that can be found in the LICENSE file.
+ 
+-//go:build boringcrypto || goexperiment.opensslcrypto
++//go:build boringcrypto || goexperiment.opensslcrypto || goexperiment.cngcrypto
+ 
+ // Package fipstls allows control over whether crypto/tls requires FIPS-approved settings.
+ // This package only exists with GOEXPERIMENT=boringcrypto, but the effects are independent
+diff --git a/src/crypto/rand/rand_windows.go b/src/crypto/rand/rand_windows.go
+index 6c0655c72b692a..755861fc5bc21d 100644
+--- a/src/crypto/rand/rand_windows.go
++++ b/src/crypto/rand/rand_windows.go
+@@ -8,10 +8,17 @@
+ package rand
+ 
+ import (
++	boring "crypto/internal/backend"
+ 	"internal/syscall/windows"
+ )
+ 
+-func init() { Reader = &rngReader{} }
++func init() {
++	if boring.Enabled {
++		Reader = boring.RandReader
++		return
++	}
++	Reader = &rngReader{}
++}
+ 
+ type rngReader struct{}
+ 
+diff --git a/src/crypto/rsa/boring.go b/src/crypto/rsa/boring.go
+index d267f72663e5df..f9e63b78b97e50 100644
+--- a/src/crypto/rsa/boring.go
++++ b/src/crypto/rsa/boring.go
+@@ -2,7 +2,7 @@
+ // Use of this source code is governed by a BSD-style
+ // license that can be found in the LICENSE file.
+ 
+-//go:build boringcrypto || goexperiment.opensslcrypto
++//go:build boringcrypto || goexperiment.opensslcrypto || goexperiment.cngcrypto
+ 
+ package rsa
+ 
+diff --git a/src/crypto/rsa/boring_test.go b/src/crypto/rsa/boring_test.go
+index b8ecc1b50be938..58463b783c7a7c 100644
+--- a/src/crypto/rsa/boring_test.go
++++ b/src/crypto/rsa/boring_test.go
+@@ -2,7 +2,7 @@
+ // Use of this source code is governed by a BSD-style
+ // license that can be found in the LICENSE file.
+ 
+-//go:build boringcrypto || goexperiment.opensslcrypto
++//go:build boringcrypto || goexperiment.opensslcrypto || goexperiment.cngcrypto
+ 
+ // Note: Can run these tests against the non-BoringCrypto
+ // version of the code by using "CGO_ENABLED=0 go test".
+diff --git a/src/crypto/rsa/notboring.go b/src/crypto/rsa/notboring.go
+index 933ac569e034a8..0f152b210fdd84 100644
+--- a/src/crypto/rsa/notboring.go
++++ b/src/crypto/rsa/notboring.go
+@@ -2,7 +2,7 @@
+ // Use of this source code is governed by a BSD-style
+ // license that can be found in the LICENSE file.
+ 
+-//go:build !boringcrypto && !goexperiment.opensslcrypto
++//go:build !boringcrypto && !goexperiment.opensslcrypto && !goexperiment.cngcrypto
+ 
+ package rsa
+ 
+diff --git a/src/crypto/sha1/boring.go b/src/crypto/sha1/boring.go
+index 4aa5d04e8f9a28..c97292531df357 100644
+--- a/src/crypto/sha1/boring.go
++++ b/src/crypto/sha1/boring.go
+@@ -6,8 +6,9 @@
+ // cmd/internal/boring is not even imported, so that we don't
+ // have to maintain changes to cmd/dist's deps graph.
+ 
+-//go:build !cmd_go_bootstrap && cgo
+-// +build !cmd_go_bootstrap,cgo
++//go:build !cmd_go_bootstrap && (windows || cgo)
++// +build !cmd_go_bootstrap
++// +build windows cgo
+ 
+ package sha1
+ 
+diff --git a/src/crypto/sha1/notboring.go b/src/crypto/sha1/notboring.go
+index 42ef87937faa34..9de147350c5f59 100644
+--- a/src/crypto/sha1/notboring.go
++++ b/src/crypto/sha1/notboring.go
+@@ -2,8 +2,8 @@
+ // Use of this source code is governed by a BSD-style
+ // license that can be found in the LICENSE file.
+ 
+-//go:build cmd_go_bootstrap || !cgo
+-// +build cmd_go_bootstrap !cgo
++//go:build cmd_go_bootstrap || (!cgo && !windows)
++// +build cmd_go_bootstrap !cgo,!windows
+ 
+ package sha1
+ 
+diff --git a/src/crypto/tls/boring.go b/src/crypto/tls/boring.go
+index 70baa62d63754a..ecd0f5a7b3e9ed 100644
+--- a/src/crypto/tls/boring.go
++++ b/src/crypto/tls/boring.go
+@@ -2,7 +2,7 @@
+ // Use of this source code is governed by a BSD-style
+ // license that can be found in the LICENSE file.
+ 
+-//go:build boringcrypto || goexperiment.opensslcrypto
++//go:build boringcrypto || goexperiment.opensslcrypto || goexperiment.cngcrypto
+ 
+ package tls
+ 
+diff --git a/src/crypto/tls/boring_test.go b/src/crypto/tls/boring_test.go
+index 2131a76ca74da7..eda4f89d70b579 100644
+--- a/src/crypto/tls/boring_test.go
++++ b/src/crypto/tls/boring_test.go
+@@ -2,7 +2,7 @@
+ // Use of this source code is governed by a BSD-style
+ // license that can be found in the LICENSE file.
+ 
+-//go:build boringcrypto || goexperiment.opensslcrypto
++//go:build boringcrypto || goexperiment.opensslcrypto || goexperiment.cngcrypto
+ 
+ package tls
+ 
+diff --git a/src/crypto/tls/fipsonly/fipsonly.go b/src/crypto/tls/fipsonly/fipsonly.go
+index 1a94656dfee6dd..d7d1441ed319be 100644
+--- a/src/crypto/tls/fipsonly/fipsonly.go
++++ b/src/crypto/tls/fipsonly/fipsonly.go
+@@ -2,7 +2,7 @@
+ // Use of this source code is governed by a BSD-style
+ // license that can be found in the LICENSE file.
+ 
+-//go:build boringcrypto || goexperiment.opensslcrypto
++//go:build boringcrypto || goexperiment.opensslcrypto || goexperiment.cngcrypto
+ 
+ // Package fipsonly restricts all TLS configuration to FIPS-approved settings.
+ //
+diff --git a/src/crypto/tls/fipsonly/fipsonly_test.go b/src/crypto/tls/fipsonly/fipsonly_test.go
+index 9c1d3d279c472f..0ca7a863b73690 100644
+--- a/src/crypto/tls/fipsonly/fipsonly_test.go
++++ b/src/crypto/tls/fipsonly/fipsonly_test.go
+@@ -2,7 +2,7 @@
+ // Use of this source code is governed by a BSD-style
+ // license that can be found in the LICENSE file.
+ 
+-//go:build boringcrypto || goexperiment.opensslcrypto
++//go:build boringcrypto || goexperiment.opensslcrypto || goexperiment.cngcrypto
+ 
+ package fipsonly
+ 
+diff --git a/src/crypto/tls/notboring.go b/src/crypto/tls/notboring.go
+index 1aaabd5ef486aa..5a133c9b2f94c7 100644
+--- a/src/crypto/tls/notboring.go
++++ b/src/crypto/tls/notboring.go
+@@ -2,7 +2,7 @@
+ // Use of this source code is governed by a BSD-style
+ // license that can be found in the LICENSE file.
+ 
+-//go:build !boringcrypto && !goexperiment.opensslcrypto
++//go:build !boringcrypto && !goexperiment.opensslcrypto && !goexperiment.cngcrypto
+ 
+ package tls
+ 
+diff --git a/src/crypto/x509/boring.go b/src/crypto/x509/boring.go
+index 24add90c72038c..141fdc55999b1d 100644
+--- a/src/crypto/x509/boring.go
++++ b/src/crypto/x509/boring.go
+@@ -2,7 +2,7 @@
+ // Use of this source code is governed by a BSD-style
+ // license that can be found in the LICENSE file.
+ 
+-//go:build boringcrypto || goexperiment.opensslcrypto
++//go:build boringcrypto || goexperiment.opensslcrypto || goexperiment.cngcrypto
+ 
+ package x509
+ 
+diff --git a/src/crypto/x509/boring_test.go b/src/crypto/x509/boring_test.go
+index b61b90bdd953c8..822c3fe217ed19 100644
+--- a/src/crypto/x509/boring_test.go
++++ b/src/crypto/x509/boring_test.go
+@@ -2,7 +2,7 @@
+ // Use of this source code is governed by a BSD-style
+ // license that can be found in the LICENSE file.
+ 
+-//go:build boringcrypto || goexperiment.opensslcrypto
++//go:build boringcrypto || goexperiment.opensslcrypto || goexperiment.cngcrypto
+ 
+ package x509
+ 
+diff --git a/src/crypto/x509/notboring.go b/src/crypto/x509/notboring.go
+index a0548a7f9179c5..ae6117a1554b7f 100644
+--- a/src/crypto/x509/notboring.go
++++ b/src/crypto/x509/notboring.go
+@@ -2,7 +2,7 @@
+ // Use of this source code is governed by a BSD-style
+ // license that can be found in the LICENSE file.
+ 
+-//go:build !boringcrypto && !goexperiment.opensslcrypto
++//go:build !boringcrypto && !goexperiment.opensslcrypto && !goexperiment.cngcrypto
+ 
+ package x509
+ 
+diff --git a/src/go.mod b/src/go.mod
+index e81a456f1777f1..4c87ff61fede39 100644
+--- a/src/go.mod
++++ b/src/go.mod
+@@ -4,6 +4,7 @@ go 1.19
+ 
+ require (
+ 	github.com/microsoft/go-crypto-openssl v0.0.0-20220620233145-561693b272da
++	github.com/microsoft/go-crypto-winnative v0.0.0-20220720213928-fb960ea5e37c
+ 	golang.org/x/crypto v0.0.0-20220516162934-403b01795ae8
+ 	golang.org/x/net v0.0.0-20220517181318-183a9ca12b87
+ )
+diff --git a/src/go.sum b/src/go.sum
+index e66aa6b178645a..8a03630c2f3423 100644
+--- a/src/go.sum
++++ b/src/go.sum
+@@ -1,9 +1,12 @@
+ github.com/microsoft/go-crypto-openssl v0.0.0-20220620233145-561693b272da h1:NyH0aMKbHqrs00Q01E/EI/clS/59gUK8slhMiApnQHE=
+ github.com/microsoft/go-crypto-openssl v0.0.0-20220620233145-561693b272da/go.mod h1:rC+rtBU3m60UCQifBmpWII0VETfu78w6YGZQvVc0rd4=
++github.com/microsoft/go-crypto-winnative v0.0.0-20220720213928-fb960ea5e37c h1:NM6imXfgt46/MMII/yE8ic2WuVN/02cl3HCs8OHnafo=
++github.com/microsoft/go-crypto-winnative v0.0.0-20220720213928-fb960ea5e37c/go.mod h1:mKWmQEP0n/WamRi8zKYzN6gonQQ0jVY1CHpGAUPxj/k=
+ golang.org/x/crypto v0.0.0-20220516162934-403b01795ae8 h1:y+mHpWoQJNAHt26Nhh6JP7hvM71IRZureyvZhoVALIs=
+ golang.org/x/crypto v0.0.0-20220516162934-403b01795ae8/go.mod h1:IxCIyHEi3zRg3s0A5j5BB6A9Jmi73HwBIUl50j+osU4=
+ golang.org/x/net v0.0.0-20220517181318-183a9ca12b87 h1:cCR+9mKLOGyX4Zx+uBZDXEDAQsvKQ/XbW4vreG5v1jU=
+ golang.org/x/net v0.0.0-20220517181318-183a9ca12b87/go.mod h1:CfG3xpIq0wQ8r1q4Su4UZFWDARRcnwPjda9FqA0JpMk=
++golang.org/x/sys v0.0.0-20220310020820-b874c991c1a5/go.mod h1:oPkhp1MJrh7nUepCBck5+mAzfO9JrbApNNgaTdGDITg=
+ golang.org/x/sys v0.0.0-20220614162138-6c1b26c55098 h1:PgOr27OhUx2IRqGJ2RxAWI4dJQ7bi9cSrB82uzFzfUA=
+ golang.org/x/sys v0.0.0-20220614162138-6c1b26c55098/go.mod h1:oPkhp1MJrh7nUepCBck5+mAzfO9JrbApNNgaTdGDITg=
+ golang.org/x/text v0.3.8-0.20220509174342-b4bca84b0361 h1:h+pU/hCb7sEApigI6eII3/Emx5ZHaFWS+nulUp0Az/k=
+diff --git a/src/go/build/deps_test.go b/src/go/build/deps_test.go
+index 9b532b18023198..c6d0407ce5b199 100644
+--- a/src/go/build/deps_test.go
++++ b/src/go/build/deps_test.go
+@@ -414,6 +414,10 @@ var depsRules = `
+ 
+ 	crypto/cipher,
+ 	crypto/internal/boring/bcache
++	< github.com/microsoft/go-crypto-winnative/internal/subtle
++	< github.com/microsoft/go-crypto-winnative/internal/sysdll
++	< github.com/microsoft/go-crypto-winnative/internal/bcrypt
++	< github.com/microsoft/go-crypto-winnative/cng
+ 	< github.com/microsoft/go-crypto-openssl/openssl/internal/subtle
+ 	< github.com/microsoft/go-crypto-openssl/openssl
+ 	< crypto/internal/boring
+@@ -427,6 +431,7 @@ var depsRules = `
+ 
+ 	# CRYPTO-MATH is core bignum-based crypto - no cgo, net; fmt now ok.
+ 	CRYPTO, FMT, math/big, embed
++	< github.com/microsoft/go-crypto-winnative/cng/bbig
+ 	< github.com/microsoft/go-crypto-openssl/openssl/bbig
+ 	< crypto/internal/boring/bbig
+ 	< crypto/internal/backend/bbig
+diff --git a/src/internal/goexperiment/exp_cngcrypto_off.go b/src/internal/goexperiment/exp_cngcrypto_off.go
+new file mode 100644
+index 00000000000000..831460053281e2
+--- /dev/null
++++ b/src/internal/goexperiment/exp_cngcrypto_off.go
+@@ -0,0 +1,9 @@
++// Code generated by mkconsts.go. DO NOT EDIT.
++
++//go:build !goexperiment.cngcrypto
++// +build !goexperiment.cngcrypto
++
++package goexperiment
++
++const CNGCrypto = false
++const CNGCryptoInt = 0
+diff --git a/src/internal/goexperiment/exp_cngcrypto_on.go b/src/internal/goexperiment/exp_cngcrypto_on.go
+new file mode 100644
+index 00000000000000..99ee2542ca38a9
+--- /dev/null
++++ b/src/internal/goexperiment/exp_cngcrypto_on.go
+@@ -0,0 +1,9 @@
++// Code generated by mkconsts.go. DO NOT EDIT.
++
++//go:build goexperiment.cngcrypto
++// +build goexperiment.cngcrypto
++
++package goexperiment
++
++const CNGCrypto = true
++const CNGCryptoInt = 1
+diff --git a/src/internal/goexperiment/flags.go b/src/internal/goexperiment/flags.go
+index 355b7fe5931d39..b13c13764af5db 100644
+--- a/src/internal/goexperiment/flags.go
++++ b/src/internal/goexperiment/flags.go
+@@ -60,6 +60,7 @@ type Flags struct {
+ 	StaticLockRanking bool
+ 	BoringCrypto      bool
+ 	OpenSSLCrypto     bool
++	CNGCrypto         bool
+ 
+ 	// Unified enables the compiler's unified IR construction
+ 	// experiment.
