@@ -8,11 +8,13 @@ Subject: [PATCH] Add CNG crypto backend
  src/cmd/go/go_boring_test.go                  |   2 +-
  src/crypto/boring/boring.go                   |   2 +-
  src/crypto/ecdsa/boring.go                    |   2 +-
+ src/crypto/ecdsa/ecdsa.go                     |  39 +++-
  src/crypto/ecdsa/notboring.go                 |   2 +-
+ src/crypto/internal/backend/backend_test.go   |   3 +-
  src/crypto/internal/backend/bbig/big.go       |   2 +-
  src/crypto/internal/backend/bbig/big_cng.go   |  12 ++
  src/crypto/internal/backend/cng_windows.go    | 171 ++++++++++++++++++
- src/crypto/internal/backend/common.go         |   5 +-
+ src/crypto/internal/backend/common.go         |  18 +-
  src/crypto/internal/backend/nobackend.go      |   2 +-
  src/crypto/internal/boring/fipstls/stub.s     |   2 +-
  src/crypto/internal/boring/fipstls/tls.go     |   2 +-
@@ -20,12 +22,21 @@ Subject: [PATCH] Add CNG crypto backend
  src/crypto/rsa/boring.go                      |   2 +-
  src/crypto/rsa/boring_test.go                 |   2 +-
  src/crypto/rsa/notboring.go                   |   2 +-
+ src/crypto/rsa/pkcs1v15.go                    |  21 ++-
+ src/crypto/rsa/pss.go                         |  13 +-
+ src/crypto/rsa/rsa.go                         |   9 +-
+ src/crypto/rsa/rsa_test.go                    |   4 +
  src/crypto/sha1/boring.go                     |   5 +-
  src/crypto/sha1/notboring.go                  |   4 +-
+ src/crypto/sha1/sha1_test.go                  |   7 +
+ src/crypto/sha256/sha256.go                   |   5 +-
+ src/crypto/sha256/sha256_test.go              |  10 +
+ src/crypto/sha512/sha512_test.go              |  10 +
  src/crypto/tls/boring.go                      |   2 +-
  src/crypto/tls/boring_test.go                 |   2 +-
  src/crypto/tls/fipsonly/fipsonly.go           |   2 +-
  src/crypto/tls/fipsonly/fipsonly_test.go      |   2 +-
+ src/crypto/tls/handshake_server_tls13.go      |  10 +
  src/crypto/tls/notboring.go                   |   2 +-
  src/crypto/x509/boring.go                     |   2 +-
  src/crypto/x509/boring_test.go                |   2 +-
@@ -33,10 +44,12 @@ Subject: [PATCH] Add CNG crypto backend
  src/go.mod                                    |   1 +
  src/go.sum                                    |   3 +
  src/go/build/deps_test.go                     |   5 +
+ src/hash/example_test.go                      |   2 +
+ src/hash/marshal_test.go                      |   4 +
  .../goexperiment/exp_cngcrypto_off.go         |   9 +
  src/internal/goexperiment/exp_cngcrypto_on.go |   9 +
  src/internal/goexperiment/flags.go            |   1 +
- 32 files changed, 247 insertions(+), 27 deletions(-)
+ 45 files changed, 378 insertions(+), 46 deletions(-)
  create mode 100644 src/crypto/internal/backend/bbig/big_cng.go
  create mode 100644 src/crypto/internal/backend/cng_windows.go
  create mode 100644 src/internal/goexperiment/exp_cngcrypto_off.go
@@ -94,6 +107,96 @@ index 09c86fb90482dd..77221d8444bdab 100644
  
  package ecdsa
  
+diff --git a/src/crypto/ecdsa/ecdsa.go b/src/crypto/ecdsa/ecdsa.go
+index 58d3bc69568f35..befa3afd1be17c 100644
+--- a/src/crypto/ecdsa/ecdsa.go
++++ b/src/crypto/ecdsa/ecdsa.go
+@@ -29,6 +29,7 @@ import (
+ 	"crypto/internal/randutil"
+ 	"crypto/sha512"
+ 	"errors"
++	"internal/goexperiment"
+ 	"io"
+ 	"math/big"
+ 
+@@ -109,11 +110,25 @@ func (priv *PrivateKey) Equal(x crypto.PrivateKey) bool {
+ // where the private part is kept in, for example, a hardware module. Common
+ // uses can use the SignASN1 function in this package directly.
+ func (priv *PrivateKey) Sign(rand io.Reader, digest []byte, opts crypto.SignerOpts) ([]byte, error) {
+-	if boring.Enabled && rand == boring.RandReader {
++	if boring.Enabled && rand == boring.RandReader &&
++		(!goexperiment.CNGCrypto || priv.Params().Name != "P-224") {
++
+ 		b, err := boringPrivateKey(priv)
+ 		if err != nil {
+ 			return nil, err
+ 		}
++		if goexperiment.CNGCrypto {
++			r, s, err := boring.SignECDSA(b, digest)
++			if err != nil {
++				return nil, err
++			}
++			var b cryptobyte.Builder
++			b.AddASN1(asn1.SEQUENCE, func(b *cryptobyte.Builder) {
++				b.AddASN1BigInt(bbig.Dec(r))
++				b.AddASN1BigInt(bbig.Dec(s))
++			})
++			return b.Bytes()
++		}
+ 		return boring.SignMarshalECDSA(b, digest)
+ 	}
+ 	boring.UnreachableExceptTests()
+@@ -154,7 +169,9 @@ func randFieldElement(c elliptic.Curve, rand io.Reader) (k *big.Int, err error)
+ 
+ // GenerateKey generates a public and private key pair.
+ func GenerateKey(c elliptic.Curve, rand io.Reader) (*PrivateKey, error) {
+-	if boring.Enabled && rand == boring.RandReader {
++	if boring.Enabled && rand == boring.RandReader &&
++		(!goexperiment.CNGCrypto || c.Params().Name != "P-224") {
++
+ 		x, y, d, err := boring.GenerateKeyECDSA(c.Params().Name)
+ 		if err != nil {
+ 			return nil, err
+@@ -214,11 +231,20 @@ var errZeroParam = errors.New("zero parameter")
+ func Sign(rand io.Reader, priv *PrivateKey, hash []byte) (r, s *big.Int, err error) {
+ 	randutil.MaybeReadByte(rand)
+ 
+-	if boring.Enabled && rand == boring.RandReader {
++	if boring.Enabled && rand == boring.RandReader &&
++		(!goexperiment.CNGCrypto || priv.Params().Name != "P-224") {
++
+ 		b, err := boringPrivateKey(priv)
+ 		if err != nil {
+ 			return nil, nil, err
+ 		}
++		if goexperiment.CNGCrypto {
++			br, bs, err := boring.SignECDSA(b, hash)
++			if err != nil {
++				return nil, nil, err
++			}
++			return bbig.Dec(br), bbig.Dec(bs), err
++		}
+ 		sig, err := boring.SignMarshalECDSA(b, hash)
+ 		if err != nil {
+ 			return nil, nil, err
+@@ -333,11 +359,16 @@ func SignASN1(rand io.Reader, priv *PrivateKey, hash []byte) ([]byte, error) {
+ // return value records whether the signature is valid. Most applications should
+ // use VerifyASN1 instead of dealing directly with r, s.
+ func Verify(pub *PublicKey, hash []byte, r, s *big.Int) bool {
+-	if boring.Enabled {
++	if boring.Enabled &&
++		(!goexperiment.CNGCrypto || pub.Params().Name != "P-224") {
++
+ 		key, err := boringPublicKey(pub)
+ 		if err != nil {
+ 			return false
+ 		}
++		if goexperiment.CNGCrypto {
++			return boring.VerifyECDSARaw(key, hash, bbig.Enc(r), bbig.Enc(s))
++		}
+ 		var b cryptobyte.Builder
+ 		b.AddASN1(asn1.SEQUENCE, func(b *cryptobyte.Builder) {
+ 			b.AddASN1BigInt(r)
 diff --git a/src/crypto/ecdsa/notboring.go b/src/crypto/ecdsa/notboring.go
 index 3cc16ecab567a0..dbbc6e3897e153 100644
 --- a/src/crypto/ecdsa/notboring.go
@@ -107,6 +210,26 @@ index 3cc16ecab567a0..dbbc6e3897e153 100644
  
  package ecdsa
  
+diff --git a/src/crypto/internal/backend/backend_test.go b/src/crypto/internal/backend/backend_test.go
+index c2c06d3bff8c74..7d297ba88c9ab6 100644
+--- a/src/crypto/internal/backend/backend_test.go
++++ b/src/crypto/internal/backend/backend_test.go
+@@ -5,13 +5,14 @@
+ package backend
+ 
+ import (
++	"internal/goexperiment"
+ 	"testing"
+ )
+ 
+ // Test that Unreachable panics.
+ func TestUnreachable(t *testing.T) {
+ 	defer func() {
+-		if Enabled {
++		if Enabled && !goexperiment.CNGCrypto {
+ 			if err := recover(); err == nil {
+ 				t.Fatal("expected Unreachable to panic")
+ 			}
 diff --git a/src/crypto/internal/backend/bbig/big.go b/src/crypto/internal/backend/bbig/big.go
 index 51bc3c68048d51..15f9833c9fcd20 100644
 --- a/src/crypto/internal/backend/bbig/big.go
@@ -316,10 +439,17 @@ index 00000000000000..63bbc4fc9dc8c3
 +	return cng.VerifyRSAPSS(pub, h, hashed, sig, saltLen)
 +}
 diff --git a/src/crypto/internal/backend/common.go b/src/crypto/internal/backend/common.go
-index 007d8070538247..bf75be84409f0f 100644
+index 007d8070538247..fc5cb89e55ee74 100644
 --- a/src/crypto/internal/backend/common.go
 +++ b/src/crypto/internal/backend/common.go
-@@ -12,9 +12,10 @@ import (
+@@ -6,15 +6,17 @@ package backend
+ 
+ import (
+ 	"crypto/internal/boring/sig"
++	"internal/goexperiment"
+ 	"runtime"
+ 	"syscall"
+ )
  
  func init() {
  	if v, _ := envGoFIPS(); v == "1" {
@@ -332,6 +462,32 @@ index 007d8070538247..bf75be84409f0f 100644
  			panic("FIPS mode requested (GOFIPS=1) but not supported with cgo disabled")
  		}
  	}
+@@ -36,7 +38,11 @@ func envGoFIPS() (string, bool) {
+ // when backend is in use.
+ func Unreachable() {
+ 	if Enabled {
+-		panic("cryptobackend: invalid code execution")
++		// CNGCrypto has too many stdlib fallbacks,
++		// so Unreachable is not always true.
++		if !goexperiment.CNGCrypto {
++			panic("cryptobackend: invalid code execution")
++		}
+ 	} else {
+ 		// Code that's unreachable is exactly the code
+ 		// we want to detect for reporting standard Go crypto.
+@@ -54,7 +60,11 @@ func hasSuffix(s, t string) bool {
+ // UnreachableExceptTests marks code that should be unreachable
+ // when backend is in use. It panics.
+ func UnreachableExceptTests() {
+-	if Enabled {
++	// runtime_arg0 is not supported on windows.
++	// We are going through the same code patch on linux,
++	// so if we are unintentionally calling an 'unreachable' function,
++	// we will catch it there.
++	if Enabled && !goexperiment.CNGCrypto {
+ 		name := runtime_arg0()
+ 		// If ran on Windows we'd need to allow _test.exe and .test.exe as well.
+ 		if !hasSuffix(name, "_test") && !hasSuffix(name, ".test") {
 diff --git a/src/crypto/internal/backend/nobackend.go b/src/crypto/internal/backend/nobackend.go
 index df1eb2d8c87c83..e0263df3ddcca0 100644
 --- a/src/crypto/internal/backend/nobackend.go
@@ -433,6 +589,174 @@ index 933ac569e034a8..0f152b210fdd84 100644
  
  package rsa
  
+diff --git a/src/crypto/rsa/pkcs1v15.go b/src/crypto/rsa/pkcs1v15.go
+index 99b3dba5df63b2..62fc18a6046bb2 100644
+--- a/src/crypto/rsa/pkcs1v15.go
++++ b/src/crypto/rsa/pkcs1v15.go
+@@ -10,6 +10,7 @@ import (
+ 	"crypto/internal/randutil"
+ 	"crypto/subtle"
+ 	"errors"
++	"internal/goexperiment"
+ 	"io"
+ 	"math/big"
+ )
+@@ -47,7 +48,9 @@ func EncryptPKCS1v15(random io.Reader, pub *PublicKey, msg []byte) ([]byte, erro
+ 		return nil, ErrMessageTooLong
+ 	}
+ 
+-	if boring.Enabled && random == boring.RandReader {
++	if boring.Enabled && random == boring.RandReader &&
++		(!goexperiment.CNGCrypto || len(msg) > 0) {
++
+ 		bkey, err := boringPublicKey(pub)
+ 		if err != nil {
+ 			return nil, err
+@@ -94,7 +97,9 @@ func DecryptPKCS1v15(random io.Reader, priv *PrivateKey, ciphertext []byte) ([]b
+ 		return nil, err
+ 	}
+ 
+-	if boring.Enabled {
++	if boring.Enabled &&
++		(!goexperiment.CNGCrypto || len(priv.Primes) == 2) {
++
+ 		bkey, err := boringPrivateKey(priv)
+ 		if err != nil {
+ 			return nil, err
+@@ -173,7 +178,9 @@ func decryptPKCS1v15(random io.Reader, priv *PrivateKey, ciphertext []byte) (val
+ 		return
+ 	}
+ 
+-	if boring.Enabled {
++	if boring.Enabled &&
++		(!goexperiment.CNGCrypto || len(priv.Primes) == 2) {
++
+ 		var bkey *boring.PrivateKeyRSA
+ 		bkey, err = boringPrivateKey(priv)
+ 		if err != nil {
+@@ -285,7 +292,9 @@ func SignPKCS1v15(random io.Reader, priv *PrivateKey, hash crypto.Hash, hashed [
+ 		return nil, ErrMessageTooLong
+ 	}
+ 
+-	if boring.Enabled {
++	if boring.Enabled &&
++		(!goexperiment.CNGCrypto || (len(priv.Primes) == 2 && hash != crypto.MD5SHA1)) {
++
+ 		bkey, err := boringPrivateKey(priv)
+ 		if err != nil {
+ 			return nil, err
+@@ -317,7 +326,9 @@ func SignPKCS1v15(random io.Reader, priv *PrivateKey, hash crypto.Hash, hashed [
+ // returning a nil error. If hash is zero then hashed is used directly. This
+ // isn't advisable except for interoperability.
+ func VerifyPKCS1v15(pub *PublicKey, hash crypto.Hash, hashed []byte, sig []byte) error {
+-	if boring.Enabled {
++	if boring.Enabled &&
++		(!goexperiment.CNGCrypto || hash != crypto.MD5SHA1) {
++
+ 		bkey, err := boringPublicKey(pub)
+ 		if err != nil {
+ 			return err
+diff --git a/src/crypto/rsa/pss.go b/src/crypto/rsa/pss.go
+index 372248f04697c1..b13609a4c96147 100644
+--- a/src/crypto/rsa/pss.go
++++ b/src/crypto/rsa/pss.go
+@@ -12,6 +12,7 @@ import (
+ 	boring "crypto/internal/backend"
+ 	"errors"
+ 	"hash"
++	"internal/goexperiment"
+ 	"io"
+ 	"math/big"
+ )
+@@ -215,7 +216,9 @@ func signPSSWithSalt(rand io.Reader, priv *PrivateKey, hash crypto.Hash, hashed,
+ 		return nil, err
+ 	}
+ 
+-	if boring.Enabled {
++	if boring.Enabled &&
++		(!goexperiment.CNGCrypto || len(priv.Primes) == 2) {
++
+ 		bkey, err := boringPrivateKey(priv)
+ 		if err != nil {
+ 			return nil, err
+@@ -290,7 +293,9 @@ func SignPSS(rand io.Reader, priv *PrivateKey, hash crypto.Hash, digest []byte,
+ 		saltLength = hash.Size()
+ 	}
+ 
+-	if boring.Enabled && rand == boring.RandReader {
++	if boring.Enabled && rand == boring.RandReader &&
++		(!goexperiment.CNGCrypto || (len(priv.Primes) == 2 && hash != crypto.MD5SHA1)) {
++
+ 		bkey, err := boringPrivateKey(priv)
+ 		if err != nil {
+ 			return nil, err
+@@ -313,7 +318,9 @@ func SignPSS(rand io.Reader, priv *PrivateKey, hash crypto.Hash, digest []byte,
+ // argument may be nil, in which case sensible defaults are used. opts.Hash is
+ // ignored.
+ func VerifyPSS(pub *PublicKey, hash crypto.Hash, digest []byte, sig []byte, opts *PSSOptions) error {
+-	if boring.Enabled {
++	if boring.Enabled &&
++		(!goexperiment.CNGCrypto || (opts.saltLength() != PSSSaltLengthAuto && hash != crypto.MD5SHA1)) {
++
+ 		bkey, err := boringPublicKey(pub)
+ 		if err != nil {
+ 			return err
+diff --git a/src/crypto/rsa/rsa.go b/src/crypto/rsa/rsa.go
+index 5ef07fdbe9ebb3..ae5f97f5a6e917 100644
+--- a/src/crypto/rsa/rsa.go
++++ b/src/crypto/rsa/rsa.go
+@@ -31,6 +31,7 @@ import (
+ 	"crypto/subtle"
+ 	"errors"
+ 	"hash"
++	"internal/goexperiment"
+ 	"io"
+ 	"math"
+ 	"math/big"
+@@ -453,7 +454,9 @@ func EncryptOAEP(hash hash.Hash, random io.Reader, pub *PublicKey, msg []byte, l
+ 		return nil, ErrMessageTooLong
+ 	}
+ 
+-	if boring.Enabled && random == boring.RandReader {
++	if boring.Enabled && random == boring.RandReader &&
++		(!goexperiment.CNGCrypto || len(msg) > 0) {
++
+ 		bkey, err := boringPublicKey(pub)
+ 		if err != nil {
+ 			return nil, err
+@@ -660,7 +663,9 @@ func DecryptOAEP(hash hash.Hash, random io.Reader, priv *PrivateKey, ciphertext
+ 		return nil, ErrDecryption
+ 	}
+ 
+-	if boring.Enabled {
++	if boring.Enabled &&
++		(!goexperiment.CNGCrypto || len(priv.Primes) == 2) {
++
+ 		bkey, err := boringPrivateKey(priv)
+ 		if err != nil {
+ 			return nil, err
+diff --git a/src/crypto/rsa/rsa_test.go b/src/crypto/rsa/rsa_test.go
+index f2602b94ab881b..1059353051997d 100644
+--- a/src/crypto/rsa/rsa_test.go
++++ b/src/crypto/rsa/rsa_test.go
+@@ -11,6 +11,7 @@ import (
+ 	"crypto/sha1"
+ 	"crypto/sha256"
+ 	"fmt"
++	"internal/goexperiment"
+ 	"math/big"
+ 	"testing"
+ )
+@@ -115,6 +116,9 @@ func testKeyBasics(t *testing.T, priv *PrivateKey) {
+ 	}
+ 
+ 	if boring.Enabled {
++		if goexperiment.CNGCrypto && priv.N.BitLen() < 512 {
++			t.Skip("CNGCrypto does not support key sizes lower than 512")
++		}
+ 		// Cannot call encrypt/decrypt directly. Test via PKCS1v15.
+ 		msg := []byte("hi!")
+ 		enc, err := EncryptPKCS1v15(rand.Reader, &priv.PublicKey, msg)
 diff --git a/src/crypto/sha1/boring.go b/src/crypto/sha1/boring.go
 index 4aa5d04e8f9a28..c97292531df357 100644
 --- a/src/crypto/sha1/boring.go
@@ -464,6 +788,152 @@ index 42ef87937faa34..9de147350c5f59 100644
  
  package sha1
  
+diff --git a/src/crypto/sha1/sha1_test.go b/src/crypto/sha1/sha1_test.go
+index bc169888786321..e0d6f4c5040d91 100644
+--- a/src/crypto/sha1/sha1_test.go
++++ b/src/crypto/sha1/sha1_test.go
+@@ -13,6 +13,7 @@ import (
+ 	"encoding"
+ 	"fmt"
+ 	"hash"
++	"internal/goexperiment"
+ 	"io"
+ 	"testing"
+ )
+@@ -96,6 +97,9 @@ func TestGolden(t *testing.T) {
+ }
+ 
+ func TestGoldenMarshal(t *testing.T) {
++	if goexperiment.CNGCrypto {
++		t.Skip("CNGCrypto does not support hash marshalling")
++	}
+ 	h := New()
+ 	h2 := New()
+ 	for _, g := range golden {
+@@ -197,6 +201,9 @@ func safeSum(h hash.Hash) (sum []byte, err error) {
+ }
+ 
+ func TestLargeHashes(t *testing.T) {
++	if goexperiment.CNGCrypto {
++		t.Skip("CNGCrypto does not support hash marshalling")
++	}
+ 	for i, test := range largeUnmarshalTests {
+ 
+ 		h := New()
+diff --git a/src/crypto/sha256/sha256.go b/src/crypto/sha256/sha256.go
+index e071a0fa2e62dd..c23e30f055f88f 100644
+--- a/src/crypto/sha256/sha256.go
++++ b/src/crypto/sha256/sha256.go
+@@ -12,6 +12,7 @@ import (
+ 	"encoding/binary"
+ 	"errors"
+ 	"hash"
++	"internal/goexperiment"
+ )
+ 
+ func init() {
+@@ -170,7 +171,7 @@ func New() hash.Hash {
+ 
+ // New224 returns a new hash.Hash computing the SHA224 checksum.
+ func New224() hash.Hash {
+-	if boring.Enabled {
++	if boring.Enabled && !goexperiment.CNGCrypto {
+ 		return boring.NewSHA224()
+ 	}
+ 	d := new(digest)
+@@ -272,7 +273,7 @@ func Sum256(data []byte) [Size]byte {
+ 
+ // Sum224 returns the SHA224 checksum of the data.
+ func Sum224(data []byte) [Size224]byte {
+-	if boring.Enabled {
++	if boring.Enabled && !goexperiment.CNGCrypto {
+ 		return boring.SHA224(data)
+ 	}
+ 	var d digest
+diff --git a/src/crypto/sha256/sha256_test.go b/src/crypto/sha256/sha256_test.go
+index 7437655badee23..95c8688904c088 100644
+--- a/src/crypto/sha256/sha256_test.go
++++ b/src/crypto/sha256/sha256_test.go
+@@ -13,6 +13,7 @@ import (
+ 	"encoding"
+ 	"fmt"
+ 	"hash"
++	"internal/goexperiment"
+ 	"io"
+ 	"testing"
+ )
+@@ -139,6 +140,9 @@ func TestGolden(t *testing.T) {
+ }
+ 
+ func TestGoldenMarshal(t *testing.T) {
++	if goexperiment.CNGCrypto {
++		t.Skip("CNGCrypto does not support hash marshalling")
++	}
+ 	tests := []struct {
+ 		name    string
+ 		newHash func() hash.Hash
+@@ -184,6 +188,9 @@ func TestGoldenMarshal(t *testing.T) {
+ }
+ 
+ func TestMarshalTypeMismatch(t *testing.T) {
++	if goexperiment.CNGCrypto {
++		t.Skip("CNGCrypto does not support hash marshalling")
++	}
+ 	h1 := New()
+ 	h2 := New224()
+ 
+@@ -273,6 +280,9 @@ func safeSum(h hash.Hash) (sum []byte, err error) {
+ 	return h.Sum(nil), nil
+ }
+ func TestLargeHashes(t *testing.T) {
++	if goexperiment.CNGCrypto {
++		t.Skip("CNGCrypto does not support hash marshalling")
++	}
+ 	for i, test := range largeUnmarshalTests {
+ 
+ 		h := New()
+diff --git a/src/crypto/sha512/sha512_test.go b/src/crypto/sha512/sha512_test.go
+index 2fef7ddae07480..979e4c69ab710c 100644
+--- a/src/crypto/sha512/sha512_test.go
++++ b/src/crypto/sha512/sha512_test.go
+@@ -14,6 +14,7 @@ import (
+ 	"encoding/hex"
+ 	"fmt"
+ 	"hash"
++	"internal/goexperiment"
+ 	"io"
+ 	"testing"
+ )
+@@ -719,6 +720,9 @@ func TestGolden(t *testing.T) {
+ }
+ 
+ func TestGoldenMarshal(t *testing.T) {
++	if goexperiment.CNGCrypto {
++		t.Skip("CNGCrypto does not support hash marshalling")
++	}
+ 	tests := []struct {
+ 		name    string
+ 		newHash func() hash.Hash
+@@ -766,6 +770,9 @@ func TestGoldenMarshal(t *testing.T) {
+ }
+ 
+ func TestMarshalMismatch(t *testing.T) {
++	if goexperiment.CNGCrypto {
++		t.Skip("CNGCrypto does not support hash marshaling")
++	}
+ 	h := []func() hash.Hash{
+ 		New,
+ 		New384,
+@@ -872,6 +879,9 @@ func safeSum(h hash.Hash) (sum []byte, err error) {
+ }
+ 
+ func TestLargeHashes(t *testing.T) {
++	if goexperiment.CNGCrypto {
++		t.Skip("CNGCrypto does not support hash marshalling")
++	}
+ 	for i, test := range largeUnmarshalTests {
+ 
+ 		h := New()
 diff --git a/src/crypto/tls/boring.go b/src/crypto/tls/boring.go
 index 70baa62d63754a..ecd0f5a7b3e9ed 100644
 --- a/src/crypto/tls/boring.go
@@ -516,6 +986,34 @@ index 9c1d3d279c472f..0ca7a863b73690 100644
  
  package fipsonly
  
+diff --git a/src/crypto/tls/handshake_server_tls13.go b/src/crypto/tls/handshake_server_tls13.go
+index 03a477f7bed54b..8a925899d00d28 100644
+--- a/src/crypto/tls/handshake_server_tls13.go
++++ b/src/crypto/tls/handshake_server_tls13.go
+@@ -13,6 +13,7 @@ import (
+ 	"encoding/binary"
+ 	"errors"
+ 	"hash"
++	"internal/goexperiment"
+ 	"io"
+ 	"sync/atomic"
+ 	"time"
+@@ -334,6 +335,15 @@ func cloneHash(in hash.Hash, h crypto.Hash) hash.Hash {
+ 	}
+ 	marshaler, ok := in.(binaryMarshaler)
+ 	if !ok {
++		if goexperiment.CNGCrypto {
++			// CNGCrypto hashes do not implement the binaryMarshaler interface,
++			// but do implement the Clone method.
++			if cloner, ok := in.(interface{ Clone() (hash.Hash, error) }); ok {
++				if out, err := cloner.Clone(); err == nil {
++					return out
++				}
++			}
++		}
+ 		return nil
+ 	}
+ 	state, err := marshaler.MarshalBinary()
 diff --git a/src/crypto/tls/notboring.go b/src/crypto/tls/notboring.go
 index 1aaabd5ef486aa..5a133c9b2f94c7 100644
 --- a/src/crypto/tls/notboring.go
@@ -620,6 +1118,41 @@ index 9b532b18023198..c6d0407ce5b199 100644
  	< github.com/microsoft/go-crypto-openssl/openssl/bbig
  	< crypto/internal/boring/bbig
  	< crypto/internal/backend/bbig
+diff --git a/src/hash/example_test.go b/src/hash/example_test.go
+index f07b9aaa2c4898..2ff6c4827391c0 100644
+--- a/src/hash/example_test.go
++++ b/src/hash/example_test.go
+@@ -2,6 +2,8 @@
+ // Use of this source code is governed by a BSD-style
+ // license that can be found in the LICENSE file.
+ 
++//go:build !goexperiment.cngcrypto
++
+ package hash_test
+ 
+ import (
+diff --git a/src/hash/marshal_test.go b/src/hash/marshal_test.go
+index 3091f7a67acede..824be4a90fd4db 100644
+--- a/src/hash/marshal_test.go
++++ b/src/hash/marshal_test.go
+@@ -21,6 +21,7 @@ import (
+ 	"hash/crc32"
+ 	"hash/crc64"
+ 	"hash/fnv"
++	"internal/goexperiment"
+ 	"testing"
+ )
+ 
+@@ -76,6 +77,9 @@ func TestMarshalHash(t *testing.T) {
+ 			}
+ 			h2m, ok := h2.(encoding.BinaryMarshaler)
+ 			if !ok {
++				if goexperiment.CNGCrypto {
++					t.Skip("CNGCrypto does not hash marshaling")
++				}
+ 				t.Fatalf("Hash does not implement MarshalBinary")
+ 			}
+ 			enc, err := h2m.MarshalBinary()
 diff --git a/src/internal/goexperiment/exp_cngcrypto_off.go b/src/internal/goexperiment/exp_cngcrypto_off.go
 new file mode 100644
 index 00000000000000..831460053281e2
