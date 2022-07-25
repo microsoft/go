@@ -8,6 +8,8 @@ The microsoft/go implementation of Guardian execution is based on [dotnet/arcade
 
 # Running Guardian locally on Windows
 
+Microsoft internal auth is necessary to download the SDL tools.
+
 1. Create a temporary folder, e.g. `C:\temp\sdl`.
 1. Go to
     https://dev.azure.com/SecurityTools/SecurityIntegration/_packaging?_a=package&feed=Guardian&package=Microsoft.Guardian.Cli&protocolType=NuGet
@@ -27,4 +29,4 @@ The microsoft/go implementation of Guardian execution is based on [dotnet/arcade
         -WorkingDirectory C:\temp\sdl
     ```
 
-Some steps (such as PoliCheck) may refuse to run locally due to lack of authentication. Those must be run in the internal rolling (official) build job. Running Guardian locally only confirms some basic functionality.
+Some steps (such as PoliCheck) may refuse to run locally due to lack of authentication, even if you have Microsoft internal auth. Those must be run in the internal rolling (official) build job. Running Guardian locally only confirms some basic functionality.
