@@ -1,12 +1,12 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: qmuntal <qmuntaldiaz@microsoft.com>
 Date: Thu, 30 Jun 2022 10:06:19 +0200
-Subject: [PATCH] Add OpenSSL crypto module
+Subject: [PATCH] Add OpenSSL crypto backend
 
 ---
  src/cmd/api/goapi_boring_test.go              |   2 +-
  src/cmd/go/go_boring_test.go                  |   2 +-
- .../go/testdata/script/gopath_std_vendor.txt  |   9 ++
+ .../go/testdata/script/gopath_std_vendor.txt  |   9 +
  src/cmd/link/internal/ld/lib.go               |   1 +
  src/crypto/boring/boring.go                   |   2 +-
  src/crypto/ecdsa/boring.go                    |   2 +-
@@ -15,13 +15,12 @@ Subject: [PATCH] Add OpenSSL crypto module
  src/crypto/internal/backend/bbig/big.go       |   2 +-
  .../internal/backend/bbig/big_openssl.go      |  12 ++
  src/crypto/internal/backend/nobackend.go      |   2 +-
- src/crypto/internal/backend/openssl_linux.go  | 119 ++++++++++++++++++
+ src/crypto/internal/backend/openssl_linux.go  | 184 ++++++++++++++++++
  src/crypto/internal/boring/fipstls/stub.s     |   2 +-
  src/crypto/internal/boring/fipstls/tls.go     |   2 +-
  src/crypto/rsa/boring.go                      |   2 +-
  src/crypto/rsa/boring_test.go                 |   2 +-
  src/crypto/rsa/notboring.go                   |   2 +-
- src/crypto/sha1/boring.go                     |   2 +-
  src/crypto/tls/boring.go                      |   2 +-
  src/crypto/tls/boring_test.go                 |   2 +-
  src/crypto/tls/fipsonly/fipsonly.go           |   2 +-
@@ -33,10 +32,10 @@ Subject: [PATCH] Add OpenSSL crypto module
  src/go.mod                                    |   1 +
  src/go.sum                                    |   2 +
  src/go/build/deps_test.go                     |   7 +-
- .../goexperiment/exp_opensslcrypto_off.go     |   9 ++
- .../goexperiment/exp_opensslcrypto_on.go      |   9 ++
+ .../goexperiment/exp_opensslcrypto_off.go     |   9 +
+ .../goexperiment/exp_opensslcrypto_on.go      |   9 +
  src/internal/goexperiment/flags.go            |   1 +
- 32 files changed, 195 insertions(+), 23 deletions(-)
+ 31 files changed, 259 insertions(+), 22 deletions(-)
  create mode 100644 src/crypto/internal/backend/bbig/big_openssl.go
  create mode 100644 src/crypto/internal/backend/openssl_linux.go
  create mode 100644 src/internal/goexperiment/exp_opensslcrypto_off.go
@@ -88,7 +87,7 @@ index a0a41a50de328d..509884b6ed1afd 100644
  
  go list -f '{{.Dir}}' vendor/golang.org/x/net/http2/hpack
 diff --git a/src/cmd/link/internal/ld/lib.go b/src/cmd/link/internal/ld/lib.go
-index 565ff9d6349b83..82fa27268cd138 100644
+index 18910ddb850856..27d8bec4b575dc 100644
 --- a/src/cmd/link/internal/ld/lib.go
 +++ b/src/cmd/link/internal/ld/lib.go
 @@ -1073,6 +1073,7 @@ var hostobj []Hostobj
@@ -208,10 +207,10 @@ index 45d9702eb455c6..91d663a5613549 100644
  
 diff --git a/src/crypto/internal/backend/openssl_linux.go b/src/crypto/internal/backend/openssl_linux.go
 new file mode 100644
-index 00000000000000..1e6d2aa2cb7d1b
+index 00000000000000..7a5a248fed7a81
 --- /dev/null
 +++ b/src/crypto/internal/backend/openssl_linux.go
-@@ -0,0 +1,119 @@
+@@ -0,0 +1,184 @@
 +// Copyright 2017 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -224,38 +223,51 @@ index 00000000000000..1e6d2aa2cb7d1b
 +package backend
 +
 +import (
++	"crypto"
++	"crypto/cipher"
 +	"crypto/internal/boring/sig"
++	"hash"
 +	"syscall"
 +
 +	"github.com/microsoft/go-crypto-openssl/openssl"
 +)
 +
 +// Enabled controls whether FIPS crypto is enabled.
-+var Enabled = false
++const Enabled = true
 +
 +func init() {
-+	if !needFIPS() {
-+		return
-+	}
 +	err := openssl.Init()
 +	if err != nil {
-+		panic(err)
++		panic("opensslcrypto: can't initialize OpenSSL: " + err.Error())
 +	}
-+
-+	if !openssl.FIPS() {
-+		if err = openssl.SetFIPS(true); err != nil {
-+			panic(err)
++	// 0: FIPS opt-out: abort the process if it is enabled and can't be disabled.
++	// 1: FIPS required: abort the process if it is not enabled and can't be enabled.
++	// other values: do not override OpenSSL configured FIPS mode.
++	var fips string
++	if v, ok := envGoFIPS(); ok {
++		fips = v
++	} else if systemFIPSMode() {
++		// System configuration can only force FIPS mode.
++		fips = "1"
++	}
++	switch fips {
++	case "0":
++		if openssl.FIPS() {
++			if err = openssl.SetFIPS(false); err != nil {
++				panic("opensslcrypto: can't disable FIPS mode: " + err.Error())
++			}
++		}
++	case "1":
++		if !openssl.FIPS() {
++			if err = openssl.SetFIPS(true); err != nil {
++				panic("opensslcrypto: can't enable FIPS mode: " + err.Error())
++			}
 +		}
 +	}
-+
-+	Enabled = true
 +	sig.BoringCrypto()
 +}
 +
-+func needFIPS() bool {
-+	if v, ok := envGoFIPS(); ok {
-+		return v != "0"
-+	}
++func systemFIPSMode() bool {
 +	var fd int
 +	for {
 +		var err error
@@ -289,48 +301,100 @@ index 00000000000000..1e6d2aa2cb7d1b
 +
 +const RandReader = openssl.RandReader
 +
-+var NewSHA1 = openssl.NewSHA1
-+var NewSHA224 = openssl.NewSHA224
-+var NewSHA256 = openssl.NewSHA256
-+var NewSHA384 = openssl.NewSHA384
-+var NewSHA512 = openssl.NewSHA512
++func NewSHA1() hash.Hash   { return openssl.NewSHA1() }
++func NewSHA224() hash.Hash { return openssl.NewSHA224() }
++func NewSHA256() hash.Hash { return openssl.NewSHA256() }
++func NewSHA384() hash.Hash { return openssl.NewSHA384() }
++func NewSHA512() hash.Hash { return openssl.NewSHA512() }
 +
-+var SHA1 = openssl.SHA1
-+var SHA224 = openssl.SHA224
-+var SHA256 = openssl.SHA256
-+var SHA384 = openssl.SHA384
-+var SHA512 = openssl.SHA512
++func SHA1(p []byte) (sum [20]byte)   { return openssl.SHA1(p) }
++func SHA224(p []byte) (sum [28]byte) { return openssl.SHA224(p) }
++func SHA256(p []byte) (sum [32]byte) { return openssl.SHA256(p) }
++func SHA384(p []byte) (sum [48]byte) { return openssl.SHA384(p) }
++func SHA512(p []byte) (sum [64]byte) { return openssl.SHA512(p) }
 +
-+var NewHMAC = openssl.NewHMAC
++func NewHMAC(h func() hash.Hash, key []byte) hash.Hash { return openssl.NewHMAC(h, key) }
 +
-+var NewAESCipher = openssl.NewAESCipher
-+var NewGCMTLS = openssl.NewGCMTLS
++func NewAESCipher(key []byte) (cipher.Block, error) { return openssl.NewAESCipher(key) }
++func NewGCMTLS(c cipher.Block) (cipher.AEAD, error) { return openssl.NewGCMTLS(c) }
 +
 +type PublicKeyECDSA = openssl.PublicKeyECDSA
 +type PrivateKeyECDSA = openssl.PrivateKeyECDSA
 +
-+var GenerateKeyECDSA = openssl.GenerateKeyECDSA
-+var NewPrivateKeyECDSA = openssl.NewPrivateKeyECDSA
-+var NewPublicKeyECDSA = openssl.NewPublicKeyECDSA
-+var SignMarshalECDSA = openssl.SignMarshalECDSA
-+var VerifyECDSA = openssl.VerifyECDSA
++func GenerateKeyECDSA(curve string) (X, Y, D openssl.BigInt, err error) {
++	return openssl.GenerateKeyECDSA(curve)
++}
++
++func NewPrivateKeyECDSA(curve string, X, Y, D openssl.BigInt) (*openssl.PrivateKeyECDSA, error) {
++	return openssl.NewPrivateKeyECDSA(curve, X, Y, D)
++}
++
++func NewPublicKeyECDSA(curve string, X, Y openssl.BigInt) (*openssl.PublicKeyECDSA, error) {
++	return openssl.NewPublicKeyECDSA(curve, X, Y)
++}
++
++func SignMarshalECDSA(priv *openssl.PrivateKeyECDSA, hash []byte) ([]byte, error) {
++	return openssl.SignMarshalECDSA(priv, hash)
++}
++
++func VerifyECDSA(pub *openssl.PublicKeyECDSA, hash []byte, sig []byte) bool {
++	return openssl.VerifyECDSA(pub, hash, sig)
++}
 +
 +type PublicKeyRSA = openssl.PublicKeyRSA
 +type PrivateKeyRSA = openssl.PrivateKeyRSA
 +
-+var DecryptRSAOAEP = openssl.DecryptRSAOAEP
-+var DecryptRSAPKCS1 = openssl.DecryptRSAPKCS1
-+var DecryptRSANoPadding = openssl.DecryptRSANoPadding
-+var EncryptRSAOAEP = openssl.EncryptRSAOAEP
-+var EncryptRSAPKCS1 = openssl.EncryptRSAPKCS1
-+var EncryptRSANoPadding = openssl.EncryptRSANoPadding
-+var GenerateKeyRSA = openssl.GenerateKeyRSA
-+var NewPrivateKeyRSA = openssl.NewPrivateKeyRSA
-+var NewPublicKeyRSA = openssl.NewPublicKeyRSA
-+var SignRSAPKCS1v15 = openssl.SignRSAPKCS1v15
-+var SignRSAPSS = openssl.SignRSAPSS
-+var VerifyRSAPKCS1v15 = openssl.VerifyRSAPKCS1v15
-+var VerifyRSAPSS = openssl.VerifyRSAPSS
++func DecryptRSAOAEP(h hash.Hash, priv *openssl.PrivateKeyRSA, ciphertext, label []byte) ([]byte, error) {
++	return openssl.DecryptRSAOAEP(h, priv, ciphertext, label)
++}
++
++func DecryptRSAPKCS1(priv *openssl.PrivateKeyRSA, ciphertext []byte) ([]byte, error) {
++	return openssl.DecryptRSAPKCS1(priv, ciphertext)
++}
++
++func DecryptRSANoPadding(priv *openssl.PrivateKeyRSA, ciphertext []byte) ([]byte, error) {
++	return openssl.DecryptRSANoPadding(priv, ciphertext)
++}
++
++func EncryptRSAOAEP(h hash.Hash, pub *openssl.PublicKeyRSA, msg, label []byte) ([]byte, error) {
++	return openssl.EncryptRSAOAEP(h, pub, msg, label)
++}
++
++func EncryptRSAPKCS1(pub *openssl.PublicKeyRSA, msg []byte) ([]byte, error) {
++	return openssl.EncryptRSAPKCS1(pub, msg)
++}
++
++func EncryptRSANoPadding(pub *openssl.PublicKeyRSA, msg []byte) ([]byte, error) {
++	return openssl.EncryptRSANoPadding(pub, msg)
++}
++
++func GenerateKeyRSA(bits int) (N, E, D, P, Q, Dp, Dq, Qinv openssl.BigInt, err error) {
++	return openssl.GenerateKeyRSA(bits)
++}
++
++func NewPrivateKeyRSA(N, E, D, P, Q, Dp, Dq, Qinv openssl.BigInt) (*openssl.PrivateKeyRSA, error) {
++	return openssl.NewPrivateKeyRSA(N, E, D, P, Q, Dp, Dq, Qinv)
++}
++
++func NewPublicKeyRSA(N, E openssl.BigInt) (*openssl.PublicKeyRSA, error) {
++	return openssl.NewPublicKeyRSA(N, E)
++}
++
++func SignRSAPKCS1v15(priv *openssl.PrivateKeyRSA, h crypto.Hash, hashed []byte) ([]byte, error) {
++	return openssl.SignRSAPKCS1v15(priv, h, hashed)
++}
++
++func SignRSAPSS(priv *openssl.PrivateKeyRSA, h crypto.Hash, hashed []byte, saltLen int) ([]byte, error) {
++	return openssl.SignRSAPSS(priv, h, hashed, saltLen)
++}
++
++func VerifyRSAPKCS1v15(pub *openssl.PublicKeyRSA, h crypto.Hash, hashed, sig []byte) error {
++	return openssl.VerifyRSAPKCS1v15(pub, h, hashed, sig)
++}
++
++func VerifyRSAPSS(pub *openssl.PublicKeyRSA, h crypto.Hash, hashed, sig []byte, saltLen int) error {
++	return openssl.VerifyRSAPSS(pub, h, hashed, sig, saltLen)
++}
 diff --git a/src/crypto/internal/boring/fipstls/stub.s b/src/crypto/internal/boring/fipstls/stub.s
 index f2e5a503eaacb6..1dc7116efdff2e 100644
 --- a/src/crypto/internal/boring/fipstls/stub.s
@@ -395,19 +459,6 @@ index 34c22c8fbba7da..933ac569e034a8 100644
 +//go:build !boringcrypto && !goexperiment.opensslcrypto
  
  package rsa
- 
-diff --git a/src/crypto/sha1/boring.go b/src/crypto/sha1/boring.go
-index e82a21c44a57c8..4aa5d04e8f9a28 100644
---- a/src/crypto/sha1/boring.go
-+++ b/src/crypto/sha1/boring.go
-@@ -16,7 +16,7 @@ import (
- 	"hash"
- )
- 
--const boringEnabled = boring.Enabled
-+var boringEnabled = boring.Enabled
- 
- func boringNewSHA1() hash.Hash { return boring.NewSHA1() }
  
 diff --git a/src/crypto/tls/boring.go b/src/crypto/tls/boring.go
 index 1827f764589b58..70baa62d63754a 100644
