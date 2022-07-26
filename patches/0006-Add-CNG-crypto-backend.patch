@@ -22,9 +22,9 @@ Subject: [PATCH] Add CNG crypto backend
  src/crypto/rsa/boring.go                      |   2 +-
  src/crypto/rsa/boring_test.go                 |   2 +-
  src/crypto/rsa/notboring.go                   |   2 +-
- src/crypto/rsa/pkcs1v15.go                    |  21 ++-
+ src/crypto/rsa/pkcs1v15.go                    |  16 +-
  src/crypto/rsa/pss.go                         |  12 +-
- src/crypto/rsa/rsa.go                         |   9 +-
+ src/crypto/rsa/rsa.go                         |   4 +-
  src/crypto/rsa/rsa_test.go                    |   4 +
  src/crypto/sha1/boring.go                     |   5 +-
  src/crypto/sha1/notboring.go                  |   4 +-
@@ -49,7 +49,7 @@ Subject: [PATCH] Add CNG crypto backend
  .../goexperiment/exp_cngcrypto_off.go         |   9 +
  src/internal/goexperiment/exp_cngcrypto_on.go |   9 +
  src/internal/goexperiment/flags.go            |   1 +
- 45 files changed, 409 insertions(+), 46 deletions(-)
+ 45 files changed, 401 insertions(+), 44 deletions(-)
  create mode 100644 src/crypto/internal/backend/bbig/big_cng.go
  create mode 100644 src/crypto/internal/backend/cng_windows.go
  create mode 100644 src/internal/goexperiment/exp_cngcrypto_off.go
@@ -628,29 +628,10 @@ index 933ac569e034a8..0f152b210fdd84 100644
  package rsa
  
 diff --git a/src/crypto/rsa/pkcs1v15.go b/src/crypto/rsa/pkcs1v15.go
-index 99b3dba5df63b2..96011369785633 100644
+index 99b3dba5df63b2..46994344bb50d8 100644
 --- a/src/crypto/rsa/pkcs1v15.go
 +++ b/src/crypto/rsa/pkcs1v15.go
-@@ -10,6 +10,7 @@ import (
- 	"crypto/internal/randutil"
- 	"crypto/subtle"
- 	"errors"
-+	"internal/goexperiment"
- 	"io"
- 	"math/big"
- )
-@@ -47,7 +48,9 @@ func EncryptPKCS1v15(random io.Reader, pub *PublicKey, msg []byte) ([]byte, erro
- 		return nil, ErrMessageTooLong
- 	}
- 
--	if boring.Enabled && random == boring.RandReader {
-+	if boring.Enabled && random == boring.RandReader &&
-+		(!goexperiment.CNGCrypto || len(msg) > 0) {
-+
- 		bkey, err := boringPublicKey(pub)
- 		if err != nil {
- 			return nil, err
-@@ -94,7 +97,9 @@ func DecryptPKCS1v15(random io.Reader, priv *PrivateKey, ciphertext []byte) ([]b
+@@ -94,7 +94,9 @@ func DecryptPKCS1v15(random io.Reader, priv *PrivateKey, ciphertext []byte) ([]b
  		return nil, err
  	}
  
@@ -661,7 +642,7 @@ index 99b3dba5df63b2..96011369785633 100644
  		bkey, err := boringPrivateKey(priv)
  		if err != nil {
  			return nil, err
-@@ -173,7 +178,9 @@ func decryptPKCS1v15(random io.Reader, priv *PrivateKey, ciphertext []byte) (val
+@@ -173,7 +175,9 @@ func decryptPKCS1v15(random io.Reader, priv *PrivateKey, ciphertext []byte) (val
  		return
  	}
  
@@ -672,7 +653,7 @@ index 99b3dba5df63b2..96011369785633 100644
  		var bkey *boring.PrivateKeyRSA
  		bkey, err = boringPrivateKey(priv)
  		if err != nil {
-@@ -285,7 +292,9 @@ func SignPKCS1v15(random io.Reader, priv *PrivateKey, hash crypto.Hash, hashed [
+@@ -285,7 +289,9 @@ func SignPKCS1v15(random io.Reader, priv *PrivateKey, hash crypto.Hash, hashed [
  		return nil, ErrMessageTooLong
  	}
  
@@ -683,7 +664,7 @@ index 99b3dba5df63b2..96011369785633 100644
  		bkey, err := boringPrivateKey(priv)
  		if err != nil {
  			return nil, err
-@@ -317,7 +326,9 @@ func SignPKCS1v15(random io.Reader, priv *PrivateKey, hash crypto.Hash, hashed [
+@@ -317,7 +323,9 @@ func SignPKCS1v15(random io.Reader, priv *PrivateKey, hash crypto.Hash, hashed [
  // returning a nil error. If hash is zero then hashed is used directly. This
  // isn't advisable except for interoperability.
  func VerifyPKCS1v15(pub *PublicKey, hash crypto.Hash, hashed []byte, sig []byte) error {
@@ -732,29 +713,10 @@ index 372248f04697c1..8f7ddbd428e336 100644
  		if err != nil {
  			return err
 diff --git a/src/crypto/rsa/rsa.go b/src/crypto/rsa/rsa.go
-index 5ef07fdbe9ebb3..25688cdd2d4a6a 100644
+index 5ef07fdbe9ebb3..753b7474200654 100644
 --- a/src/crypto/rsa/rsa.go
 +++ b/src/crypto/rsa/rsa.go
-@@ -31,6 +31,7 @@ import (
- 	"crypto/subtle"
- 	"errors"
- 	"hash"
-+	"internal/goexperiment"
- 	"io"
- 	"math"
- 	"math/big"
-@@ -453,7 +454,9 @@ func EncryptOAEP(hash hash.Hash, random io.Reader, pub *PublicKey, msg []byte, l
- 		return nil, ErrMessageTooLong
- 	}
- 
--	if boring.Enabled && random == boring.RandReader {
-+	if boring.Enabled && random == boring.RandReader &&
-+		(!goexperiment.CNGCrypto || len(msg) > 0) {
-+
- 		bkey, err := boringPublicKey(pub)
- 		if err != nil {
- 			return nil, err
-@@ -660,7 +663,9 @@ func DecryptOAEP(hash hash.Hash, random io.Reader, priv *PrivateKey, ciphertext
+@@ -660,7 +660,9 @@ func DecryptOAEP(hash hash.Hash, random io.Reader, priv *PrivateKey, ciphertext
  		return nil, ErrDecryption
  	}
  
@@ -1089,26 +1051,26 @@ index a0548a7f9179c5..ae6117a1554b7f 100644
  package x509
  
 diff --git a/src/go.mod b/src/go.mod
-index e81a456f1777f1..4c87ff61fede39 100644
+index e81a456f1777f1..76b531316fd64f 100644
 --- a/src/go.mod
 +++ b/src/go.mod
 @@ -4,6 +4,7 @@ go 1.19
  
  require (
  	github.com/microsoft/go-crypto-openssl v0.0.0-20220620233145-561693b272da
-+	github.com/microsoft/go-crypto-winnative v0.0.0-20220720213928-fb960ea5e37c
++	github.com/microsoft/go-crypto-winnative v0.0.0-20220726170635-fe29f52e5c2a
  	golang.org/x/crypto v0.0.0-20220516162934-403b01795ae8
  	golang.org/x/net v0.0.0-20220517181318-183a9ca12b87
  )
 diff --git a/src/go.sum b/src/go.sum
-index e66aa6b178645a..8a03630c2f3423 100644
+index e66aa6b178645a..007612dc88ac6f 100644
 --- a/src/go.sum
 +++ b/src/go.sum
 @@ -1,9 +1,12 @@
  github.com/microsoft/go-crypto-openssl v0.0.0-20220620233145-561693b272da h1:NyH0aMKbHqrs00Q01E/EI/clS/59gUK8slhMiApnQHE=
  github.com/microsoft/go-crypto-openssl v0.0.0-20220620233145-561693b272da/go.mod h1:rC+rtBU3m60UCQifBmpWII0VETfu78w6YGZQvVc0rd4=
-+github.com/microsoft/go-crypto-winnative v0.0.0-20220720213928-fb960ea5e37c h1:NM6imXfgt46/MMII/yE8ic2WuVN/02cl3HCs8OHnafo=
-+github.com/microsoft/go-crypto-winnative v0.0.0-20220720213928-fb960ea5e37c/go.mod h1:mKWmQEP0n/WamRi8zKYzN6gonQQ0jVY1CHpGAUPxj/k=
++github.com/microsoft/go-crypto-winnative v0.0.0-20220726170635-fe29f52e5c2a h1:ARzANUrMO8DCW1Zd9kuFnvBvsx1G652HOjxQULTPGLo=
++github.com/microsoft/go-crypto-winnative v0.0.0-20220726170635-fe29f52e5c2a/go.mod h1:mKWmQEP0n/WamRi8zKYzN6gonQQ0jVY1CHpGAUPxj/k=
  golang.org/x/crypto v0.0.0-20220516162934-403b01795ae8 h1:y+mHpWoQJNAHt26Nhh6JP7hvM71IRZureyvZhoVALIs=
  golang.org/x/crypto v0.0.0-20220516162934-403b01795ae8/go.mod h1:IxCIyHEi3zRg3s0A5j5BB6A9Jmi73HwBIUl50j+osU4=
  golang.org/x/net v0.0.0-20220517181318-183a9ca12b87 h1:cCR+9mKLOGyX4Zx+uBZDXEDAQsvKQ/XbW4vreG5v1jU=
