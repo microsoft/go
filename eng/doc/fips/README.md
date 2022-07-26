@@ -10,7 +10,7 @@ The Go `crypto` package is not FIPS certified, and the Go team has stated that i
 
 > The status of FIPS 140 for Go itself remains "no plans, basically zero chance".
 
-On the other hand, Google maintains a goexperiment flag boringcrypto that uses cgo and BoringSSL to implement various crypto primitives: https://pkg.go.dev/internal/goexperiment. As BoringSSL is FIPS 140-2 certified, an application built using this flag is more likely to be FIPS 140-2 compliant, yet Google does not provide any liability about the suitability of this code in relation to the FIPS 140-2 standard.
+On the other hand, Google maintains the [goexperiment](https://pkg.go.dev/internal/goexperiment) `boringcrypto`, that uses cgo and BoringSSL to implement various crypto primitives. As BoringSSL is FIPS 140-2 certified, an application built using this flag is more likely to be FIPS 140-2 compliant, yet Google does not provide any liability about the suitability of this code in relation to the FIPS 140-2 standard.
 
 In addition to that, the boringcrypto flag also provides a mechanism to restrict all TLS configuration to FIPS-approved settings. The effect is triggered by importing the fipsonly package anywhere in a program, as in:
 
@@ -32,7 +32,7 @@ It is important to note that an application built with Microsoft's Go toolchain 
 
 ### Go 1.18
 
-In Go 1.18 and earlier, the Microsoft Go FIPS-compatible builds are are maintained in the `microsoft/dev.boringcrypto*` branches. Only a Linux implementation using OpenSSL is supported for these versions.
+In Go 1.18 and earlier, the Microsoft Go FIPS-compatible builds are maintained in the `microsoft/dev.boringcrypto*` branches. Only a Linux implementation using OpenSSL is supported for these versions.
 
 1. Get a `1.18-fips` build of the Microsoft Go toolset. See [the microsoft/go readme](https://github.com/microsoft/go#binary-distribution) for options.
 1. Build your Go program using this Go toolset.
