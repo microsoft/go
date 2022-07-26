@@ -10,19 +10,19 @@ To reproduce, run 'go mod vendor' in 'go/src'.
  .../go-crypto-openssl/openssl/bbig/big.go     |  38 ++
  .../go-crypto-openssl/openssl/big.go          |  13 +
  .../go-crypto-openssl/openssl/ecdsa.go        | 185 ++++++
- .../go-crypto-openssl/openssl/evpkey.go       | 279 +++++++++
+ .../go-crypto-openssl/openssl/evpkey.go       | 300 +++++++++
  .../go-crypto-openssl/openssl/goopenssl.c     | 153 +++++
  .../go-crypto-openssl/openssl/goopenssl.h     | 141 +++++
  .../go-crypto-openssl/openssl/hmac.go         | 147 +++++
  .../openssl/internal/subtle/aliasing.go       |  32 +
  .../go-crypto-openssl/openssl/openssl.go      | 295 +++++++++
- .../go-crypto-openssl/openssl/openssl_funcs.h | 245 ++++++++
+ .../go-crypto-openssl/openssl/openssl_funcs.h | 248 ++++++++
  .../openssl/openssl_lock_setup.c              |  53 ++
  .../go-crypto-openssl/openssl/rand.go         |  24 +
  .../go-crypto-openssl/openssl/rsa.go          | 302 +++++++++
- .../go-crypto-openssl/openssl/sha.go          | 584 ++++++++++++++++++
+ .../go-crypto-openssl/openssl/sha.go          | 580 ++++++++++++++++++
  src/vendor/modules.txt                        |   5 +
- 17 files changed, 2989 insertions(+)
+ 17 files changed, 3009 insertions(+)
  create mode 100644 src/vendor/github.com/microsoft/go-crypto-openssl/LICENSE
  create mode 100644 src/vendor/github.com/microsoft/go-crypto-openssl/openssl/aes.go
  create mode 100644 src/vendor/github.com/microsoft/go-crypto-openssl/openssl/bbig/big.go
@@ -591,7 +591,7 @@ index 00000000000000..1214e1097ef56d
 +}
 diff --git a/src/vendor/github.com/microsoft/go-crypto-openssl/openssl/big.go b/src/vendor/github.com/microsoft/go-crypto-openssl/openssl/big.go
 new file mode 100644
-index 00000000000000..c6856c7bc25dc3
+index 00000000000000..7207bde01c9d94
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go-crypto-openssl/openssl/big.go
 @@ -0,0 +1,13 @@
@@ -801,10 +801,10 @@ index 00000000000000..e5a3e03a390135
 +}
 diff --git a/src/vendor/github.com/microsoft/go-crypto-openssl/openssl/evpkey.go b/src/vendor/github.com/microsoft/go-crypto-openssl/openssl/evpkey.go
 new file mode 100644
-index 00000000000000..03a652aef13931
+index 00000000000000..4db567a646b4b1
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go-crypto-openssl/openssl/evpkey.go
-@@ -0,0 +1,279 @@
+@@ -0,0 +1,300 @@
 +// Copyright (c) Microsoft Corporation.
 +// Licensed under the MIT License.
 +
@@ -902,9 +902,9 @@ index 00000000000000..03a652aef13931
 +}
 +
 +type withKeyFunc func(func(C.GO_EVP_PKEY_PTR) C.int) C.int
-+type initFunc func(C.GO_EVP_PKEY_CTX_PTR) C.int
-+type cryptFunc func(C.GO_EVP_PKEY_CTX_PTR, *C.uchar, *C.size_t, *C.uchar, C.size_t) C.int
-+type verifyFunc func(C.GO_EVP_PKEY_CTX_PTR, *C.uchar, C.size_t, *C.uchar, C.size_t) C.int
++type initFunc func(C.GO_EVP_PKEY_CTX_PTR) error
++type cryptFunc func(C.GO_EVP_PKEY_CTX_PTR, *C.uchar, *C.size_t, *C.uchar, C.size_t) error
++type verifyFunc func(C.GO_EVP_PKEY_CTX_PTR, *C.uchar, C.size_t, *C.uchar, C.size_t) error
 +
 +func setupEVP(withKey withKeyFunc, padding C.int,
 +	h hash.Hash, label []byte, saltLen int, ch crypto.Hash,
@@ -925,8 +925,8 @@ index 00000000000000..03a652aef13931
 +	if ctx == nil {
 +		return nil, newOpenSSLError("EVP_PKEY_CTX_new failed")
 +	}
-+	if init(ctx) != 1 {
-+		return nil, newOpenSSLError("EVP_PKEY_operation_init failed")
++	if err := init(ctx); err != nil {
++		return nil, err
 +	}
 +	if padding == 0 {
 +		return ctx, nil
@@ -1021,8 +1021,8 @@ index 00000000000000..03a652aef13931
 +	})
 +	outLen := C.size_t(pkeySize)
 +	out := make([]byte, pkeySize)
-+	if crypt(ctx, base(out), &outLen, base(in), C.size_t(len(in))) != 1 {
-+		return nil, newOpenSSLError("EVP_PKEY_decrypt/encrypt failed")
++	if err := crypt(ctx, base(out), &outLen, base(in), C.size_t(len(in))); err != nil {
++		return nil, err
 +	}
 +	// The size returned by EVP_PKEY_get_size() is only preliminary and not exact,
 +	// so the final contents of the out buffer may be smaller.
@@ -1039,48 +1039,69 @@ index 00000000000000..03a652aef13931
 +		return err
 +	}
 +	defer C.go_openssl_EVP_PKEY_CTX_free(ctx)
-+	if verify(ctx, base(sig), C.size_t(len(sig)), base(in), C.size_t(len(in))) != 1 {
-+		return newOpenSSLError("EVP_PKEY_decrypt/encrypt failed")
-+	}
-+	return nil
++	return verify(ctx, base(sig), C.size_t(len(sig)), base(in), C.size_t(len(in)))
 +}
 +
 +func evpEncrypt(withKey withKeyFunc, padding C.int, h hash.Hash, label, msg []byte) ([]byte, error) {
-+	encryptInit := func(ctx C.GO_EVP_PKEY_CTX_PTR) C.int {
-+		return C.go_openssl_EVP_PKEY_encrypt_init(ctx)
++	encryptInit := func(ctx C.GO_EVP_PKEY_CTX_PTR) error {
++		if ret := C.go_openssl_EVP_PKEY_encrypt_init(ctx); ret != 1 {
++			return newOpenSSLError("EVP_PKEY_encrypt_init failed")
++		}
++		return nil
 +	}
-+	encrypt := func(ctx C.GO_EVP_PKEY_CTX_PTR, out *C.uchar, outLen *C.size_t, in *C.uchar, inLen C.size_t) C.int {
-+		return C.go_openssl_EVP_PKEY_encrypt(ctx, out, outLen, in, inLen)
++	encrypt := func(ctx C.GO_EVP_PKEY_CTX_PTR, out *C.uchar, outLen *C.size_t, in *C.uchar, inLen C.size_t) error {
++		if ret := C.go_openssl_EVP_PKEY_encrypt(ctx, out, outLen, in, inLen); ret != 1 {
++			return newOpenSSLError("EVP_PKEY_encrypt failed")
++		}
++		return nil
 +	}
 +	return cryptEVP(withKey, padding, h, label, 0, 0, encryptInit, encrypt, msg)
 +}
 +
 +func evpDecrypt(withKey withKeyFunc, padding C.int, h hash.Hash, label, msg []byte) ([]byte, error) {
-+	decryptInit := func(ctx C.GO_EVP_PKEY_CTX_PTR) C.int {
-+		return C.go_openssl_EVP_PKEY_decrypt_init(ctx)
++	decryptInit := func(ctx C.GO_EVP_PKEY_CTX_PTR) error {
++		if ret := C.go_openssl_EVP_PKEY_decrypt_init(ctx); ret != 1 {
++			return newOpenSSLError("EVP_PKEY_decrypt_init failed")
++		}
++		return nil
 +	}
-+	decrypt := func(ctx C.GO_EVP_PKEY_CTX_PTR, out *C.uchar, outLen *C.size_t, in *C.uchar, inLen C.size_t) C.int {
-+		return C.go_openssl_EVP_PKEY_decrypt(ctx, out, outLen, in, inLen)
++	decrypt := func(ctx C.GO_EVP_PKEY_CTX_PTR, out *C.uchar, outLen *C.size_t, in *C.uchar, inLen C.size_t) error {
++		if ret := C.go_openssl_EVP_PKEY_decrypt(ctx, out, outLen, in, inLen); ret != 1 {
++			return newOpenSSLError("EVP_PKEY_decrypt failed")
++		}
++		return nil
 +	}
 +	return cryptEVP(withKey, padding, h, label, 0, 0, decryptInit, decrypt, msg)
 +}
 +
 +func evpSign(withKey withKeyFunc, padding C.int, saltLen int, h crypto.Hash, hashed []byte) ([]byte, error) {
-+	signtInit := func(ctx C.GO_EVP_PKEY_CTX_PTR) C.int {
-+		return C.go_openssl_EVP_PKEY_sign_init(ctx)
++	signtInit := func(ctx C.GO_EVP_PKEY_CTX_PTR) error {
++		if ret := C.go_openssl_EVP_PKEY_sign_init(ctx); ret != 1 {
++			return newOpenSSLError("EVP_PKEY_sign_init failed")
++		}
++		return nil
 +	}
-+	sign := func(ctx C.GO_EVP_PKEY_CTX_PTR, out *C.uchar, outLen *C.size_t, in *C.uchar, inLen C.size_t) C.int {
-+		return C.go_openssl_EVP_PKEY_sign(ctx, out, outLen, in, inLen)
++	sign := func(ctx C.GO_EVP_PKEY_CTX_PTR, out *C.uchar, outLen *C.size_t, in *C.uchar, inLen C.size_t) error {
++		if ret := C.go_openssl_EVP_PKEY_sign(ctx, out, outLen, in, inLen); ret != 1 {
++			return newOpenSSLError("EVP_PKEY_sign failed")
++		}
++		return nil
 +	}
 +	return cryptEVP(withKey, padding, nil, nil, saltLen, h, signtInit, sign, hashed)
 +}
 +
 +func evpVerify(withKey withKeyFunc, padding C.int, saltLen int, h crypto.Hash, sig, hashed []byte) error {
-+	verifyInit := func(ctx C.GO_EVP_PKEY_CTX_PTR) C.int {
-+		return C.go_openssl_EVP_PKEY_verify_init(ctx)
++	verifyInit := func(ctx C.GO_EVP_PKEY_CTX_PTR) error {
++		if ret := C.go_openssl_EVP_PKEY_verify_init(ctx); ret != 1 {
++			return newOpenSSLError("EVP_PKEY_verify_init failed")
++		}
++		return nil
 +	}
-+	verify := func(ctx C.GO_EVP_PKEY_CTX_PTR, out *C.uchar, outLen C.size_t, in *C.uchar, inLen C.size_t) C.int {
-+		return C.go_openssl_EVP_PKEY_verify(ctx, out, outLen, in, inLen)
++	verify := func(ctx C.GO_EVP_PKEY_CTX_PTR, out *C.uchar, outLen C.size_t, in *C.uchar, inLen C.size_t) error {
++		if ret := C.go_openssl_EVP_PKEY_verify(ctx, out, outLen, in, inLen); ret != 1 {
++			return newOpenSSLError("EVP_PKEY_verify failed")
++		}
++		return nil
 +	}
 +	return verifyEVP(withKey, padding, nil, nil, saltLen, h, verifyInit, verify, sig, hashed)
 +}
@@ -1885,10 +1906,10 @@ index 00000000000000..95f3e888bb4cc0
 +}
 diff --git a/src/vendor/github.com/microsoft/go-crypto-openssl/openssl/openssl_funcs.h b/src/vendor/github.com/microsoft/go-crypto-openssl/openssl/openssl_funcs.h
 new file mode 100644
-index 00000000000000..f52d86360f3a5b
+index 00000000000000..2072a0b8851bda
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go-crypto-openssl/openssl/openssl_funcs.h
-@@ -0,0 +1,245 @@
+@@ -0,0 +1,248 @@
 +// Copyright (c) Microsoft Corporation.
 +// Licensed under the MIT License.
 +
@@ -2035,12 +2056,15 @@ index 00000000000000..f52d86360f3a5b
 +DEFINEFUNC_3_0(int, EVP_set_default_properties, (GO_OSSL_LIB_CTX_PTR libctx, const char *propq), (libctx, propq)) \
 +DEFINEFUNC_3_0(GO_OSSL_PROVIDER_PTR, OSSL_PROVIDER_load, (GO_OSSL_LIB_CTX_PTR libctx, const char *name), (libctx, name)) \
 +DEFINEFUNC(int, RAND_bytes, (unsigned char* arg0, int arg1), (arg0, arg1)) \
++DEFINEFUNC(int, EVP_DigestInit, (GO_EVP_MD_CTX_PTR ctx, const GO_EVP_MD_PTR type), (ctx, type)) \
 +DEFINEFUNC(int, EVP_DigestInit_ex, (GO_EVP_MD_CTX_PTR ctx, const GO_EVP_MD_PTR type, GO_ENGINE_PTR impl), (ctx, type, impl)) \
 +DEFINEFUNC(int, EVP_DigestUpdate, (GO_EVP_MD_CTX_PTR ctx, const void *d, size_t cnt), (ctx, d, cnt)) \
 +DEFINEFUNC(int, EVP_DigestFinal_ex, (GO_EVP_MD_CTX_PTR ctx, unsigned char *md, unsigned int *s), (ctx, md, s)) \
++DEFINEFUNC(int, EVP_DigestFinal, (GO_EVP_MD_CTX_PTR ctx, unsigned char *md, unsigned int *s), (ctx, md, s)) \
 +DEFINEFUNC_RENAMED_1_1(GO_EVP_MD_CTX_PTR, EVP_MD_CTX_new, EVP_MD_CTX_create, (), ()) \
 +DEFINEFUNC_RENAMED_1_1(void, EVP_MD_CTX_free, EVP_MD_CTX_destroy, (GO_EVP_MD_CTX_PTR ctx), (ctx)) \
 +DEFINEFUNC(int, EVP_MD_CTX_copy_ex, (GO_EVP_MD_CTX_PTR out, const GO_EVP_MD_CTX_PTR in), (out, in)) \
++DEFINEFUNC(int, EVP_MD_CTX_copy, (GO_EVP_MD_CTX_PTR out, const GO_EVP_MD_CTX_PTR in), (out, in)) \
 +DEFINEFUNC_RENAMED_1_1(int, EVP_MD_CTX_reset, EVP_MD_CTX_cleanup, (GO_EVP_MD_CTX_PTR ctx), (ctx)) \
 +DEFINEFUNC(const GO_EVP_MD_PTR, EVP_md5, (void), ()) \
 +DEFINEFUNC(const GO_EVP_MD_PTR, EVP_sha1, (void), ()) \
@@ -2533,10 +2557,10 @@ index 00000000000000..3d4aa1440a1de6
 +}
 diff --git a/src/vendor/github.com/microsoft/go-crypto-openssl/openssl/sha.go b/src/vendor/github.com/microsoft/go-crypto-openssl/openssl/sha.go
 new file mode 100644
-index 00000000000000..c00e68de020e29
+index 00000000000000..bb96a9bcaee7d4
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go-crypto-openssl/openssl/sha.go
-@@ -0,0 +1,584 @@
+@@ -0,0 +1,580 @@
 +// Copyright (c) Microsoft Corporation.
 +// Licensed under the MIT License.
 +
@@ -2644,10 +2668,8 @@ index 00000000000000..c00e68de020e29
 +func (h *evpHash) Reset() {
 +	// There is no need to reset h.ctx2 because it is always reset after
 +	// use in evpHash.sum.
-+	C.go_openssl_EVP_MD_CTX_reset(h.ctx)
-+
-+	if C.go_openssl_EVP_DigestInit_ex(h.ctx, h.md, nil) != 1 {
-+		panic("openssl: EVP_DigestInit_ex failed")
++	if C.go_openssl_EVP_DigestInit(h.ctx, h.md) != 1 {
++		panic("openssl: EVP_DigestInit failed")
 +	}
 +	runtime.KeepAlive(h)
 +}
@@ -2673,14 +2695,12 @@ index 00000000000000..c00e68de020e29
 +	// that Sum has no effect on the underlying stream.
 +	// In particular it is OK to Sum, then Write more, then Sum again,
 +	// and the second Sum acts as if the first didn't happen.
-+	C.go_openssl_EVP_DigestInit_ex(h.ctx2, h.md, nil)
-+	if C.go_openssl_EVP_MD_CTX_copy_ex(h.ctx2, h.ctx) != 1 {
-+		panic("openssl: EVP_MD_CTX_copy_ex failed")
++	if C.go_openssl_EVP_MD_CTX_copy(h.ctx2, h.ctx) != 1 {
++		panic("openssl: EVP_MD_CTX_copy failed")
 +	}
-+	if C.go_openssl_EVP_DigestFinal_ex(h.ctx2, (*C.uchar)(noescape(unsafe.Pointer(base(out)))), nil) != 1 {
-+		panic("openssl: EVP_DigestFinal_ex failed")
++	if C.go_openssl_EVP_DigestFinal(h.ctx2, (*C.uchar)(noescape(unsafe.Pointer(base(out)))), nil) != 1 {
++		panic("openssl: EVP_DigestFinal failed")
 +	}
-+	C.go_openssl_EVP_MD_CTX_reset(h.ctx2)
 +	runtime.KeepAlive(h)
 +}
 +
@@ -3122,11 +3142,11 @@ index 00000000000000..c00e68de020e29
 +	return b[4:], x
 +}
 diff --git a/src/vendor/modules.txt b/src/vendor/modules.txt
-index dfb87abf137cca..aaf314ad08f070 100644
+index dfb87abf137cca..7c875b12cd3afb 100644
 --- a/src/vendor/modules.txt
 +++ b/src/vendor/modules.txt
 @@ -1,3 +1,8 @@
-+# github.com/microsoft/go-crypto-openssl v0.0.0-20220620233145-561693b272da
++# github.com/microsoft/go-crypto-openssl v0.0.0-20220726174527-136d210dacbd
 +## explicit; go 1.16
 +github.com/microsoft/go-crypto-openssl/openssl
 +github.com/microsoft/go-crypto-openssl/openssl/bbig
