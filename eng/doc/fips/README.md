@@ -59,15 +59,30 @@ In Go 1.19 onward, the FIPS-related changes are maintained in the `microsoft/rel
 
 ## Usage: Runtime
 
-To run your program in FIPS compatibility mode, and therefore use the OpenSSL or CNG crypto backend, use any of these options:
+A program built with Go 1.19+ and `opensslcrypto` always uses the OpenSSL library present on the system for crypto APIs. Likewise for `cngcrypto` and CNG. If the platform's crypto library can't be found or loaded, the Go program panics during initialization.
 
-- Explicitly setting the environment variable `GOFIPS=1`.
-- Implicitly enabling it by booting the Linux Kernel in FIPS mode.
+In Go 1.18 and earlier, the program uses OpenSSL only if the program is running in FIPS mode.
+
+The following sections describe how to enable FIPS mode.
+
+### Linux FIPS mode (OpenSSL)
+
+To set FIPS mode on Linux, use one of the following options. The first match wins:
+
+- Explicitly enable it by setting the environment variable `GOFIPS=1`.
+- Explicitly disable it by setting the environment variable `GOFIPS=0`.
+- Implicitly enable it by booting the Linux Kernel in FIPS mode.
   - Linux FIPS mode sets the content of `/proc/sys/crypto/fips_enabled` to `1`. The Go runtime reads this file.
-  - To opt out, set `GOFIPS=0`.
-- Implicitly enabling it by [enabling the FIPS policy](https://docs.microsoft.com/en-us/windows/security/threat-protection/fips-140-validation#step-3-enable-the-fips-security-policy) in Windows.
 
-Whichever is the approach used, the program initialization will panic if FIPS mode is requested but the Go runtime can't find a suitable platform-provided library or that library's FIPS mode can't be enabled.
+If the Go runtime detects a FIPS preference, it configures OpenSSL during program initialization. If this fails, program initialization panics.
+
+### Windows FIPS mode (CNG)
+
+To enable FIPS mode on Windows, [enable the Windows FIPS policy](https://docs.microsoft.com/en-us/windows/security/threat-protection/fips-140-validation#step-3-enable-the-fips-security-policy). For testing purposes, this can be set via the registry key `HKLM\SYSTEM\CurrentControlSet\Control\Lsa\FipsAlgorithmPolicy`, dword value `Enabled` set to `1`.
+
+To make the Go runtime panic during program initialization if FIPS mode is not enabled, set the environment variable `GOFIPS=1`.
+
+> Unlike `opensslcrypto`, a Windows program built with `cngcrypto` doesn't include the ability to enable/disable FIPS, only ensure it's enabled. Windows FIPS mode is not a per-process setting, and changing it may require elevated permissions. Adding this feature would likely have unintended consequences.
 
 ## Features
 
@@ -89,7 +104,7 @@ Versions not listed above are not supported at all.
 
 ### Dynamic OpenSSL linking
 
-Go automatically loads the OpenSSL shared library `libcrypto` using [dlopen](https://man7.org/linux/man-pages/man3/dlopen.3.html) when initializing a FIPS-enabled program. Therefore, dlopen's shared library search conventions also apply here.
+Go automatically loads the OpenSSL shared library `libcrypto` using [dlopen](https://man7.org/linux/man-pages/man3/dlopen.3.html) when initializing. Therefore, dlopen's shared library search conventions also apply here.
 
 The `libcrypto` shared library file name varies among different platforms, so a best-effort is done to find and load the right file:
 
