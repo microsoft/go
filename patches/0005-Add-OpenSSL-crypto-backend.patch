@@ -4,7 +4,9 @@ Date: Thu, 30 Jun 2022 10:06:19 +0200
 Subject: [PATCH] Add OpenSSL crypto backend
 
 ---
+ misc/cgo/test/pkg_test.go                     |   4 +-
  src/cmd/api/goapi_boring_test.go              |   2 +-
+ src/cmd/dist/test.go                          |   8 +-
  src/cmd/go/go_boring_test.go                  |   2 +-
  .../go/testdata/script/gopath_std_vendor.txt  |   9 +
  src/cmd/link/internal/ld/lib.go               |   1 +
@@ -35,12 +37,27 @@ Subject: [PATCH] Add OpenSSL crypto backend
  .../goexperiment/exp_opensslcrypto_off.go     |   9 +
  .../goexperiment/exp_opensslcrypto_on.go      |   9 +
  src/internal/goexperiment/flags.go            |   1 +
- 31 files changed, 259 insertions(+), 22 deletions(-)
+ 33 files changed, 268 insertions(+), 25 deletions(-)
  create mode 100644 src/crypto/internal/backend/bbig/big_openssl.go
  create mode 100644 src/crypto/internal/backend/openssl_linux.go
  create mode 100644 src/internal/goexperiment/exp_opensslcrypto_off.go
  create mode 100644 src/internal/goexperiment/exp_opensslcrypto_on.go
 
+diff --git a/misc/cgo/test/pkg_test.go b/misc/cgo/test/pkg_test.go
+index 14013a4cd962b6..64d39561b65aa3 100644
+--- a/misc/cgo/test/pkg_test.go
++++ b/misc/cgo/test/pkg_test.go
+@@ -58,7 +58,9 @@ func TestCrossPackageTests(t *testing.T) {
+ 		cmd.Args = append(cmd.Args, "-short")
+ 	}
+ 	cmd.Dir = modRoot
+-	cmd.Env = append(os.Environ(), "GOPATH="+GOPATH, "PWD="+cmd.Dir)
++	// Use 'GOEXPERIMENT=none' to avoid importing go-crypto-openssl, which makes TestSetgid hang.
++	// See go.dev/issues/52141.
++	cmd.Env = append(os.Environ(), "GOPATH="+GOPATH, "PWD="+cmd.Dir, "GOEXPERIMENT=none")
+ 	out, err := cmd.CombinedOutput()
+ 	if err == nil {
+ 		t.Logf("%s:\n%s", strings.Join(cmd.Args, " "), out)
 diff --git a/src/cmd/api/goapi_boring_test.go b/src/cmd/api/goapi_boring_test.go
 index f0e3575637c62a..0e9aceeb832d3b 100644
 --- a/src/cmd/api/goapi_boring_test.go
@@ -53,6 +70,29 @@ index f0e3575637c62a..0e9aceeb832d3b 100644
 +//go:build boringcrypto || goexperiment.opensslcrypto
  
  package main
+ 
+diff --git a/src/cmd/dist/test.go b/src/cmd/dist/test.go
+index f974631e55682f..a90b018cd0c3d4 100644
+--- a/src/cmd/dist/test.go
++++ b/src/cmd/dist/test.go
+@@ -1262,12 +1262,16 @@ func (t *tester) cgoTest(dt *distTest) error {
+ 				t.addCmd(dt, "misc/cgo/nocgo", t.goTest(), "-ldflags", `-linkmode=external`, ".")
+ 				if goos != "android" {
+ 					t.addCmd(dt, "misc/cgo/nocgo", t.goTest(), "-ldflags", `-linkmode=external -extldflags "-static -pthread"`, ".")
+-					t.addCmd(dt, "misc/cgo/test", t.goTest(), "-tags=static", "-ldflags", `-linkmode=external -extldflags "-static -pthread"`, ".")
++					// Use 'GOEXPERIMENT=none' to avoid importing go-crypto-openssl, which makes TestSetgid hang.
++					// See go.dev/issues/52141.
++					cmd := t.addCmd(dt, "misc/cgo/test", t.goTest(), "-tags=static", "-ldflags", `-linkmode=external -extldflags "-static -pthread"`, ".")
++					setEnv(cmd, "GOEXPERIMENT", "none")
+ 					// -static in CGO_LDFLAGS triggers a different code path
+ 					// than -static in -extldflags, so test both.
+ 					// See issue #16651.
+-					cmd := t.addCmd(dt, "misc/cgo/test", t.goTest(), "-tags=static", ".")
++					cmd = t.addCmd(dt, "misc/cgo/test", t.goTest(), "-tags=static", ".")
+ 					setEnv(cmd, "CGO_LDFLAGS", "-static -pthread")
++					setEnv(cmd, "GOEXPERIMENT", "none")
+ 				}
+ 			}
  
 diff --git a/src/cmd/go/go_boring_test.go b/src/cmd/go/go_boring_test.go
 index ed0fbf3d53d75b..5376227f74cfaa 100644
