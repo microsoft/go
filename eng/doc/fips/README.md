@@ -10,40 +10,72 @@ The Go `crypto` package is not FIPS certified, and the Go team has stated that i
 
 > The status of FIPS 140 for Go itself remains "no plans, basically zero chance".
 
-On the other hand, Google maintains a branch that uses cgo and BoringSSL to implement various crypto primitives: https://github.com/golang/go/blob/dev.boringcrypto/README.boringcrypto.md. As BoringSSL is FIPS 140-2 certified, an application using that branch is more likely to be FIPS 140-2 compliant, yet Google does not provide any liability about the suitability of this code in relation to the FIPS 140-2 standard.
+On the other hand, Google maintains a goexperiment flag boringcrypto that uses cgo and BoringSSL to implement various crypto primitives: https://pkg.go.dev/internal/goexperiment. As BoringSSL is FIPS 140-2 certified, an application built using this flag is more likely to be FIPS 140-2 compliant, yet Google does not provide any liability about the suitability of this code in relation to the FIPS 140-2 standard.
 
-In addition to that, the dev.boringcrypto branch also provides a mechanism to restrict all TLS configuration to FIPS-approved settings. The effect is triggered by importing the package anywhere in a program, as in:
+In addition to that, the boringcrypto flag also provides a mechanism to restrict all TLS configuration to FIPS-approved settings. The effect is triggered by importing the fipsonly package anywhere in a program, as in:
 
 ```go
   import _ "crypto/tls/fipsonly"
 ```
 
+Prior to Go 1.19, the boringcrypto changes were maintained in the `dev.boringcrypto*` branches of Go: https://github.com/golang/go/blob/dev.boringcrypto/README.boringcrypto.md. For more details about the merge, see [golang/go#51940](https://github.com/golang/go/issues/51940).
+
 ## Microsoft Go fork FIPS compliance
 
-Microsoft's Go Linux runtime has been modified to implement several crypto primitives using cgo and OpenSSL. Similar to BoringSSL, certain OpenSSL versions are also FIPS 140-2 certified.
+The Microsoft Go fork modifies the Go runtime to implement several crypto primitives using cgo to call into a platform-provided cryptographic library rather than use the standard Go crypto implementations. This allows Go programs to use a platform-provided FIPS 140-2 certified crypto library.
 
-These changes are maintained in the `microsoft/dev.boringcrypto*` branches in this repository.
+On Linux, the fork uses [OpenSSL](https://www.openssl.org/) through the [go-crypto-openssl](https://github.com/microsoft/go-crypto-openssl) module. On Windows, [CNG](https://docs.microsoft.com/en-us/windows/win32/seccng/about-cng), using [go-crypto-winnative](https://github.com/microsoft/go-crypto-winnative). Similar to BoringSSL, certain OpenSSL and CNG versions are FIPS 140-2 certified.
 
 It is important to note that an application built with Microsoft's Go toolchain and running in FIPS compatible mode is not FIPS compliant _per-se_. It is on the application development team to use FIPS-compliant crypto primitives and workflows. The crypto runtime will fall back to Go standard library crypto in case it cannot provide a FIPS-compliant implementation, e.g. when hashing a message using `crypto/md5` hashes or when using an AES-GCM cipher with a non-standard nonce size.
 
-## Usage
+## Usage: Build
 
-FIPS compatibility mode, and therefore the OpenSSL crypto backend, can be enabled using any of these options:
+### Go 1.18
+
+In Go 1.18 and earlier, the Microsoft Go FIPS-compatible builds are are maintained in the `microsoft/dev.boringcrypto*` branches. Only a Linux implementation using OpenSSL is supported for these versions.
+
+1. Get a `1.18-fips` build of the Microsoft Go toolset. See [the microsoft/go readme](https://github.com/microsoft/go#binary-distribution) for options.
+1. Build your Go program using this Go toolset.
+1. The built program now includes the ability to use OpenSSL crypto and FIPS compatibility mode at runtime.
+
+The whole OpenSSL functionality can be disabled even while using a `1.18-fips` Go toolset by building your program with `-tags gocrypt`.
+
+### Go 1.19+
+
+In Go 1.19 onward, the FIPS-related changes are maintained in the `microsoft/release-branch.go*` branches in this repository.
+
+1. Get the standard Microsoft build of Go. There is no separate `-fips` build. See [the microsoft/go readme](https://github.com/microsoft/go#binary-distribution) for options.
+1. Enable the desired GOEXPERIMENT and build your program.
+    * To build for Linux/OpenSSL, for example:
+      ```sh
+      GOEXPERIMENT=opensslcrypto go build ./myapp
+      ```
+    * To build for Windows/CNG in PowerShell, for example:
+      ```pwsh
+      $env:GOEXPERIMENT = "opensslcrypto"
+      go build ./myapp
+      ```
+1. The built program will use the specified platform-provided cryptographic library whenever it calls a Go standard library crypto API, and FIPS compatibility can be enabled at runtime.
+
+## Usage: Runtime
+
+To run your program in FIPS compatibility mode, and therefore use the OpenSSL or CNG crypto backend, use any of these options:
 
 - Explicitly setting the environment variable `GOFIPS=1`.
 - Implicitly enabling it by booting the Linux Kernel in FIPS mode.
   - Linux FIPS mode sets the content of `/proc/sys/crypto/fips_enabled` to `1`. The Go runtime reads this file.
   - To opt out, set `GOFIPS=0`.
+- Implicitly enabling it by [enabling the FIPS policy](https://docs.microsoft.com/en-us/windows/security/threat-protection/fips-140-validation#step-3-enable-the-fips-security-policy) in Windows.
 
-Whichever is the approach used, the program initialization will panic if FIPS mode is requested but the Go runtime can't find a suitable OpenSSL shared library or OpenSSL FIPS mode can't be enabled.
-
-The whole OpenSSL functionality can be disabled by building your program with `-tags gocrypt`.
+Whichever is the approach used, the program initialization will panic if FIPS mode is requested but the Go runtime can't find a suitable platform-provided library or that library's FIPS mode can't be enabled.
 
 ## Features
 
 ### No code changes required
 
-Applications requiring FIPS-compliance don't require any code change to activate FIPS compatibility mode. The Go runtime will favor OpenSSL crypto primitives over Go standard library when the application is FIPS-enabled.
+Applications requiring FIPS-compliance don't require any code change to activate FIPS compatibility mode. The Go runtime will favor OpenSSL/CNG crypto primitives over Go standard library when the application is FIPS-enabled.
+
+Code changes may be necessary to conform to FIPS requirements, but only ones that would be necessary regardless of how the FIPS-compatible API were implemented. Examples would be removing algorithms and key sizes forbidden by FIPS 140-2. For more information, see the [FIPS User Guide](UserGuide.md).
 
 ### Multiple OpenSSL versions allowed
 
