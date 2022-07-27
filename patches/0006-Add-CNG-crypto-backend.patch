@@ -10,11 +10,11 @@ Subject: [PATCH] Add CNG crypto backend
  src/crypto/ecdsa/boring.go                    |   2 +-
  src/crypto/ecdsa/ecdsa.go                     |  39 +++-
  src/crypto/ecdsa/notboring.go                 |   2 +-
- src/crypto/internal/backend/backend_test.go   |   3 +-
+ src/crypto/internal/backend/backend_test.go   |   4 +-
  src/crypto/internal/backend/bbig/big.go       |   2 +-
  src/crypto/internal/backend/bbig/big_cng.go   |  12 ++
  src/crypto/internal/backend/cng_windows.go    | 171 ++++++++++++++++++
- src/crypto/internal/backend/common.go         |  51 +++++-
+ src/crypto/internal/backend/common.go         |  45 ++++-
  src/crypto/internal/backend/nobackend.go      |   2 +-
  src/crypto/internal/boring/fipstls/stub.s     |   2 +-
  src/crypto/internal/boring/fipstls/tls.go     |   2 +-
@@ -24,12 +24,12 @@ Subject: [PATCH] Add CNG crypto backend
  src/crypto/rsa/notboring.go                   |   2 +-
  src/crypto/rsa/pkcs1v15.go                    |  16 +-
  src/crypto/rsa/pss.go                         |  12 +-
- src/crypto/rsa/rsa.go                         |   4 +-
+ src/crypto/rsa/rsa.go                         |  15 +-
  src/crypto/rsa/rsa_test.go                    |   4 +
  src/crypto/sha1/boring.go                     |   5 +-
  src/crypto/sha1/notboring.go                  |   4 +-
  src/crypto/sha1/sha1_test.go                  |   7 +
- src/crypto/sha256/sha256.go                   |   4 +-
+ src/crypto/sha256/sha256.go                   |  12 +-
  src/crypto/sha256/sha256_test.go              |  10 +
  src/crypto/sha512/sha512_test.go              |  10 +
  src/crypto/tls/boring.go                      |   2 +-
@@ -49,7 +49,7 @@ Subject: [PATCH] Add CNG crypto backend
  .../goexperiment/exp_cngcrypto_off.go         |   9 +
  src/internal/goexperiment/exp_cngcrypto_on.go |   9 +
  src/internal/goexperiment/flags.go            |   1 +
- 45 files changed, 401 insertions(+), 44 deletions(-)
+ 45 files changed, 410 insertions(+), 49 deletions(-)
  create mode 100644 src/crypto/internal/backend/bbig/big_cng.go
  create mode 100644 src/crypto/internal/backend/cng_windows.go
  create mode 100644 src/internal/goexperiment/exp_cngcrypto_off.go
@@ -211,25 +211,20 @@ index 3cc16ecab567a0..dbbc6e3897e153 100644
  package ecdsa
  
 diff --git a/src/crypto/internal/backend/backend_test.go b/src/crypto/internal/backend/backend_test.go
-index c2c06d3bff8c74..7d297ba88c9ab6 100644
+index c2c06d3bff8c74..837cff477e257e 100644
 --- a/src/crypto/internal/backend/backend_test.go
 +++ b/src/crypto/internal/backend/backend_test.go
-@@ -5,13 +5,14 @@
+@@ -4,9 +4,7 @@
+ 
  package backend
  
- import (
-+	"internal/goexperiment"
- 	"testing"
- )
+-import (
+-	"testing"
+-)
++import "testing"
  
  // Test that Unreachable panics.
  func TestUnreachable(t *testing.T) {
- 	defer func() {
--		if Enabled {
-+		if Enabled && !goexperiment.CNGCrypto {
- 			if err := recover(); err == nil {
- 				t.Fatal("expected Unreachable to panic")
- 			}
 diff --git a/src/crypto/internal/backend/bbig/big.go b/src/crypto/internal/backend/bbig/big.go
 index 51bc3c68048d51..15f9833c9fcd20 100644
 --- a/src/crypto/internal/backend/bbig/big.go
@@ -439,7 +434,7 @@ index 00000000000000..63bbc4fc9dc8c3
 +	return cng.VerifyRSAPSS(pub, h, hashed, sig, saltLen)
 +}
 diff --git a/src/crypto/internal/backend/common.go b/src/crypto/internal/backend/common.go
-index 007d8070538247..55303c8da33eb6 100644
+index 007d8070538247..168ea5831a985e 100644
 --- a/src/crypto/internal/backend/common.go
 +++ b/src/crypto/internal/backend/common.go
 @@ -5,16 +5,19 @@
@@ -464,20 +459,7 @@ index 007d8070538247..55303c8da33eb6 100644
  			panic("FIPS mode requested (GOFIPS=1) but not supported with cgo disabled")
  		}
  	}
-@@ -36,7 +39,11 @@ func envGoFIPS() (string, bool) {
- // when backend is in use.
- func Unreachable() {
- 	if Enabled {
--		panic("cryptobackend: invalid code execution")
-+		// CNGCrypto has too many stdlib fallbacks,
-+		// so Unreachable is not always true.
-+		if !goexperiment.CNGCrypto {
-+			panic("cryptobackend: invalid code execution")
-+		}
- 	} else {
- 		// Code that's unreachable is exactly the code
- 		// we want to detect for reporting standard Go crypto.
-@@ -54,7 +61,11 @@ func hasSuffix(s, t string) bool {
+@@ -54,7 +57,11 @@ func hasSuffix(s, t string) bool {
  // UnreachableExceptTests marks code that should be unreachable
  // when backend is in use. It panics.
  func UnreachableExceptTests() {
@@ -490,7 +472,7 @@ index 007d8070538247..55303c8da33eb6 100644
  		name := runtime_arg0()
  		// If ran on Windows we'd need to allow _test.exe and .test.exe as well.
  		if !hasSuffix(name, "_test") && !hasSuffix(name, ".test") {
-@@ -63,3 +74,35 @@ func UnreachableExceptTests() {
+@@ -63,3 +70,35 @@ func UnreachableExceptTests() {
  		}
  	}
  }
@@ -713,10 +695,42 @@ index 372248f04697c1..8f7ddbd428e336 100644
  		if err != nil {
  			return err
 diff --git a/src/crypto/rsa/rsa.go b/src/crypto/rsa/rsa.go
-index 5ef07fdbe9ebb3..753b7474200654 100644
+index 5ef07fdbe9ebb3..80c245e247939c 100644
 --- a/src/crypto/rsa/rsa.go
 +++ b/src/crypto/rsa/rsa.go
-@@ -660,7 +660,9 @@ func DecryptOAEP(hash hash.Hash, random io.Reader, priv *PrivateKey, ciphertext
+@@ -31,6 +31,7 @@ import (
+ 	"crypto/subtle"
+ 	"errors"
+ 	"hash"
++	"internal/goexperiment"
+ 	"io"
+ 	"math"
+ 	"math/big"
+@@ -420,7 +421,11 @@ func mgf1XOR(out []byte, hash hash.Hash, seed []byte) {
+ var ErrMessageTooLong = errors.New("crypto/rsa: message too long for RSA public key size")
+ 
+ func encrypt(c *big.Int, pub *PublicKey, m *big.Int) *big.Int {
+-	boring.Unreachable()
++	if !goexperiment.CNGCrypto {
++		// CNGCrypto calls encrypt() when the salt length
++		// or the hash function are not supported.
++		boring.Unreachable()
++	}
+ 	e := big.NewInt(int64(pub.E))
+ 	c.Exp(m, e, pub.N)
+ 	return c
+@@ -541,7 +546,9 @@ func (priv *PrivateKey) Precompute() {
+ // decrypt performs an RSA decryption, resulting in a plaintext integer. If a
+ // random source is given, RSA blinding is used.
+ func decrypt(random io.Reader, priv *PrivateKey, c *big.Int) (m *big.Int, err error) {
+-	if len(priv.Primes) <= 2 {
++	if len(priv.Primes) <= 2 && !goexperiment.CNGCrypto {
++		// CNGCrypto calls decrypt() when the salt length
++		// or the hash function are not supported.
+ 		boring.Unreachable()
+ 	}
+ 	// TODO(agl): can we get away with reusing blinds?
+@@ -660,7 +667,9 @@ func DecryptOAEP(hash hash.Hash, random io.Reader, priv *PrivateKey, ciphertext
  		return nil, ErrDecryption
  	}
  
@@ -813,7 +827,7 @@ index bc169888786321..e0d6f4c5040d91 100644
  
  		h := New()
 diff --git a/src/crypto/sha256/sha256.go b/src/crypto/sha256/sha256.go
-index e071a0fa2e62dd..b38116b880cd57 100644
+index e071a0fa2e62dd..fd1cc18d221ffe 100644
 --- a/src/crypto/sha256/sha256.go
 +++ b/src/crypto/sha256/sha256.go
 @@ -170,7 +170,7 @@ func New() hash.Hash {
@@ -825,7 +839,29 @@ index e071a0fa2e62dd..b38116b880cd57 100644
  		return boring.NewSHA224()
  	}
  	d := new(digest)
-@@ -272,7 +272,7 @@ func Sum256(data []byte) [Size]byte {
+@@ -189,7 +189,9 @@ func (d *digest) Size() int {
+ func (d *digest) BlockSize() int { return BlockSize }
+ 
+ func (d *digest) Write(p []byte) (nn int, err error) {
+-	boring.Unreachable()
++	if boring.Enabled && (!d.is224 || boring.IsP224Supported()) {
++		boring.Unreachable()
++	}
+ 	nn = len(p)
+ 	d.len += uint64(nn)
+ 	if d.nx > 0 {
+@@ -213,7 +215,9 @@ func (d *digest) Write(p []byte) (nn int, err error) {
+ }
+ 
+ func (d *digest) Sum(in []byte) []byte {
+-	boring.Unreachable()
++	if boring.Enabled && (!d.is224 || boring.IsP224Supported()) {
++		boring.Unreachable()
++	}
+ 	// Make a copy of d so that caller can keep writing and summing.
+ 	d0 := *d
+ 	hash := d0.checkSum()
+@@ -272,7 +276,7 @@ func Sum256(data []byte) [Size]byte {
  
  // Sum224 returns the SHA224 checksum of the data.
  func Sum224(data []byte) [Size224]byte {
