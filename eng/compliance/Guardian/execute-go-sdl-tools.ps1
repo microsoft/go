@@ -1,0 +1,83 @@
+# Copyright (c) Microsoft Corporation.
+# Use of this source code is governed by a BSD-style
+# license that can be found in the LICENSE file.
+
+$srcDir = $env:BUILD_SOURCESDIRECTORY
+# Microsoft-specific engineering tools and configuration.
+$engDirectory = Join-Path $srcDir "eng"
+# Microsoft-specific GitHub and GitHub Actions configuration.
+$dotGitHubDirectory = Join-Path $srcDir ".github"
+# Official build artifacts, downloaded from the build job that completed earlier.
+$downloadedArtifactsDirectory = Join-Path $env:BUILD_ARTIFACTSTAGINGDIRECTORY "artifacts"
+
+# Create a file for PoliCheck's ListFile option. The extension must be ".txt", and this file must
+# contain full paths, one per line, with no duplicates. The list should contain each microsoft/go
+# file but no upstream files. Sort and print it for debug purposes.
+$policheckFileList = (New-TemporaryFile).FullName + ".txt"
+(
+  Get-ChildItem -File -Recurse $srcDir `
+  | Where-Object {
+    # Submodule directory with upstream code.
+    -not $_.FullName.StartsWith((Join-Path $srcDir "go")) -and `
+    # SDL NuGet packages: ignore, not part of our code.
+    -not $_.FullName.StartsWith((Join-Path $srcDir ".packages")) } `
+  | ForEach-Object { $_.FullName } | Sort-Object `
+) -join "`r`n" > $policheckFileList
+
+Write-Host "--- List of files in PoliCheck file list:"
+Get-Content $policheckFileList | Write-Host
+Write-Host "---"
+
+& "$PSScriptRoot\..\..\common\sdl\execute-all-sdl-tools.ps1" `
+  -SourceToolsList @(
+    @{ Name="credscan"; Scenario="source" }
+  ) `
+  -ArtifactToolsList @(
+    @{ Name="credscan"; Scenario="artifacts" }
+  ) `
+  -CrScanAdditionalRunConfigParams @(
+    "SuppressionsPath < $engDirectory\compliance\Guardian\CredScanSuppressions.json"
+    "SuppressAsError < false"
+  ) `
+  -CustomToolsList @(
+    @{
+      Name="binskim"
+      Args=@(
+        # Point binskim at the artifact directory. Pass everything to binskim and let it decide what
+        # it needs to scan. For more information about the glob format, see
+        # https://dev.azure.com/securitytools/SecurityIntegration/_wiki/wikis/Guardian/1378/Glob-Format
+        #
+        # Exclude "testdata" binaries because they are only used during testing, they do not pass
+        # "binskim" for various reasons, and they are checked into the upstream Go repository.
+        #
+        # Exclude infra dependencies in ".gdn" dir. We are not distributing these.
+        #
+        # Exclude all ".exe" files. BinSkim strongly expects PDB files for each one, but they don't
+        # exist for Go. See https://github.com/microsoft/go/issues/114
+        "Target < f|$downloadedArtifactsDirectory\**;-|**\testdata\*;-|.gdn\**;-|**\*.exe"
+        "ConfigPath < $engDirectory\compliance\Guardian\BinSkimConfig.xml"
+      )
+    }
+    @{
+      Name="codesign"
+      Args=@(
+        # Point codesign at the right location to find the artifacts that we've signed. However, we do
+        # not yet produce any artifacts that CodeSign knows how to verify, so don't fail if CodeSign
+        # fails to find anything.
+        "TargetDirectory < $downloadedArtifactsDirectory"
+        "targetFiles < f|**\*.dll;f|**\*.exe"
+        "failIfNoTargetsFound < false"
+      )
+    }
+    # Only point PoliCheck at directories we control, not directories from the upstream repo.
+    @{
+      Name="policheck"
+      Args=@(
+        # Target's default is ".", but we need to pass nothing instead. The Target and ListFile
+        # PoliCheck args are mutually exclusive.
+        "Target"
+        "ListFile < $policheckFileList"
+      )
+    }
+  ) `
+  @args
