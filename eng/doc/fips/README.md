@@ -74,7 +74,9 @@ To set FIPS mode on Linux, use one of the following options. The first match win
 - Implicitly enable it by booting the Linux Kernel in FIPS mode.
   - Linux FIPS mode sets the content of `/proc/sys/crypto/fips_enabled` to `1`. The Go runtime reads this file.
 
-If the Go runtime detects a FIPS preference, it configures OpenSSL during program initialization. If this fails, program initialization panics.
+If the Go runtime detects a FIPS preference, it configures OpenSSL during program initialization. This includes disabling FIPS mode if `GOFIPS=0`. If configuration fails, program initialization panics.
+
+If no option is detected, the Go runtime doesn't set the OpenSSL FIPS mode, and the standard OpenSSL configuration is left unchanged. For more information about the standard OpenSSL FIPS behavior, see https://www.openssl.org/docs/fips.html.
 
 ### Windows FIPS mode (CNG)
 
