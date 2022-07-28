@@ -6,7 +6,7 @@ Subject: [PATCH] Add OpenSSL crypto backend
 ---
  misc/cgo/test/pkg_test.go                     |   4 +-
  src/cmd/api/goapi_boring_test.go              |   2 +-
- src/cmd/dist/test.go                          |   8 +-
+ src/cmd/dist/test.go                          |  10 +-
  src/cmd/go/go_boring_test.go                  |   2 +-
  .../go/testdata/script/gopath_std_vendor.txt  |   9 +
  src/cmd/link/internal/ld/lib.go               |   1 +
@@ -38,7 +38,7 @@ Subject: [PATCH] Add OpenSSL crypto backend
  .../goexperiment/exp_opensslcrypto_on.go      |   9 +
  src/internal/goexperiment/flags.go            |   1 +
  src/os/exec/exec_test.go                      |   9 +
- 34 files changed, 277 insertions(+), 25 deletions(-)
+ 34 files changed, 278 insertions(+), 26 deletions(-)
  create mode 100644 src/crypto/internal/backend/bbig/big_openssl.go
  create mode 100644 src/crypto/internal/backend/openssl_linux.go
  create mode 100644 src/internal/goexperiment/exp_opensslcrypto_off.go
@@ -73,28 +73,35 @@ index f0e3575637c62a..0e9aceeb832d3b 100644
  package main
  
 diff --git a/src/cmd/dist/test.go b/src/cmd/dist/test.go
-index f974631e55682f..a90b018cd0c3d4 100644
+index f974631e55682f..5e54cbdf6ea0ba 100644
 --- a/src/cmd/dist/test.go
 +++ b/src/cmd/dist/test.go
-@@ -1262,12 +1262,16 @@ func (t *tester) cgoTest(dt *distTest) error {
+@@ -1255,18 +1255,22 @@ func (t *tester) cgoTest(dt *distTest) error {
+ 			if err := cmd.Run(); err != nil {
+ 				fmt.Println("No support for static linking found (lacks libc.a?), skip cgo static linking test.")
+ 			} else {
+-				if goos != "android" {
++				// Don't test static builds with OpenSSLCrypto.
++				// It makes TestSetgid hang in certain gcc versions.
++				// See go.dev/issues/52141.
++				staticSupported := !strings.Contains(goexperiment, "opensslcrypto")
++				if goos != "android" && staticSupported {
+ 					t.addCmd(dt, "misc/cgo/testtls", t.goTest(), "-ldflags", `-linkmode=external -extldflags "-static -pthread"`, ".")
+ 				}
+ 				t.addCmd(dt, "misc/cgo/nocgo", t.goTest(), ".")
  				t.addCmd(dt, "misc/cgo/nocgo", t.goTest(), "-ldflags", `-linkmode=external`, ".")
- 				if goos != "android" {
+-				if goos != "android" {
++				if goos != "android" && staticSupported {
  					t.addCmd(dt, "misc/cgo/nocgo", t.goTest(), "-ldflags", `-linkmode=external -extldflags "-static -pthread"`, ".")
--					t.addCmd(dt, "misc/cgo/test", t.goTest(), "-tags=static", "-ldflags", `-linkmode=external -extldflags "-static -pthread"`, ".")
-+					// Use 'GOEXPERIMENT=none' to avoid importing go-crypto-openssl, which makes TestSetgid hang.
-+					// See go.dev/issues/52141.
-+					cmd := t.addCmd(dt, "misc/cgo/test", t.goTest(), "-tags=static", "-ldflags", `-linkmode=external -extldflags "-static -pthread"`, ".")
-+					setEnv(cmd, "GOEXPERIMENT", "none")
+ 					t.addCmd(dt, "misc/cgo/test", t.goTest(), "-tags=static", "-ldflags", `-linkmode=external -extldflags "-static -pthread"`, ".")
  					// -static in CGO_LDFLAGS triggers a different code path
  					// than -static in -extldflags, so test both.
  					// See issue #16651.
 -					cmd := t.addCmd(dt, "misc/cgo/test", t.goTest(), "-tags=static", ".")
 +					cmd = t.addCmd(dt, "misc/cgo/test", t.goTest(), "-tags=static", ".")
  					setEnv(cmd, "CGO_LDFLAGS", "-static -pthread")
-+					setEnv(cmd, "GOEXPERIMENT", "none")
  				}
  			}
- 
 diff --git a/src/cmd/go/go_boring_test.go b/src/cmd/go/go_boring_test.go
 index ed0fbf3d53d75b..5376227f74cfaa 100644
 --- a/src/cmd/go/go_boring_test.go
