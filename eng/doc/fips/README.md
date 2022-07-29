@@ -52,7 +52,7 @@ In Go 1.19 onward, the FIPS-related changes are maintained in the `microsoft/rel
       ```
     * To build for Windows/CNG in PowerShell, for example:
       ```pwsh
-      $env:GOEXPERIMENT = "opensslcrypto"
+      $env:GOEXPERIMENT = "cngcrypto"
       go build ./myapp
       ```
 1. The built program will use the specified platform-provided cryptographic library whenever it calls a Go standard library crypto API, and FIPS compatibility can be enabled at runtime.
