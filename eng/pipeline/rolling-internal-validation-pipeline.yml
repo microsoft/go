@@ -1,0 +1,69 @@
+# Copyright (c) Microsoft Corporation.
+# Use of this source code is governed by a BSD-style
+# license that can be found in the LICENSE file.
+
+# This pipeline runs after each internal rolling build of Go and validates compliance.
+#
+# This pipeline template runs automated SDL validation with internal-only tooling. It uses a job
+# template from dotnet/arcade that runs the Guardian suite of tools and reports the results to TSA
+# (Trust Services Automation).
+#
+# For more information, see:
+# https://microsoft.sharepoint.com/teams/managedlanguages/_layouts/OneNote.aspx?id=%2Fteams%2Fmanagedlanguages%2Ffiles%2FTeam%20Notebook%2FGoLang%20Team&wd=target%28Main.one%7C62B655D4-14E7-41D6-A063-0869C28D63FC%2FSDL%20Tools%7C3908F727-3751-4ACC-8C71-6CEB2DF277B4%2F%29
+
+trigger: none
+pr: none
+
+resources:
+  pipelines:
+    - pipeline: build
+      # The rolling pipeline and this validation pipeline share the same source repository. AzDO
+      # sees this and makes this pipeline's "checkout" steps download the same source code that was
+      # built by the microsoft-go pipeline:
+      # https://docs.microsoft.com/en-us/azure/devops/pipelines/process/resources?view=azure-devops&tabs=schema#define-a-pipelines-resource
+      #
+      # This means we can have SDL scan the currently-checked-out source code as the way to scan the
+      # source code of the internal rolling build.
+      source: microsoft-go
+      trigger:
+        branches:
+          include:
+            # Validate all branches that may be released.
+            - microsoft/main
+            - microsoft/release-branch.*
+            - microsoft/dev.boringcrypto.go*
+
+stages:
+  - stage: SDLValidate
+    variables:
+      # TSA variables.
+      - group: go-sdl-validation
+    jobs:
+      # Run SDL validation tooling on sources and signed/complete artifacts.
+      - template: /eng/common/templates/job/execute-sdl.yml
+        parameters:
+          # Don't download any build artifacts: only pipeline artifacts.
+          downloadArtifacts: false
+          pipelineArtifactNames:
+            - Binaries Signed
+          extractArchiveArtifacts: true
+          enable: true
+          publishGuardianDirectoryToPipeline: true
+          # Specify that artifacts should be downloaded from the build that triggered this one.
+          AzDOProjectName: $(resources.pipeline.build.projectID)
+          AzDOPipelineId: $(resources.pipeline.build.pipelineID)
+          AzDOBuildId: $(resources.pipeline.build.runID)
+          # Use a wrapper script for the SDL tools to pass the Go-specific configuration.
+          executeAllSdlToolsScript: eng/compliance/Guardian/execute-go-sdl-tools.ps1
+          # Set up TSA publish and build break condition.
+          additionalParameters: >-
+            -TsaInstanceURL "$(TsaInstanceURL)"
+            -TsaProjectName "$(TsaProjectName)"
+            -TsaNotificationEmail "$(TsaNotificationEmail)"
+            -TsaCodebaseAdmin "$(TsaCodebaseAdmin)"
+            -TsaBugAreaPath "$(TsaBugAreaPath)"
+            -TsaIterationPath "$(TsaIterationPath)"
+            -TsaRepositoryName "$(TsaRepositoryName)"
+            -TsaCodebaseName "$(TsaCodebaseName)"
+            -TsaPublish $true
+            -BreakOnFailure $true
