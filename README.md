@@ -37,6 +37,8 @@ of the Go source code over time.
 This repository's infrastructure currently supports these OS/Arch combinations:
 
 * `linux_amd64`
+* `linux_armv6l`
+* `linux_arm64`
 * `windows_amd64`
 
 See [eng/README.md](eng/README.md) for more details about the infrastructure.
