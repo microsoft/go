@@ -37,6 +37,7 @@ var dryRun = flag.Bool("n", false, "Enable dry run: print the commands that woul
 
 func main() {
 	var builder = flag.String("builder", "", "[Required] Specify a builder to run. Note, this may be destructive!")
+	var fipsMode = flag.Bool("fipsmode", false, "Run the Go tests in FIPS mode.")
 	var jUnitFile = flag.String("junitfile", "", "Write a JUnit XML file to this path if this builder runs tests.")
 	var help = flag.Bool("h", false, "Print this help message.")
 
@@ -105,6 +106,18 @@ func main() {
 
 	default:
 		// Most builder configurations use "bin/go tool dist test" directly, which is the default.
+
+		if *fipsMode {
+			env("GOFIPS", "true")
+			// Enable system-wide FIPS if supported by the host platform.
+			restore, err := enableSystemWideFIPS()
+			if err != nil {
+				log.Fatalf("Unable to enable system-wide FIPS: %v\n", err)
+			}
+			if restore != nil {
+				defer restore()
+			}
+		}
 
 		// The tests read GO_BUILDER_NAME and make decisions based on it. For some configurations,
 		// we only need to set this env var.
