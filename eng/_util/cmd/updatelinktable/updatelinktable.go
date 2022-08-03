@@ -20,7 +20,8 @@ This command updates the table in ` + docPath + `.
 
 var supported = []version{
 	{
-		"1.18",
+		"1.19",
+		false,
 		map[string]struct{}{
 			"linux-amd64":   {},
 			"linux-arm64":   {},
@@ -30,7 +31,8 @@ var supported = []version{
 		},
 	},
 	{
-		"1.17",
+		"1.18",
+		true,
 		map[string]struct{}{
 			"linux-amd64":   {},
 			"linux-arm64":   {},
@@ -47,6 +49,7 @@ var platformPrettyNames = map[string]string{
 
 type version struct {
 	Number    string
+	DistinctFIPS bool
 	Platforms map[string]struct{}
 }
 
@@ -124,13 +127,21 @@ func tables() string {
 	for _, v := range supported {
 		b.WriteString(" ")
 		b.WriteString(v.Number)
-		b.WriteString(" | ")
-		b.WriteString(v.Number)
-		b.WriteString("-fips |")
+		if v.DistinctFIPS {
+			b.WriteString(" | ")
+			b.WriteString(v.Number)
+			b.WriteString("-fips")
+		} else {
+			b.WriteString(" (+FIPS)")
+		}
+		b.WriteString(" |")
 	}
 	b.WriteString("\n| --- |")
-	for range supported {
-		b.WriteString(" --- | --- |")
+	for _, v := range supported {
+		b.WriteString(" --- |")
+		if v.DistinctFIPS {
+			b.WriteString(" --- |")
+		}
 	}
 	b.WriteString("\n|")
 	for _, p := range platforms() {
@@ -140,6 +151,9 @@ func tables() string {
 		for _, v := range supported {
 			b.WriteString(" ")
 			for _, fipsSuffix := range []string{"", "-fips"} {
+				if fipsSuffix != "" && !v.DistinctFIPS {
+					continue
+				}
 				types := fileTypes(p)
 				if _, ok := v.Platforms[p]; !ok {
 					types = fileTypes("")
