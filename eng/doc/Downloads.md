@@ -24,10 +24,10 @@ This document contains a list of links to the binary releases of the Microsoft b
 > * https://download.microsoft.com/download/f/a/2/fa2420dd-3f08-4621-82cf-5a22abcbc8f9/microsoft-managed-lang-compiler.asc
 > * Shortened link for sharing: https://aka.ms/managed-lang-compiler-public-key
 
-The links in this table "float": each one downloads the latest Go release built by Microsoft that matches that column's major release number. For example, a 1.17 link will download 1.17.8-1 if that is the latest version of 1.17 available.
+The links in this table "float": each one downloads the latest Go release built by Microsoft that matches that column's major release number. For example, a 1.19 link will download 1.19.8-1 if that is the latest version of 1.19 available.
 
 To download a specific version, create a static link by copying one of the above URLs and adding a patch and revision number to the end of the existing version number section. Browse recent [GitHub releases in the microsoft/go repository](https://github.com/microsoft/go/releases) to find valid patch and revision numbers to use. More aka.ms links are generated than the ones that appear in the table, because the table isn't updated after every single build. For example:
 
-1. Copy `https://aka.ms/golang/release/latest/go1.17.src.tar.gz`
-2. Change `go1.17` to `go1.17.9-1`
-3. Get `https://aka.ms/golang/release/latest/go1.17.9-1.src.tar.gz`.
+1. Copy `https://aka.ms/golang/release/latest/go1.19.src.tar.gz`
+2. Change `go1.19` to `go1.19.9-1`
+3. Get `https://aka.ms/golang/release/latest/go1.19.9-1.src.tar.gz`.
