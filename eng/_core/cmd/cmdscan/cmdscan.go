@@ -2,8 +2,8 @@
 // Licensed under the MIT License.
 
 // Cmdscan runs the command given to it in os.Args and monitors the output for text patterns that
-// should be elevated to AzDO Pipeline warnings, and uses AzDO logging commands to do so. Timeline
-// events can be discovered more easily in the UI and by automated tools like runfo.
+// should be elevated to AzDO Pipeline warnings using AzDO logging commands. Timeline events can be
+// discovered more easily in the UI and by automated tools like runfo.
 //
 // If the pattern is associated with a known issue, the warning includes a link.
 //
@@ -92,7 +92,7 @@ func scan(r io.Reader, commands, echo *os.File) error {
 }
 
 func warn(f *filter, line string) string {
-	issueLink := ""
+	var issueLink string
 	if f.trackingIssue != "" {
 		issueLink = " (" + f.trackingIssue + ")"
 	}
