@@ -16,7 +16,7 @@ output and stderr redirection to stdout.
 
 The high-level execution flow looks roughly like this when running in CI:
 
-* `eng/pipeline/jobs/run-job.yml`  
+* `eng/pipeline/jobs/run-stage.yml`  
   runs:
 * `eng/run.ps1 run-builder -builder linux-amd64-test -junitfile [...]`  
   which runs the Go function:
