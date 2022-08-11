@@ -60,6 +60,18 @@ The Go crypto documentation is available online at https://pkg.go.dev/crypto.
       - [func Sum512](#func-sum512)
       - [func Sum512_224](#func-sum512_224)
       - [func Sum512_256](#func-sum512_256)
+    - [crypto/rsa](#cryptorsa)
+      - [func DecryptOAEP](#func-decryptoaep)
+      - [func DecryptPKCS1v15](#func-decryptpkcs1v15)
+      - [func DecryptPKCS1v15SessionKey](#func-decryptpkcs1v15sessionkey)
+      - [func EncryptPKCS1v15](#func-encryptpkcs1v15)
+      - [func SignPSS](#func-signpss)
+      - [func VerifyPKCS1v15](#func-verifypkcs1v15)
+      - [func VerifyPSS](#func-verifypss)
+      - [func GenerateKey](#func-generatekey-1)
+      - [func GenerateMultiPrimeKey](#func-generatemultiprimekey)
+      - [func PrivateKey.Decrypt](#func-privatekeydecrypt)
+      - [func PrivateKey.Sign](#func-privatekeysign-1)
     - [crypto/subtle](#cryptosubtle)
     - [crypto/tls](#cryptotls)
 
@@ -87,9 +99,9 @@ NewCipher creates and returns a new [cipher.Block](https://pkg.go.dev/crypto/cip
 
 `cipher` implements the cipher.Block interface using an OpenSSL cipher function that depends on the `key` length:
 
-- If `len(key) == 16` then the cipher used is [EVP_aes_128_ecb](https://www.openssl.org/docs/man3.0/man3/EVP_aes_128_ecb.html).
-- If `len(key) == 24` then the cipher used is [EVP_aes_192_ecb](https://www.openssl.org/docs/man3.0/man3/EVP_aes_192_ecb.html).
-- If `len(key) == 32` then the cipher used is [EVP_aes_256_ecb](https://www.openssl.org/docs/man3.0/man3/EVP_aes_256_ecb.html).
+- If `len(key) == 16` then the cipher used is [EVP_aes_128_ecb].
+- If `len(key) == 24` then the cipher used is [EVP_aes_192_ecb].
+- If `len(key) == 32` then the cipher used is [EVP_aes_256_ecb].
 
 The cipher.Block methods are implemented as follows:
 
@@ -120,11 +132,11 @@ If `cipher` is FIPS compliant then `aead` implements the cipher.AEAD interface a
 - `NonceSize() int` always returns `12`.
 - `Overhead() int` always returns `16`.
 - The cipher used in `Seal` and `Open` depends on the key length used in `aes.NewCipher(key []byte)`:
-  - If `len(key) == 16` then the cipher used is [EVP_aes_128_gcm](https://www.openssl.org/docs/man3.0/man3/EVP_aes_128_gcm.html).
-  - If `len(key) == 24` then the cipher used is [EVP_aes_192_gcm](https://www.openssl.org/docs/man3.0/man3/EVP_aes_192_gcm.html).
-  - If `len(key) == 32` then the cipher used is [EVP_aes_256_gcm](https://www.openssl.org/docs/man3.0/man3/EVP_aes_256_gcm.html).
-- `Seal(dst, nonce, plaintext, additionalData []byte) []byte` encrypts plaintext and uses additionalData to authenticate. It uses [EVP_EncryptUpdate] for the encryption and [EVP_EncryptFinal_ex](https://www.openssl.org/docs/man3.0/man3/EVP_EncryptFinal_ex.html) for authenticating.
-- `Open(dst, nonce, ciphertext, additionalData []byte) ([]byte, error)` decrypts plaintext and uses additionalData to authenticate. It uses [EVP_DecryptUpdate] for the decryption and [EVP_DecryptFinal_ex](https://www.openssl.org/docs/man3.0/man3/EVP_DecryptFinal_ex.html) for authenticating.
+  - If `len(key) == 16` then the cipher used is [EVP_aes_128_gcm].
+  - If `len(key) == 24` then the cipher used is [EVP_aes_192_gcm].
+  - If `len(key) == 32` then the cipher used is [EVP_aes_256_gcm].
+- `Seal(dst, nonce, plaintext, additionalData []byte) []byte` encrypts plaintext and uses additionalData to authenticate. It uses [EVP_EncryptUpdate] for the encryption and [EVP_EncryptFinal_ex] for authenticating.
+- `Open(dst, nonce, ciphertext, additionalData []byte) ([]byte, error)` decrypts plaintext and uses additionalData to authenticate. It uses [EVP_DecryptUpdate] for the decryption and [EVP_DecryptFinal_ex] for authenticating.
 
 If `cipher` is not FIPS compliant then `aead` is implemented by the standard Go library.
 
@@ -184,11 +196,11 @@ NewCBCDecrypter returns a BlockMode which decrypts in cipher block chaining mode
 
 If `block` is FIPS compliant then `cbc` implements the cipher.BlockMode using an OpenSSL cipher that depends on the `block` key length:
 
-- If `len(key) == 16` then the cipher used is [EVP_aes_128_cbc](https://www.openssl.org/docs/man3.0/man3/EVP_aes_128_cbc.html).
-- If `len(key) == 24` then the cipher used is [EVP_aes_192_cbc](https://www.openssl.org/docs/man3.0/man3/EVP_aes_192_cbc.html).
-- If `len(key) == 32` then the cipher used is [EVP_aes_256_cbc](https://www.openssl.org/docs/man3.0/man3/EVP_aes_256_cbc.html).
+- If `len(key) == 16` then the cipher used is [EVP_aes_128_cbc].
+- If `len(key) == 24` then the cipher used is [EVP_aes_192_cbc].
+- If `len(key) == 32` then the cipher used is [EVP_aes_256_cbc].
 
-In all cases the cipher will have the padding disabled using [EVP_CIPHER_CTX_set_padding](https://www.openssl.org/docs/man3.0/man3/EVP_CIPHER_CTX_set_padding.html).
+In all cases the cipher will have the padding disabled using [EVP_CIPHER_CTX_set_padding].
 
 The cipher.BlockMode methods are implemented as follows:
 
@@ -213,9 +225,9 @@ NewCBCEncrypter returns a BlockMode which encrypts in cipher block chaining mode
 
 If `block` is FIPS compliant then `cbc` implements the cipher.BlockMode using an OpenSSL cipher that depends on the `block` key length:
 
-- If `len(key) == 16` then the cipher used is [EVP_aes_128_cbc](https://www.openssl.org/docs/man3.0/man3/EVP_aes_128_cbc.html).
-- If `len(key) == 24` then the cipher used is [EVP_aes_192_cbc](https://www.openssl.org/docs/man3.0/man3/EVP_aes_192_cbc.html).
-- If `len(key) == 32` then the cipher used is [EVP_aes_256_cbc](https://www.openssl.org/docs/man3.0/man3/EVP_aes_256_cbc.html).
+- If `len(key) == 16` then the cipher used is [EVP_aes_128_cbc].
+- If `len(key) == 24` then the cipher used is [EVP_aes_192_cbc].
+- If `len(key) == 32` then the cipher used is [EVP_aes_256_cbc].
 
 The cipher.BlockMode methods are implemented as follows:
 
@@ -248,10 +260,9 @@ NewCTR returns a Stream which encrypts/decrypts using the given Block in counter
 
 If `block` is FIPS compliant then `ctr` implements the cipher.Stream using an OpenSSL cipher that depends on the `block` key length:
 
-- If `len(key) == 16` then the cipher used is [EVP_aes_128_ctr](https://www.openssl.org/docs/man3.0/man3/EVP_aes_128_ctr.html).
-- If `len(key) == 24` then the cipher used is [EVP_aes_192_ctr](https://www.openssl.org/docs/man3.0/man3/EVP_aes_192_ctr.html).
-- If `len(key) == 32` then the cipher used is [EVP_aes_256_ctr](https://www.openssl.org/docs/man3.0/man3/EVP_aes_256_ctr.html).
-
+- If `len(key) == 16` then the cipher used is [EVP_aes_128_ctr].
+- If `len(key) == 24` then the cipher used is [EVP_aes_192_ctr].
+- If `len(key) == 32` then the cipher used is [EVP_aes_256_ctr].
 
 The cipher.Stream methods are implemented as follows:
 - `XORKeyStream(dst, src []byte)` XORs each byte in the given slice using [EVP_EncryptUpdate].
@@ -318,7 +329,7 @@ Sign signs a hash using the private key.
 
 **Return values**
 
-`r` and `s` are generated using [ECDSA_sign](https://www.openssl.org/docs/man3.0/man3/ECDSA_sign.html).
+`r` and `s` are generated using [EVP_PKEY_sign].
 
 #### func [SignASN1](https://pkg.go.dev/crypto/ecdsa#SignASN1)
 
@@ -342,7 +353,7 @@ There are no specific parameters requirements in order to be FIPS compliant.
 
 **Return values**
 
-Returns `true` if the signature is valid using [ECDSA_verify](https://www.openssl.org/docs/man3.0/man3/ECDSA_verify.html).
+Returns `true` if the signature is valid using [EVP_PKEY_verify].
 
 #### func [VerifyASN1](https://pkg.go.dev/crypto/ecdsa#VerifyASN1)
 
@@ -362,9 +373,11 @@ GenerateKey generates a public and private key pair.
 
 **Parameters**
 
-`rand` must be boring.RandReader, else Sign will panic. `crypto/rand.Reader` normally meet this invariant as it is assigned to boring.RandReader in the crypto/rand init function.
+`rand` must be boring.RandReader, else GenerateKey will panic. `crypto/rand.Reader` normally meet this invariant as it is assigned to boring.RandReader in the crypto/rand init function.
 
 **Return values**
+
+`priv` is a wrapper around [EVP_PKEY].
 
 The `priv` curve algorithm depends on the value of `c`:
 
@@ -391,7 +404,7 @@ Sign signs `digest` with `priv`.
 
 **Return values**
 
-Signed messaged using [ECDSA_sign](https://www.openssl.org/docs/man3.0/man3/ECDSA_sign.html).
+Signed messaged using [EVP_PKEY_sign].
 
 ### [crypto/ed25519](https://pkg.go.dev/crypto/ed25519)
 
@@ -425,15 +438,15 @@ New returns a new HMAC hash using the given hash.Hash type and key.
 
 **Parameters**
 
-`h` must be one of the following functions in order to be FIPS compliant: sha1.New, sha256.New, or sha512.New.
+`h` must be one of the following functions in order to be FIPS compliant: sha1.New, sha224.New, sha256.New, sha384.New, or sha512.New.
 
 **Return values**
 
 The hash.Hash methods are implemented as follows:
 
-- `Write(p []byte) (int, error)` using [HMAC_Update](https://www.openssl.org/docs/manmaster/man3/HMAC_Update.html).
-- `Sum(in []byte) []byte` using [HMAC_Final](https://www.openssl.org/docs/manmaster/man3/HMAC_Final.html).
-- `Reset()` using [HMAC_Init_ex](https://www.openssl.org/docs/manmaster/man3/HMAC_Init_ex.html).
+- `Write(p []byte) (int, error)` using [HMAC_Update].
+- `Sum(in []byte) []byte` using [HMAC_Final].
+- `Reset()` using [HMAC_Init_ex].
 
 ### [crypto/md5](https://pkg.go.dev/crypto/md5)
 
@@ -450,7 +463,7 @@ var Reader io.Reader
 ```
 
 Reader is a global, shared instance of a cryptographically secure random number generator.
-It is assigned to boring.RandReader in the crypto/rand init function, which implements `io.Reader` by using the OpenSSL function [RAND_bytes](https://www.openssl.org/docs/man3.0/man3/RAND_bytes.html).
+It is assigned to boring.RandReader in the crypto/rand init function, which implements `io.Reader` by using the OpenSSL function [RAND_bytes].
 
 
 #### func [Int](https://pkg.go.dev/crypto/rand#Int)
@@ -505,11 +518,11 @@ New returns a new hash.Hash computing the SHA1 checksum.
 
 **Return values**
 
-The hash.Hash methods are implemented as follows:
+The hash.Hash methods are implemented usingas follows:
 
-- `Write(p []byte) (int, error)` using [SHA1_Update](https://www.openssl.org/docs/manmaster/man3/SHA1_Update.html).
-- `Sum(in []byte) []byte` using [SHA1_Final](https://www.openssl.org/docs/manmaster/man3/SHA1_Final.html).
-- `Reset()` using [SHA1_Init](https://www.openssl.org/docs/manmaster/man3/SHA1_Init.html).
+- `Write(p []byte) (int, error)` using [EVP_DigestUpdate].
+- `Sum(in []byte) []byte` using [EVP_DigestFinal].
+- `Reset()` using [EVP_DigestInit].
 
 #### func [Sum](https://pkg.go.dev/crypto/sha1#Sum)
 
@@ -534,11 +547,11 @@ New returns a new hash.Hash computing the SHA256 checksum.
 
 **Return values**
 
-The hash.Hash methods are implemented as follows:
+The hash.Hash methods are implemented usingas follows:
 
-- `Write(p []byte) (int, error)` using [SHA256_Update](https://www.openssl.org/docs/manmaster/man3/SHA256_Update.html).
-- `Sum(in []byte) []byte` using [SHA256_Final](https://www.openssl.org/docs/manmaster/man3/SHA256_Final.html).
-- `Reset()` using [SHA256_Init](https://www.openssl.org/docs/manmaster/man3/SHA256_Init.html).
+- `Write(p []byte) (int, error)` using [EVP_DigestUpdate].
+- `Sum(in []byte) []byte` using [EVP_DigestFinal].
+- `Reset()` using [EVP_DigestInit].
 
 
 #### func [New224](https://pkg.go.dev/crypto/sha256#New224)
@@ -551,11 +564,11 @@ New224 returns a new hash.Hash computing the SHA224 checksum.
 
 **Return values**
 
-The hash.Hash methods are implemented as follows:
+The hash.Hash methods are implemented usingas follows:
 
-- `Write(p []byte) (int, error)` using [SHA224_Update](https://www.openssl.org/docs/manmaster/man3/SHA224_Update.html).
-- `Sum(in []byte) []byte` using [SHA224_Final](https://www.openssl.org/docs/manmaster/man3/SHA224_Final.html).
-- `Reset()` using [SHA224_Init](https://www.openssl.org/docs/manmaster/man3/SHA224_Init.html).
+- `Write(p []byte) (int, error)` using [EVP_DigestUpdate].
+- `Sum(in []byte) []byte` using [EVP_DigestFinal].
+- `Reset()` using [EVP_DigestInit].
 
 #### func [Sum224](https://pkg.go.dev/crypto/sha256#Sum224)
 
@@ -589,11 +602,11 @@ New returns a new hash.Hash computing the SHA-512 checksum.
 
 **Return values**
 
-The hash.Hash methods are implemented as follows:
+The hash.Hash methods are implemented usingas follows:
 
-- `Write(p []byte) (int, error)` using [SHA512_Update](https://www.openssl.org/docs/manmaster/man3/SHA512_Update.html).
-- `Sum(in []byte) []byte` using [SHA512_Final](https://www.openssl.org/docs/manmaster/man3/SHA512_Final.html).
-- `Reset()` using [SHA512_Init](https://www.openssl.org/docs/manmaster/man3/SHA512_Init.html).
+- `Write(p []byte) (int, error)` using [EVP_DigestUpdate].
+- `Sum(in []byte) []byte` using [EVP_DigestFinal].
+- `Reset()` using [EVP_DigestInit].
 
 #### func [New384](https://pkg.go.dev/crypto/sha512#New384)
 
@@ -605,11 +618,11 @@ New384 returns a new hash.Hash computing the SHA-384 checksum.
 
 **Return values**
 
-The hash.Hash methods are implemented as follows:
+The hash.Hash methods are implemented usingas follows:
 
-- `Write(p []byte) (int, error)` using [SHA384_Update](https://www.openssl.org/docs/manmaster/man3/SHA384_Update.html).
-- `Sum(in []byte) []byte` using [SHA384_Final](https://www.openssl.org/docs/manmaster/man3/SHA384_Final.html).
-- `Reset()` using [SHA384_Init](https://www.openssl.org/docs/manmaster/man3/SHA384_Init.html).
+- `Write(p []byte) (int, error)` using [EVP_DigestUpdate].
+- `Sum(in []byte) []byte` using [EVP_DigestFinal].
+- `Reset()` using [EVP_DigestInit].
 
 #### func [New512_224](https://pkg.go.dev/crypto/sha512#New512_224)
 
@@ -644,6 +657,204 @@ sha512.Sum512_224 is not FIPS compliant.
 #### func [Sum512_256](https://pkg.go.dev/crypto/sha512#Sum512_256)
 
 sha512.Sum512_256 is not FIPS compliant.
+
+### [crypto/rsa](https://pkg.go.dev/crypto/rsa)
+
+Package rsa implements RSA encryption as specified in PKCS #1 and RFC 8017.
+
+#### func [DecryptOAEP](https://pkg.go.dev/crypto/rsa#DecryptOAEP)
+
+```go
+func rsa.DecryptOAEP(h hash.Hash, rand io.Reader, priv *rsa.PrivateKey, ciphertext []byte, label []byte) ([]byte, error)
+```
+
+DecryptOAEP decrypts ciphertext using RSA-OAEP.
+
+**Parameters**
+
+`h` must be the result of one of the following functions in order to be FIPS compliant: sha1.New(), sha224.New(), sha256.New(), sha384.New(), or sha512.New().
+If this invariant is not met, DecryptOAEP won't be FIPS compliant but still will decrypt the message.
+
+`rand` is not used.
+
+**Return values**
+
+The decrypted buffer generated using [EVP_PKEY_decrypt] with `RSA_PKCS1_OAEP_PADDING`.
+
+#### func [DecryptPKCS1v15](https://pkg.go.dev/crypto/rsa#DecryptPKCS1v15)
+
+```go
+func rsa.DecryptPKCS1v15(rand io.Reader, priv *rsa.PrivateKey, ciphertext []byte) ([]byte, error)
+```
+
+DecryptPKCS1v15 decrypts a plaintext using RSA and the padding scheme from PKCS #1 v1.5.
+
+**Parameters**
+
+`rand` is not used.
+
+**Return values**
+
+The plaintext message generated using [EVP_PKEY_decrypt] with `RSA_PKCS1_PADDING`.
+
+#### func [DecryptPKCS1v15SessionKey](https://pkg.go.dev/crypto/rsa#DecryptPKCS1v15SessionKey)
+
+```go
+func rsa.DecryptPKCS1v15SessionKey(rand io.Reader, priv *PrivateKey, ciphertext []byte, key []byte) error
+```
+
+DecryptPKCS1v15SessionKey decrypts a session key using RSA and the padding scheme from PKCS #1 v1.5.
+
+**Parameters**
+
+`rand` is not used.
+
+The plaintext message generated using [EVP_PKEY_decrypt] with `RSA_PKCS1_PADDING` is copied into `key`.
+
+#### func [EncryptPKCS1v15](https://pkg.go.dev/crypto/rsa#EncryptPKCS1v15)
+
+```go
+func rsa.SignPKCS1v15(rand io.Reader, priv *rsa.PrivateKey, hash crypto.Hash, hashed []byte) ([]byte, error)
+```
+
+SignPKCS1v15 calculates the signature of hashed using RSASSA-PKCS1-V1_5-SIGN from RSA PKCS #1 v1.5.
+
+**Parameters**
+
+`rand` is not used.
+
+`hash` can be one of the following values: crypto.MD5, crypto.MD5SHA1, crypto.SHA1, crypto.SHA224, crypto.SHA256, rypto.SHA384, or crypto.SHA512. Else SignPKCS1v15 will fail.
+
+`hashed` must be the result of hashing a message using a FIPS compliant hashing algorithm. If this invariant is not met, Sign won't be FIPS compliant but still will sign the message.
+
+**Return values**
+
+The ciphertext message generated using [EVP_PKEY_encrypt] with `RSA_PKCS1_PADDING`.
+
+#### func [SignPSS](https://pkg.go.dev/crypto/rsa#SignPSS)
+
+```go
+func rsa.SignPSS(rand io.Reader, priv *rsa.PrivateKey, hash crypto.Hash, digest []byte, opts *PSSOptions) ([]byte, error)
+```
+
+SignPSS calculates the signature of digest using PSS.
+
+**Parameters**
+
+`rand` must be boring.RandReader, else SignPSS will panic. `crypto/rand.Reader` normally meets this invariant, as it is assigned to boring.RandReader in the crypto/rand init function.
+
+`hash` can be one of the following values: crypto.MD5, crypto.MD5SHA1, crypto.SHA1, crypto.SHA224, crypto.SHA256, rypto.SHA384, or crypto.SHA512. Else SignPSS will fail.
+
+`digest` must be the result of hashing a message using a FIPS compliant hashing algorithm. If this invariant is not met, SignPSS won't be FIPS compliant but still will sign the message.
+
+**Return values**
+
+The ciphertext message generated using [EVP_PKEY_encrypt] with `RSA_PKCS1_PSS_PADDING`.
+
+#### func [VerifyPKCS1v15](https://pkg.go.dev/crypto/rsa#VerifyPKCS1v15)
+
+```go
+func rsa.VerifyPKCS1v15(pub *rsa.PublicKey, hash crypto.Hash, hashed []byte, sig []byte) error
+```
+
+VerifyPKCS1v15 verifies an RSA PKCS #1 v1.5 signature.
+
+**Parameters**
+
+`hash` can be one of the following values: crypto.MD5, crypto.MD5SHA1, crypto.SHA1, crypto.SHA224, crypto.SHA256, rypto.SHA384, or crypto.SHA512. Else SignPSS will fail.
+
+`hashed` must be the result of hashing a message using a FIPS compliant hashing algorithm. If this invariant is not met, VerifyPKCS1v15 won't be FIPS compliant but still will sign the message.
+
+**Return values**
+
+An error if the signature can't be verified using [EVP_PKEY_verify] with `RSA_PKCS1_PADDING`.
+
+#### func [VerifyPSS](https://pkg.go.dev/crypto/rsa#VerifyPSS)
+
+```go
+func rsa.VerifyPSS(pub *rsa.PublicKey, hash crypto.Hash, digest []byte, sig []byte, opts *PSSOptions) error
+```
+
+VerifyPSS verifies a PSS signature.
+
+**Parameters**
+
+`hash` can be one of the following values: crypto.MD5, crypto.MD5SHA1, crypto.SHA1, crypto.SHA224, crypto.SHA256, rypto.SHA384, or crypto.SHA512. Else VerifyPSS will fail.
+
+`hashed` must be the result of hashing a message using a FIPS compliant hashing algorithm. If this invariant is not met, VerifyPSS won't be FIPS compliant but still will sign the message.
+
+**Return values**
+
+An error if the signature can't be verified using [EVP_PKEY_verify] with `RSA_PKCS1_PSS_PADDING`.
+
+#### func [GenerateKey](https://pkg.go.dev/crypto/rsa#GenerateKey)
+
+```go
+func rsa.GenerateKey(rand io.Reader, bits int) (priv *rsa.PrivateKey, err error)
+```
+
+GenerateKey generates a public and private key pair.
+
+**Parameters**
+
+`rand` must be boring.RandReader. `crypto/rand.Reader` normally meet this invariant as it is assigned to boring.RandReader in the crypto/rand init function.
+
+`bits` must be either 2048 or 3072.
+
+If any invariant is not met, GenerateMultiPrimeKey won't be FIPS compliant but still will generate the key pair.
+
+**Return values**
+
+`priv` is a wrapper around [EVP_PKEY].
+
+#### func [GenerateMultiPrimeKey](https://pkg.go.dev/crypto/rsa#GenerateMultiPrimeKey)
+
+```go
+func rsa.GenerateMultiPrimeKey(rand io.Reader, nprimes int, bits int) (priv *rsa.PrivateKey, err error)
+```
+
+GenerateMultiPrimeKey generates a multi-prime RSA keypair of the given bit size.
+
+**Parameters**
+
+`rand` must be boring.RandReader. `crypto/rand.Reader` normally meet this invariant as it is assigned to boring.RandReader in the crypto/rand init function.
+
+`nprimes` must be 3. 
+
+`bits` must be either 2048 or 3072.
+
+If any invariant is not met, GenerateMultiPrimeKey won't be FIPS compliant but still will generate the key pair.
+
+**Return values**
+
+`priv` is a wrapper around [EVP_PKEY].
+
+#### func [PrivateKey.Decrypt](https://pkg.go.dev/crypto/rsa#PrivateKey.Decrypt)
+
+```go
+func (priv *PrivateKey) Decrypt(rand io.Reader, ciphertext []byte, opts crypto.DecrypterOpts) (plaintext []byte, err error)
+```
+
+Decrypt decrypts `ciphertext` with `priv`.
+
+If `opts` is nil, `priv.Decrypt` is calls `rsa.DecryptPKCS1v15(rand, priv, ciphertext)`.
+If `opts` is of type `*rsa.OAEPOptions`, `priv.Decrypt` calls `rsa.DecryptOAEP(opts.Hash.New(), rand, priv, ciphertext, opts.Label)`.
+If `opts` is of type `*rsa.PKCS1v15DecryptOptions` and `opts.SessionKeyLen > 0`, `priv.Decrypt` calls `rsa.DecryptPKCS1v15SessionKey(rand, priv, ciphertext, plaintext)` with a random `plaintext`.
+If `opts` is of type `*rsa.PKCS1v15DecryptOptions` and `opts.SessionKeyLen == 0`, `priv.Decrypt` calls `rsa.DecryptPKCS1v15(rand, priv, ciphertext)`.
+Else it returns an error.
+Check those function for the parameters restrictions.
+
+#### func [PrivateKey.Sign](https://pkg.go.dev/crypto/rsa#PrivateKey.Sign)
+
+```go
+func (priv *rsa.PrivateKey) Sign(rand io.Reader, digest []byte, opts crypto.SignerOpts) ([]byte, error)
+```
+
+Sign signs `digest` with `priv`.
+
+If `opts` is of type `*rsa.PSSOptions`, `priv.Sign` calls `rsa.SignPSS(rand, priv, pssOpts.Hash, digest, opts)`.
+Else it calls `rsa.SignPKCS1v15(rand, priv, opts.HashFunc(), digest)`.
+Check those function for the parameters restrictions.
 
 ### [crypto/subtle](https://pkg.go.dev/crypto/subtle)
 
@@ -685,3 +896,30 @@ When using TLS in FIPS-only mode the TLS handshake has the following restriction
 
 [EVP_EncryptUpdate]: https://www.openssl.org/docs/manmaster/man3/EVP_EncryptUpdate.html
 [EVP_DecryptUpdate]: https://www.openssl.org/docs/manmaster/man3/EVP_DecryptUpdate.html
+[RAND_bytes]: https://www.openssl.org/docs/man3.0/man3/RAND_bytes.html
+[EVP_PKEY]: https://www.openssl.org/docs/man3.0/man3/EVP_PKEY.html
+[EVP_PKEY_sign]: https://www.openssl.org/docs/man3.0/man3/EVP_PKEY_sign.html
+[EVP_PKEY_verify]: https://www.openssl.org/docs/man3.0/man3/EVP_PKEY_verify.html
+[EVP_PKEY_encrypt]: https://www.openssl.org/docs/man3.0/man3/EVP_PKEY_encrypt.html
+[EVP_PKEY_decrypt]: https://www.openssl.org/docs/man3.0/man3/EVP_PKEY_decrypt.html
+[EVP_DigestUpdate]: https://www.openssl.org/docs/man3.0/man3/EVP_DigestUpdate.html
+[EVP_DigestFinal]: https://www.openssl.org/docs/man3.0/man3/EVP_DigestFinal.html
+[EVP_DigestInit]: https://www.openssl.org/docs/man3.0/man3/EVP_DigestInit.html
+[EVP_EncryptFinal_ex]: https://www.openssl.org/docs/man3.0/man3/EVP_EncryptFinal_ex.html
+[EVP_DecryptFinal_ex]: https://www.openssl.org/docs/man3.0/man3/EVP_DecryptFinal_ex.html
+[EVP_CIPHER_CTX_set_padding]: https://www.openssl.org/docs/man3.0/man3/EVP_CIPHER_CTX_set_padding.html
+[EVP_aes_128_ecb]: https://www.openssl.org/docs/man3.0/man3/EVP_aes_128_ecb.html
+[EVP_aes_192_ecb]: https://www.openssl.org/docs/man3.0/man3/EVP_aes_192_ecb.html
+[EVP_aes_256_ecb]: https://www.openssl.org/docs/man3.0/man3/EVP_aes_256_ecb.html
+[EVP_aes_128_gcm]: https://www.openssl.org/docs/man3.0/man3/EVP_aes_128_gcm.html
+[EVP_aes_192_gcm]: https://www.openssl.org/docs/man3.0/man3/EVP_aes_192_gcm.html
+[EVP_aes_256_gcm]: https://www.openssl.org/docs/man3.0/man3/EVP_aes_256_gcm.html
+[EVP_aes_128_ctr]: https://www.openssl.org/docs/man3.0/man3/EVP_aes_128_ctr.html
+[EVP_aes_192_ctr]: https://www.openssl.org/docs/man3.0/man3/EVP_aes_192_ctr.html
+[EVP_aes_256_ctr]: https://www.openssl.org/docs/man3.0/man3/EVP_aes_256_ctr.html
+[EVP_aes_128_cbc]: https://www.openssl.org/docs/man3.0/man3/EVP_aes_128_cbc.html
+[EVP_aes_192_cbc]: https://www.openssl.org/docs/man3.0/man3/EVP_aes_192_cbc.html
+[EVP_aes_256_cbc]: https://www.openssl.org/docs/man3.0/man3/EVP_aes_256_cbc.html
+[HMAC_Update]: https://www.openssl.org/docs/manmaster/man3/HMAC_Update.html
+[HMAC_Final]: https://www.openssl.org/docs/manmaster/man3/HMAC_Final.html
+[HMAC_Init_ex]: https://www.openssl.org/docs/manmaster/man3/HMAC_Init_ex.html
