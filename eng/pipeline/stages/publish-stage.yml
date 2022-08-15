@@ -2,24 +2,51 @@
 # Use of this source code is governed by a BSD-style
 # license that can be found in the LICENSE file.
 
+# Create a build asset JSON file as a pipeline artifact and publish build artifacts to blob storage.
+
+parameters:
+  - name: public
+    # Specify type so AzDO doesn't convert bool inputs into strings.
+    type: boolean
+    default: false
+
 stages:
-  - stage: Publish
+  - stage: Publish${{ parameters.public }}
+    ${{ if parameters.public }}:
+      displayName: Publish Public
+    ${{ if not(parameters.public) }}:
+      displayName: Publish Internal
     dependsOn: Sign
     jobs:
       - job: Publish
         pool:
           # This is a utility job: use generic recent LTS for publishing.
           vmImage: ubuntu-20.04
+
         variables:
+          - ${{ if parameters.public }}:
+            - name: blobContainer
+              value: 'https://dotnetbuildoutput.blob.core.windows.net/golang/microsoft'
+            - name: blobSASArg
+              value: --sas-token '$(dotnetbuildoutput-golang-write-sas-query)'
+          - ${{ if not(parameters.public) }}:
+            - name: blobContainer
+              value: 'https://golangartifacts.blob.core.windows.net/microsoft'
+            - name: blobSASArg
+              value: '' # golangartifacts is set up with service connection auth.
+
           - name: blobDestinationUrl
-            value: 'https://dotnetbuildoutput.blob.core.windows.net/golang/microsoft/$(PublishBranchAlias)/$(Build.BuildNumber)'
+            value: '$(blobContainer)/$(PublishBranchAlias)/$(Build.BuildNumber)'
+
           - group: go-storage
+
         workspace:
           clean: all
+
         steps:
-          - template: steps/checkout-unix-task.yml
-          - template: steps/init-pwsh-task.yml
-          - template: steps/init-submodule-task.yml
+          - template: ../steps/checkout-unix-task.yml
+          - template: ../steps/init-pwsh-task.yml
+          - template: ../steps/init-submodule-task.yml
 
           - pwsh: |
               function TrimStart($s, $prefix) {
@@ -58,8 +85,11 @@ stages:
             displayName: 'Create build asset JSON'
 
           - publish: $(Pipeline.Workspace)/Binaries Signed/assets.json
-            artifact: BuildAssets
-            displayName: Publish build asset JSON
+            displayName: Publish build asset JSON to pipeline
+            ${{ if parameters.public }}:
+              artifact: BuildAssets
+            ${{ if not(parameters.public) }}:
+              artifact: BuildAssetsInternal
 
           - task: AzureCLI@2
             displayName: Upload to blob storage
@@ -70,7 +100,7 @@ stages:
               # Send literal '*' to az: it handles the wildcard itself. Az copy only accepts one
               # "from" argument, so we can't use the shell's wildcard expansion.
               inlineScript: |
-                az storage copy -s '*' -d '$(blobDestinationUrl)' --sas-token '$(dotnetbuildoutput-golang-write-sas-query)'
+                az storage copy -s '*' -d '$(blobDestinationUrl)' $(blobSASArg)
               workingDirectory: '$(Pipeline.Workspace)/Binaries Signed/'
 
           - script: |
