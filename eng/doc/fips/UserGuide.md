@@ -373,7 +373,7 @@ GenerateKey generates a public and private key pair.
 
 **Parameters**
 
-`rand` must be boring.RandReader, else GenerateKey will panic. `crypto/rand.Reader` normally meet this invariant as it is assigned to boring.RandReader in the crypto/rand init function.
+`rand` must be boring.RandReader, else GenerateKey will panic. `crypto/rand.Reader` normally meets this invariant as it is assigned to boring.RandReader in the crypto/rand init function.
 
 **Return values**
 
@@ -723,7 +723,7 @@ SignPKCS1v15 calculates the signature of hashed using RSASSA-PKCS1-V1_5-SIGN fro
 
 `rand` is not used.
 
-`hash` can be one of the following values: crypto.MD5, crypto.MD5SHA1, crypto.SHA1, crypto.SHA224, crypto.SHA256, rypto.SHA384, or crypto.SHA512. Else SignPKCS1v15 will fail.
+`hash` must be one of the following values: crypto.MD5, crypto.MD5SHA1, crypto.SHA1, crypto.SHA224, crypto.SHA256, rypto.SHA384, or crypto.SHA512. Else SignPKCS1v15 will fail.
 
 `hashed` must be the result of hashing a message using a FIPS compliant hashing algorithm. If this invariant is not met, Sign won't be FIPS compliant but still will sign the message.
 
