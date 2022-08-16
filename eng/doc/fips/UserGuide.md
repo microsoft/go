@@ -922,7 +922,7 @@ DecryptOAEP decrypts ciphertext using RSA-OAEP.
 
 - `h` must be the result of one of the following functions: sha1.New(), sha224.New(), sha256.New(), sha384.New(), or sha512.New().
 - The CNG backend does not support sha224.New().
-- `rand` is not used.
+- `rand` is not used. Blinding, if implemented, is delegated to crypto backend.
 
 **Implementation**
 
@@ -948,7 +948,7 @@ DecryptPKCS1v15 decrypts a plaintext using RSA and the padding scheme from PKCS 
 
 **Requirements**
 
-- `rand` is not used.
+- `rand` is not used. Blinding, if implemented, is delegated to crypto backend.
 - `priv.Primes` length must be 2 when using the CNG backend.
 
 **Implementation**
@@ -975,7 +975,7 @@ DecryptPKCS1v15SessionKey decrypts a session key using RSA and the padding schem
 
 **Requirements**
 
-- `rand` is not used.
+- `rand` is not used. Blinding, if implemented, is delegated to crypto backend.
 - `priv.Primes` length must be 2 when using the CNG backend.
 
 **Implementation**
@@ -1026,7 +1026,7 @@ SignPKCS1v15 calculates the signature of hashed using RSASSA-PKCS1-V1_5-SIGN fro
 
 **Requirements**
 
-- `rand` is not used.
+- `rand` is not used. Blinding, if implemented, is delegated to crypto backend.
 - `priv.Primes` length must be 2 when using the CNG backend.
 - `hash` must be one of the following values: crypto.MD5, crypto.MD5SHA1, crypto.SHA1, crypto.SHA224, crypto.SHA256, rypto.SHA384, or crypto.SHA512. Else SignPKCS1v15 will fail.
 - The CNG backend does not support crypto.MD5SHA1 nor crypto.SHA224.
