@@ -1,6 +1,6 @@
 # FIPS 140-2 User Guide
 
-This document is a user guide for the Microsoft Go crypto package running on FIPS 140-2 compatibility mode (hereafter referred to as FIPS) when in use with the OpenSSL cryptographic library. It is intended as a technical reference for developers using, and system administrators installing, the Go toolset and the OpenSSL FIPS software, and for use in risk assessment reviews by security auditors. This is not a replacement for the Go crypto documentation, rather it is a collection of notes and more detailed explanations in the context of FIPS compatibility.
+This document is a user guide for the Microsoft Go crypto package running on FIPS 140-2 compatibility mode (hereafter referred to as FIPS). It is intended as a technical reference for developers using, and system administrators installing, the Go toolset, and for use in risk assessment reviews by security auditors. This is not a replacement for the Go crypto documentation, rather it is a collection of notes and more detailed explanations in the context of FIPS compatibility.
 
 The Go crypto documentation is available online at https://pkg.go.dev/crypto.
 
@@ -65,6 +65,7 @@ The Go crypto documentation is available online at https://pkg.go.dev/crypto.
       - [func DecryptPKCS1v15](#func-decryptpkcs1v15)
       - [func DecryptPKCS1v15SessionKey](#func-decryptpkcs1v15sessionkey)
       - [func EncryptPKCS1v15](#func-encryptpkcs1v15)
+      - [func SignPKCS1v15](#func-signpkcs1v15)
       - [func SignPSS](#func-signpss)
       - [func VerifyPKCS1v15](#func-verifypkcs1v15)
       - [func VerifyPSS](#func-verifypss)
@@ -79,6 +80,15 @@ The Go crypto documentation is available online at https://pkg.go.dev/crypto.
 
 This section describes how to use Go crypto APIs in a FIPS compliant manner.
 
+As a general rule, crypto APIs will delegate low-level operations to the crypto backend if these rules are meet:
+
+- The operation is supported by the crypto backend.
+- The set of input parameters are supported by the crypto backend.
+
+If any of the previous rules are not meet, then the operation will fall back to standard Go crypto unless not otherwise specified.
+
+When reading the requirements section, the key word "must" is to be interpreted as a necessary condition to use the given API in a FIPS compliant manner.
+
 ### [crypto/aes](https://pkg.go.dev/crypto/aes)
 
 Package aes implements AES encryption (formerly Rijndael), as defined in U.S. Federal Information Processing Standards Publication 197.
@@ -91,23 +101,39 @@ func aes.NewCipher(key []byte) (cipher cipher.Block, err error)
 
 NewCipher creates and returns a new [cipher.Block](https://pkg.go.dev/crypto/cipher#Block).
 
-**Parameters**
+**Requirements**
 
-`key` is an AES key of length 16, 24, or 32 bytes.
+- `key` length must be 16, 24, or 32 bytes.
 
-**Return values**
+**Implementation**
 
-`cipher` implements the cipher.Block interface using an OpenSSL cipher function that depends on the `key` length:
+<details><summary>OpenSSL</summary>
 
-- If `len(key) == 16` then the cipher used is [EVP_aes_128_ecb].
-- If `len(key) == 24` then the cipher used is [EVP_aes_192_ecb].
-- If `len(key) == 32` then the cipher used is [EVP_aes_256_ecb].
+`cipher` implements the cipher.Block interface using a cipher function that depends on the `key` length:
+
+- If `len(key) == 16` uses [EVP_aes_128_ecb].
+- If `len(key) == 24` uses [EVP_aes_192_ecb].
+- If `len(key) == 32` uses [EVP_aes_256_ecb].
 
 The cipher.Block methods are implemented as follows:
 
-- `BlockSize() int` always returns `16`.
-- `Encrypt(dst, src []byte)` encrypts `src` into `dst` using [EVP_EncryptUpdate].
-- `Decrypt(dst, src []byte` decrypts `src` into `dst` using [EVP_DecryptUpdate].
+- `BlockSize` always returns `16`.
+- `Encrypt` uses [EVP_EncryptUpdate].
+- `Decrypt` uses [EVP_DecryptUpdate].
+
+</details>
+
+<details><summary>CNG</summary>
+
+`cipher` implements the cipher.Block interface using the [algorithm identifier] `BCRYPT_AES_ALGORITHM` with `BCRYPT_CHAIN_MODE_ECB` mode, generated using [BCryptGenerateSymmetricKey].
+
+The cipher.Block methods are implemented as follows:
+
+- `BlockSize` always returns `16`.
+- `Encrypt` uses [BCryptEncrypt].
+- `Decrypt` uses [BCryptDecrypt].
+
+</details>
 
 ### [crypto/cipher](https://pkg.go.dev/crypto/cipher)
 
@@ -121,24 +147,38 @@ func cipher.NewGCM(cipher cipher.Block) (aead cipher.AEAD, err error)
 
 NewGCM returns the given 128-bit, block cipher wrapped in Galois Counter Mode with the standard nonce length.
 
-**Parameters**
+**Requirements**
 
-`cipher` must be an object created by [aes.NewCipher](https://pkg.go.dev/crypto/aes#NewCipher) in order to be FIPS compliant.
+- `cipher` must be an object created by [aes.NewCipher](#func-newcipher).
 
-**Return values**
+**Implementation**
 
-If `cipher` is FIPS compliant then `aead` implements the cipher.AEAD interface as follows:
+<details><summary>OpenSSL</summary>
 
-- `NonceSize() int` always returns `12`.
-- `Overhead() int` always returns `16`.
+`cipher` implements the cipher.AEAD interface using a cipher function that depends on the key length of cipher:
+
+- `NonceSize` always returns `12`.
+- `Overhead` always returns `16`.
 - The cipher used in `Seal` and `Open` depends on the key length used in `aes.NewCipher(key []byte)`:
-  - If `len(key) == 16` then the cipher used is [EVP_aes_128_gcm].
-  - If `len(key) == 24` then the cipher used is [EVP_aes_192_gcm].
-  - If `len(key) == 32` then the cipher used is [EVP_aes_256_gcm].
-- `Seal(dst, nonce, plaintext, additionalData []byte) []byte` encrypts plaintext and uses additionalData to authenticate. It uses [EVP_EncryptUpdate] for the encryption and [EVP_EncryptFinal_ex] for authenticating.
-- `Open(dst, nonce, ciphertext, additionalData []byte) ([]byte, error)` decrypts plaintext and uses additionalData to authenticate. It uses [EVP_DecryptUpdate] for the decryption and [EVP_DecryptFinal_ex] for authenticating.
+  - If `len(key) == 16` uses [EVP_aes_128_gcm].
+  - If `len(key) == 24` uses [EVP_aes_192_gcm].
+  - If `len(key) == 32` uses [EVP_aes_256_gcm].
+- `Seal` uses [EVP_EncryptUpdate] for the encryption and [EVP_EncryptFinal_ex] for authenticating.
+- `Open` uses [EVP_DecryptUpdate] for the decryption and [EVP_DecryptFinal_ex] for authenticating.
 
-If `cipher` is not FIPS compliant then `aead` is implemented by the standard Go library.
+</details>
+
+<details><summary>CNG</summary>
+
+`cipher` implements the cipher.Block interface using the [algorithm identifier] `BCRYPT_AES_ALGORITHM` with `BCRYPT_CHAIN_MODE_GCM` mode, generated using [BCryptGenerateSymmetricKey].
+
+The cipher.Block methods are implemented as follows:
+- `NonceSize` always returns `12`.
+- `Overhead` always returns `16`.
+- `Encrypt` uses [BCryptEncrypt].
+- `Decrypt` uses [BCryptDecrypt].
+
+</details>
 
 #### func [NewGCMWithNonceSize](https://pkg.go.dev/crypto/cipher#NewGCMWithNonceSize)
 
@@ -148,16 +188,17 @@ func cipher.NewGCMWithNonceSize(cipher cipher.Block, size int) (aead cipher.AEAD
 
 NewGCMWithNonceSize returns the given 128-bit, block cipher wrapped in Galois Counter Mode, which accepts nonces of the given length.
 
-**Parameters**
+**Requirements**
 
-`cipher` must be an object created by aes.NewCipher and `size = 12` in order to be FIPS compliant, else NewGCMWithNonceSize will fall back to standard Go crypto.
+- `cipher` must be an object created by [aes.NewCipher](#func-newcipher).
+- `size` must be 12.
 
-**Return values**
+**Implementation**
 
 `aead` can have different implementations depending on the supplied parameters:
 
-- If the parameters are FIPS compliant then `aead` behaves exactly as if it was created with cipher.NewGCM.
-- If `cipher` is an object created by aes.NewCipher and `size != 12` then `aead` is implemented by the standard Go library and OpenSSL is only used for encryption and decryption.
+- If the parameters meet the requirements, then `aead` behaves exactly as if it was created with [aes.NewCipher](#func-newgcm).
+- If `cipher` is an object created by [aes.NewCipher](#func-newcipher) and `size != 12`, then `aead` is implemented by the standard Go library and the crypto backend is only used for encryption and decryption.
 - Else `aead` is completely implemented by the standard Go library.
 
 #### func [NewGCMWithTagSize](https://pkg.go.dev/crypto/cipher#NewGCMWithTagSize)
@@ -168,16 +209,17 @@ func cipher.NewGCMWithTagSize(cipher cipher.Block, tagSize int) (aead cipher.AEA
 
 NewGCMWithTagSize returns the given 128-bit, block cipher wrapped in Galois Counter Mode, which generates tags with the given length.
 
-**Parameters**
+**Requirements**
 
-`cipher` must be an object created by aes.NewCipher and `tagSize = 16` in order to be FIPS compliant, else NewGCMWithTagSize will fall back to standard Go crypto.
+- `cipher` must be an object created by [aes.NewCipher](#func-newcipher).
+- `tagSize` must be 16.
 
-**Return values**
+**Implementation**
 
 `aead` can have different implementations depending on the supplied parameters:
 
-- If the parameters are FIPS compliant then `aead` behaves exactly as if it was created with cipher.NewGCM.
-- If `cipher` is an object created by aes.NewCipher and `tagSize != 16` then `aead` is implemented by the standard Go library using OpenSSL for encryption and decryption.
+- If the parameters meet the requirements, then `aead` behaves exactly as if it was created with [aes.NewCipher](#func-newgcm).
+- If `cipher` is an object created by [aes.NewCipher](#func-newcipher) and `tagSize != 16` then `aead` is implemented by the standard Go library using the crypto backend for encryption and decryption.
 - Else `aead` is completely implemented by the standard Go library.
 
 #### func [NewCBCDecrypter](https://pkg.go.dev/crypto/cipher#NewCBCDecrypter)
@@ -188,13 +230,15 @@ func cipher.NewCBCDecrypter(block Block, iv []byte) (cbc cipher.BlockMode)
 
 NewCBCDecrypter returns a BlockMode which decrypts in cipher block chaining mode, using the given Block.
 
-**Parameters**
+**Requirements**
 
-`block` must be an object created by [aes.NewCipher](https://pkg.go.dev/crypto/aes#NewCipher) in order to be FIPS compliant.
+- `block` must be an object created by [aes.NewCipher](#func-newcipher). 
 
-**Return values**
+**Implementation**
 
-If `block` is FIPS compliant then `cbc` implements the cipher.BlockMode using an OpenSSL cipher that depends on the `block` key length:
+<details><summary>OpenSSL</summary>
+
+`cbc` implements the cipher.BlockMode interface using a cipher that depends on the `block` key length:
 
 - If `len(key) == 16` then the cipher used is [EVP_aes_128_cbc].
 - If `len(key) == 24` then the cipher used is [EVP_aes_192_cbc].
@@ -204,10 +248,21 @@ In all cases the cipher will have the padding disabled using [EVP_CIPHER_CTX_set
 
 The cipher.BlockMode methods are implemented as follows:
 
-- `BlockSize() int` always returns `16`.
-- `CryptBlocks(dst, src []byte)` decrypts `src` into `dst` using [EVP_DecryptUpdate].
+- `BlockSize` always returns `16`.
+- `CryptBlocks` uses [EVP_DecryptUpdate].
 
-If `block` is not FIPS compliant then `cbc` is implemented by the standard Go library.
+</details>
+
+<details><summary>CNG</summary>
+
+`cipher` implements the cipher.Block interface using the [algorithm identifier] `BCRYPT_AES_ALGORITHM` with `BCRYPT_CHAIN_MODE_CBC` mode, generated using [BCryptGenerateSymmetricKey].
+
+The cipher.Block methods are implemented as follows:
+
+- `BlockSize` always returns `16`.
+- `CryptBlocks` uses [BCryptDecrypt].
+
+</details>
 
 #### func [NewCBCEncrypter](https://pkg.go.dev/crypto/cipher#NewCBCEncrypter)
 
@@ -217,13 +272,15 @@ func cipher.NewCBCEncrypter(block Block, iv []byte) (cbc cipher.BlockMode)
 
 NewCBCEncrypter returns a BlockMode which encrypts in cipher block chaining mode, using the given Block.
 
-**Parameters**
+**Requirements**
 
-`block` must be an object created by [aes.NewCipher](https://pkg.go.dev/crypto/aes#NewCipher) in order to be FIPS compliant.
+- `block` must be an object created by [aes.NewCipher](#func-newcipher). 
 
-**Return values**
+**Implementation**
 
-If `block` is FIPS compliant then `cbc` implements the cipher.BlockMode using an OpenSSL cipher that depends on the `block` key length:
+<details><summary>OpenSSL</summary>
+
+`cbc` implements the cipher.BlockMode interface using a cipher that depends on the `block` key length:
 
 - If `len(key) == 16` then the cipher used is [EVP_aes_128_cbc].
 - If `len(key) == 24` then the cipher used is [EVP_aes_192_cbc].
@@ -231,18 +288,29 @@ If `block` is FIPS compliant then `cbc` implements the cipher.BlockMode using an
 
 The cipher.BlockMode methods are implemented as follows:
 
-- `BlockSize() int` always returns `16`.
-- `CryptBlocks(dst, src []byte)` encrypts `src` into `dst` using [EVP_EncryptUpdate].
+- `BlockSize` always returns `16`.
+- `CryptBlocks` uses [EVP_EncryptUpdate].
 
-If `block` is not FIPS compliant then `cbc` is implemented by the standard Go library.
+</details>
+
+<details><summary>CNG</summary>
+
+`cipher` implements the cipher.Block interface using the [algorithm identifier] `BCRYPT_AES_ALGORITHM` with `BCRYPT_CHAIN_MODE_CBC` mode, generated using [BCryptGenerateSymmetricKey].
+
+The cipher.Block methods are implemented as follows:
+
+- `BlockSize` always returns `16`.
+- `CryptBlocks` uses [BCryptEncrypt].
+
+</details>
 
 #### func [NewCFBDecrypter](https://pkg.go.dev/crypto/cipher#NewCFBDecrypter)
 
-cipher.NewCFBDecrypter is not FIPS compliant.
+cipher.NewCFBDecrypter is not implemented by any backend.
 
 #### func [NewCFBEncrypter](https://pkg.go.dev/crypto/cipher#NewCFBEncrypter)
 
-cipher.NewCFBEncrypter is not FIPS compliant.
+cipher.NewCFBEncrypter is not implemented by any backend.
 
 #### func [NewCTR](https://pkg.go.dev/crypto/cipher#NewCTR)
 
@@ -252,13 +320,16 @@ func cipher.NewCTR(block Block, iv []byte) (ctr cipher.BlockMode)
 
 NewCTR returns a Stream which encrypts/decrypts using the given Block in counter mode.
 
-**Parameters**
+**Requirements**
 
-`block` must be an object created by [aes.NewCipher](https://pkg.go.dev/crypto/aes#NewCipher) in order to be FIPS compliant.
+- The CNG backend does not implement this function.
+- `block` must be an object created by [aes.NewCipher](#func-newcipher).
 
-**Return values**
+**Implementation**
 
-If `block` is FIPS compliant then `ctr` implements the cipher.Stream using an OpenSSL cipher that depends on the `block` key length:
+<details><summary>OpenSSL</summary>
+
+`ctr` implements the cipher.Stream interface using a cipher that depends on the `block` key length:
 
 - If `len(key) == 16` then the cipher used is [EVP_aes_128_ctr].
 - If `len(key) == 24` then the cipher used is [EVP_aes_192_ctr].
@@ -267,11 +338,11 @@ If `block` is FIPS compliant then `ctr` implements the cipher.Stream using an Op
 The cipher.Stream methods are implemented as follows:
 - `XORKeyStream(dst, src []byte)` XORs each byte in the given slice using [EVP_EncryptUpdate].
 
-If `block` is not FIPS compliant then `ctr` is implemented by the standard Go library.
+</details>
 
 #### func [NewOFB](https://pkg.go.dev/crypto/cipher#NewOFB)
 
-cipher.NewOFB is not FIPS compliant.
+cipher.NewOFB is not implemented by any backend.
 
 #### func [StreamReader.Read](https://pkg.go.dev/crypto/cipher#StreamReader.Read)
 
@@ -279,7 +350,10 @@ cipher.NewOFB is not FIPS compliant.
 func (r cipher.StreamReader) Read(dst []byte) (n int, err error)
 ```
 
-Can be used in a FIPS compliant manner if `r.S` is an object created using cipher.NewCTR with FIPS compliant parameters.
+**Requirements**
+
+- The CNG backend does not implement this function.
+- `r.S` must be an object created by [cipher.NewCTR](#func-newctr).
 
 #### func [StreamWriter.Write](https://pkg.go.dev/crypto/cipher#StreamWriter.Write)
 
@@ -287,7 +361,10 @@ Can be used in a FIPS compliant manner if `r.S` is an object created using ciphe
 func (w cipher.StreamWriter) Write(src []byte) (n int, err error)
 ```
 
-Can be used in a FIPS 140-2 compliant manner if `w.S` is an object created using cipher.NewCTR with FIPS compliant parameters.
+**Requirements**
+
+- The CNG backend does not implement this function.
+- `r.S` must be an object created by [cipher.NewCTR](#func-newctr).
 
 #### func [StreamWriter.Close](https://pkg.go.dev/crypto/cipher#StreamWriter.Close)
 
@@ -295,19 +372,19 @@ Can be used in a FIPS 140-2 compliant manner if `w.S` is an object created using
 func (w cipher.StreamWriter) Close() error
 ```
 
-Can be used in a FIPS 140-2 compliant manner if `w.S` is an object created using cipher.NewCTR with FIPS compliant parameters.
+Does not contain crypto algorithms, out of FIPS scope.
 
 ### [crypto/des](https://pkg.go.dev/crypto/des)
 
-Not FIPS compliant.
+Not implemented by any backend.
 
 ### [crypto/dsa](https://pkg.go.dev/crypto/dsa)
 
-Not FIPS compliant.
+Not implemented by any backend.
 
 ### [crypto/dsa](https://pkg.go.dev/crypto/dsa)
 
-Not FIPS compliant.
+Not implemented by any backend.
 
 ### [crypto/ecdsa](https://pkg.go.dev/crypto/ecdsa)
 
@@ -321,15 +398,24 @@ func ecdsa.Sign(rand io.Reader, priv *ecdsa.PrivateKey, hash []byte) (r, s *big.
 
 Sign signs a hash using the private key.
 
-**Parameters**
+**Requirements**
 
-`rand` must be boring.RandReader, else Sign will panic. `crypto/rand.Reader` normally meets this invariant, as it is assigned to boring.RandReader in the crypto/rand init function.
+- `rand` must be boring.RandReader, else Sign will panic. `crypto/rand.Reader` normally meets this invariant, as it is assigned to boring.RandReader in the crypto/rand init function.
+- `hash` must be the result of hashing a message using a FIPS compliant hashing algorithm.
 
-`hash` must be the result of hashing a message using a FIPS compliant hashing algorithm, else Sign won't be FIPS compliant but still will sign the message.
+**Implementation**
 
-**Return values**
+<details><summary>OpenSSL</summary>
 
 `r` and `s` are generated using [EVP_PKEY_sign].
+
+</details>
+
+<details><summary>CNG</summary>
+
+`r` and `s` are generated using [BCryptSignHash].
+
+</details>
 
 #### func [SignASN1](https://pkg.go.dev/crypto/ecdsa#SignASN1)
 
@@ -337,7 +423,7 @@ Sign signs a hash using the private key.
 func ecdsa.SignASN1(rand io.Reader, priv *ecdsa.PrivateKey, hash []byte) (sig []byte, err error)
 ```
 
-SignASN1 signs a hash using the private key. It behaves as ecdsa.Sign but returns an ASN.1 encoded signature instead.
+SignASN1 signs a hash using the private key. It behaves as [ecdsa.Sign](#func-sign) but returns an ASN.1 encoded signature instead.
 
 #### func [Verify](https://pkg.go.dev/crypto/ecdsa#Verify)
 
@@ -347,13 +433,23 @@ func ecdsa.Verify(pub *ecdsa.PublicKey, hash []byte, r, s *big.Int) bool
 
 Verify verifies the signature in r, s of hash using the public key.
 
-**Parameters**
+**Requirements**
 
 There are no specific parameters requirements in order to be FIPS compliant.
 
-**Return values**
+**Implementation**
 
-Returns `true` if the signature is valid using [EVP_PKEY_verify].
+<details><summary>OpenSSL</summary>
+
+The signature is verified using [EVP_PKEY_verify].
+
+</details>
+
+<details><summary>CNG</summary>
+
+The signature is verified using [BCryptVerifySignature].
+
+</details>
 
 #### func [VerifyASN1](https://pkg.go.dev/crypto/ecdsa#VerifyASN1)
 
@@ -361,7 +457,7 @@ Returns `true` if the signature is valid using [EVP_PKEY_verify].
 func ecdsa.VerifyASN1(pub *ecdsa.PublicKey, hash, sig []byte) bool
 ```
 
-VerifyASN1 verifies the ASN.1 encoded signature, sig, of hash using the public key. It behaves as ecdsa.Verify but accepts an ASN.1 encoded signature instead.
+VerifyASN1 verifies the ASN.1 encoded signature, sig, of hash using the public key. It behaves as [ecdsa.Verify](#func-verify) but accepts an ASN.1 encoded signature instead.
 
 #### func [GenerateKey](https://pkg.go.dev/crypto/ecdsa#GenerateKey)
 
@@ -371,22 +467,38 @@ func ecdsa.GenerateKey(c elliptic.Curve, rand io.Reader) (priv *ecdsa.PrivateKey
 
 GenerateKey generates a public and private key pair.
 
-**Parameters**
+**Requirements**
 
-`rand` must be boring.RandReader, else GenerateKey will panic. `crypto/rand.Reader` normally meets this invariant as it is assigned to boring.RandReader in the crypto/rand init function.
+- `c.Params().Name` must be one of the following values: P-224, P-256, P-384, or P-521.
+- The CNG backend does not support P-224. 
+- `rand` must be boring.RandReader, else GenerateKey will panic. `crypto/rand.Reader` normally meets this invariant as it is assigned to boring.RandReader in the crypto/rand init function.
 
-**Return values**
+**Implementation**
 
-`priv` is a wrapper around [EVP_PKEY].
+<details><summary>OpenSSL</summary>
 
-The `priv` curve algorithm depends on the value of `c`:
+`priv` is a wrapper around an [EVP_PKEY] generated using [EVP_PKEY_keygen].
+
+`priv` curve algorithm depends on the value of `c`:
 
 - If `c.Params().Name == "P-224"` then curve is `NID_secp224r1`.
 - If `c.Params().Name == "P-256"` then curve is `NID_X9_62_prime256v1`.
 - If `c.Params().Name == "P-384"` then curve is `NID_secp384r1`.
 - If `c.Params().Name == "P-521"` then curve is `NID_secp521r1`.
 
-Other `c` values will result in an error.
+</details>
+
+<details><summary>CNG</summary>
+
+`priv` is generated using [BCryptGenerateKeyPair].
+
+`priv` curve [algorithm identifier] depends on the value of `c`:
+
+- If `c.Params().Name == "P-256"` then curve is `BCRYPT_ECDSA_P256_ALGORITHM`.
+- If `c.Params().Name == "P-384"` then curve is `BCRYPT_ECDSA_P384_ALGORITHM`.
+- If `c.Params().Name == "P-521"` then curve is `BCRYPT_ECDSA_P521_ALGORITHM`.
+
+</details>
 
 #### func [PrivateKey.Sign](https://pkg.go.dev/crypto/ecdsa#PrivateKey.Sign)
 
@@ -396,23 +508,32 @@ func (priv *ecdsa.PrivateKey) Sign(rand io.Reader, digest []byte, opts crypto.Si
 
 Sign signs `digest` with `priv`.
 
-**Parameters**
+**Requirements**
 
-`rand` must be boring.RandReader, else Sign will panic. `crypto/rand.Reader` normally meet this invariant as it is assigned to boring.RandReader in the crypto/rand init function.
+- `rand` must be boring.RandReader, else Sign will panic. `crypto/rand.Reader` normally meet this invariant as it is assigned to boring.RandReader in the crypto/rand init function.
+- `digest` must be the result of hashing a message using a FIPS compliant hashing algorithm.
 
-`digest` must be the result of hashing a message using a FIPS compliant hashing algorithm, else Sign won't be FIPS compliant but still will sign the message.
+**Implementation**
 
-**Return values**
+<details><summary>OpenSSL</summary>
 
-Signed messaged using [EVP_PKEY_sign].
+The message is signed using [EVP_PKEY_sign].
+
+</details>
+
+<details><summary>CNG</summary>
+
+The message is signed using [BCryptSignHash].
+
+</details>
 
 ### [crypto/ed25519](https://pkg.go.dev/crypto/ed25519)
 
-Not FIPS compliant.
+Not implemented by any backend.
 
 ### [crypto/elliptic](https://pkg.go.dev/crypto/elliptic)
 
-Not FIPS compliant.
+Not implemented by any backend.
 
 ### [crypto/hmac](https://pkg.go.dev/crypto/hmac)
 
@@ -436,21 +557,47 @@ func hmac.New(h func() hash.Hash, key []byte) hash.Hash
 
 New returns a new HMAC hash using the given hash.Hash type and key.
 
-**Parameters**
+**Requirements**
 
-`h` must be one of the following functions in order to be FIPS compliant: sha1.New, sha224.New, sha256.New, sha384.New, or sha512.New.
+- `h` must be one of the following functions: sha1.New, sha224.New, sha256.New, sha384.New, or sha512.New.
+- The CNG backend does not support sha224.New. 
 
-**Return values**
+**Implementation**
+
+<details><summary>OpenSSL</summary>
+
+The hmac is generated using [HMAC_CTX_new] and [HMAC_Init_ex].
 
 The hash.Hash methods are implemented as follows:
 
-- `Write(p []byte) (int, error)` using [HMAC_Update].
-- `Sum(in []byte) []byte` using [HMAC_Final].
-- `Reset()` using [HMAC_Init_ex].
+- `Write` using [HMAC_Update].
+- `Sum` using [HMAC_Final].
+- `Reset` using [HMAC_Init_ex].
+
+</details>
+
+<details><summary>CNG</summary>
+
+The hmac is generated using [BCryptCreateHash] with the `BCRYPT_ALG_HANDLE_HMAC_FLAG` flag.
+
+The [algorithm identifier] depends on the value of `h`:
+
+- If `h == sha1.New` then algorithm is `BCRYPT_SHA1_ALGORITHM`.
+- If `h == sha256.New` then algorithm is `BCRYPT_SHA256_ALGORITHM`.
+- If `h == sha384.New` then algorithm is `BCRYPT_SHA384_ALGORITHM`.
+- If `h == sha512.New` then algorithm is `BCRYPT_SHA512_ALGORITHM`.
+
+The hash.Hash methods are implemented as follows:
+
+- `Write` using [BCryptHashData].
+- `Sum` using [BCryptFinishHash].
+- `Reset` using [BCryptDestroyHash] and [BCryptCreateHash].
+
+</details>
 
 ### [crypto/md5](https://pkg.go.dev/crypto/md5)
 
-Not FIPS compliant.
+Not implemented by any backend.
 
 ### [crypto/rand](https://pkg.go.dev/crypto/rand)
 
@@ -463,8 +610,22 @@ var Reader io.Reader
 ```
 
 Reader is a global, shared instance of a cryptographically secure random number generator.
-It is assigned to boring.RandReader in the crypto/rand init function, which implements `io.Reader` by using the OpenSSL function [RAND_bytes].
 
+It is assigned to boring.RandReader in the crypto/rand init function.
+
+**Implementation**
+
+<details><summary>OpenSSL</summary>
+
+`rand.Reader` implements `io.Reader` using [RAND_bytes]
+
+</details>
+
+<details><summary>CNG</summary>
+
+`rand.Reader` implements `io.Reader` using [BCryptGenRandom]
+
+</details>
 
 #### func [Int](https://pkg.go.dev/crypto/rand#Int)
 
@@ -474,9 +635,9 @@ func rand.Int(rand io.Reader, max *big.Int) (n *big.Int, err error)
 
 Int returns a uniform random value in [0, max). It panics if max <= 0.
 
-**Parameters**
+**Requirements**
 
-`rand` must be boring.RandReader in order to be FIPS compliant. `crypto/rand.Reader` normally meet this invariant as it is assigned to boring.RandReader in the crypto/rand init function.
+- `rand` must be boring.RandReader. `crypto/rand.Reader` normally meet this invariant as it is assigned to boring.RandReader in the crypto/rand init function.
 
 #### func [Prime](https://pkg.go.dev/crypto/rand#Prime)
 
@@ -486,9 +647,9 @@ func Prime(rand io.Reader, bits int) (p *big.Int, err error)
 
 func Prime(rand io.Reader, bits int) (p *big.Int, err error)
 
-**Parameters**
+**Requirements**
 
-`rand` must be boring.RandReader in order to be FIPS compliant. `crypto/rand.Reader` normally meet this invariant as it is assigned to boring.RandReader in the crypto/rand init function.
+`rand` must be boring.RandReader. `crypto/rand.Reader` normally meet this invariant as it is assigned to boring.RandReader in the crypto/rand init function.
 
 #### func [Read](https://pkg.go.dev/crypto/rand#Read)
 
@@ -496,11 +657,15 @@ func Prime(rand io.Reader, bits int) (p *big.Int, err error)
 func Read(b []byte) (n int, err error)
 ```
 
-Read is a helper function that calls rand.Reader.Read using io.ReadFull. It is FIPS compliant as long as `rand.Reader == boring.RandReader`.
+Read is a helper function that calls rand.Reader.Read using io.ReadFull.
+
+**Requirements**
+
+- `rand.Reader` must be boring.RandReader.
 
 ### [crypto/rc4](https://pkg.go.dev/crypto/rc4)
 
-Not FIPS compliant.
+Not implemented by any backend.
 
 ### [crypto/sha1](https://pkg.go.dev/crypto/sha1)
 
@@ -516,13 +681,31 @@ func sha1.New() hash.Hash
 
 New returns a new hash.Hash computing the SHA1 checksum.
 
-**Return values**
+**Implementation**
+
+<details><summary>OpenSSL</summary>
+
+The hash is generated using [EVP_MD_CTX_new] and [EVP_DigestInit_ex] with the algorithm [EVP_sha1].
 
 The hash.Hash methods are implemented as follows:
 
-- `Write(p []byte) (int, error)` using [EVP_DigestUpdate].
-- `Sum(in []byte) []byte` using [EVP_DigestFinal].
-- `Reset()` using [EVP_DigestInit].
+- `Write` using [EVP_DigestUpdate].
+- `Sum(` using [EVP_DigestFinal].
+- `Reset` using [EVP_DigestInit].
+
+</details>
+
+<details><summary>CNG</summary>
+
+The hash is generated using [BCryptCreateHash] with the [algorithm identifier] `BCRYPT_SHA1_ALGORITHM`.
+
+The hash.Hash methods are implemented as follows:
+
+- `Write` using [BCryptHashData].
+- `Sum` using [BCryptFinishHash].
+- `Reset` using [BCryptDestroyHash] and [BCryptCreateHash].
+
+</details>
 
 #### func [Sum](https://pkg.go.dev/crypto/sha1#Sum)
 
@@ -545,14 +728,31 @@ func sha256.New() hash.Hash
 
 New returns a new hash.Hash computing the SHA256 checksum.
 
-**Return values**
+**Implementation**
+
+<details><summary>OpenSSL</summary>
+
+The hash is generated using [EVP_MD_CTX_new] and [EVP_DigestInit_ex] with the algorithm [EVP_sha256].
 
 The hash.Hash methods are implemented as follows:
 
-- `Write(p []byte) (int, error)` using [EVP_DigestUpdate].
-- `Sum(in []byte) []byte` using [EVP_DigestFinal].
-- `Reset()` using [EVP_DigestInit].
+- `Write` using [EVP_DigestUpdate].
+- `Sum(` using [EVP_DigestFinal].
+- `Reset` using [EVP_DigestInit].
 
+</details>
+
+<details><summary>CNG</summary>
+
+The hash is generated using [BCryptCreateHash] with the [algorithm identifier] `BCRYPT_SHA256_ALGORITHM`.
+
+The hash.Hash methods are implemented as follows:
+
+- `Write` using [BCryptHashData].
+- `Sum` using [BCryptFinishHash].
+- `Reset` using [BCryptDestroyHash] and [BCryptCreateHash].
+
+</details>
 
 #### func [New224](https://pkg.go.dev/crypto/sha256#New224)
 
@@ -562,13 +762,21 @@ func sha256.New224() hash.Hash
 
 New224 returns a new hash.Hash computing the SHA224 checksum.
 
-**Return values**
+**Requirements**
+
+- The CNG backend does not implement this function.
+
+<details><summary>OpenSSL</summary>
+
+The hash is generated using [EVP_MD_CTX_new] and [EVP_DigestInit_ex] with the algorithm [EVP_sha24].
 
 The hash.Hash methods are implemented as follows:
 
-- `Write(p []byte) (int, error)` using [EVP_DigestUpdate].
-- `Sum(in []byte) []byte` using [EVP_DigestFinal].
-- `Reset()` using [EVP_DigestInit].
+- `Write` using [EVP_DigestUpdate].
+- `Sum(` using [EVP_DigestFinal].
+- `Reset` using [EVP_DigestInit].
+
+</details>
 
 #### func [Sum224](https://pkg.go.dev/crypto/sha256#Sum224)
 
@@ -578,6 +786,10 @@ func sha256.Sum224(data []byte) [24]byte
 
 Sum224 returns the SHA224 checksum of the data.
 It internally uses sha224.New() to compute the checksum.
+
+**Requirements**
+
+- The CNG backend does not implement this function.
 
 #### func [Sum256](https://pkg.go.dev/crypto/sha256#Sum256)
 
@@ -600,13 +812,31 @@ func sha512.New() hash.Hash
 
 New returns a new hash.Hash computing the SHA-512 checksum.
 
-**Return values**
+**Implementation**
+
+<details><summary>OpenSSL</summary>
+
+The hash is generated using [EVP_MD_CTX_new] and [EVP_DigestInit_ex] with the algorithm [EVP_sha512].
 
 The hash.Hash methods are implemented as follows:
 
-- `Write(p []byte) (int, error)` using [EVP_DigestUpdate].
-- `Sum(in []byte) []byte` using [EVP_DigestFinal].
-- `Reset()` using [EVP_DigestInit].
+- `Write` using [EVP_DigestUpdate].
+- `Sum(` using [EVP_DigestFinal].
+- `Reset` using [EVP_DigestInit].
+
+</details>
+
+<details><summary>CNG</summary>
+
+The hash is generated using [BCryptCreateHash] with the [algorithm identifier] `BCRYPT_SHA512_ALGORITHM`.
+
+The hash.Hash methods are implemented as follows:
+
+- `Write` using [BCryptHashData].
+- `Sum` using [BCryptFinishHash].
+- `Reset` using [BCryptDestroyHash] and [BCryptCreateHash].
+
+</details>
 
 #### func [New384](https://pkg.go.dev/crypto/sha512#New384)
 
@@ -616,21 +846,39 @@ func sha512.New384() hash.Hash
 
 New384 returns a new hash.Hash computing the SHA-384 checksum.
 
-**Return values**
+**Implementation**
+
+<details><summary>OpenSSL</summary>
+
+The hash is generated using [EVP_MD_CTX_new] and [EVP_DigestInit_ex] with the algorithm [EVP_sha384].
 
 The hash.Hash methods are implemented as follows:
 
-- `Write(p []byte) (int, error)` using [EVP_DigestUpdate].
-- `Sum(in []byte) []byte` using [EVP_DigestFinal].
-- `Reset()` using [EVP_DigestInit].
+- `Write` using [EVP_DigestUpdate].
+- `Sum(` using [EVP_DigestFinal].
+- `Reset` using [EVP_DigestInit].
+
+</details>
+
+<details><summary>CNG</summary>
+
+The hash is generated using [BCryptCreateHash] with the [algorithm identifier] `BCRYPT_SHA384_ALGORITHM`.
+
+The hash.Hash methods are implemented as follows:
+
+- `Write` using [BCryptHashData].
+- `Sum` using [BCryptFinishHash].
+- `Reset` using [BCryptDestroyHash] and [BCryptCreateHash].
+
+</details>
 
 #### func [New512_224](https://pkg.go.dev/crypto/sha512#New512_224)
 
-sha512.New512_224 is not FIPS compliant.
+sha512.New512_224 is not implemented by any backend.
 
 #### func [New512_256](https://pkg.go.dev/crypto/sha512#New512_256)
 
-sha512.New512_256 is not FIPS compliant.
+sha512.New512_256 is not implemented by any backend.
 
 #### func [Sum384](https://pkg.go.dev/crypto/sha512#Sum384)
 
@@ -652,11 +900,11 @@ It internally uses sha512.New() to compute the checksum.
 
 #### func [Sum512_224](https://pkg.go.dev/crypto/sha512#Sum512_224)
 
-sha512.Sum512_224 is not FIPS compliant.
+sha512.Sum512_224 is not implemented by any backend.
 
 #### func [Sum512_256](https://pkg.go.dev/crypto/sha512#Sum512_256)
 
-sha512.Sum512_256 is not FIPS compliant.
+sha512.Sum512_256 is not implemented by any backend.
 
 ### [crypto/rsa](https://pkg.go.dev/crypto/rsa)
 
@@ -670,16 +918,25 @@ func rsa.DecryptOAEP(h hash.Hash, rand io.Reader, priv *rsa.PrivateKey, cipherte
 
 DecryptOAEP decrypts ciphertext using RSA-OAEP.
 
-**Parameters**
+**Requirements**
 
-`h` must be the result of one of the following functions in order to be FIPS compliant: sha1.New(), sha224.New(), sha256.New(), sha384.New(), or sha512.New().
-Else, DecryptOAEP won't be FIPS compliant but still will decrypt the message.
+- `h` must be the result of one of the following functions: sha1.New(), sha224.New(), sha256.New(), sha384.New(), or sha512.New().
+- The CNG backend does not support sha224.New().
+- `rand` is not used.
 
-`rand` is not used.
+**Implementation**
 
-**Return values**
+<details><summary>OpenSSL</summary>
 
-The decrypted buffer generated using [EVP_PKEY_decrypt] with `RSA_PKCS1_OAEP_PADDING`.
+`ciphertext` is decrypted using [EVP_PKEY_decrypt] with `RSA_PKCS1_OAEP_PADDING` pad mode.
+
+</details>
+
+<details><summary>CNG</summary>
+
+`ciphertext` is decrypted using [BCryptDecrypt] with [BCRYPT_OAEP_PADDING_INFO] padding information and `BCRYPT_PAD_OAEP` pad mode.
+
+</details>
 
 #### func [DecryptPKCS1v15](https://pkg.go.dev/crypto/rsa#DecryptPKCS1v15)
 
@@ -689,13 +946,24 @@ func rsa.DecryptPKCS1v15(rand io.Reader, priv *rsa.PrivateKey, ciphertext []byte
 
 DecryptPKCS1v15 decrypts a plaintext using RSA and the padding scheme from PKCS #1 v1.5.
 
-**Parameters**
+**Requirements**
 
-`rand` is not used.
+- `rand` is not used.
+- `priv.Primes` length must be 2 when using the CNG backend.
 
-**Return values**
+**Implementation**
 
-The plaintext message generated using [EVP_PKEY_decrypt] with `RSA_PKCS1_PADDING`.
+<details><summary>OpenSSL</summary>
+
+`ciphertext` is decrypted using [EVP_PKEY_decrypt] with `RSA_PKCS1_PADDING` pad mode.
+
+</details>
+
+<details><summary>CNG</summary>
+
+`ciphertext` is decrypted using [BCryptDecrypt] with `BCRYPT_PAD_PKCS1` pad mode.
+
+</details>
 
 #### func [DecryptPKCS1v15SessionKey](https://pkg.go.dev/crypto/rsa#DecryptPKCS1v15SessionKey)
 
@@ -705,13 +973,50 @@ func rsa.DecryptPKCS1v15SessionKey(rand io.Reader, priv *PrivateKey, ciphertext 
 
 DecryptPKCS1v15SessionKey decrypts a session key using RSA and the padding scheme from PKCS #1 v1.5.
 
-**Parameters**
+**Requirements**
 
-`rand` is not used.
+- `rand` is not used.
+- `priv.Primes` length must be 2 when using the CNG backend.
 
-The plaintext message generated using [EVP_PKEY_decrypt] with `RSA_PKCS1_PADDING` is copied into `key`.
+**Implementation**
+
+<details><summary>OpenSSL</summary>
+
+`ciphertext` is decrypted using [EVP_PKEY_decrypt] with `RSA_PKCS1_PADDING` pad mode and copied into `key`.
+
+</details>
+
+<details><summary>CNG</summary>
+
+`ciphertext` is decrypted using [BCryptDecrypt] with `BCRYPT_PAD_PKCS1` pad mode and copied into `key`.
+
+</details>
 
 #### func [EncryptPKCS1v15](https://pkg.go.dev/crypto/rsa#EncryptPKCS1v15)
+
+```go
+func rsa.EncryptPKCS1v15(rand io.Reader, pub *rsa.PublicKey, msg []byte) ([]byte, error)
+```
+
+**Requirements**
+
+- `rand` must be boring.RandReader, else SignPSS will panic. `crypto/rand.Reader` normally meets this invariant, as it is assigned to boring.RandReader in the crypto/rand init function.
+
+**Implementation**
+
+<details><summary>OpenSSL</summary>
+
+`msg` is encrypted using [EVP_PKEY_encrypt] with `RSA_PKCS1_PADDING` pad mode.
+
+</details>
+
+<details><summary>CNG</summary>
+
+`msg` is encrypted using [BCryptEncrypt] with `BCRYPT_PAD_PKCS1` pad mode.
+
+</details>
+
+#### func [SignPKCS1v15](https://pkg.go.dev/crypto/rsa#SignPKCS1v15)
 
 ```go
 func rsa.SignPKCS1v15(rand io.Reader, priv *rsa.PrivateKey, hash crypto.Hash, hashed []byte) ([]byte, error)
@@ -719,17 +1024,27 @@ func rsa.SignPKCS1v15(rand io.Reader, priv *rsa.PrivateKey, hash crypto.Hash, ha
 
 SignPKCS1v15 calculates the signature of hashed using RSASSA-PKCS1-V1_5-SIGN from RSA PKCS #1 v1.5.
 
-**Parameters**
+**Requirements**
 
-`rand` is not used.
+- `rand` is not used.
+- `priv.Primes` length must be 2 when using the CNG backend.
+- `hash` must be one of the following values: crypto.MD5, crypto.MD5SHA1, crypto.SHA1, crypto.SHA224, crypto.SHA256, rypto.SHA384, or crypto.SHA512. Else SignPKCS1v15 will fail.
+- The CNG backend does not support crypto.MD5SHA1 nor crypto.SHA224.
+- `hashed` must be the result of hashing a message using a FIPS compliant hashing algorithm.
 
-`hash` must be one of the following values: crypto.MD5, crypto.MD5SHA1, crypto.SHA1, crypto.SHA224, crypto.SHA256, rypto.SHA384, or crypto.SHA512. Else SignPKCS1v15 will fail.
+**Implementation**
 
-`hashed` must be the result of hashing a message using a FIPS compliant hashing algorithm, else Sign won't be FIPS compliant but still will sign the message.
+<details><summary>OpenSSL</summary>
 
-**Return values**
+`hashed` is signed using [EVP_PKEY_sign] with `RSA_PKCS1_PADDING`.
 
-The ciphertext message generated using [EVP_PKEY_encrypt] with `RSA_PKCS1_PADDING`.
+</details>
+
+<details><summary>CNG</summary>
+
+`hashed` is signed using [BCryptSignHash] with [BCRYPT_PKCS1_PADDING_INFO] padding information and `BCRYPT_PAD_PKCS1` pad mode.
+
+</details>
 
 #### func [SignPSS](https://pkg.go.dev/crypto/rsa#SignPSS)
 
@@ -739,17 +1054,29 @@ func rsa.SignPSS(rand io.Reader, priv *rsa.PrivateKey, hash crypto.Hash, digest 
 
 SignPSS calculates the signature of digest using PSS.
 
-**Parameters**
+**Requirements**
 
-`rand` must be boring.RandReader, else SignPSS will panic. `crypto/rand.Reader` normally meets this invariant, as it is assigned to boring.RandReader in the crypto/rand init function.
+- `rand` must be boring.RandReader, else SignPSS will panic. `crypto/rand.Reader` normally meets this invariant, as it is assigned to boring.RandReader in the crypto/rand init function.
+- `priv.Primes` length must be 2 when using the CNG backend.
+- `hash` can be one of the following values: crypto.MD5, crypto.MD5SHA1, crypto.SHA1, crypto.SHA224, crypto.SHA256, rypto.SHA384, or crypto.SHA512. Else SignPSS will fail.
+- The CNG backend does not support crypto.MD5SHA1 nor crypto.SHA224.
+- `digest` must be the result of hashing a message using a FIPS compliant hashing algorithm.
+- `opts` can be nil.
+- `opts.SaltLength` can either be a number of bytes, or one of the following constants: rsa.PSSSaltLengthAuto and rsa.PSSSaltLengthEqualsHash.
 
-`hash` can be one of the following values: crypto.MD5, crypto.MD5SHA1, crypto.SHA1, crypto.SHA224, crypto.SHA256, rypto.SHA384, or crypto.SHA512. Else SignPSS will fail.
+**Implementation**
 
-`digest` must be the result of hashing a message using a FIPS compliant hashing algorithm, else SignPSS won't be FIPS compliant but still will sign the message.
+<details><summary>OpenSSL</summary>
 
-**Return values**
+`digest` is signed using [EVP_PKEY_sign] with `RSA_PKCS1_PSS_PADDING` pad mode.
 
-The ciphertext message generated using [EVP_PKEY_encrypt] with `RSA_PKCS1_PSS_PADDING`.
+</details>
+
+<details><summary>CNG</summary>
+
+`digest` is signed using [BCryptSignHash] with [BCRYPT_PSS_PADDING_INFO] padding information and `BCRYPT_PAD_PSS` pad mode.
+
+</details>
 
 #### func [VerifyPKCS1v15](https://pkg.go.dev/crypto/rsa#VerifyPKCS1v15)
 
@@ -759,15 +1086,25 @@ func rsa.VerifyPKCS1v15(pub *rsa.PublicKey, hash crypto.Hash, hashed []byte, sig
 
 VerifyPKCS1v15 verifies an RSA PKCS #1 v1.5 signature.
 
-**Parameters**
+**Requirements**
 
-`hash` can be one of the following values: crypto.MD5, crypto.MD5SHA1, crypto.SHA1, crypto.SHA224, crypto.SHA256, rypto.SHA384, or crypto.SHA512. Else SignPSS will fail.
+- `hash` can be one of the following values: crypto.MD5, crypto.MD5SHA1, crypto.SHA1, crypto.SHA224, crypto.SHA256, rypto.SHA384, or crypto.SHA512. Else SignPSS will fail.
+- The CNG backend does not support crypto.MD5SHA1 nor crypto.SHA224.
+- `hashed` must be the result of hashing a message using a FIPS compliant hashing algorithm.
 
-`hashed` must be the result of hashing a message using a FIPS compliant hashing algorithm, else VerifyPKCS1v15 won't be FIPS compliant but still will sign the message.
+**Implementation**
 
-**Return values**
+<details><summary>OpenSSL</summary>
 
-An error if the signature can't be verified using [EVP_PKEY_verify] with `RSA_PKCS1_PADDING`.
+`sig` is verified using [EVP_PKEY_verify] with `RSA_PKCS1_PADDING` pad mode.
+
+</details>
+
+<details><summary>CNG</summary>
+
+`sig` is verified using [BCryptVerifySignature] with [BCRYPT_PKCS1_PADDING_INFO] padding information and `BCRYPT_PAD_PKCS1` pad mode.
+
+</details>
 
 #### func [VerifyPSS](https://pkg.go.dev/crypto/rsa#VerifyPSS)
 
@@ -777,15 +1114,28 @@ func rsa.VerifyPSS(pub *rsa.PublicKey, hash crypto.Hash, digest []byte, sig []by
 
 VerifyPSS verifies a PSS signature.
 
-**Parameters**
+**Requirements**
 
-`hash` can be one of the following values: crypto.MD5, crypto.MD5SHA1, crypto.SHA1, crypto.SHA224, crypto.SHA256, rypto.SHA384, or crypto.SHA512. Else VerifyPSS will fail.
+- `hash` can be one of the following values: crypto.MD5, crypto.MD5SHA1, crypto.SHA1, crypto.SHA224, crypto.SHA256, rypto.SHA384, or crypto.SHA512. Else VerifyPSS will fail.
+- The CNG backend does not support crypto.MD5SHA1 nor crypto.SHA224.
+- `digest` must be the result of hashing a message using a FIPS compliant hashing algorithm.
+- `opts` can be nil.
+- `opts.SaltLength` can either be a number of bytes, or one of the following constants: rsa.PSSSaltLengthAuto and rsa.PSSSaltLengthEqualsHash.
+- The CNG backend does not support nil `opts` nor rsa.PSSSaltLengthAuto.
 
-`hashed` must be the result of hashing a message using a FIPS compliant hashing algorithm, else VerifyPSS won't be FIPS compliant but still will sign the message.
+**Implementation**
 
-**Return values**
+<details><summary>OpenSSL</summary>
 
-An error if the signature can't be verified using [EVP_PKEY_verify] with `RSA_PKCS1_PSS_PADDING`.
+`sig` is verified using using [EVP_PKEY_verify] with `RSA_PKCS1_PSS_PADDING` pad mode.
+
+</details>
+
+<details><summary>CNG</summary>
+
+`sig` is verified using [BCryptVerifySignature] with [PSS_PADDING_INFO] padding information and `BCRYPT_PAD_PSS` pad mode.
+
+</details>
 
 #### func [GenerateKey](https://pkg.go.dev/crypto/rsa#GenerateKey)
 
@@ -795,17 +1145,24 @@ func rsa.GenerateKey(rand io.Reader, bits int) (priv *rsa.PrivateKey, err error)
 
 GenerateKey generates a public and private key pair.
 
-**Parameters**
+**Requirements**
 
-`rand` must be boring.RandReader. `crypto/rand.Reader` normally meet this invariant as it is assigned to boring.RandReader in the crypto/rand init function.
+- `rand` must be boring.RandReader. `crypto/rand.Reader` normally meet this invariant as it is assigned to boring.RandReader in the crypto/rand init function.
+- `bits` must be either 2048 or 3072.
 
-`bits` must be either 2048 or 3072.
+**Implementation**
 
-If any invariant is not met, GenerateMultiPrimeKey won't be FIPS compliant but still will generate the key pair.
+<details><summary>OpenSSL</summary>
 
-**Return values**
+`priv` is a wrapper around [EVP_PKEY] generated using [EVP_PKEY_keygen].
 
-`priv` is a wrapper around [EVP_PKEY].
+</details>
+
+<details><summary>CNG</summary>
+
+`priv` is generated using [BCryptGenerateKeyPair] with the [algorithm identifier] `BCRYPT_RSA_ALGORITHM`.
+
+</details>
 
 #### func [GenerateMultiPrimeKey](https://pkg.go.dev/crypto/rsa#GenerateMultiPrimeKey)
 
@@ -815,19 +1172,25 @@ func rsa.GenerateMultiPrimeKey(rand io.Reader, nprimes int, bits int) (priv *rsa
 
 GenerateMultiPrimeKey generates a multi-prime RSA keypair of the given bit size.
 
-**Parameters**
+**Requirements**
 
-`rand` must be boring.RandReader. `crypto/rand.Reader` normally meet this invariant as it is assigned to boring.RandReader in the crypto/rand init function.
+- `rand` must be boring.RandReader. `crypto/rand.Reader` normally meet this invariant as it is assigned to boring.RandReader in the crypto/rand init function.
+- `nprimes` must be 2. 
+- `bits` must be either 2048 or 3072.
 
-`nprimes` must be 3. 
+**Implementation**
 
-`bits` must be either 2048 or 3072.
+<details><summary>OpenSSL</summary>
 
-If any invariant is not met, GenerateMultiPrimeKey won't be FIPS compliant but still will generate the key pair.
+`priv` is a wrapper around [EVP_PKEY] generated using [EVP_PKEY_keygen].
 
-**Return values**
+</details>
 
-`priv` is a wrapper around [EVP_PKEY].
+<details><summary>CNG</summary>
+
+`priv` is generated using [BCryptGenerateKeyPair] with the [algorithm identifier] `BCRYPT_RSA_ALGORITHM`.
+
+</details>
 
 #### func [PrivateKey.Decrypt](https://pkg.go.dev/crypto/rsa#PrivateKey.Decrypt)
 
@@ -904,13 +1267,16 @@ When using TLS in FIPS-only mode the TLS handshake has the following restriction
 [EVP_DecryptUpdate]: https://www.openssl.org/docs/manmaster/man3/EVP_DecryptUpdate.html
 [RAND_bytes]: https://www.openssl.org/docs/man3.0/man3/RAND_bytes.html
 [EVP_PKEY]: https://www.openssl.org/docs/man3.0/man3/EVP_PKEY.html
+[EVP_PKEY_keygen]: https://www.openssl.org/docs/man3.0/man3/EVP_PKEY_keygen.html
 [EVP_PKEY_sign]: https://www.openssl.org/docs/man3.0/man3/EVP_PKEY_sign.html
 [EVP_PKEY_verify]: https://www.openssl.org/docs/man3.0/man3/EVP_PKEY_verify.html
 [EVP_PKEY_encrypt]: https://www.openssl.org/docs/man3.0/man3/EVP_PKEY_encrypt.html
 [EVP_PKEY_decrypt]: https://www.openssl.org/docs/man3.0/man3/EVP_PKEY_decrypt.html
+[EVP_MD_CTX_new]: https://www.openssl.org/docs/man3.0/man3/EVP_MD_CTX_new.html
 [EVP_DigestUpdate]: https://www.openssl.org/docs/man3.0/man3/EVP_DigestUpdate.html
 [EVP_DigestFinal]: https://www.openssl.org/docs/man3.0/man3/EVP_DigestFinal.html
 [EVP_DigestInit]: https://www.openssl.org/docs/man3.0/man3/EVP_DigestInit.html
+[EVP_DigestInit_ex]: https://www.openssl.org/docs/man3.0/man3/EVP_DigestInit_ex.html
 [EVP_EncryptFinal_ex]: https://www.openssl.org/docs/man3.0/man3/EVP_EncryptFinal_ex.html
 [EVP_DecryptFinal_ex]: https://www.openssl.org/docs/man3.0/man3/EVP_DecryptFinal_ex.html
 [EVP_CIPHER_CTX_set_padding]: https://www.openssl.org/docs/man3.0/man3/EVP_CIPHER_CTX_set_padding.html
@@ -926,6 +1292,30 @@ When using TLS in FIPS-only mode the TLS handshake has the following restriction
 [EVP_aes_128_cbc]: https://www.openssl.org/docs/man3.0/man3/EVP_aes_128_cbc.html
 [EVP_aes_192_cbc]: https://www.openssl.org/docs/man3.0/man3/EVP_aes_192_cbc.html
 [EVP_aes_256_cbc]: https://www.openssl.org/docs/man3.0/man3/EVP_aes_256_cbc.html
+[EVP_sha1]: https://www.openssl.org/docs/man3.0/man3/EVP_sha1.html
+[EVP_sha224]: https://www.openssl.org/docs/man3.0/man3/EVP_sha224.html
+[EVP_sha256]: https://www.openssl.org/docs/man3.0/man3/EVP_sha256.html
+[EVP_sha384]: https://www.openssl.org/docs/man3.0/man3/EVP_sha384.html
+[EVP_sha512]: https://www.openssl.org/docs/man3.0/man3/EVP_sha512.html
+[HMAC_CTX_new]: https://www.openssl.org/docs/manmaster/man3/HMAC_CTX_new.html
+[HMAC_Init_ex]: https://www.openssl.org/docs/manmaster/man3/HMAC_Init_ex.html
 [HMAC_Update]: https://www.openssl.org/docs/manmaster/man3/HMAC_Update.html
 [HMAC_Final]: https://www.openssl.org/docs/manmaster/man3/HMAC_Final.html
 [HMAC_Init_ex]: https://www.openssl.org/docs/manmaster/man3/HMAC_Init_ex.html
+
+[algorithm identifier]: https://docs.microsoft.com/en-us/windows/win32/seccng/cng-algorithm-identifiers
+[BCryptGenRandom]: https://docs.microsoft.com/en-us/windows/win32/api/bcrypt/nf-bcrypt-bcryptgenrandom
+[BCryptGenerateSymmetricKey]: https://docs.microsoft.com/en-us/windows/win32/api/bcrypt/nf-bcrypt-bcryptgeneratesymmetrickey
+[BCryptGenerateKeyPair]: https://docs.microsoft.com/en-us/windows/win32/api/bcrypt/nf-bcrypt-bcryptgeneratekeypair
+[BCryptImportKeyPair]: https://docs.microsoft.com/en-us/windows/win32/api/bcrypt/nf-bcrypt-bcryptimportkeypair
+[BCryptEncrypt]: https://docs.microsoft.com/en-us/windows/win32/api/bcrypt/nf-bcrypt-bcryptencrypt
+[BCryptDecrypt]: https://docs.microsoft.com/en-us/windows/win32/api/bcrypt/nf-bcrypt-bcryptdecrypt
+[BCryptSignHash]: https://docs.microsoft.com/en-us/windows/win32/api/bcrypt/nf-bcrypt-bcryptsignhash
+[BCryptVerifySignature]: https://docs.microsoft.com/en-us/windows/win32/api/bcrypt/nf-bcrypt-bcryptverifysignature
+[BCryptCreateHash]: https://docs.microsoft.com/en-us/windows/win32/api/bcrypt/nf-bcrypt-bcryptcreatehash
+[BCryptHashData]: https://docs.microsoft.com/en-us/windows/win32/api/bcrypt/nf-bcrypt-bcrypthashdata
+[BCryptFinishHash]: https://docs.microsoft.com/en-us/windows/win32/api/bcrypt/nf-bcrypt-bcryptfinishhash
+[BCryptDestroyHash]: https://docs.microsoft.com/en-us/windows/win32/api/bcrypt/nf-bcrypt-bcryptdestroyhash
+[BCRYPT_OAEP_PADDING_INFO]: https://docs.microsoft.com/en-us/windows/win32/api/Bcrypt/ns-bcrypt-bcrypt_oaep_padding_info
+[BCRYPT_PKCS1_PADDING_INFO]: https://docs.microsoft.com/en-us/windows/win32/api/Bcrypt/ns-bcrypt-bcrypt_pkcs1_padding_info
+[BCRYPT_PSS_PADDING_INFO]: https://docs.microsoft.com/en-us/windows/win32/api/Bcrypt/ns-bcrypt-bcrypt_pss_padding_info
