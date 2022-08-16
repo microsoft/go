@@ -150,7 +150,7 @@ NewGCMWithNonceSize returns the given 128-bit, block cipher wrapped in Galois Co
 
 **Parameters**
 
-`cipher` must be an object created by aes.NewCipher and `size = 12` in order to be FIPS compliant, else the function will fall back to standard Go crypto.
+`cipher` must be an object created by aes.NewCipher and `size = 12` in order to be FIPS compliant, else NewGCMWithNonceSize will fall back to standard Go crypto.
 
 **Return values**
 
@@ -170,7 +170,7 @@ NewGCMWithTagSize returns the given 128-bit, block cipher wrapped in Galois Coun
 
 **Parameters**
 
-`cipher` must be an object created by aes.NewCipher and `tagSize = 16` in order to be FIPS compliant, else the function will fall back to standard Go crypto.
+`cipher` must be an object created by aes.NewCipher and `tagSize = 16` in order to be FIPS compliant, else NewGCMWithTagSize will fall back to standard Go crypto.
 
 **Return values**
 
@@ -325,7 +325,7 @@ Sign signs a hash using the private key.
 
 `rand` must be boring.RandReader, else Sign will panic. `crypto/rand.Reader` normally meets this invariant, as it is assigned to boring.RandReader in the crypto/rand init function.
 
-`hash` must be the result of hashing a message using a FIPS compliant hashing algorithm. If this invariant is not met, Sign won't be FIPS compliant but still will sign the message.
+`hash` must be the result of hashing a message using a FIPS compliant hashing algorithm, else Sign won't be FIPS compliant but still will sign the message.
 
 **Return values**
 
@@ -400,7 +400,7 @@ Sign signs `digest` with `priv`.
 
 `rand` must be boring.RandReader, else Sign will panic. `crypto/rand.Reader` normally meet this invariant as it is assigned to boring.RandReader in the crypto/rand init function.
 
-`digest` must be the result of hashing a message using a FIPS compliant hashing algorithm. If this invariant is not met, Sign won't be FIPS compliant but still will sign the message.
+`digest` must be the result of hashing a message using a FIPS compliant hashing algorithm, else Sign won't be FIPS compliant but still will sign the message.
 
 **Return values**
 
@@ -518,7 +518,7 @@ New returns a new hash.Hash computing the SHA1 checksum.
 
 **Return values**
 
-The hash.Hash methods are implemented usingas follows:
+The hash.Hash methods are implemented as follows:
 
 - `Write(p []byte) (int, error)` using [EVP_DigestUpdate].
 - `Sum(in []byte) []byte` using [EVP_DigestFinal].
@@ -547,7 +547,7 @@ New returns a new hash.Hash computing the SHA256 checksum.
 
 **Return values**
 
-The hash.Hash methods are implemented usingas follows:
+The hash.Hash methods are implemented as follows:
 
 - `Write(p []byte) (int, error)` using [EVP_DigestUpdate].
 - `Sum(in []byte) []byte` using [EVP_DigestFinal].
@@ -564,7 +564,7 @@ New224 returns a new hash.Hash computing the SHA224 checksum.
 
 **Return values**
 
-The hash.Hash methods are implemented usingas follows:
+The hash.Hash methods are implemented as follows:
 
 - `Write(p []byte) (int, error)` using [EVP_DigestUpdate].
 - `Sum(in []byte) []byte` using [EVP_DigestFinal].
@@ -602,7 +602,7 @@ New returns a new hash.Hash computing the SHA-512 checksum.
 
 **Return values**
 
-The hash.Hash methods are implemented usingas follows:
+The hash.Hash methods are implemented as follows:
 
 - `Write(p []byte) (int, error)` using [EVP_DigestUpdate].
 - `Sum(in []byte) []byte` using [EVP_DigestFinal].
@@ -618,7 +618,7 @@ New384 returns a new hash.Hash computing the SHA-384 checksum.
 
 **Return values**
 
-The hash.Hash methods are implemented usingas follows:
+The hash.Hash methods are implemented as follows:
 
 - `Write(p []byte) (int, error)` using [EVP_DigestUpdate].
 - `Sum(in []byte) []byte` using [EVP_DigestFinal].
@@ -673,7 +673,7 @@ DecryptOAEP decrypts ciphertext using RSA-OAEP.
 **Parameters**
 
 `h` must be the result of one of the following functions in order to be FIPS compliant: sha1.New(), sha224.New(), sha256.New(), sha384.New(), or sha512.New().
-If this invariant is not met, DecryptOAEP won't be FIPS compliant but still will decrypt the message.
+Else, DecryptOAEP won't be FIPS compliant but still will decrypt the message.
 
 `rand` is not used.
 
@@ -725,7 +725,7 @@ SignPKCS1v15 calculates the signature of hashed using RSASSA-PKCS1-V1_5-SIGN fro
 
 `hash` must be one of the following values: crypto.MD5, crypto.MD5SHA1, crypto.SHA1, crypto.SHA224, crypto.SHA256, rypto.SHA384, or crypto.SHA512. Else SignPKCS1v15 will fail.
 
-`hashed` must be the result of hashing a message using a FIPS compliant hashing algorithm. If this invariant is not met, Sign won't be FIPS compliant but still will sign the message.
+`hashed` must be the result of hashing a message using a FIPS compliant hashing algorithm, else Sign won't be FIPS compliant but still will sign the message.
 
 **Return values**
 
@@ -745,7 +745,7 @@ SignPSS calculates the signature of digest using PSS.
 
 `hash` can be one of the following values: crypto.MD5, crypto.MD5SHA1, crypto.SHA1, crypto.SHA224, crypto.SHA256, rypto.SHA384, or crypto.SHA512. Else SignPSS will fail.
 
-`digest` must be the result of hashing a message using a FIPS compliant hashing algorithm. If this invariant is not met, SignPSS won't be FIPS compliant but still will sign the message.
+`digest` must be the result of hashing a message using a FIPS compliant hashing algorithm, else SignPSS won't be FIPS compliant but still will sign the message.
 
 **Return values**
 
@@ -763,7 +763,7 @@ VerifyPKCS1v15 verifies an RSA PKCS #1 v1.5 signature.
 
 `hash` can be one of the following values: crypto.MD5, crypto.MD5SHA1, crypto.SHA1, crypto.SHA224, crypto.SHA256, rypto.SHA384, or crypto.SHA512. Else SignPSS will fail.
 
-`hashed` must be the result of hashing a message using a FIPS compliant hashing algorithm. If this invariant is not met, VerifyPKCS1v15 won't be FIPS compliant but still will sign the message.
+`hashed` must be the result of hashing a message using a FIPS compliant hashing algorithm, else VerifyPKCS1v15 won't be FIPS compliant but still will sign the message.
 
 **Return values**
 
@@ -781,7 +781,7 @@ VerifyPSS verifies a PSS signature.
 
 `hash` can be one of the following values: crypto.MD5, crypto.MD5SHA1, crypto.SHA1, crypto.SHA224, crypto.SHA256, rypto.SHA384, or crypto.SHA512. Else VerifyPSS will fail.
 
-`hashed` must be the result of hashing a message using a FIPS compliant hashing algorithm. If this invariant is not met, VerifyPSS won't be FIPS compliant but still will sign the message.
+`hashed` must be the result of hashing a message using a FIPS compliant hashing algorithm, else VerifyPSS won't be FIPS compliant but still will sign the message.
 
 **Return values**
 
@@ -837,12 +837,15 @@ func (priv *PrivateKey) Decrypt(rand io.Reader, ciphertext []byte, opts crypto.D
 
 Decrypt decrypts `ciphertext` with `priv`.
 
-If `opts` is nil, `priv.Decrypt` is calls `rsa.DecryptPKCS1v15(rand, priv, ciphertext)`.
-If `opts` is of type `*rsa.OAEPOptions`, `priv.Decrypt` calls `rsa.DecryptOAEP(opts.Hash.New(), rand, priv, ciphertext, opts.Label)`.
-If `opts` is of type `*rsa.PKCS1v15DecryptOptions` and `opts.SessionKeyLen > 0`, `priv.Decrypt` calls `rsa.DecryptPKCS1v15SessionKey(rand, priv, ciphertext, plaintext)` with a random `plaintext`.
-If `opts` is of type `*rsa.PKCS1v15DecryptOptions` and `opts.SessionKeyLen == 0`, `priv.Decrypt` calls `rsa.DecryptPKCS1v15(rand, priv, ciphertext)`.
-Else it returns an error.
-Check those function for the parameters restrictions.
+The depcrypt function depends on `opts`:
+
+- If `opts` is nil, it calls [rsa.DecryptPKCS1v15](#func-decryptpkcs1v15)`(rand, priv, ciphertext)`.
+- If `opts` type is `*rsa.OAEPOptions`, it calls [rsa.DecryptOAEP](#func-decryptoaep)`(opts.Hash.New(), rand, priv, ciphertext, opts.Label)`.
+- If `opts` type is `*rsa.PKCS1v15DecryptOptions` and `opts.SessionKeyLen > 0`, it calls [rsa.DecryptPKCS1v15SessionKey](#func-decryptpkcs1v15sessionkey)`(rand, priv, ciphertext, plaintext)` with a random `plaintext`.
+- If `opts` type is `*rsa.PKCS1v15DecryptOptions` and `opts.SessionKeyLen == 0`, it calls [rsa.DecryptPKCS1v15](#func-decryptpkcs1v15)`(rand, priv, ciphertext)`.
+- Else it returns an error.
+
+Check the function named in the applicable case for the parameters' restrictions.
 
 #### func [PrivateKey.Sign](https://pkg.go.dev/crypto/rsa#PrivateKey.Sign)
 
@@ -852,9 +855,12 @@ func (priv *rsa.PrivateKey) Sign(rand io.Reader, digest []byte, opts crypto.Sign
 
 Sign signs `digest` with `priv`.
 
-If `opts` is of type `*rsa.PSSOptions`, `priv.Sign` calls `rsa.SignPSS(rand, priv, pssOpts.Hash, digest, opts)`.
-Else it calls `rsa.SignPKCS1v15(rand, priv, opts.HashFunc(), digest)`.
-Check those function for the parameters restrictions.
+The sign function depends on `opts`:
+
+- If `opts` type is `*rsa.PSSOptions`, it calls [rsa.SignPSS](#func-signpss)`(rand, priv, pssOpts.Hash, digest, opts)`
+- Else it calls [rsa.SignPKCS1v15](#func-signpkcs1v15)`(rand, priv, opts.HashFunc(), digest)`.
+
+Check the function named in the applicable case for the parameters' restrictions.
 
 ### [crypto/subtle](https://pkg.go.dev/crypto/subtle)
 
