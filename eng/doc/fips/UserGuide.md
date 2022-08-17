@@ -107,7 +107,7 @@ NewCipher creates and returns a new [cipher.Block](https://pkg.go.dev/crypto/cip
 
 **Implementation**
 
-<details><summary>OpenSSL</summary>
+<details><summary>OpenSSL (click for details)</summary>
 
 `cipher` implements the cipher.Block interface using a cipher function that depends on the `key` length:
 
@@ -123,7 +123,7 @@ The cipher.Block methods are implemented as follows:
 
 </details>
 
-<details><summary>CNG</summary>
+<details><summary>CNG (click for details)</summary>
 
 `cipher` implements the cipher.Block interface using the [algorithm identifier] `BCRYPT_AES_ALGORITHM` with `BCRYPT_CHAIN_MODE_ECB` mode, generated using [BCryptGenerateSymmetricKey].
 
@@ -153,7 +153,7 @@ NewGCM returns the given 128-bit, block cipher wrapped in Galois Counter Mode wi
 
 **Implementation**
 
-<details><summary>OpenSSL</summary>
+<details><summary>OpenSSL (click for details)</summary>
 
 `cipher` implements the cipher.AEAD interface using a cipher function that depends on the key length of cipher:
 
@@ -168,7 +168,7 @@ NewGCM returns the given 128-bit, block cipher wrapped in Galois Counter Mode wi
 
 </details>
 
-<details><summary>CNG</summary>
+<details><summary>CNG (click for details)</summary>
 
 `cipher` implements the cipher.Block interface using the [algorithm identifier] `BCRYPT_AES_ALGORITHM` with `BCRYPT_CHAIN_MODE_GCM` mode, generated using [BCryptGenerateSymmetricKey].
 
@@ -236,7 +236,7 @@ NewCBCDecrypter returns a BlockMode which decrypts in cipher block chaining mode
 
 **Implementation**
 
-<details><summary>OpenSSL</summary>
+<details><summary>OpenSSL (click for details)</summary>
 
 `cbc` implements the cipher.BlockMode interface using a cipher that depends on the `block` key length:
 
@@ -253,7 +253,7 @@ The cipher.BlockMode methods are implemented as follows:
 
 </details>
 
-<details><summary>CNG</summary>
+<details><summary>CNG (click for details)</summary>
 
 `cipher` implements the cipher.Block interface using the [algorithm identifier] `BCRYPT_AES_ALGORITHM` with `BCRYPT_CHAIN_MODE_CBC` mode, generated using [BCryptGenerateSymmetricKey].
 
@@ -278,7 +278,7 @@ NewCBCEncrypter returns a BlockMode which encrypts in cipher block chaining mode
 
 **Implementation**
 
-<details><summary>OpenSSL</summary>
+<details><summary>OpenSSL (click for details)</summary>
 
 `cbc` implements the cipher.BlockMode interface using a cipher that depends on the `block` key length:
 
@@ -293,7 +293,7 @@ The cipher.BlockMode methods are implemented as follows:
 
 </details>
 
-<details><summary>CNG</summary>
+<details><summary>CNG (click for details)</summary>
 
 `cipher` implements the cipher.Block interface using the [algorithm identifier] `BCRYPT_AES_ALGORITHM` with `BCRYPT_CHAIN_MODE_CBC` mode, generated using [BCryptGenerateSymmetricKey].
 
@@ -327,7 +327,7 @@ NewCTR returns a Stream which encrypts/decrypts using the given Block in counter
 
 **Implementation**
 
-<details><summary>OpenSSL</summary>
+<details><summary>OpenSSL (click for details)</summary>
 
 `ctr` implements the cipher.Stream interface using a cipher that depends on the `block` key length:
 
@@ -405,13 +405,13 @@ Sign signs a hash using the private key.
 
 **Implementation**
 
-<details><summary>OpenSSL</summary>
+<details><summary>OpenSSL (click for details)</summary>
 
 `r` and `s` are generated using [EVP_PKEY_sign].
 
 </details>
 
-<details><summary>CNG</summary>
+<details><summary>CNG (click for details)</summary>
 
 `r` and `s` are generated using [BCryptSignHash].
 
@@ -439,13 +439,13 @@ There are no specific parameters requirements in order to be FIPS compliant.
 
 **Implementation**
 
-<details><summary>OpenSSL</summary>
+<details><summary>OpenSSL (click for details)</summary>
 
 The signature is verified using [EVP_PKEY_verify].
 
 </details>
 
-<details><summary>CNG</summary>
+<details><summary>CNG (click for details)</summary>
 
 The signature is verified using [BCryptVerifySignature].
 
@@ -475,7 +475,7 @@ GenerateKey generates a public and private key pair.
 
 **Implementation**
 
-<details><summary>OpenSSL</summary>
+<details><summary>OpenSSL (click for details)</summary>
 
 `priv` is a wrapper around an [EVP_PKEY] generated using [EVP_PKEY_keygen].
 
@@ -488,7 +488,7 @@ GenerateKey generates a public and private key pair.
 
 </details>
 
-<details><summary>CNG</summary>
+<details><summary>CNG (click for details)</summary>
 
 `priv` is generated using [BCryptGenerateKeyPair].
 
@@ -515,13 +515,13 @@ Sign signs `digest` with `priv`.
 
 **Implementation**
 
-<details><summary>OpenSSL</summary>
+<details><summary>OpenSSL (click for details)</summary>
 
 The message is signed using [EVP_PKEY_sign].
 
 </details>
 
-<details><summary>CNG</summary>
+<details><summary>CNG (click for details)</summary>
 
 The message is signed using [BCryptSignHash].
 
@@ -564,7 +564,7 @@ New returns a new HMAC hash using the given hash.Hash type and key.
 
 **Implementation**
 
-<details><summary>OpenSSL</summary>
+<details><summary>OpenSSL (click for details)</summary>
 
 The hmac is generated using [HMAC_CTX_new] and [HMAC_Init_ex].
 
@@ -576,7 +576,7 @@ The hash.Hash methods are implemented as follows:
 
 </details>
 
-<details><summary>CNG</summary>
+<details><summary>CNG (click for details)</summary>
 
 The hmac is generated using [BCryptCreateHash] with the `BCRYPT_ALG_HANDLE_HMAC_FLAG` flag.
 
@@ -615,13 +615,13 @@ It is assigned to boring.RandReader in the crypto/rand init function.
 
 **Implementation**
 
-<details><summary>OpenSSL</summary>
+<details><summary>OpenSSL (click for details)</summary>
 
 `rand.Reader` implements `io.Reader` using [RAND_bytes]
 
 </details>
 
-<details><summary>CNG</summary>
+<details><summary>CNG (click for details)</summary>
 
 `rand.Reader` implements `io.Reader` using [BCryptGenRandom]
 
@@ -683,7 +683,7 @@ New returns a new hash.Hash computing the SHA1 checksum.
 
 **Implementation**
 
-<details><summary>OpenSSL</summary>
+<details><summary>OpenSSL (click for details)</summary>
 
 The hash is generated using [EVP_MD_CTX_new] and [EVP_DigestInit_ex] with the algorithm [EVP_sha1].
 
@@ -695,7 +695,7 @@ The hash.Hash methods are implemented as follows:
 
 </details>
 
-<details><summary>CNG</summary>
+<details><summary>CNG (click for details)</summary>
 
 The hash is generated using [BCryptCreateHash] with the [algorithm identifier] `BCRYPT_SHA1_ALGORITHM`.
 
@@ -730,7 +730,7 @@ New returns a new hash.Hash computing the SHA256 checksum.
 
 **Implementation**
 
-<details><summary>OpenSSL</summary>
+<details><summary>OpenSSL (click for details)</summary>
 
 The hash is generated using [EVP_MD_CTX_new] and [EVP_DigestInit_ex] with the algorithm [EVP_sha256].
 
@@ -742,7 +742,7 @@ The hash.Hash methods are implemented as follows:
 
 </details>
 
-<details><summary>CNG</summary>
+<details><summary>CNG (click for details)</summary>
 
 The hash is generated using [BCryptCreateHash] with the [algorithm identifier] `BCRYPT_SHA256_ALGORITHM`.
 
@@ -766,7 +766,7 @@ New224 returns a new hash.Hash computing the SHA224 checksum.
 
 - The CNG backend does not implement this function.
 
-<details><summary>OpenSSL</summary>
+<details><summary>OpenSSL (click for details)</summary>
 
 The hash is generated using [EVP_MD_CTX_new] and [EVP_DigestInit_ex] with the algorithm [EVP_sha24].
 
@@ -814,7 +814,7 @@ New returns a new hash.Hash computing the SHA-512 checksum.
 
 **Implementation**
 
-<details><summary>OpenSSL</summary>
+<details><summary>OpenSSL (click for details)</summary>
 
 The hash is generated using [EVP_MD_CTX_new] and [EVP_DigestInit_ex] with the algorithm [EVP_sha512].
 
@@ -826,7 +826,7 @@ The hash.Hash methods are implemented as follows:
 
 </details>
 
-<details><summary>CNG</summary>
+<details><summary>CNG (click for details)</summary>
 
 The hash is generated using [BCryptCreateHash] with the [algorithm identifier] `BCRYPT_SHA512_ALGORITHM`.
 
@@ -848,7 +848,7 @@ New384 returns a new hash.Hash computing the SHA-384 checksum.
 
 **Implementation**
 
-<details><summary>OpenSSL</summary>
+<details><summary>OpenSSL (click for details)</summary>
 
 The hash is generated using [EVP_MD_CTX_new] and [EVP_DigestInit_ex] with the algorithm [EVP_sha384].
 
@@ -860,7 +860,7 @@ The hash.Hash methods are implemented as follows:
 
 </details>
 
-<details><summary>CNG</summary>
+<details><summary>CNG (click for details)</summary>
 
 The hash is generated using [BCryptCreateHash] with the [algorithm identifier] `BCRYPT_SHA384_ALGORITHM`.
 
@@ -926,13 +926,13 @@ DecryptOAEP decrypts ciphertext using RSA-OAEP.
 
 **Implementation**
 
-<details><summary>OpenSSL</summary>
+<details><summary>OpenSSL (click for details)</summary>
 
 `ciphertext` is decrypted using [EVP_PKEY_decrypt] with `RSA_PKCS1_OAEP_PADDING` pad mode.
 
 </details>
 
-<details><summary>CNG</summary>
+<details><summary>CNG (click for details)</summary>
 
 `ciphertext` is decrypted using [BCryptDecrypt] with [BCRYPT_OAEP_PADDING_INFO] padding information and `BCRYPT_PAD_OAEP` pad mode.
 
@@ -953,13 +953,13 @@ DecryptPKCS1v15 decrypts a plaintext using RSA and the padding scheme from PKCS 
 
 **Implementation**
 
-<details><summary>OpenSSL</summary>
+<details><summary>OpenSSL (click for details)</summary>
 
 `ciphertext` is decrypted using [EVP_PKEY_decrypt] with `RSA_PKCS1_PADDING` pad mode.
 
 </details>
 
-<details><summary>CNG</summary>
+<details><summary>CNG (click for details)</summary>
 
 `ciphertext` is decrypted using [BCryptDecrypt] with `BCRYPT_PAD_PKCS1` pad mode.
 
@@ -980,13 +980,13 @@ DecryptPKCS1v15SessionKey decrypts a session key using RSA and the padding schem
 
 **Implementation**
 
-<details><summary>OpenSSL</summary>
+<details><summary>OpenSSL (click for details)</summary>
 
 `ciphertext` is decrypted using [EVP_PKEY_decrypt] with `RSA_PKCS1_PADDING` pad mode and copied into `key`.
 
 </details>
 
-<details><summary>CNG</summary>
+<details><summary>CNG (click for details)</summary>
 
 `ciphertext` is decrypted using [BCryptDecrypt] with `BCRYPT_PAD_PKCS1` pad mode and copied into `key`.
 
@@ -1004,13 +1004,13 @@ func rsa.EncryptPKCS1v15(rand io.Reader, pub *rsa.PublicKey, msg []byte) ([]byte
 
 **Implementation**
 
-<details><summary>OpenSSL</summary>
+<details><summary>OpenSSL (click for details)</summary>
 
 `msg` is encrypted using [EVP_PKEY_encrypt] with `RSA_PKCS1_PADDING` pad mode.
 
 </details>
 
-<details><summary>CNG</summary>
+<details><summary>CNG (click for details)</summary>
 
 `msg` is encrypted using [BCryptEncrypt] with `BCRYPT_PAD_PKCS1` pad mode.
 
@@ -1034,13 +1034,13 @@ SignPKCS1v15 calculates the signature of hashed using RSASSA-PKCS1-V1_5-SIGN fro
 
 **Implementation**
 
-<details><summary>OpenSSL</summary>
+<details><summary>OpenSSL (click for details)</summary>
 
 `hashed` is signed using [EVP_PKEY_sign] with `RSA_PKCS1_PADDING`.
 
 </details>
 
-<details><summary>CNG</summary>
+<details><summary>CNG (click for details)</summary>
 
 `hashed` is signed using [BCryptSignHash] with [BCRYPT_PKCS1_PADDING_INFO] padding information and `BCRYPT_PAD_PKCS1` pad mode.
 
@@ -1066,13 +1066,13 @@ SignPSS calculates the signature of digest using PSS.
 
 **Implementation**
 
-<details><summary>OpenSSL</summary>
+<details><summary>OpenSSL (click for details)</summary>
 
 `digest` is signed using [EVP_PKEY_sign] with `RSA_PKCS1_PSS_PADDING` pad mode.
 
 </details>
 
-<details><summary>CNG</summary>
+<details><summary>CNG (click for details)</summary>
 
 `digest` is signed using [BCryptSignHash] with [BCRYPT_PSS_PADDING_INFO] padding information and `BCRYPT_PAD_PSS` pad mode.
 
@@ -1094,13 +1094,13 @@ VerifyPKCS1v15 verifies an RSA PKCS #1 v1.5 signature.
 
 **Implementation**
 
-<details><summary>OpenSSL</summary>
+<details><summary>OpenSSL (click for details)</summary>
 
 `sig` is verified using [EVP_PKEY_verify] with `RSA_PKCS1_PADDING` pad mode.
 
 </details>
 
-<details><summary>CNG</summary>
+<details><summary>CNG (click for details)</summary>
 
 `sig` is verified using [BCryptVerifySignature] with [BCRYPT_PKCS1_PADDING_INFO] padding information and `BCRYPT_PAD_PKCS1` pad mode.
 
@@ -1125,13 +1125,13 @@ VerifyPSS verifies a PSS signature.
 
 **Implementation**
 
-<details><summary>OpenSSL</summary>
+<details><summary>OpenSSL (click for details)</summary>
 
 `sig` is verified using using [EVP_PKEY_verify] with `RSA_PKCS1_PSS_PADDING` pad mode.
 
 </details>
 
-<details><summary>CNG</summary>
+<details><summary>CNG (click for details)</summary>
 
 `sig` is verified using [BCryptVerifySignature] with [PSS_PADDING_INFO] padding information and `BCRYPT_PAD_PSS` pad mode.
 
@@ -1152,13 +1152,13 @@ GenerateKey generates a public and private key pair.
 
 **Implementation**
 
-<details><summary>OpenSSL</summary>
+<details><summary>OpenSSL (click for details)</summary>
 
 `priv` is a wrapper around [EVP_PKEY] generated using [EVP_PKEY_keygen].
 
 </details>
 
-<details><summary>CNG</summary>
+<details><summary>CNG (click for details)</summary>
 
 `priv` is generated using [BCryptGenerateKeyPair] with the [algorithm identifier] `BCRYPT_RSA_ALGORITHM`.
 
@@ -1180,13 +1180,13 @@ GenerateMultiPrimeKey generates a multi-prime RSA keypair of the given bit size.
 
 **Implementation**
 
-<details><summary>OpenSSL</summary>
+<details><summary>OpenSSL (click for details)</summary>
 
 `priv` is a wrapper around [EVP_PKEY] generated using [EVP_PKEY_keygen].
 
 </details>
 
-<details><summary>CNG</summary>
+<details><summary>CNG (click for details)</summary>
 
 `priv` is generated using [BCryptGenerateKeyPair] with the [algorithm identifier] `BCRYPT_RSA_ALGORITHM`.
 
