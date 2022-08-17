@@ -80,12 +80,12 @@ The Go crypto documentation is available online at https://pkg.go.dev/crypto.
 
 This section describes how to use Go crypto APIs in a FIPS compliant manner.
 
-As a general rule, crypto APIs will delegate low-level operations to the crypto backend if these rules are meet:
+As a general rule, crypto APIs will delegate low-level operations to the crypto backend if these rules are met:
 
 - The operation is supported by the crypto backend.
 - The set of input parameters are supported by the crypto backend.
 
-If any of the previous rules are not meet, then the operation will fall back to standard Go crypto unless not otherwise specified.
+If any of the previous rules are not met, the operation will fall back to standard Go crypto unless otherwise specified.
 
 When reading the requirements section, the key word "must" is to be interpreted as a necessary condition to use the given API in a FIPS compliant manner.
 
@@ -649,7 +649,7 @@ func Prime(rand io.Reader, bits int) (p *big.Int, err error)
 
 **Requirements**
 
-`rand` must be boring.RandReader. `crypto/rand.Reader` normally meet this invariant as it is assigned to boring.RandReader in the crypto/rand init function.
+- `rand` must be boring.RandReader. `crypto/rand.Reader` normally meets this invariant as it is assigned to boring.RandReader in the crypto/rand init function.
 
 #### func [Read](https://pkg.go.dev/crypto/rand#Read)
 
@@ -661,7 +661,7 @@ Read is a helper function that calls rand.Reader.Read using io.ReadFull.
 
 **Requirements**
 
-- `rand.Reader` must be boring.RandReader.
+- `rand.Reader` must be boring.RandReader. This invariant is normally met as `rand.Reader` is assigned to boring.RandReader in the crypto/rand init function.
 
 ### [crypto/rc4](https://pkg.go.dev/crypto/rc4)
 
@@ -1200,7 +1200,7 @@ func (priv *PrivateKey) Decrypt(rand io.Reader, ciphertext []byte, opts crypto.D
 
 Decrypt decrypts `ciphertext` with `priv`.
 
-The depcrypt function depends on `opts`:
+The decrypt function depends on `opts`:
 
 - If `opts` is nil, it calls [rsa.DecryptPKCS1v15](#func-decryptpkcs1v15)`(rand, priv, ciphertext)`.
 - If `opts` type is `*rsa.OAEPOptions`, it calls [rsa.DecryptOAEP](#func-decryptoaep)`(opts.Hash.New(), rand, priv, ciphertext, opts.Label)`.
@@ -1208,7 +1208,7 @@ The depcrypt function depends on `opts`:
 - If `opts` type is `*rsa.PKCS1v15DecryptOptions` and `opts.SessionKeyLen == 0`, it calls [rsa.DecryptPKCS1v15](#func-decryptpkcs1v15)`(rand, priv, ciphertext)`.
 - Else it returns an error.
 
-Check the function named in the applicable case for the parameters' restrictions.
+Each case may impose additional parameter requirements. After determining which case applies, check the linked function to find the additional restrictions.
 
 #### func [PrivateKey.Sign](https://pkg.go.dev/crypto/rsa#PrivateKey.Sign)
 
