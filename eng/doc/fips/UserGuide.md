@@ -23,7 +23,6 @@ The Go crypto documentation is available online at https://pkg.go.dev/crypto.
       - [func StreamWriter.Close](#func-streamwriterclose)
     - [crypto/des](#cryptodes)
     - [crypto/dsa](#cryptodsa)
-    - [crypto/dsa](#cryptodsa-1)
     - [crypto/ecdsa](#cryptoecdsa)
       - [func Sign](#func-sign)
       - [func SignASN1](#func-signasn1)
@@ -382,10 +381,6 @@ Not implemented by any backend.
 
 Not implemented by any backend.
 
-### [crypto/dsa](https://pkg.go.dev/crypto/dsa)
-
-Not implemented by any backend.
-
 ### [crypto/ecdsa](https://pkg.go.dev/crypto/ecdsa)
 
 Package ecdsa implements the Elliptic Curve Digital Signature Algorithm, as defined in FIPS 186-3.
@@ -645,7 +640,7 @@ Int returns a uniform random value in [0, max). It panics if max <= 0.
 func Prime(rand io.Reader, bits int) (p *big.Int, err error)
 ```
 
-func Prime(rand io.Reader, bits int) (p *big.Int, err error)
+Prime returns a number of the given bit length that is prime with high probability.
 
 **Requirements**
 
@@ -690,7 +685,7 @@ The hash is generated using [EVP_MD_CTX_new] and [EVP_DigestInit_ex] with the al
 The hash.Hash methods are implemented as follows:
 
 - `Write` using [EVP_DigestUpdate].
-- `Sum(` using [EVP_DigestFinal].
+- `Sum` using [EVP_DigestFinal].
 - `Reset` using [EVP_DigestInit].
 
 </details>
@@ -737,7 +732,7 @@ The hash is generated using [EVP_MD_CTX_new] and [EVP_DigestInit_ex] with the al
 The hash.Hash methods are implemented as follows:
 
 - `Write` using [EVP_DigestUpdate].
-- `Sum(` using [EVP_DigestFinal].
+- `Sum` using [EVP_DigestFinal].
 - `Reset` using [EVP_DigestInit].
 
 </details>
@@ -773,7 +768,7 @@ The hash is generated using [EVP_MD_CTX_new] and [EVP_DigestInit_ex] with the al
 The hash.Hash methods are implemented as follows:
 
 - `Write` using [EVP_DigestUpdate].
-- `Sum(` using [EVP_DigestFinal].
+- `Sum` using [EVP_DigestFinal].
 - `Reset` using [EVP_DigestInit].
 
 </details>
@@ -821,7 +816,7 @@ The hash is generated using [EVP_MD_CTX_new] and [EVP_DigestInit_ex] with the al
 The hash.Hash methods are implemented as follows:
 
 - `Write` using [EVP_DigestUpdate].
-- `Sum(` using [EVP_DigestFinal].
+- `Sum` using [EVP_DigestFinal].
 - `Reset` using [EVP_DigestInit].
 
 </details>
@@ -855,7 +850,7 @@ The hash is generated using [EVP_MD_CTX_new] and [EVP_DigestInit_ex] with the al
 The hash.Hash methods are implemented as follows:
 
 - `Write` using [EVP_DigestUpdate].
-- `Sum(` using [EVP_DigestFinal].
+- `Sum` using [EVP_DigestFinal].
 - `Reset` using [EVP_DigestInit].
 
 </details>
