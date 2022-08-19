@@ -10,6 +10,7 @@ import (
 	"log"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 
 	"github.com/microsoft/go/_core/buildutil"
@@ -72,6 +73,7 @@ func main() {
 	}
 
 	maxTestRetries := buildutil.MaxTestRetryAttemptsOrExit()
+	timeoutScale := 1
 
 	// Some builder configurations need extra env variables set up during the build, not just while
 	// running tests:
@@ -80,7 +82,7 @@ func main() {
 		env("CC", "/usr/bin/clang-3.9")
 	case "longtest":
 		env("GO_TEST_SHORT", "false")
-		env("GO_TEST_TIMEOUT_SCALE", "5")
+		timeoutScale *= 5
 	case "nocgo":
 		env("CGO_ENABLED", "0")
 	case "noopt":
@@ -91,6 +93,16 @@ func main() {
 		env("GO_GCFLAGS", "-d=ssa/check/on,dclstack")
 	case "staticlockranking":
 		env("GOEXPERIMENT", "staticlockranking")
+	}
+
+	// Some Windows builders are slower than others and require more time for the runtime dist tests
+	// in "GOMAXPROCS=2 runtime -cpu=1,2,4 -quick" mode. https://github.com/microsoft/go/issues/700
+	if goos == "windows" {
+		timeoutScale *= 2
+	}
+
+	if timeoutScale != 1 {
+		env("GO_TEST_TIMEOUT_SCALE", strconv.Itoa(timeoutScale))
 	}
 
 	runOrPanic("pwsh", "eng/run.ps1", "build")
