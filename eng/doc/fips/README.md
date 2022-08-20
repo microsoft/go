@@ -1,3 +1,8 @@
+This directory contains documentation about FIPS and the FIPS implementation in the Microsoft fork of Go.
+
+* README.md (this file): a general overview and first steps.
+* [**FIPS 140-2 User Guide** (UserGuide.md)](UserGuide.md): notes on FIPS compliance of specific crypto APIs.
+
 # Crypto FIPS 140-2 support
 
 ## Background
