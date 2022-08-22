@@ -43,13 +43,13 @@ Subject: [PATCH] Add CNG crypto backend
  src/crypto/x509/notboring.go                  |   2 +-
  src/go.mod                                    |   1 +
  src/go.sum                                    |   3 +
- src/go/build/deps_test.go                     |   4 +
+ src/go/build/deps_test.go                     |   5 +
  src/hash/example_test.go                      |   2 +
  src/hash/marshal_test.go                      |   4 +
  .../goexperiment/exp_cngcrypto_off.go         |   9 +
  src/internal/goexperiment/exp_cngcrypto_on.go |   9 +
  src/internal/goexperiment/flags.go            |   1 +
- 45 files changed, 409 insertions(+), 49 deletions(-)
+ 45 files changed, 410 insertions(+), 49 deletions(-)
  create mode 100644 src/crypto/internal/backend/bbig/big_cng.go
  create mode 100644 src/crypto/internal/backend/cng_windows.go
  create mode 100644 src/internal/goexperiment/exp_cngcrypto_off.go
@@ -95,7 +95,7 @@ index 7b04f14ebdd618..8bdafb72f2c51a 100644
  // Package boring exposes functions that are only available when building with
  // Go+BoringCrypto. This package is available on all targets as long as the
 diff --git a/src/crypto/ecdsa/boring.go b/src/crypto/ecdsa/boring.go
-index 09c86fb90482dd..77221d8444bdab 100644
+index 602cb894e20d39..bf9e77e06599f0 100644
 --- a/src/crypto/ecdsa/boring.go
 +++ b/src/crypto/ecdsa/boring.go
 @@ -2,7 +2,7 @@
@@ -571,7 +571,7 @@ index 6c0655c72b692a..755861fc5bc21d 100644
  type rngReader struct{}
  
 diff --git a/src/crypto/rsa/boring.go b/src/crypto/rsa/boring.go
-index d267f72663e5df..f9e63b78b97e50 100644
+index 220f8c05c3d94b..dd20b4af2e0472 100644
 --- a/src/crypto/rsa/boring.go
 +++ b/src/crypto/rsa/boring.go
 @@ -2,7 +2,7 @@
@@ -1007,7 +1007,7 @@ index 9c1d3d279c472f..0ca7a863b73690 100644
  package fipsonly
  
 diff --git a/src/crypto/tls/handshake_server_tls13.go b/src/crypto/tls/handshake_server_tls13.go
-index 03a477f7bed54b..8a925899d00d28 100644
+index 9b7356a32b485d..d9af4f6718215d 100644
 --- a/src/crypto/tls/handshake_server_tls13.go
 +++ b/src/crypto/tls/handshake_server_tls13.go
 @@ -13,6 +13,7 @@ import (
@@ -1018,7 +1018,7 @@ index 03a477f7bed54b..8a925899d00d28 100644
  	"io"
  	"time"
  )
-@@ -334,6 +335,15 @@ func cloneHash(in hash.Hash, h crypto.Hash) hash.Hash {
+@@ -338,6 +339,15 @@ func cloneHash(in hash.Hash, h crypto.Hash) hash.Hash {
  	}
  	marshaler, ok := in.(binaryMarshaler)
  	if !ok {
@@ -1087,10 +1087,10 @@ index a0548a7f9179c5..ae6117a1554b7f 100644
  package x509
  
 diff --git a/src/go.mod b/src/go.mod
-index 289d02db9570f2..137df47710d3a2 100644
+index 26a3b676abf81a..1d1eec222e4f50 100644
 --- a/src/go.mod
 +++ b/src/go.mod
-@@ -4,6 +4,7 @@ go 1.19
+@@ -4,6 +4,7 @@ go 1.20
  
  require (
  	github.com/microsoft/go-crypto-openssl v0.0.0-20220727182410-f0cde275907d
@@ -1099,7 +1099,7 @@ index 289d02db9570f2..137df47710d3a2 100644
  	golang.org/x/net v0.0.0-20220805013720-a33c5aa5df48
  )
 diff --git a/src/go.sum b/src/go.sum
-index ffdac6bf5a16b2..b4a3b67ab4482a 100644
+index 0b39ab17406905..bcdd8099eb8d16 100644
 --- a/src/go.sum
 +++ b/src/go.sum
 @@ -1,9 +1,12 @@
@@ -1116,10 +1116,10 @@ index ffdac6bf5a16b2..b4a3b67ab4482a 100644
  golang.org/x/sys v0.0.0-20220804214406-8e32c043e418/go.mod h1:oPkhp1MJrh7nUepCBck5+mAzfO9JrbApNNgaTdGDITg=
  golang.org/x/text v0.3.8-0.20220722155301-d03b41800055 h1:mr0sHTB/O2dJ0ivoAAz1Mqs776JzxylyunOKJws3B88=
 diff --git a/src/go/build/deps_test.go b/src/go/build/deps_test.go
-index c6c33a7975eb61..4d7bc0d853f009 100644
+index 46666a008ec580..65fc3dcde738aa 100644
 --- a/src/go/build/deps_test.go
 +++ b/src/go/build/deps_test.go
-@@ -416,6 +416,10 @@ var depsRules = `
+@@ -391,6 +391,10 @@ var depsRules = `
  
  	crypto/cipher,
  	crypto/internal/boring/bcache
@@ -1130,6 +1130,14 @@ index c6c33a7975eb61..4d7bc0d853f009 100644
  	< github.com/microsoft/go-crypto-openssl/openssl/internal/subtle
  	< github.com/microsoft/go-crypto-openssl/openssl
  	< crypto/internal/boring
+@@ -404,6 +408,7 @@ var depsRules = `
+ 
+ 	# CRYPTO-MATH is core bignum-based crypto - no cgo, net; fmt now ok.
+ 	CRYPTO, FMT, math/big
++	< github.com/microsoft/go-crypto-winnative/cng/bbig
+ 	< github.com/microsoft/go-crypto-openssl/openssl/bbig
+ 	< crypto/internal/boring/bbig
+ 	< crypto/internal/backend/bbig
 diff --git a/src/hash/example_test.go b/src/hash/example_test.go
 index f07b9aaa2c4898..2ff6c4827391c0 100644
 --- a/src/hash/example_test.go
