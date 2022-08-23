@@ -84,7 +84,7 @@ As a general rule, crypto APIs will delegate low-level operations to the crypto 
 - The operation is supported by the crypto backend.
 - The set of input parameters are supported by the crypto backend.
 
-If any of the previous rules are not met, the operation will fall back to standard Go crypto unless otherwise specified.
+If any of the previous rules are not met, the operation will fall back to standard Go crypto unless otherwise specified. Standard Go crypto will behave as expected but is not FIPS compliant.
 
 When reading the requirements section, the key word "must" is to be interpreted as a necessary condition to use the given API in a FIPS compliant manner.
 
@@ -505,7 +505,7 @@ Sign signs `digest` with `priv`.
 
 **Requirements**
 
-- `rand` must be boring.RandReader, else Sign will panic. `crypto/rand.Reader` normally meet this invariant as it is assigned to boring.RandReader in the crypto/rand init function.
+- `rand` must be boring.RandReader, else Sign will panic. `crypto/rand.Reader` normally meets this invariant as it is assigned to boring.RandReader in the crypto/rand init function.
 - `digest` must be the result of hashing a message using a FIPS compliant hashing algorithm.
 
 **Implementation**
@@ -632,7 +632,7 @@ Int returns a uniform random value in [0, max). It panics if max <= 0.
 
 **Requirements**
 
-- `rand` must be boring.RandReader. `crypto/rand.Reader` normally meet this invariant as it is assigned to boring.RandReader in the crypto/rand init function.
+- `rand` must be boring.RandReader. `crypto/rand.Reader` normally meets this invariant as it is assigned to boring.RandReader in the crypto/rand init function.
 
 #### func [Prime](https://pkg.go.dev/crypto/rand#Prime)
 
@@ -760,6 +760,8 @@ New224 returns a new hash.Hash computing the SHA224 checksum.
 **Requirements**
 
 - The CNG backend does not implement this function.
+
+**Implementation**
 
 <details><summary>OpenSSL (click for details)</summary>
 
@@ -1142,7 +1144,7 @@ GenerateKey generates a public and private key pair.
 
 **Requirements**
 
-- `rand` must be boring.RandReader. `crypto/rand.Reader` normally meet this invariant as it is assigned to boring.RandReader in the crypto/rand init function.
+- `rand` must be boring.RandReader. `crypto/rand.Reader` normally meets this invariant as it is assigned to boring.RandReader in the crypto/rand init function.
 - `bits` must be either 2048 or 3072.
 
 **Implementation**
@@ -1169,7 +1171,7 @@ GenerateMultiPrimeKey generates a multi-prime RSA keypair of the given bit size.
 
 **Requirements**
 
-- `rand` must be boring.RandReader. `crypto/rand.Reader` normally meet this invariant as it is assigned to boring.RandReader in the crypto/rand init function.
+- `rand` must be boring.RandReader. `crypto/rand.Reader` normally meets this invariant as it is assigned to boring.RandReader in the crypto/rand init function.
 - `nprimes` must be 2. 
 - `bits` must be either 2048 or 3072.
 
@@ -1218,7 +1220,7 @@ The sign function depends on `opts`:
 - If `opts` type is `*rsa.PSSOptions`, it calls [rsa.SignPSS](#func-signpss)`(rand, priv, pssOpts.Hash, digest, opts)`
 - Else it calls [rsa.SignPKCS1v15](#func-signpkcs1v15)`(rand, priv, opts.HashFunc(), digest)`.
 
-Check the function named in the applicable case for the parameters' restrictions.
+Each case may impose additional parameter requirements. After determining which case applies, check the linked function to find the additional restrictions.
 
 ### [crypto/subtle](https://pkg.go.dev/crypto/subtle)
 
