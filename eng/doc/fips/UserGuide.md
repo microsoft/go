@@ -314,7 +314,7 @@ cipher.NewCFBEncrypter is not implemented by any backend.
 #### func [NewCTR](https://pkg.go.dev/crypto/cipher#NewCTR)
 
 ```go
-func cipher.NewCTR(block Block, iv []byte) (ctr cipher.BlockMode)
+func cipher.NewCTR(block Block, iv []byte) (ctr cipher.Stream)
 ```
 
 NewCTR returns a Stream which encrypts/decrypts using the given Block in counter mode.
@@ -1258,8 +1258,8 @@ When using TLS in FIPS-only mode the TLS handshake has the following restriction
   - `tls.PKCS1WithSHA512`
   - `tls.ECDSAWithP521AndSHA512`
 
-[EVP_EncryptUpdate]: https://www.openssl.org/docs/manmaster/man3/EVP_EncryptUpdate.html
-[EVP_DecryptUpdate]: https://www.openssl.org/docs/manmaster/man3/EVP_DecryptUpdate.html
+[EVP_EncryptUpdate]: https://www.openssl.org/docs/man3.0/man3/EVP_EncryptUpdate.html
+[EVP_DecryptUpdate]: https://www.openssl.org/docs/man3.0/man3/EVP_DecryptUpdate.html
 [RAND_bytes]: https://www.openssl.org/docs/man3.0/man3/RAND_bytes.html
 [EVP_PKEY]: https://www.openssl.org/docs/man3.0/man3/EVP_PKEY.html
 [EVP_PKEY_keygen]: https://www.openssl.org/docs/man3.0/man3/EVP_PKEY_keygen.html
@@ -1292,11 +1292,11 @@ When using TLS in FIPS-only mode the TLS handshake has the following restriction
 [EVP_sha256]: https://www.openssl.org/docs/man3.0/man3/EVP_sha256.html
 [EVP_sha384]: https://www.openssl.org/docs/man3.0/man3/EVP_sha384.html
 [EVP_sha512]: https://www.openssl.org/docs/man3.0/man3/EVP_sha512.html
-[HMAC_CTX_new]: https://www.openssl.org/docs/manmaster/man3/HMAC_CTX_new.html
-[HMAC_Init_ex]: https://www.openssl.org/docs/manmaster/man3/HMAC_Init_ex.html
-[HMAC_Update]: https://www.openssl.org/docs/manmaster/man3/HMAC_Update.html
-[HMAC_Final]: https://www.openssl.org/docs/manmaster/man3/HMAC_Final.html
-[HMAC_Init_ex]: https://www.openssl.org/docs/manmaster/man3/HMAC_Init_ex.html
+[HMAC_CTX_new]: https://www.openssl.org/docs/man3.0/man3/HMAC_CTX_new.html
+[HMAC_Init_ex]: https://www.openssl.org/docs/man3.0/man3/HMAC_Init_ex.html
+[HMAC_Update]: https://www.openssl.org/docs/man3.0/man3/HMAC_Update.html
+[HMAC_Final]: https://www.openssl.org/docs/man3.0/man3/HMAC_Final.html
+[HMAC_Init_ex]: https://www.openssl.org/docs/man3.0/man3/HMAC_Init_ex.html
 
 [algorithm identifier]: https://docs.microsoft.com/en-us/windows/win32/seccng/cng-algorithm-identifiers
 [BCryptGenRandom]: https://docs.microsoft.com/en-us/windows/win32/api/bcrypt/nf-bcrypt-bcryptgenrandom
