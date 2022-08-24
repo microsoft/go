@@ -17,15 +17,15 @@ BSD-style license found in the LICENSE file.
 
 ## Why does this fork exist?
 
-The `microsoft/dev.boringcrypto*` branches produce a modified version of Go that
-can be used to build FIPS 140-2 compliant applications. Our goal is to share
-this implementation with others in the Go community who have the same
-requirement, and to merge this capability into upstream Go as soon as possible.
-See [eng/doc/fips](eng/doc/fips) for more information about this feature and the
+This repository produces a modified version of Go that can be used to build FIPS
+140-2 compliant applications. Our goal is to share this implementation with
+others in the Go community who have the same requirement, and to merge this
+capability into upstream Go as soon as possible. See
+[eng/doc/fips](eng/doc/fips) for more information about this feature and the
 history of FIPS 140-2 compliance in Go.
 
-The `microsoft/release-branch.go*` branches rebuild released versions of Go with
-no significant changes, for use within Microsoft.
+The binaries produced by this repository are also intended for general use
+within Microsoft instead of the official binary distribution of Go.
 
 We call this repository a fork even though it isn't a traditional Git fork. Its
 branches do not share Git ancestry with the Go repository. However, the
@@ -43,6 +43,26 @@ This repository's infrastructure currently supports these OS/Arch combinations:
 
 See [eng/README.md](eng/README.md) for more details about the infrastructure.
 
+### Binary distribution
+
+* **[microsoft/go-images](https://github.com/microsoft/go-images)** distributes
+  the binaries of this Go fork by producing Docker images that are published to
+  the Microsoft Container Registry. This is the recommended way to use the
+  Microsoft build of Go.
+
+* [**Binary archives**: visit the `microsoft/main` branch `eng/doc/Downloads.md`
+  file](https://github.com/microsoft/go/blob/microsoft/main/eng/doc/Downloads.md)
+  to download binaries and source tarballs built by supported release branches.
+
+* [**GitHub Releases**: the microsoft/go GitHub
+  releases](https://github.com/microsoft/go/releases) have source code archive
+  attachments and an `assets.json` file that can be used to locate the binaries
+  for that release.
+
+Don't see an option that works for you? Let us know! File a GitHub issue, or
+comment on an existing issue in this tag:
+[![](https://img.shields.io/github/labels/microsoft/go/Area-Acquisition)](https://github.com/microsoft/go/labels/Area-Acquisition)
+
 ### Build from source
 
 Prerequisites:
@@ -59,29 +79,11 @@ After cloning the repository, use the following build command. You can pass the
 pwsh eng/run.ps1 build -refresh
 ```
 
-The resulting Go binary is at `go/bin/go`.
+The resulting Go binary can then be found at `go/bin/go`.
 
 > If you download a source archive from a GitHub release, use the official Go
 > install from source instructions. These source archives only include the `go`
 > directory, not the microsoft/go build infrastructure.
-
-### Binary distribution
-
-* **[microsoft/go-images](https://github.com/microsoft/go-images)** distributes
-  the binaries of this Go fork by producing Docker images that are published to
-  the Microsoft Container Registry. This is the recommended way to use the
-  Microsoft build of Go.
-
-* [**Binary archives**: visit the `microsoft/main` branch `eng/doc/Downloads.md`
-  file](https://github.com/microsoft/go/blob/microsoft/main/eng/doc/Downloads.md)
-  to download binaries and source tarballs built by supported release branches.
-
-* [**GitHub Releases**: the microsoft/go GitHub
-  releases](https://github.com/microsoft/go/releases) have source code archive
-  attachments.
-
-More options are planned in the future. See the issue tag:
-[![](https://img.shields.io/github/labels/microsoft/go/Area-Release)](https://github.com/microsoft/go/labels/Area-Release)
 
 ## Contributing
 
