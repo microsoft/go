@@ -1,0 +1,101 @@
+# Copyright (c) Microsoft Corporation.
+# Use of this source code is governed by a BSD-style
+# license that can be found in the LICENSE file.
+
+# This job downloads Go binaries from the specified builders' pipeline artifacts, signs them, and
+# publishes the signed files and signatures into a consolidated pipeline artifact.
+
+parameters:
+  # [] of { id, os, arch, config, distro?, experiment? }
+  builders: []
+
+stages:
+  - stage: Sign
+    # Depend on all build stages that produced artifacts that need signing.
+    dependsOn:
+      - ${{ each builder in parameters.builders }}:
+        - ${{ builder.id }}
+    jobs:
+      - ${{ if and(ne(variables['System.TeamProject'], 'public'), ne(variables['Build.Reason'], 'PullRequest')) }}:
+        - job: Sign
+          pool:
+            name: ${{ parameters.dncengPool.name }}
+            # This is a utility job that doesn't use Go, but must support signing.
+            demands: ${{ parameters.dncengPool.demands.windows }}
+          variables:
+            - name: TeamName
+              value: golang
+          workspace:
+            clean: all
+          steps:
+            - template: ../steps/checkout-windows-task.yml
+
+            # Add MicroBuild, based on Arcade: https://github.com/dotnet/arcade/blob/927f8d4d5036f68a5fc6d042f336bc9458027208/eng/common/templates/job/job.yml#L106-L115
+            - task: MicroBuildSigningPlugin@3
+              displayName: Install MicroBuild plugin
+              inputs:
+                signType: $(SigningType)
+                zipSources: false
+                feedSource: https://dnceng.pkgs.visualstudio.com/_packaging/MicroBuildToolset/nuget/v3/index.json
+              env:
+                TeamName: $(TeamName)
+              condition: and(succeeded(), in(variables['SigningType'], 'real', 'test'))
+
+            - ${{ each builder in parameters.builders }}:
+              - download: current
+                artifact: Binaries ${{ builder.id }}
+                displayName: 'Download: Binaries ${{ builder.id }}'
+
+              - powershell: |
+                  $flatDir = "$(Build.StagingDirectory)/ToSign"
+                  New-Item $flatDir -ItemType Directory -ErrorAction Ignore
+
+                  Get-ChildItem -Recurse -File -Path @(
+                    'Binaries ${{ builder.id }}'
+                  ) | %{
+                    if (Test-Path "$flatDir\$($_.Name)") {
+                      throw "Duplicate filename, unable to flatten: $($_.FullName)"
+                    }
+                    Copy-Item $_.FullName $flatDir
+                  }
+                displayName: 'Copy to flat dir: ${{ builder.id }}'
+                workingDirectory: '$(Pipeline.Workspace)'
+
+            - task: DotNetCoreCLI@2
+              displayName: 'Install Arcade SignTool'
+              inputs:
+                command: restore
+                projects: '$(Build.SourcesDirectory)/eng/signing/Sign.proj'
+                feedsToUse: config
+                nugetConfigPath: '$(Build.SourcesDirectory)/NuGet.config'
+
+            - task: DotNetCoreCLI@2
+              displayName: 'Sign Files'
+              inputs:
+                command: custom
+                projects: '$(Build.SourcesDirectory)/eng/signing/Sign.proj'
+                custom: msbuild
+                arguments: >-
+                  /t:SignGoFiles
+                  /p:SignFilesDir=$(Build.StagingDirectory)/ToSign
+                  /p:SigningType=$(SigningType)
+                  /bl:SignFiles.binlog
+
+            - publish: $(Build.StagingDirectory)/ToSign
+              artifact: Binaries Signed
+              displayName: Publish Binaries Signed
+              condition: always()
+
+            - publish: eng\signing
+              artifact: SigningDetails
+              displayName: Publish SigningDetails
+              condition: always()
+
+            - publish: 'SignFiles.binlog'
+              artifact: SigningBinlog
+              displayName: Publish SigningBinlog
+              condition: always()
+
+            - task: MicroBuildCleanup@1
+              displayName: 'Clean up MicroBuild'
+              condition: always()

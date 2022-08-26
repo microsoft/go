@@ -1,0 +1,45 @@
+# Copyright (c) Microsoft Corporation.
+# Use of this source code is governed by a BSD-style
+# license that can be found in the LICENSE file.
+
+# This template expands each "shorthand" builder in a list of builders into a builder object that
+# includes its job ID. The list of builders is then passed into a given jobs template. This way, we
+# don't need to repeat the ID evaluation template expression everywhere the value is needed.
+#
+# If any other builder-specific calculated value is needed based on shorthand properties, it can be
+# added to this file. Passing data through a template like this one is the only way to share values
+# to be used by template expressions, as of writing.
+
+parameters:
+  # [] of { os, arch, hostArch, config, distro?, experiment? }
+  # If hostArch is not defined, defaults to the arch value.
+  # The job ID is generated based on these values.
+  shorthandBuilders: []
+  # The inner jobs template to pass the filed-out builders into.
+  #
+  # It should accept parameter "builders", [] of { id, os, arch, hostArch, config, distro?, fips? }
+  jobsTemplate: ""
+  jobsParameters: {}
+
+stages:
+  - template: ${{ parameters.jobsTemplate }}
+    parameters:
+      ${{ insert }}: ${{ parameters.jobsParameters }}
+      builders:
+        - ${{ each builder in parameters.shorthandBuilders }}:
+          - ${{ insert }}: ${{ builder }}
+            # Use 'default' in place of null to define ID. This value just needs to be unique and
+            # only contain "[A-z_]+".
+            id: ${{ builder.os }}_${{ coalesce(builder.distro, 'default') }}_${{ coalesce(builder.hostArch, 'default') }}_${{ builder.arch }}_${{ builder.config }}_${{ coalesce(builder.experiment, 'default') }}_${{ coalesce(builder.fips, false) }}
+            ${{ if not(builder.hostArch) }}:
+              hostArch: ${{ builder.arch }}
+            # Set up some parameters that are for display purposes. AzDO YAML expressions can't
+            # branch, so we must to prepare these values here rather than where they're used.
+            ${{ if builder.distro }}:
+              distroParens: (${{ builder.distro }})
+            ${{ if builder.hostArch }}:
+              hostParens: (${{ builder.hostArch }} host)
+            ${{ if builder.experiment }}:
+              experimentBrackets: '[${{ builder.experiment }}]'
+            ${{ if builder.fips }}:
+              fipsAcronym: 'FIPS'

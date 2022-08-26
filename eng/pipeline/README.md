@@ -23,6 +23,10 @@ to update the web-UI-based AzDO pipeline to point at the new file. Each web UI
 pipeline can only point at one YAML file, so this breaks old branches that
 haven't renamed the file. It would be nice to avoid this.)
 
+For more information about the style of these pipeline and template YAML files
+and the quirks involved with the way they're implemented, visit
+[pipeline-yml-style.md in microsoft/go-infra](https://github.com/microsoft/go-infra/blob/main/docs/pipeline-yml-style.md).
+
 ## Templates
 
 The subdirectories hold AzDO pipeline YAML templates, based on type of template.
