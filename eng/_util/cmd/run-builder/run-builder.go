@@ -70,6 +70,7 @@ func main() {
 	fmt.Printf("Found os '%s', arch '%s', config '%s'\n", goos, goarch, config)
 
 	maxTestRetries := buildutil.MaxTestRetryAttemptsOrExit()
+	// Scale this variable to increase timeout time based on scenario or builder speed.
 	timeoutScale := 1
 
 	// Some builder configurations need extra env variables set up during the build, not just while
