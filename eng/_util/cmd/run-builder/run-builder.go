@@ -93,6 +93,12 @@ func main() {
 		buildutil.AppendExperimentEnv("staticlockranking")
 	}
 
+	// Some Windows builders are slower than others and require more time for the runtime dist tests
+	// in "GOMAXPROCS=2 runtime -cpu=1,2,4 -quick" mode. https://github.com/microsoft/go/issues/700
+	if goos == "windows" {
+		timeoutScale *= 2
+	}
+
 	if timeoutScale != 1 {
 		env("GO_TEST_TIMEOUT_SCALE", strconv.Itoa(timeoutScale))
 	}
