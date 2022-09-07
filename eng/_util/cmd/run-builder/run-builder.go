@@ -7,10 +7,13 @@ package main
 import (
 	"flag"
 	"fmt"
+	"log"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 
+	"github.com/microsoft/go/_core/buildutil"
 	gotestsumcmd "gotest.tools/gotestsum/cmd"
 )
 
@@ -35,6 +38,7 @@ var dryRun = flag.Bool("n", false, "Enable dry run: print the commands that woul
 
 func main() {
 	var builder = flag.String("builder", "", "[Required] Specify a builder to run. Note, this may be destructive!")
+	var fipsMode = flag.Bool("fipsmode", false, "Run the Go tests in FIPS mode.")
 	var jUnitFile = flag.String("junitfile", "", "Write a JUnit XML file to this path if this builder runs tests.")
 	var help = flag.Bool("h", false, "Print this help message.")
 
@@ -68,6 +72,10 @@ func main() {
 		runOrPanic("eng/workaround-install-mercurial.sh")
 	}
 
+	maxTestRetries := buildutil.MaxTestRetryAttemptsOrExit()
+	// Scale this variable to increase timeout time based on scenario or builder speed.
+	timeoutScale := 1
+
 	// Some builder configurations need extra env variables set up during the build, not just while
 	// running tests:
 	switch config {
@@ -75,7 +83,7 @@ func main() {
 		env("CC", "/usr/bin/clang-3.9")
 	case "longtest":
 		env("GO_TEST_SHORT", "false")
-		env("GO_TEST_TIMEOUT_SCALE", "5")
+		timeoutScale *= 5
 	case "nocgo":
 		env("CGO_ENABLED", "0")
 	case "noopt":
@@ -86,6 +94,16 @@ func main() {
 		env("GO_GCFLAGS", "-d=ssa/check/on,dclstack")
 	case "staticlockranking":
 		env("GOEXPERIMENT", "staticlockranking")
+	}
+
+	// Some Windows builders are slower than others and require more time for the runtime dist tests
+	// in "GOMAXPROCS=2 runtime -cpu=1,2,4 -quick" mode. https://github.com/microsoft/go/issues/700
+	if goos == "windows" {
+		timeoutScale *= 2
+	}
+
+	if timeoutScale != 1 {
+		env("GO_TEST_TIMEOUT_SCALE", strconv.Itoa(timeoutScale))
 	}
 
 	runOrPanic("pwsh", "eng/run.ps1", "build")
@@ -101,6 +119,18 @@ func main() {
 
 	default:
 		// Most builder configurations use "bin/go tool dist test" directly, which is the default.
+
+		if *fipsMode {
+			env("GOFIPS", "true")
+			// Enable system-wide FIPS if supported by the host platform.
+			restore, err := enableSystemWideFIPS()
+			if err != nil {
+				log.Fatalf("Unable to enable system-wide FIPS: %v\n", err)
+			}
+			if restore != nil {
+				defer restore()
+			}
+		}
 
 		// The tests read GO_BUILDER_NAME and make decisions based on it. For some configurations,
 		// we only need to set this env var.
@@ -138,7 +168,18 @@ func main() {
 			)
 		}
 
-		runTest(cmdline, *jUnitFile)
+		err := buildutil.Retry(maxTestRetries, func() error {
+			return runTest(cmdline, *jUnitFile)
+		})
+		// If we got an ExitError, the error message was already printed by the command. We just
+		// need to exit with the same exit code.
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			os.Exit(exitErr.ExitCode())
+		}
+		if err != nil {
+			// Something else happened: alert the user.
+			log.Fatal(err)
+		}
 	}
 }
 
@@ -174,7 +215,7 @@ func runOrPanic(cmdline ...string) {
 // runTest runs a testing command. If given a JUnit XML file path, runs the test command inside a
 // gotestsum command that converts the JSON output into JUnit XML and writes it to a file at this
 // path.
-func runTest(cmdline []string, jUnitFile string) {
+func runTest(cmdline []string, jUnitFile string) error {
 	if jUnitFile != "" {
 		// Emit verbose JSON results in stdout for conversion.
 		cmdline = append(cmdline, "-json")
@@ -182,10 +223,8 @@ func runTest(cmdline []string, jUnitFile string) {
 
 	if *dryRun {
 		fmt.Printf("---- Dry run. Would have run test command: %v\n", cmdline)
-		return
+		return nil
 	}
-
-	var err error
 
 	if jUnitFile != "" {
 		// Set up gotestsum args. We rely on gotestsum to run the command, capture its output, and
@@ -231,19 +270,8 @@ func runTest(cmdline []string, jUnitFile string) {
 		// binary and there is no actual 'gotestsum' program. We could pass run-builder's path, but
 		// that would be misleading if it ever shows up in gotestsum's output unexpectedly. Instead,
 		// pass an obvious placeholder.
-		err = gotestsumcmd.Run("ARG_0_PLACEHOLDER", gotestsumArgs)
-	} else {
-		// If we don't have a jUnitFile target, run the command normally.
-		err = run(cmdline...)
+		return gotestsumcmd.Run("ARG_0_PLACEHOLDER", gotestsumArgs)
 	}
-
-	if err != nil {
-		// If we got an ExitError, the error message was already printed by the command. We just
-		// need to exit with the same exit code.
-		if exitErr, ok := err.(*exec.ExitError); ok {
-			os.Exit(exitErr.ExitCode())
-		}
-		// Something else happened: alert the user.
-		panic(err)
-	}
+	// If we don't have a jUnitFile target, run the command normally.
+	return run(cmdline...)
 }
