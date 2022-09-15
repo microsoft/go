@@ -10,6 +10,21 @@ $dotGitHubDirectory = Join-Path $srcDir ".github"
 # Official build artifacts, downloaded from the build job that completed earlier.
 $downloadedArtifactsDirectory = Join-Path $env:BUILD_ARTIFACTSTAGINGDIRECTORY "artifacts"
 
+# Remove verison number from the artifact path to make path-based issue suppression more reliable.
+foreach ($item in Get-ChildItem -Directory $downloadedArtifactsDirectory)
+{
+  if ($item.Name.StartsWith("go.") -and $item.Name.EndsWith(".extracted"))
+  {
+    $oldName = $item.FullName
+    $newName = $item.FullName -replace '\\go\.[0-9]+\.[0-9]+\.', '\go.'
+    if ($oldName -ne $newName)
+    {
+      Write-Host "Renaming '$oldName' to '$newName'"
+      Move-Item $oldName $newName
+    }
+  }
+}
+
 # Create a file for PoliCheck's ListFile option. The extension must be ".txt", and this file must
 # contain full paths, one per line, with no duplicates. The list should contain each microsoft/go
 # file but no upstream files. Sort and print it for debug purposes.
