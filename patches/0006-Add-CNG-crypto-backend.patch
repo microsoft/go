@@ -24,6 +24,7 @@ Subject: [PATCH] Add CNG crypto backend
  src/crypto/rsa/notboring.go                   |   2 +-
  src/crypto/rsa/pkcs1v15.go                    |  16 +-
  src/crypto/rsa/pss.go                         |  12 +-
+ src/crypto/rsa/pss_test.go                    |   2 +-
  src/crypto/rsa/rsa.go                         |  15 +-
  src/crypto/rsa/rsa_test.go                    |   4 +
  src/crypto/sha1/boring.go                     |   5 +-
@@ -49,7 +50,7 @@ Subject: [PATCH] Add CNG crypto backend
  .../goexperiment/exp_cngcrypto_off.go         |   9 +
  src/internal/goexperiment/exp_cngcrypto_on.go |   9 +
  src/internal/goexperiment/flags.go            |   1 +
- 45 files changed, 409 insertions(+), 49 deletions(-)
+ 46 files changed, 410 insertions(+), 50 deletions(-)
  create mode 100644 src/crypto/internal/backend/bbig/big_cng.go
  create mode 100644 src/crypto/internal/backend/cng_windows.go
  create mode 100644 src/internal/goexperiment/exp_cngcrypto_off.go
@@ -658,7 +659,7 @@ index 99b3dba5df63b2..46994344bb50d8 100644
  		if err != nil {
  			return err
 diff --git a/src/crypto/rsa/pss.go b/src/crypto/rsa/pss.go
-index 372248f04697c1..8f7ddbd428e336 100644
+index e12df3faef1f81..70a527ac79af7b 100644
 --- a/src/crypto/rsa/pss.go
 +++ b/src/crypto/rsa/pss.go
 @@ -215,7 +215,9 @@ func signPSSWithSalt(rand io.Reader, priv *PrivateKey, hash crypto.Hash, hashed,
@@ -672,10 +673,10 @@ index 372248f04697c1..8f7ddbd428e336 100644
  		bkey, err := boringPrivateKey(priv)
  		if err != nil {
  			return nil, err
-@@ -290,7 +292,9 @@ func SignPSS(rand io.Reader, priv *PrivateKey, hash crypto.Hash, digest []byte,
- 		saltLength = hash.Size()
- 	}
- 
+@@ -280,7 +282,9 @@ var invalidSaltLenErr = errors.New("crypto/rsa: PSSOptions.SaltLength cannot be
+ // function. The opts argument may be nil, in which case sensible defaults are
+ // used. If opts.Hash is set, it overrides hash.
+ func SignPSS(rand io.Reader, priv *PrivateKey, hash crypto.Hash, digest []byte, opts *PSSOptions) ([]byte, error) {
 -	if boring.Enabled && rand == boring.RandReader {
 +	if boring.Enabled && rand == boring.RandReader &&
 +		boring.IsHashSupported(hash) && boring.IsRSAKeySupported(len(priv.Primes)) {
@@ -683,7 +684,7 @@ index 372248f04697c1..8f7ddbd428e336 100644
  		bkey, err := boringPrivateKey(priv)
  		if err != nil {
  			return nil, err
-@@ -313,7 +317,9 @@ func SignPSS(rand io.Reader, priv *PrivateKey, hash crypto.Hash, digest []byte,
+@@ -320,7 +324,9 @@ func SignPSS(rand io.Reader, priv *PrivateKey, hash crypto.Hash, digest []byte,
  // argument may be nil, in which case sensible defaults are used. opts.Hash is
  // ignored.
  func VerifyPSS(pub *PublicKey, hash crypto.Hash, digest []byte, sig []byte, opts *PSSOptions) error {
@@ -694,6 +695,19 @@ index 372248f04697c1..8f7ddbd428e336 100644
  		bkey, err := boringPublicKey(pub)
  		if err != nil {
  			return err
+diff --git a/src/crypto/rsa/pss_test.go b/src/crypto/rsa/pss_test.go
+index ecc02e47d6c837..21eed60e05bbf1 100644
+--- a/src/crypto/rsa/pss_test.go
++++ b/src/crypto/rsa/pss_test.go
+@@ -278,7 +278,7 @@ func fromHex(hexStr string) []byte {
+ }
+ 
+ func TestInvalidPSSSaltLength(t *testing.T) {
+-	key, err := GenerateKey(rand.Reader, 245)
++	key, err := GenerateKey(rand.Reader, 512)
+ 	if err != nil {
+ 		t.Fatal(err)
+ 	}
 diff --git a/src/crypto/rsa/rsa.go b/src/crypto/rsa/rsa.go
 index 5ef07fdbe9ebb3..80c245e247939c 100644
 --- a/src/crypto/rsa/rsa.go
@@ -1111,10 +1125,10 @@ index c6febdb646bbbe..24cf4f1b6a2bcc 100644
  golang.org/x/crypto v0.0.0-20220722155217-630584e8d5aa/go.mod h1:IxCIyHEi3zRg3s0A5j5BB6A9Jmi73HwBIUl50j+osU4=
  golang.org/x/net v0.0.0-20220920203100-d0c6ba3f52d9 h1:asZqf0wXastQr+DudYagQS8uBO8bHKeYD1vbAvGmFL8=
 diff --git a/src/go/build/deps_test.go b/src/go/build/deps_test.go
-index fa425269d516a3..a5d3292412db94 100644
+index d0da2efb34112d..68b4aaf25e775b 100644
 --- a/src/go/build/deps_test.go
 +++ b/src/go/build/deps_test.go
-@@ -396,6 +396,10 @@ var depsRules = `
+@@ -398,6 +398,10 @@ var depsRules = `
  
  	crypto/cipher,
  	crypto/internal/boring/bcache
@@ -1125,7 +1139,7 @@ index fa425269d516a3..a5d3292412db94 100644
  	< github.com/microsoft/go-crypto-openssl/openssl/internal/subtle
  	< github.com/microsoft/go-crypto-openssl/openssl
  	< crypto/internal/boring
-@@ -409,6 +413,7 @@ var depsRules = `
+@@ -411,6 +415,7 @@ var depsRules = `
  
  	# CRYPTO-MATH is core bignum-based crypto - no cgo, net; fmt now ok.
  	CRYPTO, FMT, math/big
@@ -1199,7 +1213,7 @@ index 00000000000000..99ee2542ca38a9
 +const CNGCrypto = true
 +const CNGCryptoInt = 1
 diff --git a/src/internal/goexperiment/flags.go b/src/internal/goexperiment/flags.go
-index 355b7fe5931d39..b13c13764af5db 100644
+index ff7ca1db4a8b89..343f9b70c89ddf 100644
 --- a/src/internal/goexperiment/flags.go
 +++ b/src/internal/goexperiment/flags.go
 @@ -60,6 +60,7 @@ type Flags struct {
