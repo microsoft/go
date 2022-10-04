@@ -13,30 +13,32 @@ To reproduce, run 'go mod vendor' in 'go/src'.
  .../go-crypto-openssl/openssl/evpkey.go       | 300 +++++++++
  .../go-crypto-openssl/openssl/goopenssl.c     | 153 +++++
  .../go-crypto-openssl/openssl/goopenssl.h     | 147 +++++
- .../go-crypto-openssl/openssl/hmac.go         | 147 +++++
+ .../go-crypto-openssl/openssl/hmac.go         | 148 +++++
  .../openssl/internal/subtle/aliasing.go       |  32 +
  .../go-crypto-openssl/openssl/openssl.go      | 295 +++++++++
- .../go-crypto-openssl/openssl/openssl_funcs.h | 248 ++++++++
+ .../go-crypto-openssl/openssl/openssl_funcs.h | 252 ++++++++
  .../openssl/openssl_lock_setup.c              |  53 ++
  .../go-crypto-openssl/openssl/rand.go         |  24 +
- .../go-crypto-openssl/openssl/rsa.go          | 302 +++++++++
+ .../go-crypto-openssl/openssl/rsa.go          | 328 ++++++++++
  .../go-crypto-openssl/openssl/sha.go          | 580 ++++++++++++++++++
  .../microsoft/go-crypto-winnative/LICENSE     |  21 +
  .../microsoft/go-crypto-winnative/cng/aes.go  | 359 +++++++++++
  .../go-crypto-winnative/cng/bbig/big.go       |  31 +
- .../microsoft/go-crypto-winnative/cng/big.go  |  14 +
- .../microsoft/go-crypto-winnative/cng/cng.go  | 123 ++++
- .../go-crypto-winnative/cng/ecdsa.go          | 256 ++++++++
+ .../microsoft/go-crypto-winnative/cng/big.go  |  30 +
+ .../microsoft/go-crypto-winnative/cng/cng.go  | 130 ++++
+ .../microsoft/go-crypto-winnative/cng/ecdh.go | 257 ++++++++
+ .../go-crypto-winnative/cng/ecdsa.go          | 173 ++++++
  .../microsoft/go-crypto-winnative/cng/hmac.go |  55 ++
+ .../microsoft/go-crypto-winnative/cng/keys.go | 161 +++++
  .../microsoft/go-crypto-winnative/cng/rand.go |  28 +
- .../microsoft/go-crypto-winnative/cng/rsa.go  | 372 +++++++++++
- .../microsoft/go-crypto-winnative/cng/sha.go  | 198 ++++++
- .../internal/bcrypt/bcrypt_windows.go         | 207 +++++++
- .../internal/bcrypt/zsyscall_windows.go       | 341 ++++++++++
+ .../microsoft/go-crypto-winnative/cng/rsa.go  | 374 +++++++++++
+ .../microsoft/go-crypto-winnative/cng/sha.go  | 199 ++++++
+ .../internal/bcrypt/bcrypt_windows.go         | 222 +++++++
+ .../internal/bcrypt/zsyscall_windows.go       | 372 +++++++++++
  .../internal/subtle/aliasing.go               |  32 +
  .../internal/sysdll/sys_windows.go            |  55 ++
  src/vendor/modules.txt                        |  12 +
- 31 files changed, 5114 insertions(+)
+ 33 files changed, 5552 insertions(+)
  create mode 100644 src/vendor/github.com/microsoft/go-crypto-openssl/LICENSE
  create mode 100644 src/vendor/github.com/microsoft/go-crypto-openssl/openssl/aes.go
  create mode 100644 src/vendor/github.com/microsoft/go-crypto-openssl/openssl/bbig/big.go
@@ -58,8 +60,10 @@ To reproduce, run 'go mod vendor' in 'go/src'.
  create mode 100644 src/vendor/github.com/microsoft/go-crypto-winnative/cng/bbig/big.go
  create mode 100644 src/vendor/github.com/microsoft/go-crypto-winnative/cng/big.go
  create mode 100644 src/vendor/github.com/microsoft/go-crypto-winnative/cng/cng.go
+ create mode 100644 src/vendor/github.com/microsoft/go-crypto-winnative/cng/ecdh.go
  create mode 100644 src/vendor/github.com/microsoft/go-crypto-winnative/cng/ecdsa.go
  create mode 100644 src/vendor/github.com/microsoft/go-crypto-winnative/cng/hmac.go
+ create mode 100644 src/vendor/github.com/microsoft/go-crypto-winnative/cng/keys.go
  create mode 100644 src/vendor/github.com/microsoft/go-crypto-winnative/cng/rand.go
  create mode 100644 src/vendor/github.com/microsoft/go-crypto-winnative/cng/rsa.go
  create mode 100644 src/vendor/github.com/microsoft/go-crypto-winnative/cng/sha.go
@@ -829,7 +833,7 @@ index 00000000000000..e5a3e03a390135
 +}
 diff --git a/src/vendor/github.com/microsoft/go-crypto-openssl/openssl/evpkey.go b/src/vendor/github.com/microsoft/go-crypto-openssl/openssl/evpkey.go
 new file mode 100644
-index 00000000000000..4db567a646b4b1
+index 00000000000000..ba232b27c14f94
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go-crypto-openssl/openssl/evpkey.go
 @@ -0,0 +1,300 @@
@@ -935,7 +939,7 @@ index 00000000000000..4db567a646b4b1
 +type verifyFunc func(C.GO_EVP_PKEY_CTX_PTR, *C.uchar, C.size_t, *C.uchar, C.size_t) error
 +
 +func setupEVP(withKey withKeyFunc, padding C.int,
-+	h hash.Hash, label []byte, saltLen int, ch crypto.Hash,
++	h hash.Hash, label []byte, saltLen C.int, ch crypto.Hash,
 +	init initFunc) (ctx C.GO_EVP_PKEY_CTX_PTR, err error) {
 +	defer func() {
 +		if err != nil {
@@ -1008,7 +1012,7 @@ index 00000000000000..4db567a646b4b1
 +			return nil, err
 +		}
 +		if saltLen != 0 {
-+			if C.go_openssl_EVP_PKEY_CTX_ctrl(ctx, C.GO_EVP_PKEY_RSA, -1, C.GO_EVP_PKEY_CTRL_RSA_PSS_SALTLEN, C.int(saltLen), nil) != 1 {
++			if C.go_openssl_EVP_PKEY_CTX_ctrl(ctx, C.GO_EVP_PKEY_RSA, -1, C.GO_EVP_PKEY_CTRL_RSA_PSS_SALTLEN, saltLen, nil) != 1 {
 +				return nil, newOpenSSLError("EVP_PKEY_CTX_ctrl failed")
 +			}
 +		}
@@ -1036,7 +1040,7 @@ index 00000000000000..4db567a646b4b1
 +}
 +
 +func cryptEVP(withKey withKeyFunc, padding C.int,
-+	h hash.Hash, label []byte, saltLen int, ch crypto.Hash,
++	h hash.Hash, label []byte, saltLen C.int, ch crypto.Hash,
 +	init initFunc, crypt cryptFunc, in []byte) ([]byte, error) {
 +
 +	ctx, err := setupEVP(withKey, padding, h, label, saltLen, ch, init)
@@ -1058,7 +1062,7 @@ index 00000000000000..4db567a646b4b1
 +}
 +
 +func verifyEVP(withKey withKeyFunc, padding C.int,
-+	h hash.Hash, label []byte, saltLen int, ch crypto.Hash,
++	h hash.Hash, label []byte, saltLen C.int, ch crypto.Hash,
 +	init initFunc, verify verifyFunc,
 +	sig, in []byte) error {
 +
@@ -1102,7 +1106,7 @@ index 00000000000000..4db567a646b4b1
 +	return cryptEVP(withKey, padding, h, label, 0, 0, decryptInit, decrypt, msg)
 +}
 +
-+func evpSign(withKey withKeyFunc, padding C.int, saltLen int, h crypto.Hash, hashed []byte) ([]byte, error) {
++func evpSign(withKey withKeyFunc, padding C.int, saltLen C.int, h crypto.Hash, hashed []byte) ([]byte, error) {
 +	signtInit := func(ctx C.GO_EVP_PKEY_CTX_PTR) error {
 +		if ret := C.go_openssl_EVP_PKEY_sign_init(ctx); ret != 1 {
 +			return newOpenSSLError("EVP_PKEY_sign_init failed")
@@ -1118,7 +1122,7 @@ index 00000000000000..4db567a646b4b1
 +	return cryptEVP(withKey, padding, nil, nil, saltLen, h, signtInit, sign, hashed)
 +}
 +
-+func evpVerify(withKey withKeyFunc, padding C.int, saltLen int, h crypto.Hash, sig, hashed []byte) error {
++func evpVerify(withKey withKeyFunc, padding C.int, saltLen C.int, h crypto.Hash, sig, hashed []byte) error {
 +	verifyInit := func(ctx C.GO_EVP_PKEY_CTX_PTR) error {
 +		if ret := C.go_openssl_EVP_PKEY_verify_init(ctx); ret != 1 {
 +			return newOpenSSLError("EVP_PKEY_verify_init failed")
@@ -1448,10 +1452,10 @@ index 00000000000000..03aed43e001d54
 \ No newline at end of file
 diff --git a/src/vendor/github.com/microsoft/go-crypto-openssl/openssl/hmac.go b/src/vendor/github.com/microsoft/go-crypto-openssl/openssl/hmac.go
 new file mode 100644
-index 00000000000000..204c94cd94fdc3
+index 00000000000000..80f320b041f7e0
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go-crypto-openssl/openssl/hmac.go
-@@ -0,0 +1,147 @@
+@@ -0,0 +1,148 @@
 +// Copyright (c) Microsoft Corporation.
 +// Licensed under the MIT License.
 +
@@ -1499,6 +1503,7 @@ index 00000000000000..204c94cd94fdc3
 +		key:       hkey,
 +		ctx:       hmacCtxNew(),
 +	}
++	runtime.SetFinalizer(hmac, (*opensslHMAC).finalize)
 +	hmac.Reset()
 +	return hmac
 +}
@@ -1940,10 +1945,10 @@ index 00000000000000..95f3e888bb4cc0
 +}
 diff --git a/src/vendor/github.com/microsoft/go-crypto-openssl/openssl/openssl_funcs.h b/src/vendor/github.com/microsoft/go-crypto-openssl/openssl/openssl_funcs.h
 new file mode 100644
-index 00000000000000..2072a0b8851bda
+index 00000000000000..9abe8adb8ec7a2
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go-crypto-openssl/openssl/openssl_funcs.h
-@@ -0,0 +1,248 @@
+@@ -0,0 +1,252 @@
 +// Copyright (c) Microsoft Corporation.
 +// Licensed under the MIT License.
 +
@@ -2001,6 +2006,10 @@ index 00000000000000..2072a0b8851bda
 +    GO_RSA_NO_PADDING = 3,
 +    GO_RSA_PKCS1_OAEP_PADDING = 4,
 +    GO_RSA_PKCS1_PSS_PADDING = 6,
++    GO_RSA_PSS_SALTLEN_DIGEST = -1,
++    GO_RSA_PSS_SALTLEN_AUTO = -2,
++    GO_RSA_PSS_SALTLEN_MAX_SIGN = -2,
++    GO_RSA_PSS_SALTLEN_MAX = -3,
 +    GO_EVP_PKEY_CTRL_RSA_PADDING = 0x1001,
 +    GO_EVP_PKEY_CTRL_RSA_PSS_SALTLEN = 0x1002,
 +    GO_EVP_PKEY_CTRL_RSA_KEYGEN_BITS = 0x1003,
@@ -2283,10 +2292,10 @@ index 00000000000000..17f64a52ae5255
 +const RandReader = randReader(0)
 diff --git a/src/vendor/github.com/microsoft/go-crypto-openssl/openssl/rsa.go b/src/vendor/github.com/microsoft/go-crypto-openssl/openssl/rsa.go
 new file mode 100644
-index 00000000000000..3d4aa1440a1de6
+index 00000000000000..d80e00a14a1a05
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go-crypto-openssl/openssl/rsa.go
-@@ -0,0 +1,302 @@
+@@ -0,0 +1,328 @@
 +// Copyright (c) Microsoft Corporation.
 +// Licensed under the MIT License.
 +
@@ -2459,18 +2468,44 @@ index 00000000000000..3d4aa1440a1de6
 +	return evpEncrypt(pub.withKey, C.GO_RSA_NO_PADDING, nil, nil, msg)
 +}
 +
-+func SignRSAPSS(priv *PrivateKeyRSA, h crypto.Hash, hashed []byte, saltLen int) ([]byte, error) {
-+	if saltLen == 0 {
-+		saltLen = -1 // RSA_PSS_SALTLEN_DIGEST
++func saltLength(saltLen int, sign bool) (C.int, error) {
++	// A salt length of -2 is valid in OpenSSL, but not in crypto/rsa, so reject
++	// it, and lengths < -2, before we convert to the OpenSSL sentinel values.
++	if saltLen <= -2 {
++		return 0, errors.New("crypto/rsa: PSSOptions.SaltLength cannot be negative")
 +	}
-+	return evpSign(priv.withKey, C.GO_RSA_PKCS1_PSS_PADDING, saltLen, h, hashed)
++	// OpenSSL uses sentinel salt length values like Go crypto does,
++	// but the values don't fully match for rsa.PSSSaltLengthAuto (0).
++	if saltLen == 0 {
++		if sign {
++			if vMajor == 1 {
++				// OpenSSL 1.x uses -2 to mean maximal size when signing where Go crypto uses 0.
++				return C.GO_RSA_PSS_SALTLEN_MAX_SIGN, nil
++			}
++			// OpenSSL 3.x deprecated RSA_PSS_SALTLEN_MAX_SIGN
++			// and uses -3 to mean maximal size when signing where Go crypto uses 0.
++			return C.GO_RSA_PSS_SALTLEN_MAX, nil
++		}
++		// OpenSSL uses -2 to mean auto-detect size when verifying where Go crypto uses 0.
++		return C.GO_RSA_PSS_SALTLEN_AUTO, nil
++	}
++	return C.int(saltLen), nil
++}
++
++func SignRSAPSS(priv *PrivateKeyRSA, h crypto.Hash, hashed []byte, saltLen int) ([]byte, error) {
++	cSaltLen, err := saltLength(saltLen, true)
++	if err != nil {
++		return nil, err
++	}
++	return evpSign(priv.withKey, C.GO_RSA_PKCS1_PSS_PADDING, cSaltLen, h, hashed)
 +}
 +
 +func VerifyRSAPSS(pub *PublicKeyRSA, h crypto.Hash, hashed, sig []byte, saltLen int) error {
-+	if saltLen == 0 {
-+		saltLen = -2 // RSA_PSS_SALTLEN_AUTO
++	cSaltLen, err := saltLength(saltLen, false)
++	if err != nil {
++		return err
 +	}
-+	return evpVerify(pub.withKey, C.GO_RSA_PKCS1_PSS_PADDING, saltLen, h, sig, hashed)
++	return evpVerify(pub.withKey, C.GO_RSA_PKCS1_PSS_PADDING, cSaltLen, h, sig, hashed)
 +}
 +
 +func SignRSAPKCS1v15(priv *PrivateKeyRSA, h crypto.Hash, hashed []byte) ([]byte, error) {
@@ -3606,30 +3641,46 @@ index 00000000000000..584f2069b1cd0a
 +}
 diff --git a/src/vendor/github.com/microsoft/go-crypto-winnative/cng/big.go b/src/vendor/github.com/microsoft/go-crypto-winnative/cng/big.go
 new file mode 100644
-index 00000000000000..0069d31976e4f5
+index 00000000000000..36f0e0c6e278bc
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go-crypto-winnative/cng/big.go
-@@ -0,0 +1,14 @@
+@@ -0,0 +1,30 @@
 +// Copyright (c) Microsoft Corporation.
 +// Licensed under the MIT License.
 +package cng
++
++import "math/bits"
 +
 +// This file does not have build constraints to
 +// facilitate using BigInt in Go crypto.
 +// Go crypto references BigInt unconditionally,
 +// even if it is not finally used.
 +
-+// A BigInt is the big-endian bytes from a math/big BigInt.
++// A BigInt is the big-endian bytes from a math/big BigInt,
++// which are normalized to remove any leading 0 byte.
 +// Windows BCrypt accepts this specific data format.
 +// This definition allows us to avoid importing math/big.
 +// Conversion between BigInt and *big.Int is in cng/bbig.
 +type BigInt []byte
++
++const _S = bits.UintSize / 8 // word size in bytes
++
++// Length of x in bits.
++func (x BigInt) bitLen() int {
++	if len(x) == 0 {
++		return 0
++	}
++	// x is normalized, so the length in bits is
++	// the length in bits of x minus one byte (_S),
++	// plus the minimum number of bits to represent the first byte.
++	return (len(x)-1)*_S + bits.Len(uint(x[0]))
++}
 diff --git a/src/vendor/github.com/microsoft/go-crypto-winnative/cng/cng.go b/src/vendor/github.com/microsoft/go-crypto-winnative/cng/cng.go
 new file mode 100644
-index 00000000000000..2d96b448972c07
+index 00000000000000..a2a54443033013
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go-crypto-winnative/cng/cng.go
-@@ -0,0 +1,123 @@
+@@ -0,0 +1,130 @@
 +// Copyright (c) Microsoft Corporation.
 +// Licensed under the MIT License.
 +
@@ -3641,10 +3692,8 @@ index 00000000000000..2d96b448972c07
 +import (
 +	"errors"
 +	"math"
-+	"reflect"
 +	"runtime"
 +	"sync"
-+	"syscall"
 +	"unsafe"
 +
 +	"github.com/microsoft/go-crypto-winnative/internal/bcrypt"
@@ -3701,27 +3750,33 @@ index 00000000000000..2d96b448972c07
 +}
 +
 +func utf16PtrFromString(s string) *uint16 {
-+	str, err := syscall.UTF16PtrFromString(s)
-+	if err != nil {
-+		panic(err)
-+	}
-+	return str
++	return &utf16FromString(s)[0]
 +}
 +
++// utf16FromString converts the string using a stack-allocated slice of 64 bytes.
++// It should only be used to convert known BCrypt identifiers which only contains ASCII characters.
++// utf16FromString allocates if s is longer than 31 characters.
 +func utf16FromString(s string) []uint16 {
-+	str, err := syscall.UTF16FromString(s)
-+	if err != nil {
-+		panic(err)
++	// Once https://go.dev/issues/51896 lands and our support matrix allows it,
++	// we can replace part of this function by utf16.AppendRune
++	a := make([]uint16, 0, 32)
++	for _, v := range s {
++		if v == 0 || v > 127 {
++			panic("utf16FromString only supports ASCII characters, got " + s)
++		}
++		a = append(a, uint16(v))
 +	}
-+	return str
++	// Finish with a NULL byte.
++	a = append(a, 0)
++	return a
 +}
 +
 +func setString(h bcrypt.HANDLE, name, val string) error {
 +	str := utf16FromString(val)
 +	defer runtime.KeepAlive(str)
-+	in := make([]byte, len(val)+1)
-+	sh := (*reflect.SliceHeader)(unsafe.Pointer(&in))
-+	sh.Data = uintptr(unsafe.Pointer(&str[0]))
++	// str is a []uint16, which takes 2 bytes per element.
++	n := len(str) * 2
++	in := unsafe.Slice((*byte)(unsafe.Pointer(&str[0])), n)
 +	return bcrypt.SetProperty(h, utf16PtrFromString(name), in, 0)
 +}
 +
@@ -3731,9 +3786,12 @@ index 00000000000000..2d96b448972c07
 +	return prop, err
 +}
 +
++const sizeOfKEY_LENGTHS_STRUCT = unsafe.Sizeof(bcrypt.KEY_LENGTHS_STRUCT{})
++
 +func getKeyLengths(h bcrypt.HANDLE) (lengths bcrypt.KEY_LENGTHS_STRUCT, err error) {
 +	var discard uint32
-+	err = bcrypt.GetProperty(bcrypt.HANDLE(h), utf16PtrFromString(bcrypt.KEY_LENGTHS), (*[unsafe.Sizeof(lengths)]byte)(unsafe.Pointer(&lengths))[:], &discard, 0)
++	ptr := (*[sizeOfKEY_LENGTHS_STRUCT]byte)(unsafe.Pointer(&lengths))
++	err = bcrypt.GetProperty(bcrypt.HANDLE(h), utf16PtrFromString(bcrypt.KEY_LENGTHS), ptr[:], &discard, 0)
 +	if err != nil {
 +		return
 +	}
@@ -3753,12 +3811,12 @@ index 00000000000000..2d96b448972c07
 +	}
 +	return (bits-lengths.MinLength)%lengths.Increment == 0
 +}
-diff --git a/src/vendor/github.com/microsoft/go-crypto-winnative/cng/ecdsa.go b/src/vendor/github.com/microsoft/go-crypto-winnative/cng/ecdsa.go
+diff --git a/src/vendor/github.com/microsoft/go-crypto-winnative/cng/ecdh.go b/src/vendor/github.com/microsoft/go-crypto-winnative/cng/ecdh.go
 new file mode 100644
-index 00000000000000..c73e82fe67d3a0
+index 00000000000000..f15f958054b2e8
 --- /dev/null
-+++ b/src/vendor/github.com/microsoft/go-crypto-winnative/cng/ecdsa.go
-@@ -0,0 +1,256 @@
++++ b/src/vendor/github.com/microsoft/go-crypto-winnative/cng/ecdh.go
+@@ -0,0 +1,257 @@
 +// Copyright (c) Microsoft Corporation.
 +// Licensed under the MIT License.
 +
@@ -3770,7 +3828,269 @@ index 00000000000000..c73e82fe67d3a0
 +import (
 +	"errors"
 +	"runtime"
-+	"unsafe"
++
++	"github.com/microsoft/go-crypto-winnative/internal/bcrypt"
++)
++
++const ecdhUncompressedPrefix = 4
++
++var errInvalidPublicKey = errors.New("cng: invalid public key")
++var errInvalidPrivateKey = errors.New("cng: invalid private key")
++
++type ecdhAlgorithm struct {
++	handle bcrypt.ALG_HANDLE
++}
++
++func loadECDH(curve string) (h ecdhAlgorithm, bits uint32, err error) {
++	var id string
++	switch curve {
++	case "P-256":
++		id, bits = bcrypt.ECC_CURVE_NISTP256, 256
++	case "P-384":
++		id, bits = bcrypt.ECC_CURVE_NISTP384, 384
++	case "P-521":
++		id, bits = bcrypt.ECC_CURVE_NISTP521, 521
++	case "X25519":
++		id, bits = bcrypt.ECC_CURVE_25519, 255
++	default:
++		err = errUnknownCurve
++	}
++	if err != nil {
++		return
++	}
++	v, err := loadOrStoreAlg(bcrypt.ECDH_ALGORITHM, bcrypt.ALG_NONE_FLAG, id, func(h bcrypt.ALG_HANDLE) (interface{}, error) {
++		err := setString(bcrypt.HANDLE(h), bcrypt.ECC_CURVE_NAME, id)
++		if err != nil {
++			return nil, err
++		}
++		return ecdhAlgorithm{h}, nil
++	})
++	if err != nil {
++		return ecdhAlgorithm{}, 0, err
++	}
++	return v.(ecdhAlgorithm), bits, nil
++}
++
++type PublicKeyECDH struct {
++	hkey  bcrypt.KEY_HANDLE
++	bytes []byte
++}
++
++func (k *PublicKeyECDH) finalize() {
++	bcrypt.DestroyKey(k.hkey)
++}
++
++type PrivateKeyECDH struct {
++	hkey   bcrypt.KEY_HANDLE
++	isNIST bool
++}
++
++func (k *PrivateKeyECDH) finalize() {
++	bcrypt.DestroyKey(k.hkey)
++}
++
++func ECDH(priv *PrivateKeyECDH, pub *PublicKeyECDH) ([]byte, error) {
++	// First establish the shared secret.
++	var secret bcrypt.SECRET_HANDLE
++	err := bcrypt.SecretAgreement(priv.hkey, pub.hkey, &secret, 0)
++	if err != nil {
++		return nil, err
++	}
++	defer bcrypt.DestroySecret(secret)
++
++	// Then we need to export the raw shared secret from the secret opaque handler.
++	// The only way to do it is using BCryptDeriveKey with BCRYPT_KDF_RAW_SECRET as key derivation function (KDF).
++	// Unfortunately, this KDF is supported starting from Windows 10.
++	kdf := utf16PtrFromString(bcrypt.KDF_RAW_SECRET)
++	var size uint32
++	err = bcrypt.DeriveKey(secret, kdf, nil, nil, &size, 0)
++	if err != nil {
++		return nil, err
++	}
++	agreedSecret := make([]byte, size)
++	err = bcrypt.DeriveKey(secret, kdf, nil, agreedSecret, &size, 0)
++	if err != nil {
++		return nil, err
++	}
++
++	// The raw shared secret is little-endian but Go expects big-endian.
++	// Reverse the slice in-place.
++	inputMid := size / 2
++	for i := uint32(0); i < inputMid; i++ {
++		j := size - i - 1
++		agreedSecret[i], agreedSecret[j] = agreedSecret[j], agreedSecret[i]
++	}
++	runtime.KeepAlive(priv)
++	runtime.KeepAlive(pub)
++	return agreedSecret, nil
++}
++
++func GenerateKeyECDH(curve string) (*PrivateKeyECDH, []byte, error) {
++	h, bits, err := loadECDH(curve)
++	if err != nil {
++		return nil, nil, err
++	}
++	var hkey bcrypt.KEY_HANDLE
++	err = bcrypt.GenerateKeyPair(h.handle, &hkey, bits, 0)
++	if err != nil {
++		return nil, nil, err
++	}
++	// The key cannot be used until BCryptFinalizeKeyPair has been called.
++	err = bcrypt.FinalizeKeyPair(hkey, 0)
++	if err != nil {
++		bcrypt.DestroyKey(hkey)
++		return nil, nil, err
++	}
++
++	// GenerateKeyECDH returns the public key as as byte slice.
++	// To get it we need to export the raw CNG key blob
++	// and prepend the encoding prefix.
++	hdr, blob, err := exportECCKey(hkey, false)
++	if err != nil {
++		bcrypt.DestroyKey(hkey)
++		return nil, nil, err
++	}
++	k := &PrivateKeyECDH{hkey, isNIST(curve)}
++	runtime.SetFinalizer(k, (*PrivateKeyECDH).finalize)
++	var bytes []byte
++	if k.isNIST {
++		bytes = append([]byte{ecdhUncompressedPrefix}, blob...)
++	} else {
++		// X25519 bytes must only contain the X coordinate,
++		// but BCrypt might export X and Y.
++		// Slice blob so it only contains X.
++		bytes = blob[:hdr.KeySize]
++	}
++	return k, bytes, nil
++}
++
++func NewPublicKeyECDH(curve string, bytes []byte) (*PublicKeyECDH, error) {
++	// Reject the point at infinity and compressed encodings.
++	// The first byte is always the key encoding.
++	nist := isNIST(curve)
++	if len(bytes) == 0 || (nist && bytes[0] != ecdhUncompressedPrefix) {
++		return nil, errInvalidPublicKey
++	}
++	h, bits, err := loadECDH(curve)
++	if err != nil {
++		return nil, err
++	}
++	// Remove the encoding byte, if any. BCrypt doesn't want it
++	// and it only support uncompressed points anyway.
++	var keyWithoutEncoding []byte
++	var ncomponents int
++	if nist {
++		ncomponents = 2
++		keyWithoutEncoding = bytes[1:]
++	} else {
++		ncomponents = 1
++		keyWithoutEncoding = bytes
++	}
++	keySize := int(bits+7) / 8
++	if len(keyWithoutEncoding) != keySize*ncomponents {
++		return nil, errInvalidPublicKey
++	}
++	hkey, err := importECCKey(h.handle, bcrypt.ECDH_ALGORITHM, bits, keyWithoutEncoding[:keySize], keyWithoutEncoding[keySize:], nil)
++	if err != nil {
++		return nil, err
++	}
++	k := &PublicKeyECDH{hkey, append([]byte(nil), bytes...)}
++	runtime.SetFinalizer(k, (*PublicKeyECDH).finalize)
++	return k, nil
++}
++
++func (k *PublicKeyECDH) Bytes() []byte { return k.bytes }
++
++func NewPrivateKeyECDH(curve string, key []byte) (*PrivateKeyECDH, error) {
++	h, bits, err := loadECDH(curve)
++	if err != nil {
++		return nil, err
++	}
++	keySize := int(bits+7) / 8
++	if len(key) != keySize {
++		return nil, errInvalidPrivateKey
++	}
++	nist := isNIST(curve)
++	if !nist {
++		key = convertX25519PrivKey(key)
++	}
++	// CNG allows to import private ECC keys without defining X/Y,
++	// in which case those will be generated from D.
++	// To trigger this behavior we pass a zeroed X/Y with keySize length.
++	// zero is big enough to fit P-521 curves, the largest we handle, in the stack.
++	var zero [(521 + 7) / 8]byte
++	hkey, err := importECCKey(h.handle, bcrypt.ECDH_ALGORITHM, bits, zero[:keySize], zero[:keySize], key)
++	if err != nil {
++		return nil, err
++	}
++	k := &PrivateKeyECDH{hkey, nist}
++	runtime.SetFinalizer(k, (*PrivateKeyECDH).finalize)
++	return k, nil
++}
++
++func (k *PrivateKeyECDH) PublicKey() (*PublicKeyECDH, error) {
++	defer runtime.KeepAlive(k)
++	hdr, data, err := exportECCKey(k.hkey, false)
++	if err != nil {
++		return nil, err
++	}
++	pub := new(PublicKeyECDH)
++	if k.isNIST {
++		// Include X and Y.
++		pub.bytes = append([]byte{ecdhUncompressedPrefix}, data...)
++	} else {
++		// Only include X.
++		pub.bytes = data[:hdr.KeySize]
++	}
++	runtime.SetFinalizer(pub, (*PublicKeyECDH).finalize)
++	return pub, nil
++}
++
++func isNIST(curve string) bool {
++	return curve != "X25519"
++}
++
++func convertX25519PrivKey(key []byte) []byte {
++	// CNG consume private X25519 keys using a slightly non-standard representation that don't affect the end result.
++	// https://github.com/microsoft/SymCrypt/blob/e875f1f957dcb1308f8e712e9f4a8edc6f4f6207/inc/symcrypt.h#L4670
++	// Go internal X25519 implementation also uses this representation, but a raw private key is also accepted.
++	// https://github.com/golang/go/blob/e246cf626d1768ab56fa9eeafe4d23266e956ef6/src/crypto/ecdh/x25519.go#L90-L92
++
++	// Copy the private key so we don't modify the original.
++	var e [32]byte
++
++	copy(e[:], key[:])
++
++	// Convert to DivHTimesH format by
++	// clearing the last three bits of the least significant byte,
++	// which is the same as applying h*(s/(h mod GOrd)) where
++	// s = key, h = 0x08, GOrd (cbSubgroupOrder) = 0x20.
++	// h and GOrd values taken from
++	// https://github.com/microsoft/SymCrypt/blob/e875f1f957dcb1308f8e712e9f4a8edc6f4f6207/lib/ec_internal_curves.c#L496.
++	e[0] &= 248 // 0b1111_1000
++
++	// Apply the High bit restrictions by clearing the bit 255 and setting the bit 254.
++	e[31] &= 127 // 0b0111_1111
++	e[31] |= 64  // 0b0100_0000
++	return e[:]
++}
+diff --git a/src/vendor/github.com/microsoft/go-crypto-winnative/cng/ecdsa.go b/src/vendor/github.com/microsoft/go-crypto-winnative/cng/ecdsa.go
+new file mode 100644
+index 00000000000000..a6630e3b0df946
+--- /dev/null
++++ b/src/vendor/github.com/microsoft/go-crypto-winnative/cng/ecdsa.go
+@@ -0,0 +1,173 @@
++// Copyright (c) Microsoft Corporation.
++// Licensed under the MIT License.
++
++//go:build windows
++// +build windows
++
++package cng
++
++import (
++	"errors"
++	"runtime"
 +
 +	"github.com/microsoft/go-crypto-winnative/internal/bcrypt"
 +)
@@ -3780,29 +4100,39 @@ index 00000000000000..c73e82fe67d3a0
 +
 +type ecdsaAlgorithm struct {
 +	handle bcrypt.ALG_HANDLE
++	id     string
 +}
 +
-+func loadEcdsa(id string) (h ecdsaAlgorithm, err error) {
-+	v, err := loadOrStoreAlg(id, bcrypt.ALG_NONE_FLAG, "", func(h bcrypt.ALG_HANDLE) (interface{}, error) {
-+		return ecdsaAlgorithm{h}, nil
-+	})
-+	if err != nil {
-+		return ecdsaAlgorithm{}, err
-+	}
-+	return v.(ecdsaAlgorithm), nil
-+}
-+
-+const sizeOfECCBlobHeader = uint32(unsafe.Sizeof(bcrypt.ECCKEY_BLOB{}))
-+
-+func GenerateKeyECDSA(curve string) (X, Y, D BigInt, err error) {
++func loadECDSA(curve string) (h ecdsaAlgorithm, bits uint32, err error) {
 +	var id string
-+	var bits uint32
-+	id, bits, err = curveToID(curve)
++	switch curve {
++	case "P-224":
++		err = errUnsupportedCurve
++	case "P-256":
++		id, bits = bcrypt.ECDSA_P256_ALGORITHM, 256
++	case "P-384":
++		id, bits = bcrypt.ECDSA_P384_ALGORITHM, 384
++	case "P-521":
++		id, bits = bcrypt.ECDSA_P521_ALGORITHM, 521
++	default:
++		err = errUnknownCurve
++	}
 +	if err != nil {
 +		return
 +	}
++	v, err := loadOrStoreAlg(id, bcrypt.ALG_NONE_FLAG, "", func(h bcrypt.ALG_HANDLE) (interface{}, error) {
++		return ecdsaAlgorithm{h, id}, nil
++	})
++	if err != nil {
++		return ecdsaAlgorithm{}, 0, err
++	}
++	return v.(ecdsaAlgorithm), bits, nil
++}
++
++func GenerateKeyECDSA(curve string) (X, Y, D BigInt, err error) {
 +	var h ecdsaAlgorithm
-+	h, err = loadEcdsa(id)
++	var bits uint32
++	h, bits, err = loadECDSA(curve)
 +	if err != nil {
 +		return
 +	}
@@ -3817,25 +4147,12 @@ index 00000000000000..c73e82fe67d3a0
 +	if err != nil {
 +		return
 +	}
-+	var size uint32
-+	err = bcrypt.ExportKey(hkey, 0, utf16PtrFromString(bcrypt.ECCPRIVATE_BLOB), nil, &size, 0)
++	hdr, data, err := exportECCKey(hkey, true)
 +	if err != nil {
 +		return
 +	}
-+	blob := make([]byte, size)
-+	err = bcrypt.ExportKey(hkey, 0, utf16PtrFromString(bcrypt.ECCPRIVATE_BLOB), blob, &size, 0)
-+	if err != nil {
-+		return
-+	}
-+	hdr := (*(*bcrypt.ECCKEY_BLOB)(unsafe.Pointer(&blob[0])))
-+	if hdr.KeySize != (bits+7)/8 {
-+		err = errors.New("crypto/ecdsa: exported key is corrupted")
-+		return
-+	}
-+	data := blob[sizeOfECCBlobHeader:]
 +	consumeBigInt := func(size uint32) BigInt {
-+		b := make(BigInt, size)
-+		copy(b, data)
++		b := data[:size]
 +		data = data[size:]
 +		return b
 +	}
@@ -3845,133 +4162,48 @@ index 00000000000000..c73e82fe67d3a0
 +	return
 +}
 +
-+func curveToID(curve string) (string, uint32, error) {
-+	switch curve {
-+	case "P-224":
-+		return "", 0, errUnsupportedCurve
-+	case "P-256":
-+		return bcrypt.ECDSA_P256_ALGORITHM, 256, nil
-+	case "P-384":
-+		return bcrypt.ECDSA_P384_ALGORITHM, 384, nil
-+	case "P-521":
-+		return bcrypt.ECDSA_P521_ALGORITHM, 521, nil
-+	}
-+	return "", 0, errUnknownCurve
-+}
-+
 +type PublicKeyECDSA struct {
-+	pkey bcrypt.KEY_HANDLE
-+	size int
++	hkey bcrypt.KEY_HANDLE
 +}
 +
 +func NewPublicKeyECDSA(curve string, X, Y BigInt) (*PublicKeyECDSA, error) {
-+	id, bits, err := curveToID(curve)
++	h, bits, err := loadECDSA(curve)
 +	if err != nil {
 +		return nil, err
 +	}
-+	h, err := loadEcdsa(id)
++	hkey, err := importECCKey(h.handle, h.id, bits, X, Y, nil)
 +	if err != nil {
 +		return nil, err
 +	}
-+	blob, err := encodeECDSAKey(id, bits, X, Y, nil)
-+	if err != nil {
-+		return nil, err
-+	}
-+	k := new(PublicKeyECDSA)
-+	err = bcrypt.ImportKeyPair(h.handle, 0, utf16PtrFromString(bcrypt.ECCPUBLIC_BLOB), &k.pkey, blob, 0)
-+	if err != nil {
-+		return nil, err
-+	}
-+	k.size = (int(bits) + 7) / 8
++	k := &PublicKeyECDSA{hkey}
 +	runtime.SetFinalizer(k, (*PublicKeyECDSA).finalize)
 +	return k, nil
 +}
 +
 +func (k *PublicKeyECDSA) finalize() {
-+	bcrypt.DestroyKey(k.pkey)
++	bcrypt.DestroyKey(k.hkey)
 +}
 +
 +type PrivateKeyECDSA struct {
-+	pkey bcrypt.KEY_HANDLE
-+	size int
++	hkey bcrypt.KEY_HANDLE
 +}
 +
 +func NewPrivateKeyECDSA(curve string, X, Y, D BigInt) (*PrivateKeyECDSA, error) {
-+	id, bits, err := curveToID(curve)
++	h, bits, err := loadECDSA(curve)
 +	if err != nil {
 +		return nil, err
 +	}
-+	h, err := loadEcdsa(id)
++	hkey, err := importECCKey(h.handle, h.id, bits, X, Y, D)
 +	if err != nil {
 +		return nil, err
 +	}
-+	blob, err := encodeECDSAKey(id, bits, X, Y, D)
-+	if err != nil {
-+		return nil, err
-+	}
-+	k := new(PrivateKeyECDSA)
-+	err = bcrypt.ImportKeyPair(h.handle, 0, utf16PtrFromString(bcrypt.ECCPRIVATE_BLOB), &k.pkey, blob, 0)
-+	if err != nil {
-+		return nil, err
-+	}
-+	k.size = (int(bits) + 7) / 8
++	k := &PrivateKeyECDSA{hkey}
 +	runtime.SetFinalizer(k, (*PrivateKeyECDSA).finalize)
 +	return k, nil
 +}
 +
 +func (k *PrivateKeyECDSA) finalize() {
-+	bcrypt.DestroyKey(k.pkey)
-+}
-+
-+func encodeECDSAKey(id string, bits uint32, X, Y, D BigInt) ([]byte, error) {
-+	var magic bcrypt.KeyBlobMagicNumber
-+	switch id {
-+	case bcrypt.ECDSA_P256_ALGORITHM:
-+		if D != nil {
-+			magic = bcrypt.ECDSA_PRIVATE_P256_MAGIC
-+		} else {
-+			magic = bcrypt.ECDSA_PUBLIC_P256_MAGIC
-+		}
-+	case bcrypt.ECDSA_P384_ALGORITHM:
-+		if D != nil {
-+			magic = bcrypt.ECDSA_PRIVATE_P384_MAGIC
-+		} else {
-+			magic = bcrypt.ECDSA_PUBLIC_P384_MAGIC
-+		}
-+	case bcrypt.ECDSA_P521_ALGORITHM:
-+		if D != nil {
-+			magic = bcrypt.ECDSA_PRIVATE_P521_MAGIC
-+		} else {
-+			magic = bcrypt.ECDSA_PUBLIC_P521_MAGIC
-+		}
-+	}
-+	hdr := bcrypt.ECCKEY_BLOB{
-+		Magic:   magic,
-+		KeySize: (bits + 7) / 8,
-+	}
-+	if len(X) > int(hdr.KeySize) || len(Y) > int(hdr.KeySize) || len(D) > int(hdr.KeySize) {
-+		return nil, errors.New("crypto/ecdsa: invalid parameters")
-+	}
-+	var blob []byte
-+	if D == nil {
-+		blob = make([]byte, sizeOfECCBlobHeader+hdr.KeySize*2)
-+	} else {
-+		blob = make([]byte, sizeOfECCBlobHeader+hdr.KeySize*3)
-+	}
-+	copy(blob, (*(*[sizeOfECCBlobHeader]byte)(unsafe.Pointer(&hdr)))[:])
-+	data := blob[sizeOfECCBlobHeader:]
-+	encode := func(b BigInt, size uint32) {
-+		// b might be shorter than size if the original big number contained leading zeros.
-+		leadingZeros := int(size) - len(b)
-+		copy(data[leadingZeros:], b)
-+		data = data[size:]
-+	}
-+	encode(X, hdr.KeySize)
-+	encode(Y, hdr.KeySize)
-+	if D != nil {
-+		encode(D, hdr.KeySize)
-+	}
-+	return blob, nil
++	bcrypt.DestroyKey(k.hkey)
 +}
 +
 +// SignECDSA signs a hash (which should be the result of hashing a larger message),
@@ -3982,29 +4214,36 @@ index 00000000000000..c73e82fe67d3a0
 +// so we would have to transform P1363 to ASN.1 using encoding/asn1, which we can't import here,
 +// only to be decoded into raw big.Int by the caller.
 +func SignECDSA(priv *PrivateKeyECDSA, hash []byte) (r, s BigInt, err error) {
-+	sig, err := keySign(priv.pkey, nil, hash, bcrypt.PAD_UNDEFINED)
++	defer runtime.KeepAlive(priv)
++	sig, err := keySign(priv.hkey, nil, hash, bcrypt.PAD_UNDEFINED)
 +	if err != nil {
 +		return nil, nil, err
 +	}
 +	// BCRYPTSignHash generates ECDSA signatures in P1363 format,
 +	// which is simply (r, s), each of them exactly half of the array.
-+	if len(sig) != priv.size*2 {
++	if len(sig)%2 != 0 {
 +		return nil, nil, errors.New("crypto/ecdsa: invalid signature size from bcrypt")
 +	}
-+	return sig[:priv.size], sig[priv.size:], nil
++	return sig[:len(sig)/2], sig[len(sig)/2:], nil
 +}
 +
 +// VerifyECDSA verifies the signature in r, s of hash using the public key, pub.
 +func VerifyECDSA(pub *PublicKeyECDSA, hash []byte, r, s BigInt) bool {
++	defer runtime.KeepAlive(pub)
++	sizeBits, err := getUint32(bcrypt.HANDLE(pub.hkey), bcrypt.KEY_LENGTH)
++	if err != nil {
++		return false
++	}
++	size := int(sizeBits+7) / 8
 +	// r and s might be shorter than size
 +	// if the original big number contained leading zeros,
 +	// but they must not be longer than the public key size.
-+	if len(r) > pub.size || len(s) > pub.size {
++	if len(r) > size || len(s) > size {
 +		return false
 +	}
-+	sig := make([]byte, 0, pub.size*2)
++	sig := make([]byte, 0, size*2)
 +	prependZeros := func(nonZeroBytes int) {
-+		if zeros := pub.size - nonZeroBytes; zeros > 0 {
++		if zeros := size - nonZeroBytes; zeros > 0 {
 +			sig = append(sig, make([]byte, zeros)...)
 +		}
 +	}
@@ -4012,8 +4251,7 @@ index 00000000000000..c73e82fe67d3a0
 +	sig = append(sig, r...)
 +	prependZeros(len(s))
 +	sig = append(sig, s...)
-+	defer runtime.KeepAlive(pub)
-+	return keyVerify(pub.pkey, nil, hash, sig, bcrypt.PAD_UNDEFINED) == nil
++	return keyVerify(pub.hkey, nil, hash, sig, bcrypt.PAD_UNDEFINED) == nil
 +}
 diff --git a/src/vendor/github.com/microsoft/go-crypto-winnative/cng/hmac.go b/src/vendor/github.com/microsoft/go-crypto-winnative/cng/hmac.go
 new file mode 100644
@@ -4076,6 +4314,173 @@ index 00000000000000..736472d5b4e700
 +	}
 +	return newSHAX(id, bcrypt.ALG_HANDLE_HMAC_FLAG, key)
 +}
+diff --git a/src/vendor/github.com/microsoft/go-crypto-winnative/cng/keys.go b/src/vendor/github.com/microsoft/go-crypto-winnative/cng/keys.go
+new file mode 100644
+index 00000000000000..b87ed7ec61d3fb
+--- /dev/null
++++ b/src/vendor/github.com/microsoft/go-crypto-winnative/cng/keys.go
+@@ -0,0 +1,161 @@
++// Copyright (c) Microsoft Corporation.
++// Licensed under the MIT License.
++
++//go:build windows
++// +build windows
++
++package cng
++
++import (
++	"errors"
++	"unsafe"
++
++	"github.com/microsoft/go-crypto-winnative/internal/bcrypt"
++)
++
++const (
++	sizeOfECCBlobHeader = uint32(unsafe.Sizeof(bcrypt.ECCKEY_BLOB{}))
++	sizeOfRSABlobHeader = uint32(unsafe.Sizeof(bcrypt.RSAKEY_BLOB{}))
++)
++
++// exportRSAKey exports hkey into a bcrypt.ECCKEY_BLOB header and data.
++func exportECCKey(hkey bcrypt.KEY_HANDLE, private bool) (bcrypt.ECCKEY_BLOB, []byte, error) {
++	var magic string
++	if private {
++		magic = bcrypt.ECCPRIVATE_BLOB
++	} else {
++		magic = bcrypt.ECCPUBLIC_BLOB
++	}
++	blob, err := exportKey(hkey, magic)
++	if err != nil {
++		return bcrypt.ECCKEY_BLOB{}, nil, err
++	}
++	if len(blob) < int(sizeOfECCBlobHeader) {
++		return bcrypt.ECCKEY_BLOB{}, nil, errors.New("cng: exported key is corrupted")
++	}
++	hdr := (*(*bcrypt.ECCKEY_BLOB)(unsafe.Pointer(&blob[0])))
++	return hdr, blob[sizeOfECCBlobHeader:], nil
++}
++
++// exportRSAKey exports hkey into a bcrypt.RSAKEY_BLOB header and data.
++func exportRSAKey(hkey bcrypt.KEY_HANDLE, private bool) (bcrypt.RSAKEY_BLOB, []byte, error) {
++	var magic string
++	if private {
++		magic = bcrypt.RSAFULLPRIVATE_BLOB
++	} else {
++		magic = bcrypt.RSAPUBLIC_KEY_BLOB
++	}
++	blob, err := exportKey(hkey, magic)
++	if err != nil {
++		return bcrypt.RSAKEY_BLOB{}, nil, err
++	}
++	if len(blob) < int(sizeOfRSABlobHeader) {
++		return bcrypt.RSAKEY_BLOB{}, nil, errors.New("cng: exported key is corrupted")
++	}
++	hdr := (*(*bcrypt.RSAKEY_BLOB)(unsafe.Pointer(&blob[0])))
++	return hdr, blob[sizeOfRSABlobHeader:], nil
++}
++
++// exportKey exports hkey to a memory blob.
++func exportKey(hkey bcrypt.KEY_HANDLE, magic string) ([]byte, error) {
++	psBlobType := utf16PtrFromString(magic)
++	var size uint32
++	err := bcrypt.ExportKey(hkey, 0, psBlobType, nil, &size, 0)
++	if err != nil {
++		return nil, err
++	}
++	blob := make([]byte, size)
++	err = bcrypt.ExportKey(hkey, 0, psBlobType, blob, &size, 0)
++	if err != nil {
++		return nil, err
++	}
++	return blob, err
++}
++
++// importECCKey imports a public/private key pair from the given parameters.
++// If D is nil, only the public components will be populated.
++func importECCKey(h bcrypt.ALG_HANDLE, id string, bits uint32, X, Y, D BigInt) (bcrypt.KEY_HANDLE, error) {
++	blob, err := encodeECCKey(id, bits, X, Y, D)
++	if err != nil {
++		return 0, err
++	}
++	var kind string
++	if D == nil {
++		kind = bcrypt.ECCPUBLIC_BLOB
++	} else {
++		kind = bcrypt.ECCPRIVATE_BLOB
++	}
++	var hkey bcrypt.KEY_HANDLE
++	err = bcrypt.ImportKeyPair(h, 0, utf16PtrFromString(kind), &hkey, blob, 0)
++	if err != nil {
++		return 0, err
++	}
++	return hkey, nil
++}
++
++// encodeECCKey generates a bcrypt.ECCKEY_BLOB from the given parameters.
++func encodeECCKey(id string, bits uint32, X, Y, D BigInt) ([]byte, error) {
++	var hdr bcrypt.ECCKEY_BLOB
++	hdr.KeySize = (bits + 7) / 8
++	if len(X) > int(hdr.KeySize) || len(Y) > int(hdr.KeySize) || len(D) > int(hdr.KeySize) {
++		return nil, errors.New("cng: invalid parameters")
++	}
++	switch id {
++	case bcrypt.ECDSA_P256_ALGORITHM, bcrypt.ECDSA_P384_ALGORITHM, bcrypt.ECDSA_P521_ALGORITHM:
++		if D == nil {
++			hdr.Magic = bcrypt.ECDSA_PUBLIC_GENERIC_MAGIC
++		} else {
++			hdr.Magic = bcrypt.ECDSA_PRIVATE_GENERIC_MAGIC
++		}
++	case bcrypt.ECDH_ALGORITHM:
++		if D == nil {
++			hdr.Magic = bcrypt.ECDH_PUBLIC_GENERIC_MAGIC
++		} else {
++			hdr.Magic = bcrypt.ECDH_PRIVATE_GENERIC_MAGIC
++		}
++	default:
++		panic("unsupported key ID: " + id)
++	}
++	var blob []byte
++	if D == nil {
++		blob = make([]byte, sizeOfECCBlobHeader+hdr.KeySize*2)
++	} else {
++		blob = make([]byte, sizeOfECCBlobHeader+hdr.KeySize*3)
++	}
++	copy(blob, (*(*[sizeOfECCBlobHeader]byte)(unsafe.Pointer(&hdr)))[:])
++	data := blob[sizeOfECCBlobHeader:]
++	err := encodeBigInt(data, []sizedBigInt{
++		{X, hdr.KeySize}, {Y, hdr.KeySize},
++		{D, hdr.KeySize},
++	})
++	if err != nil {
++		return nil, err
++	}
++	return blob, nil
++}
++
++// sizedBigInt defines a big integer with
++// a size that can be different from the
++// one provided by len(b).
++type sizedBigInt struct {
++	b    BigInt
++	size uint32
++}
++
++// encodeBigInt encodes ints into data.
++// It stops iterating over ints when it finds one nil element.
++func encodeBigInt(data []byte, ints []sizedBigInt) error {
++	for _, v := range ints {
++		if v.b == nil {
++			return nil
++		}
++		// b might be shorter than size if the original big number contained leading zeros.
++		leadingZeros := int(v.size) - len(v.b)
++		if leadingZeros < 0 {
++			return errors.New("cng: invalid parameters")
++		}
++		copy(data[leadingZeros:], v.b)
++		data = data[v.size:]
++	}
++	return nil
++}
 diff --git a/src/vendor/github.com/microsoft/go-crypto-winnative/cng/rand.go b/src/vendor/github.com/microsoft/go-crypto-winnative/cng/rand.go
 new file mode 100644
 index 00000000000000..5265394c936a82
@@ -4112,10 +4517,10 @@ index 00000000000000..5265394c936a82
 +const RandReader = randReader(0)
 diff --git a/src/vendor/github.com/microsoft/go-crypto-winnative/cng/rsa.go b/src/vendor/github.com/microsoft/go-crypto-winnative/cng/rsa.go
 new file mode 100644
-index 00000000000000..5b9559e489c62b
+index 00000000000000..7e3f7abe3487cb
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go-crypto-winnative/cng/rsa.go
-@@ -0,0 +1,372 @@
+@@ -0,0 +1,374 @@
 +// Copyright (c) Microsoft Corporation.
 +// Licensed under the MIT License.
 +
@@ -4153,8 +4558,6 @@ index 00000000000000..5b9559e489c62b
 +	return v.(rsaAlgorithm), nil
 +}
 +
-+const sizeOfRSABlobHeader = uint32(unsafe.Sizeof(bcrypt.RSAKEY_BLOB{}))
-+
 +func GenerateKeyRSA(bits int) (N, E, D, P, Q, Dp, Dq, Qinv BigInt, err error) {
 +	bad := func(e error) (N, E, D, P, Q, Dp, Dq, Qinv BigInt, err error) {
 +		return nil, nil, nil, nil, nil, nil, nil, nil, e
@@ -4178,29 +4581,15 @@ index 00000000000000..5b9559e489c62b
 +		return bad(err)
 +	}
 +
-+	var size uint32
-+	err = bcrypt.ExportKey(hkey, 0, utf16PtrFromString(bcrypt.RSAFULLPRIVATE_BLOB), nil, &size, 0)
++	hdr, data, err := exportRSAKey(hkey, true)
 +	if err != nil {
 +		return bad(err)
 +	}
-+
-+	if size < sizeOfRSABlobHeader {
-+		return bad(errors.New("crypto/rsa: exported key is corrupted"))
-+	}
-+
-+	blob := make([]byte, size)
-+	err = bcrypt.ExportKey(hkey, 0, utf16PtrFromString(bcrypt.RSAFULLPRIVATE_BLOB), blob, &size, 0)
-+	if err != nil {
-+		return bad(err)
-+	}
-+	hdr := (*(*bcrypt.RSAKEY_BLOB)(unsafe.Pointer(&blob[0])))
 +	if hdr.Magic != bcrypt.RSAFULLPRIVATE_MAGIC || hdr.BitLength != uint32(bits) {
 +		return bad(errors.New("crypto/rsa: exported key is corrupted"))
 +	}
-+	data := blob[sizeOfRSABlobHeader:]
 +	consumeBigInt := func(size uint32) BigInt {
-+		b := make(BigInt, size)
-+		copy(b, data)
++		b := data[:size]
 +		data = data[size:]
 +		return b
 +	}
@@ -4216,7 +4605,8 @@ index 00000000000000..5b9559e489c62b
 +}
 +
 +type PublicKeyRSA struct {
-+	pkey bcrypt.KEY_HANDLE
++	hkey bcrypt.KEY_HANDLE
++	bits uint32
 +}
 +
 +func NewPublicKeyRSA(N, E BigInt) (*PublicKeyRSA, error) {
@@ -4227,29 +4617,26 @@ index 00000000000000..5b9559e489c62b
 +	if !keyIsAllowed(h.allowedKeyLengths, uint32(len(N)*8)) {
 +		return nil, errors.New("crypto/rsa: invalid key size")
 +	}
-+	blob, err := encodeRSAKey(N, E, nil, nil, nil, nil, nil, nil)
++	hkey, err := importRSAKey(h.handle, N, E, nil, nil, nil, nil, nil, nil)
 +	if err != nil {
 +		return nil, err
 +	}
-+	k := new(PublicKeyRSA)
-+	err = bcrypt.ImportKeyPair(h.handle, 0, utf16PtrFromString(bcrypt.RSAPUBLIC_KEY_BLOB), &k.pkey, blob, 0)
-+	if err != nil {
-+		return nil, err
-+	}
++	k := &PublicKeyRSA{hkey, uint32(N.bitLen())}
 +	runtime.SetFinalizer(k, (*PublicKeyRSA).finalize)
 +	return k, nil
 +}
 +
 +func (k *PublicKeyRSA) finalize() {
-+	bcrypt.DestroyKey(k.pkey)
++	bcrypt.DestroyKey(k.hkey)
 +}
 +
 +type PrivateKeyRSA struct {
-+	pkey bcrypt.KEY_HANDLE
++	hkey bcrypt.KEY_HANDLE
++	bits uint32
 +}
 +
 +func (k *PrivateKeyRSA) finalize() {
-+	bcrypt.DestroyKey(k.pkey)
++	bcrypt.DestroyKey(k.hkey)
 +}
 +
 +func NewPrivateKeyRSA(N, E, D, P, Q, Dp, Dq, Qinv BigInt) (*PrivateKeyRSA, error) {
@@ -4260,17 +4647,32 @@ index 00000000000000..5b9559e489c62b
 +	if !keyIsAllowed(h.allowedKeyLengths, uint32(len(N)*8)) {
 +		return nil, errors.New("crypto/rsa: invalid key size")
 +	}
-+	blob, err := encodeRSAKey(N, E, D, P, Q, Dp, Dq, Qinv)
++	hkey, err := importRSAKey(h.handle, N, E, D, P, Q, Dp, Dq, Qinv)
 +	if err != nil {
 +		return nil, err
 +	}
-+	k := new(PrivateKeyRSA)
-+	err = bcrypt.ImportKeyPair(h.handle, 0, utf16PtrFromString(bcrypt.RSAFULLPRIVATE_BLOB), &k.pkey, blob, 0)
-+	if err != nil {
-+		return nil, err
-+	}
++	k := &PrivateKeyRSA{hkey, uint32(N.bitLen())}
 +	runtime.SetFinalizer(k, (*PrivateKeyRSA).finalize)
 +	return k, nil
++}
++
++func importRSAKey(h bcrypt.ALG_HANDLE, N, E, D, P, Q, Dp, Dq, Qinv BigInt) (bcrypt.KEY_HANDLE, error) {
++	blob, err := encodeRSAKey(N, E, D, P, Q, Dp, Dq, Qinv)
++	if err != nil {
++		return 0, err
++	}
++	var kind string
++	if D == nil {
++		kind = bcrypt.RSAPUBLIC_KEY_BLOB
++	} else {
++		kind = bcrypt.RSAFULLPRIVATE_BLOB
++	}
++	var hkey bcrypt.KEY_HANDLE
++	err = bcrypt.ImportKeyPair(h, 0, utf16PtrFromString(kind), &hkey, blob, 0)
++	if err != nil {
++		return 0, err
++	}
++	return hkey, nil
 +}
 +
 +func encodeRSAKey(N, E, D, P, Q, Dp, Dq, Qinv BigInt) ([]byte, error) {
@@ -4284,6 +4686,11 @@ index 00000000000000..5b9559e489c62b
 +		hdr.Magic = bcrypt.RSAPUBLIC_MAGIC
 +		blob = make([]byte, sizeOfRSABlobHeader+hdr.PublicExpSize+hdr.ModulusSize)
 +	} else {
++		if P == nil || Q == nil {
++			// This case can happen when the key has been generated with more than 2 primes.
++			// CNG only supports 2-prime keys.
++			return nil, errors.New("crypto/rsa: unsupported private key")
++		}
 +		hdr.Magic = bcrypt.RSAFULLPRIVATE_MAGIC
 +		hdr.Prime1Size = uint32(len(P))
 +		hdr.Prime2Size = uint32(len(Q))
@@ -4291,30 +4698,12 @@ index 00000000000000..5b9559e489c62b
 +	}
 +	copy(blob, (*(*[sizeOfRSABlobHeader]byte)(unsafe.Pointer(&hdr)))[:])
 +	data := blob[sizeOfRSABlobHeader:]
-+	var err error
-+	encode := func(b BigInt, size uint32) {
-+		if err != nil {
-+			return
-+		}
-+		// b might be shorter than size if the original big number contained leading zeros.
-+		leadingZeros := int(size) - len(b)
-+		if leadingZeros < 0 {
-+			err = errors.New("crypto/rsa: invalid parameters")
-+			return
-+		}
-+		copy(data[leadingZeros:], b)
-+		data = data[size:]
-+	}
-+	encode(E, hdr.PublicExpSize)
-+	encode(N, hdr.ModulusSize)
-+	if D != nil {
-+		encode(P, hdr.Prime1Size)
-+		encode(Q, hdr.Prime2Size)
-+		encode(Dp, hdr.Prime1Size)
-+		encode(Dq, hdr.Prime2Size)
-+		encode(Qinv, hdr.Prime1Size)
-+		encode(D, hdr.ModulusSize)
-+	}
++	err := encodeBigInt(data, []sizedBigInt{
++		{E, hdr.PublicExpSize}, {N, hdr.ModulusSize},
++		{P, hdr.Prime1Size}, {Q, hdr.Prime2Size},
++		{Dp, hdr.Prime1Size}, {Dq, hdr.Prime2Size},
++		{Qinv, hdr.Prime1Size}, {D, hdr.ModulusSize},
++	})
 +	if err != nil {
 +		return nil, err
 +	}
@@ -4323,51 +4712,51 @@ index 00000000000000..5b9559e489c62b
 +
 +func DecryptRSAOAEP(h hash.Hash, priv *PrivateKeyRSA, ciphertext, label []byte) ([]byte, error) {
 +	defer runtime.KeepAlive(priv)
-+	return rsaOAEP(h, priv.pkey, ciphertext, label, false)
++	return rsaOAEP(h, priv.hkey, ciphertext, label, false)
 +}
 +
 +func EncryptRSAOAEP(h hash.Hash, pub *PublicKeyRSA, msg, label []byte) ([]byte, error) {
 +	defer runtime.KeepAlive(pub)
-+	return rsaOAEP(h, pub.pkey, msg, label, true)
++	return rsaOAEP(h, pub.hkey, msg, label, true)
 +}
 +
 +func DecryptRSAPKCS1(priv *PrivateKeyRSA, ciphertext []byte) ([]byte, error) {
 +	defer runtime.KeepAlive(priv)
-+	return rsaCrypt(priv.pkey, nil, ciphertext, bcrypt.PAD_PKCS1, false)
++	return rsaCrypt(priv.hkey, nil, ciphertext, bcrypt.PAD_PKCS1, false)
 +}
 +
 +func EncryptRSAPKCS1(pub *PublicKeyRSA, msg []byte) ([]byte, error) {
 +	defer runtime.KeepAlive(pub)
-+	return rsaCrypt(pub.pkey, nil, msg, bcrypt.PAD_PKCS1, true)
++	return rsaCrypt(pub.hkey, nil, msg, bcrypt.PAD_PKCS1, true)
 +}
 +
 +func DecryptRSANoPadding(priv *PrivateKeyRSA, ciphertext []byte) ([]byte, error) {
 +	defer runtime.KeepAlive(priv)
-+	return rsaCrypt(priv.pkey, nil, ciphertext, bcrypt.PAD_NONE, false)
++	return rsaCrypt(priv.hkey, nil, ciphertext, bcrypt.PAD_NONE, false)
 +
 +}
 +
 +func EncryptRSANoPadding(pub *PublicKeyRSA, msg []byte) ([]byte, error) {
 +	defer runtime.KeepAlive(pub)
-+	return rsaCrypt(pub.pkey, nil, msg, bcrypt.PAD_NONE, true)
++	return rsaCrypt(pub.hkey, nil, msg, bcrypt.PAD_NONE, true)
 +}
 +
 +func SignRSAPSS(priv *PrivateKeyRSA, h crypto.Hash, hashed []byte, saltLen int) ([]byte, error) {
 +	defer runtime.KeepAlive(priv)
-+	info, err := newPSS_PADDING_INFO(h, saltLen)
++	info, err := newPSS_PADDING_INFO(h, priv.bits, saltLen, true)
 +	if err != nil {
 +		return nil, err
 +	}
-+	return keySign(priv.pkey, unsafe.Pointer(&info), hashed, bcrypt.PAD_PSS)
++	return keySign(priv.hkey, unsafe.Pointer(&info), hashed, bcrypt.PAD_PSS)
 +}
 +
 +func VerifyRSAPSS(pub *PublicKeyRSA, h crypto.Hash, hashed, sig []byte, saltLen int) error {
 +	defer runtime.KeepAlive(pub)
-+	info, err := newPSS_PADDING_INFO(h, saltLen)
++	info, err := newPSS_PADDING_INFO(h, pub.bits, saltLen, false)
 +	if err != nil {
 +		return err
 +	}
-+	return keyVerify(pub.pkey, unsafe.Pointer(&info), hashed, sig, bcrypt.PAD_PSS)
++	return keyVerify(pub.hkey, unsafe.Pointer(&info), hashed, sig, bcrypt.PAD_PSS)
 +}
 +
 +func SignRSAPKCS1v15(priv *PrivateKeyRSA, h crypto.Hash, hashed []byte) ([]byte, error) {
@@ -4376,7 +4765,7 @@ index 00000000000000..5b9559e489c62b
 +	if err != nil {
 +		return nil, err
 +	}
-+	return keySign(priv.pkey, unsafe.Pointer(&info), hashed, bcrypt.PAD_PKCS1)
++	return keySign(priv.hkey, unsafe.Pointer(&info), hashed, bcrypt.PAD_PKCS1)
 +}
 +
 +func VerifyRSAPKCS1v15(pub *PublicKeyRSA, h crypto.Hash, hashed, sig []byte) error {
@@ -4385,7 +4774,7 @@ index 00000000000000..5b9559e489c62b
 +	if err != nil {
 +		return err
 +	}
-+	return keyVerify(pub.pkey, unsafe.Pointer(&info), hashed, sig, bcrypt.PAD_PKCS1)
++	return keyVerify(pub.hkey, unsafe.Pointer(&info), hashed, sig, bcrypt.PAD_PKCS1)
 +}
 +
 +func rsaCrypt(pkey bcrypt.KEY_HANDLE, info unsafe.Pointer, in []byte, flags bcrypt.PadMode, encrypt bool) ([]byte, error) {
@@ -4444,17 +4833,35 @@ index 00000000000000..5b9559e489c62b
 +	return bcrypt.VerifySignature(pkey, info, hashed, sig, flags)
 +}
 +
-+func newPSS_PADDING_INFO(h crypto.Hash, saltLen int) (info bcrypt.PSS_PADDING_INFO, err error) {
++func newPSS_PADDING_INFO(h crypto.Hash, sizeBits uint32, saltLen int, sign bool) (info bcrypt.PSS_PADDING_INFO, err error) {
 +	hashID := cryptoHashToID(h)
 +	if hashID == "" {
 +		return info, errors.New("crypto/rsa: unsupported hash function")
 +	}
 +	info.AlgId = utf16PtrFromString(hashID)
++
++	// A salt length of -1 and 0 are valid Go sentinel values.
++	if saltLen <= -2 {
++		return info, errors.New("crypto/rsa: PSSOptions.SaltLength cannot be negative")
++	}
++	// CNG does not support salt length special cases like Go crypto does,
++	// so we do a best-effort to resolve them.
 +	switch saltLen {
 +	case -1: // rsa.PSSSaltLengthEqualsHash
 +		info.Salt = uint32(h.Size())
 +	case 0: // rsa.PSSSaltLengthAuto
-+		err = errors.New("crypto/rsa: rsa.PSSSaltLengthAuto not supported")
++		if sign {
++			// Algorithm taken from RFC 3447 Section 9.1.1, which is also implemented by Go at
++			// https://github.com/golang/go/blob/54182ff54a687272dd7632c3a963e036ce03cb7c/src/crypto/rsa/pss.go#L288.
++			emLen := (sizeBits - 1 + 7) / 8
++			hLen := uint32(h.Size())
++			info.Salt = emLen - hLen - 2
++		} else {
++			// Go auto-detects the salt length from the signature structure when verifying.
++			// The auto-detection logic is deep in the verification process,
++			// we can't replicate it without exhaustive validation.
++			err = errors.New("crypto/rsa: rsa.PSSSaltLengthAuto not supported")
++		}
 +	default:
 +		info.Salt = uint32(saltLen)
 +	}
@@ -4490,10 +4897,10 @@ index 00000000000000..5b9559e489c62b
 +}
 diff --git a/src/vendor/github.com/microsoft/go-crypto-winnative/cng/sha.go b/src/vendor/github.com/microsoft/go-crypto-winnative/cng/sha.go
 new file mode 100644
-index 00000000000000..624d898728f29f
+index 00000000000000..a0ed5a10c70afd
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go-crypto-winnative/cng/sha.go
-@@ -0,0 +1,198 @@
+@@ -0,0 +1,199 @@
 +// Copyright (c) Microsoft Corporation.
 +// Licensed under the MIT License.
 +
@@ -4636,6 +5043,7 @@ index 00000000000000..624d898728f29f
 +	if err != nil {
 +		return nil, err
 +	}
++	runtime.SetFinalizer(h2, (*shaXHash).finalize)
 +	runtime.KeepAlive(h)
 +	return h2, nil
 +}
@@ -4694,10 +5102,10 @@ index 00000000000000..624d898728f29f
 +}
 diff --git a/src/vendor/github.com/microsoft/go-crypto-winnative/internal/bcrypt/bcrypt_windows.go b/src/vendor/github.com/microsoft/go-crypto-winnative/internal/bcrypt/bcrypt_windows.go
 new file mode 100644
-index 00000000000000..0514617f33b6fc
+index 00000000000000..cdd7f9fdf0aed2
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go-crypto-winnative/internal/bcrypt/bcrypt_windows.go
-@@ -0,0 +1,207 @@
+@@ -0,0 +1,222 @@
 +// Copyright (c) Microsoft Corporation.
 +// Licensed under the MIT License.
 +
@@ -4721,6 +5129,14 @@ index 00000000000000..0514617f33b6fc
 +	ECDSA_P256_ALGORITHM = "ECDSA_P256"
 +	ECDSA_P384_ALGORITHM = "ECDSA_P384"
 +	ECDSA_P521_ALGORITHM = "ECDSA_P521"
++	ECDH_ALGORITHM       = "ECDH"
++)
++
++const (
++	ECC_CURVE_25519    = "curve25519"
++	ECC_CURVE_NISTP256 = "nistP256"
++	ECC_CURVE_NISTP384 = "nistP384"
++	ECC_CURVE_NISTP521 = "nistP521"
 +)
 +
 +const (
@@ -4730,8 +5146,10 @@ index 00000000000000..0514617f33b6fc
 +	CHAIN_MODE_ECB    = "ChainingModeECB"
 +	CHAIN_MODE_CBC    = "ChainingModeCBC"
 +	CHAIN_MODE_GCM    = "ChainingModeGCM"
++	KEY_LENGTH        = "KeyLength"
 +	KEY_LENGTHS       = "KeyLengths"
 +	BLOCK_LENGTH      = "BlockLength"
++	ECC_CURVE_NAME    = "ECCCurveName"
 +)
 +
 +const (
@@ -4743,6 +5161,10 @@ index 00000000000000..0514617f33b6fc
 +
 +const (
 +	USE_SYSTEM_PREFERRED_RNG = 0x00000002
++)
++
++const (
++	KDF_RAW_SECRET = "TRUNCATE"
 +)
 +
 +type PadMode uint32
@@ -4768,21 +5190,19 @@ index 00000000000000..0514617f33b6fc
 +	RSAPUBLIC_MAGIC      KeyBlobMagicNumber = 0x31415352
 +	RSAFULLPRIVATE_MAGIC KeyBlobMagicNumber = 0x33415352
 +
-+	ECDSA_PUBLIC_P256_MAGIC     KeyBlobMagicNumber = 0x31534345
-+	ECDSA_PRIVATE_P256_MAGIC    KeyBlobMagicNumber = 0x32534345
-+	ECDSA_PUBLIC_P384_MAGIC     KeyBlobMagicNumber = 0x33534345
-+	ECDSA_PRIVATE_P384_MAGIC    KeyBlobMagicNumber = 0x34534345
-+	ECDSA_PUBLIC_P521_MAGIC     KeyBlobMagicNumber = 0x35534345
-+	ECDSA_PRIVATE_P521_MAGIC    KeyBlobMagicNumber = 0x36534345
 +	ECDSA_PUBLIC_GENERIC_MAGIC  KeyBlobMagicNumber = 0x50444345
 +	ECDSA_PRIVATE_GENERIC_MAGIC KeyBlobMagicNumber = 0x56444345
++
++	ECDH_PUBLIC_GENERIC_MAGIC  KeyBlobMagicNumber = 0x504B4345
++	ECDH_PRIVATE_GENERIC_MAGIC KeyBlobMagicNumber = 0x564B4345
 +)
 +
 +type (
-+	HANDLE      syscall.Handle
-+	ALG_HANDLE  HANDLE
-+	HASH_HANDLE HANDLE
-+	KEY_HANDLE  HANDLE
++	HANDLE        syscall.Handle
++	ALG_HANDLE    HANDLE
++	HASH_HANDLE   HANDLE
++	KEY_HANDLE    HANDLE
++	SECRET_HANDLE HANDLE
 +)
 +
 +// https://docs.microsoft.com/en-us/windows/win32/api/bcrypt/ns-bcrypt-bcrypt_key_lengths_struct
@@ -4905,12 +5325,15 @@ index 00000000000000..0514617f33b6fc
 +//sys   Decrypt(hKey KEY_HANDLE, pbInput []byte, pPaddingInfo unsafe.Pointer, pbIV []byte, pbOutput []byte, pcbResult *uint32, dwFlags PadMode) (s error) = bcrypt.BCryptDecrypt
 +//sys   SignHash (hKey KEY_HANDLE, pPaddingInfo unsafe.Pointer, pbInput []byte, pbOutput []byte, pcbResult *uint32, dwFlags PadMode) (s error) = bcrypt.BCryptSignHash
 +//sys   VerifySignature(hKey KEY_HANDLE, pPaddingInfo unsafe.Pointer, pbHash []byte, pbSignature []byte, dwFlags PadMode) (s error) = bcrypt.BCryptVerifySignature
++//sys   SecretAgreement(hPrivKey KEY_HANDLE, hPubKey KEY_HANDLE, phAgreedSecret *SECRET_HANDLE, dwFlags uint32) (s error) = bcrypt.BCryptSecretAgreement
++//sys   DeriveKey(hSharedSecret SECRET_HANDLE, pwszKDF *uint16, pParameterList *byte, pbDerivedKey []byte, pcbResult *uint32, dwFlags uint32) (s error) = bcrypt.BCryptDeriveKey
++//sys   DestroySecret(hSecret SECRET_HANDLE) (s error) = bcrypt.BCryptDestroySecret
 diff --git a/src/vendor/github.com/microsoft/go-crypto-winnative/internal/bcrypt/zsyscall_windows.go b/src/vendor/github.com/microsoft/go-crypto-winnative/internal/bcrypt/zsyscall_windows.go
 new file mode 100644
-index 00000000000000..9734020054dda6
+index 00000000000000..09053bb5a4738b
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go-crypto-winnative/internal/bcrypt/zsyscall_windows.go
-@@ -0,0 +1,341 @@
+@@ -0,0 +1,372 @@
 +// Code generated by 'go generate'; DO NOT EDIT.
 +
 +package bcrypt
@@ -4955,8 +5378,10 @@ index 00000000000000..9734020054dda6
 +	procBCryptCloseAlgorithmProvider = modbcrypt.NewProc("BCryptCloseAlgorithmProvider")
 +	procBCryptCreateHash             = modbcrypt.NewProc("BCryptCreateHash")
 +	procBCryptDecrypt                = modbcrypt.NewProc("BCryptDecrypt")
++	procBCryptDeriveKey              = modbcrypt.NewProc("BCryptDeriveKey")
 +	procBCryptDestroyHash            = modbcrypt.NewProc("BCryptDestroyHash")
 +	procBCryptDestroyKey             = modbcrypt.NewProc("BCryptDestroyKey")
++	procBCryptDestroySecret          = modbcrypt.NewProc("BCryptDestroySecret")
 +	procBCryptDuplicateHash          = modbcrypt.NewProc("BCryptDuplicateHash")
 +	procBCryptEncrypt                = modbcrypt.NewProc("BCryptEncrypt")
 +	procBCryptExportKey              = modbcrypt.NewProc("BCryptExportKey")
@@ -4971,6 +5396,7 @@ index 00000000000000..9734020054dda6
 +	procBCryptHashData               = modbcrypt.NewProc("BCryptHashData")
 +	procBCryptImportKeyPair          = modbcrypt.NewProc("BCryptImportKeyPair")
 +	procBCryptOpenAlgorithmProvider  = modbcrypt.NewProc("BCryptOpenAlgorithmProvider")
++	procBCryptSecretAgreement        = modbcrypt.NewProc("BCryptSecretAgreement")
 +	procBCryptSetProperty            = modbcrypt.NewProc("BCryptSetProperty")
 +	procBCryptSignHash               = modbcrypt.NewProc("BCryptSignHash")
 +	procBCryptVerifySignature        = modbcrypt.NewProc("BCryptVerifySignature")
@@ -5020,6 +5446,18 @@ index 00000000000000..9734020054dda6
 +	return
 +}
 +
++func DeriveKey(hSharedSecret SECRET_HANDLE, pwszKDF *uint16, pParameterList *byte, pbDerivedKey []byte, pcbResult *uint32, dwFlags uint32) (s error) {
++	var _p0 *byte
++	if len(pbDerivedKey) > 0 {
++		_p0 = &pbDerivedKey[0]
++	}
++	r0, _, _ := syscall.Syscall9(procBCryptDeriveKey.Addr(), 7, uintptr(hSharedSecret), uintptr(unsafe.Pointer(pwszKDF)), uintptr(unsafe.Pointer(pParameterList)), uintptr(unsafe.Pointer(_p0)), uintptr(len(pbDerivedKey)), uintptr(unsafe.Pointer(pcbResult)), uintptr(dwFlags), 0, 0)
++	if r0 != 0 {
++		s = syscall.Errno(r0)
++	}
++	return
++}
++
 +func DestroyHash(hHash HASH_HANDLE) (s error) {
 +	r0, _, _ := syscall.Syscall(procBCryptDestroyHash.Addr(), 1, uintptr(hHash), 0, 0)
 +	if r0 != 0 {
@@ -5030,6 +5468,14 @@ index 00000000000000..9734020054dda6
 +
 +func DestroyKey(hKey KEY_HANDLE) (s error) {
 +	r0, _, _ := syscall.Syscall(procBCryptDestroyKey.Addr(), 1, uintptr(hKey), 0, 0)
++	if r0 != 0 {
++		s = syscall.Errno(r0)
++	}
++	return
++}
++
++func DestroySecret(hSecret SECRET_HANDLE) (s error) {
++	r0, _, _ := syscall.Syscall(procBCryptDestroySecret.Addr(), 1, uintptr(hSecret), 0, 0)
 +	if r0 != 0 {
 +		s = syscall.Errno(r0)
 +	}
@@ -5209,6 +5655,14 @@ index 00000000000000..9734020054dda6
 +	return
 +}
 +
++func SecretAgreement(hPrivKey KEY_HANDLE, hPubKey KEY_HANDLE, phAgreedSecret *SECRET_HANDLE, dwFlags uint32) (s error) {
++	r0, _, _ := syscall.Syscall6(procBCryptSecretAgreement.Addr(), 4, uintptr(hPrivKey), uintptr(hPubKey), uintptr(unsafe.Pointer(phAgreedSecret)), uintptr(dwFlags), 0, 0)
++	if r0 != 0 {
++		s = syscall.Errno(r0)
++	}
++	return
++}
++
 +func SetProperty(hObject HANDLE, pszProperty *uint16, pbInput []byte, dwFlags uint32) (s error) {
 +	var _p0 *byte
 +	if len(pbInput) > 0 {
@@ -5352,17 +5806,17 @@ index 00000000000000..1722410e5af193
 +	return getSystemDirectory() + "\\" + dll
 +}
 diff --git a/src/vendor/modules.txt b/src/vendor/modules.txt
-index dfb87abf137cca..2bdd60921229d7 100644
+index dfb87abf137cca..e3bb913522f60f 100644
 --- a/src/vendor/modules.txt
 +++ b/src/vendor/modules.txt
 @@ -1,3 +1,15 @@
-+# github.com/microsoft/go-crypto-openssl v0.0.0-20220727182410-f0cde275907d
++# github.com/microsoft/go-crypto-openssl v0.2.1
 +## explicit; go 1.16
 +github.com/microsoft/go-crypto-openssl/openssl
 +github.com/microsoft/go-crypto-openssl/openssl/bbig
 +github.com/microsoft/go-crypto-openssl/openssl/internal/subtle
-+# github.com/microsoft/go-crypto-winnative v0.0.0-20220801182431-51d11294fcae
-+## explicit; go 1.16
++# github.com/microsoft/go-crypto-winnative v0.0.0-20221003180653-84bf0c539a8e
++## explicit; go 1.17
 +github.com/microsoft/go-crypto-winnative/cng
 +github.com/microsoft/go-crypto-winnative/cng/bbig
 +github.com/microsoft/go-crypto-winnative/internal/bcrypt
