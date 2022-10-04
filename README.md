@@ -4,7 +4,7 @@ Go is an open source programming language that makes it easy to build simple,
 reliable, and efficient software.
 
 This repository, [microsoft/go](https://github.com/microsoft/go), contains the
-infrastructure Microsoft uses to build Go. The submodule named `go` contains the
+infrastructure that Microsoft uses to build Go. The submodule named `go` contains the
 Go source code. By default, the submodule's remote URL is the official GitHub
 mirror of Go, [golang/go](https://github.com/golang/go).  The canonical Git
 repository for Go source code is located at https://go.googlesource.com/go.
