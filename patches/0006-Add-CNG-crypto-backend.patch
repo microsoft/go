@@ -42,14 +42,14 @@ Subject: [PATCH] Add CNG crypto backend
  src/crypto/x509/boring_test.go                |   2 +-
  src/crypto/x509/notboring.go                  |   2 +-
  src/go.mod                                    |   1 +
- src/go.sum                                    |   3 +
+ src/go.sum                                    |   2 +
  src/go/build/deps_test.go                     |   5 +
  src/hash/example_test.go                      |   2 +
  src/hash/marshal_test.go                      |   4 +
  .../goexperiment/exp_cngcrypto_off.go         |   9 +
  src/internal/goexperiment/exp_cngcrypto_on.go |   9 +
  src/internal/goexperiment/flags.go            |   1 +
- 45 files changed, 410 insertions(+), 49 deletions(-)
+ 45 files changed, 409 insertions(+), 49 deletions(-)
  create mode 100644 src/crypto/internal/backend/bbig/big_cng.go
  create mode 100644 src/crypto/internal/backend/cng_windows.go
  create mode 100644 src/internal/goexperiment/exp_cngcrypto_off.go
@@ -1093,8 +1093,8 @@ index 1d7c077116e06d..6615602e634ce1 100644
 @@ -4,6 +4,7 @@ go 1.20
  
  require (
- 	github.com/microsoft/go-crypto-openssl v0.0.0-20220727182410-f0cde275907d
-+	github.com/microsoft/go-crypto-winnative v0.0.0-20220801182431-51d11294fcae
+ 	github.com/microsoft/go-crypto-openssl v0.2.1
++	github.com/microsoft/go-crypto-winnative v0.0.0-20221003180653-84bf0c539a8e
  	golang.org/x/crypto v0.0.0-20220722155217-630584e8d5aa
  	golang.org/x/net v0.0.0-20220920203100-d0c6ba3f52d9
  )
@@ -1102,19 +1102,14 @@ diff --git a/src/go.sum b/src/go.sum
 index 39aecebaa80f25..40c3a041868bdc 100644
 --- a/src/go.sum
 +++ b/src/go.sum
-@@ -1,9 +1,12 @@
- github.com/microsoft/go-crypto-openssl v0.0.0-20220727182410-f0cde275907d h1:bYrnqvch83JAniHNR1QlzrvBeTZCNNZmnj4EcnB2Uuo=
- github.com/microsoft/go-crypto-openssl v0.0.0-20220727182410-f0cde275907d/go.mod h1:rC+rtBU3m60UCQifBmpWII0VETfu78w6YGZQvVc0rd4=
-+github.com/microsoft/go-crypto-winnative v0.0.0-20220801182431-51d11294fcae h1:Gvis94qpbGzzd2QioCVjVA6avSpl7v0R2p1KH0lEFAM=
-+github.com/microsoft/go-crypto-winnative v0.0.0-20220801182431-51d11294fcae/go.mod h1:mKWmQEP0n/WamRi8zKYzN6gonQQ0jVY1CHpGAUPxj/k=
+@@ -1,5 +1,7 @@
+ github.com/microsoft/go-crypto-openssl v0.2.1 h1:YFcvMkJeBXucC5wkNne/BbB7V02z1TjRxXbvGmEaFd4=
+ github.com/microsoft/go-crypto-openssl v0.2.1/go.mod h1:rC+rtBU3m60UCQifBmpWII0VETfu78w6YGZQvVc0rd4=
++github.com/microsoft/go-crypto-winnative v0.0.0-20221003180653-84bf0c539a8e h1:9iYvunmn8z1LIbUG7qtD3O3cuPlbjWY90Vn6ox/divM=
++github.com/microsoft/go-crypto-winnative v0.0.0-20221003180653-84bf0c539a8e/go.mod h1:fveERXKbeK+XLmOyU24caKnIT/S5nniAX9XCRHfnrM4=
  golang.org/x/crypto v0.0.0-20220722155217-630584e8d5aa h1:zuSxTR4o9y82ebqCUJYNGJbGPo6sKVl54f/TVDObg1c=
  golang.org/x/crypto v0.0.0-20220722155217-630584e8d5aa/go.mod h1:IxCIyHEi3zRg3s0A5j5BB6A9Jmi73HwBIUl50j+osU4=
  golang.org/x/net v0.0.0-20220920203100-d0c6ba3f52d9 h1:asZqf0wXastQr+DudYagQS8uBO8bHKeYD1vbAvGmFL8=
- golang.org/x/net v0.0.0-20220920203100-d0c6ba3f52d9/go.mod h1:YDH+HFinaLZZlnHAfSS6ZXJJ9M9t4Dl22yv3iI2vPwk=
-+golang.org/x/sys v0.0.0-20220310020820-b874c991c1a5/go.mod h1:oPkhp1MJrh7nUepCBck5+mAzfO9JrbApNNgaTdGDITg=
- golang.org/x/sys v0.0.0-20220804214406-8e32c043e418 h1:9vYwv7OjYaky/tlAeD7C4oC9EsPTlaFl1H2jS++V+ME=
- golang.org/x/sys v0.0.0-20220804214406-8e32c043e418/go.mod h1:oPkhp1MJrh7nUepCBck5+mAzfO9JrbApNNgaTdGDITg=
- golang.org/x/text v0.3.8-0.20220722155301-d03b41800055 h1:mr0sHTB/O2dJ0ivoAAz1Mqs776JzxylyunOKJws3B88=
 diff --git a/src/go/build/deps_test.go b/src/go/build/deps_test.go
 index d0da2efb34112d..68b4aaf25e775b 100644
 --- a/src/go/build/deps_test.go
