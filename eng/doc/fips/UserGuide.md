@@ -487,11 +487,12 @@ GenerateKey generates a public and private key pair.
 
 `priv` is generated using [BCryptGenerateKeyPair].
 
-`priv` curve [algorithm identifier] depends on the value of `c`:
+`priv` [algorithm identifier] is `BCRYPT_ECDSA_ALGORITHM ` and the [named elliptic curve] depends on the value of `c`:
 
-- If `c.Params().Name == "P-256"` then curve is `BCRYPT_ECDSA_P256_ALGORITHM`.
-- If `c.Params().Name == "P-384"` then curve is `BCRYPT_ECDSA_P384_ALGORITHM`.
-- If `c.Params().Name == "P-521"` then curve is `BCRYPT_ECDSA_P521_ALGORITHM`.
+- If `c.Params().Name == "P-224"` then curve is `BCRYPT_ECC_CURVE_NISTP224`.
+- If `c.Params().Name == "P-256"` then curve is `BCRYPT_ECC_CURVE_NISTP256`.
+- If `c.Params().Name == "P-384"` then curve is `BCRYPT_ECC_CURVE_NISTP384`.
+- If `c.Params().Name == "P-521"` then curve is `BCRYPT_ECC_CURVE_NISTP521`.
 
 </details>
 
@@ -1301,6 +1302,7 @@ When using TLS in FIPS-only mode the TLS handshake has the following restriction
 [HMAC_Init_ex]: https://www.openssl.org/docs/man3.0/man3/HMAC_Init_ex.html
 
 [algorithm identifier]: https://docs.microsoft.com/en-us/windows/win32/seccng/cng-algorithm-identifiers
+[named elliptic curve]: https://docs.microsoft.com/en-us/windows/win32/seccng/cng-named-elliptic-curves
 [BCryptGenRandom]: https://docs.microsoft.com/en-us/windows/win32/api/bcrypt/nf-bcrypt-bcryptgenrandom
 [BCryptGenerateSymmetricKey]: https://docs.microsoft.com/en-us/windows/win32/api/bcrypt/nf-bcrypt-bcryptgeneratesymmetrickey
 [BCryptGenerateKeyPair]: https://docs.microsoft.com/en-us/windows/win32/api/bcrypt/nf-bcrypt-bcryptgeneratekeypair
