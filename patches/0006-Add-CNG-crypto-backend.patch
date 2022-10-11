@@ -8,13 +8,13 @@ Subject: [PATCH] Add CNG crypto backend
  src/cmd/go/go_boring_test.go                  |   2 +-
  src/crypto/boring/boring.go                   |   2 +-
  src/crypto/ecdsa/boring.go                    |   2 +-
- src/crypto/ecdsa/ecdsa.go                     |  39 +++-
+ src/crypto/ecdsa/ecdsa.go                     |  23 +++
  src/crypto/ecdsa/notboring.go                 |   2 +-
  src/crypto/internal/backend/backend_test.go   |   4 +-
  src/crypto/internal/backend/bbig/big.go       |   2 +-
  src/crypto/internal/backend/bbig/big_cng.go   |  12 ++
  src/crypto/internal/backend/cng_windows.go    | 171 ++++++++++++++++++
- src/crypto/internal/backend/common.go         |  45 ++++-
+ src/crypto/internal/backend/common.go         |  38 +++-
  src/crypto/internal/backend/nobackend.go      |   2 +-
  src/crypto/internal/boring/fipstls/stub.s     |   2 +-
  src/crypto/internal/boring/fipstls/tls.go     |   2 +-
@@ -50,7 +50,7 @@ Subject: [PATCH] Add CNG crypto backend
  .../goexperiment/exp_cngcrypto_off.go         |   9 +
  src/internal/goexperiment/exp_cngcrypto_on.go |   9 +
  src/internal/goexperiment/flags.go            |   1 +
- 46 files changed, 410 insertions(+), 50 deletions(-)
+ 46 files changed, 391 insertions(+), 46 deletions(-)
  create mode 100644 src/crypto/internal/backend/bbig/big_cng.go
  create mode 100644 src/crypto/internal/backend/cng_windows.go
  create mode 100644 src/internal/goexperiment/exp_cngcrypto_off.go
@@ -109,7 +109,7 @@ index 602cb894e20d39..bf9e77e06599f0 100644
  package ecdsa
  
 diff --git a/src/crypto/ecdsa/ecdsa.go b/src/crypto/ecdsa/ecdsa.go
-index 58d3bc69568f35..ed13bac062a3ff 100644
+index 58d3bc69568f35..43cb533e98ad0a 100644
 --- a/src/crypto/ecdsa/ecdsa.go
 +++ b/src/crypto/ecdsa/ecdsa.go
 @@ -29,6 +29,7 @@ import (
@@ -120,15 +120,7 @@ index 58d3bc69568f35..ed13bac062a3ff 100644
  	"io"
  	"math/big"
  
-@@ -109,11 +110,25 @@ func (priv *PrivateKey) Equal(x crypto.PrivateKey) bool {
- // where the private part is kept in, for example, a hardware module. Common
- // uses can use the SignASN1 function in this package directly.
- func (priv *PrivateKey) Sign(rand io.Reader, digest []byte, opts crypto.SignerOpts) ([]byte, error) {
--	if boring.Enabled && rand == boring.RandReader {
-+	if boring.Enabled && rand == boring.RandReader &&
-+		boring.IsCurveSupported(priv.Params().Name) {
-+
- 		b, err := boringPrivateKey(priv)
+@@ -114,6 +115,18 @@ func (priv *PrivateKey) Sign(rand io.Reader, digest []byte, opts crypto.SignerOp
  		if err != nil {
  			return nil, err
  		}
@@ -147,26 +139,7 @@ index 58d3bc69568f35..ed13bac062a3ff 100644
  		return boring.SignMarshalECDSA(b, digest)
  	}
  	boring.UnreachableExceptTests()
-@@ -154,7 +169,9 @@ func randFieldElement(c elliptic.Curve, rand io.Reader) (k *big.Int, err error)
- 
- // GenerateKey generates a public and private key pair.
- func GenerateKey(c elliptic.Curve, rand io.Reader) (*PrivateKey, error) {
--	if boring.Enabled && rand == boring.RandReader {
-+	if boring.Enabled && rand == boring.RandReader &&
-+		boring.IsCurveSupported(c.Params().Name) {
-+
- 		x, y, d, err := boring.GenerateKeyECDSA(c.Params().Name)
- 		if err != nil {
- 			return nil, err
-@@ -214,11 +231,20 @@ var errZeroParam = errors.New("zero parameter")
- func Sign(rand io.Reader, priv *PrivateKey, hash []byte) (r, s *big.Int, err error) {
- 	randutil.MaybeReadByte(rand)
- 
--	if boring.Enabled && rand == boring.RandReader {
-+	if boring.Enabled && rand == boring.RandReader &&
-+		boring.IsCurveSupported(priv.Params().Name) {
-+
- 		b, err := boringPrivateKey(priv)
+@@ -219,6 +232,13 @@ func Sign(rand io.Reader, priv *PrivateKey, hash []byte) (r, s *big.Int, err err
  		if err != nil {
  			return nil, nil, err
  		}
@@ -180,15 +153,7 @@ index 58d3bc69568f35..ed13bac062a3ff 100644
  		sig, err := boring.SignMarshalECDSA(b, hash)
  		if err != nil {
  			return nil, nil, err
-@@ -333,11 +359,16 @@ func SignASN1(rand io.Reader, priv *PrivateKey, hash []byte) ([]byte, error) {
- // return value records whether the signature is valid. Most applications should
- // use VerifyASN1 instead of dealing directly with r, s.
- func Verify(pub *PublicKey, hash []byte, r, s *big.Int) bool {
--	if boring.Enabled {
-+	if boring.Enabled &&
-+		boring.IsCurveSupported(pub.Params().Name) {
-+
- 		key, err := boringPublicKey(pub)
+@@ -338,6 +358,9 @@ func Verify(pub *PublicKey, hash []byte, r, s *big.Int) bool {
  		if err != nil {
  			return false
  		}
@@ -435,7 +400,7 @@ index 00000000000000..63bbc4fc9dc8c3
 +	return cng.VerifyRSAPSS(pub, h, hashed, sig, saltLen)
 +}
 diff --git a/src/crypto/internal/backend/common.go b/src/crypto/internal/backend/common.go
-index 007d8070538247..168ea5831a985e 100644
+index 007d8070538247..114f72c3d10ee4 100644
 --- a/src/crypto/internal/backend/common.go
 +++ b/src/crypto/internal/backend/common.go
 @@ -5,16 +5,19 @@
@@ -473,17 +438,10 @@ index 007d8070538247..168ea5831a985e 100644
  		name := runtime_arg0()
  		// If ran on Windows we'd need to allow _test.exe and .test.exe as well.
  		if !hasSuffix(name, "_test") && !hasSuffix(name, ".test") {
-@@ -63,3 +70,35 @@ func UnreachableExceptTests() {
+@@ -63,3 +70,28 @@ func UnreachableExceptTests() {
  		}
  	}
  }
-+
-+func IsCurveSupported(name string) bool {
-+	if goexperiment.CNGCrypto {
-+		return name != "P-224"
-+	}
-+	return true
-+}
 +
 +func IsRSAKeySupported(primes int) bool {
 +	if goexperiment.CNGCrypto {
@@ -841,7 +799,7 @@ index bc169888786321..e0d6f4c5040d91 100644
  
  		h := New()
 diff --git a/src/crypto/sha256/sha256.go b/src/crypto/sha256/sha256.go
-index eb704df3f3ae12..c462c3820b32aa 100644
+index 81ef91b7ffa30c..e678d0b129675a 100644
 --- a/src/crypto/sha256/sha256.go
 +++ b/src/crypto/sha256/sha256.go
 @@ -158,7 +158,7 @@ func New() hash.Hash {
@@ -1101,34 +1059,34 @@ index a0548a7f9179c5..ae6117a1554b7f 100644
  package x509
  
 diff --git a/src/go.mod b/src/go.mod
-index 396d81817839c5..23d975190813c5 100644
+index 396d81817839c5..713d87aa2753d1 100644
 --- a/src/go.mod
 +++ b/src/go.mod
 @@ -4,6 +4,7 @@ go 1.20
  
  require (
  	github.com/microsoft/go-crypto-openssl v0.2.1
-+	github.com/microsoft/go-crypto-winnative v0.0.0-20221003180653-84bf0c539a8e
++	github.com/microsoft/go-crypto-winnative v0.0.0-20221011160345-d61e0765182d
  	golang.org/x/crypto v0.0.0-20220722155217-630584e8d5aa
  	golang.org/x/net v0.0.0-20220920203100-d0c6ba3f52d9
  )
 diff --git a/src/go.sum b/src/go.sum
-index c6febdb646bbbe..24cf4f1b6a2bcc 100644
+index c6febdb646bbbe..df14273ff593be 100644
 --- a/src/go.sum
 +++ b/src/go.sum
 @@ -1,5 +1,7 @@
  github.com/microsoft/go-crypto-openssl v0.2.1 h1:YFcvMkJeBXucC5wkNne/BbB7V02z1TjRxXbvGmEaFd4=
  github.com/microsoft/go-crypto-openssl v0.2.1/go.mod h1:rC+rtBU3m60UCQifBmpWII0VETfu78w6YGZQvVc0rd4=
-+github.com/microsoft/go-crypto-winnative v0.0.0-20221003180653-84bf0c539a8e h1:9iYvunmn8z1LIbUG7qtD3O3cuPlbjWY90Vn6ox/divM=
-+github.com/microsoft/go-crypto-winnative v0.0.0-20221003180653-84bf0c539a8e/go.mod h1:fveERXKbeK+XLmOyU24caKnIT/S5nniAX9XCRHfnrM4=
++github.com/microsoft/go-crypto-winnative v0.0.0-20221011160345-d61e0765182d h1:TFKhEIqvg//DLOnP/leJug6krAM0bgEiGic0nLV80Vs=
++github.com/microsoft/go-crypto-winnative v0.0.0-20221011160345-d61e0765182d/go.mod h1:fveERXKbeK+XLmOyU24caKnIT/S5nniAX9XCRHfnrM4=
  golang.org/x/crypto v0.0.0-20220722155217-630584e8d5aa h1:zuSxTR4o9y82ebqCUJYNGJbGPo6sKVl54f/TVDObg1c=
  golang.org/x/crypto v0.0.0-20220722155217-630584e8d5aa/go.mod h1:IxCIyHEi3zRg3s0A5j5BB6A9Jmi73HwBIUl50j+osU4=
  golang.org/x/net v0.0.0-20220920203100-d0c6ba3f52d9 h1:asZqf0wXastQr+DudYagQS8uBO8bHKeYD1vbAvGmFL8=
 diff --git a/src/go/build/deps_test.go b/src/go/build/deps_test.go
-index d0da2efb34112d..68b4aaf25e775b 100644
+index 82357ddda60e9b..1324c251ca221f 100644
 --- a/src/go/build/deps_test.go
 +++ b/src/go/build/deps_test.go
-@@ -398,6 +398,10 @@ var depsRules = `
+@@ -399,6 +399,10 @@ var depsRules = `
  
  	crypto/cipher,
  	crypto/internal/boring/bcache
@@ -1139,7 +1097,7 @@ index d0da2efb34112d..68b4aaf25e775b 100644
  	< github.com/microsoft/go-crypto-openssl/openssl/internal/subtle
  	< github.com/microsoft/go-crypto-openssl/openssl
  	< crypto/internal/boring
-@@ -411,6 +415,7 @@ var depsRules = `
+@@ -412,6 +416,7 @@ var depsRules = `
  
  	# CRYPTO-MATH is core bignum-based crypto - no cgo, net; fmt now ok.
  	CRYPTO, FMT, math/big
