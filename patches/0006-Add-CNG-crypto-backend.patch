@@ -6,6 +6,7 @@ Subject: [PATCH] Add CNG crypto backend
 ---
  src/cmd/api/goapi_boring_test.go              |   2 +-
  src/cmd/go/go_boring_test.go                  |   2 +-
+ .../testdata/script/crypto_backend_cross.txt  |   5 +-
  src/crypto/boring/boring.go                   |   2 +-
  src/crypto/ecdsa/boring.go                    |   2 +-
  src/crypto/ecdsa/ecdsa.go                     |  39 +++-
@@ -50,7 +51,7 @@ Subject: [PATCH] Add CNG crypto backend
  .../goexperiment/exp_cngcrypto_off.go         |   9 +
  src/internal/goexperiment/exp_cngcrypto_on.go |   9 +
  src/internal/goexperiment/flags.go            |   1 +
- 46 files changed, 410 insertions(+), 50 deletions(-)
+ 47 files changed, 414 insertions(+), 51 deletions(-)
  create mode 100644 src/crypto/internal/backend/bbig/big_cng.go
  create mode 100644 src/crypto/internal/backend/cng_windows.go
  create mode 100644 src/internal/goexperiment/exp_cngcrypto_off.go
@@ -82,6 +83,24 @@ index 5376227f74cfaa..492ccf79d66b45 100644
  
  package main_test
  
+diff --git a/src/cmd/go/testdata/script/crypto_backend_cross.txt b/src/cmd/go/testdata/script/crypto_backend_cross.txt
+index dab0e4a3b460e6..117085a28add49 100644
+--- a/src/cmd/go/testdata/script/crypto_backend_cross.txt
++++ b/src/cmd/go/testdata/script/crypto_backend_cross.txt
+@@ -8,9 +8,12 @@ env GOEXPERIMENT=opensslcrypto
+ go run m/foo
+ 
+ # On Linux, we should fallback to Go standard crypto
+-# when CGO is disabled.
++# when CGO is disabled or using the CNG backend.
+ env GOOS=linux
+ 
++env GOEXPERIMENT=cngcrypto
++go run m/foo
++
+ env CGO_ENABLED=0
+ env GOEXPERIMENT=opensslcrypto
+ go run m/foo
 diff --git a/src/crypto/boring/boring.go b/src/crypto/boring/boring.go
 index 7b04f14ebdd618..8bdafb72f2c51a 100644
 --- a/src/crypto/boring/boring.go
@@ -510,15 +529,15 @@ index 007d8070538247..168ea5831a985e 100644
 +	return !goexperiment.CNGCrypto
 +}
 diff --git a/src/crypto/internal/backend/nobackend.go b/src/crypto/internal/backend/nobackend.go
-index df1eb2d8c87c83..e0263df3ddcca0 100644
+index 32aff0a0021ed8..69209d84469627 100644
 --- a/src/crypto/internal/backend/nobackend.go
 +++ b/src/crypto/internal/backend/nobackend.go
 @@ -2,7 +2,7 @@
  // Use of this source code is governed by a BSD-style
  // license that can be found in the LICENSE file.
  
--//go:build (!boringcrypto && !goexperiment.opensslcrypto) || !linux || !cgo || android || cmd_go_bootstrap || msan
-+//go:build (!boringcrypto && !goexperiment.opensslcrypto && !goexperiment.cngcrypto) || (!linux && !windows) || (linux && !cgo) || android || cmd_go_bootstrap || msan
+-//go:build (linux && !(cgo && (goexperiment.opensslcrypto || (boringcrypto && !msan && (amd64 || arm64))))) || !linux || android || cmd_go_bootstrap
++//go:build (linux && !(cgo && (goexperiment.opensslcrypto || (boringcrypto && !msan && (amd64 || arm64))))) || (windows && !goexperiment.cngcrypto) || !(linux || windows) || android || cmd_go_bootstrap
  
  package backend
  
@@ -841,7 +860,7 @@ index bc169888786321..e0d6f4c5040d91 100644
  
  		h := New()
 diff --git a/src/crypto/sha256/sha256.go b/src/crypto/sha256/sha256.go
-index eb704df3f3ae12..c462c3820b32aa 100644
+index 81ef91b7ffa30c..e678d0b129675a 100644
 --- a/src/crypto/sha256/sha256.go
 +++ b/src/crypto/sha256/sha256.go
 @@ -158,7 +158,7 @@ func New() hash.Hash {
@@ -1125,10 +1144,10 @@ index c6febdb646bbbe..24cf4f1b6a2bcc 100644
  golang.org/x/crypto v0.0.0-20220722155217-630584e8d5aa/go.mod h1:IxCIyHEi3zRg3s0A5j5BB6A9Jmi73HwBIUl50j+osU4=
  golang.org/x/net v0.0.0-20220920203100-d0c6ba3f52d9 h1:asZqf0wXastQr+DudYagQS8uBO8bHKeYD1vbAvGmFL8=
 diff --git a/src/go/build/deps_test.go b/src/go/build/deps_test.go
-index d0da2efb34112d..68b4aaf25e775b 100644
+index 82357ddda60e9b..1324c251ca221f 100644
 --- a/src/go/build/deps_test.go
 +++ b/src/go/build/deps_test.go
-@@ -398,6 +398,10 @@ var depsRules = `
+@@ -399,6 +399,10 @@ var depsRules = `
  
  	crypto/cipher,
  	crypto/internal/boring/bcache
@@ -1139,7 +1158,7 @@ index d0da2efb34112d..68b4aaf25e775b 100644
  	< github.com/microsoft/go-crypto-openssl/openssl/internal/subtle
  	< github.com/microsoft/go-crypto-openssl/openssl
  	< crypto/internal/boring
-@@ -411,6 +415,7 @@ var depsRules = `
+@@ -412,6 +416,7 @@ var depsRules = `
  
  	# CRYPTO-MATH is core bignum-based crypto - no cgo, net; fmt now ok.
  	CRYPTO, FMT, math/big

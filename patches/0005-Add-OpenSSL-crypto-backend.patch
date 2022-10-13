@@ -8,6 +8,7 @@ Subject: [PATCH] Add OpenSSL crypto backend
  src/cmd/api/goapi_boring_test.go              |   2 +-
  src/cmd/dist/test.go                          |  10 +-
  src/cmd/go/go_boring_test.go                  |   2 +-
+ .../testdata/script/crypto_backend_cross.txt  |  35 ++++
  .../go/testdata/script/gopath_std_vendor.txt  |   9 +
  src/cmd/link/internal/ld/lib.go               |   1 +
  src/crypto/boring/boring.go                   |   2 +-
@@ -38,7 +39,8 @@ Subject: [PATCH] Add OpenSSL crypto backend
  .../goexperiment/exp_opensslcrypto_on.go      |   9 +
  src/internal/goexperiment/flags.go            |   1 +
  src/os/exec/exec_test.go                      |   9 +
- 34 files changed, 286 insertions(+), 26 deletions(-)
+ 35 files changed, 321 insertions(+), 26 deletions(-)
+ create mode 100644 src/cmd/go/testdata/script/crypto_backend_cross.txt
  create mode 100644 src/crypto/internal/backend/bbig/big_openssl.go
  create mode 100644 src/crypto/internal/backend/openssl_linux.go
  create mode 100644 src/internal/goexperiment/exp_opensslcrypto_off.go
@@ -73,10 +75,10 @@ index f0e3575637c62a..0e9aceeb832d3b 100644
  package main
  
 diff --git a/src/cmd/dist/test.go b/src/cmd/dist/test.go
-index 170de28411005e..a1482cd5112505 100644
+index 3d966d9a160cb7..9f814cb14f2dfc 100644
 --- a/src/cmd/dist/test.go
 +++ b/src/cmd/dist/test.go
-@@ -1271,18 +1271,22 @@ func (t *tester) cgoTest(dt *distTest) error {
+@@ -1264,18 +1264,22 @@ func (t *tester) cgoTest(dt *distTest) error {
  			if err := cmd.Run(); err != nil {
  				fmt.Println("No support for static linking found (lacks libc.a?), skip cgo static linking test.")
  			} else {
@@ -115,6 +117,48 @@ index ed0fbf3d53d75b..5376227f74cfaa 100644
  
  package main_test
  
+diff --git a/src/cmd/go/testdata/script/crypto_backend_cross.txt b/src/cmd/go/testdata/script/crypto_backend_cross.txt
+new file mode 100644
+index 00000000000000..dab0e4a3b460e6
+--- /dev/null
++++ b/src/cmd/go/testdata/script/crypto_backend_cross.txt
+@@ -0,0 +1,35 @@
++# Test cross compiling with unsupported crypto backends
++
++# On Windows, we should fallback to Go standard crypto
++# when using the OpenSSL backend.
++env GOOS=windows
++
++env GOEXPERIMENT=opensslcrypto
++go run m/foo
++
++# On Linux, we should fallback to Go standard crypto
++# when CGO is disabled.
++env GOOS=linux
++
++env CGO_ENABLED=0
++env GOEXPERIMENT=opensslcrypto
++go run m/foo
++
++-- go.mod --
++module m
++
++go 1.18
++-- foo/x.go --
++package foo
++
++import (
++	"crypto/boring"
++	"crypto/sha256"
++)
++
++func main() {
++	if boring.Enabled() {
++		panic("crypto backend should be disabled")
++	}
++	sha256.Sum256([]byte("foo"))
++}
+\ No newline at end of file
 diff --git a/src/cmd/go/testdata/script/gopath_std_vendor.txt b/src/cmd/go/testdata/script/gopath_std_vendor.txt
 index a0a41a50de328d..509884b6ed1afd 100644
 --- a/src/cmd/go/testdata/script/gopath_std_vendor.txt
@@ -135,7 +179,7 @@ index a0a41a50de328d..509884b6ed1afd 100644
  
  go list -f '{{.Dir}}' vendor/golang.org/x/net/http2/hpack
 diff --git a/src/cmd/link/internal/ld/lib.go b/src/cmd/link/internal/ld/lib.go
-index fa2ee676a938c5..23b8004aff3d1b 100644
+index d971234d878b37..04e8bd05584222 100644
 --- a/src/cmd/link/internal/ld/lib.go
 +++ b/src/cmd/link/internal/ld/lib.go
 @@ -1074,6 +1074,7 @@ var hostobj []Hostobj
@@ -241,15 +285,15 @@ index 00000000000000..61ef3fdd90b607
 +var Enc = bbig.Enc
 +var Dec = bbig.Dec
 diff --git a/src/crypto/internal/backend/nobackend.go b/src/crypto/internal/backend/nobackend.go
-index ae7295d8d13c2a..df1eb2d8c87c83 100644
+index c9350336667a96..32aff0a0021ed8 100644
 --- a/src/crypto/internal/backend/nobackend.go
 +++ b/src/crypto/internal/backend/nobackend.go
 @@ -2,7 +2,7 @@
  // Use of this source code is governed by a BSD-style
  // license that can be found in the LICENSE file.
  
--//go:build !boringcrypto || !linux || !cgo || android || cmd_go_bootstrap || msan
-+//go:build (!boringcrypto && !goexperiment.opensslcrypto) || !linux || !cgo || android || cmd_go_bootstrap || msan
+-//go:build (linux && !(cgo && boringcrypto && !msan && (amd64 || arm64))) || !linux || android || cmd_go_bootstrap
++//go:build (linux && !(cgo && (goexperiment.opensslcrypto || (boringcrypto && !msan && (amd64 || arm64))))) || !linux || android || cmd_go_bootstrap
  
  package backend
  
@@ -643,10 +687,10 @@ index f4d36d2446bf8a..c6febdb646bbbe 100644
  golang.org/x/crypto v0.0.0-20220722155217-630584e8d5aa/go.mod h1:IxCIyHEi3zRg3s0A5j5BB6A9Jmi73HwBIUl50j+osU4=
  golang.org/x/net v0.0.0-20220920203100-d0c6ba3f52d9 h1:asZqf0wXastQr+DudYagQS8uBO8bHKeYD1vbAvGmFL8=
 diff --git a/src/go/build/deps_test.go b/src/go/build/deps_test.go
-index 0a1eb652d03a52..fa425269d516a3 100644
+index 9e942f3836459a..82357ddda60e9b 100644
 --- a/src/go/build/deps_test.go
 +++ b/src/go/build/deps_test.go
-@@ -396,6 +396,8 @@ var depsRules = `
+@@ -399,6 +399,8 @@ var depsRules = `
  
  	crypto/cipher,
  	crypto/internal/boring/bcache
@@ -655,7 +699,7 @@ index 0a1eb652d03a52..fa425269d516a3 100644
  	< crypto/internal/boring
  	< crypto/internal/backend
  	< crypto/boring
-@@ -407,6 +409,7 @@ var depsRules = `
+@@ -410,6 +412,7 @@ var depsRules = `
  
  	# CRYPTO-MATH is core bignum-based crypto - no cgo, net; fmt now ok.
  	CRYPTO, FMT, math/big
@@ -663,7 +707,7 @@ index 0a1eb652d03a52..fa425269d516a3 100644
  	< crypto/internal/boring/bbig
  	< crypto/internal/backend/bbig
  	< crypto/rand
-@@ -624,7 +627,7 @@ var buildIgnore = []byte("\n//go:build ignore")
+@@ -670,7 +673,7 @@ var buildIgnore = []byte("\n//go:build ignore")
  
  func findImports(pkg string) ([]string, error) {
  	vpkg := pkg
@@ -672,7 +716,7 @@ index 0a1eb652d03a52..fa425269d516a3 100644
  		vpkg = "vendor/" + pkg
  	}
  	dir := filepath.Join(Default.GOROOT, "src", vpkg)
-@@ -634,7 +637,7 @@ func findImports(pkg string) ([]string, error) {
+@@ -680,7 +683,7 @@ func findImports(pkg string) ([]string, error) {
  	}
  	var imports []string
  	var haveImport = map[string]bool{}
@@ -712,7 +756,7 @@ index 00000000000000..a7f2712e9e1464
 +const OpenSSLCrypto = true
 +const OpenSSLCryptoInt = 1
 diff --git a/src/internal/goexperiment/flags.go b/src/internal/goexperiment/flags.go
-index 20d9c2da5d9605..355b7fe5931d39 100644
+index 8faaf1684d0b0f..ff7ca1db4a8b89 100644
 --- a/src/internal/goexperiment/flags.go
 +++ b/src/internal/goexperiment/flags.go
 @@ -59,6 +59,7 @@ type Flags struct {
@@ -724,10 +768,10 @@ index 20d9c2da5d9605..355b7fe5931d39 100644
  	// Unified enables the compiler's unified IR construction
  	// experiment.
 diff --git a/src/os/exec/exec_test.go b/src/os/exec/exec_test.go
-index 52001bf9e30ab4..e600f231dee153 100644
+index d79befa19a13fe..1d5d2ea36750a9 100644
 --- a/src/os/exec/exec_test.go
 +++ b/src/os/exec/exec_test.go
-@@ -13,6 +13,7 @@ import (
+@@ -14,6 +14,7 @@ import (
  	"errors"
  	"flag"
  	"fmt"
@@ -735,7 +779,7 @@ index 52001bf9e30ab4..e600f231dee153 100644
  	"internal/poll"
  	"internal/testenv"
  	"io"
-@@ -730,6 +731,14 @@ func TestExtraFiles(t *testing.T) {
+@@ -686,6 +687,14 @@ func TestExtraFiles(t *testing.T) {
  		t.Skipf("skipping test on %q", runtime.GOOS)
  	}
  
