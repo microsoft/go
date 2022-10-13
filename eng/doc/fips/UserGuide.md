@@ -487,7 +487,7 @@ GenerateKey generates a public and private key pair.
 
 `priv` is generated using [BCryptGenerateKeyPair].
 
-`priv` [algorithm identifier] is `BCRYPT_ECDSA_ALGORITHM ` and the [named elliptic curve] depends on the value of `c`:
+`priv` [algorithm identifier] is `BCRYPT_ECDSA_ALGORITHM` and the [named elliptic curve] depends on the value of `c`:
 
 - If `c.Params().Name == "P-224"` then curve is `BCRYPT_ECC_CURVE_NISTP224`.
 - If `c.Params().Name == "P-256"` then curve is `BCRYPT_ECC_CURVE_NISTP256`.
