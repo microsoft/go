@@ -30,11 +30,11 @@ function Get-Stage0GoRoot() {
   if ($IsWindows) {
     switch ($proc_arch) {
       'x64' {
-        $stage0_go_sha256 = '78d7f5b5c8d0755e6e47d5cb649e58e9fdf7b9b1ce5cdccfe43190df2841a050'
+        $stage0_go_sha256 = '8c23c6ae7777df883ccc2fd07a90c3ac7fab3eb7398c0e2f39c7cb27ee06517e'
         $stage0_go_suffix = 'windows-amd64.zip'
       }
       'arm64' {
-        $stage0_go_sha256 = 'd541b70c2377eeeb26d6a6c8f24a0e0a023057e077f1777519ccc72542b434e2'
+        $stage0_go_sha256 = '14a1f33da77bcecea3c1f9ad5ca2363e0835fb77e83b3b1e09b922fd91fb66e1'
         $stage0_go_suffix = 'windows-arm64.zip'
       }
       Default { throw "Unable to match Windows '$proc_arch' to an architecture supported by the Microsoft scripts to build Go." }
