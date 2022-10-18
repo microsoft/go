@@ -169,9 +169,9 @@ func build(o *options) error {
 		}
 
 		// The race runtime requires cgo.
-		// It isn't supported on arm.
+		// It isn't supported on arm or 386.
 		// It's supported on arm64, but the official linux-arm64 distribution doesn't include it.
-		if os.Getenv("CGO_ENABLED") != "0" && targetArch != "arm" && targetArch != "arm64" {
+		if os.Getenv("CGO_ENABLED") != "0" && targetArch != "arm" && targetArch != "arm64" && targetArch != "386" {
 			fmt.Println("---- Building race runtime...")
 			err := runCommandLine(
 				filepath.Join("..", "bin", "go"+executableExtension),
