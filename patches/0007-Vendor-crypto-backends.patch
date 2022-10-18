@@ -27,18 +27,18 @@ To reproduce, run 'go mod vendor' in 'go/src'.
  .../microsoft/go-crypto-winnative/cng/big.go  |  30 +
  .../microsoft/go-crypto-winnative/cng/cng.go  | 130 ++++
  .../microsoft/go-crypto-winnative/cng/ecdh.go | 257 ++++++++
- .../go-crypto-winnative/cng/ecdsa.go          | 173 ++++++
+ .../go-crypto-winnative/cng/ecdsa.go          | 175 ++++++
  .../microsoft/go-crypto-winnative/cng/hmac.go |  55 ++
  .../microsoft/go-crypto-winnative/cng/keys.go | 161 +++++
  .../microsoft/go-crypto-winnative/cng/rand.go |  28 +
  .../microsoft/go-crypto-winnative/cng/rsa.go  | 374 +++++++++++
  .../microsoft/go-crypto-winnative/cng/sha.go  | 199 ++++++
- .../internal/bcrypt/bcrypt_windows.go         | 222 +++++++
+ .../internal/bcrypt/bcrypt_windows.go         | 221 +++++++
  .../internal/bcrypt/zsyscall_windows.go       | 372 +++++++++++
  .../internal/subtle/aliasing.go               |  32 +
  .../internal/sysdll/sys_windows.go            |  55 ++
  src/vendor/modules.txt                        |  12 +
- 33 files changed, 5552 insertions(+)
+ 33 files changed, 5553 insertions(+)
  create mode 100644 src/vendor/github.com/microsoft/go-crypto-openssl/LICENSE
  create mode 100644 src/vendor/github.com/microsoft/go-crypto-openssl/openssl/aes.go
  create mode 100644 src/vendor/github.com/microsoft/go-crypto-openssl/openssl/bbig/big.go
@@ -3677,7 +3677,7 @@ index 00000000000000..36f0e0c6e278bc
 +}
 diff --git a/src/vendor/github.com/microsoft/go-crypto-winnative/cng/cng.go b/src/vendor/github.com/microsoft/go-crypto-winnative/cng/cng.go
 new file mode 100644
-index 00000000000000..a2a54443033013
+index 00000000000000..844c087287cabe
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go-crypto-winnative/cng/cng.go
 @@ -0,0 +1,130 @@
@@ -3708,11 +3708,11 @@ index 00000000000000..a2a54443033013
 +	return enabled, nil
 +}
 +
-+// lenU32 clamps s length so it can fit into a Win32 ULONG,
-+// which is a 32-bit unsigned integer, without overflowing.
-+func lenU32(s []byte) int {
-+	if len(s) > math.MaxUint32 {
-+		return math.MaxUint32
++// len32 clamps s length so it can fit into a Win32 LONG,
++// which is a 32-bit signed integer, without overflowing.
++func len32(s []byte) int {
++	if len(s) > math.MaxInt32 {
++		return math.MaxInt32
 +	}
 +	return len(s)
 +}
@@ -4076,10 +4076,10 @@ index 00000000000000..f15f958054b2e8
 +}
 diff --git a/src/vendor/github.com/microsoft/go-crypto-winnative/cng/ecdsa.go b/src/vendor/github.com/microsoft/go-crypto-winnative/cng/ecdsa.go
 new file mode 100644
-index 00000000000000..a6630e3b0df946
+index 00000000000000..a77ff97bb8f521
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go-crypto-winnative/cng/ecdsa.go
-@@ -0,0 +1,173 @@
+@@ -0,0 +1,175 @@
 +// Copyright (c) Microsoft Corporation.
 +// Licensed under the MIT License.
 +
@@ -4096,32 +4096,34 @@ index 00000000000000..a6630e3b0df946
 +)
 +
 +var errUnknownCurve = errors.New("cng: unknown elliptic curve")
-+var errUnsupportedCurve = errors.New("cng: unsupported elliptic curve")
 +
 +type ecdsaAlgorithm struct {
 +	handle bcrypt.ALG_HANDLE
-+	id     string
 +}
 +
 +func loadECDSA(curve string) (h ecdsaAlgorithm, bits uint32, err error) {
 +	var id string
 +	switch curve {
 +	case "P-224":
-+		err = errUnsupportedCurve
++		id, bits = bcrypt.ECC_CURVE_NISTP224, 224
 +	case "P-256":
-+		id, bits = bcrypt.ECDSA_P256_ALGORITHM, 256
++		id, bits = bcrypt.ECC_CURVE_NISTP256, 256
 +	case "P-384":
-+		id, bits = bcrypt.ECDSA_P384_ALGORITHM, 384
++		id, bits = bcrypt.ECC_CURVE_NISTP384, 384
 +	case "P-521":
-+		id, bits = bcrypt.ECDSA_P521_ALGORITHM, 521
++		id, bits = bcrypt.ECC_CURVE_NISTP521, 521
 +	default:
 +		err = errUnknownCurve
 +	}
 +	if err != nil {
 +		return
 +	}
-+	v, err := loadOrStoreAlg(id, bcrypt.ALG_NONE_FLAG, "", func(h bcrypt.ALG_HANDLE) (interface{}, error) {
-+		return ecdsaAlgorithm{h, id}, nil
++	v, err := loadOrStoreAlg(bcrypt.ECDSA_ALGORITHM, bcrypt.ALG_NONE_FLAG, id, func(h bcrypt.ALG_HANDLE) (interface{}, error) {
++		err := setString(bcrypt.HANDLE(h), bcrypt.ECC_CURVE_NAME, id)
++		if err != nil {
++			return nil, err
++		}
++		return ecdsaAlgorithm{h}, nil
 +	})
 +	if err != nil {
 +		return ecdsaAlgorithm{}, 0, err
@@ -4171,7 +4173,7 @@ index 00000000000000..a6630e3b0df946
 +	if err != nil {
 +		return nil, err
 +	}
-+	hkey, err := importECCKey(h.handle, h.id, bits, X, Y, nil)
++	hkey, err := importECCKey(h.handle, bcrypt.ECDSA_ALGORITHM, bits, X, Y, nil)
 +	if err != nil {
 +		return nil, err
 +	}
@@ -4193,7 +4195,7 @@ index 00000000000000..a6630e3b0df946
 +	if err != nil {
 +		return nil, err
 +	}
-+	hkey, err := importECCKey(h.handle, h.id, bits, X, Y, D)
++	hkey, err := importECCKey(h.handle, bcrypt.ECDSA_ALGORITHM, bits, X, Y, D)
 +	if err != nil {
 +		return nil, err
 +	}
@@ -4316,7 +4318,7 @@ index 00000000000000..736472d5b4e700
 +}
 diff --git a/src/vendor/github.com/microsoft/go-crypto-winnative/cng/keys.go b/src/vendor/github.com/microsoft/go-crypto-winnative/cng/keys.go
 new file mode 100644
-index 00000000000000..b87ed7ec61d3fb
+index 00000000000000..766768e9d46b41
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go-crypto-winnative/cng/keys.go
 @@ -0,0 +1,161 @@
@@ -4423,7 +4425,7 @@ index 00000000000000..b87ed7ec61d3fb
 +		return nil, errors.New("cng: invalid parameters")
 +	}
 +	switch id {
-+	case bcrypt.ECDSA_P256_ALGORITHM, bcrypt.ECDSA_P384_ALGORITHM, bcrypt.ECDSA_P521_ALGORITHM:
++	case bcrypt.ECDSA_ALGORITHM:
 +		if D == nil {
 +			hdr.Magic = bcrypt.ECDSA_PUBLIC_GENERIC_MAGIC
 +		} else {
@@ -4483,7 +4485,7 @@ index 00000000000000..b87ed7ec61d3fb
 +}
 diff --git a/src/vendor/github.com/microsoft/go-crypto-winnative/cng/rand.go b/src/vendor/github.com/microsoft/go-crypto-winnative/cng/rand.go
 new file mode 100644
-index 00000000000000..5265394c936a82
+index 00000000000000..cdd845ab5bea98
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go-crypto-winnative/cng/rand.go
 @@ -0,0 +1,28 @@
@@ -4505,7 +4507,7 @@ index 00000000000000..5265394c936a82
 +	if len(b) == 0 {
 +		return 0, nil
 +	}
-+	n := lenU32(b)
++	n := len32(b)
 +	const flags = bcrypt.USE_SYSTEM_PREFERRED_RNG
 +	err := bcrypt.GenRandom(0, b[:n], flags)
 +	if err != nil {
@@ -4897,7 +4899,7 @@ index 00000000000000..7e3f7abe3487cb
 +}
 diff --git a/src/vendor/github.com/microsoft/go-crypto-winnative/cng/sha.go b/src/vendor/github.com/microsoft/go-crypto-winnative/cng/sha.go
 new file mode 100644
-index 00000000000000..a0ed5a10c70afd
+index 00000000000000..0ab3c9e9ce06fb
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go-crypto-winnative/cng/sha.go
 @@ -0,0 +1,199 @@
@@ -5062,7 +5064,7 @@ index 00000000000000..a0ed5a10c70afd
 +
 +func (h *shaXHash) Write(p []byte) (n int, err error) {
 +	for n < len(p) && err == nil {
-+		nn := lenU32(p[n:])
++		nn := len32(p[n:])
 +		err = bcrypt.HashData(h.ctx, p[n:n+nn], 0)
 +		n += nn
 +	}
@@ -5102,10 +5104,10 @@ index 00000000000000..a0ed5a10c70afd
 +}
 diff --git a/src/vendor/github.com/microsoft/go-crypto-winnative/internal/bcrypt/bcrypt_windows.go b/src/vendor/github.com/microsoft/go-crypto-winnative/internal/bcrypt/bcrypt_windows.go
 new file mode 100644
-index 00000000000000..cdd7f9fdf0aed2
+index 00000000000000..f3100669d53d3f
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go-crypto-winnative/internal/bcrypt/bcrypt_windows.go
-@@ -0,0 +1,222 @@
+@@ -0,0 +1,221 @@
 +// Copyright (c) Microsoft Corporation.
 +// Licensed under the MIT License.
 +
@@ -5119,21 +5121,20 @@ index 00000000000000..cdd7f9fdf0aed2
 +)
 +
 +const (
-+	SHA1_ALGORITHM       = "SHA1"
-+	SHA256_ALGORITHM     = "SHA256"
-+	SHA384_ALGORITHM     = "SHA384"
-+	SHA512_ALGORITHM     = "SHA512"
-+	AES_ALGORITHM        = "AES"
-+	RSA_ALGORITHM        = "RSA"
-+	MD5_ALGORITHM        = "MD5"
-+	ECDSA_P256_ALGORITHM = "ECDSA_P256"
-+	ECDSA_P384_ALGORITHM = "ECDSA_P384"
-+	ECDSA_P521_ALGORITHM = "ECDSA_P521"
-+	ECDH_ALGORITHM       = "ECDH"
++	SHA1_ALGORITHM   = "SHA1"
++	SHA256_ALGORITHM = "SHA256"
++	SHA384_ALGORITHM = "SHA384"
++	SHA512_ALGORITHM = "SHA512"
++	AES_ALGORITHM    = "AES"
++	RSA_ALGORITHM    = "RSA"
++	MD5_ALGORITHM    = "MD5"
++	ECDSA_ALGORITHM  = "ECDSA"
++	ECDH_ALGORITHM   = "ECDH"
 +)
 +
 +const (
 +	ECC_CURVE_25519    = "curve25519"
++	ECC_CURVE_NISTP224 = "nistP224"
 +	ECC_CURVE_NISTP256 = "nistP256"
 +	ECC_CURVE_NISTP384 = "nistP384"
 +	ECC_CURVE_NISTP521 = "nistP521"
@@ -5806,7 +5807,7 @@ index 00000000000000..1722410e5af193
 +	return getSystemDirectory() + "\\" + dll
 +}
 diff --git a/src/vendor/modules.txt b/src/vendor/modules.txt
-index 0d746403f3fa08..9e9b782b419313 100644
+index 0d746403f3fa08..74af86e066f07a 100644
 --- a/src/vendor/modules.txt
 +++ b/src/vendor/modules.txt
 @@ -1,3 +1,15 @@
@@ -5815,7 +5816,7 @@ index 0d746403f3fa08..9e9b782b419313 100644
 +github.com/microsoft/go-crypto-openssl/openssl
 +github.com/microsoft/go-crypto-openssl/openssl/bbig
 +github.com/microsoft/go-crypto-openssl/openssl/internal/subtle
-+# github.com/microsoft/go-crypto-winnative v0.0.0-20221003180653-84bf0c539a8e
++# github.com/microsoft/go-crypto-winnative v0.0.0-20221018054840-63fe3bdaa327
 +## explicit; go 1.17
 +github.com/microsoft/go-crypto-winnative/cng
 +github.com/microsoft/go-crypto-winnative/cng/bbig
