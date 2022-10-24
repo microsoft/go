@@ -120,7 +120,9 @@ func main() {
 		// validate the run.ps1 script with "build" tool works to build and test Go. It runs a
 		// subset of the "test" builder's tests, but it uses the dev workflow.
 		testCmdline := append(buildCmdline, "-skipbuild", "-test")
-		runTest(testCmdline, *jUnitFile)
+		if err := runTest(testCmdline, *jUnitFile); err != nil {
+			log.Fatal(err)
+		}
 
 	default:
 		// Most builder configurations use "bin/go tool dist test" directly, which is the default.
