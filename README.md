@@ -15,6 +15,10 @@ of Go](https://go.dev/dl/).
 Unless otherwise noted, the Go source files are distributed under the
 BSD-style license found in the LICENSE file.
 
+If you are using this fork and have a Microsoft corporate account, consider
+[clicking here to instantly join the Microsoft Go Toolset Announcements email distribution list 📧](https://idwebelements.microsoft.com/GroupManagement.aspx?Group=golang-announce&Operation=join)
+and receive notifications about Microsoft releases of Go and breaking changes.
+
 ## Why does this fork exist?
 
 This repository produces a modified version of Go that can be used to build FIPS
