@@ -4,7 +4,6 @@ Date: Thu, 30 Jun 2022 10:06:19 +0200
 Subject: [PATCH] Add OpenSSL crypto backend
 
 ---
- misc/cgo/test/pkg_test.go                     |   4 +-
  src/cmd/api/goapi_boring_test.go              |   2 +-
  src/cmd/dist/test.go                          |  10 +-
  src/cmd/go/go_boring_test.go                  |   2 +-
@@ -38,27 +37,12 @@ Subject: [PATCH] Add OpenSSL crypto backend
  .../goexperiment/exp_opensslcrypto_on.go      |   9 +
  src/internal/goexperiment/flags.go            |   1 +
  src/os/exec/exec_test.go                      |   9 +
- 34 files changed, 286 insertions(+), 26 deletions(-)
+ 33 files changed, 283 insertions(+), 25 deletions(-)
  create mode 100644 src/crypto/internal/backend/bbig/big_openssl.go
  create mode 100644 src/crypto/internal/backend/openssl_linux.go
  create mode 100644 src/internal/goexperiment/exp_opensslcrypto_off.go
  create mode 100644 src/internal/goexperiment/exp_opensslcrypto_on.go
 
-diff --git a/misc/cgo/test/pkg_test.go b/misc/cgo/test/pkg_test.go
-index cbc80eee7739f4..666bd84e57f133 100644
---- a/misc/cgo/test/pkg_test.go
-+++ b/misc/cgo/test/pkg_test.go
-@@ -62,7 +62,9 @@ func TestCrossPackageTests(t *testing.T) {
- 		cmd.Args = append(cmd.Args, "-short")
- 	}
- 	cmd.Dir = modRoot
--	cmd.Env = append(os.Environ(), "GOPATH="+GOPATH, "PWD="+cmd.Dir)
-+	// Use 'GOEXPERIMENT=none' to avoid importing go-crypto-openssl, which makes TestSetgid hang.
-+	// See go.dev/issues/52141.
-+	cmd.Env = append(os.Environ(), "GOPATH="+GOPATH, "PWD="+cmd.Dir, "GOEXPERIMENT=none")
- 	out, err := cmd.CombinedOutput()
- 	if err == nil {
- 		t.Logf("%s:\n%s", strings.Join(cmd.Args, " "), out)
 diff --git a/src/cmd/api/goapi_boring_test.go b/src/cmd/api/goapi_boring_test.go
 index f0e3575637c62a..0e9aceeb832d3b 100644
 --- a/src/cmd/api/goapi_boring_test.go
@@ -131,7 +115,7 @@ index a0a41a50de328d..509884b6ed1afd 100644
 +# dependency chain that would cause the failure if the gocrypt tag isn't used.
 +env GOEXPERIMENT=none
 +
- [!gc] skip
+ [!compiler:gc] skip
  
  go list -f '{{.Dir}}' vendor/golang.org/x/net/http2/hpack
 diff --git a/src/cmd/link/internal/ld/lib.go b/src/cmd/link/internal/ld/lib.go
@@ -629,8 +613,8 @@ index 4b025013f2b3d2..396d81817839c5 100644
  
  require (
 +	github.com/microsoft/go-crypto-openssl v0.2.1
- 	golang.org/x/crypto v0.0.0-20220722155217-630584e8d5aa
- 	golang.org/x/net v0.0.0-20220920203100-d0c6ba3f52d9
+ 	golang.org/x/crypto v0.1.0
+ 	golang.org/x/net v0.1.0
  )
 diff --git a/src/go.sum b/src/go.sum
 index f4d36d2446bf8a..c6febdb646bbbe 100644
@@ -639,9 +623,9 @@ index f4d36d2446bf8a..c6febdb646bbbe 100644
 @@ -1,3 +1,5 @@
 +github.com/microsoft/go-crypto-openssl v0.2.1 h1:YFcvMkJeBXucC5wkNne/BbB7V02z1TjRxXbvGmEaFd4=
 +github.com/microsoft/go-crypto-openssl v0.2.1/go.mod h1:rC+rtBU3m60UCQifBmpWII0VETfu78w6YGZQvVc0rd4=
- golang.org/x/crypto v0.0.0-20220722155217-630584e8d5aa h1:zuSxTR4o9y82ebqCUJYNGJbGPo6sKVl54f/TVDObg1c=
- golang.org/x/crypto v0.0.0-20220722155217-630584e8d5aa/go.mod h1:IxCIyHEi3zRg3s0A5j5BB6A9Jmi73HwBIUl50j+osU4=
- golang.org/x/net v0.0.0-20220920203100-d0c6ba3f52d9 h1:asZqf0wXastQr+DudYagQS8uBO8bHKeYD1vbAvGmFL8=
+ golang.org/x/crypto v0.1.0 h1:MDRAIl0xIo9Io2xV565hzXHw3zVseKrJKodhohM5CjU=
+ golang.org/x/crypto v0.1.0/go.mod h1:RecgLatLF4+eUMCP1PoPZQb+cVrJcOPbHkTkbkB9sbw=
+ golang.org/x/net v0.1.0 h1:hZ/3BUoy5aId7sCpA/Tc5lt8DkFgdVS2onTpJsZ/fl0=
 diff --git a/src/go/build/deps_test.go b/src/go/build/deps_test.go
 index b95146e808b801..85c05b7596c62f 100644
 --- a/src/go/build/deps_test.go
