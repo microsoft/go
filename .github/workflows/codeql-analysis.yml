@@ -10,7 +10,7 @@
 # More about the CodeQL actions: https://github.com/github/codeql-action
 # OneNote page with more internal info: https://microsoft.sharepoint.com/teams/managedlanguages/_layouts/OneNote.aspx?id=%2Fteams%2Fmanagedlanguages%2Ffiles%2FTeam%20Notebook%2FGoLang%20Team&wd=target%28Main.one%7C62B655D4-14E7-41D6-A063-0869C28D63FC%2FSDL%20Tools%7C3908F727-3751-4ACC-8C71-6CEB2DF277B4%2F%29
 
-name: "CodeQL"
+name: "Test"
 
 on:
   push:
@@ -22,8 +22,28 @@ on:
     - cron: '39 8 * * 4'
 
 jobs:
+  # Check that the patches apply cleanly as quickly as possible. This means we don't waste machine
+  # time running CodeQL setup and analysis when the build can't possibly succeed.
+  #
+  # This also happens to be a good signal for devs. GitHub Actions is quick to get an agent, so when
+  # this job fails, it's easy to see, a nd clear that the rest of the PR's jobs aren't going to
+  # succeed. (The actual tests run in AzDO, so we can't cancel them from here, but at least the dev
+  # will know the cause of the failures without navigating through the links.)
+  check_patches:
+    name: Patches Apply Cleanly
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v2
+
+      - run: pwsh eng/run.ps1 submodule-refresh -shallow
+
   analyze:
     name: Analyze
+    # The instrumented build will fail if the patches don't apply cleanly, so don't. This saves
+    # machine time, and also means devs don't have to look deep to see whether CodeQL failed due to
+    # patch conflicts or an actual infra issue.
+    needs: check_patches
     runs-on: ubuntu-latest
     permissions:
       actions: read
