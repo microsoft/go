@@ -224,7 +224,7 @@ index 00000000000000..92623031fd87d0
 +var Dec = bbig.Dec
 diff --git a/src/crypto/internal/backend/cng_windows.go b/src/crypto/internal/backend/cng_windows.go
 new file mode 100644
-index 00000000000000..63bbc4fc9dc8c3
+index 00000000000000..f7429e8a940dc9
 --- /dev/null
 +++ b/src/crypto/internal/backend/cng_windows.go
 @@ -0,0 +1,171 @@
@@ -348,7 +348,7 @@ index 00000000000000..63bbc4fc9dc8c3
 +type PublicKeyRSA = cng.PublicKeyRSA
 +type PrivateKeyRSA = cng.PrivateKeyRSA
 +
-+func DecryptRSAOAEP(h hash.Hash, priv *cng.PrivateKeyRSA, ciphertext, label []byte) ([]byte, error) {
++func DecryptRSAOAEP(h, mgfHash hash.Hash, priv *cng.PrivateKeyRSA, ciphertext, label []byte) ([]byte, error) {
 +	return cng.DecryptRSAOAEP(h, priv, ciphertext, label)
 +}
 +
@@ -360,7 +360,7 @@ index 00000000000000..63bbc4fc9dc8c3
 +	return cng.DecryptRSANoPadding(priv, ciphertext)
 +}
 +
-+func EncryptRSAOAEP(h hash.Hash, pub *cng.PublicKeyRSA, msg, label []byte) ([]byte, error) {
++func EncryptRSAOAEP(h, mgfHash hash.Hash, pub *cng.PublicKeyRSA, msg, label []byte) ([]byte, error) {
 +	return cng.EncryptRSAOAEP(h, pub, msg, label)
 +}
 +
@@ -468,7 +468,7 @@ index 007d8070538247..114f72c3d10ee4 100644
 +	return !goexperiment.CNGCrypto
 +}
 diff --git a/src/crypto/internal/backend/nobackend.go b/src/crypto/internal/backend/nobackend.go
-index df1eb2d8c87c83..e0263df3ddcca0 100644
+index 382e662d95cecd..18c269f9187e6a 100644
 --- a/src/crypto/internal/backend/nobackend.go
 +++ b/src/crypto/internal/backend/nobackend.go
 @@ -2,7 +2,7 @@
@@ -569,7 +569,7 @@ index 933ac569e034a8..0f152b210fdd84 100644
  package rsa
  
 diff --git a/src/crypto/rsa/pkcs1v15.go b/src/crypto/rsa/pkcs1v15.go
-index 99b3dba5df63b2..46994344bb50d8 100644
+index 596b2ecaad24c4..c77fe03eb6c7b7 100644
 --- a/src/crypto/rsa/pkcs1v15.go
 +++ b/src/crypto/rsa/pkcs1v15.go
 @@ -94,7 +94,9 @@ func DecryptPKCS1v15(random io.Reader, priv *PrivateKey, ciphertext []byte) ([]b
@@ -667,7 +667,7 @@ index ecc02e47d6c837..21eed60e05bbf1 100644
  		t.Fatal(err)
  	}
 diff --git a/src/crypto/rsa/rsa.go b/src/crypto/rsa/rsa.go
-index 5ef07fdbe9ebb3..80c245e247939c 100644
+index 1dc871d035d0f2..25ee851868816f 100644
 --- a/src/crypto/rsa/rsa.go
 +++ b/src/crypto/rsa/rsa.go
 @@ -31,6 +31,7 @@ import (
@@ -678,7 +678,7 @@ index 5ef07fdbe9ebb3..80c245e247939c 100644
  	"io"
  	"math"
  	"math/big"
-@@ -420,7 +421,11 @@ func mgf1XOR(out []byte, hash hash.Hash, seed []byte) {
+@@ -429,7 +430,11 @@ func mgf1XOR(out []byte, hash hash.Hash, seed []byte) {
  var ErrMessageTooLong = errors.New("crypto/rsa: message too long for RSA public key size")
  
  func encrypt(c *big.Int, pub *PublicKey, m *big.Int) *big.Int {
@@ -691,7 +691,7 @@ index 5ef07fdbe9ebb3..80c245e247939c 100644
  	e := big.NewInt(int64(pub.E))
  	c.Exp(m, e, pub.N)
  	return c
-@@ -541,7 +546,9 @@ func (priv *PrivateKey) Precompute() {
+@@ -550,7 +555,9 @@ func (priv *PrivateKey) Precompute() {
  // decrypt performs an RSA decryption, resulting in a plaintext integer. If a
  // random source is given, RSA blinding is used.
  func decrypt(random io.Reader, priv *PrivateKey, c *big.Int) (m *big.Int, err error) {
@@ -702,7 +702,7 @@ index 5ef07fdbe9ebb3..80c245e247939c 100644
  		boring.Unreachable()
  	}
  	// TODO(agl): can we get away with reusing blinds?
-@@ -660,7 +667,9 @@ func DecryptOAEP(hash hash.Hash, random io.Reader, priv *PrivateKey, ciphertext
+@@ -673,7 +680,9 @@ func decryptOAEP(hash, mgfHash hash.Hash, random io.Reader, priv *PrivateKey, ci
  		return nil, ErrDecryption
  	}
  
@@ -714,10 +714,10 @@ index 5ef07fdbe9ebb3..80c245e247939c 100644
  		if err != nil {
  			return nil, err
 diff --git a/src/crypto/rsa/rsa_test.go b/src/crypto/rsa/rsa_test.go
-index f2602b94ab881b..6fd49b91069a9a 100644
+index 08e50c4638f477..9132e9afa5432b 100644
 --- a/src/crypto/rsa/rsa_test.go
 +++ b/src/crypto/rsa/rsa_test.go
-@@ -11,6 +11,7 @@ import (
+@@ -12,6 +12,7 @@ import (
  	"crypto/sha1"
  	"crypto/sha256"
  	"fmt"
@@ -725,7 +725,7 @@ index f2602b94ab881b..6fd49b91069a9a 100644
  	"math/big"
  	"testing"
  )
-@@ -115,6 +116,9 @@ func testKeyBasics(t *testing.T, priv *PrivateKey) {
+@@ -114,6 +115,9 @@ func testKeyBasics(t *testing.T, priv *PrivateKey) {
  	}
  
  	if boring.Enabled {
@@ -940,7 +940,7 @@ index 70baa62d63754a..ecd0f5a7b3e9ed 100644
  package tls
  
 diff --git a/src/crypto/tls/boring_test.go b/src/crypto/tls/boring_test.go
-index 2131a76ca74da7..eda4f89d70b579 100644
+index ea23a0336bd575..b117e47ba3a2c1 100644
 --- a/src/crypto/tls/boring_test.go
 +++ b/src/crypto/tls/boring_test.go
 @@ -2,7 +2,7 @@
@@ -1020,7 +1020,7 @@ index 1aaabd5ef486aa..5a133c9b2f94c7 100644
  package tls
  
 diff --git a/src/crypto/x509/boring.go b/src/crypto/x509/boring.go
-index 24add90c72038c..141fdc55999b1d 100644
+index 9aec21dbcd3bff..05324f731bedc4 100644
 --- a/src/crypto/x509/boring.go
 +++ b/src/crypto/x509/boring.go
 @@ -2,7 +2,7 @@
@@ -1033,7 +1033,7 @@ index 24add90c72038c..141fdc55999b1d 100644
  package x509
  
 diff --git a/src/crypto/x509/boring_test.go b/src/crypto/x509/boring_test.go
-index b61b90bdd953c8..822c3fe217ed19 100644
+index 457cd95b9ca17a..be7576892e01d7 100644
 --- a/src/crypto/x509/boring_test.go
 +++ b/src/crypto/x509/boring_test.go
 @@ -2,7 +2,7 @@
@@ -1059,7 +1059,7 @@ index a0548a7f9179c5..ae6117a1554b7f 100644
  package x509
  
 diff --git a/src/go.mod b/src/go.mod
-index 396d81817839c5..2a8a6554035b2a 100644
+index 4ada616f41f0a3..6c033ab691fabc 100644
 --- a/src/go.mod
 +++ b/src/go.mod
 @@ -4,6 +4,7 @@ go 1.20
@@ -1071,7 +1071,7 @@ index 396d81817839c5..2a8a6554035b2a 100644
  	golang.org/x/net v0.1.0
  )
 diff --git a/src/go.sum b/src/go.sum
-index c6febdb646bbbe..68ef5d2a38d34c 100644
+index 1fedfd1e36d09d..0f3baa49a15eae 100644
 --- a/src/go.sum
 +++ b/src/go.sum
 @@ -1,5 +1,7 @@
@@ -1083,10 +1083,10 @@ index c6febdb646bbbe..68ef5d2a38d34c 100644
  golang.org/x/crypto v0.1.0/go.mod h1:RecgLatLF4+eUMCP1PoPZQb+cVrJcOPbHkTkbkB9sbw=
  golang.org/x/net v0.1.0 h1:hZ/3BUoy5aId7sCpA/Tc5lt8DkFgdVS2onTpJsZ/fl0=
 diff --git a/src/go/build/deps_test.go b/src/go/build/deps_test.go
-index 810ad08e78d2a3..1eb6edb7cc24c0 100644
+index 07b551e09c88fc..70180351d907d0 100644
 --- a/src/go/build/deps_test.go
 +++ b/src/go/build/deps_test.go
-@@ -402,6 +402,10 @@ var depsRules = `
+@@ -399,6 +399,10 @@ var depsRules = `
  
  	crypto/cipher,
  	crypto/internal/boring/bcache
@@ -1097,7 +1097,7 @@ index 810ad08e78d2a3..1eb6edb7cc24c0 100644
  	< github.com/microsoft/go-crypto-openssl/openssl/internal/subtle
  	< github.com/microsoft/go-crypto-openssl/openssl
  	< crypto/internal/boring
-@@ -415,6 +419,7 @@ var depsRules = `
+@@ -435,6 +439,7 @@ var depsRules = `
  
  	# CRYPTO-MATH is core bignum-based crypto - no cgo, net; fmt now ok.
  	CRYPTO, FMT, math/big
