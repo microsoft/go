@@ -22,6 +22,7 @@ Subject: [PATCH] Add OpenSSL crypto backend
  src/crypto/rsa/boring.go                      |   2 +-
  src/crypto/rsa/boring_test.go                 |   2 +-
  src/crypto/rsa/notboring.go                   |   2 +-
+ src/crypto/rsa/rsa_test.go                    |   3 +
  src/crypto/tls/boring.go                      |   2 +-
  src/crypto/tls/boring_test.go                 |   2 +-
  src/crypto/tls/fipsonly/fipsonly.go           |   2 +-
@@ -37,7 +38,7 @@ Subject: [PATCH] Add OpenSSL crypto backend
  .../goexperiment/exp_opensslcrypto_on.go      |   9 +
  src/internal/goexperiment/flags.go            |   1 +
  src/os/exec/exec_test.go                      |   9 +
- 33 files changed, 283 insertions(+), 25 deletions(-)
+ 34 files changed, 286 insertions(+), 25 deletions(-)
  create mode 100644 src/crypto/internal/backend/bbig/big_openssl.go
  create mode 100644 src/crypto/internal/backend/openssl_linux.go
  create mode 100644 src/internal/goexperiment/exp_opensslcrypto_off.go
@@ -57,10 +58,10 @@ index f0e3575637c62a..0e9aceeb832d3b 100644
  package main
  
 diff --git a/src/cmd/dist/test.go b/src/cmd/dist/test.go
-index 1ce8546bde668d..59aae5c749262e 100644
+index 9fa725eb9a4020..640b3b19135f33 100644
 --- a/src/cmd/dist/test.go
 +++ b/src/cmd/dist/test.go
-@@ -1242,18 +1242,22 @@ func (t *tester) cgoTest(dt *distTest) error {
+@@ -1241,18 +1241,22 @@ func (t *tester) cgoTest(dt *distTest) error {
  			if err := cmd.Run(); err != nil {
  				fmt.Println("No support for static linking found (lacks libc.a?), skip cgo static linking test.")
  			} else {
@@ -100,7 +101,7 @@ index ed0fbf3d53d75b..5376227f74cfaa 100644
  package main_test
  
 diff --git a/src/cmd/go/testdata/script/gopath_std_vendor.txt b/src/cmd/go/testdata/script/gopath_std_vendor.txt
-index a0a41a50de328d..509884b6ed1afd 100644
+index 4aaf46b5d0f0dc..e2ac54f96db1e8 100644
 --- a/src/cmd/go/testdata/script/gopath_std_vendor.txt
 +++ b/src/cmd/go/testdata/script/gopath_std_vendor.txt
 @@ -1,5 +1,14 @@
@@ -119,10 +120,10 @@ index a0a41a50de328d..509884b6ed1afd 100644
  
  go list -f '{{.Dir}}' vendor/golang.org/x/net/http2/hpack
 diff --git a/src/cmd/link/internal/ld/lib.go b/src/cmd/link/internal/ld/lib.go
-index 89bd966f59e243..ff9ff432ae3b74 100644
+index 184ad20be4e336..c76cc2fe714e58 100644
 --- a/src/cmd/link/internal/ld/lib.go
 +++ b/src/cmd/link/internal/ld/lib.go
-@@ -1082,6 +1082,7 @@ var hostobj []Hostobj
+@@ -1085,6 +1085,7 @@ var hostobj []Hostobj
  // These packages can use internal linking mode.
  // Others trigger external mode.
  var internalpkg = []string{
@@ -225,7 +226,7 @@ index 00000000000000..61ef3fdd90b607
 +var Enc = bbig.Enc
 +var Dec = bbig.Dec
 diff --git a/src/crypto/internal/backend/nobackend.go b/src/crypto/internal/backend/nobackend.go
-index ae7295d8d13c2a..df1eb2d8c87c83 100644
+index 726b82fbd8a635..382e662d95cecd 100644
 --- a/src/crypto/internal/backend/nobackend.go
 +++ b/src/crypto/internal/backend/nobackend.go
 @@ -2,7 +2,7 @@
@@ -239,7 +240,7 @@ index ae7295d8d13c2a..df1eb2d8c87c83 100644
  
 diff --git a/src/crypto/internal/backend/openssl_linux.go b/src/crypto/internal/backend/openssl_linux.go
 new file mode 100644
-index 00000000000000..4d461237ab8149
+index 00000000000000..5e42a47ab7ca0f
 --- /dev/null
 +++ b/src/crypto/internal/backend/openssl_linux.go
 @@ -0,0 +1,192 @@
@@ -376,7 +377,7 @@ index 00000000000000..4d461237ab8149
 +type PublicKeyRSA = openssl.PublicKeyRSA
 +type PrivateKeyRSA = openssl.PrivateKeyRSA
 +
-+func DecryptRSAOAEP(h hash.Hash, priv *openssl.PrivateKeyRSA, ciphertext, label []byte) ([]byte, error) {
++func DecryptRSAOAEP(h, mgfHash hash.Hash, priv *openssl.PrivateKeyRSA, ciphertext, label []byte) ([]byte, error) {
 +	return openssl.DecryptRSAOAEP(h, priv, ciphertext, label)
 +}
 +
@@ -388,7 +389,7 @@ index 00000000000000..4d461237ab8149
 +	return openssl.DecryptRSANoPadding(priv, ciphertext)
 +}
 +
-+func EncryptRSAOAEP(h hash.Hash, pub *openssl.PublicKeyRSA, msg, label []byte) ([]byte, error) {
++func EncryptRSAOAEP(h, mgfHash hash.Hash, pub *openssl.PublicKeyRSA, msg, label []byte) ([]byte, error) {
 +	return openssl.EncryptRSAOAEP(h, pub, msg, label)
 +}
 +
@@ -500,6 +501,20 @@ index 34c22c8fbba7da..933ac569e034a8 100644
  
  package rsa
  
+diff --git a/src/crypto/rsa/rsa_test.go b/src/crypto/rsa/rsa_test.go
+index 08e50c4638f477..abc3e59b1739ad 100644
+--- a/src/crypto/rsa/rsa_test.go
++++ b/src/crypto/rsa/rsa_test.go
+@@ -303,6 +303,9 @@ func TestDecryptOAEP(t *testing.T) {
+ }
+ 
+ func Test2DecryptOAEP(t *testing.T) {
++	if boring.Enabled {
++		t.Skip("OpenSSL backend does not supports OAEPOptions.MGFHash yet.")
++	}
+ 	random := rand.Reader
+ 
+ 	msg := []byte{0xed, 0x36, 0x90, 0x8d, 0xbe, 0xfc, 0x35, 0x40, 0x70, 0x4f, 0xf5, 0x9d, 0x6e, 0xc2, 0xeb, 0xf5, 0x27, 0xae, 0x65, 0xb0, 0x59, 0x29, 0x45, 0x25, 0x8c, 0xc1, 0x91, 0x22}
 diff --git a/src/crypto/tls/boring.go b/src/crypto/tls/boring.go
 index 1827f764589b58..70baa62d63754a 100644
 --- a/src/crypto/tls/boring.go
@@ -514,7 +529,7 @@ index 1827f764589b58..70baa62d63754a 100644
  package tls
  
 diff --git a/src/crypto/tls/boring_test.go b/src/crypto/tls/boring_test.go
-index f743fc8e9fb9b9..2131a76ca74da7 100644
+index 59d4d2b2724ea3..ea23a0336bd575 100644
 --- a/src/crypto/tls/boring_test.go
 +++ b/src/crypto/tls/boring_test.go
 @@ -2,7 +2,7 @@
@@ -566,7 +581,7 @@ index 7d85b39c59319e..1aaabd5ef486aa 100644
  package tls
  
 diff --git a/src/crypto/x509/boring.go b/src/crypto/x509/boring.go
-index 4aae90570d7243..24add90c72038c 100644
+index 095b58c31590d4..9aec21dbcd3bff 100644
 --- a/src/crypto/x509/boring.go
 +++ b/src/crypto/x509/boring.go
 @@ -2,7 +2,7 @@
@@ -579,7 +594,7 @@ index 4aae90570d7243..24add90c72038c 100644
  package x509
  
 diff --git a/src/crypto/x509/boring_test.go b/src/crypto/x509/boring_test.go
-index 7010f44b320054..b61b90bdd953c8 100644
+index 90fe2a72276c56..457cd95b9ca17a 100644
 --- a/src/crypto/x509/boring_test.go
 +++ b/src/crypto/x509/boring_test.go
 @@ -2,7 +2,7 @@
@@ -605,7 +620,7 @@ index c83a7272c9f01f..a0548a7f9179c5 100644
  package x509
  
 diff --git a/src/go.mod b/src/go.mod
-index 4b025013f2b3d2..396d81817839c5 100644
+index 881f705a5f5687..4ada616f41f0a3 100644
 --- a/src/go.mod
 +++ b/src/go.mod
 @@ -3,6 +3,7 @@ module std
@@ -617,7 +632,7 @@ index 4b025013f2b3d2..396d81817839c5 100644
  	golang.org/x/net v0.1.0
  )
 diff --git a/src/go.sum b/src/go.sum
-index f4d36d2446bf8a..c6febdb646bbbe 100644
+index ad8a14c48f56bc..1fedfd1e36d09d 100644
 --- a/src/go.sum
 +++ b/src/go.sum
 @@ -1,3 +1,5 @@
@@ -627,10 +642,10 @@ index f4d36d2446bf8a..c6febdb646bbbe 100644
  golang.org/x/crypto v0.1.0/go.mod h1:RecgLatLF4+eUMCP1PoPZQb+cVrJcOPbHkTkbkB9sbw=
  golang.org/x/net v0.1.0 h1:hZ/3BUoy5aId7sCpA/Tc5lt8DkFgdVS2onTpJsZ/fl0=
 diff --git a/src/go/build/deps_test.go b/src/go/build/deps_test.go
-index b95146e808b801..85c05b7596c62f 100644
+index e8f0621b15076e..45d43c8df3b212 100644
 --- a/src/go/build/deps_test.go
 +++ b/src/go/build/deps_test.go
-@@ -404,6 +404,8 @@ var depsRules = `
+@@ -397,6 +397,8 @@ var depsRules = `
  
  	crypto/cipher,
  	crypto/internal/boring/bcache
@@ -638,8 +653,8 @@ index b95146e808b801..85c05b7596c62f 100644
 +	< github.com/microsoft/go-crypto-openssl/openssl
  	< crypto/internal/boring
  	< crypto/internal/backend
- 	< crypto/boring
-@@ -415,6 +417,7 @@ var depsRules = `
+ 	< crypto/boring;
+@@ -431,6 +433,7 @@ var depsRules = `
  
  	# CRYPTO-MATH is core bignum-based crypto - no cgo, net; fmt now ok.
  	CRYPTO, FMT, math/big
@@ -647,7 +662,7 @@ index b95146e808b801..85c05b7596c62f 100644
  	< crypto/internal/boring/bbig
  	< crypto/internal/backend/bbig
  	< crypto/rand
-@@ -655,7 +658,7 @@ var buildIgnore = []byte("\n//go:build ignore")
+@@ -671,7 +674,7 @@ var buildIgnore = []byte("\n//go:build ignore")
  
  func findImports(pkg string) ([]string, error) {
  	vpkg := pkg
@@ -656,7 +671,7 @@ index b95146e808b801..85c05b7596c62f 100644
  		vpkg = "vendor/" + pkg
  	}
  	dir := filepath.Join(Default.GOROOT, "src", vpkg)
-@@ -665,7 +668,7 @@ func findImports(pkg string) ([]string, error) {
+@@ -681,7 +684,7 @@ func findImports(pkg string) ([]string, error) {
  	}
  	var imports []string
  	var haveImport = map[string]bool{}
@@ -708,7 +723,7 @@ index 16793f37ac5381..ce8ef353600910 100644
  	// Unified enables the compiler's unified IR construction
  	// experiment.
 diff --git a/src/os/exec/exec_test.go b/src/os/exec/exec_test.go
-index f38ce4e72c9a33..1911eb4dc04514 100644
+index edff9a201ef2e0..49752c0d1c1791 100644
 --- a/src/os/exec/exec_test.go
 +++ b/src/os/exec/exec_test.go
 @@ -14,6 +14,7 @@ import (
@@ -719,7 +734,7 @@ index f38ce4e72c9a33..1911eb4dc04514 100644
  	"internal/poll"
  	"internal/testenv"
  	"io"
-@@ -687,6 +688,14 @@ func TestExtraFiles(t *testing.T) {
+@@ -700,6 +701,14 @@ func TestExtraFiles(t *testing.T) {
  		t.Skipf("skipping test on %q", runtime.GOOS)
  	}
  

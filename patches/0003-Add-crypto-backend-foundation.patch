@@ -314,7 +314,7 @@ index 00000000000000..1e0d3cf8c18b55
 +const iscgo = true
 diff --git a/src/crypto/internal/backend/nobackend.go b/src/crypto/internal/backend/nobackend.go
 new file mode 100644
-index 00000000000000..ae7295d8d13c2a
+index 00000000000000..726b82fbd8a635
 --- /dev/null
 +++ b/src/crypto/internal/backend/nobackend.go
 @@ -0,0 +1,110 @@
@@ -389,7 +389,7 @@ index 00000000000000..ae7295d8d13c2a
 +type PublicKeyRSA struct{ _ int }
 +type PrivateKeyRSA struct{ _ int }
 +
-+func DecryptRSAOAEP(h hash.Hash, priv *PrivateKeyRSA, ciphertext, label []byte) ([]byte, error) {
++func DecryptRSAOAEP(h, mgfHash hash.Hash, priv *PrivateKeyRSA, ciphertext, label []byte) ([]byte, error) {
 +	panic("cryptobackend: not available")
 +}
 +func DecryptRSAPKCS1(priv *PrivateKeyRSA, ciphertext []byte) ([]byte, error) {
@@ -398,7 +398,7 @@ index 00000000000000..ae7295d8d13c2a
 +func DecryptRSANoPadding(priv *PrivateKeyRSA, ciphertext []byte) ([]byte, error) {
 +	panic("cryptobackend: not available")
 +}
-+func EncryptRSAOAEP(h hash.Hash, pub *PublicKeyRSA, msg, label []byte) ([]byte, error) {
++func EncryptRSAOAEP(h, mgfHash hash.Hash, pub *PublicKeyRSA, msg, label []byte) ([]byte, error) {
 +	panic("cryptobackend: not available")
 +}
 +func EncryptRSAPKCS1(pub *PublicKeyRSA, msg []byte) ([]byte, error) {
@@ -502,7 +502,7 @@ index 2abc0436405f8a..34c22c8fbba7da 100644
  func boringPublicKey(*PublicKey) (*boring.PublicKeyRSA, error) {
  	panic("boringcrypto: not available")
 diff --git a/src/crypto/rsa/pkcs1v15.go b/src/crypto/rsa/pkcs1v15.go
-index ab19229a6c2822..99b3dba5df63b2 100644
+index ea5a878620b910..596b2ecaad24c4 100644
 --- a/src/crypto/rsa/pkcs1v15.go
 +++ b/src/crypto/rsa/pkcs1v15.go
 @@ -6,7 +6,7 @@ package rsa
@@ -528,7 +528,7 @@ index a3e9bfc83ba29f..e12df3faef1f81 100644
  	"hash"
  	"io"
 diff --git a/src/crypto/rsa/rsa.go b/src/crypto/rsa/rsa.go
-index c941124fb26a10..5ef07fdbe9ebb3 100644
+index 9c57595dd1abdf..1dc871d035d0f2 100644
 --- a/src/crypto/rsa/rsa.go
 +++ b/src/crypto/rsa/rsa.go
 @@ -24,8 +24,8 @@ package rsa
@@ -543,18 +543,18 @@ index c941124fb26a10..5ef07fdbe9ebb3 100644
  	"crypto/rand"
  	"crypto/subtle"
 diff --git a/src/crypto/rsa/rsa_test.go b/src/crypto/rsa/rsa_test.go
-index 766d9a954f8d13..f2602b94ab881b 100644
+index 99b2cf5ae84801..08e50c4638f477 100644
 --- a/src/crypto/rsa/rsa_test.go
 +++ b/src/crypto/rsa/rsa_test.go
-@@ -15,7 +15,7 @@ import (
- 	"testing"
- )
- 
--import "crypto/internal/boring"
-+import boring "crypto/internal/backend"
- 
- func TestKeyGeneration(t *testing.T) {
- 	for _, size := range []int{128, 1024, 2048, 3072} {
+@@ -7,7 +7,7 @@ package rsa
+ import (
+ 	"bytes"
+ 	"crypto"
+-	"crypto/internal/boring"
++	boring "crypto/internal/backend"
+ 	"crypto/rand"
+ 	"crypto/sha1"
+ 	"crypto/sha256"
 diff --git a/src/crypto/sha1/boring.go b/src/crypto/sha1/boring.go
 index b5786d1bf4ea92..e82a21c44a57c8 100644
 --- a/src/crypto/sha1/boring.go
@@ -647,18 +647,18 @@ index 9a1fa3104b7acc..74f027ebae1a9d 100644
  	"crypto/sha1"
  	"crypto/sha256"
 diff --git a/src/go/build/deps_test.go b/src/go/build/deps_test.go
-index 25556ac04c6c55..b95146e808b801 100644
+index dea9935c126a2f..d4a68697b67520 100644
 --- a/src/go/build/deps_test.go
 +++ b/src/go/build/deps_test.go
-@@ -405,6 +405,7 @@ var depsRules = `
+@@ -400,6 +400,7 @@ var depsRules = `
  	crypto/cipher,
  	crypto/internal/boring/bcache
  	< crypto/internal/boring
 +	< crypto/internal/backend
- 	< crypto/boring
- 	< crypto/aes, crypto/des, crypto/hmac, crypto/md5, crypto/rc4,
- 	  crypto/sha1, crypto/sha256, crypto/sha512
-@@ -415,6 +416,7 @@ var depsRules = `
+ 	< crypto/boring;
+ 
+ 	crypto/internal/alias
+@@ -433,6 +434,7 @@ var depsRules = `
  	# CRYPTO-MATH is core bignum-based crypto - no cgo, net; fmt now ok.
  	CRYPTO, FMT, math/big
  	< crypto/internal/boring/bbig
