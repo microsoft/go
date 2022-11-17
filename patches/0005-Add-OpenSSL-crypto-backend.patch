@@ -5,7 +5,7 @@ Subject: [PATCH] Add OpenSSL crypto backend
 
 ---
  src/cmd/api/goapi_boring_test.go              |   2 +-
- src/cmd/dist/test.go                          |   6 +-
+ src/cmd/dist/test.go                          |   8 +-
  src/cmd/go/go_boring_test.go                  |   2 +-
  .../go/testdata/script/gopath_std_vendor.txt  |   9 +
  src/cmd/link/internal/ld/lib.go               |   1 +
@@ -38,7 +38,7 @@ Subject: [PATCH] Add OpenSSL crypto backend
  .../goexperiment/exp_opensslcrypto_on.go      |   9 +
  src/internal/goexperiment/flags.go            |   1 +
  src/os/exec/exec_test.go                      |   9 +
- 34 files changed, 284 insertions(+), 23 deletions(-)
+ 34 files changed, 285 insertions(+), 24 deletions(-)
  create mode 100644 src/crypto/internal/backend/bbig/big_openssl.go
  create mode 100644 src/crypto/internal/backend/openssl_linux.go
  create mode 100644 src/internal/goexperiment/exp_opensslcrypto_off.go
@@ -58,18 +58,25 @@ index f0e3575637c62a..0e9aceeb832d3b 100644
  package main
  
 diff --git a/src/cmd/dist/test.go b/src/cmd/dist/test.go
-index 4b6ed16d21ceeb..e67d0df4229c64 100644
+index 4b6ed16d21ceeb..db387d0bf583ce 100644
 --- a/src/cmd/dist/test.go
 +++ b/src/cmd/dist/test.go
-@@ -1247,7 +1247,11 @@ func (t *tester) cgoTest(dt *distTest) error {
- 				}
- 				t.addCmd(dt, "misc/cgo/nocgo", t.goTest(), ".")
- 				t.addCmd(dt, "misc/cgo/nocgo", t.goTest(), "-ldflags", `-linkmode=external`, ".")
--				if goos != "android" {
+@@ -1241,13 +1241,17 @@ func (t *tester) cgoTest(dt *distTest) error {
+ 			if err := cmd.Run(); err != nil {
+ 				fmt.Println("No support for static linking found (lacks libc.a?), skip cgo static linking test.")
+ 			} else {
+-				if goos != "android" && pair != "netbsd-arm" {
 +				// Don't test static builds with OpenSSLCrypto.
 +				// It makes TestSetgid hang in certain gcc versions.
 +				// See go.dev/issues/52141.
 +				staticSupported := !strings.Contains(goexperiment, "opensslcrypto")
++				if goos != "android" && pair != "netbsd-arm" && staticSupported {
+ 					// TODO(#56629): Why does this fail on netbsd-arm?
+ 					t.addCmd(dt, "misc/cgo/testtls", t.goTest(), "-ldflags", `-linkmode=external -extldflags "-static -pthread"`, ".")
+ 				}
+ 				t.addCmd(dt, "misc/cgo/nocgo", t.goTest(), ".")
+ 				t.addCmd(dt, "misc/cgo/nocgo", t.goTest(), "-ldflags", `-linkmode=external`, ".")
+-				if goos != "android" {
 +				if goos != "android" && staticSupported {
  					t.addCmd(dt, "misc/cgo/nocgo", t.goTest(), "-ldflags", `-linkmode=external -extldflags "-static -pthread"`, ".")
  					t.addCmd(dt, "misc/cgo/test", t.goTest(), "-tags=static", "-ldflags", `-linkmode=external -extldflags "-static -pthread"`, ".")
