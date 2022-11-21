@@ -5,7 +5,7 @@ Subject: [PATCH] Add OpenSSL crypto backend
 
 ---
  src/cmd/api/goapi_boring_test.go              |   2 +-
- src/cmd/dist/test.go                          |   8 +-
+ src/cmd/dist/test.go                          |   9 +-
  src/cmd/go/go_boring_test.go                  |   2 +-
  .../go/testdata/script/gopath_std_vendor.txt  |   9 +
  src/cmd/link/internal/ld/lib.go               |   1 +
@@ -38,7 +38,7 @@ Subject: [PATCH] Add OpenSSL crypto backend
  .../goexperiment/exp_opensslcrypto_on.go      |   9 +
  src/internal/goexperiment/flags.go            |   1 +
  src/os/exec/exec_test.go                      |   9 +
- 34 files changed, 285 insertions(+), 24 deletions(-)
+ 34 files changed, 285 insertions(+), 25 deletions(-)
  create mode 100644 src/crypto/internal/backend/bbig/big_openssl.go
  create mode 100644 src/crypto/internal/backend/openssl_linux.go
  create mode 100644 src/internal/goexperiment/exp_opensslcrypto_off.go
@@ -58,29 +58,31 @@ index f0e3575637c62a..0e9aceeb832d3b 100644
  package main
  
 diff --git a/src/cmd/dist/test.go b/src/cmd/dist/test.go
-index 4b6ed16d21ceeb..db387d0bf583ce 100644
+index 333a266512b2f4..8fe06aeb213b97 100644
 --- a/src/cmd/dist/test.go
 +++ b/src/cmd/dist/test.go
-@@ -1241,13 +1241,17 @@ func (t *tester) cgoTest(dt *distTest) error {
- 			if err := cmd.Run(); err != nil {
- 				fmt.Println("No support for static linking found (lacks libc.a?), skip cgo static linking test.")
- 			} else {
--				if goos != "android" && pair != "netbsd-arm" {
-+				// Don't test static builds with OpenSSLCrypto.
-+				// It makes TestSetgid hang in certain gcc versions.
-+				// See go.dev/issues/52141.
-+				staticSupported := !strings.Contains(goexperiment, "opensslcrypto")
-+				if goos != "android" && pair != "netbsd-arm" && staticSupported {
- 					// TODO(#56629): Why does this fail on netbsd-arm?
- 					t.addCmd(dt, "misc/cgo/testtls", t.goTest(), "-ldflags", `-linkmode=external -extldflags "-static -pthread"`, ".")
+@@ -1338,15 +1338,18 @@ func (t *tester) registerCgoTests() {
+ 					return false
  				}
- 				t.addCmd(dt, "misc/cgo/nocgo", t.goTest(), ".")
- 				t.addCmd(dt, "misc/cgo/nocgo", t.goTest(), "-ldflags", `-linkmode=external`, ".")
--				if goos != "android" {
-+				if goos != "android" && staticSupported {
- 					t.addCmd(dt, "misc/cgo/nocgo", t.goTest(), "-ldflags", `-linkmode=external -extldflags "-static -pthread"`, ".")
- 					t.addCmd(dt, "misc/cgo/test", t.goTest(), "-tags=static", "-ldflags", `-linkmode=external -extldflags "-static -pthread"`, ".")
- 					// -static in CGO_LDFLAGS triggers a different code path
+ 			}
+-
++			// Don't test static builds with OpenSSLCrypto.
++			// It makes TestSetgid hang in certain gcc versions.
++			// See go.dev/issues/52141.
++			staticSupported := !strings.Contains(goexperiment, "opensslcrypto")
+ 			// Static linking tests
+-			if goos != "android" && p != "netbsd/arm" {
++			if goos != "android" && p != "netbsd/arm" && staticSupported {
+ 				// TODO(#56629): Why does this fail on netbsd-arm?
+ 				cgoTest("testtls-static", "testtls", "external", "static", staticCheck)
+ 			}
+ 			cgoTest("nocgo-auto", "nocgo", "auto", "", staticCheck)
+ 			cgoTest("nocgo-external", "nocgo", "external", "", staticCheck)
+-			if goos != "android" {
++			if goos != "android" && staticSupported {
+ 				cgoTest("nocgo-static", "nocgo", "external", "static", staticCheck)
+ 				cgoTest("test-static", "test", "external", "static", staticCheck)
+ 				// -static in CGO_LDFLAGS triggers a different code path
 diff --git a/src/cmd/go/go_boring_test.go b/src/cmd/go/go_boring_test.go
 index ed0fbf3d53d75b..5376227f74cfaa 100644
 --- a/src/cmd/go/go_boring_test.go
@@ -588,7 +590,7 @@ index 095b58c31590d4..9aec21dbcd3bff 100644
  package x509
  
 diff --git a/src/crypto/x509/boring_test.go b/src/crypto/x509/boring_test.go
-index 90fe2a72276c56..457cd95b9ca17a 100644
+index 33fd0ed52b1ff6..e8fce393d29b00 100644
 --- a/src/crypto/x509/boring_test.go
 +++ b/src/crypto/x509/boring_test.go
 @@ -2,7 +2,7 @@
@@ -636,7 +638,7 @@ index 4e589f9c433bc2..db323dabb11686 100644
  golang.org/x/crypto v0.1.0/go.mod h1:RecgLatLF4+eUMCP1PoPZQb+cVrJcOPbHkTkbkB9sbw=
  golang.org/x/net v0.1.0 h1:hZ/3BUoy5aId7sCpA/Tc5lt8DkFgdVS2onTpJsZ/fl0=
 diff --git a/src/go/build/deps_test.go b/src/go/build/deps_test.go
-index e8f0621b15076e..45d43c8df3b212 100644
+index 34d33076d33be8..3f84efd7d16e56 100644
 --- a/src/go/build/deps_test.go
 +++ b/src/go/build/deps_test.go
 @@ -397,6 +397,8 @@ var depsRules = `
@@ -705,7 +707,7 @@ index 00000000000000..a7f2712e9e1464
 +const OpenSSLCrypto = true
 +const OpenSSLCryptoInt = 1
 diff --git a/src/internal/goexperiment/flags.go b/src/internal/goexperiment/flags.go
-index 16793f37ac5381..ce8ef353600910 100644
+index 02e744362c30d5..cffb78a7234546 100644
 --- a/src/internal/goexperiment/flags.go
 +++ b/src/internal/goexperiment/flags.go
 @@ -59,6 +59,7 @@ type Flags struct {
