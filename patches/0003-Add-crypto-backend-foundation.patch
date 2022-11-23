@@ -14,10 +14,10 @@ Subject: [PATCH] Add crypto backend foundation
  src/crypto/hmac/hmac.go                     |   2 +-
  src/crypto/hmac/hmac_test.go                |   2 +-
  src/crypto/internal/backend/backend_test.go |  30 ++++++
- src/crypto/internal/backend/bbig/big.go     |  17 +++
- src/crypto/internal/backend/common.go       |  65 ++++++++++++
+ src/crypto/internal/backend/bbig/big.go     |  17 ++++
+ src/crypto/internal/backend/common.go       |  65 +++++++++++++
  src/crypto/internal/backend/iscgo.go        |  10 ++
- src/crypto/internal/backend/nobackend.go    | 110 ++++++++++++++++++++
+ src/crypto/internal/backend/nobackend.go    | 102 ++++++++++++++++++++
  src/crypto/internal/backend/nocgo.go        |  10 ++
  src/crypto/internal/backend/stub.s          |  10 ++
  src/crypto/rand/rand_unix.go                |   2 +-
@@ -35,7 +35,7 @@ Subject: [PATCH] Add crypto backend foundation
  src/crypto/tls/cipher_suites.go             |   2 +-
  src/go/build/deps_test.go                   |   2 +
  src/runtime/runtime_boring.go               |   5 +
- 31 files changed, 285 insertions(+), 26 deletions(-)
+ 31 files changed, 277 insertions(+), 26 deletions(-)
  create mode 100644 src/crypto/internal/backend/backend_test.go
  create mode 100644 src/crypto/internal/backend/bbig/big.go
  create mode 100644 src/crypto/internal/backend/common.go
@@ -99,20 +99,21 @@ index 275c60b4de49eb..61e70f981db4eb 100644
  	"math/big"
  )
 diff --git a/src/crypto/ecdsa/ecdsa.go b/src/crypto/ecdsa/ecdsa.go
-index d0e52ad864d811..58d3bc69568f35 100644
+index 6722a6bcd2068c..9d56fc0ff2c27e 100644
 --- a/src/crypto/ecdsa/ecdsa.go
 +++ b/src/crypto/ecdsa/ecdsa.go
-@@ -24,8 +24,8 @@ import (
- 	"crypto/aes"
+@@ -26,9 +26,9 @@ import (
  	"crypto/cipher"
+ 	"crypto/ecdh"
  	"crypto/elliptic"
--	"crypto/internal/boring"
--	"crypto/internal/boring/bbig"
 +	boring "crypto/internal/backend"
 +	"crypto/internal/backend/bbig"
+ 	"crypto/internal/bigmod"
+-	"crypto/internal/boring"
+-	"crypto/internal/boring/bbig"
+ 	"crypto/internal/nistec"
  	"crypto/internal/randutil"
  	"crypto/sha512"
- 	"errors"
 diff --git a/src/crypto/ecdsa/notboring.go b/src/crypto/ecdsa/notboring.go
 index 039bd82ed21f9f..19188518e85e65 100644
 --- a/src/crypto/ecdsa/notboring.go
@@ -127,7 +128,7 @@ index 039bd82ed21f9f..19188518e85e65 100644
  func boringPublicKey(*PublicKey) (*boring.PublicKeyECDSA, error) {
  	panic("boringcrypto: not available")
 diff --git a/src/crypto/ed25519/ed25519_test.go b/src/crypto/ed25519/ed25519_test.go
-index fbd4982cc2de2d..42a682141be0de 100644
+index ae5c872e02fc66..4a818e0319d55e 100644
 --- a/src/crypto/ed25519/ed25519_test.go
 +++ b/src/crypto/ed25519/ed25519_test.go
 @@ -9,7 +9,7 @@ import (
@@ -313,10 +314,10 @@ index 00000000000000..1e0d3cf8c18b55
 +const iscgo = true
 diff --git a/src/crypto/internal/backend/nobackend.go b/src/crypto/internal/backend/nobackend.go
 new file mode 100644
-index 00000000000000..726b82fbd8a635
+index 00000000000000..091fe22347e363
 --- /dev/null
 +++ b/src/crypto/internal/backend/nobackend.go
-@@ -0,0 +1,110 @@
+@@ -0,0 +1,102 @@
 +// Copyright 2017 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -374,14 +375,6 @@ index 00000000000000..726b82fbd8a635
 +	panic("cryptobackend: not available")
 +}
 +func VerifyECDSA(pub *PublicKeyECDSA, hash []byte, sig []byte) bool {
-+	panic("cryptobackend: not available")
-+}
-+
-+func SignECDSA(priv *PrivateKeyECDSA, hash []byte) (r, s BigInt, err error) {
-+	panic("cryptobackend: not available")
-+}
-+
-+func VerifyECDSARaw(pub *PublicKeyECDSA, hash []byte, r, s BigInt) bool {
 +	panic("cryptobackend: not available")
 +}
 +
@@ -501,7 +494,7 @@ index 2abc0436405f8a..34c22c8fbba7da 100644
  func boringPublicKey(*PublicKey) (*boring.PublicKeyRSA, error) {
  	panic("boringcrypto: not available")
 diff --git a/src/crypto/rsa/pkcs1v15.go b/src/crypto/rsa/pkcs1v15.go
-index ea5a878620b910..596b2ecaad24c4 100644
+index e51b9d2ca78780..577e9fca2201e7 100644
 --- a/src/crypto/rsa/pkcs1v15.go
 +++ b/src/crypto/rsa/pkcs1v15.go
 @@ -6,7 +6,7 @@ package rsa
@@ -514,7 +507,7 @@ index ea5a878620b910..596b2ecaad24c4 100644
  	"crypto/subtle"
  	"errors"
 diff --git a/src/crypto/rsa/pss.go b/src/crypto/rsa/pss.go
-index 72004d96d73303..579655f0f5dfe1 100644
+index f7d23b55ef811a..f2f2a64ed35e23 100644
 --- a/src/crypto/rsa/pss.go
 +++ b/src/crypto/rsa/pss.go
 @@ -9,7 +9,7 @@ package rsa
@@ -527,17 +520,18 @@ index 72004d96d73303..579655f0f5dfe1 100644
  	"hash"
  	"io"
 diff --git a/src/crypto/rsa/rsa.go b/src/crypto/rsa/rsa.go
-index 34218e5511b21d..3a6cd27428dde2 100644
+index 88a5e28e626028..a383e4b92b4e57 100644
 --- a/src/crypto/rsa/rsa.go
 +++ b/src/crypto/rsa/rsa.go
-@@ -24,8 +24,8 @@ package rsa
+@@ -27,9 +27,9 @@ package rsa
  
  import (
  	"crypto"
--	"crypto/internal/boring"
--	"crypto/internal/boring/bbig"
 +	boring "crypto/internal/backend"
 +	"crypto/internal/backend/bbig"
+ 	"crypto/internal/bigmod"
+-	"crypto/internal/boring"
+-	"crypto/internal/boring/bbig"
  	"crypto/internal/randutil"
  	"crypto/rand"
  	"crypto/subtle"
@@ -568,7 +562,7 @@ index 85ed12609154ff..bc169888786321 100644
  	"encoding"
  	"fmt"
 diff --git a/src/crypto/sha256/sha256.go b/src/crypto/sha256/sha256.go
-index 15c907ecf7f816..81ef91b7ffa30c 100644
+index 2deafbc9fcd0f9..b6fd0c3aab5100 100644
 --- a/src/crypto/sha256/sha256.go
 +++ b/src/crypto/sha256/sha256.go
 @@ -8,7 +8,7 @@ package sha256
@@ -594,7 +588,7 @@ index 7304678346b32e..7437655badee23 100644
  	"encoding"
  	"fmt"
 diff --git a/src/crypto/sha512/sha512.go b/src/crypto/sha512/sha512.go
-index 3819478ed75742..79e4912fa9478d 100644
+index 9ae1b3aae2f013..37a2ae88191ed0 100644
 --- a/src/crypto/sha512/sha512.go
 +++ b/src/crypto/sha512/sha512.go
 @@ -12,7 +12,7 @@ package sha512
@@ -633,7 +627,7 @@ index 04e6dfe0189b47..68598961fda6e4 100644
  	"crypto/sha1"
  	"crypto/sha256"
 diff --git a/src/go/build/deps_test.go b/src/go/build/deps_test.go
-index 39609521c347c3..e8f0621b15076e 100644
+index 12dd0e1e2cc8ab..640e3f425ede1c 100644
 --- a/src/go/build/deps_test.go
 +++ b/src/go/build/deps_test.go
 @@ -398,6 +398,7 @@ var depsRules = `
