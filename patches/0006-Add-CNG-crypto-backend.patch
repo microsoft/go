@@ -8,12 +8,11 @@ Subject: [PATCH] Add CNG crypto backend
  src/cmd/go/go_boring_test.go                  |   2 +-
  src/crypto/boring/boring.go                   |   2 +-
  src/crypto/ecdsa/boring.go                    |   2 +-
- src/crypto/ecdsa/ecdsa.go                     |  15 ++
  src/crypto/ecdsa/notboring.go                 |   2 +-
  src/crypto/internal/backend/backend_test.go   |   4 +-
  src/crypto/internal/backend/bbig/big.go       |   2 +-
  src/crypto/internal/backend/bbig/big_cng.go   |  12 ++
- src/crypto/internal/backend/cng_windows.go    | 171 ++++++++++++++++++
+ src/crypto/internal/backend/cng_windows.go    | 186 ++++++++++++++++++
  src/crypto/internal/backend/common.go         |  38 +++-
  src/crypto/internal/backend/nobackend.go      |   2 +-
  src/crypto/internal/boring/fipstls/stub.s     |   2 +-
@@ -50,7 +49,7 @@ Subject: [PATCH] Add CNG crypto backend
  .../goexperiment/exp_cngcrypto_off.go         |   9 +
  src/internal/goexperiment/exp_cngcrypto_on.go |   9 +
  src/internal/goexperiment/flags.go            |   1 +
- 46 files changed, 387 insertions(+), 47 deletions(-)
+ 45 files changed, 387 insertions(+), 47 deletions(-)
  create mode 100644 src/crypto/internal/backend/bbig/big_cng.go
  create mode 100644 src/crypto/internal/backend/cng_windows.go
  create mode 100644 src/internal/goexperiment/exp_cngcrypto_off.go
@@ -108,46 +107,6 @@ index 602cb894e20d39..bf9e77e06599f0 100644
  
  package ecdsa
  
-diff --git a/src/crypto/ecdsa/ecdsa.go b/src/crypto/ecdsa/ecdsa.go
-index 9d56fc0ff2c27e..549d8cf9f2401c 100644
---- a/src/crypto/ecdsa/ecdsa.go
-+++ b/src/crypto/ecdsa/ecdsa.go
-@@ -34,6 +34,7 @@ import (
- 	"crypto/sha512"
- 	"crypto/subtle"
- 	"errors"
-+	"internal/goexperiment"
- 	"io"
- 	"math/big"
- 	"sync"
-@@ -253,6 +254,13 @@ func SignASN1(rand io.Reader, priv *PrivateKey, hash []byte) ([]byte, error) {
- 		if err != nil {
- 			return nil, err
- 		}
-+		if goexperiment.CNGCrypto {
-+			r, s, err := boring.SignECDSA(b, digest)
-+			if err != nil {
-+				return nil, err
-+			}
-+			return encodeSignature(r, s)
-+		}
- 		return boring.SignMarshalECDSA(b, hash)
- 	}
- 	boring.UnreachableExceptTests()
-@@ -459,6 +467,13 @@ func VerifyASN1(pub *PublicKey, hash, sig []byte) bool {
- 		if err != nil {
- 			return false
- 		}
-+		if goexperiment.CNGCrypto {
-+			rBytes, sBytes, err := parseSignature(sig)
-+			if err != nil {
-+				return false
-+			}
-+			return boring.VerifyECDSARaw(key, hash, bbig.Enc(rBytes), bbig.Enc(sBytes))
-+		}
- 		return boring.VerifyECDSA(key, hash, sig)
- 	}
- 	boring.UnreachableExceptTests()
 diff --git a/src/crypto/ecdsa/notboring.go b/src/crypto/ecdsa/notboring.go
 index 3cc16ecab567a0..dbbc6e3897e153 100644
 --- a/src/crypto/ecdsa/notboring.go
@@ -209,10 +168,10 @@ index 00000000000000..92623031fd87d0
 +var Dec = bbig.Dec
 diff --git a/src/crypto/internal/backend/cng_windows.go b/src/crypto/internal/backend/cng_windows.go
 new file mode 100644
-index 00000000000000..f7429e8a940dc9
+index 00000000000000..a37572238371ce
 --- /dev/null
 +++ b/src/crypto/internal/backend/cng_windows.go
-@@ -0,0 +1,171 @@
+@@ -0,0 +1,186 @@
 +// Copyright 2017 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -229,6 +188,7 @@ index 00000000000000..f7429e8a940dc9
 +	"crypto/cipher"
 +	"crypto/internal/boring/sig"
 +	"hash"
++	_ "unsafe"
 +
 +	"github.com/microsoft/go-crypto-winnative/cng"
 +)
@@ -314,12 +274,26 @@ index 00000000000000..f7429e8a940dc9
 +	return cng.NewPublicKeyECDSA(curve, X, Y)
 +}
 +
++//go:linkname encodeSignature crypto/ecdsa.encodeSignature
++func encodeSignature(r, s []byte) ([]byte, error)
++
++//go:linkname parseSignature crypto/ecdsa.parseSignature
++func parseSignature(sig []byte) (r, s []byte, err error)
++
 +func SignMarshalECDSA(priv *cng.PrivateKeyECDSA, hash []byte) ([]byte, error) {
-+	panic("cngcrypto: not available")
++	r, s, err := cng.SignECDSA(priv, hash)
++	if err != nil {
++		return nil, err
++	}
++	return encodeSignature(r, s)
 +}
 +
 +func VerifyECDSA(pub *cng.PublicKeyECDSA, hash []byte, sig []byte) bool {
-+	panic("cngcrypto: not available")
++	rBytes, sBytes, err := parseSignature(sig)
++	if err != nil {
++		return false
++	}
++	return cng.VerifyECDSA(pub, hash, cng.BigInt(rBytes), cng.BigInt(sBytes))
 +}
 +
 +func SignECDSA(priv *cng.PrivateKeyECDSA, hash []byte) (r, s cng.BigInt, err error) {
@@ -453,7 +427,7 @@ index 007d8070538247..114f72c3d10ee4 100644
 +	return !goexperiment.CNGCrypto
 +}
 diff --git a/src/crypto/internal/backend/nobackend.go b/src/crypto/internal/backend/nobackend.go
-index 382e662d95cecd..18c269f9187e6a 100644
+index f5f908806241b2..e3e71c9f2f5984 100644
 --- a/src/crypto/internal/backend/nobackend.go
 +++ b/src/crypto/internal/backend/nobackend.go
 @@ -2,7 +2,7 @@
