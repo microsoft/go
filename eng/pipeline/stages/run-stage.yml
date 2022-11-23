@@ -69,6 +69,19 @@ stages:
             - name: Codeql.Cadence
               value: 0
 
+            # Set up TSA (Trust Services Automation) to file bugs. Share this variable group that we
+            # also use for SDL validation through Guardian.
+            - group: go-sdl-validation
+            # Only file if this is automatically triggered, not a dev build.
+            - name: Codeql.TSAEnabled
+              value: ${{ eq(variables['Build.Reason'], 'ResourceTrigger') }}
+            # Generate a TSA options file at this path. CodeQL will then use it. This lets us share
+            # the values with a variable group we use for other SDL checks.
+            - name: Codeql.TSAOptionsDir
+              value: '$(Build.SourcesDirectory)/eng/artifacts/compliance'
+            - name: Codeql.TSAOptionsPath
+              value: '$(Codeql.TSAOptionsDir)/tsaoptions.json'
+
         steps:
           - ${{ if eq(parameters.builder.os, 'linux') }}:
             # AzDO builds don't seem to set user ID in the running container, so files from a previous
@@ -116,10 +129,26 @@ stages:
             # Set Git authorship info for 'cmd/go TestScript/build_buildvcs_auto'.
             - template: ../steps/set-bot-git-author-task.yml
 
-          # Manually init (and finalize, later) the CodeQL3000 extension so that it will run on any
-          # branch, not just the default.
-          # https://eng.ms/docs/cloud-ai-platform/devdiv/one-engineering-system-1es/1es-docs/codeql/configuring-codeql3000-ado-pipelines#how-does-this-extension-work
           - ${{ if eq(parameters.builder.config, 'codeql') }}:
+            # Generate the TSA configuration using values from go-sdl-validation. Keys based on:
+            # https://github.com/dotnet/arcade/blob/373d1f6135347f9b59894aafc7049ec2d4c7175d/.config/tsaoptions.json
+            - pwsh: |
+                New-Item -Path '$(Codeql.TSAOptionsDir)' -Force -ItemType 'Directory' | Out-Null
+                ConvertTo-Json @{
+                  instanceUrl = "$(TsaInstanceURL)"
+                  template = "TFSDEVDIV"
+                  projectName = "$(TsaProjectName)"
+                  areaPath = "$(TsaBugAreaPath)"
+                  iterationPath = "$(TsaIterationPath)"
+                  notificationAliases = @( "$(TsaNotificationEmail)" )
+                  repositoryName = "$(TsaRepositoryName)"
+                  codebaseName = "$(TsaCodebaseName)"
+                } > '$(Codeql.TSAOptionsPath)'
+                Get-Content '$(Codeql.TSAOptionsPath)'
+              displayName: Generate CodeQL TSA configuration
+            # Manually init (and finalize, later) the CodeQL3000 extension so that it will run on
+            # any branch, not just the default.
+            # https://eng.ms/docs/cloud-ai-platform/devdiv/one-engineering-system-1es/1es-docs/codeql/configuring-codeql3000-ado-pipelines#how-does-this-extension-work
             - task: CodeQL3000Init@0
 
           - pwsh: |
