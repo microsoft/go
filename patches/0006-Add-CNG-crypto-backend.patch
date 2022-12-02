@@ -11,8 +11,8 @@ Subject: [PATCH] Add CNG crypto backend
  src/crypto/ecdsa/notboring.go                 |   2 +-
  src/crypto/internal/backend/backend_test.go   |   4 +-
  src/crypto/internal/backend/bbig/big.go       |   2 +-
- src/crypto/internal/backend/bbig/big_cng.go   |  12 ++
- src/crypto/internal/backend/cng_windows.go    | 186 ++++++++++++++++++
+ src/crypto/internal/backend/bbig/big_cng.go   |  12 +
+ src/crypto/internal/backend/cng_windows.go    | 205 ++++++++++++++++++
  src/crypto/internal/backend/common.go         |  38 +++-
  src/crypto/internal/backend/nobackend.go      |   2 +-
  src/crypto/internal/boring/fipstls/stub.s     |   2 +-
@@ -49,7 +49,7 @@ Subject: [PATCH] Add CNG crypto backend
  .../goexperiment/exp_cngcrypto_off.go         |   9 +
  src/internal/goexperiment/exp_cngcrypto_on.go |   9 +
  src/internal/goexperiment/flags.go            |   1 +
- 45 files changed, 387 insertions(+), 47 deletions(-)
+ 45 files changed, 406 insertions(+), 47 deletions(-)
  create mode 100644 src/crypto/internal/backend/bbig/big_cng.go
  create mode 100644 src/crypto/internal/backend/cng_windows.go
  create mode 100644 src/internal/goexperiment/exp_cngcrypto_off.go
@@ -168,10 +168,10 @@ index 00000000000000..92623031fd87d0
 +var Dec = bbig.Dec
 diff --git a/src/crypto/internal/backend/cng_windows.go b/src/crypto/internal/backend/cng_windows.go
 new file mode 100644
-index 00000000000000..a37572238371ce
+index 00000000000000..9d1bbf010c0fb6
 --- /dev/null
 +++ b/src/crypto/internal/backend/cng_windows.go
-@@ -0,0 +1,186 @@
+@@ -0,0 +1,205 @@
 +// Copyright 2017 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -358,6 +358,25 @@ index 00000000000000..a37572238371ce
 +func VerifyRSAPSS(pub *cng.PublicKeyRSA, h crypto.Hash, hashed, sig []byte, saltLen int) error {
 +	return cng.VerifyRSAPSS(pub, h, hashed, sig, saltLen)
 +}
++
++type PrivateKeyECDH = cng.PrivateKeyECDH
++type PublicKeyECDH = cng.PublicKeyECDH
++
++func ECDH(priv *cng.PrivateKeyECDH, pub *cng.PublicKeyECDH) ([]byte, error) {
++	return cng.ECDH(priv, pub)
++}
++
++func GenerateKeyECDH(curve string) (*cng.PrivateKeyECDH, []byte, error) {
++	return cng.GenerateKeyECDH(curve)
++}
++
++func NewPrivateKeyECDH(curve string, bytes []byte) (*cng.PrivateKeyECDH, error) {
++	return cng.NewPrivateKeyECDH(curve, bytes)
++}
++
++func NewPublicKeyECDH(curve string, bytes []byte) (*cng.PublicKeyECDH, error) {
++	return cng.NewPublicKeyECDH(curve, bytes)
++}
 diff --git a/src/crypto/internal/backend/common.go b/src/crypto/internal/backend/common.go
 index 007d8070538247..114f72c3d10ee4 100644
 --- a/src/crypto/internal/backend/common.go
@@ -427,7 +446,7 @@ index 007d8070538247..114f72c3d10ee4 100644
 +	return !goexperiment.CNGCrypto
 +}
 diff --git a/src/crypto/internal/backend/nobackend.go b/src/crypto/internal/backend/nobackend.go
-index f5f908806241b2..e3e71c9f2f5984 100644
+index fcdea7f8ab5a9d..503e49212f972c 100644
 --- a/src/crypto/internal/backend/nobackend.go
 +++ b/src/crypto/internal/backend/nobackend.go
 @@ -2,7 +2,7 @@
@@ -626,7 +645,7 @@ index cf03e3cb7ed2cc..361eab5db6137d 100644
  		t.Fatal(err)
  	}
 diff --git a/src/crypto/rsa/rsa.go b/src/crypto/rsa/rsa.go
-index a383e4b92b4e57..f11e30d320c33b 100644
+index 512e4a4d6616e5..284db01c221d93 100644
 --- a/src/crypto/rsa/rsa.go
 +++ b/src/crypto/rsa/rsa.go
 @@ -36,6 +36,7 @@ import (
@@ -1037,26 +1056,26 @@ index a0548a7f9179c5..ae6117a1554b7f 100644
  package x509
  
 diff --git a/src/go.mod b/src/go.mod
-index 583db20b19f2fd..dd28e155f3d4b9 100644
+index 583db20b19f2fd..b567a544298e27 100644
 --- a/src/go.mod
 +++ b/src/go.mod
 @@ -4,6 +4,7 @@ go 1.20
  
  require (
  	github.com/microsoft/go-crypto-openssl v0.2.1
-+	github.com/microsoft/go-crypto-winnative v0.0.0-20221018054840-63fe3bdaa327
++	github.com/microsoft/go-crypto-winnative v0.0.0-20221118163944-7649d98424c1
  	golang.org/x/crypto v0.3.1-0.20221117191849-2c476679df9a
  	golang.org/x/net v0.2.1-0.20221117215542-ecf7fda6a59e
  )
 diff --git a/src/go.sum b/src/go.sum
-index 4bc18da6466301..e47f50019aeeed 100644
+index 4bc18da6466301..a5359c3bdc0886 100644
 --- a/src/go.sum
 +++ b/src/go.sum
 @@ -1,5 +1,7 @@
  github.com/microsoft/go-crypto-openssl v0.2.1 h1:YFcvMkJeBXucC5wkNne/BbB7V02z1TjRxXbvGmEaFd4=
  github.com/microsoft/go-crypto-openssl v0.2.1/go.mod h1:rC+rtBU3m60UCQifBmpWII0VETfu78w6YGZQvVc0rd4=
-+github.com/microsoft/go-crypto-winnative v0.0.0-20221018054840-63fe3bdaa327 h1:2VVjqz2wSETA9qAVcJvSEXbjTf0qvb0ONcX7zXJkxs0=
-+github.com/microsoft/go-crypto-winnative v0.0.0-20221018054840-63fe3bdaa327/go.mod h1:fveERXKbeK+XLmOyU24caKnIT/S5nniAX9XCRHfnrM4=
++github.com/microsoft/go-crypto-winnative v0.0.0-20221118163944-7649d98424c1 h1:KqlMKMf4t+yh6I2FbFvJpaMQTRH6MtWw06+ME10xxy0=
++github.com/microsoft/go-crypto-winnative v0.0.0-20221118163944-7649d98424c1/go.mod h1:fveERXKbeK+XLmOyU24caKnIT/S5nniAX9XCRHfnrM4=
  golang.org/x/crypto v0.3.1-0.20221117191849-2c476679df9a h1:diz9pEYuTIuLMJLs3rGDkeaTsNyRs6duYdFyPAxzE/U=
  golang.org/x/crypto v0.3.1-0.20221117191849-2c476679df9a/go.mod h1:hebNnKkNXi2UzZN1eVRvBB7co0a+JxK6XbPiWVs/3J4=
  golang.org/x/net v0.2.1-0.20221117215542-ecf7fda6a59e h1:IVOjWZQH/57UDcpX19vSmMz8w3ohroOMWohn8qWpRkg=

@@ -7,6 +7,8 @@ Subject: [PATCH] Add crypto backend foundation
  src/crypto/aes/cipher.go                    |   2 +-
  src/crypto/aes/cipher_asm.go                |   2 +-
  src/crypto/boring/boring.go                 |   2 +-
+ src/crypto/ecdh/ecdh.go                     |   2 +-
+ src/crypto/ecdh/nist.go                     |   2 +-
  src/crypto/ecdsa/boring.go                  |   4 +-
  src/crypto/ecdsa/ecdsa.go                   |   4 +-
  src/crypto/ecdsa/notboring.go               |   2 +-
@@ -14,10 +16,10 @@ Subject: [PATCH] Add crypto backend foundation
  src/crypto/hmac/hmac.go                     |   2 +-
  src/crypto/hmac/hmac_test.go                |   2 +-
  src/crypto/internal/backend/backend_test.go |  30 ++++++
- src/crypto/internal/backend/bbig/big.go     |  17 ++++
- src/crypto/internal/backend/common.go       |  65 +++++++++++++
+ src/crypto/internal/backend/bbig/big.go     |  17 +++
+ src/crypto/internal/backend/common.go       |  65 +++++++++++
  src/crypto/internal/backend/iscgo.go        |  10 ++
- src/crypto/internal/backend/nobackend.go    | 102 ++++++++++++++++++++
+ src/crypto/internal/backend/nobackend.go    | 114 ++++++++++++++++++++
  src/crypto/internal/backend/nocgo.go        |  10 ++
  src/crypto/internal/backend/stub.s          |  10 ++
  src/crypto/rand/rand_unix.go                |   2 +-
@@ -35,7 +37,7 @@ Subject: [PATCH] Add crypto backend foundation
  src/crypto/tls/cipher_suites.go             |   2 +-
  src/go/build/deps_test.go                   |   2 +
  src/runtime/runtime_boring.go               |   5 +
- 31 files changed, 277 insertions(+), 26 deletions(-)
+ 33 files changed, 291 insertions(+), 28 deletions(-)
  create mode 100644 src/crypto/internal/backend/backend_test.go
  create mode 100644 src/crypto/internal/backend/bbig/big.go
  create mode 100644 src/crypto/internal/backend/common.go
@@ -83,6 +85,32 @@ index 097c37e343fdb8..1cf43edba40359 100644
  
  // Enabled reports whether BoringCrypto handles supported crypto operations.
  func Enabled() bool {
+diff --git a/src/crypto/ecdh/ecdh.go b/src/crypto/ecdh/ecdh.go
+index d78b4d44324c24..4bf64dcf3c4122 100644
+--- a/src/crypto/ecdh/ecdh.go
++++ b/src/crypto/ecdh/ecdh.go
+@@ -8,7 +8,7 @@ package ecdh
+ 
+ import (
+ 	"crypto"
+-	"crypto/internal/boring"
++	boring "crypto/internal/backend"
+ 	"crypto/subtle"
+ 	"io"
+ 	"sync"
+diff --git a/src/crypto/ecdh/nist.go b/src/crypto/ecdh/nist.go
+index 01354fa2cf0af2..1d198df6e382d4 100644
+--- a/src/crypto/ecdh/nist.go
++++ b/src/crypto/ecdh/nist.go
+@@ -5,7 +5,7 @@
+ package ecdh
+ 
+ import (
+-	"crypto/internal/boring"
++	boring "crypto/internal/backend"
+ 	"crypto/internal/nistec"
+ 	"crypto/internal/randutil"
+ 	"encoding/binary"
 diff --git a/src/crypto/ecdsa/boring.go b/src/crypto/ecdsa/boring.go
 index 275c60b4de49eb..61e70f981db4eb 100644
 --- a/src/crypto/ecdsa/boring.go
@@ -314,10 +342,10 @@ index 00000000000000..1e0d3cf8c18b55
 +const iscgo = true
 diff --git a/src/crypto/internal/backend/nobackend.go b/src/crypto/internal/backend/nobackend.go
 new file mode 100644
-index 00000000000000..091fe22347e363
+index 00000000000000..5cbd86907a135b
 --- /dev/null
 +++ b/src/crypto/internal/backend/nobackend.go
-@@ -0,0 +1,102 @@
+@@ -0,0 +1,114 @@
 +// Copyright 2017 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -420,6 +448,18 @@ index 00000000000000..091fe22347e363
 +func VerifyRSAPSS(pub *PublicKeyRSA, h crypto.Hash, hashed, sig []byte, saltLen int) error {
 +	panic("cryptobackend: not available")
 +}
++
++type PublicKeyECDH struct{}
++type PrivateKeyECDH struct{}
++
++func ECDH(*PrivateKeyECDH, *PublicKeyECDH) ([]byte, error)    { panic("cryptobackend: not available") }
++func GenerateKeyECDH(string) (*PrivateKeyECDH, []byte, error) { panic("cryptobackend: not available") }
++func NewPrivateKeyECDH(string, []byte) (*PrivateKeyECDH, error) {
++	panic("cryptobackend: not available")
++}
++func NewPublicKeyECDH(string, []byte) (*PublicKeyECDH, error) { panic("cryptobackend: not available") }
++func (*PublicKeyECDH) Bytes() []byte                          { panic("cryptobackend: not available") }
++func (*PrivateKeyECDH) PublicKey() (*PublicKeyECDH, error)    { panic("cryptobackend: not available") }
 diff --git a/src/crypto/internal/backend/nocgo.go b/src/crypto/internal/backend/nocgo.go
 new file mode 100644
 index 00000000000000..63c13fc4b01cba
@@ -520,7 +560,7 @@ index f7d23b55ef811a..f2f2a64ed35e23 100644
  	"hash"
  	"io"
 diff --git a/src/crypto/rsa/rsa.go b/src/crypto/rsa/rsa.go
-index 88a5e28e626028..a383e4b92b4e57 100644
+index 11f87e8e4973e3..512e4a4d6616e5 100644
 --- a/src/crypto/rsa/rsa.go
 +++ b/src/crypto/rsa/rsa.go
 @@ -27,9 +27,9 @@ package rsa
