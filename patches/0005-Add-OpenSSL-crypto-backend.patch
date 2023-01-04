@@ -10,14 +10,13 @@ Subject: [PATCH] Add OpenSSL crypto backend
  .../go/testdata/script/gopath_std_vendor.txt  |   9 +
  src/cmd/link/internal/ld/lib.go               |   1 +
  src/crypto/boring/boring.go                   |   2 +-
- src/crypto/ecdh/nist.go                       |  17 +-
  src/crypto/ecdsa/boring.go                    |   2 +-
  src/crypto/ecdsa/notboring.go                 |   2 +-
  src/crypto/ed25519/ed25519_test.go            |   6 +
  src/crypto/internal/backend/bbig/big.go       |   2 +-
  .../internal/backend/bbig/big_openssl.go      |  12 ++
  src/crypto/internal/backend/nobackend.go      |   2 +-
- src/crypto/internal/backend/openssl_linux.go  | 194 ++++++++++++++++++
+ src/crypto/internal/backend/openssl_linux.go  | 203 ++++++++++++++++++
  src/crypto/internal/boring/fipstls/stub.s     |   2 +-
  src/crypto/internal/boring/fipstls/tls.go     |   2 +-
  src/crypto/rsa/boring.go                      |   2 +-
@@ -39,14 +38,14 @@ Subject: [PATCH] Add OpenSSL crypto backend
  .../goexperiment/exp_opensslcrypto_on.go      |   9 +
  src/internal/goexperiment/flags.go            |   1 +
  src/os/exec/exec_test.go                      |   9 +
- 35 files changed, 298 insertions(+), 31 deletions(-)
+ 34 files changed, 296 insertions(+), 25 deletions(-)
  create mode 100644 src/crypto/internal/backend/bbig/big_openssl.go
  create mode 100644 src/crypto/internal/backend/openssl_linux.go
  create mode 100644 src/internal/goexperiment/exp_opensslcrypto_off.go
  create mode 100644 src/internal/goexperiment/exp_opensslcrypto_on.go
 
 diff --git a/src/cmd/api/boring_test.go b/src/cmd/api/boring_test.go
-index f0e3575637c62a..0e9aceeb832d3b 100644
+index a9ec6e6bfef..01765f01736 100644
 --- a/src/cmd/api/boring_test.go
 +++ b/src/cmd/api/boring_test.go
 @@ -2,7 +2,7 @@
@@ -59,10 +58,10 @@ index f0e3575637c62a..0e9aceeb832d3b 100644
  package api
  
 diff --git a/src/cmd/dist/test.go b/src/cmd/dist/test.go
-index cedd337c124432..47973840fd50fb 100644
+index 77e89305597..a80132abacc 100644
 --- a/src/cmd/dist/test.go
 +++ b/src/cmd/dist/test.go
-@@ -1347,15 +1347,18 @@ func (t *tester) registerCgoTests() {
+@@ -1330,15 +1330,18 @@ func (t *tester) registerCgoTests() {
  					return false
  				}
  			}
@@ -85,7 +84,7 @@ index cedd337c124432..47973840fd50fb 100644
  				cgoTest("test-static", "test", "external", "static", staticCheck)
  				// -static in CGO_LDFLAGS triggers a different code path
 diff --git a/src/cmd/go/go_boring_test.go b/src/cmd/go/go_boring_test.go
-index ed0fbf3d53d75b..5376227f74cfaa 100644
+index ed0fbf3d53d..5376227f74c 100644
 --- a/src/cmd/go/go_boring_test.go
 +++ b/src/cmd/go/go_boring_test.go
 @@ -2,7 +2,7 @@
@@ -98,7 +97,7 @@ index ed0fbf3d53d75b..5376227f74cfaa 100644
  package main_test
  
 diff --git a/src/cmd/go/testdata/script/gopath_std_vendor.txt b/src/cmd/go/testdata/script/gopath_std_vendor.txt
-index 4aaf46b5d0f0dc..e2ac54f96db1e8 100644
+index 4aaf46b5d0f..e2ac54f96db 100644
 --- a/src/cmd/go/testdata/script/gopath_std_vendor.txt
 +++ b/src/cmd/go/testdata/script/gopath_std_vendor.txt
 @@ -1,5 +1,14 @@
@@ -117,7 +116,7 @@ index 4aaf46b5d0f0dc..e2ac54f96db1e8 100644
  
  go list -f '{{.Dir}}' vendor/golang.org/x/net/http2/hpack
 diff --git a/src/cmd/link/internal/ld/lib.go b/src/cmd/link/internal/ld/lib.go
-index d225a8a163f18e..7e6e664c1406f9 100644
+index c0730179db4..6cff17f652b 100644
 --- a/src/cmd/link/internal/ld/lib.go
 +++ b/src/cmd/link/internal/ld/lib.go
 @@ -1102,6 +1102,7 @@ var hostobj []Hostobj
@@ -129,7 +128,7 @@ index d225a8a163f18e..7e6e664c1406f9 100644
  	"crypto/internal/boring/syso",
  	"crypto/x509",
 diff --git a/src/crypto/boring/boring.go b/src/crypto/boring/boring.go
-index 1cf43edba40359..7b04f14ebdd618 100644
+index 1cf43edba40..7b04f14ebdd 100644
 --- a/src/crypto/boring/boring.go
 +++ b/src/crypto/boring/boring.go
 @@ -2,7 +2,7 @@
@@ -141,74 +140,8 @@ index 1cf43edba40359..7b04f14ebdd618 100644
  
  // Package boring exposes functions that are only available when building with
  // Go+BoringCrypto. This package is available on all targets as long as the
-diff --git a/src/crypto/ecdh/nist.go b/src/crypto/ecdh/nist.go
-index 1d198df6e382d4..3309b6d4c15110 100644
---- a/src/crypto/ecdh/nist.go
-+++ b/src/crypto/ecdh/nist.go
-@@ -10,6 +10,7 @@ import (
- 	"crypto/internal/randutil"
- 	"encoding/binary"
- 	"errors"
-+	"internal/goexperiment"
- 	"io"
- 	"math/bits"
- )
-@@ -36,7 +37,7 @@ func (c *nistCurve[Point]) String() string {
- var errInvalidPrivateKey = errors.New("crypto/ecdh: invalid private key")
- 
- func (c *nistCurve[Point]) GenerateKey(rand io.Reader) (*PrivateKey, error) {
--	if boring.Enabled && rand == boring.RandReader {
-+	if boring.Enabled && rand == boring.RandReader && !goexperiment.OpenSSLCrypto {
- 		key, bytes, err := boring.GenerateKeyECDH(c.name)
- 		if err != nil {
- 			return nil, err
-@@ -79,7 +80,7 @@ func (c *nistCurve[Point]) NewPrivateKey(key []byte) (*PrivateKey, error) {
- 	if isZero(key) || !isLess(key, c.scalarOrder) {
- 		return nil, errInvalidPrivateKey
- 	}
--	if boring.Enabled {
-+	if boring.Enabled && !goexperiment.OpenSSLCrypto {
- 		bk, err := boring.NewPrivateKeyECDH(c.name, key)
- 		if err != nil {
- 			return nil, err
-@@ -103,7 +104,9 @@ func newBoringPrivateKey(c Curve, bk *boring.PrivateKeyECDH, privateKey []byte)
- }
- 
- func (c *nistCurve[Point]) privateKeyToPublicKey(key *PrivateKey) *PublicKey {
--	boring.Unreachable()
-+	if !goexperiment.OpenSSLCrypto {
-+		boring.Unreachable()
-+	}
- 	if key.curve != c {
- 		panic("crypto/ecdh: internal error: converting the wrong key type")
- 	}
-@@ -173,7 +176,7 @@ func (c *nistCurve[Point]) NewPublicKey(key []byte) (*PublicKey, error) {
- 		curve:     c,
- 		publicKey: append([]byte{}, key...),
- 	}
--	if boring.Enabled {
-+	if boring.Enabled && !goexperiment.OpenSSLCrypto {
- 		bk, err := boring.NewPublicKeyECDH(c.name, k.publicKey)
- 		if err != nil {
- 			return nil, err
-@@ -196,11 +199,13 @@ func (c *nistCurve[Point]) ecdh(local *PrivateKey, remote *PublicKey) ([]byte, e
- 	// only be the result of a scalar multiplication if one of the inputs is the
- 	// zero scalar or the point at infinity.
- 
--	if boring.Enabled {
-+	if boring.Enabled && !goexperiment.OpenSSLCrypto {
- 		return boring.ECDH(local.boring, remote.boring)
- 	}
- 
--	boring.Unreachable()
-+	if !goexperiment.OpenSSLCrypto {
-+		boring.Unreachable()
-+	}
- 	p, err := c.newPoint().SetBytes(remote.publicKey)
- 	if err != nil {
- 		return nil, err
 diff --git a/src/crypto/ecdsa/boring.go b/src/crypto/ecdsa/boring.go
-index 61e70f981db4eb..602cb894e20d39 100644
+index 61e70f981db..602cb894e20 100644
 --- a/src/crypto/ecdsa/boring.go
 +++ b/src/crypto/ecdsa/boring.go
 @@ -2,7 +2,7 @@
@@ -221,7 +154,7 @@ index 61e70f981db4eb..602cb894e20d39 100644
  package ecdsa
  
 diff --git a/src/crypto/ecdsa/notboring.go b/src/crypto/ecdsa/notboring.go
-index 19188518e85e65..3cc16ecab567a0 100644
+index 19188518e85..3cc16ecab56 100644
 --- a/src/crypto/ecdsa/notboring.go
 +++ b/src/crypto/ecdsa/notboring.go
 @@ -2,7 +2,7 @@
@@ -234,7 +167,7 @@ index 19188518e85e65..3cc16ecab567a0 100644
  package ecdsa
  
 diff --git a/src/crypto/ed25519/ed25519_test.go b/src/crypto/ed25519/ed25519_test.go
-index 4a818e0319d55e..da6e4c64e6c5ee 100644
+index 4a818e0319d..da6e4c64e6c 100644
 --- a/src/crypto/ed25519/ed25519_test.go
 +++ b/src/crypto/ed25519/ed25519_test.go
 @@ -13,6 +13,7 @@ import (
@@ -258,7 +191,7 @@ index 4a818e0319d55e..da6e4c64e6c5ee 100644
  
  	if allocs := testing.AllocsPerRun(100, func() {
 diff --git a/src/crypto/internal/backend/bbig/big.go b/src/crypto/internal/backend/bbig/big.go
-index 85bd3ed083f5b2..51bc3c68048d51 100644
+index 85bd3ed083f..51bc3c68048 100644
 --- a/src/crypto/internal/backend/bbig/big.go
 +++ b/src/crypto/internal/backend/bbig/big.go
 @@ -2,7 +2,7 @@
@@ -272,7 +205,7 @@ index 85bd3ed083f5b2..51bc3c68048d51 100644
  
 diff --git a/src/crypto/internal/backend/bbig/big_openssl.go b/src/crypto/internal/backend/bbig/big_openssl.go
 new file mode 100644
-index 00000000000000..61ef3fdd90b607
+index 00000000000..61ef3fdd90b
 --- /dev/null
 +++ b/src/crypto/internal/backend/bbig/big_openssl.go
 @@ -0,0 +1,12 @@
@@ -289,7 +222,7 @@ index 00000000000000..61ef3fdd90b607
 +var Enc = bbig.Enc
 +var Dec = bbig.Dec
 diff --git a/src/crypto/internal/backend/nobackend.go b/src/crypto/internal/backend/nobackend.go
-index 5cbd86907a135b..fcdea7f8ab5a9d 100644
+index 5cbd86907a1..fcdea7f8ab5 100644
 --- a/src/crypto/internal/backend/nobackend.go
 +++ b/src/crypto/internal/backend/nobackend.go
 @@ -2,7 +2,7 @@
@@ -303,10 +236,10 @@ index 5cbd86907a135b..fcdea7f8ab5a9d 100644
  
 diff --git a/src/crypto/internal/backend/openssl_linux.go b/src/crypto/internal/backend/openssl_linux.go
 new file mode 100644
-index 00000000000000..9bbe3a59b65bbb
+index 00000000000..68ea43ea892
 --- /dev/null
 +++ b/src/crypto/internal/backend/openssl_linux.go
-@@ -0,0 +1,194 @@
+@@ -0,0 +1,203 @@
 +// Copyright 2017 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -492,17 +425,26 @@ index 00000000000000..9bbe3a59b65bbb
 +	return openssl.VerifyRSAPSS(pub, h, hashed, sig, saltLen)
 +}
 +
-+type PublicKeyECDH struct{}
-+type PrivateKeyECDH struct{}
++type PublicKeyECDH = openssl.PublicKeyECDH
++type PrivateKeyECDH = openssl.PrivateKeyECDH
 +
-+func ECDH(*PrivateKeyECDH, *PublicKeyECDH) ([]byte, error)      { panic("boringcrypto: not available") }
-+func GenerateKeyECDH(string) (*PrivateKeyECDH, []byte, error)   { panic("boringcrypto: not available") }
-+func NewPrivateKeyECDH(string, []byte) (*PrivateKeyECDH, error) { panic("boringcrypto: not available") }
-+func NewPublicKeyECDH(string, []byte) (*PublicKeyECDH, error)   { panic("boringcrypto: not available") }
-+func (*PublicKeyECDH) Bytes() []byte                            { panic("boringcrypto: not available") }
-+func (*PrivateKeyECDH) PublicKey() (*PublicKeyECDH, error)      { panic("boringcrypto: not available") }
++func ECDH(priv *openssl.PrivateKeyECDH, pub *openssl.PublicKeyECDH) ([]byte, error) {
++	return openssl.ECDH(priv, pub)
++}
++
++func GenerateKeyECDH(curve string) (*openssl.PrivateKeyECDH, []byte, error) {
++	return openssl.GenerateKeyECDH(curve)
++}
++
++func NewPrivateKeyECDH(curve string, bytes []byte) (*openssl.PrivateKeyECDH, error) {
++	return openssl.NewPrivateKeyECDH(curve, bytes)
++}
++
++func NewPublicKeyECDH(curve string, bytes []byte) (*openssl.PublicKeyECDH, error) {
++	return openssl.NewPublicKeyECDH(curve, bytes)
++}
 diff --git a/src/crypto/internal/boring/fipstls/stub.s b/src/crypto/internal/boring/fipstls/stub.s
-index f2e5a503eaacb6..1dc7116efdff2e 100644
+index f2e5a503eaa..1dc7116efdf 100644
 --- a/src/crypto/internal/boring/fipstls/stub.s
 +++ b/src/crypto/internal/boring/fipstls/stub.s
 @@ -2,7 +2,7 @@
@@ -515,7 +457,7 @@ index f2e5a503eaacb6..1dc7116efdff2e 100644
  // runtime_arg0 is declared in tls.go without a body.
  // It's provided by package runtime,
 diff --git a/src/crypto/internal/boring/fipstls/tls.go b/src/crypto/internal/boring/fipstls/tls.go
-index 3bf1471fb0bce9..4e629a4db8f7c7 100644
+index 3bf1471fb0b..4e629a4db8f 100644
 --- a/src/crypto/internal/boring/fipstls/tls.go
 +++ b/src/crypto/internal/boring/fipstls/tls.go
 @@ -2,7 +2,7 @@
@@ -528,7 +470,7 @@ index 3bf1471fb0bce9..4e629a4db8f7c7 100644
  // Package fipstls allows control over whether crypto/tls requires FIPS-approved settings.
  // This package only exists with GOEXPERIMENT=boringcrypto, but the effects are independent
 diff --git a/src/crypto/rsa/boring.go b/src/crypto/rsa/boring.go
-index ecb43aaf264743..220f8c05c3d94b 100644
+index ecb43aaf264..220f8c05c3d 100644
 --- a/src/crypto/rsa/boring.go
 +++ b/src/crypto/rsa/boring.go
 @@ -2,7 +2,7 @@
@@ -541,7 +483,7 @@ index ecb43aaf264743..220f8c05c3d94b 100644
  package rsa
  
 diff --git a/src/crypto/rsa/boring_test.go b/src/crypto/rsa/boring_test.go
-index 2234d079f0d9e7..82a9d220e139af 100644
+index 2234d079f0d..82a9d220e13 100644
 --- a/src/crypto/rsa/boring_test.go
 +++ b/src/crypto/rsa/boring_test.go
 @@ -2,7 +2,7 @@
@@ -554,7 +496,7 @@ index 2234d079f0d9e7..82a9d220e139af 100644
  // Note: Can run these tests against the non-BoringCrypto
  // version of the code by using "CGO_ENABLED=0 go test".
 diff --git a/src/crypto/rsa/notboring.go b/src/crypto/rsa/notboring.go
-index 34c22c8fbba7da..933ac569e034a8 100644
+index 34c22c8fbba..933ac569e03 100644
 --- a/src/crypto/rsa/notboring.go
 +++ b/src/crypto/rsa/notboring.go
 @@ -2,7 +2,7 @@
@@ -567,7 +509,7 @@ index 34c22c8fbba7da..933ac569e034a8 100644
  package rsa
  
 diff --git a/src/crypto/rsa/rsa_test.go b/src/crypto/rsa/rsa_test.go
-index 16101f043a770f..379fb06526ccc7 100644
+index 16101f043a7..379fb06526c 100644
 --- a/src/crypto/rsa/rsa_test.go
 +++ b/src/crypto/rsa/rsa_test.go
 @@ -653,6 +653,9 @@ func TestDecryptOAEP(t *testing.T) {
@@ -581,7 +523,7 @@ index 16101f043a770f..379fb06526ccc7 100644
  
  	msg := []byte{0xed, 0x36, 0x90, 0x8d, 0xbe, 0xfc, 0x35, 0x40, 0x70, 0x4f, 0xf5, 0x9d, 0x6e, 0xc2, 0xeb, 0xf5, 0x27, 0xae, 0x65, 0xb0, 0x59, 0x29, 0x45, 0x25, 0x8c, 0xc1, 0x91, 0x22}
 diff --git a/src/crypto/tls/boring.go b/src/crypto/tls/boring.go
-index 1827f764589b58..70baa62d63754a 100644
+index 1827f764589..70baa62d637 100644
 --- a/src/crypto/tls/boring.go
 +++ b/src/crypto/tls/boring.go
 @@ -2,7 +2,7 @@
@@ -594,7 +536,7 @@ index 1827f764589b58..70baa62d63754a 100644
  package tls
  
 diff --git a/src/crypto/tls/boring_test.go b/src/crypto/tls/boring_test.go
-index 59d4d2b2724ea3..ea23a0336bd575 100644
+index 59d4d2b2724..ea23a0336bd 100644
 --- a/src/crypto/tls/boring_test.go
 +++ b/src/crypto/tls/boring_test.go
 @@ -2,7 +2,7 @@
@@ -607,7 +549,7 @@ index 59d4d2b2724ea3..ea23a0336bd575 100644
  package tls
  
 diff --git a/src/crypto/tls/fipsonly/fipsonly.go b/src/crypto/tls/fipsonly/fipsonly.go
-index e5e47835e2f48d..1a94656dfee6dd 100644
+index e5e47835e2f..1a94656dfee 100644
 --- a/src/crypto/tls/fipsonly/fipsonly.go
 +++ b/src/crypto/tls/fipsonly/fipsonly.go
 @@ -2,7 +2,7 @@
@@ -620,7 +562,7 @@ index e5e47835e2f48d..1a94656dfee6dd 100644
  // Package fipsonly restricts all TLS configuration to FIPS-approved settings.
  //
 diff --git a/src/crypto/tls/fipsonly/fipsonly_test.go b/src/crypto/tls/fipsonly/fipsonly_test.go
-index f8485dc3ca1c29..9c1d3d279c472f 100644
+index f8485dc3ca1..9c1d3d279c4 100644
 --- a/src/crypto/tls/fipsonly/fipsonly_test.go
 +++ b/src/crypto/tls/fipsonly/fipsonly_test.go
 @@ -2,7 +2,7 @@
@@ -633,7 +575,7 @@ index f8485dc3ca1c29..9c1d3d279c472f 100644
  package fipsonly
  
 diff --git a/src/crypto/tls/notboring.go b/src/crypto/tls/notboring.go
-index 7d85b39c59319e..1aaabd5ef486aa 100644
+index 7d85b39c593..1aaabd5ef48 100644
 --- a/src/crypto/tls/notboring.go
 +++ b/src/crypto/tls/notboring.go
 @@ -2,7 +2,7 @@
@@ -646,7 +588,7 @@ index 7d85b39c59319e..1aaabd5ef486aa 100644
  package tls
  
 diff --git a/src/crypto/x509/boring.go b/src/crypto/x509/boring.go
-index 095b58c31590d4..9aec21dbcd3bff 100644
+index 095b58c3159..9aec21dbcd3 100644
 --- a/src/crypto/x509/boring.go
 +++ b/src/crypto/x509/boring.go
 @@ -2,7 +2,7 @@
@@ -659,7 +601,7 @@ index 095b58c31590d4..9aec21dbcd3bff 100644
  package x509
  
 diff --git a/src/crypto/x509/boring_test.go b/src/crypto/x509/boring_test.go
-index 33fd0ed52b1ff6..e8fce393d29b00 100644
+index 33fd0ed52b1..e8fce393d29 100644
 --- a/src/crypto/x509/boring_test.go
 +++ b/src/crypto/x509/boring_test.go
 @@ -2,7 +2,7 @@
@@ -672,7 +614,7 @@ index 33fd0ed52b1ff6..e8fce393d29b00 100644
  package x509
  
 diff --git a/src/crypto/x509/notboring.go b/src/crypto/x509/notboring.go
-index c83a7272c9f01f..a0548a7f9179c5 100644
+index c83a7272c9f..a0548a7f917 100644
 --- a/src/crypto/x509/notboring.go
 +++ b/src/crypto/x509/notboring.go
 @@ -2,7 +2,7 @@
@@ -685,32 +627,32 @@ index c83a7272c9f01f..a0548a7f9179c5 100644
  package x509
  
 diff --git a/src/go.mod b/src/go.mod
-index 874b035dd2d574..583db20b19f2fd 100644
+index 2a1261f925a..ada45c9308b 100644
 --- a/src/go.mod
 +++ b/src/go.mod
 @@ -3,6 +3,7 @@ module std
  go 1.20
  
  require (
-+	github.com/microsoft/go-crypto-openssl v0.2.2
++	github.com/microsoft/go-crypto-openssl v0.2.3
  	golang.org/x/crypto v0.3.1-0.20221117191849-2c476679df9a
  	golang.org/x/net v0.3.1-0.20221206200815-1e63c2f08a10
  )
 diff --git a/src/go.sum b/src/go.sum
-index 3ff1619712fac4..4bc18da6466301 100644
+index ef6748d5968..799a91a2af7 100644
 --- a/src/go.sum
 +++ b/src/go.sum
 @@ -1,3 +1,5 @@
-+github.com/microsoft/go-crypto-openssl v0.2.2 h1:Et6hPiaoGW3UXZ4IdjGwN0j4ZoiT8Ffg+Han7+SiDgk=
-+github.com/microsoft/go-crypto-openssl v0.2.2/go.mod h1:rC+rtBU3m60UCQifBmpWII0VETfu78w6YGZQvVc0rd4=
++github.com/microsoft/go-crypto-openssl v0.2.3 h1:bbY1FjnyjNcxZydzBcWp3FDruolP66P1gUGDlN5WGug=
++github.com/microsoft/go-crypto-openssl v0.2.3/go.mod h1:rC+rtBU3m60UCQifBmpWII0VETfu78w6YGZQvVc0rd4=
  golang.org/x/crypto v0.3.1-0.20221117191849-2c476679df9a h1:diz9pEYuTIuLMJLs3rGDkeaTsNyRs6duYdFyPAxzE/U=
  golang.org/x/crypto v0.3.1-0.20221117191849-2c476679df9a/go.mod h1:hebNnKkNXi2UzZN1eVRvBB7co0a+JxK6XbPiWVs/3J4=
  golang.org/x/net v0.3.1-0.20221206200815-1e63c2f08a10 h1:Frnccbp+ok2GkUS2tC84yAq/U9Vg+0sIO7aRL3T4Xnc=
 diff --git a/src/go/build/deps_test.go b/src/go/build/deps_test.go
-index 640e3f425ede1c..0a905134394057 100644
+index 40f53b1ea43..afab09a9437 100644
 --- a/src/go/build/deps_test.go
 +++ b/src/go/build/deps_test.go
-@@ -397,6 +397,8 @@ var depsRules = `
+@@ -398,6 +398,8 @@ var depsRules = `
  
  	crypto/cipher,
  	crypto/internal/boring/bcache
@@ -719,7 +661,7 @@ index 640e3f425ede1c..0a905134394057 100644
  	< crypto/internal/boring
  	< crypto/internal/backend
  	< crypto/boring;
-@@ -431,6 +433,7 @@ var depsRules = `
+@@ -432,6 +434,7 @@ var depsRules = `
  
  	# CRYPTO-MATH is core bignum-based crypto - no cgo, net; fmt now ok.
  	CRYPTO, FMT, math/big
@@ -727,7 +669,7 @@ index 640e3f425ede1c..0a905134394057 100644
  	< crypto/internal/boring/bbig
  	< crypto/internal/backend/bbig
  	< crypto/rand
-@@ -672,7 +675,7 @@ var buildIgnore = []byte("\n//go:build ignore")
+@@ -673,7 +676,7 @@ var buildIgnore = []byte("\n//go:build ignore")
  
  func findImports(pkg string) ([]string, error) {
  	vpkg := pkg
@@ -736,7 +678,7 @@ index 640e3f425ede1c..0a905134394057 100644
  		vpkg = "vendor/" + pkg
  	}
  	dir := filepath.Join(Default.GOROOT, "src", vpkg)
-@@ -682,7 +685,7 @@ func findImports(pkg string) ([]string, error) {
+@@ -683,7 +686,7 @@ func findImports(pkg string) ([]string, error) {
  	}
  	var imports []string
  	var haveImport = map[string]bool{}
@@ -747,7 +689,7 @@ index 640e3f425ede1c..0a905134394057 100644
  	fset := token.NewFileSet()
 diff --git a/src/internal/goexperiment/exp_opensslcrypto_off.go b/src/internal/goexperiment/exp_opensslcrypto_off.go
 new file mode 100644
-index 00000000000000..62033547c6143a
+index 00000000000..62033547c61
 --- /dev/null
 +++ b/src/internal/goexperiment/exp_opensslcrypto_off.go
 @@ -0,0 +1,9 @@
@@ -762,7 +704,7 @@ index 00000000000000..62033547c6143a
 +const OpenSSLCryptoInt = 0
 diff --git a/src/internal/goexperiment/exp_opensslcrypto_on.go b/src/internal/goexperiment/exp_opensslcrypto_on.go
 new file mode 100644
-index 00000000000000..a7f2712e9e1464
+index 00000000000..a7f2712e9e1
 --- /dev/null
 +++ b/src/internal/goexperiment/exp_opensslcrypto_on.go
 @@ -0,0 +1,9 @@
@@ -776,7 +718,7 @@ index 00000000000000..a7f2712e9e1464
 +const OpenSSLCrypto = true
 +const OpenSSLCryptoInt = 1
 diff --git a/src/internal/goexperiment/flags.go b/src/internal/goexperiment/flags.go
-index 02e744362c30d5..cffb78a7234546 100644
+index 02e744362c3..cffb78a7234 100644
 --- a/src/internal/goexperiment/flags.go
 +++ b/src/internal/goexperiment/flags.go
 @@ -59,6 +59,7 @@ type Flags struct {
@@ -788,7 +730,7 @@ index 02e744362c30d5..cffb78a7234546 100644
  	// Unified enables the compiler's unified IR construction
  	// experiment.
 diff --git a/src/os/exec/exec_test.go b/src/os/exec/exec_test.go
-index edff9a201ef2e0..49752c0d1c1791 100644
+index edff9a201ef..49752c0d1c1 100644
 --- a/src/os/exec/exec_test.go
 +++ b/src/os/exec/exec_test.go
 @@ -14,6 +14,7 @@ import (

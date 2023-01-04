@@ -9,14 +9,15 @@ To reproduce, run 'go mod vendor' in 'go/src'.
  .../go-crypto-openssl/openssl/aes.go          | 472 ++++++++++++++
  .../go-crypto-openssl/openssl/bbig/big.go     |  38 ++
  .../go-crypto-openssl/openssl/big.go          |  13 +
+ .../go-crypto-openssl/openssl/ecdh.go         | 212 +++++++
  .../go-crypto-openssl/openssl/ecdsa.go        | 185 ++++++
  .../go-crypto-openssl/openssl/evpkey.go       | 313 ++++++++++
  .../go-crypto-openssl/openssl/goopenssl.c     | 153 +++++
  .../go-crypto-openssl/openssl/goopenssl.h     | 147 +++++
  .../go-crypto-openssl/openssl/hmac.go         | 251 ++++++++
  .../openssl/internal/subtle/aliasing.go       |  32 +
- .../go-crypto-openssl/openssl/openssl.go      | 295 +++++++++
- .../go-crypto-openssl/openssl/openssl_funcs.h | 279 +++++++++
+ .../go-crypto-openssl/openssl/openssl.go      | 302 +++++++++
+ .../go-crypto-openssl/openssl/openssl_funcs.h | 288 +++++++++
  .../openssl/openssl_lock_setup.c              |  53 ++
  .../go-crypto-openssl/openssl/rand.go         |  24 +
  .../go-crypto-openssl/openssl/rsa.go          | 336 ++++++++++
@@ -38,11 +39,12 @@ To reproduce, run 'go mod vendor' in 'go/src'.
  .../internal/subtle/aliasing.go               |  32 +
  .../internal/sysdll/sys_windows.go            |  55 ++
  src/vendor/modules.txt                        |  12 +
- 33 files changed, 5548 insertions(+)
+ 34 files changed, 5927 insertions(+)
  create mode 100644 src/vendor/github.com/microsoft/go-crypto-openssl/LICENSE
  create mode 100644 src/vendor/github.com/microsoft/go-crypto-openssl/openssl/aes.go
  create mode 100644 src/vendor/github.com/microsoft/go-crypto-openssl/openssl/bbig/big.go
  create mode 100644 src/vendor/github.com/microsoft/go-crypto-openssl/openssl/big.go
+ create mode 100644 src/vendor/github.com/microsoft/go-crypto-openssl/openssl/ecdh.go
  create mode 100644 src/vendor/github.com/microsoft/go-crypto-openssl/openssl/ecdsa.go
  create mode 100644 src/vendor/github.com/microsoft/go-crypto-openssl/openssl/evpkey.go
  create mode 100644 src/vendor/github.com/microsoft/go-crypto-openssl/openssl/goopenssl.c
@@ -74,7 +76,7 @@ To reproduce, run 'go mod vendor' in 'go/src'.
 
 diff --git a/src/vendor/github.com/microsoft/go-crypto-openssl/LICENSE b/src/vendor/github.com/microsoft/go-crypto-openssl/LICENSE
 new file mode 100644
-index 00000000000000..9e841e7a26e4eb
+index 00000000000..9e841e7a26e
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go-crypto-openssl/LICENSE
 @@ -0,0 +1,21 @@
@@ -101,7 +103,7 @@ index 00000000000000..9e841e7a26e4eb
 +    SOFTWARE
 diff --git a/src/vendor/github.com/microsoft/go-crypto-openssl/openssl/aes.go b/src/vendor/github.com/microsoft/go-crypto-openssl/openssl/aes.go
 new file mode 100644
-index 00000000000000..89268b471aa481
+index 00000000000..89268b471aa
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go-crypto-openssl/openssl/aes.go
 @@ -0,0 +1,472 @@
@@ -579,7 +581,7 @@ index 00000000000000..89268b471aa481
 +}
 diff --git a/src/vendor/github.com/microsoft/go-crypto-openssl/openssl/bbig/big.go b/src/vendor/github.com/microsoft/go-crypto-openssl/openssl/bbig/big.go
 new file mode 100644
-index 00000000000000..1214e1097ef56d
+index 00000000000..1214e1097ef
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go-crypto-openssl/openssl/bbig/big.go
 @@ -0,0 +1,38 @@
@@ -623,7 +625,7 @@ index 00000000000000..1214e1097ef56d
 +}
 diff --git a/src/vendor/github.com/microsoft/go-crypto-openssl/openssl/big.go b/src/vendor/github.com/microsoft/go-crypto-openssl/openssl/big.go
 new file mode 100644
-index 00000000000000..7207bde01c9d94
+index 00000000000..7207bde01c9
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go-crypto-openssl/openssl/big.go
 @@ -0,0 +1,13 @@
@@ -640,9 +642,227 @@ index 00000000000000..7207bde01c9d94
 +// This definition allows us to avoid importing math/big.
 +// Conversion between BigInt and *big.Int is in openssl/bbig.
 +type BigInt []uint
+diff --git a/src/vendor/github.com/microsoft/go-crypto-openssl/openssl/ecdh.go b/src/vendor/github.com/microsoft/go-crypto-openssl/openssl/ecdh.go
+new file mode 100644
+index 00000000000..a13c4116252
+--- /dev/null
++++ b/src/vendor/github.com/microsoft/go-crypto-openssl/openssl/ecdh.go
+@@ -0,0 +1,212 @@
++// Copyright (c) Microsoft Corporation.
++// Licensed under the MIT License.
++
++//go:build linux && !android
++// +build linux,!android
++
++package openssl
++
++// #include "goopenssl.h"
++import "C"
++import (
++	"errors"
++	"runtime"
++)
++
++type PublicKeyECDH struct {
++	curve string
++	key   C.GO_EC_POINT_PTR
++	bytes []byte
++}
++
++func (k *PublicKeyECDH) finalize() {
++	C.go_openssl_EC_POINT_free(k.key)
++}
++
++type PrivateKeyECDH struct {
++	curve string
++	key   C.GO_EC_KEY_PTR
++}
++
++func (k *PrivateKeyECDH) finalize() {
++	C.go_openssl_EC_KEY_free(k.key)
++}
++
++func NewPublicKeyECDH(curve string, bytes []byte) (*PublicKeyECDH, error) {
++	if len(bytes) < 1 {
++		return nil, errors.New("NewPublicKeyECDH: missing key")
++	}
++
++	nid, err := curveNID(curve)
++	if err != nil {
++		return nil, err
++	}
++
++	group := C.go_openssl_EC_GROUP_new_by_curve_name(nid)
++	if group == nil {
++		return nil, newOpenSSLError("EC_GROUP_new_by_curve_name")
++	}
++	defer C.go_openssl_EC_GROUP_free(group)
++	key := C.go_openssl_EC_POINT_new(group)
++	if key == nil {
++		return nil, newOpenSSLError("EC_POINT_new")
++	}
++	ok := C.go_openssl_EC_POINT_oct2point(group, key, base(bytes), C.size_t(len(bytes)), nil) != 0
++	if !ok {
++		C.go_openssl_EC_POINT_free(key)
++		return nil, errors.New("point not on curve")
++	}
++
++	k := &PublicKeyECDH{curve, key, append([]byte(nil), bytes...)}
++	runtime.SetFinalizer(k, (*PublicKeyECDH).finalize)
++	return k, nil
++}
++
++func (k *PublicKeyECDH) Bytes() []byte { return k.bytes }
++
++func NewPrivateKeyECDH(curve string, bytes []byte) (*PrivateKeyECDH, error) {
++	nid, err := curveNID(curve)
++	if err != nil {
++		return nil, err
++	}
++	key := C.go_openssl_EC_KEY_new_by_curve_name(nid)
++	if key == nil {
++		return nil, newOpenSSLError("EC_KEY_new_by_curve_name")
++	}
++	b := bytesToBN(bytes)
++	ok := b != nil && C.go_openssl_EC_KEY_set_private_key(key, b) != 0
++	if b != nil {
++		C.go_openssl_BN_free(b)
++	}
++	if !ok {
++		C.go_openssl_EC_KEY_free(key)
++		return nil, newOpenSSLError("EC_KEY_set_private_key")
++	}
++	k := &PrivateKeyECDH{curve, key}
++	runtime.SetFinalizer(k, (*PrivateKeyECDH).finalize)
++	return k, nil
++}
++
++func (k *PrivateKeyECDH) PublicKey() (*PublicKeyECDH, error) {
++	defer runtime.KeepAlive(k)
++
++	group := C.go_openssl_EC_KEY_get0_group(k.key)
++	if group == nil {
++		return nil, newOpenSSLError("EC_KEY_get0_group")
++	}
++	kbig := C.go_openssl_EC_KEY_get0_private_key(k.key)
++	if kbig == nil {
++		return nil, newOpenSSLError("EC_KEY_get0_private_key")
++	}
++	pt := C.go_openssl_EC_POINT_new(group)
++	if pt == nil {
++		return nil, newOpenSSLError("EC_POINT_new")
++	}
++	if C.go_openssl_EC_POINT_mul(group, pt, kbig, nil, nil, nil) == 0 {
++		C.go_openssl_EC_POINT_free(pt)
++		return nil, newOpenSSLError("EC_POINT_mul")
++	}
++	bytes, err := pointBytesECDH(k.curve, group, pt)
++	if err != nil {
++		C.go_openssl_EC_POINT_free(pt)
++		return nil, err
++	}
++	pub := &PublicKeyECDH{k.curve, pt, bytes}
++	// Note: Same as in NewPublicKeyECDH regarding finalizer and KeepAlive.
++	runtime.SetFinalizer(pub, (*PublicKeyECDH).finalize)
++	return pub, nil
++}
++
++func pointBytesECDH(curve string, group C.GO_EC_GROUP_PTR, pt C.GO_EC_POINT_PTR) ([]byte, error) {
++	out := make([]byte, 1+2*curveSize(curve))
++	n := C.go_openssl_EC_POINT_point2oct(group, pt, C.GO_POINT_CONVERSION_UNCOMPRESSED, base(out), C.size_t(len(out)), nil)
++	if int(n) != len(out) {
++		return nil, newOpenSSLError("EC_POINT_point2oct")
++	}
++	return out, nil
++}
++
++func ECDH(priv *PrivateKeyECDH, pub *PublicKeyECDH) ([]byte, error) {
++	group := C.go_openssl_EC_KEY_get0_group(priv.key)
++	if group == nil {
++		return nil, newOpenSSLError("EC_KEY_get0_group")
++	}
++	privBig := C.go_openssl_EC_KEY_get0_private_key(priv.key)
++	if privBig == nil {
++		return nil, newOpenSSLError("EC_KEY_get0_private_key")
++	}
++	pt := C.go_openssl_EC_POINT_new(group)
++	if pt == nil {
++		return nil, newOpenSSLError("EC_POINT_new")
++	}
++	defer C.go_openssl_EC_POINT_free(pt)
++	if C.go_openssl_EC_POINT_mul(group, pt, nil, pub.key, privBig, nil) == 0 {
++		return nil, newOpenSSLError("EC_POINT_mul")
++	}
++	out, err := xCoordBytesECDH(priv.curve, group, pt)
++	if err != nil {
++		return nil, err
++	}
++	return out, nil
++}
++
++func xCoordBytesECDH(curve string, group C.GO_EC_GROUP_PTR, pt C.GO_EC_POINT_PTR) ([]byte, error) {
++	big := C.go_openssl_BN_new()
++	defer C.go_openssl_BN_free(big)
++	if C.go_openssl_EC_POINT_get_affine_coordinates_GFp(group, pt, big, nil, nil) == 0 {
++		return nil, newOpenSSLError("EC_POINT_get_affine_coordinates_GFp")
++	}
++	return bigBytesECDH(curve, big)
++}
++
++func bigBytesECDH(curve string, big C.GO_BIGNUM_PTR) ([]byte, error) {
++	out := make([]byte, curveSize(curve))
++	if C.go_openssl_BN_bn2binpad(big, base(out), C.int(len(out))) == 0 {
++		return nil, newOpenSSLError("BN_bn2binpad")
++	}
++	return out, nil
++}
++
++func curveSize(curve string) int {
++	switch curve {
++	default:
++		panic("openssl: unknown curve " + curve)
++	case "P-256":
++		return 256 / 8
++	case "P-384":
++		return 384 / 8
++	case "P-521":
++		return (521 + 7) / 8
++	}
++}
++
++func GenerateKeyECDH(curve string) (*PrivateKeyECDH, []byte, error) {
++	pkey, err := generateEVPPKey(C.GO_EVP_PKEY_EC, 0, curve)
++	if err != nil {
++		return nil, nil, err
++	}
++	defer C.go_openssl_EVP_PKEY_free(pkey)
++	key := C.go_openssl_EVP_PKEY_get1_EC_KEY(pkey)
++	if key == nil {
++		return nil, nil, newOpenSSLError("EVP_PKEY_get1_EC_KEY")
++	}
++	group := C.go_openssl_EC_KEY_get0_group(key)
++	if group == nil {
++		C.go_openssl_EC_KEY_free(key)
++		return nil, nil, newOpenSSLError("EC_KEY_get0_group")
++	}
++	b := C.go_openssl_EC_KEY_get0_private_key(key)
++	if b == nil {
++		C.go_openssl_EC_KEY_free(key)
++		return nil, nil, newOpenSSLError("EC_KEY_get0_private_key")
++	}
++	bytes, err := bigBytesECDH(curve, b)
++	if err != nil {
++		C.go_openssl_EC_KEY_free(key)
++		return nil, nil, err
++	}
++
++	k := &PrivateKeyECDH{curve, key}
++	runtime.SetFinalizer(k, (*PrivateKeyECDH).finalize)
++	return k, bytes, nil
++}
 diff --git a/src/vendor/github.com/microsoft/go-crypto-openssl/openssl/ecdsa.go b/src/vendor/github.com/microsoft/go-crypto-openssl/openssl/ecdsa.go
 new file mode 100644
-index 00000000000000..e5a3e03a390135
+index 00000000000..a9edf8d86cc
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go-crypto-openssl/openssl/ecdsa.go
 @@ -0,0 +1,185 @@
@@ -750,7 +970,7 @@ index 00000000000000..e5a3e03a390135
 +	bx = bigToBN(X)
 +	by = bigToBN(Y)
 +	if bx == nil || by == nil {
-+		return nil, newOpenSSLError("BN_bin2bn failed")
++		return nil, newOpenSSLError("BN_lebin2bn failed")
 +	}
 +	if key = C.go_openssl_EC_KEY_new_by_curve_name(nid); key == nil {
 +		return nil, newOpenSSLError("EC_KEY_new_by_curve_name failed")
@@ -761,7 +981,7 @@ index 00000000000000..e5a3e03a390135
 +	if D != nil {
 +		bd := bigToBN(D)
 +		if bd == nil {
-+			return nil, newOpenSSLError("BN_bin2bn failed")
++			return nil, newOpenSSLError("BN_lebin2bn failed")
 +		}
 +		defer C.go_openssl_BN_free(bd)
 +		if C.go_openssl_EC_KEY_set_private_key(key, bd) != 1 {
@@ -833,7 +1053,7 @@ index 00000000000000..e5a3e03a390135
 +}
 diff --git a/src/vendor/github.com/microsoft/go-crypto-openssl/openssl/evpkey.go b/src/vendor/github.com/microsoft/go-crypto-openssl/openssl/evpkey.go
 new file mode 100644
-index 00000000000000..97e39c002e3052
+index 00000000000..97e39c002e3
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go-crypto-openssl/openssl/evpkey.go
 @@ -0,0 +1,313 @@
@@ -1152,7 +1372,7 @@ index 00000000000000..97e39c002e3052
 +}
 diff --git a/src/vendor/github.com/microsoft/go-crypto-openssl/openssl/goopenssl.c b/src/vendor/github.com/microsoft/go-crypto-openssl/openssl/goopenssl.c
 new file mode 100644
-index 00000000000000..7bbf74185128dd
+index 00000000000..7bbf7418512
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go-crypto-openssl/openssl/goopenssl.c
 @@ -0,0 +1,153 @@
@@ -1311,7 +1531,7 @@ index 00000000000000..7bbf74185128dd
 +}
 diff --git a/src/vendor/github.com/microsoft/go-crypto-openssl/openssl/goopenssl.h b/src/vendor/github.com/microsoft/go-crypto-openssl/openssl/goopenssl.h
 new file mode 100644
-index 00000000000000..03aed43e001d54
+index 00000000000..03aed43e001
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go-crypto-openssl/openssl/goopenssl.h
 @@ -0,0 +1,147 @@
@@ -1465,7 +1685,7 @@ index 00000000000000..03aed43e001d54
 \ No newline at end of file
 diff --git a/src/vendor/github.com/microsoft/go-crypto-openssl/openssl/hmac.go b/src/vendor/github.com/microsoft/go-crypto-openssl/openssl/hmac.go
 new file mode 100644
-index 00000000000000..81918cde673cee
+index 00000000000..81918cde673
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go-crypto-openssl/openssl/hmac.go
 @@ -0,0 +1,251 @@
@@ -1722,7 +1942,7 @@ index 00000000000000..81918cde673cee
 +}
 diff --git a/src/vendor/github.com/microsoft/go-crypto-openssl/openssl/internal/subtle/aliasing.go b/src/vendor/github.com/microsoft/go-crypto-openssl/openssl/internal/subtle/aliasing.go
 new file mode 100644
-index 00000000000000..db09e4aae64f8c
+index 00000000000..db09e4aae64
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go-crypto-openssl/openssl/internal/subtle/aliasing.go
 @@ -0,0 +1,32 @@
@@ -1760,10 +1980,10 @@ index 00000000000000..db09e4aae64f8c
 +}
 diff --git a/src/vendor/github.com/microsoft/go-crypto-openssl/openssl/openssl.go b/src/vendor/github.com/microsoft/go-crypto-openssl/openssl/openssl.go
 new file mode 100644
-index 00000000000000..95f3e888bb4cc0
+index 00000000000..e3e13d793c4
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go-crypto-openssl/openssl/openssl.go
-@@ -0,0 +1,295 @@
+@@ -0,0 +1,302 @@
 +// Copyright (c) Microsoft Corporation.
 +// Licensed under the MIT License.
 +
@@ -2017,6 +2237,13 @@ index 00000000000000..95f3e888bb4cc0
 +	return (*C.uchar)(unsafe.Pointer(&b[0]))
 +}
 +
++func bytesToBN(x []byte) C.GO_BIGNUM_PTR {
++	if len(x) == 0 {
++		return nil
++	}
++	return C.go_openssl_BN_bin2bn(base(x), C.int(len(x)), nil)
++}
++
 +func bigToBN(x BigInt) C.GO_BIGNUM_PTR {
 +	if len(x) == 0 {
 +		return nil
@@ -2061,10 +2288,10 @@ index 00000000000000..95f3e888bb4cc0
 +}
 diff --git a/src/vendor/github.com/microsoft/go-crypto-openssl/openssl/openssl_funcs.h b/src/vendor/github.com/microsoft/go-crypto-openssl/openssl/openssl_funcs.h
 new file mode 100644
-index 00000000000000..d6fc72a5ef1fff
+index 00000000000..46f592c4340
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go-crypto-openssl/openssl/openssl_funcs.h
-@@ -0,0 +1,279 @@
+@@ -0,0 +1,288 @@
 +// Copyright (c) Microsoft Corporation.
 +// Licensed under the MIT License.
 +
@@ -2105,8 +2332,12 @@ index 00000000000000..d6fc72a5ef1fff
 +
 +// #include <openssl/ec.h>
 +enum {
-+    GO_EVP_PKEY_CTRL_EC_PARAMGEN_CURVE_NID = 0x1001
++    GO_EVP_PKEY_CTRL_EC_PARAMGEN_CURVE_NID = 0x1001,
 +};
++
++typedef enum {
++    GO_POINT_CONVERSION_UNCOMPRESSED = 4,
++} point_conversion_form_t;
 +
 +// #include <openssl/obj_mac.h>
 +enum {
@@ -2271,16 +2502,21 @@ index 00000000000000..d6fc72a5ef1fff
 +DEFINEFUNC(int, BN_num_bits, (const GO_BIGNUM_PTR arg0), (arg0)) \
 +DEFINEFUNC(GO_BIGNUM_PTR, BN_bin2bn, (const unsigned char *arg0, int arg1, GO_BIGNUM_PTR arg2), (arg0, arg1, arg2)) \
 +DEFINEFUNC(int, BN_bn2bin, (const GO_BIGNUM_PTR arg0, unsigned char *arg1), (arg0, arg1)) \
-+/* bn_lebin2bn and bn_bn2lebinpad are not exported in any OpenSSL 1.0.2, but they exist. */ \
++/* bn_lebin2bn, bn_bn2lebinpad and BN_bn2binpad are not exported in any OpenSSL 1.0.2, but they exist. */ \
 +/*check:from=1.1.0*/ DEFINEFUNC_RENAMED_1_1(GO_BIGNUM_PTR, BN_lebin2bn, bn_lebin2bn, (const unsigned char *s, int len, GO_BIGNUM_PTR ret), (s, len, ret)) \
 +/*check:from=1.1.0*/ DEFINEFUNC_RENAMED_1_1(int, BN_bn2lebinpad, bn_bn2lebinpad, (const GO_BIGNUM_PTR a, unsigned char *to, int tolen), (a, to, tolen)) \
++/*check:from=1.1.0*/ DEFINEFUNC_RENAMED_1_1(int, BN_bn2binpad, bn_bn2binpad, (const GO_BIGNUM_PTR a, unsigned char *to, int tolen), (a, to, tolen)) \
 +DEFINEFUNC(void, EC_GROUP_free, (GO_EC_GROUP_PTR arg0), (arg0)) \
 +DEFINEFUNC(GO_EC_POINT_PTR, EC_POINT_new, (const GO_EC_GROUP_PTR arg0), (arg0)) \
 +DEFINEFUNC(void, EC_POINT_free, (GO_EC_POINT_PTR arg0), (arg0)) \
 +DEFINEFUNC(int, EC_POINT_get_affine_coordinates_GFp, (const GO_EC_GROUP_PTR arg0, const GO_EC_POINT_PTR arg1, GO_BIGNUM_PTR arg2, GO_BIGNUM_PTR arg3, GO_BN_CTX_PTR arg4), (arg0, arg1, arg2, arg3, arg4)) \
++DEFINEFUNC(size_t, EC_POINT_point2oct, (const GO_EC_GROUP_PTR group, const GO_EC_POINT_PTR p, point_conversion_form_t form, unsigned char *buf, size_t len, GO_BN_CTX_PTR ctx), (group, p, form, buf, len, ctx)) \
++DEFINEFUNC(int, EC_POINT_oct2point, (const GO_EC_GROUP_PTR group, GO_EC_POINT_PTR p, const unsigned char *buf, size_t len, GO_BN_CTX_PTR ctx), (group, p, buf, len, ctx)) \
++DEFINEFUNC(int, EC_POINT_mul, (const GO_EC_GROUP_PTR group, GO_EC_POINT_PTR r, const GO_BIGNUM_PTR n, const GO_EC_POINT_PTR q, const GO_BIGNUM_PTR m, GO_BN_CTX_PTR ctx), (group, r, n, q, m, ctx)) \
 +DEFINEFUNC(GO_EC_KEY_PTR, EC_KEY_new_by_curve_name, (int arg0), (arg0)) \
 +DEFINEFUNC(int, EC_KEY_set_public_key_affine_coordinates, (GO_EC_KEY_PTR key, GO_BIGNUM_PTR x, GO_BIGNUM_PTR y), (key, x, y)) \
 +DEFINEFUNC(void, EC_KEY_free, (GO_EC_KEY_PTR arg0), (arg0)) \
++DEFINEFUNC(GO_EC_GROUP_PTR, EC_GROUP_new_by_curve_name, (int nid), (nid)) \
 +DEFINEFUNC(const GO_EC_GROUP_PTR, EC_KEY_get0_group, (const GO_EC_KEY_PTR arg0), (arg0)) \
 +DEFINEFUNC(int, EC_KEY_set_private_key, (GO_EC_KEY_PTR arg0, const GO_BIGNUM_PTR arg1), (arg0, arg1)) \
 +DEFINEFUNC(const GO_BIGNUM_PTR, EC_KEY_get0_private_key, (const GO_EC_KEY_PTR arg0), (arg0)) \
@@ -2346,7 +2582,7 @@ index 00000000000000..d6fc72a5ef1fff
 +
 diff --git a/src/vendor/github.com/microsoft/go-crypto-openssl/openssl/openssl_lock_setup.c b/src/vendor/github.com/microsoft/go-crypto-openssl/openssl/openssl_lock_setup.c
 new file mode 100644
-index 00000000000000..5cd7275f4075ed
+index 00000000000..5cd7275f407
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go-crypto-openssl/openssl/openssl_lock_setup.c
 @@ -0,0 +1,53 @@
@@ -2405,7 +2641,7 @@ index 00000000000000..5cd7275f4075ed
 +}
 diff --git a/src/vendor/github.com/microsoft/go-crypto-openssl/openssl/rand.go b/src/vendor/github.com/microsoft/go-crypto-openssl/openssl/rand.go
 new file mode 100644
-index 00000000000000..17f64a52ae5255
+index 00000000000..17f64a52ae5
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go-crypto-openssl/openssl/rand.go
 @@ -0,0 +1,24 @@
@@ -2435,7 +2671,7 @@ index 00000000000000..17f64a52ae5255
 +const RandReader = randReader(0)
 diff --git a/src/vendor/github.com/microsoft/go-crypto-openssl/openssl/rsa.go b/src/vendor/github.com/microsoft/go-crypto-openssl/openssl/rsa.go
 new file mode 100644
-index 00000000000000..cfc6e40fcf41e2
+index 00000000000..cfc6e40fcf4
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go-crypto-openssl/openssl/rsa.go
 @@ -0,0 +1,336 @@
@@ -2777,7 +3013,7 @@ index 00000000000000..cfc6e40fcf41e2
 +}
 diff --git a/src/vendor/github.com/microsoft/go-crypto-openssl/openssl/sha.go b/src/vendor/github.com/microsoft/go-crypto-openssl/openssl/sha.go
 new file mode 100644
-index 00000000000000..bb96a9bcaee7d4
+index 00000000000..bb96a9bcaee
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go-crypto-openssl/openssl/sha.go
 @@ -0,0 +1,580 @@
@@ -3363,7 +3599,7 @@ index 00000000000000..bb96a9bcaee7d4
 +}
 diff --git a/src/vendor/github.com/microsoft/go-crypto-winnative/LICENSE b/src/vendor/github.com/microsoft/go-crypto-winnative/LICENSE
 new file mode 100644
-index 00000000000000..9e841e7a26e4eb
+index 00000000000..9e841e7a26e
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go-crypto-winnative/LICENSE
 @@ -0,0 +1,21 @@
@@ -3390,7 +3626,7 @@ index 00000000000000..9e841e7a26e4eb
 +    SOFTWARE
 diff --git a/src/vendor/github.com/microsoft/go-crypto-winnative/cng/aes.go b/src/vendor/github.com/microsoft/go-crypto-winnative/cng/aes.go
 new file mode 100644
-index 00000000000000..e3b865ab7823d1
+index 00000000000..e3b865ab782
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go-crypto-winnative/cng/aes.go
 @@ -0,0 +1,359 @@
@@ -3755,7 +3991,7 @@ index 00000000000000..e3b865ab7823d1
 +}
 diff --git a/src/vendor/github.com/microsoft/go-crypto-winnative/cng/bbig/big.go b/src/vendor/github.com/microsoft/go-crypto-winnative/cng/bbig/big.go
 new file mode 100644
-index 00000000000000..584f2069b1cd0a
+index 00000000000..584f2069b1c
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go-crypto-winnative/cng/bbig/big.go
 @@ -0,0 +1,31 @@
@@ -3792,7 +4028,7 @@ index 00000000000000..584f2069b1cd0a
 +}
 diff --git a/src/vendor/github.com/microsoft/go-crypto-winnative/cng/big.go b/src/vendor/github.com/microsoft/go-crypto-winnative/cng/big.go
 new file mode 100644
-index 00000000000000..36f0e0c6e278bc
+index 00000000000..36f0e0c6e27
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go-crypto-winnative/cng/big.go
 @@ -0,0 +1,30 @@
@@ -3828,7 +4064,7 @@ index 00000000000000..36f0e0c6e278bc
 +}
 diff --git a/src/vendor/github.com/microsoft/go-crypto-winnative/cng/cng.go b/src/vendor/github.com/microsoft/go-crypto-winnative/cng/cng.go
 new file mode 100644
-index 00000000000000..844c087287cabe
+index 00000000000..844c087287c
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go-crypto-winnative/cng/cng.go
 @@ -0,0 +1,130 @@
@@ -3964,7 +4200,7 @@ index 00000000000000..844c087287cabe
 +}
 diff --git a/src/vendor/github.com/microsoft/go-crypto-winnative/cng/ecdh.go b/src/vendor/github.com/microsoft/go-crypto-winnative/cng/ecdh.go
 new file mode 100644
-index 00000000000000..c3fa6dd766e34e
+index 00000000000..c3fa6dd766e
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go-crypto-winnative/cng/ecdh.go
 @@ -0,0 +1,252 @@
@@ -4222,7 +4458,7 @@ index 00000000000000..c3fa6dd766e34e
 +}
 diff --git a/src/vendor/github.com/microsoft/go-crypto-winnative/cng/ecdsa.go b/src/vendor/github.com/microsoft/go-crypto-winnative/cng/ecdsa.go
 new file mode 100644
-index 00000000000000..a77ff97bb8f521
+index 00000000000..a77ff97bb8f
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go-crypto-winnative/cng/ecdsa.go
 @@ -0,0 +1,175 @@
@@ -4403,7 +4639,7 @@ index 00000000000000..a77ff97bb8f521
 +}
 diff --git a/src/vendor/github.com/microsoft/go-crypto-winnative/cng/hmac.go b/src/vendor/github.com/microsoft/go-crypto-winnative/cng/hmac.go
 new file mode 100644
-index 00000000000000..736472d5b4e700
+index 00000000000..736472d5b4e
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go-crypto-winnative/cng/hmac.go
 @@ -0,0 +1,55 @@
@@ -4464,7 +4700,7 @@ index 00000000000000..736472d5b4e700
 +}
 diff --git a/src/vendor/github.com/microsoft/go-crypto-winnative/cng/keys.go b/src/vendor/github.com/microsoft/go-crypto-winnative/cng/keys.go
 new file mode 100644
-index 00000000000000..766768e9d46b41
+index 00000000000..766768e9d46
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go-crypto-winnative/cng/keys.go
 @@ -0,0 +1,161 @@
@@ -4631,7 +4867,7 @@ index 00000000000000..766768e9d46b41
 +}
 diff --git a/src/vendor/github.com/microsoft/go-crypto-winnative/cng/rand.go b/src/vendor/github.com/microsoft/go-crypto-winnative/cng/rand.go
 new file mode 100644
-index 00000000000000..cdd845ab5bea98
+index 00000000000..cdd845ab5be
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go-crypto-winnative/cng/rand.go
 @@ -0,0 +1,28 @@
@@ -4665,7 +4901,7 @@ index 00000000000000..cdd845ab5bea98
 +const RandReader = randReader(0)
 diff --git a/src/vendor/github.com/microsoft/go-crypto-winnative/cng/rsa.go b/src/vendor/github.com/microsoft/go-crypto-winnative/cng/rsa.go
 new file mode 100644
-index 00000000000000..7e3f7abe3487cb
+index 00000000000..7e3f7abe348
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go-crypto-winnative/cng/rsa.go
 @@ -0,0 +1,374 @@
@@ -5045,7 +5281,7 @@ index 00000000000000..7e3f7abe3487cb
 +}
 diff --git a/src/vendor/github.com/microsoft/go-crypto-winnative/cng/sha.go b/src/vendor/github.com/microsoft/go-crypto-winnative/cng/sha.go
 new file mode 100644
-index 00000000000000..0ab3c9e9ce06fb
+index 00000000000..0ab3c9e9ce0
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go-crypto-winnative/cng/sha.go
 @@ -0,0 +1,199 @@
@@ -5250,7 +5486,7 @@ index 00000000000000..0ab3c9e9ce06fb
 +}
 diff --git a/src/vendor/github.com/microsoft/go-crypto-winnative/internal/bcrypt/bcrypt_windows.go b/src/vendor/github.com/microsoft/go-crypto-winnative/internal/bcrypt/bcrypt_windows.go
 new file mode 100644
-index 00000000000000..f3100669d53d3f
+index 00000000000..f3100669d53
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go-crypto-winnative/internal/bcrypt/bcrypt_windows.go
 @@ -0,0 +1,221 @@
@@ -5477,7 +5713,7 @@ index 00000000000000..f3100669d53d3f
 +//sys   DestroySecret(hSecret SECRET_HANDLE) (s error) = bcrypt.BCryptDestroySecret
 diff --git a/src/vendor/github.com/microsoft/go-crypto-winnative/internal/bcrypt/zsyscall_windows.go b/src/vendor/github.com/microsoft/go-crypto-winnative/internal/bcrypt/zsyscall_windows.go
 new file mode 100644
-index 00000000000000..09053bb5a4738b
+index 00000000000..09053bb5a47
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go-crypto-winnative/internal/bcrypt/zsyscall_windows.go
 @@ -0,0 +1,372 @@
@@ -5855,7 +6091,7 @@ index 00000000000000..09053bb5a4738b
 +}
 diff --git a/src/vendor/github.com/microsoft/go-crypto-winnative/internal/subtle/aliasing.go b/src/vendor/github.com/microsoft/go-crypto-winnative/internal/subtle/aliasing.go
 new file mode 100644
-index 00000000000000..db09e4aae64f8c
+index 00000000000..db09e4aae64
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go-crypto-winnative/internal/subtle/aliasing.go
 @@ -0,0 +1,32 @@
@@ -5893,7 +6129,7 @@ index 00000000000000..db09e4aae64f8c
 +}
 diff --git a/src/vendor/github.com/microsoft/go-crypto-winnative/internal/sysdll/sys_windows.go b/src/vendor/github.com/microsoft/go-crypto-winnative/internal/sysdll/sys_windows.go
 new file mode 100644
-index 00000000000000..1722410e5af193
+index 00000000000..1722410e5af
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go-crypto-winnative/internal/sysdll/sys_windows.go
 @@ -0,0 +1,55 @@
@@ -5953,11 +6189,11 @@ index 00000000000000..1722410e5af193
 +	return getSystemDirectory() + "\\" + dll
 +}
 diff --git a/src/vendor/modules.txt b/src/vendor/modules.txt
-index 0854beacdd92eb..90869b5102d695 100644
+index 3e4bb5b90bc..b9a24040a44 100644
 --- a/src/vendor/modules.txt
 +++ b/src/vendor/modules.txt
 @@ -1,3 +1,15 @@
-+# github.com/microsoft/go-crypto-openssl v0.2.2
++# github.com/microsoft/go-crypto-openssl v0.2.3
 +## explicit; go 1.16
 +github.com/microsoft/go-crypto-openssl/openssl
 +github.com/microsoft/go-crypto-openssl/openssl/bbig
