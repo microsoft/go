@@ -27,6 +27,10 @@ stages:
           # https://github.com/microsoft/go/issues/568
           timeoutInMinutes: 180
 
+        ${{ if eq(parameters.builder.config, 'codeql') }}:
+          # Allow CodeQL to take a while. https://eng.ms/docs/cloud-ai-platform/devdiv/one-engineering-system-1es/1es-docs/codeql/configuring-codeql3000-ado-pipelines#other-issues
+          timeoutInMinutes: 360
+
         ${{ if eq(parameters.builder.os, 'windows') }}:
           pool:
             name: ${{ parameters.dncengPool.name }}
@@ -38,12 +42,14 @@ stages:
             pool:
               name: ${{ parameters.dncengPool.name }}
               demands: ${{ parameters.dncengPool.demands.linux }}
-            # The image used for the container this job runs in. The tests run in this container, so it
-            # should match what we support as closely as possible.
-            ${{ if not(parameters.builder.distro) }}:
-              container: golangpublicimages.azurecr.io/go-infra-images/prereqs:cbl-mariner-1.0.20211027-20211201-0cccc22
-            ${{ if eq(parameters.builder.distro, 'ubuntu') }}:
-              container: mcr.microsoft.com/dotnet-buildtools/prereqs:ubuntu-18.04-20211022152710-047508b
+            # The image used for the container this job runs in. The tests run in this container, so
+            # it should match what we support as closely as possible. Don't use a container for the
+            # CodeQL scan build to avoid interfering with the LD_PRELOAD hook.
+            ${{ if ne(parameters.builder.config, 'codeql') }}:
+              ${{ if eq(parameters.builder.distro, 'ubuntu') }}:
+                container: mcr.microsoft.com/dotnet-buildtools/prereqs:ubuntu-18.04-20211022152710-047508b
+              ${{ else }}:
+                container: golangpublicimages.azurecr.io/go-infra-images/prereqs:cbl-mariner-1.0.20211027-20211201-0cccc22
           ${{ if eq(parameters.builder.hostArch, 'arm64') }}:
             pool:
               name: Docker-Linux-Arm-Internal
@@ -52,6 +58,16 @@ stages:
 
         variables:
           - group: go-cmdscan-rules
+          - ${{ if eq(parameters.builder.config, 'codeql') }}:
+            # Enable CodeQL scan and configure options.
+            # https://eng.ms/docs/cloud-ai-platform/devdiv/one-engineering-system-1es/1es-docs/codeql/configuring-codeql3000-ado-pipelines#additional-options
+            - name: Codeql.Enabled
+              value: true
+            - name: Codeql.Language
+              value: go,cpp
+            # Always scan. This way we don't miss out on a release branch build, for example.
+            - name: Codeql.Cadence
+              value: 0
 
         steps:
           - ${{ if eq(parameters.builder.os, 'linux') }}:
@@ -98,6 +114,12 @@ stages:
                 eng/run.ps1 pack-source
               displayName: Archive submodule source
 
+          # Manually init (and finalize, later) the CodeQL3000 extension so that it will run on any
+          # branch, not just the default.
+          # https://eng.ms/docs/cloud-ai-platform/devdiv/one-engineering-system-1es/1es-docs/codeql/configuring-codeql3000-ado-pipelines#how-does-this-extension-work
+          - ${{ if eq(parameters.builder.config, 'codeql') }}:
+            - task: CodeQL3000Init@0
+
           - pwsh: |
               # Apply the patches as staged changes, so the HEAD commit is the same as upstream.
               eng/run.ps1 submodule-refresh
@@ -122,6 +144,13 @@ stages:
               artifact: Binaries ${{ parameters.builder.id }}
               displayName: Pipeline publish
               condition: succeededOrFailed()
+
+          # CodeQL plugs into the compiler to find the code. Just build.
+          - ${{ elseif eq(parameters.builder.config, 'codeql' ) }}:
+            - pwsh: |
+                eng/run.ps1 cmdscan -envprefix GO_CMDSCAN_RULE_ -- `
+                  pwsh eng/run.ps1 build
+              displayName: Build
 
           # Use run-builder for any configuration that includes tests. run-builder uses the "gotestsum"
           # module to convert test results to a JUnit file that Azure DevOps can understand.
@@ -164,3 +193,6 @@ stages:
               displayName: Update file ownership from root to build agent account
               continueOnError: true
               condition: succeededOrFailed()
+
+          - ${{ if eq(parameters.builder.config, 'codeql') }}:
+            - task: CodeQL3000Finalize@0
