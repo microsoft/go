@@ -27,7 +27,7 @@ To reproduce, run 'go mod vendor' in 'go/src'.
  .../go-crypto-winnative/cng/bbig/big.go       |  31 +
  .../microsoft/go-crypto-winnative/cng/big.go  |  30 +
  .../microsoft/go-crypto-winnative/cng/cng.go  | 130 ++++
- .../microsoft/go-crypto-winnative/cng/ecdh.go | 252 ++++++++
+ .../microsoft/go-crypto-winnative/cng/ecdh.go | 260 ++++++++
  .../go-crypto-winnative/cng/ecdsa.go          | 175 ++++++
  .../microsoft/go-crypto-winnative/cng/hmac.go |  55 ++
  .../microsoft/go-crypto-winnative/cng/keys.go | 161 +++++
@@ -38,8 +38,8 @@ To reproduce, run 'go mod vendor' in 'go/src'.
  .../internal/bcrypt/zsyscall_windows.go       | 372 +++++++++++
  .../internal/subtle/aliasing.go               |  32 +
  .../internal/sysdll/sys_windows.go            |  55 ++
- src/vendor/modules.txt                        |  12 +
- 34 files changed, 5945 insertions(+)
+ src/vendor/modules.txt                        |  14 +
+ 34 files changed, 5955 insertions(+)
  create mode 100644 src/vendor/github.com/microsoft/go-crypto-openssl/LICENSE
  create mode 100644 src/vendor/github.com/microsoft/go-crypto-openssl/openssl/aes.go
  create mode 100644 src/vendor/github.com/microsoft/go-crypto-openssl/openssl/bbig/big.go
@@ -4218,10 +4218,10 @@ index 00000000000..844c087287c
 +}
 diff --git a/src/vendor/github.com/microsoft/go-crypto-winnative/cng/ecdh.go b/src/vendor/github.com/microsoft/go-crypto-winnative/cng/ecdh.go
 new file mode 100644
-index 00000000000..c3fa6dd766e
+index 00000000000..cd6e9a98f6f
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go-crypto-winnative/cng/ecdh.go
-@@ -0,0 +1,252 @@
+@@ -0,0 +1,260 @@
 +// Copyright (c) Microsoft Corporation.
 +// Licensed under the MIT License.
 +
@@ -4279,10 +4279,18 @@ index 00000000000..c3fa6dd766e
 +type PublicKeyECDH struct {
 +	hkey  bcrypt.KEY_HANDLE
 +	bytes []byte
++
++	// priv is only set when PublicKeyECDH is derived from a private key,
++	// in which case priv's finalizer is responsible for freeing hkey.
++	// This ensures priv is not finalized while the public key is alive,
++	// which could cause use-after-free and double-free behavior.
++	priv *PrivateKeyECDH
 +}
 +
 +func (k *PublicKeyECDH) finalize() {
-+	bcrypt.DestroyKey(k.hkey)
++	if k.priv == nil {
++		bcrypt.DestroyKey(k.hkey)
++	}
 +}
 +
 +type PrivateKeyECDH struct {
@@ -4393,7 +4401,7 @@ index 00000000000..c3fa6dd766e
 +	if err != nil {
 +		return nil, err
 +	}
-+	k := &PublicKeyECDH{hkey, append([]byte(nil), bytes...)}
++	k := &PublicKeyECDH{hkey, append([]byte(nil), bytes...), nil}
 +	runtime.SetFinalizer(k, (*PublicKeyECDH).finalize)
 +	return k, nil
 +}
@@ -4441,7 +4449,7 @@ index 00000000000..c3fa6dd766e
 +		// Only include X.
 +		bytes = data[:hdr.KeySize]
 +	}
-+	pub := &PublicKeyECDH{k.hkey, bytes}
++	pub := &PublicKeyECDH{k.hkey, bytes, k}
 +	runtime.SetFinalizer(pub, (*PublicKeyECDH).finalize)
 +	return pub, nil
 +}
@@ -6207,16 +6215,16 @@ index 00000000000..1722410e5af
 +	return getSystemDirectory() + "\\" + dll
 +}
 diff --git a/src/vendor/modules.txt b/src/vendor/modules.txt
-index 3e4bb5b90bc..3f4bc8565fa 100644
+index 3e4bb5b90bc..3e72cd8d90d 100644
 --- a/src/vendor/modules.txt
 +++ b/src/vendor/modules.txt
-@@ -1,3 +1,15 @@
+@@ -1,9 +1,23 @@
 +# github.com/microsoft/go-crypto-openssl v0.2.5
 +## explicit; go 1.16
 +github.com/microsoft/go-crypto-openssl/openssl
 +github.com/microsoft/go-crypto-openssl/openssl/bbig
 +github.com/microsoft/go-crypto-openssl/openssl/internal/subtle
-+# github.com/microsoft/go-crypto-winnative v0.0.0-20221118163944-7649d98424c1
++# github.com/microsoft/go-crypto-winnative v0.0.0-20230125071228-ef6c7cb780c6
 +## explicit; go 1.17
 +github.com/microsoft/go-crypto-winnative/cng
 +github.com/microsoft/go-crypto-winnative/cng/bbig
@@ -6226,3 +6234,11 @@ index 3e4bb5b90bc..3f4bc8565fa 100644
  # golang.org/x/crypto v0.3.1-0.20221117191849-2c476679df9a
  ## explicit; go 1.17
  golang.org/x/crypto/chacha20
+ golang.org/x/crypto/chacha20poly1305
+ golang.org/x/crypto/cryptobyte
+ golang.org/x/crypto/cryptobyte/asn1
++golang.org/x/crypto/curve25519
++golang.org/x/crypto/curve25519/internal/field
+ golang.org/x/crypto/hkdf
+ golang.org/x/crypto/internal/alias
+ golang.org/x/crypto/internal/poly1305
