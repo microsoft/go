@@ -15,6 +15,7 @@ import (
 	"os/exec"
 	"regexp"
 	"strings"
+	"sync"
 )
 
 const description = `
@@ -128,29 +129,45 @@ func run() error {
 	cmd := exec.Command(flag.Args()[0], flag.Args()[1:]...)
 	log.Printf("Running: %v\n", cmd)
 
-	outPipe, err := cmd.StdoutPipe()
-	if err != nil {
-		return err
-	}
+	// Wait for scans to complete before returning.
+	var wg sync.WaitGroup
+	wg.Add(2)
+	defer wg.Wait()
 
-	errPipe, err := cmd.StderrPipe()
+	outPipeR, outPipeW, err := os.Pipe()
 	if err != nil {
 		return err
 	}
+	// Close the write side so the read side sees EOF.
+	// It's important that this happens before wg.Wait.
+	defer outPipeW.Close()
+
+	errPipeR, errPipeW, err := os.Pipe()
+	if err != nil {
+		return err
+	}
+	defer errPipeW.Close()
+
+	cmd.Stdout = outPipeW
+	cmd.Stderr = errPipeW
 
 	if err := cmd.Start(); err != nil {
 		return err
 	}
 
 	go func() {
-		if err := scan(outPipe, os.Stdout, os.Stdout); err != nil {
+		if err := scan(outPipeR, os.Stdout, os.Stdout); err != nil {
 			log.Fatalf("Failed to scan stdout pipe: %v\n", err)
 		}
+		outPipeR.Close()
+		wg.Done()
 	}()
 	go func() {
-		if err := scan(errPipe, os.Stdout, os.Stderr); err != nil {
+		if err := scan(errPipeR, os.Stdout, os.Stderr); err != nil {
 			log.Fatalf("Failed to scan stderr pipe: %v\n", err)
 		}
+		errPipeR.Close()
+		wg.Done()
 	}()
 
 	return cmd.Wait()
