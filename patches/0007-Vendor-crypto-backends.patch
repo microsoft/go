@@ -6,20 +6,21 @@ Subject: [PATCH] Vendor crypto backends
 To reproduce, run 'go mod vendor' in 'go/src'.
 ---
  .../microsoft/go-crypto-openssl/LICENSE       |  21 +
- .../go-crypto-openssl/openssl/aes.go          | 472 ++++++++++++++
+ .../go-crypto-openssl/openssl/aes.go          | 476 ++++++++++++++
  .../go-crypto-openssl/openssl/bbig/big.go     |  38 ++
  .../go-crypto-openssl/openssl/big.go          |  13 +
- .../go-crypto-openssl/openssl/ecdsa.go        | 185 ++++++
- .../go-crypto-openssl/openssl/evpkey.go       | 300 +++++++++
+ .../go-crypto-openssl/openssl/ecdh.go         | 223 +++++++
+ .../go-crypto-openssl/openssl/ecdsa.go        | 174 ++++++
+ .../go-crypto-openssl/openssl/evpkey.go       | 325 ++++++++++
  .../go-crypto-openssl/openssl/goopenssl.c     | 153 +++++
  .../go-crypto-openssl/openssl/goopenssl.h     | 147 +++++
- .../go-crypto-openssl/openssl/hmac.go         | 148 +++++
+ .../go-crypto-openssl/openssl/hmac.go         | 251 ++++++++
  .../openssl/internal/subtle/aliasing.go       |  32 +
- .../go-crypto-openssl/openssl/openssl.go      | 295 +++++++++
- .../go-crypto-openssl/openssl/openssl_funcs.h | 252 ++++++++
+ .../go-crypto-openssl/openssl/openssl.go      | 302 +++++++++
+ .../go-crypto-openssl/openssl/openssl_funcs.h | 293 +++++++++
  .../openssl/openssl_lock_setup.c              |  53 ++
  .../go-crypto-openssl/openssl/rand.go         |  24 +
- .../go-crypto-openssl/openssl/rsa.go          | 328 ++++++++++
+ .../go-crypto-openssl/openssl/rsa.go          | 337 ++++++++++
  .../go-crypto-openssl/openssl/sha.go          | 580 ++++++++++++++++++
  .../microsoft/go-crypto-winnative/LICENSE     |  21 +
  .../microsoft/go-crypto-winnative/cng/aes.go  | 359 +++++++++++
@@ -38,11 +39,12 @@ To reproduce, run 'go mod vendor' in 'go/src'.
  .../internal/subtle/aliasing.go               |  32 +
  .../internal/sysdll/sys_windows.go            |  55 ++
  src/vendor/modules.txt                        |  12 +
- 33 files changed, 5552 insertions(+)
+ 34 files changed, 5953 insertions(+)
  create mode 100644 src/vendor/github.com/microsoft/go-crypto-openssl/LICENSE
  create mode 100644 src/vendor/github.com/microsoft/go-crypto-openssl/openssl/aes.go
  create mode 100644 src/vendor/github.com/microsoft/go-crypto-openssl/openssl/bbig/big.go
  create mode 100644 src/vendor/github.com/microsoft/go-crypto-openssl/openssl/big.go
+ create mode 100644 src/vendor/github.com/microsoft/go-crypto-openssl/openssl/ecdh.go
  create mode 100644 src/vendor/github.com/microsoft/go-crypto-openssl/openssl/ecdsa.go
  create mode 100644 src/vendor/github.com/microsoft/go-crypto-openssl/openssl/evpkey.go
  create mode 100644 src/vendor/github.com/microsoft/go-crypto-openssl/openssl/goopenssl.c
@@ -101,10 +103,10 @@ index 00000000000000..9e841e7a26e4eb
 +    SOFTWARE
 diff --git a/src/vendor/github.com/microsoft/go-crypto-openssl/openssl/aes.go b/src/vendor/github.com/microsoft/go-crypto-openssl/openssl/aes.go
 new file mode 100644
-index 00000000000000..89268b471aa481
+index 00000000000000..46d70bf26402f3
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go-crypto-openssl/openssl/aes.go
-@@ -0,0 +1,472 @@
+@@ -0,0 +1,476 @@
 +// Copyright (c) Microsoft Corporation.
 +// Licensed under the MIT License.
 +
@@ -223,8 +225,12 @@ index 00000000000000..89268b471aa481
 +		if err != nil {
 +			panic(err)
 +		}
++		// Disable standard block padding detection,
++		// src is always multiple of the block size.
++		if C.go_openssl_EVP_CIPHER_CTX_set_padding(c.dec_ctx, 0) != 1 {
++			panic("crypto/cipher: unable to set padding")
++		}
 +	}
-+
 +	C.go_openssl_EVP_DecryptUpdate_wrapper(c.dec_ctx, base(dst), base(src), aesBlockSize)
 +	runtime.KeepAlive(c)
 +}
@@ -640,12 +646,12 @@ index 00000000000000..7207bde01c9d94
 +// This definition allows us to avoid importing math/big.
 +// Conversion between BigInt and *big.Int is in openssl/bbig.
 +type BigInt []uint
-diff --git a/src/vendor/github.com/microsoft/go-crypto-openssl/openssl/ecdsa.go b/src/vendor/github.com/microsoft/go-crypto-openssl/openssl/ecdsa.go
+diff --git a/src/vendor/github.com/microsoft/go-crypto-openssl/openssl/ecdh.go b/src/vendor/github.com/microsoft/go-crypto-openssl/openssl/ecdh.go
 new file mode 100644
-index 00000000000000..e5a3e03a390135
+index 00000000000000..fba3704531eda6
 --- /dev/null
-+++ b/src/vendor/github.com/microsoft/go-crypto-openssl/openssl/ecdsa.go
-@@ -0,0 +1,185 @@
++++ b/src/vendor/github.com/microsoft/go-crypto-openssl/openssl/ecdh.go
+@@ -0,0 +1,223 @@
 +// Copyright (c) Microsoft Corporation.
 +// Licensed under the MIT License.
 +
@@ -659,7 +665,235 @@ index 00000000000000..e5a3e03a390135
 +import (
 +	"errors"
 +	"runtime"
-+	"unsafe"
++)
++
++type PublicKeyECDH struct {
++	_pkey C.GO_EVP_PKEY_PTR
++	bytes []byte
++
++	// priv is only set when PublicKeyECDH is derived from a private key,
++	// in which case priv's finalizer is responsible for freeing _pkey.
++	// This ensures priv is not finalized while the public key is alive,
++	// which could cause use-after-free and double-free behavior.
++	//
++	// We could avoid this altogether if using EVP_PKEY_up_ref
++	// when instantiating a derived public key, unfortunately
++	// it is not available on OpenSSL 1.0.2.
++	priv *PrivateKeyECDH
++}
++
++func (k *PublicKeyECDH) finalize() {
++	if k.priv == nil {
++		C.go_openssl_EVP_PKEY_free(k._pkey)
++	}
++}
++
++type PrivateKeyECDH struct {
++	_pkey C.GO_EVP_PKEY_PTR
++}
++
++func (k *PrivateKeyECDH) finalize() {
++	C.go_openssl_EVP_PKEY_free(k._pkey)
++}
++
++func NewPublicKeyECDH(curve string, bytes []byte) (*PublicKeyECDH, error) {
++	if len(bytes) < 1 {
++		return nil, errors.New("NewPublicKeyECDH: missing key")
++	}
++	nid, err := curveNID(curve)
++	if err != nil {
++		return nil, err
++	}
++	key := C.go_openssl_EC_KEY_new_by_curve_name(nid)
++	if key == nil {
++		return nil, newOpenSSLError("EC_KEY_new_by_curve_name")
++	}
++	var k *PublicKeyECDH
++	defer func() {
++		if k == nil {
++			C.go_openssl_EC_KEY_free(key)
++		}
++	}()
++	if vMajor == 1 && vMinor == 0 {
++		// EC_KEY_oct2key does not exist on OpenSSL 1.0.2,
++		// we have to simulate it.
++		group := C.go_openssl_EC_KEY_get0_group(key)
++		pt := C.go_openssl_EC_POINT_new(group)
++		if pt == nil {
++			return nil, newOpenSSLError("EC_POINT_new")
++		}
++		defer C.go_openssl_EC_POINT_free(pt)
++		if C.go_openssl_EC_POINT_oct2point(group, pt, base(bytes), C.size_t(len(bytes)), nil) != 1 {
++			return nil, errors.New("point not on curve")
++		}
++		if C.go_openssl_EC_KEY_set_public_key(key, pt) != 1 {
++			return nil, newOpenSSLError("EC_KEY_set_public_key")
++		}
++	} else {
++		if C.go_openssl_EC_KEY_oct2key(key, base(bytes), C.size_t(len(bytes)), nil) != 1 {
++			return nil, newOpenSSLError("EC_KEY_oct2key")
++		}
++	}
++	pkey, err := newEVPPKEY(key)
++	if err != nil {
++		return nil, err
++	}
++	k = &PublicKeyECDH{pkey, append([]byte(nil), bytes...), nil}
++	runtime.SetFinalizer(k, (*PublicKeyECDH).finalize)
++	return k, nil
++}
++
++func (k *PublicKeyECDH) Bytes() []byte { return k.bytes }
++
++func NewPrivateKeyECDH(curve string, bytes []byte) (*PrivateKeyECDH, error) {
++	nid, err := curveNID(curve)
++	if err != nil {
++		return nil, err
++	}
++	b := bytesToBN(bytes)
++	if b == nil {
++		return nil, newOpenSSLError("BN_bin2bn")
++	}
++	defer C.go_openssl_BN_free(b)
++	key := C.go_openssl_EC_KEY_new_by_curve_name(nid)
++	if key == nil {
++		return nil, newOpenSSLError("EC_KEY_new_by_curve_name")
++	}
++	var pkey C.GO_EVP_PKEY_PTR
++	defer func() {
++		if pkey == nil {
++			C.go_openssl_EC_KEY_free(key)
++		}
++	}()
++	if C.go_openssl_EC_KEY_set_private_key(key, b) != 1 {
++		return nil, newOpenSSLError("EC_KEY_set_private_key")
++	}
++	pkey, err = newEVPPKEY(key)
++	if err != nil {
++		return nil, err
++	}
++	k := &PrivateKeyECDH{pkey}
++	runtime.SetFinalizer(k, (*PrivateKeyECDH).finalize)
++	return k, nil
++}
++
++func (k *PrivateKeyECDH) PublicKey() (*PublicKeyECDH, error) {
++	defer runtime.KeepAlive(k)
++	key := C.go_openssl_EVP_PKEY_get1_EC_KEY(k._pkey)
++	if key == nil {
++		return nil, newOpenSSLError("EVP_PKEY_get1_EC_KEY")
++	}
++	defer C.go_openssl_EC_KEY_free(key)
++	group := C.go_openssl_EC_KEY_get0_group(key)
++	if group == nil {
++		return nil, newOpenSSLError("EC_KEY_get0_group")
++	}
++	pt := C.go_openssl_EC_KEY_get0_public_key(key)
++	if pt == nil {
++		// The public key will be nil if k has been generated using
++		// NewPrivateKeyECDH instead of GenerateKeyECDH.
++		//
++		// OpenSSL does not expose any method to generate the public
++		// key from the private key [1], so we have to calculate it here
++		// https://github.com/openssl/openssl/issues/18437#issuecomment-1144717206
++		pt = C.go_openssl_EC_POINT_new(group)
++		if pt == nil {
++			return nil, newOpenSSLError("EC_POINT_new")
++		}
++		defer C.go_openssl_EC_POINT_free(pt)
++		kbig := C.go_openssl_EC_KEY_get0_private_key(key)
++		if C.go_openssl_EC_POINT_mul(group, pt, kbig, nil, nil, nil) == 0 {
++			return nil, newOpenSSLError("EC_POINT_mul")
++		}
++	}
++	n := C.go_openssl_EC_POINT_point2oct(group, pt, C.GO_POINT_CONVERSION_UNCOMPRESSED, nil, 0, nil)
++	if n == 0 {
++		return nil, newOpenSSLError("EC_POINT_point2oct")
++	}
++	bytes := make([]byte, n)
++	n = C.go_openssl_EC_POINT_point2oct(group, pt, C.GO_POINT_CONVERSION_UNCOMPRESSED, base(bytes), C.size_t(len(bytes)), nil)
++	if int(n) != len(bytes) {
++		return nil, newOpenSSLError("EC_POINT_point2oct")
++	}
++	pub := &PublicKeyECDH{k._pkey, bytes, k}
++	// Note: Same as in NewPublicKeyECDH regarding finalizer and KeepAlive.
++	runtime.SetFinalizer(pub, (*PublicKeyECDH).finalize)
++	return pub, nil
++}
++
++func ECDH(priv *PrivateKeyECDH, pub *PublicKeyECDH) ([]byte, error) {
++	defer runtime.KeepAlive(priv)
++	defer runtime.KeepAlive(pub)
++	ctx := C.go_openssl_EVP_PKEY_CTX_new(priv._pkey, nil)
++	if ctx == nil {
++		return nil, newOpenSSLError("EVP_PKEY_CTX_new")
++	}
++	defer C.go_openssl_EVP_PKEY_CTX_free(ctx)
++	if C.go_openssl_EVP_PKEY_derive_init(ctx) != 1 {
++		return nil, newOpenSSLError("EVP_PKEY_derive_init")
++	}
++	if C.go_openssl_EVP_PKEY_derive_set_peer(ctx, pub._pkey) != 1 {
++		return nil, newOpenSSLError("EVP_PKEY_derive_set_peer")
++	}
++	var outLen C.size_t
++	if C.go_openssl_EVP_PKEY_derive(ctx, nil, &outLen) != 1 {
++		return nil, newOpenSSLError("EVP_PKEY_derive_init")
++	}
++	out := make([]byte, outLen)
++	if C.go_openssl_EVP_PKEY_derive(ctx, base(out), &outLen) != 1 {
++		return nil, newOpenSSLError("EVP_PKEY_derive_init")
++	}
++	return out, nil
++}
++
++func GenerateKeyECDH(curve string) (*PrivateKeyECDH, []byte, error) {
++	pkey, err := generateEVPPKey(C.GO_EVP_PKEY_EC, 0, curve)
++	if err != nil {
++		return nil, nil, err
++	}
++	var k *PrivateKeyECDH
++	defer func() {
++		if k == nil {
++			C.go_openssl_EVP_PKEY_free(pkey)
++		}
++	}()
++	key := C.go_openssl_EVP_PKEY_get1_EC_KEY(pkey)
++	if key == nil {
++		return nil, nil, newOpenSSLError("EVP_PKEY_get1_EC_KEY")
++	}
++	defer C.go_openssl_EC_KEY_free(key)
++	b := C.go_openssl_EC_KEY_get0_private_key(key)
++	if b == nil {
++		return nil, nil, newOpenSSLError("EC_KEY_get0_private_key")
++	}
++	bits := C.go_openssl_EVP_PKEY_get_bits(pkey)
++	out := make([]byte, (bits+7)/8)
++	if C.go_openssl_BN_bn2binpad(b, base(out), C.int(len(out))) == 0 {
++		return nil, nil, newOpenSSLError("BN_bn2binpad")
++	}
++	k = &PrivateKeyECDH{pkey}
++	runtime.SetFinalizer(k, (*PrivateKeyECDH).finalize)
++	return k, out, nil
++}
+diff --git a/src/vendor/github.com/microsoft/go-crypto-openssl/openssl/ecdsa.go b/src/vendor/github.com/microsoft/go-crypto-openssl/openssl/ecdsa.go
+new file mode 100644
+index 00000000000000..de4aa0ecfcbcab
+--- /dev/null
++++ b/src/vendor/github.com/microsoft/go-crypto-openssl/openssl/ecdsa.go
+@@ -0,0 +1,174 @@
++// Copyright (c) Microsoft Corporation.
++// Licensed under the MIT License.
++
++//go:build linux && !android
++// +build linux,!android
++
++package openssl
++
++// #include "goopenssl.h"
++import "C"
++import (
++	"errors"
++	"runtime"
 +)
 +
 +type PrivateKeyECDSA struct {
@@ -721,13 +955,12 @@ index 00000000000000..e5a3e03a390135
 +	return k, nil
 +}
 +
-+func newECKey(curve string, X, Y, D BigInt) (pkey C.GO_EVP_PKEY_PTR, err error) {
-+	var nid C.int
-+	if nid, err = curveNID(curve); err != nil {
++func newECKey(curve string, X, Y, D BigInt) (C.GO_EVP_PKEY_PTR, error) {
++	nid, err := curveNID(curve)
++	if err != nil {
 +		return nil, err
 +	}
-+	var bx, by C.GO_BIGNUM_PTR
-+	var key C.GO_EC_KEY_PTR
++	var bx, by, bd C.GO_BIGNUM_PTR
 +	defer func() {
 +		if bx != nil {
 +			C.go_openssl_BN_free(bx)
@@ -735,44 +968,35 @@ index 00000000000000..e5a3e03a390135
 +		if by != nil {
 +			C.go_openssl_BN_free(by)
 +		}
-+		if err != nil {
-+			if key != nil {
-+				C.go_openssl_EC_KEY_free(key)
-+			}
-+			if pkey != nil {
-+				C.go_openssl_EVP_PKEY_free(pkey)
-+				// pkey is a named return, so in case of error
-+				// it have to be cleared before returing.
-+				pkey = nil
-+			}
++		if bd != nil {
++			C.go_openssl_BN_free(bd)
 +		}
 +	}()
 +	bx = bigToBN(X)
 +	by = bigToBN(Y)
-+	if bx == nil || by == nil {
-+		return nil, newOpenSSLError("BN_bin2bn failed")
++	bd = bigToBN(D)
++	if bx == nil || by == nil || (D != nil && bd == nil) {
++		return nil, newOpenSSLError("BN_lebin2bn failed")
 +	}
-+	if key = C.go_openssl_EC_KEY_new_by_curve_name(nid); key == nil {
++	key := C.go_openssl_EC_KEY_new_by_curve_name(nid)
++	if key == nil {
 +		return nil, newOpenSSLError("EC_KEY_new_by_curve_name failed")
 +	}
++	var pkey C.GO_EVP_PKEY_PTR
++	defer func() {
++		if pkey == nil {
++			defer C.go_openssl_EC_KEY_free(key)
++		}
++	}()
 +	if C.go_openssl_EC_KEY_set_public_key_affine_coordinates(key, bx, by) != 1 {
 +		return nil, newOpenSSLError("EC_KEY_set_public_key_affine_coordinates failed")
 +	}
-+	if D != nil {
-+		bd := bigToBN(D)
-+		if bd == nil {
-+			return nil, newOpenSSLError("BN_bin2bn failed")
-+		}
-+		defer C.go_openssl_BN_free(bd)
-+		if C.go_openssl_EC_KEY_set_private_key(key, bd) != 1 {
-+			return nil, newOpenSSLError("EC_KEY_set_private_key failed")
-+		}
++	if D != nil && C.go_openssl_EC_KEY_set_private_key(key, bd) != 1 {
++		return nil, newOpenSSLError("EC_KEY_set_private_key failed")
 +	}
-+	if pkey = C.go_openssl_EVP_PKEY_new(); pkey == nil {
-+		return nil, newOpenSSLError("EVP_PKEY_new failed")
-+	}
-+	if C.go_openssl_EVP_PKEY_assign(pkey, C.GO_EVP_PKEY_EC, (unsafe.Pointer)(key)) != 1 {
-+		return nil, newOpenSSLError("EVP_PKEY_assign failed")
++	pkey, err = newEVPPKEY(key)
++	if err != nil {
++		return nil, err
 +	}
 +	return pkey, nil
 +}
@@ -833,10 +1057,10 @@ index 00000000000000..e5a3e03a390135
 +}
 diff --git a/src/vendor/github.com/microsoft/go-crypto-openssl/openssl/evpkey.go b/src/vendor/github.com/microsoft/go-crypto-openssl/openssl/evpkey.go
 new file mode 100644
-index 00000000000000..ba232b27c14f94
+index 00000000000000..2965d017dda95c
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go-crypto-openssl/openssl/evpkey.go
-@@ -0,0 +1,300 @@
+@@ -0,0 +1,325 @@
 +// Copyright (c) Microsoft Corporation.
 +// Licensed under the MIT License.
 +
@@ -939,7 +1163,7 @@ index 00000000000000..ba232b27c14f94
 +type verifyFunc func(C.GO_EVP_PKEY_CTX_PTR, *C.uchar, C.size_t, *C.uchar, C.size_t) error
 +
 +func setupEVP(withKey withKeyFunc, padding C.int,
-+	h hash.Hash, label []byte, saltLen C.int, ch crypto.Hash,
++	h, mgfHash hash.Hash, label []byte, saltLen C.int, ch crypto.Hash,
 +	init initFunc) (ctx C.GO_EVP_PKEY_CTX_PTR, err error) {
 +	defer func() {
 +		if err != nil {
@@ -977,12 +1201,25 @@ index 00000000000000..ba232b27c14f94
 +		if md == nil {
 +			return nil, errors.New("crypto/rsa: unsupported hash function")
 +		}
++		var mgfMD C.GO_EVP_MD_PTR
++		if mgfHash != nil {
++			// mgfHash is optional, but if it is set it must match a supported hash function.
++			mgfMD = hashToMD(mgfHash)
++			if mgfMD == nil {
++				return nil, errors.New("crypto/rsa: unsupported hash function")
++			}
++		}
 +		// setPadding must happen before setting EVP_PKEY_CTRL_RSA_OAEP_MD.
 +		if err := setPadding(); err != nil {
 +			return nil, err
 +		}
 +		if C.go_openssl_EVP_PKEY_CTX_ctrl(ctx, C.GO_EVP_PKEY_RSA, -1, C.GO_EVP_PKEY_CTRL_RSA_OAEP_MD, 0, unsafe.Pointer(md)) != 1 {
 +			return nil, newOpenSSLError("EVP_PKEY_CTX_ctrl failed")
++		}
++		if mgfHash != nil {
++			if C.go_openssl_EVP_PKEY_CTX_ctrl(ctx, C.GO_EVP_PKEY_RSA, -1, C.GO_EVP_PKEY_CTRL_RSA_MGF1_MD, 0, unsafe.Pointer(mgfMD)) != 1 {
++				return nil, newOpenSSLError("EVP_PKEY_CTX_ctrl failed")
++			}
 +		}
 +		// ctx takes ownership of label, so malloc a copy for OpenSSL to free.
 +		// OpenSSL 1.1.1 and higher does not take ownership of the label if the length is zero,
@@ -1040,10 +1277,10 @@ index 00000000000000..ba232b27c14f94
 +}
 +
 +func cryptEVP(withKey withKeyFunc, padding C.int,
-+	h hash.Hash, label []byte, saltLen C.int, ch crypto.Hash,
++	h, mgfHash hash.Hash, label []byte, saltLen C.int, ch crypto.Hash,
 +	init initFunc, crypt cryptFunc, in []byte) ([]byte, error) {
 +
-+	ctx, err := setupEVP(withKey, padding, h, label, saltLen, ch, init)
++	ctx, err := setupEVP(withKey, padding, h, mgfHash, label, saltLen, ch, init)
 +	if err != nil {
 +		return nil, err
 +	}
@@ -1066,7 +1303,7 @@ index 00000000000000..ba232b27c14f94
 +	init initFunc, verify verifyFunc,
 +	sig, in []byte) error {
 +
-+	ctx, err := setupEVP(withKey, padding, h, label, saltLen, ch, init)
++	ctx, err := setupEVP(withKey, padding, h, nil, label, saltLen, ch, init)
 +	if err != nil {
 +		return err
 +	}
@@ -1074,7 +1311,7 @@ index 00000000000000..ba232b27c14f94
 +	return verify(ctx, base(sig), C.size_t(len(sig)), base(in), C.size_t(len(in)))
 +}
 +
-+func evpEncrypt(withKey withKeyFunc, padding C.int, h hash.Hash, label, msg []byte) ([]byte, error) {
++func evpEncrypt(withKey withKeyFunc, padding C.int, h, mgfHash hash.Hash, label, msg []byte) ([]byte, error) {
 +	encryptInit := func(ctx C.GO_EVP_PKEY_CTX_PTR) error {
 +		if ret := C.go_openssl_EVP_PKEY_encrypt_init(ctx); ret != 1 {
 +			return newOpenSSLError("EVP_PKEY_encrypt_init failed")
@@ -1087,10 +1324,10 @@ index 00000000000000..ba232b27c14f94
 +		}
 +		return nil
 +	}
-+	return cryptEVP(withKey, padding, h, label, 0, 0, encryptInit, encrypt, msg)
++	return cryptEVP(withKey, padding, h, mgfHash, label, 0, 0, encryptInit, encrypt, msg)
 +}
 +
-+func evpDecrypt(withKey withKeyFunc, padding C.int, h hash.Hash, label, msg []byte) ([]byte, error) {
++func evpDecrypt(withKey withKeyFunc, padding C.int, h, mgfHash hash.Hash, label, msg []byte) ([]byte, error) {
 +	decryptInit := func(ctx C.GO_EVP_PKEY_CTX_PTR) error {
 +		if ret := C.go_openssl_EVP_PKEY_decrypt_init(ctx); ret != 1 {
 +			return newOpenSSLError("EVP_PKEY_decrypt_init failed")
@@ -1103,7 +1340,7 @@ index 00000000000000..ba232b27c14f94
 +		}
 +		return nil
 +	}
-+	return cryptEVP(withKey, padding, h, label, 0, 0, decryptInit, decrypt, msg)
++	return cryptEVP(withKey, padding, h, mgfHash, label, 0, 0, decryptInit, decrypt, msg)
 +}
 +
 +func evpSign(withKey withKeyFunc, padding C.int, saltLen C.int, h crypto.Hash, hashed []byte) ([]byte, error) {
@@ -1119,7 +1356,7 @@ index 00000000000000..ba232b27c14f94
 +		}
 +		return nil
 +	}
-+	return cryptEVP(withKey, padding, nil, nil, saltLen, h, signtInit, sign, hashed)
++	return cryptEVP(withKey, padding, nil, nil, nil, saltLen, h, signtInit, sign, hashed)
 +}
 +
 +func evpVerify(withKey withKeyFunc, padding C.int, saltLen C.int, h crypto.Hash, sig, hashed []byte) error {
@@ -1136,6 +1373,18 @@ index 00000000000000..ba232b27c14f94
 +		return nil
 +	}
 +	return verifyEVP(withKey, padding, nil, nil, saltLen, h, verifyInit, verify, sig, hashed)
++}
++
++func newEVPPKEY(key C.GO_EC_KEY_PTR) (C.GO_EVP_PKEY_PTR, error) {
++	pkey := C.go_openssl_EVP_PKEY_new()
++	if pkey == nil {
++		return nil, newOpenSSLError("EVP_PKEY_new failed")
++	}
++	if C.go_openssl_EVP_PKEY_assign(pkey, C.GO_EVP_PKEY_EC, (unsafe.Pointer)(key)) != 1 {
++		C.go_openssl_EVP_PKEY_free(pkey)
++		return nil, newOpenSSLError("EVP_PKEY_assign failed")
++	}
++	return pkey, nil
 +}
 diff --git a/src/vendor/github.com/microsoft/go-crypto-openssl/openssl/goopenssl.c b/src/vendor/github.com/microsoft/go-crypto-openssl/openssl/goopenssl.c
 new file mode 100644
@@ -1452,10 +1701,10 @@ index 00000000000000..03aed43e001d54
 \ No newline at end of file
 diff --git a/src/vendor/github.com/microsoft/go-crypto-openssl/openssl/hmac.go b/src/vendor/github.com/microsoft/go-crypto-openssl/openssl/hmac.go
 new file mode 100644
-index 00000000000000..80f320b041f7e0
+index 00000000000000..81918cde673cee
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go-crypto-openssl/openssl/hmac.go
-@@ -0,0 +1,148 @@
+@@ -0,0 +1,251 @@
 +// Copyright (c) Microsoft Corporation.
 +// Licensed under the MIT License.
 +
@@ -1470,6 +1719,11 @@ index 00000000000000..80f320b041f7e0
 +	"hash"
 +	"runtime"
 +	"unsafe"
++)
++
++var (
++	paramAlgHMAC = C.CString("HMAC")
++	paramDigest  = C.CString("digest")
 +)
 +
 +// NewHMAC returns a new HMAC using OpenSSL.
@@ -1496,19 +1750,19 @@ index 00000000000000..80f320b041f7e0
 +		// we pass an "empty" key.
 +		hkey = make([]byte, C.GO_EVP_MAX_MD_SIZE)
 +	}
-+	hmac := &opensslHMAC{
-+		md:        md,
-+		size:      ch.Size(),
-+		blockSize: ch.BlockSize(),
-+		key:       hkey,
-+		ctx:       hmacCtxNew(),
++	switch vMajor {
++	case 1:
++		return newHMAC1(hkey, ch, md)
++	case 3:
++		return newHMAC3(hkey, ch, md)
++	default:
++		panic(errUnsuportedVersion())
 +	}
-+	runtime.SetFinalizer(hmac, (*opensslHMAC).finalize)
-+	hmac.Reset()
-+	return hmac
 +}
 +
-+type opensslHMAC struct {
++// hmac1 implements hash.Hash
++// using functions available in OpenSSL 1.
++type hmac1 struct {
 +	md        C.GO_EVP_MD_PTR
 +	ctx       C.GO_HMAC_CTX_PTR
 +	size      int
@@ -1517,8 +1771,21 @@ index 00000000000000..80f320b041f7e0
 +	sum       []byte
 +}
 +
-+func (h *opensslHMAC) Reset() {
-+	hmacCtxReset(h.ctx)
++func newHMAC1(key []byte, h hash.Hash, md C.GO_EVP_MD_PTR) *hmac1 {
++	hmac := &hmac1{
++		md:        md,
++		size:      h.Size(),
++		blockSize: h.BlockSize(),
++		key:       key,
++		ctx:       hmac1CtxNew(),
++	}
++	runtime.SetFinalizer(hmac, (*hmac1).finalize)
++	hmac.Reset()
++	return hmac
++}
++
++func (h *hmac1) Reset() {
++	hmac1CtxReset(h.ctx)
 +
 +	if C.go_openssl_HMAC_Init_ex(h.ctx, unsafe.Pointer(&h.key[0]), C.int(len(h.key)), h.md, nil) == 0 {
 +		panic("openssl: HMAC_Init failed")
@@ -1531,11 +1798,11 @@ index 00000000000000..80f320b041f7e0
 +	h.sum = nil
 +}
 +
-+func (h *opensslHMAC) finalize() {
-+	hmacCtxFree(h.ctx)
++func (h *hmac1) finalize() {
++	hmac1CtxFree(h.ctx)
 +}
 +
-+func (h *opensslHMAC) Write(p []byte) (int, error) {
++func (h *hmac1) Write(p []byte) (int, error) {
 +	if len(p) > 0 {
 +		C.go_openssl_HMAC_Update(h.ctx, base(p), C.size_t(len(p)))
 +	}
@@ -1543,15 +1810,15 @@ index 00000000000000..80f320b041f7e0
 +	return len(p), nil
 +}
 +
-+func (h *opensslHMAC) Size() int {
++func (h *hmac1) Size() int {
 +	return h.size
 +}
 +
-+func (h *opensslHMAC) BlockSize() int {
++func (h *hmac1) BlockSize() int {
 +	return h.blockSize
 +}
 +
-+func (h *opensslHMAC) Sum(in []byte) []byte {
++func (h *hmac1) Sum(in []byte) []byte {
 +	if h.sum == nil {
 +		size := h.Size()
 +		h.sum = make([]byte, size)
@@ -1560,8 +1827,8 @@ index 00000000000000..80f320b041f7e0
 +	// that Sum has no effect on the underlying stream.
 +	// In particular it is OK to Sum, then Write more, then Sum again,
 +	// and the second Sum acts as if the first didn't happen.
-+	ctx2 := hmacCtxNew()
-+	defer hmacCtxFree(ctx2)
++	ctx2 := hmac1CtxNew()
++	defer hmac1CtxFree(ctx2)
 +	if C.go_openssl_HMAC_CTX_copy(ctx2, h.ctx) == 0 {
 +		panic("openssl: HMAC_CTX_copy failed")
 +	}
@@ -1569,7 +1836,7 @@ index 00000000000000..80f320b041f7e0
 +	return append(in, h.sum...)
 +}
 +
-+func hmacCtxNew() C.GO_HMAC_CTX_PTR {
++func hmac1CtxNew() C.GO_HMAC_CTX_PTR {
 +	if vMajor == 1 && vMinor == 0 {
 +		// 0x120 is the sizeof value when building against OpenSSL 1.0.2 on Ubuntu 16.04.
 +		ctx := (C.GO_HMAC_CTX_PTR)(C.malloc(0x120))
@@ -1581,7 +1848,7 @@ index 00000000000000..80f320b041f7e0
 +	return C.go_openssl_HMAC_CTX_new()
 +}
 +
-+func hmacCtxReset(ctx C.GO_HMAC_CTX_PTR) {
++func hmac1CtxReset(ctx C.GO_HMAC_CTX_PTR) {
 +	if ctx == nil {
 +		return
 +	}
@@ -1593,7 +1860,7 @@ index 00000000000000..80f320b041f7e0
 +	C.go_openssl_HMAC_CTX_reset(ctx)
 +}
 +
-+func hmacCtxFree(ctx C.GO_HMAC_CTX_PTR) {
++func hmac1CtxFree(ctx C.GO_HMAC_CTX_PTR) {
 +	if ctx == nil {
 +		return
 +	}
@@ -1603,6 +1870,91 @@ index 00000000000000..80f320b041f7e0
 +		return
 +	}
 +	C.go_openssl_HMAC_CTX_free(ctx)
++}
++
++// hmac3 implements hash.Hash
++// using functions available in OpenSSL 3.
++type hmac3 struct {
++	md        C.GO_EVP_MAC_PTR
++	ctx       C.GO_EVP_MAC_CTX_PTR
++	params    [2]C.OSSL_PARAM
++	size      int
++	blockSize int
++	key       []byte
++	sum       []byte
++}
++
++func newHMAC3(key []byte, h hash.Hash, md C.GO_EVP_MD_PTR) *hmac3 {
++	mac := C.go_openssl_EVP_MAC_fetch(nil, paramAlgHMAC, nil)
++	ctx := C.go_openssl_EVP_MAC_CTX_new(mac)
++	if ctx == nil {
++		panic("openssl: EVP_MAC_CTX_new failed")
++	}
++	digest := C.go_openssl_EVP_MD_get0_name(md)
++	params := [2]C.OSSL_PARAM{
++		C.go_openssl_OSSL_PARAM_construct_utf8_string(paramDigest, digest, 0),
++		C.go_openssl_OSSL_PARAM_construct_end(),
++	}
++	hmac := &hmac3{
++		md:        mac,
++		ctx:       ctx,
++		params:    params,
++		size:      h.Size(),
++		blockSize: h.BlockSize(),
++		key:       key,
++	}
++	runtime.SetFinalizer(hmac, (*hmac3).finalize)
++	hmac.Reset()
++	return hmac
++}
++
++func (h *hmac3) Reset() {
++	if C.go_openssl_EVP_MAC_init(h.ctx, base(h.key), C.size_t(len(h.key)), &h.params[0]) == 0 {
++		panic(newOpenSSLError("EVP_MAC_init failed"))
++	}
++	runtime.KeepAlive(h) // Next line will keep h alive too; just making doubly sure.
++	h.sum = nil
++}
++
++func (h *hmac3) finalize() {
++	if h.ctx == nil {
++		return
++	}
++	C.go_openssl_EVP_MAC_CTX_free(h.ctx)
++}
++
++func (h *hmac3) Write(p []byte) (int, error) {
++	if len(p) > 0 {
++		C.go_openssl_EVP_MAC_update(h.ctx, base(p), C.size_t(len(p)))
++	}
++	runtime.KeepAlive(h)
++	return len(p), nil
++}
++
++func (h *hmac3) Size() int {
++	return h.size
++}
++
++func (h *hmac3) BlockSize() int {
++	return h.blockSize
++}
++
++func (h *hmac3) Sum(in []byte) []byte {
++	if h.sum == nil {
++		size := h.Size()
++		h.sum = make([]byte, size)
++	}
++	// Make copy of context because Go hash.Hash mandates
++	// that Sum has no effect on the underlying stream.
++	// In particular it is OK to Sum, then Write more, then Sum again,
++	// and the second Sum acts as if the first didn't happen.
++	ctx2 := C.go_openssl_EVP_MAC_CTX_dup(h.ctx)
++	if ctx2 == nil {
++		panic("openssl: EVP_MAC_CTX_dup failed")
++	}
++	defer C.go_openssl_EVP_MAC_CTX_free(ctx2)
++	C.go_openssl_EVP_MAC_final(ctx2, base(h.sum), nil, C.size_t(len(h.sum)))
++	return append(in, h.sum...)
 +}
 diff --git a/src/vendor/github.com/microsoft/go-crypto-openssl/openssl/internal/subtle/aliasing.go b/src/vendor/github.com/microsoft/go-crypto-openssl/openssl/internal/subtle/aliasing.go
 new file mode 100644
@@ -1644,10 +1996,10 @@ index 00000000000000..db09e4aae64f8c
 +}
 diff --git a/src/vendor/github.com/microsoft/go-crypto-openssl/openssl/openssl.go b/src/vendor/github.com/microsoft/go-crypto-openssl/openssl/openssl.go
 new file mode 100644
-index 00000000000000..95f3e888bb4cc0
+index 00000000000000..e3e13d793c4d8b
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go-crypto-openssl/openssl/openssl.go
-@@ -0,0 +1,295 @@
+@@ -0,0 +1,302 @@
 +// Copyright (c) Microsoft Corporation.
 +// Licensed under the MIT License.
 +
@@ -1901,6 +2253,13 @@ index 00000000000000..95f3e888bb4cc0
 +	return (*C.uchar)(unsafe.Pointer(&b[0]))
 +}
 +
++func bytesToBN(x []byte) C.GO_BIGNUM_PTR {
++	if len(x) == 0 {
++		return nil
++	}
++	return C.go_openssl_BN_bin2bn(base(x), C.int(len(x)), nil)
++}
++
 +func bigToBN(x BigInt) C.GO_BIGNUM_PTR {
 +	if len(x) == 0 {
 +		return nil
@@ -1945,10 +2304,10 @@ index 00000000000000..95f3e888bb4cc0
 +}
 diff --git a/src/vendor/github.com/microsoft/go-crypto-openssl/openssl/openssl_funcs.h b/src/vendor/github.com/microsoft/go-crypto-openssl/openssl/openssl_funcs.h
 new file mode 100644
-index 00000000000000..9abe8adb8ec7a2
+index 00000000000000..fe72f90e9c7bba
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go-crypto-openssl/openssl/openssl_funcs.h
-@@ -0,0 +1,252 @@
+@@ -0,0 +1,293 @@
 +// Copyright (c) Microsoft Corporation.
 +// Licensed under the MIT License.
 +
@@ -1989,8 +2348,12 @@ index 00000000000000..9abe8adb8ec7a2
 +
 +// #include <openssl/ec.h>
 +enum {
-+    GO_EVP_PKEY_CTRL_EC_PARAMGEN_CURVE_NID = 0x1001
++    GO_EVP_PKEY_CTRL_EC_PARAMGEN_CURVE_NID = 0x1001,
 +};
++
++typedef enum {
++    GO_POINT_CONVERSION_UNCOMPRESSED = 4,
++} point_conversion_form_t;
 +
 +// #include <openssl/obj_mac.h>
 +enum {
@@ -2013,6 +2376,7 @@ index 00000000000000..9abe8adb8ec7a2
 +    GO_EVP_PKEY_CTRL_RSA_PADDING = 0x1001,
 +    GO_EVP_PKEY_CTRL_RSA_PSS_SALTLEN = 0x1002,
 +    GO_EVP_PKEY_CTRL_RSA_KEYGEN_BITS = 0x1003,
++    GO_EVP_PKEY_CTRL_RSA_MGF1_MD = 0x1005,
 +    GO_EVP_PKEY_CTRL_RSA_OAEP_MD = 0x1009,
 +    GO_EVP_PKEY_CTRL_RSA_OAEP_LABEL = 0x100A
 +};
@@ -2034,6 +2398,21 @@ index 00000000000000..9abe8adb8ec7a2
 +typedef void* GO_EC_POINT_PTR;
 +typedef void* GO_EC_GROUP_PTR;
 +typedef void* GO_RSA_PTR;
++typedef void* GO_EVP_MAC_PTR;
++typedef void* GO_EVP_MAC_CTX_PTR;
++
++// OSSL_PARAM does not follow the GO_FOO_PTR pattern
++// because it is not passed around as a pointer but on the stack.
++// We can't abstract it away by using a void*.
++// Copied from
++// https://github.com/openssl/openssl/blob/fcae2ae4f675def607d338b7945b9af1dd9bb746/include/openssl/core.h#L82-L88.
++typedef struct {
++    const char *key;
++    unsigned int data_type;
++    void *data;
++    size_t data_size;
++    size_t return_size;
++} OSSL_PARAM;
 +
 +// List of all functions from the libcrypto that are used in this package.
 +// Forgetting to add a function here results in build failure with message reporting the function
@@ -2109,6 +2488,7 @@ index 00000000000000..9abe8adb8ec7a2
 +DEFINEFUNC(int, EVP_MD_CTX_copy_ex, (GO_EVP_MD_CTX_PTR out, const GO_EVP_MD_CTX_PTR in), (out, in)) \
 +DEFINEFUNC(int, EVP_MD_CTX_copy, (GO_EVP_MD_CTX_PTR out, const GO_EVP_MD_CTX_PTR in), (out, in)) \
 +DEFINEFUNC_RENAMED_1_1(int, EVP_MD_CTX_reset, EVP_MD_CTX_cleanup, (GO_EVP_MD_CTX_PTR ctx), (ctx)) \
++DEFINEFUNC_3_0(const char *, EVP_MD_get0_name, (const GO_EVP_MD_PTR md), (md)) \
 +DEFINEFUNC(const GO_EVP_MD_PTR, EVP_md5, (void), ()) \
 +DEFINEFUNC(const GO_EVP_MD_PTR, EVP_sha1, (void), ()) \
 +DEFINEFUNC(const GO_EVP_MD_PTR, EVP_sha224, (void), ()) \
@@ -2138,18 +2518,24 @@ index 00000000000000..9abe8adb8ec7a2
 +DEFINEFUNC(int, BN_num_bits, (const GO_BIGNUM_PTR arg0), (arg0)) \
 +DEFINEFUNC(GO_BIGNUM_PTR, BN_bin2bn, (const unsigned char *arg0, int arg1, GO_BIGNUM_PTR arg2), (arg0, arg1, arg2)) \
 +DEFINEFUNC(int, BN_bn2bin, (const GO_BIGNUM_PTR arg0, unsigned char *arg1), (arg0, arg1)) \
-+/* bn_lebin2bn and bn_bn2lebinpad are not exported in any OpenSSL 1.0.2, but they exist. */ \
++/* bn_lebin2bn, bn_bn2lebinpad and BN_bn2binpad are not exported in any OpenSSL 1.0.2, but they exist. */ \
 +/*check:from=1.1.0*/ DEFINEFUNC_RENAMED_1_1(GO_BIGNUM_PTR, BN_lebin2bn, bn_lebin2bn, (const unsigned char *s, int len, GO_BIGNUM_PTR ret), (s, len, ret)) \
 +/*check:from=1.1.0*/ DEFINEFUNC_RENAMED_1_1(int, BN_bn2lebinpad, bn_bn2lebinpad, (const GO_BIGNUM_PTR a, unsigned char *to, int tolen), (a, to, tolen)) \
++/*check:from=1.1.0*/ DEFINEFUNC_RENAMED_1_1(int, BN_bn2binpad, bn_bn2binpad, (const GO_BIGNUM_PTR a, unsigned char *to, int tolen), (a, to, tolen)) \
 +DEFINEFUNC(void, EC_GROUP_free, (GO_EC_GROUP_PTR arg0), (arg0)) \
 +DEFINEFUNC(GO_EC_POINT_PTR, EC_POINT_new, (const GO_EC_GROUP_PTR arg0), (arg0)) \
 +DEFINEFUNC(void, EC_POINT_free, (GO_EC_POINT_PTR arg0), (arg0)) \
 +DEFINEFUNC(int, EC_POINT_get_affine_coordinates_GFp, (const GO_EC_GROUP_PTR arg0, const GO_EC_POINT_PTR arg1, GO_BIGNUM_PTR arg2, GO_BIGNUM_PTR arg3, GO_BN_CTX_PTR arg4), (arg0, arg1, arg2, arg3, arg4)) \
++DEFINEFUNC(size_t, EC_POINT_point2oct, (const GO_EC_GROUP_PTR group, const GO_EC_POINT_PTR p, point_conversion_form_t form, unsigned char *buf, size_t len, GO_BN_CTX_PTR ctx), (group, p, form, buf, len, ctx)) \
++DEFINEFUNC_LEGACY_1_0(int, EC_POINT_oct2point, (const GO_EC_GROUP_PTR group, GO_EC_POINT_PTR p, const unsigned char *buf, size_t len, GO_BN_CTX_PTR ctx), (group, p, buf, len, ctx)) \
++DEFINEFUNC(int, EC_POINT_mul, (const GO_EC_GROUP_PTR group, GO_EC_POINT_PTR r, const GO_BIGNUM_PTR n, const GO_EC_POINT_PTR q, const GO_BIGNUM_PTR m, GO_BN_CTX_PTR ctx), (group, r, n, q, m, ctx)) \
 +DEFINEFUNC(GO_EC_KEY_PTR, EC_KEY_new_by_curve_name, (int arg0), (arg0)) \
 +DEFINEFUNC(int, EC_KEY_set_public_key_affine_coordinates, (GO_EC_KEY_PTR key, GO_BIGNUM_PTR x, GO_BIGNUM_PTR y), (key, x, y)) \
++DEFINEFUNC_LEGACY_1_0(int, EC_KEY_set_public_key, (GO_EC_KEY_PTR key, const GO_EC_POINT_PTR pub), (key, pub)) \
 +DEFINEFUNC(void, EC_KEY_free, (GO_EC_KEY_PTR arg0), (arg0)) \
 +DEFINEFUNC(const GO_EC_GROUP_PTR, EC_KEY_get0_group, (const GO_EC_KEY_PTR arg0), (arg0)) \
 +DEFINEFUNC(int, EC_KEY_set_private_key, (GO_EC_KEY_PTR arg0, const GO_BIGNUM_PTR arg1), (arg0, arg1)) \
++DEFINEFUNC_1_1(int, EC_KEY_oct2key, (GO_EC_KEY_PTR eckey, const unsigned char *buf, size_t len, GO_BN_CTX_PTR ctx), (eckey, buf, len, ctx)) \
 +DEFINEFUNC(const GO_BIGNUM_PTR, EC_KEY_get0_private_key, (const GO_EC_KEY_PTR arg0), (arg0)) \
 +DEFINEFUNC(const GO_EC_POINT_PTR, EC_KEY_get0_public_key, (const GO_EC_KEY_PTR arg0), (arg0)) \
 +DEFINEFUNC(GO_RSA_PTR, RSA_new, (void), ()) \
@@ -2180,9 +2566,10 @@ index 00000000000000..9abe8adb8ec7a2
 +DEFINEFUNC(void, EVP_CIPHER_CTX_free, (GO_EVP_CIPHER_CTX_PTR arg0), (arg0)) \
 +DEFINEFUNC(int, EVP_CIPHER_CTX_ctrl, (GO_EVP_CIPHER_CTX_PTR ctx, int type, int arg, void *ptr), (ctx, type, arg, ptr)) \
 +DEFINEFUNC(GO_EVP_PKEY_PTR, EVP_PKEY_new, (void), ()) \
-+/* EVP_PKEY_size pkey parameter is const since OpenSSL 1.1.1. */ \
++/* EVP_PKEY_size and EVP_PKEY_get_bits pkey parameter is const since OpenSSL 1.1.1. */ \
 +/* Exclude it from headercheck tool when using previous OpenSSL versions. */ \
 +/*check:from=1.1.1*/ DEFINEFUNC_RENAMED_3_0(int, EVP_PKEY_get_size, EVP_PKEY_size, (const GO_EVP_PKEY_PTR pkey), (pkey)) \
++/*check:from=1.1.1*/ DEFINEFUNC_RENAMED_3_0(int, EVP_PKEY_get_bits, EVP_PKEY_bits, (const GO_EVP_PKEY_PTR pkey), (pkey)) \
 +DEFINEFUNC(void, EVP_PKEY_free, (GO_EVP_PKEY_PTR arg0), (arg0)) \
 +DEFINEFUNC(GO_EC_KEY_PTR, EVP_PKEY_get1_EC_KEY, (GO_EVP_PKEY_PTR pkey), (pkey)) \
 +DEFINEFUNC(GO_RSA_PTR, EVP_PKEY_get1_RSA, (GO_EVP_PKEY_PTR pkey), (pkey)) \
@@ -2200,7 +2587,20 @@ index 00000000000000..9abe8adb8ec7a2
 +DEFINEFUNC(int, EVP_PKEY_encrypt_init, (GO_EVP_PKEY_CTX_PTR arg0), (arg0)) \
 +DEFINEFUNC(int, EVP_PKEY_sign_init, (GO_EVP_PKEY_CTX_PTR arg0), (arg0)) \
 +DEFINEFUNC(int, EVP_PKEY_verify_init, (GO_EVP_PKEY_CTX_PTR arg0), (arg0)) \
-+DEFINEFUNC(int, EVP_PKEY_sign, (GO_EVP_PKEY_CTX_PTR arg0, unsigned char *arg1, size_t *arg2, const unsigned char *arg3, size_t arg4), (arg0, arg1, arg2, arg3, arg4))
++DEFINEFUNC(int, EVP_PKEY_sign, (GO_EVP_PKEY_CTX_PTR arg0, unsigned char *arg1, size_t *arg2, const unsigned char *arg3, size_t arg4), (arg0, arg1, arg2, arg3, arg4)) \
++DEFINEFUNC(int, EVP_PKEY_derive_init, (GO_EVP_PKEY_CTX_PTR ctx), (ctx)) \
++DEFINEFUNC(int, EVP_PKEY_derive_set_peer, (GO_EVP_PKEY_CTX_PTR ctx, GO_EVP_PKEY_PTR peer), (ctx, peer)) \
++DEFINEFUNC(int, EVP_PKEY_derive, (GO_EVP_PKEY_CTX_PTR ctx, unsigned char *key, size_t *keylen), (ctx, key, keylen)) \
++DEFINEFUNC_3_0(GO_EVP_MAC_PTR, EVP_MAC_fetch, (GO_OSSL_LIB_CTX_PTR ctx, const char *algorithm, const char *properties), (ctx, algorithm, properties)) \
++DEFINEFUNC_3_0(GO_EVP_MAC_CTX_PTR, EVP_MAC_CTX_new, (GO_EVP_MAC_PTR arg0), (arg0)) \
++DEFINEFUNC_3_0(void, EVP_MAC_CTX_free, (GO_EVP_MAC_CTX_PTR arg0), (arg0)) \
++DEFINEFUNC_3_0(GO_EVP_MAC_CTX_PTR, EVP_MAC_CTX_dup, (const GO_EVP_MAC_CTX_PTR arg0), (arg0)) \
++DEFINEFUNC_3_0(int, EVP_MAC_init, (GO_EVP_MAC_CTX_PTR ctx, const unsigned char *key, size_t keylen, const OSSL_PARAM params[]), (ctx, key, keylen, params)) \
++DEFINEFUNC_3_0(int, EVP_MAC_update, (GO_EVP_MAC_CTX_PTR ctx, const unsigned char *data, size_t datalen), (ctx, data, datalen)) \
++DEFINEFUNC_3_0(int, EVP_MAC_final, (GO_EVP_MAC_CTX_PTR ctx, unsigned char *out, size_t *outl, size_t outsize), (ctx, out, outl, outsize)) \
++DEFINEFUNC_3_0(OSSL_PARAM, OSSL_PARAM_construct_utf8_string, (const char *key, char *buf, size_t bsize), (key, buf, bsize)) \
++DEFINEFUNC_3_0(OSSL_PARAM, OSSL_PARAM_construct_end, (void), ()) \
++
 diff --git a/src/vendor/github.com/microsoft/go-crypto-openssl/openssl/openssl_lock_setup.c b/src/vendor/github.com/microsoft/go-crypto-openssl/openssl/openssl_lock_setup.c
 new file mode 100644
 index 00000000000000..5cd7275f4075ed
@@ -2292,10 +2692,10 @@ index 00000000000000..17f64a52ae5255
 +const RandReader = randReader(0)
 diff --git a/src/vendor/github.com/microsoft/go-crypto-openssl/openssl/rsa.go b/src/vendor/github.com/microsoft/go-crypto-openssl/openssl/rsa.go
 new file mode 100644
-index 00000000000000..d80e00a14a1a05
+index 00000000000000..b717ea932cd8a1
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go-crypto-openssl/openssl/rsa.go
-@@ -0,0 +1,328 @@
+@@ -0,0 +1,337 @@
 +// Copyright (c) Microsoft Corporation.
 +// Licensed under the MIT License.
 +
@@ -2328,6 +2728,7 @@ index 00000000000000..d80e00a14a1a05
 +	if key == nil {
 +		return bad(newOpenSSLError("EVP_PKEY_get1_RSA failed"))
 +	}
++	defer C.go_openssl_RSA_free(key)
 +	N, E, D = rsaGetKey(key)
 +	P, Q = rsaGetFactors(key)
 +	Dp, Dq, Qinv = rsaGetCRTParams(key)
@@ -2425,23 +2826,31 @@ index 00000000000000..d80e00a14a1a05
 +}
 +
 +func DecryptRSAOAEP(h hash.Hash, priv *PrivateKeyRSA, ciphertext, label []byte) ([]byte, error) {
-+	return evpDecrypt(priv.withKey, C.GO_RSA_PKCS1_OAEP_PADDING, h, label, ciphertext)
++	return evpDecrypt(priv.withKey, C.GO_RSA_PKCS1_OAEP_PADDING, h, nil, label, ciphertext)
 +}
 +
 +func EncryptRSAOAEP(h hash.Hash, pub *PublicKeyRSA, msg, label []byte) ([]byte, error) {
-+	return evpEncrypt(pub.withKey, C.GO_RSA_PKCS1_OAEP_PADDING, h, label, msg)
++	return evpEncrypt(pub.withKey, C.GO_RSA_PKCS1_OAEP_PADDING, h, nil, label, msg)
++}
++
++func DecryptRSAOAEPWithMGF1Hash(h, mgfHash hash.Hash, priv *PrivateKeyRSA, ciphertext, label []byte) ([]byte, error) {
++	return evpDecrypt(priv.withKey, C.GO_RSA_PKCS1_OAEP_PADDING, h, mgfHash, label, ciphertext)
++}
++
++func EncryptRSAOAEPWithMGF1Hash(h, mgfHash hash.Hash, pub *PublicKeyRSA, msg, label []byte) ([]byte, error) {
++	return evpEncrypt(pub.withKey, C.GO_RSA_PKCS1_OAEP_PADDING, h, mgfHash, label, msg)
 +}
 +
 +func DecryptRSAPKCS1(priv *PrivateKeyRSA, ciphertext []byte) ([]byte, error) {
-+	return evpDecrypt(priv.withKey, C.GO_RSA_PKCS1_PADDING, nil, nil, ciphertext)
++	return evpDecrypt(priv.withKey, C.GO_RSA_PKCS1_PADDING, nil, nil, nil, ciphertext)
 +}
 +
 +func EncryptRSAPKCS1(pub *PublicKeyRSA, msg []byte) ([]byte, error) {
-+	return evpEncrypt(pub.withKey, C.GO_RSA_PKCS1_PADDING, nil, nil, msg)
++	return evpEncrypt(pub.withKey, C.GO_RSA_PKCS1_PADDING, nil, nil, nil, msg)
 +}
 +
 +func DecryptRSANoPadding(priv *PrivateKeyRSA, ciphertext []byte) ([]byte, error) {
-+	ret, err := evpDecrypt(priv.withKey, C.GO_RSA_NO_PADDING, nil, nil, ciphertext)
++	ret, err := evpDecrypt(priv.withKey, C.GO_RSA_NO_PADDING, nil, nil, nil, ciphertext)
 +	if err != nil {
 +		return nil, err
 +	}
@@ -2465,7 +2874,7 @@ index 00000000000000..d80e00a14a1a05
 +}
 +
 +func EncryptRSANoPadding(pub *PublicKeyRSA, msg []byte) ([]byte, error) {
-+	return evpEncrypt(pub.withKey, C.GO_RSA_NO_PADDING, nil, nil, msg)
++	return evpEncrypt(pub.withKey, C.GO_RSA_NO_PADDING, nil, nil, nil, msg)
 +}
 +
 +func saltLength(saltLen int, sign bool) (C.int, error) {
@@ -5806,11 +6215,11 @@ index 00000000000000..1722410e5af193
 +	return getSystemDirectory() + "\\" + dll
 +}
 diff --git a/src/vendor/modules.txt b/src/vendor/modules.txt
-index dfb87abf137cca..e3bb913522f60f 100644
+index fd6a1ae10b48be..45a8b4acce473d 100644
 --- a/src/vendor/modules.txt
 +++ b/src/vendor/modules.txt
 @@ -1,3 +1,15 @@
-+# github.com/microsoft/go-crypto-openssl v0.2.1
++# github.com/microsoft/go-crypto-openssl v0.2.6
 +## explicit; go 1.16
 +github.com/microsoft/go-crypto-openssl/openssl
 +github.com/microsoft/go-crypto-openssl/openssl/bbig
