@@ -20,8 +20,7 @@ This command updates the table in ` + docPath + `.
 
 var supported = []version{
 	{
-		"1.19",
-		false,
+		"1.20",
 		map[string]struct{}{
 			"linux-amd64":   {},
 			"linux-arm64":   {},
@@ -31,8 +30,7 @@ var supported = []version{
 		},
 	},
 	{
-		"1.18",
-		true,
+		"1.19",
 		map[string]struct{}{
 			"linux-amd64":   {},
 			"linux-arm64":   {},
@@ -49,7 +47,6 @@ var platformPrettyNames = map[string]string{
 
 type version struct {
 	Number    string
-	DistinctFIPS bool
 	Platforms map[string]struct{}
 }
 
@@ -127,21 +124,11 @@ func tables() string {
 	for _, v := range supported {
 		b.WriteString(" ")
 		b.WriteString(v.Number)
-		if v.DistinctFIPS {
-			b.WriteString(" | ")
-			b.WriteString(v.Number)
-			b.WriteString("-fips")
-		} else {
-			b.WriteString(" (+FIPS)")
-		}
 		b.WriteString(" |")
 	}
 	b.WriteString("\n| --- |")
-	for _, v := range supported {
+	for range supported {
 		b.WriteString(" --- |")
-		if v.DistinctFIPS {
-			b.WriteString(" --- |")
-		}
 	}
 	b.WriteString("\n|")
 	for _, p := range platforms() {
@@ -150,30 +137,24 @@ func tables() string {
 		b.WriteString(" |")
 		for _, v := range supported {
 			b.WriteString(" ")
-			for _, fipsSuffix := range []string{"", "-fips"} {
-				if fipsSuffix != "" && !v.DistinctFIPS {
-					continue
-				}
-				types := fileTypes(p)
-				if _, ok := v.Platforms[p]; !ok {
-					types = fileTypes("")
-				}
-				for _, f := range types {
-					b.WriteString("- [")
-					b.WriteString(f.Name)
-					b.WriteString("](https://aka.ms/golang/release/latest/go")
-					b.WriteString(v.Number)
-					b.WriteString(fipsSuffix)
-					b.WriteString(".")
-					b.WriteString(p)
-					b.WriteString(f.Ext)
-					b.WriteString(")<br/>")
-				}
-				if len(types) == 0 {
-					b.WriteString("N/A")
-				}
-				b.WriteString(" |")
+			types := fileTypes(p)
+			if _, ok := v.Platforms[p]; !ok {
+				types = fileTypes("")
 			}
+			for _, f := range types {
+				b.WriteString("- [")
+				b.WriteString(f.Name)
+				b.WriteString("](https://aka.ms/golang/release/latest/go")
+				b.WriteString(v.Number)
+				b.WriteString(".")
+				b.WriteString(p)
+				b.WriteString(f.Ext)
+				b.WriteString(")<br/>")
+			}
+			if len(types) == 0 {
+				b.WriteString("N/A")
+			}
+			b.WriteString(" |")
 		}
 		b.WriteString("\n")
 	}
