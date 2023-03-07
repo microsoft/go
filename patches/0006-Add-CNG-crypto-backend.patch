@@ -25,7 +25,7 @@ Subject: [PATCH] Add CNG crypto backend
  src/crypto/rsa/pss.go                         |  12 +-
  src/crypto/rsa/pss_test.go                    |   2 +-
  src/crypto/rsa/rsa.go                         |  15 +-
- src/crypto/rsa/rsa_test.go                    |   9 +-
+ src/crypto/rsa/rsa_test.go                    |   8 +-
  src/crypto/sha1/boring.go                     |   5 +-
  src/crypto/sha1/notboring.go                  |   4 +-
  src/crypto/sha1/sha1_test.go                  |   7 +
@@ -49,7 +49,7 @@ Subject: [PATCH] Add CNG crypto backend
  .../goexperiment/exp_cngcrypto_off.go         |   9 +
  src/internal/goexperiment/exp_cngcrypto_on.go |   9 +
  src/internal/goexperiment/flags.go            |   1 +
- 45 files changed, 406 insertions(+), 47 deletions(-)
+ 45 files changed, 405 insertions(+), 47 deletions(-)
  create mode 100644 src/crypto/internal/backend/bbig/big_cng.go
  create mode 100644 src/crypto/internal/backend/cng_windows.go
  create mode 100644 src/internal/goexperiment/exp_cngcrypto_off.go
@@ -692,26 +692,18 @@ index 512e4a4d6616e5..284db01c221d93 100644
  		if err != nil {
  			return nil, err
 diff --git a/src/crypto/rsa/rsa_test.go b/src/crypto/rsa/rsa_test.go
-index 379fb06526ccc7..d844cc4b8d749e 100644
+index fb3f821e76a6d4..a3219daf04c6f7 100644
 --- a/src/crypto/rsa/rsa_test.go
 +++ b/src/crypto/rsa/rsa_test.go
-@@ -8,6 +8,7 @@ import (
- 	"bufio"
- 	"bytes"
- 	"crypto"
-+	boring "crypto/internal/backend"
- 	"crypto/rand"
- 	. "crypto/rsa"
- 	"crypto/sha1"
-@@ -16,6 +17,7 @@ import (
+@@ -17,6 +17,7 @@ import (
  	"encoding/pem"
  	"flag"
  	"fmt"
 +	"internal/goexperiment"
+ 	"internal/testenv"
  	"math/big"
  	"strings"
- 	"testing"
-@@ -111,6 +113,9 @@ func testKeyBasics(t *testing.T, priv *PrivateKey) {
+@@ -113,6 +114,9 @@ func testKeyBasics(t *testing.T, priv *PrivateKey) {
  	if priv.D.Cmp(priv.N) > 0 {
  		t.Errorf("private exponent too large")
  	}
@@ -721,7 +713,7 @@ index 379fb06526ccc7..d844cc4b8d749e 100644
  
  	msg := []byte("hi!")
  	enc, err := EncryptPKCS1v15(rand.Reader, &priv.PublicKey, msg)
-@@ -160,7 +165,9 @@ func testEverything(t *testing.T, priv *PrivateKey) {
+@@ -187,7 +191,9 @@ func testEverything(t *testing.T, priv *PrivateKey) {
  	if err := priv.Validate(); err != nil {
  		t.Errorf("Validate() failed: %s", err)
  	}
@@ -937,7 +929,7 @@ index 70baa62d63754a..ecd0f5a7b3e9ed 100644
  package tls
  
 diff --git a/src/crypto/tls/boring_test.go b/src/crypto/tls/boring_test.go
-index ea23a0336bd575..b117e47ba3a2c1 100644
+index 929111d8679cc2..3e63ba6a053c42 100644
 --- a/src/crypto/tls/boring_test.go
 +++ b/src/crypto/tls/boring_test.go
 @@ -2,7 +2,7 @@
@@ -976,7 +968,7 @@ index 9c1d3d279c472f..0ca7a863b73690 100644
  package fipsonly
  
 diff --git a/src/crypto/tls/handshake_server_tls13.go b/src/crypto/tls/handshake_server_tls13.go
-index 80d4dce3c5d6ed..f4f85f2fb2038f 100644
+index b7b568cd84ac80..d1c5780533bf6a 100644
 --- a/src/crypto/tls/handshake_server_tls13.go
 +++ b/src/crypto/tls/handshake_server_tls13.go
 @@ -13,6 +13,7 @@ import (
@@ -987,7 +979,7 @@ index 80d4dce3c5d6ed..f4f85f2fb2038f 100644
  	"io"
  	"time"
  )
-@@ -338,6 +339,15 @@ func cloneHash(in hash.Hash, h crypto.Hash) hash.Hash {
+@@ -343,6 +344,15 @@ func cloneHash(in hash.Hash, h crypto.Hash) hash.Hash {
  	}
  	marshaler, ok := in.(binaryMarshaler)
  	if !ok {
@@ -1056,7 +1048,7 @@ index a0548a7f9179c5..ae6117a1554b7f 100644
  package x509
  
 diff --git a/src/go.mod b/src/go.mod
-index efb49244051bf5..4b4bb411ad986e 100644
+index 05a9319fe38442..f5552444c5c0c4 100644
 --- a/src/go.mod
 +++ b/src/go.mod
 @@ -4,6 +4,7 @@ go 1.20
@@ -1065,10 +1057,10 @@ index efb49244051bf5..4b4bb411ad986e 100644
  	github.com/microsoft/go-crypto-openssl v0.2.6
 +	github.com/microsoft/go-crypto-winnative v0.0.0-20230125071228-ef6c7cb780c6
  	golang.org/x/crypto v0.3.1-0.20221117191849-2c476679df9a
- 	golang.org/x/net v0.3.1-0.20221206200815-1e63c2f08a10
+ 	golang.org/x/net v0.4.1-0.20230214201333-88ed8ca3307d
  )
 diff --git a/src/go.sum b/src/go.sum
-index 3e5bef0deac8a5..023ca945495a69 100644
+index cd222da47dcad6..c1ceaca9e1c6d3 100644
 --- a/src/go.sum
 +++ b/src/go.sum
 @@ -1,5 +1,7 @@
@@ -1078,7 +1070,7 @@ index 3e5bef0deac8a5..023ca945495a69 100644
 +github.com/microsoft/go-crypto-winnative v0.0.0-20230125071228-ef6c7cb780c6/go.mod h1:fveERXKbeK+XLmOyU24caKnIT/S5nniAX9XCRHfnrM4=
  golang.org/x/crypto v0.3.1-0.20221117191849-2c476679df9a h1:diz9pEYuTIuLMJLs3rGDkeaTsNyRs6duYdFyPAxzE/U=
  golang.org/x/crypto v0.3.1-0.20221117191849-2c476679df9a/go.mod h1:hebNnKkNXi2UzZN1eVRvBB7co0a+JxK6XbPiWVs/3J4=
- golang.org/x/net v0.3.1-0.20221206200815-1e63c2f08a10 h1:Frnccbp+ok2GkUS2tC84yAq/U9Vg+0sIO7aRL3T4Xnc=
+ golang.org/x/net v0.4.1-0.20230214201333-88ed8ca3307d h1:KHU/KRz6+/yWyRHEC24m7T5gou5VSh62duch955ktBY=
 diff --git a/src/go/build/deps_test.go b/src/go/build/deps_test.go
 index afab09a94378c8..4fe37939cf4532 100644
 --- a/src/go/build/deps_test.go
