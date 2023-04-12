@@ -5,7 +5,7 @@ Subject: [PATCH] Add OpenSSL crypto backend
 
 ---
  src/cmd/api/boring_test.go                    |   2 +-
- src/cmd/dist/test.go                          |   9 +-
+ src/cmd/dist/test.go                          |   3 +-
  src/cmd/go/go_boring_test.go                  |   2 +-
  .../go/testdata/script/gopath_std_vendor.txt  |   9 +
  src/cmd/link/internal/ld/lib.go               |   1 +
@@ -38,7 +38,7 @@ Subject: [PATCH] Add OpenSSL crypto backend
  .../goexperiment/exp_opensslcrypto_on.go      |   9 +
  src/internal/goexperiment/flags.go            |   1 +
  src/os/exec/exec_test.go                      |   9 +
- 34 files changed, 296 insertions(+), 25 deletions(-)
+ 34 files changed, 291 insertions(+), 24 deletions(-)
  create mode 100644 src/crypto/internal/backend/bbig/big_openssl.go
  create mode 100644 src/crypto/internal/backend/openssl_linux.go
  create mode 100644 src/internal/goexperiment/exp_opensslcrypto_off.go
@@ -58,31 +58,24 @@ index a9ec6e6bfefb76..01765f01736ccb 100644
  package api
  
 diff --git a/src/cmd/dist/test.go b/src/cmd/dist/test.go
-index 365b57aa42a0af..552eb67d2a000c 100644
+index 2091a88a2dea24..63a9dc8287e3cb 100644
 --- a/src/cmd/dist/test.go
 +++ b/src/cmd/dist/test.go
-@@ -1326,15 +1326,18 @@ func (t *tester) registerCgoTests() {
- 					}
+@@ -1275,13 +1275,12 @@ func (t *tester) registerCgoTests() {
+ 			// a C linker warning on Linux.
+ 			// in function `bio_ip_and_port_to_socket_and_addr':
+ 			// warning: Using 'getaddrinfo' in statically linked applications requires at runtime the shared libraries from the glibc version used for linking
+-			if staticCheck.pre == nil && goos == "linux" && strings.Contains(goexperiment, "boringcrypto") {
++			if staticCheck.pre == nil && goos == "linux" && (strings.Contains(goexperiment, "boringcrypto") || strings.Contains(goexperiment, "opensslcrypto")) {
+ 				staticCheck.pre = func(*distTest) bool {
+ 					fmt.Println("skipping static linking check on Linux when using boringcrypto to avoid C linker warning about getaddrinfo")
+ 					return false
  				}
  			}
 -
-+			// Don't test static builds with OpenSSLCrypto.
-+			// It makes TestSetgid hang in certain gcc versions.
-+			// See go.dev/issues/52141.
-+			staticSupported := !strings.Contains(goexperiment, "opensslcrypto")
  			// Static linking tests
--			if goos != "android" && p != "netbsd/arm" {
-+			if goos != "android" && p != "netbsd/arm" && staticSupported {
+ 			if goos != "android" && p != "netbsd/arm" {
  				// TODO(#56629): Why does this fail on netbsd-arm?
- 				cgoTest("testtls-static", "testtls", "external", "static", staticCheck)
- 			}
- 			cgoTest("nocgo-auto", "nocgo", "auto", "", staticCheck)
- 			cgoTest("nocgo-external", "nocgo", "external", "", staticCheck)
--			if goos != "android" {
-+			if goos != "android" && staticSupported {
- 				cgoTest("nocgo-static", "nocgo", "external", "static", staticCheck)
- 				cgoTest("test-static", "test", "external", "static", staticCheck)
- 				// -static in CGO_LDFLAGS triggers a different code path
 diff --git a/src/cmd/go/go_boring_test.go b/src/cmd/go/go_boring_test.go
 index ed0fbf3d53d75b..5376227f74cfaa 100644
 --- a/src/cmd/go/go_boring_test.go
@@ -116,10 +109,10 @@ index 4aaf46b5d0f0dc..e2ac54f96db1e8 100644
  
  go list -f '{{.Dir}}' vendor/golang.org/x/net/http2/hpack
 diff --git a/src/cmd/link/internal/ld/lib.go b/src/cmd/link/internal/ld/lib.go
-index d364e090e86365..b17bb59314f1d2 100644
+index 02c6908407bdf4..267d35635bbdc5 100644
 --- a/src/cmd/link/internal/ld/lib.go
 +++ b/src/cmd/link/internal/ld/lib.go
-@@ -1100,6 +1100,7 @@ var hostobj []Hostobj
+@@ -1129,6 +1129,7 @@ var hostobj []Hostobj
  // These packages can use internal linking mode.
  // Others trigger external mode.
  var internalpkg = []string{
@@ -509,10 +502,10 @@ index 34c22c8fbba7da..933ac569e034a8 100644
  package rsa
  
 diff --git a/src/crypto/rsa/rsa_test.go b/src/crypto/rsa/rsa_test.go
-index 16101f043a770f..379fb06526ccc7 100644
+index 95f4b8e98d2fb0..3bb307e7bddc48 100644
 --- a/src/crypto/rsa/rsa_test.go
 +++ b/src/crypto/rsa/rsa_test.go
-@@ -653,6 +653,9 @@ func TestDecryptOAEP(t *testing.T) {
+@@ -680,6 +680,9 @@ func TestDecryptOAEP(t *testing.T) {
  }
  
  func Test2DecryptOAEP(t *testing.T) {
@@ -536,7 +529,7 @@ index 1827f764589b58..70baa62d63754a 100644
  package tls
  
 diff --git a/src/crypto/tls/boring_test.go b/src/crypto/tls/boring_test.go
-index 59d4d2b2724ea3..ea23a0336bd575 100644
+index ba68f355eb037c..929111d8679cc2 100644
 --- a/src/crypto/tls/boring_test.go
 +++ b/src/crypto/tls/boring_test.go
 @@ -2,7 +2,7 @@
@@ -627,7 +620,7 @@ index c83a7272c9f01f..a0548a7f9179c5 100644
  package x509
  
 diff --git a/src/go.mod b/src/go.mod
-index 19dd06fee37ae8..eccb90ae2d36ac 100644
+index 81c765f950b017..7753f042a226f3 100644
 --- a/src/go.mod
 +++ b/src/go.mod
 @@ -3,6 +3,7 @@ module std
@@ -639,7 +632,7 @@ index 19dd06fee37ae8..eccb90ae2d36ac 100644
  	golang.org/x/net v0.7.0
  )
 diff --git a/src/go.sum b/src/go.sum
-index ef6748d5968c24..799a91a2af7f4d 100644
+index 33f73713173f1d..bb1a7f74ad69b6 100644
 --- a/src/go.sum
 +++ b/src/go.sum
 @@ -1,3 +1,5 @@
@@ -649,10 +642,10 @@ index ef6748d5968c24..799a91a2af7f4d 100644
  golang.org/x/crypto v0.5.1-0.20230203195927-310bfa40f1e4/go.mod h1:NK/OQwhpMQP3MwtdjgLlYHnH9ebylxKWv3e0fK+mkQU=
  golang.org/x/net v0.7.0 h1:rJrUqqhjsgNp7KqAIc25s9pZnjU7TUcSY7HcVZjdn1g=
 diff --git a/src/go/build/deps_test.go b/src/go/build/deps_test.go
-index a7041966cc851a..7b6ccd1f189f7f 100644
+index 91f2225ed8738a..08124436ed1a79 100644
 --- a/src/go/build/deps_test.go
 +++ b/src/go/build/deps_test.go
-@@ -398,6 +398,8 @@ var depsRules = `
+@@ -409,6 +409,8 @@ var depsRules = `
  
  	crypto/cipher,
  	crypto/internal/boring/bcache
@@ -661,7 +654,7 @@ index a7041966cc851a..7b6ccd1f189f7f 100644
  	< crypto/internal/boring
  	< crypto/internal/backend
  	< crypto/boring;
-@@ -432,6 +434,7 @@ var depsRules = `
+@@ -443,6 +445,7 @@ var depsRules = `
  
  	# CRYPTO-MATH is core bignum-based crypto - no cgo, net; fmt now ok.
  	CRYPTO, FMT, math/big
@@ -669,7 +662,7 @@ index a7041966cc851a..7b6ccd1f189f7f 100644
  	< crypto/internal/boring/bbig
  	< crypto/internal/backend/bbig
  	< crypto/rand
-@@ -673,7 +676,7 @@ var buildIgnore = []byte("\n//go:build ignore")
+@@ -687,7 +690,7 @@ var buildIgnore = []byte("\n//go:build ignore")
  
  func findImports(pkg string) ([]string, error) {
  	vpkg := pkg
@@ -678,7 +671,7 @@ index a7041966cc851a..7b6ccd1f189f7f 100644
  		vpkg = "vendor/" + pkg
  	}
  	dir := filepath.Join(Default.GOROOT, "src", vpkg)
-@@ -683,7 +686,7 @@ func findImports(pkg string) ([]string, error) {
+@@ -697,7 +700,7 @@ func findImports(pkg string) ([]string, error) {
  	}
  	var imports []string
  	var haveImport = map[string]bool{}
@@ -718,7 +711,7 @@ index 00000000000000..a7f2712e9e1464
 +const OpenSSLCrypto = true
 +const OpenSSLCryptoInt = 1
 diff --git a/src/internal/goexperiment/flags.go b/src/internal/goexperiment/flags.go
-index 8292f97b719314..20b4965e39b75d 100644
+index 8758505173b5d4..2662c3a5322610 100644
 --- a/src/internal/goexperiment/flags.go
 +++ b/src/internal/goexperiment/flags.go
 @@ -59,6 +59,7 @@ type Flags struct {
@@ -730,7 +723,7 @@ index 8292f97b719314..20b4965e39b75d 100644
  	// Regabi is split into several sub-experiments that can be
  	// enabled individually. Not all combinations work.
 diff --git a/src/os/exec/exec_test.go b/src/os/exec/exec_test.go
-index 67e2d256b45027..0052c72051862f 100644
+index 67cd446f420e8a..3015409ccb0f09 100644
 --- a/src/os/exec/exec_test.go
 +++ b/src/os/exec/exec_test.go
 @@ -14,6 +14,7 @@ import (
