@@ -194,14 +194,18 @@ func CreateFromBuild(source, output string) error {
 				targetPath = filepath.Join("bin", filepath.Base(relPath))
 			}
 
-			// Skip race detection syso file if it doesn't match the target runtime.
-			//
-			// Ignore error: the only possible error is one that says the pattern is invalid (see
-			// filepath.Match doc), which will never happen here because the pattern is a constant
-			// string. (Do be careful if you change it!)
-			isRaceSyso, _ := filepath.Match("race_*.syso", info.Name())
-			if isRaceSyso && info.Name() != targetRuntimeRaceSyso {
-				return nil
+			// Filter syso files in runtime/race. Note: intentionally leave all
+			// runtime/race/internal syso files in place.
+			if filepath.Dir(relPath) == filepath.Join("src", "runtime", "race") {
+				// Skip race detection syso file if it doesn't match the target runtime.
+				//
+				// Ignore error: the only possible error is one that says the pattern is invalid (see
+				// filepath.Match doc), which will never happen here because the pattern is a constant
+				// string. (Do be careful if you change it!)
+				isRaceSyso, _ := filepath.Match("race_*.syso", info.Name())
+				if isRaceSyso && info.Name() != targetRuntimeRaceSyso {
+					return nil
+				}
 			}
 		}
 
