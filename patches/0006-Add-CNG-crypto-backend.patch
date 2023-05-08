@@ -29,7 +29,7 @@ Subject: [PATCH] Add CNG crypto backend
  src/crypto/sha1/boring.go                     |   5 +-
  src/crypto/sha1/notboring.go                  |   4 +-
  src/crypto/sha1/sha1_test.go                  |   7 +
- src/crypto/sha256/sha256.go                   |  16 +-
+ src/crypto/sha256/sha256.go                   |  12 +-
  src/crypto/sha256/sha256_test.go              |  10 +
  src/crypto/sha512/sha512_test.go              |  10 +
  src/crypto/tls/boring.go                      |   2 +-
@@ -49,7 +49,7 @@ Subject: [PATCH] Add CNG crypto backend
  .../goexperiment/exp_cngcrypto_off.go         |   9 +
  src/internal/goexperiment/exp_cngcrypto_on.go |   9 +
  src/internal/goexperiment/flags.go            |   1 +
- 45 files changed, 408 insertions(+), 48 deletions(-)
+ 45 files changed, 405 insertions(+), 47 deletions(-)
  create mode 100644 src/crypto/internal/backend/bbig/big_cng.go
  create mode 100644 src/crypto/internal/backend/cng_windows.go
  create mode 100644 src/internal/goexperiment/exp_cngcrypto_off.go
@@ -756,7 +756,7 @@ index 42ef87937faa34..9de147350c5f59 100644
  package sha1
  
 diff --git a/src/crypto/sha1/sha1_test.go b/src/crypto/sha1/sha1_test.go
-index 0b83d341cb936e..2e08e627453e12 100644
+index bc169888786321..e0d6f4c5040d91 100644
 --- a/src/crypto/sha1/sha1_test.go
 +++ b/src/crypto/sha1/sha1_test.go
 @@ -13,6 +13,7 @@ import (
@@ -767,7 +767,7 @@ index 0b83d341cb936e..2e08e627453e12 100644
  	"io"
  	"testing"
  )
-@@ -104,6 +105,9 @@ func TestGolden(t *testing.T) {
+@@ -96,6 +97,9 @@ func TestGolden(t *testing.T) {
  }
  
  func TestGoldenMarshal(t *testing.T) {
@@ -777,7 +777,7 @@ index 0b83d341cb936e..2e08e627453e12 100644
  	h := New()
  	h2 := New()
  	for _, g := range golden {
-@@ -205,6 +209,9 @@ func safeSum(h hash.Hash) (sum []byte, err error) {
+@@ -197,6 +201,9 @@ func safeSum(h hash.Hash) (sum []byte, err error) {
  }
  
  func TestLargeHashes(t *testing.T) {
@@ -788,7 +788,7 @@ index 0b83d341cb936e..2e08e627453e12 100644
  
  		h := New()
 diff --git a/src/crypto/sha256/sha256.go b/src/crypto/sha256/sha256.go
-index 9d179e5f28893d..5e6553a1bb6bd8 100644
+index b6fd0c3aab5100..fa246e9ecf65ba 100644
 --- a/src/crypto/sha256/sha256.go
 +++ b/src/crypto/sha256/sha256.go
 @@ -158,7 +158,7 @@ func New() hash.Hash {
@@ -800,29 +800,18 @@ index 9d179e5f28893d..5e6553a1bb6bd8 100644
  		return boring.NewSHA224()
  	}
  	d := new(digest)
-@@ -216,7 +216,9 @@ func (d *digest) WriteString(p string) (nn int, err error) {
+@@ -177,7 +177,9 @@ func (d *digest) Size() int {
+ func (d *digest) BlockSize() int { return BlockSize }
  
- // fillChunk fills the remainder of the current chunk, if any.
- func fillChunk[S []byte | string](d *digest, p S) int {
+ func (d *digest) Write(p []byte) (nn int, err error) {
 -	boring.Unreachable()
 +	if boring.Enabled && (!d.is224 || boring.IsP224Supported()) {
 +		boring.Unreachable()
 +	}
- 	if d.nx == 0 {
- 		return 0
- 	}
-@@ -230,7 +232,9 @@ func fillChunk[S []byte | string](d *digest, p S) int {
- }
- 
- func (d *digest) WriteByte(c byte) error {
--	boring.Unreachable()
-+	if boring.Enabled && (!d.is224 || boring.IsP224Supported()) {
-+		boring.Unreachable()
-+	}
- 	d.len++
- 	d.x[d.nx] = c
- 	d.nx++
-@@ -242,7 +246,9 @@ func (d *digest) WriteByte(c byte) error {
+ 	nn = len(p)
+ 	d.len += uint64(nn)
+ 	if d.nx > 0 {
+@@ -201,7 +203,9 @@ func (d *digest) Write(p []byte) (nn int, err error) {
  }
  
  func (d *digest) Sum(in []byte) []byte {
@@ -833,7 +822,7 @@ index 9d179e5f28893d..5e6553a1bb6bd8 100644
  	// Make a copy of d so that caller can keep writing and summing.
  	d0 := *d
  	hash := d0.checkSum()
-@@ -303,7 +309,7 @@ func Sum256(data []byte) [Size]byte {
+@@ -262,7 +266,7 @@ func Sum256(data []byte) [Size]byte {
  
  // Sum224 returns the SHA224 checksum of the data.
  func Sum224(data []byte) [Size224]byte {
@@ -843,7 +832,7 @@ index 9d179e5f28893d..5e6553a1bb6bd8 100644
  	}
  	var d digest
 diff --git a/src/crypto/sha256/sha256_test.go b/src/crypto/sha256/sha256_test.go
-index bf9ad465276791..80405630461c27 100644
+index 7437655badee23..95c8688904c088 100644
 --- a/src/crypto/sha256/sha256_test.go
 +++ b/src/crypto/sha256/sha256_test.go
 @@ -13,6 +13,7 @@ import (
@@ -854,7 +843,7 @@ index bf9ad465276791..80405630461c27 100644
  	"io"
  	"testing"
  )
-@@ -147,6 +148,9 @@ func TestGolden(t *testing.T) {
+@@ -139,6 +140,9 @@ func TestGolden(t *testing.T) {
  }
  
  func TestGoldenMarshal(t *testing.T) {
@@ -864,7 +853,7 @@ index bf9ad465276791..80405630461c27 100644
  	tests := []struct {
  		name    string
  		newHash func() hash.Hash
-@@ -192,6 +196,9 @@ func TestGoldenMarshal(t *testing.T) {
+@@ -184,6 +188,9 @@ func TestGoldenMarshal(t *testing.T) {
  }
  
  func TestMarshalTypeMismatch(t *testing.T) {
@@ -874,7 +863,7 @@ index bf9ad465276791..80405630461c27 100644
  	h1 := New()
  	h2 := New224()
  
-@@ -281,6 +288,9 @@ func safeSum(h hash.Hash) (sum []byte, err error) {
+@@ -273,6 +280,9 @@ func safeSum(h hash.Hash) (sum []byte, err error) {
  	return h.Sum(nil), nil
  }
  func TestLargeHashes(t *testing.T) {
@@ -885,7 +874,7 @@ index bf9ad465276791..80405630461c27 100644
  
  		h := New()
 diff --git a/src/crypto/sha512/sha512_test.go b/src/crypto/sha512/sha512_test.go
-index 0161b248a48300..4c71342a36be72 100644
+index 2fef7ddae07480..979e4c69ab710c 100644
 --- a/src/crypto/sha512/sha512_test.go
 +++ b/src/crypto/sha512/sha512_test.go
 @@ -14,6 +14,7 @@ import (
@@ -896,7 +885,7 @@ index 0161b248a48300..4c71342a36be72 100644
  	"io"
  	"testing"
  )
-@@ -728,6 +729,9 @@ func TestGolden(t *testing.T) {
+@@ -719,6 +720,9 @@ func TestGolden(t *testing.T) {
  }
  
  func TestGoldenMarshal(t *testing.T) {
@@ -906,7 +895,7 @@ index 0161b248a48300..4c71342a36be72 100644
  	tests := []struct {
  		name    string
  		newHash func() hash.Hash
-@@ -775,6 +779,9 @@ func TestGoldenMarshal(t *testing.T) {
+@@ -766,6 +770,9 @@ func TestGoldenMarshal(t *testing.T) {
  }
  
  func TestMarshalMismatch(t *testing.T) {
@@ -916,7 +905,7 @@ index 0161b248a48300..4c71342a36be72 100644
  	h := []func() hash.Hash{
  		New,
  		New384,
-@@ -881,6 +888,9 @@ func safeSum(h hash.Hash) (sum []byte, err error) {
+@@ -872,6 +879,9 @@ func safeSum(h hash.Hash) (sum []byte, err error) {
  }
  
  func TestLargeHashes(t *testing.T) {
