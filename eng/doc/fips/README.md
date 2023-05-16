@@ -35,18 +35,56 @@ It is important to note that an application built with Microsoft's Go toolchain 
 
 ## Usage: Build
 
-1. Get the Microsoft build of Go. See [the microsoft/go readme](https://github.com/microsoft/go#binary-distribution) for options.
-1. Enable the desired GOEXPERIMENT and build your program:
-    * To build for Linux/OpenSSL, for example:
-      ```sh
-      GOEXPERIMENT=opensslcrypto go build ./myapp
-      ```
-    * To build for Windows/CNG in PowerShell, for example:
-      ```pwsh
-      $env:GOEXPERIMENT = "cngcrypto"
-      go build ./myapp
-      ```
-1. The built program will use the specified platform-provided cryptographic library whenever it calls a Go standard library crypto API, and FIPS compatibility can be enabled at runtime.
+The `GOEXPERIMENT` environment variable is used at build time to select a cryptographic library backend. This modifies the Go runtime included in the program to use the specified platform-provided cryptographic library whenever it calls a Go standard library crypto API. The `GOEXPERIMENT` values are:
+
+- `opensslcrypto` selects OpenSSL, for Linux
+- `cngcrypto` selects CNG, for Windows
+- Default: uses Go standard library cryptography
+
+The `GOEXPERIMENT` to pick in a cross-build scenario is the one that matches the target platform, not the build platform. For example, if you build an app on a Linux build container and the app binary will run on Windows, you need to add `GOEXPERIMENT=cngcrypto`.
+
+The Microsoft Go fork must be used for these `GOEXPERIMENT` values to work. See setup instructions in [the distribution section of the microsoft/go readme](https://github.com/microsoft/go#binary-distribution).
+
+> "Experiment" doesn't indicate the FIPS features are experimental. The original intent of `GOEXPERIMENT` is to use it to enable experimental features in the Go runtime and toolchain, but we and Google are now using `GOEXPERIMENT` for this FIPS-related feature because the mechanism itself perfectly fits our needs.
+
+Any method of setting the build's `GOEXPERIMENT` environment variable will work. The next sections describe some recommended methods.
+
+### Dockerfile `env` instruction
+
+If you build a Go program in a Dockerfile, use an `env` instruction before the build instruction in your Dockerfile:
+
+```dockerfile
+env GOEXPERIMENT=opensslcrypto
+```
+
+```dockerfile
+env GOEXPERIMENT=cngcrypto
+```
+
+Or, if you're building a program to run on Linux, you can avoid adding the `env` instruction by using the special Microsoft Go images marked with `-fips-`. These images include `env GOEXPERIMENT=opensslcrypto` and are otherwise the same as the non`-fips-` images. These exist for convenience. See [the microsoft/go-images documentation](https://github.com/microsoft/go-images) for more information about available images and how to use them.
+
+### Modify the build command
+
+Another approach is to modify the build command or build script.
+
+In a standard Linux shell:
+
+- Set the environment variable for all future commands:
+  ```sh
+  export GOEXPERIMENT=opensslcrypto
+  go build ./myapp
+  go build ./myapp2
+  ```
+- Or set the environment variable for only one command:
+  ```
+  GOEXPERIMENT=opensslcrypto go build ./myapp
+  ```
+
+In PowerShell:
+- ```pwsh
+  $env:GOEXPERIMENT = "cngcrypto"
+  go build ./myapp
+  ```
 
 ## Usage: Runtime
 
