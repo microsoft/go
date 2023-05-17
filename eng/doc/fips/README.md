@@ -35,11 +35,15 @@ It is important to note that an application built with Microsoft's Go toolchain 
 
 ## Usage: Build
 
-The `GOEXPERIMENT` environment variable is used at build time to select a cryptographic library backend. This modifies the Go runtime included in the program to use the specified platform-provided cryptographic library whenever it calls a Go standard library crypto API. The `GOEXPERIMENT` values are:
+The `GOEXPERIMENT` environment variable is used at build time to select a cryptographic library backend. This modifies the Go runtime included in the program to use the specified platform-provided cryptographic library whenever it calls a Go standard library crypto API. The `GOEXPERIMENT` values that pick a crypto backend are:
 
 - `opensslcrypto` selects OpenSSL, for Linux
 - `cngcrypto` selects CNG, for Windows
-- Default: uses Go standard library cryptography
+- `boringcrypto` selects the upstream BoringCrypto backend, which is **not supported**
+
+If no crypto backend option is selected, Go standard library cryptography is used. The options are exclusive and must not be enabled at the same time as one another.
+
+Multiple `GOEXPERIMENT` values can be specified using a comma separator, e.g. `GOEXPERIMENT=opensslcrypto,loopvar`. It is allowed to combine other experiments with one crypto backend experiment. For more information about other Go experiments, read the output of the command `go doc internal/goexperiment` to see the experiments available in your specific build of the Go toolset, or check [the online goexperiment package doc](https://pkg.go.dev/internal/goexperiment) to see the options for other versions.
 
 The `GOEXPERIMENT` to pick in a cross-build scenario is the one that matches the target platform, not the build platform. For example, if you build an app on a Linux build container and the app binary will run on Windows, you need to add `GOEXPERIMENT=cngcrypto`.
 
