@@ -89,7 +89,7 @@ func CreateFromBuild(source, output string) error {
 
 	// Root-level directory entry names to include in the archive.
 	includeNames := []string{
-		"AUTHORS", "CONTRIBUTORS", "LICENSE", "PATENTS", "VERSION",
+		"AUTHORS", "CONTRIBUTORS", "go.env", "LICENSE", "PATENTS", "VERSION",
 		"api", "bin", "doc", "lib", "misc", "pkg", "src", "test",
 	}
 
