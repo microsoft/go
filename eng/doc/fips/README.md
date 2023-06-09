@@ -29,7 +29,7 @@ Prior to Go 1.19, the boringcrypto changes were maintained in the `dev.boringcry
 
 The Microsoft Go fork modifies the Go runtime to implement several crypto primitives using cgo to call into a platform-provided cryptographic library rather than use the standard Go crypto implementations. This allows Go programs to use a platform-provided FIPS 140-2 certified crypto library.
 
-On Linux, the fork uses [OpenSSL](https://www.openssl.org/) through the [golang-fips/openssl-fips] module. On Windows, [CNG](https://docs.microsoft.com/en-us/windows/win32/seccng/about-cng), using [go-crypto-winnative]. Similar to BoringSSL, certain OpenSSL and CNG versions are FIPS 140-2 certified.
+On Linux, the fork uses [OpenSSL](https://www.openssl.org/) through the [golang-fips/openssl-fips] module in Go 1.21+ and the [go-crypto-openssl] module in earlier versions. On Windows, [CNG](https://docs.microsoft.com/en-us/windows/win32/seccng/about-cng), using [go-crypto-winnative]. Similar to BoringSSL, certain OpenSSL and CNG versions are FIPS 140-2 certified.
 
 It is important to note that an application built with Microsoft's Go toolchain and running in FIPS compatible mode is not FIPS compliant _per-se_. It is the responsibility of the application development team to use FIPS-compliant crypto primitives and workflows. The modified crypto runtime will fall back to Go standard library crypto in case it cannot provide a FIPS-compliant implementation, e.g. when hashing a message using `crypto/md5` hashes or when using an AES-GCM cipher with a non-standard nonce size.
 
@@ -148,7 +148,7 @@ The `opensslcrypto` Go runtime supports multiple OpenSSL versions. It discovers 
 Not all OpenSSL versions are supported. OpenSSL does not maintain ABI compatibility between different releases, even if only the patch version is increased, it needs specific attention to implement support. The relative importance of each version also results in a different amount of automated testing that has been implemented for various supported version. These are supported versions and the amount of automated validation for each one:
 
 - OpenSSL 1.1.1: the Microsoft CI builds official releases and runs the Go toolset test suite with this version.
-- OpenSSL 1.0.2, 1.1.0, 1.1.1, and 3.0.2: the [golang-fips/openssl-fips] repository CI tests basic operation, but not the integration with the Go runtime.
+- OpenSSL 1.0.2, 1.1.0, 1.1.1, and 3.0.2: the [golang-fips/openssl-fips] and [go-crypto-openssl] repository CI tests basic operation, but not the integration with the Go runtime.
 
 Versions not listed above are not supported at all.
 
@@ -192,6 +192,7 @@ The work done to support FIPS compatibility mode leverages code and ideas from o
 
 A program running in FIPS mode can claim it is using a FIPS-certified cryptographic module, but it can't claim the program as a whole is FIPS certified without passing the certification process, nor claim it is FIPS compliant without ensuring all crypto APIs and workflows are implemented in a FIPS-compliant manner.
 
+[go-crypto-openssl]: https://github.com/microsoft/go-crypto-openssl
 [golang-fips/openssl-fips]: https://github.com/golang-fips/openssl
 [go-crypto-winnative]: https://github.com/microsoft/go-crypto-winnative
 [dlopen]: https://man7.org/linux/man-pages/man3/dlopen.3.html
