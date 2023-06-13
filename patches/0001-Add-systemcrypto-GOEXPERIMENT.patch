@@ -1,19 +1,29 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Davis Goodin <dagood@microsoft.com>
 Date: Wed, 31 May 2023 16:54:31 -0500
-Subject: [PATCH] Add goexperiment.systemcrypto alias
+Subject: [PATCH] Add systemcrypto GOEXPERIMENT
 
-Adds systemcrypto, a helper for enabling the right backend for the
-target GOOS. Include a new test to help maintain this feature and detect
-problems if the base implementation and a copied file get out of sync.
+Adds systemcrypto GOEXPERIMENT and modifies tag handling to make
+goexperiment.systemcrypto behave as an alias that enables the recommended
+backend for the target GOOS.
+
+The reverse is also true: goexperiment.systemcrypto can be used as an alias in a
+build constraint. It's satisfied when (and only when) the recommended backend
+for the target GOOS is enabled, such as goexperiment.opensslcrypto on Linux.
+
+Includes a new test to help maintain this feature. This patch modifies a file
+that has been copied to two places in upstream Go, so the new test detects when
+the copies get out of sync to avoid problems. Any differences between the copies
+would end up causing flaky build behavior differences, so it is particularly
+important to test this.
 ---
  src/cmd/go/internal/modindex/build.go         | 43 +++++++++++
  src/cmd/go/internal/modindex/build_test.go    | 73 +++++++++++++++++++
  src/go/build/build.go                         | 43 +++++++++++
  .../goexperiment/exp_systemcrypto_off.go      |  9 +++
  .../goexperiment/exp_systemcrypto_on.go       |  9 +++
- src/internal/goexperiment/flags.go            |  9 +++
- 6 files changed, 186 insertions(+)
+ src/internal/goexperiment/flags.go            | 10 +++
+ 6 files changed, 187 insertions(+)
  create mode 100644 src/cmd/go/internal/modindex/build_test.go
  create mode 100644 src/internal/goexperiment/exp_systemcrypto_off.go
  create mode 100644 src/internal/goexperiment/exp_systemcrypto_on.go
@@ -250,13 +260,13 @@ index 00000000000000..9c5b0bbc7b99dc
 +const SystemCrypto = true
 +const SystemCryptoInt = 1
 diff --git a/src/internal/goexperiment/flags.go b/src/internal/goexperiment/flags.go
-index 48deab0d2b1cf9..a4bd4104702341 100644
+index ae3cbaf89fa5dd..cacb6cc6ad2da1 100644
 --- a/src/internal/goexperiment/flags.go
 +++ b/src/internal/goexperiment/flags.go
-@@ -61,6 +61,15 @@ type Flags struct {
+@@ -60,6 +60,16 @@ type Flags struct {
+ 	StaticLockRanking bool
  	BoringCrypto      bool
- 	OpenSSLCrypto     bool
- 	CNGCrypto         bool
+ 
 +	// SystemCrypto is linked to the OpenSSL or CNG crypto experiment
 +	// dependening on which one is appropriate on the target GOOS. Enabling this
 +	// experiment will enable the linked experiment, and enabling the linked
@@ -266,6 +276,7 @@ index 48deab0d2b1cf9..a4bd4104702341 100644
 +	// If SystemCrypto is enabled but no crypto experiment is appropriate on the
 +	// target GOOS, the build fails.
 +	SystemCrypto bool
- 
++
  	// Regabi is split into several sub-experiments that can be
  	// enabled individually. Not all combinations work.
+ 	// The "regabi" GOEXPERIMENT is an alias for all "working"
