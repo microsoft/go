@@ -5,77 +5,92 @@ Subject: [PATCH] Add systemcrypto GOEXPERIMENT
 
 Adds systemcrypto GOEXPERIMENT and modifies tag handling to make
 goexperiment.systemcrypto behave as an alias that enables the recommended
-backend for the target GOOS.
+backend for the target GOOS. See src/internal/goexperiment/flags.go for more
+information about the behavior.
 
-The reverse is also true: goexperiment.systemcrypto can be used as an alias in a
-build constraint. It's satisfied when (and only when) the recommended backend
-for the target GOOS is enabled, such as goexperiment.opensslcrypto on Linux.
-
-Includes a new test to help maintain this feature. This patch modifies a file
-that has been copied to two places in upstream Go, so the new test detects when
-the copies get out of sync to avoid problems. Any differences between the copies
-would end up causing flaky build behavior differences, so it is particularly
-important to test this.
+Includes new tests in "build_test.go" and "buildbackend_test.go" to help
+maintain this feature. For more information, see the test files.
 ---
- src/cmd/go/internal/modindex/build.go         | 43 +++++++++++
+ src/cmd/go/internal/modindex/build.go         | 54 ++++++++++++++
  src/cmd/go/internal/modindex/build_test.go    | 73 +++++++++++++++++++
- src/go/build/build.go                         | 43 +++++++++++
+ src/go/build/build.go                         | 54 ++++++++++++++
+ src/go/build/buildbackend_test.go             | 63 ++++++++++++++++
+ .../testdata/backendtags_openssl/main.go      |  3 +
+ .../testdata/backendtags_openssl/openssl.go   |  3 +
+ .../build/testdata/backendtags_system/main.go |  3 +
+ .../backendtags_system/systemcrypto.go        |  3 +
  .../goexperiment/exp_systemcrypto_off.go      |  9 +++
  .../goexperiment/exp_systemcrypto_on.go       |  9 +++
- src/internal/goexperiment/flags.go            | 10 +++
- 6 files changed, 187 insertions(+)
+ src/internal/goexperiment/flags.go            | 15 ++++
+ 11 files changed, 289 insertions(+)
  create mode 100644 src/cmd/go/internal/modindex/build_test.go
+ create mode 100644 src/go/build/buildbackend_test.go
+ create mode 100644 src/go/build/testdata/backendtags_openssl/main.go
+ create mode 100644 src/go/build/testdata/backendtags_openssl/openssl.go
+ create mode 100644 src/go/build/testdata/backendtags_system/main.go
+ create mode 100644 src/go/build/testdata/backendtags_system/systemcrypto.go
  create mode 100644 src/internal/goexperiment/exp_systemcrypto_off.go
  create mode 100644 src/internal/goexperiment/exp_systemcrypto_on.go
 
 diff --git a/src/cmd/go/internal/modindex/build.go b/src/cmd/go/internal/modindex/build.go
-index b57f2f6368f0fe..e9637c4e030f07 100644
+index b57f2f6368f0fe..9ddde1ce9a2286 100644
 --- a/src/cmd/go/internal/modindex/build.go
 +++ b/src/cmd/go/internal/modindex/build.go
-@@ -880,13 +880,56 @@ func (ctxt *Context) matchTag(name string, allTags map[string]bool) bool {
+@@ -880,13 +880,67 @@ func (ctxt *Context) matchTag(name string, allTags map[string]bool) bool {
  		name = "goexperiment.boringcrypto" // boringcrypto is an old name for goexperiment.boringcrypto
  	}
  
++	const system = "goexperiment.systemcrypto"
++	const openssl = "goexperiment.opensslcrypto"
++	const cng = "goexperiment.cngcrypto"
++	const boring = "goexperiment.boringcrypto"
 +	// Implement the SystemCrypto GOEXPERIMENT logic. This is done here rather
 +	// than during GOEXPERIMENT parsing so "-tags goexperiment.systemcrypto"
 +	// will work with "go build".
 +	//
-+	// Given a build constraint "name", altCryptoName stores an alternative to
-+	// "name" that also satisfies the build constaint. For example:
++	// This build constraint logic is set up to accomplish two goals:
 +	//
-+	//   - "//go:build goexperiment.opensslcrypto" is satisfied by either "goexperiment.opensslcrypto" or ("goexperiment.systemcrypto" on Linux).
-+	//   - "//go:build goexperiment.systemcrypto" is satisfied by either "goexperiment.systemcrypto" or ("goexperiment.opensslcrypto" on Linux).
++	//   - "goexperiment.systemcrypto" enables the recommended backend for the current GOOS.
++	//     E.g. "//go:build goexperiment.opensslcrypto" is satisfied by
++	//     "goexperiment.systemcrypto", but only on Linux.
 +	//
-+	// It may seem like it's enough to satisfy "goexperiment.systemcrypto" when
-+	// "goexperiment.opensslcrypto" is specified, and omit the GOOS=Linux check.
-+	// However, systemcrypto is a recommendation by the Microsoft Go toolset,
-+	// and we want to be careful not to misinform the user.
-+	var altCryptoName string
-+	if name == "goexperiment.systemcrypto" {
-+		switch ctxt.GOOS {
-+		case "linux":
-+			altCryptoName = "goexperiment.opensslcrypto"
-+		case "windows":
-+			altCryptoName = "goexperiment.cngcrypto"
++	//   - "//go:build goexperiment.systemcrypto" is satisfied by any crypto backend.
++	//     This simplifies build constraints that would otherwise need to list
++	//     every single backend.
++	//
++	// "name" is a build constraint being evaluated. Here, we set up bools that
++	// determine what would tags would satisfy this build constraint.
++	satisfiedByAnyBackend := name == system
++	satisfiedBySystemCrypto :=
++		(ctxt.GOOS == "linux" && name == openssl) ||
++			(ctxt.GOOS == "windows" && name == cng)
++	satisfiedBy := func(tag string) bool {
++		if satisfiedByAnyBackend {
++			switch tag {
++			case openssl, cng, boring:
++				return true
++			}
 +		}
++		if satisfiedBySystemCrypto && tag == system {
++			return true
++		}
++		return false
 +	}
-+	switch ctxt.GOOS {
-+	case "linux":
-+		if name == "goexperiment.opensslcrypto" {
-+			altCryptoName = "goexperiment.systemcrypto"
++	// Keep track of all the tags that might influence this build constraint.
++	if allTags != nil {
++		if satisfiedByAnyBackend {
++			allTags[openssl] = true
++			allTags[cng] = true
++			allTags[boring] = true
 +		}
-+	case "windows":
-+		if name == "goexperiment.cngcrypto" {
-+			altCryptoName = "goexperiment.systemcrypto"
++		if satisfiedBySystemCrypto {
++			allTags[system] = true
 +		}
-+	}
-+	if altCryptoName != "" && allTags != nil {
-+		allTags[altCryptoName] = true
 +	}
 +
  	// other tags
  	for _, tag := range ctxt.BuildTags {
-+		if altCryptoName != "" && tag == altCryptoName {
++		if satisfiedBy(tag) {
 +			return true
 +		}
  		if tag == name {
@@ -83,7 +98,7 @@ index b57f2f6368f0fe..e9637c4e030f07 100644
  		}
  	}
  	for _, tag := range ctxt.ToolTags {
-+		if altCryptoName != "" && tag == altCryptoName {
++		if satisfiedBy(tag) {
 +			return true
 +		}
  		if tag == name {
@@ -91,11 +106,11 @@ index b57f2f6368f0fe..e9637c4e030f07 100644
  		}
 diff --git a/src/cmd/go/internal/modindex/build_test.go b/src/cmd/go/internal/modindex/build_test.go
 new file mode 100644
-index 00000000000000..45a0ef25861509
+index 00000000000000..1756c5d027fee0
 --- /dev/null
 +++ b/src/cmd/go/internal/modindex/build_test.go
 @@ -0,0 +1,73 @@
-+// Copyright 2011 The Go Authors. All rights reserved.
++// Copyright 2023 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
 +
@@ -169,53 +184,64 @@ index 00000000000000..45a0ef25861509
 +	}
 +}
 diff --git a/src/go/build/build.go b/src/go/build/build.go
-index dd6cdc903a21a8..f131a65de2825a 100644
+index dd6cdc903a21a8..48adcfed5cf3cb 100644
 --- a/src/go/build/build.go
 +++ b/src/go/build/build.go
-@@ -1947,13 +1947,56 @@ func (ctxt *Context) matchTag(name string, allTags map[string]bool) bool {
+@@ -1947,13 +1947,67 @@ func (ctxt *Context) matchTag(name string, allTags map[string]bool) bool {
  		name = "goexperiment.boringcrypto" // boringcrypto is an old name for goexperiment.boringcrypto
  	}
  
++	const system = "goexperiment.systemcrypto"
++	const openssl = "goexperiment.opensslcrypto"
++	const cng = "goexperiment.cngcrypto"
++	const boring = "goexperiment.boringcrypto"
 +	// Implement the SystemCrypto GOEXPERIMENT logic. This is done here rather
 +	// than during GOEXPERIMENT parsing so "-tags goexperiment.systemcrypto"
 +	// will work with "go build".
 +	//
-+	// Given a build constraint "name", altCryptoName stores an alternative to
-+	// "name" that also satisfies the build constaint. For example:
++	// This build constraint logic is set up to accomplish two goals:
 +	//
-+	//   - "//go:build goexperiment.opensslcrypto" is satisfied by either "goexperiment.opensslcrypto" or ("goexperiment.systemcrypto" on Linux).
-+	//   - "//go:build goexperiment.systemcrypto" is satisfied by either "goexperiment.systemcrypto" or ("goexperiment.opensslcrypto" on Linux).
++	//   - "goexperiment.systemcrypto" enables the recommended backend for the current GOOS.
++	//     E.g. "//go:build goexperiment.opensslcrypto" is satisfied by
++	//     "goexperiment.systemcrypto", but only on Linux.
 +	//
-+	// It may seem like it's enough to satisfy "goexperiment.systemcrypto" when
-+	// "goexperiment.opensslcrypto" is specified, and omit the GOOS=Linux check.
-+	// However, systemcrypto is a recommendation by the Microsoft Go toolset,
-+	// and we want to be careful not to misinform the user.
-+	var altCryptoName string
-+	if name == "goexperiment.systemcrypto" {
-+		switch ctxt.GOOS {
-+		case "linux":
-+			altCryptoName = "goexperiment.opensslcrypto"
-+		case "windows":
-+			altCryptoName = "goexperiment.cngcrypto"
++	//   - "//go:build goexperiment.systemcrypto" is satisfied by any crypto backend.
++	//     This simplifies build constraints that would otherwise need to list
++	//     every single backend.
++	//
++	// "name" is a build constraint being evaluated. Here, we set up bools that
++	// determine what would tags would satisfy this build constraint.
++	satisfiedByAnyBackend := name == system
++	satisfiedBySystemCrypto :=
++		(ctxt.GOOS == "linux" && name == openssl) ||
++			(ctxt.GOOS == "windows" && name == cng)
++	satisfiedBy := func(tag string) bool {
++		if satisfiedByAnyBackend {
++			switch tag {
++			case openssl, cng, boring:
++				return true
++			}
 +		}
++		if satisfiedBySystemCrypto && tag == system {
++			return true
++		}
++		return false
 +	}
-+	switch ctxt.GOOS {
-+	case "linux":
-+		if name == "goexperiment.opensslcrypto" {
-+			altCryptoName = "goexperiment.systemcrypto"
++	// Keep track of all the tags that might influence this build constraint.
++	if allTags != nil {
++		if satisfiedByAnyBackend {
++			allTags[openssl] = true
++			allTags[cng] = true
++			allTags[boring] = true
 +		}
-+	case "windows":
-+		if name == "goexperiment.cngcrypto" {
-+			altCryptoName = "goexperiment.systemcrypto"
++		if satisfiedBySystemCrypto {
++			allTags[system] = true
 +		}
-+	}
-+	if altCryptoName != "" && allTags != nil {
-+		allTags[altCryptoName] = true
 +	}
 +
  	// other tags
  	for _, tag := range ctxt.BuildTags {
-+		if altCryptoName != "" && tag == altCryptoName {
++		if satisfiedBy(tag) {
 +			return true
 +		}
  		if tag == name {
@@ -223,12 +249,117 @@ index dd6cdc903a21a8..f131a65de2825a 100644
  		}
  	}
  	for _, tag := range ctxt.ToolTags {
-+		if altCryptoName != "" && tag == altCryptoName {
++		if satisfiedBy(tag) {
 +			return true
 +		}
  		if tag == name {
  			return true
  		}
+diff --git a/src/go/build/buildbackend_test.go b/src/go/build/buildbackend_test.go
+new file mode 100644
+index 00000000000000..3aeb03b44d6785
+--- /dev/null
++++ b/src/go/build/buildbackend_test.go
+@@ -0,0 +1,63 @@
++// Copyright 2023 The Go Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style
++// license that can be found in the LICENSE file.
++
++package build
++
++import (
++	"reflect"
++	"testing"
++)
++
++// Check that the crypto backend tag logic works and collects AllTags.
++// This is based on the TestAllTags test.
++func TestCryptoBackendAllTags(t *testing.T) {
++	ctxt := Default
++	ctxt.GOARCH = "amd64"
++	ctxt.GOOS = "linux"
++	ctxt.BuildTags = []string{"goexperiment.systemcrypto"}
++	p, err := ctxt.ImportDir("testdata/backendtags_openssl", 0)
++	if err != nil {
++		t.Fatal(err)
++	}
++	want := []string{"goexperiment.opensslcrypto", "goexperiment.systemcrypto"}
++	if !reflect.DeepEqual(p.AllTags, want) {
++		t.Errorf("AllTags = %v, want %v", p.AllTags, want)
++	}
++	wantFiles := []string{"main.go", "openssl.go"}
++	if !reflect.DeepEqual(p.GoFiles, wantFiles) {
++		t.Errorf("GoFiles = %v, want %v", p.GoFiles, wantFiles)
++	}
++
++	ctxt.GOARCH = "amd64"
++	ctxt.GOOS = "windows"
++	ctxt.BuildTags = []string{"goexperiment.cngcrypto"}
++	p, err = ctxt.ImportDir("testdata/backendtags_openssl", 0)
++	if err != nil {
++		t.Fatal(err)
++	}
++	// Given the current GOOS (windows), systemcrypto would not affect the
++	// decision, so we don't want it to be included in AllTags.
++	want = []string{"goexperiment.opensslcrypto"}
++	if !reflect.DeepEqual(p.AllTags, want) {
++		t.Errorf("AllTags = %v, want %v", p.AllTags, want)
++	}
++	wantFiles = []string{"main.go"}
++	if !reflect.DeepEqual(p.GoFiles, wantFiles) {
++		t.Errorf("GoFiles = %v, want %v", p.GoFiles, wantFiles)
++	}
++
++	// We want systemcrypto when cngcrypto is enabled on Windows.
++	p, err = ctxt.ImportDir("testdata/backendtags_system", 0)
++	if err != nil {
++		t.Fatal(err)
++	}
++	want = []string{"goexperiment.boringcrypto", "goexperiment.cngcrypto", "goexperiment.opensslcrypto", "goexperiment.systemcrypto"}
++	if !reflect.DeepEqual(p.AllTags, want) {
++		t.Errorf("AllTags = %v, want %v", p.AllTags, want)
++	}
++	wantFiles = []string{"main.go", "systemcrypto.go"}
++	if !reflect.DeepEqual(p.GoFiles, wantFiles) {
++		t.Errorf("GoFiles = %v, want %v", p.GoFiles, wantFiles)
++	}
++}
+diff --git a/src/go/build/testdata/backendtags_openssl/main.go b/src/go/build/testdata/backendtags_openssl/main.go
+new file mode 100644
+index 00000000000000..38dd16da61accb
+--- /dev/null
++++ b/src/go/build/testdata/backendtags_openssl/main.go
+@@ -0,0 +1,3 @@
++package main
++
++func main() {}
+diff --git a/src/go/build/testdata/backendtags_openssl/openssl.go b/src/go/build/testdata/backendtags_openssl/openssl.go
+new file mode 100644
+index 00000000000000..dd83f0ed1269bf
+--- /dev/null
++++ b/src/go/build/testdata/backendtags_openssl/openssl.go
+@@ -0,0 +1,3 @@
++//go:build goexperiment.opensslcrypto
++
++package main
+diff --git a/src/go/build/testdata/backendtags_system/main.go b/src/go/build/testdata/backendtags_system/main.go
+new file mode 100644
+index 00000000000000..38dd16da61accb
+--- /dev/null
++++ b/src/go/build/testdata/backendtags_system/main.go
+@@ -0,0 +1,3 @@
++package main
++
++func main() {}
+diff --git a/src/go/build/testdata/backendtags_system/systemcrypto.go b/src/go/build/testdata/backendtags_system/systemcrypto.go
+new file mode 100644
+index 00000000000000..eb8a026982259c
+--- /dev/null
++++ b/src/go/build/testdata/backendtags_system/systemcrypto.go
+@@ -0,0 +1,3 @@
++//go:build goexperiment.systemcrypto
++
++package main
 diff --git a/src/internal/goexperiment/exp_systemcrypto_off.go b/src/internal/goexperiment/exp_systemcrypto_off.go
 new file mode 100644
 index 00000000000000..bd33cd6159c166
@@ -260,21 +391,26 @@ index 00000000000000..9c5b0bbc7b99dc
 +const SystemCrypto = true
 +const SystemCryptoInt = 1
 diff --git a/src/internal/goexperiment/flags.go b/src/internal/goexperiment/flags.go
-index ae3cbaf89fa5dd..cacb6cc6ad2da1 100644
+index ae3cbaf89fa5dd..de79140b2d4780 100644
 --- a/src/internal/goexperiment/flags.go
 +++ b/src/internal/goexperiment/flags.go
-@@ -60,6 +60,16 @@ type Flags struct {
+@@ -60,6 +60,21 @@ type Flags struct {
  	StaticLockRanking bool
  	BoringCrypto      bool
  
-+	// SystemCrypto is linked to the OpenSSL or CNG crypto experiment
-+	// dependening on which one is appropriate on the target GOOS. Enabling this
-+	// experiment will enable the linked experiment, and enabling the linked
-+	// experiment will enable SystemCrypto. Other crypto experiment flags have
-+	// no effect on SystemCrypto.
++	// SystemCrypto enables the OpenSSL or CNG crypto experiment depending on
++	// which one is appropriate on the target GOOS.
 +	//
 +	// If SystemCrypto is enabled but no crypto experiment is appropriate on the
 +	// target GOOS, the build fails.
++	//
++	// Like any other GOEXPERIMENT, the SystemCrypto experiment sets the
++	// "goexperiment.systemcrypto" build tag. However, to make the tag more
++	// useful in build constraints, if any Go backend is enabled,
++	// "goexperiment.systemcrypto" is enabled. This means
++	// "goexperiment.systemcrypto" can be used as a build constraint meaning
++	// "any crypto backend is enabled", even if GOEXPERIMENT=systemcrypto is not
++	// being used to build the Go program.
 +	SystemCrypto bool
 +
  	// Regabi is split into several sub-experiments that can be
