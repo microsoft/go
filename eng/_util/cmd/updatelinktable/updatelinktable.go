@@ -23,8 +23,8 @@ This command updates the table in ` + docPath + ` and data in ` + jsonPath + `.
 
 var supported = []version{
 	{
-		Number: "1.20",
-		Stable: true,
+		Number:       "1.20",
+		LatestStable: true,
 		Platforms: map[string]struct{}{
 			"linux-amd64":   {},
 			"linux-arm64":   {},
@@ -34,8 +34,8 @@ var supported = []version{
 		},
 	},
 	{
-		Number:    "1.19",
-		OldStable: true,
+		Number:         "1.19",
+		PreviousStable: true,
 		Platforms: map[string]struct{}{
 			"linux-amd64":   {},
 			"linux-arm64":   {},
@@ -51,10 +51,10 @@ var platformPrettyNames = map[string]string{
 }
 
 type version struct {
-	Number    string
-	Stable    bool
-	OldStable bool
-	Platforms map[string]struct{}
+	Number         string
+	LatestStable   bool
+	PreviousStable bool
+	Platforms      map[string]struct{}
 }
 
 var linuxFiles = []goFileType{
@@ -198,9 +198,10 @@ func data() (string, []supportdata.Branch) {
 		b.WriteString(v.Number)
 		b.WriteString(" |")
 		branches = append(branches, supportdata.Branch{
-			Version:   "go" + v.Number,
-			Stable:    v.Stable,
-			OldStable: v.OldStable,
+			Version:        "go" + v.Number,
+			Stable:         true,
+			LatestStable:   v.LatestStable,
+			PreviousStable: v.PreviousStable,
 		})
 	}
 	b.WriteString("\n| --- |")

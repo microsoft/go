@@ -7,10 +7,13 @@ package supportdata
 type Branch struct {
 	// Version of the branch not including patch version, e.g. "1.20".
 	Version string `json:"version,omitempty"`
-	// Stable is true if this is the latest stable release.
+	// Stable is true if this is a stable release.
 	Stable bool `json:"stable,omitempty"`
-	// OldStable is true if this is the stable release just before the latest stable one.
-	OldStable bool `json:"oldStable,omitempty"`
+	// LatestStable is true if this is the most recent stable release.
+	LatestStable bool `json:"latestStable,omitempty"`
+	// PreviousStable is true if this is the stable release just before the
+	// latest stable one.
+	PreviousStable bool `json:"previousStable,omitempty"`
 	// Files is the list of "latest X" links for each artifact X.
 	Files []*LatestLink `json:"files,omitempty"`
 }
