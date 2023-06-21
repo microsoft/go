@@ -10,25 +10,25 @@ To reproduce, run 'go mod vendor' in 'go/src'.
  .../go-crypto-openssl/openssl/bbig/big.go     |  38 ++
  .../go-crypto-openssl/openssl/big.go          |  13 +
  .../go-crypto-openssl/openssl/ecdh.go         | 223 +++++++
- .../go-crypto-openssl/openssl/ecdsa.go        | 174 ++++++
- .../go-crypto-openssl/openssl/evpkey.go       | 325 ++++++++++
- .../go-crypto-openssl/openssl/goopenssl.c     | 153 +++++
- .../go-crypto-openssl/openssl/goopenssl.h     | 147 +++++
- .../go-crypto-openssl/openssl/hmac.go         | 251 ++++++++
+ .../go-crypto-openssl/openssl/ecdsa.go        | 174 +++++
+ .../go-crypto-openssl/openssl/evpkey.go       | 334 ++++++++++
+ .../go-crypto-openssl/openssl/goopenssl.c     | 174 +++++
+ .../go-crypto-openssl/openssl/goopenssl.h     | 148 +++++
+ .../go-crypto-openssl/openssl/hmac.go         | 252 ++++++++
  .../openssl/internal/subtle/aliasing.go       |  32 +
- .../go-crypto-openssl/openssl/openssl.go      | 302 +++++++++
- .../go-crypto-openssl/openssl/openssl_funcs.h | 293 +++++++++
+ .../go-crypto-openssl/openssl/openssl.go      | 303 +++++++++
+ .../go-crypto-openssl/openssl/openssl_funcs.h | 292 +++++++++
  .../openssl/openssl_lock_setup.c              |  53 ++
  .../go-crypto-openssl/openssl/rand.go         |  24 +
  .../go-crypto-openssl/openssl/rsa.go          | 337 ++++++++++
- .../go-crypto-openssl/openssl/sha.go          | 580 ++++++++++++++++++
+ .../go-crypto-openssl/openssl/sha.go          | 604 ++++++++++++++++++
  .../microsoft/go-crypto-winnative/LICENSE     |  21 +
  .../microsoft/go-crypto-winnative/cng/aes.go  | 359 +++++++++++
  .../go-crypto-winnative/cng/bbig/big.go       |  31 +
  .../microsoft/go-crypto-winnative/cng/big.go  |  30 +
  .../microsoft/go-crypto-winnative/cng/cng.go  | 130 ++++
  .../microsoft/go-crypto-winnative/cng/ecdh.go | 257 ++++++++
- .../go-crypto-winnative/cng/ecdsa.go          | 173 ++++++
+ .../go-crypto-winnative/cng/ecdsa.go          | 173 +++++
  .../microsoft/go-crypto-winnative/cng/hmac.go |  55 ++
  .../microsoft/go-crypto-winnative/cng/keys.go | 161 +++++
  .../microsoft/go-crypto-winnative/cng/rand.go |  28 +
@@ -39,7 +39,7 @@ To reproduce, run 'go mod vendor' in 'go/src'.
  .../internal/subtle/aliasing.go               |  32 +
  .../internal/sysdll/sys_windows.go            |  55 ++
  src/vendor/modules.txt                        |  12 +
- 34 files changed, 5953 insertions(+)
+ 34 files changed, 6009 insertions(+)
  create mode 100644 src/vendor/github.com/microsoft/go-crypto-openssl/LICENSE
  create mode 100644 src/vendor/github.com/microsoft/go-crypto-openssl/openssl/aes.go
  create mode 100644 src/vendor/github.com/microsoft/go-crypto-openssl/openssl/bbig/big.go
@@ -629,7 +629,7 @@ index 00000000000000..1214e1097ef56d
 +}
 diff --git a/src/vendor/github.com/microsoft/go-crypto-openssl/openssl/big.go b/src/vendor/github.com/microsoft/go-crypto-openssl/openssl/big.go
 new file mode 100644
-index 00000000000000..7207bde01c9d94
+index 00000000000000..c6856c7bc25dc3
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go-crypto-openssl/openssl/big.go
 @@ -0,0 +1,13 @@
@@ -1057,10 +1057,10 @@ index 00000000000000..de4aa0ecfcbcab
 +}
 diff --git a/src/vendor/github.com/microsoft/go-crypto-openssl/openssl/evpkey.go b/src/vendor/github.com/microsoft/go-crypto-openssl/openssl/evpkey.go
 new file mode 100644
-index 00000000000000..2965d017dda95c
+index 00000000000000..ef0753ec878ee6
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go-crypto-openssl/openssl/evpkey.go
-@@ -0,0 +1,325 @@
+@@ -0,0 +1,334 @@
 +// Copyright (c) Microsoft Corporation.
 +// Licensed under the MIT License.
 +
@@ -1230,7 +1230,16 @@ index 00000000000000..2965d017dda95c
 +			clabel = (*C.uchar)(C.malloc(C.size_t(len(label))))
 +			copy((*[1 << 30]byte)(unsafe.Pointer(clabel))[:len(label)], label)
 +		}
-+		if C.go_openssl_EVP_PKEY_CTX_ctrl(ctx, C.GO_EVP_PKEY_RSA, -1, C.GO_EVP_PKEY_CTRL_RSA_OAEP_LABEL, C.int(len(label)), unsafe.Pointer(clabel)) != 1 {
++		var ret C.int
++		if vMajor == 1 {
++			ret = C.go_openssl_EVP_PKEY_CTX_ctrl(ctx, C.GO_EVP_PKEY_RSA, -1, C.GO_EVP_PKEY_CTRL_RSA_OAEP_LABEL, C.int(len(label)), unsafe.Pointer(clabel))
++		} else {
++			// OpenSSL 3 implements EVP_PKEY_CTX_set0_rsa_oaep_label as a function,
++			// instead of a macro around EVP_PKEY_CTX_ctrl, and it takes a different
++			// code path when the implementation is provided by FIPS provider.
++			ret = C.go_openssl_EVP_PKEY_CTX_set0_rsa_oaep_label(ctx, unsafe.Pointer(clabel), C.int(len(label)))
++		}
++		if ret != 1 {
 +			if clabel != nil {
 +				C.free(unsafe.Pointer(clabel))
 +			}
@@ -1388,10 +1397,10 @@ index 00000000000000..2965d017dda95c
 +}
 diff --git a/src/vendor/github.com/microsoft/go-crypto-openssl/openssl/goopenssl.c b/src/vendor/github.com/microsoft/go-crypto-openssl/openssl/goopenssl.c
 new file mode 100644
-index 00000000000000..7bbf74185128dd
+index 00000000000000..3ef57ba798a098
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go-crypto-openssl/openssl/goopenssl.c
-@@ -0,0 +1,153 @@
+@@ -0,0 +1,174 @@
 +// Copyright (c) Microsoft Corporation.
 +// Licensed under the MIT License.
 +
@@ -1402,6 +1411,27 @@ index 00000000000000..7bbf74185128dd
 +
 +#include <dlfcn.h>
 +#include <stdio.h>
++
++int
++go_openssl_fips_enabled(void* handle)
++{
++    // For OpenSSL 1.x.
++    int (*FIPS_mode)(void);
++    FIPS_mode = (int (*)(void))dlsym(handle, "FIPS_mode");
++    if (FIPS_mode != NULL)
++        return FIPS_mode();
++
++    // For OpenSSL 3.x.
++    int (*EVP_default_properties_is_fips_enabled)(void*);
++    int (*OSSL_PROVIDER_available)(void*, const char*);
++    EVP_default_properties_is_fips_enabled = (int (*)(void*))dlsym(handle, "EVP_default_properties_is_fips_enabled"); 
++    OSSL_PROVIDER_available = (int (*)(void*, const char*))dlsym(handle, "OSSL_PROVIDER_available"); 
++    if (EVP_default_properties_is_fips_enabled != NULL && OSSL_PROVIDER_available != NULL &&
++        EVP_default_properties_is_fips_enabled(NULL) == 1 && OSSL_PROVIDER_available(NULL, "fips") == 1)
++            return 1;
++
++    return 0;
++}
 +
 +static unsigned long
 +version_num(void* handle)
@@ -1547,10 +1577,10 @@ index 00000000000000..7bbf74185128dd
 +}
 diff --git a/src/vendor/github.com/microsoft/go-crypto-openssl/openssl/goopenssl.h b/src/vendor/github.com/microsoft/go-crypto-openssl/openssl/goopenssl.h
 new file mode 100644
-index 00000000000000..03aed43e001d54
+index 00000000000000..439ce8e5b7fe16
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go-crypto-openssl/openssl/goopenssl.h
-@@ -0,0 +1,147 @@
+@@ -0,0 +1,148 @@
 +// Copyright (c) Microsoft Corporation.
 +// Licensed under the MIT License.
 +
@@ -1560,6 +1590,7 @@ index 00000000000000..03aed43e001d54
 +
 +#include "openssl_funcs.h"
 +
++int go_openssl_fips_enabled(void* handle);
 +int go_openssl_version_major(void* handle);
 +int go_openssl_version_minor(void* handle);
 +int go_openssl_thread_setup(void);
@@ -1701,10 +1732,10 @@ index 00000000000000..03aed43e001d54
 \ No newline at end of file
 diff --git a/src/vendor/github.com/microsoft/go-crypto-openssl/openssl/hmac.go b/src/vendor/github.com/microsoft/go-crypto-openssl/openssl/hmac.go
 new file mode 100644
-index 00000000000000..81918cde673cee
+index 00000000000000..bb7c87fa48eeb8
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go-crypto-openssl/openssl/hmac.go
-@@ -0,0 +1,251 @@
+@@ -0,0 +1,252 @@
 +// Copyright (c) Microsoft Corporation.
 +// Licensed under the MIT License.
 +
@@ -1917,6 +1948,7 @@ index 00000000000000..81918cde673cee
 +}
 +
 +func (h *hmac3) finalize() {
++	C.go_openssl_EVP_MAC_free(h.md)
 +	if h.ctx == nil {
 +		return
 +	}
@@ -1996,10 +2028,10 @@ index 00000000000000..db09e4aae64f8c
 +}
 diff --git a/src/vendor/github.com/microsoft/go-crypto-openssl/openssl/openssl.go b/src/vendor/github.com/microsoft/go-crypto-openssl/openssl/openssl.go
 new file mode 100644
-index 00000000000000..e3e13d793c4d8b
+index 00000000000000..4c5ebf4cb4a37a
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go-crypto-openssl/openssl/openssl.go
-@@ -0,0 +1,302 @@
+@@ -0,0 +1,303 @@
 +// Copyright (c) Microsoft Corporation.
 +// Licensed under the MIT License.
 +
@@ -2026,9 +2058,6 @@ index 00000000000000..e3e13d793c4d8b
 +var (
 +	providerNameFips    = C.CString("fips")
 +	providerNameDefault = C.CString("default")
-+	propFipsYes         = C.CString("fips=yes")
-+	propFipsNo          = C.CString("fips=no")
-+	algProve            = C.CString("SHA2-256")
 +)
 +
 +var (
@@ -2128,26 +2157,33 @@ index 00000000000000..e3e13d793c4d8b
 +		}
 +		return handle, nil
 +	}
++	var fallbackHandle unsafe.Pointer
 +	for _, v := range knownVersions {
 +		handle := dlopen(v)
-+		if handle != nil {
++		if handle == nil {
++			continue
++		}
++		if C.go_openssl_fips_enabled(handle) == 1 {
++			// Found a FIPS enabled version, use it.
++			if fallbackHandle != nil {
++				// If we found a FIPS enabled version but we already have a fallback
++				// version, close the fallback version.
++				C.dlclose(fallbackHandle)
++			}
 +			return handle, nil
 +		}
++		if fallbackHandle == nil {
++			// Remember the first version that exists but is not FIPS enabled
++			// in case we don't find any FIPS enabled version.
++			fallbackHandle = handle
++		} else {
++			C.dlclose(handle)
++		}
++	}
++	if fallbackHandle != nil {
++		return fallbackHandle, nil
 +	}
 +	return nil, errors.New("openssl: can't load libcrypto.so using any known version suffix")
-+}
-+
-+// providerAvailable looks through provider's digests
-+// checking if there is any that matches the props query.
-+func providerAvailable(props *C.char) bool {
-+	C.go_openssl_ERR_set_mark()
-+	md := C.go_openssl_EVP_MD_fetch(nil, algProve, props)
-+	C.go_openssl_ERR_pop_to_mark()
-+	if md == nil {
-+		return false
-+	}
-+	C.go_openssl_EVP_MD_free(md)
-+	return true
 +}
 +
 +// FIPS returns true if OpenSSL is running in FIPS mode, else returns false.
@@ -2161,7 +2197,7 @@ index 00000000000000..e3e13d793c4d8b
 +		}
 +		// EVP_default_properties_is_fips_enabled can return true even if the FIPS provider isn't loaded,
 +		// it is only based on the default properties.
-+		return providerAvailable(propFipsYes)
++		return C.go_openssl_OSSL_PROVIDER_available(nil, providerNameFips) == 1
 +	default:
 +		panic(errUnsuportedVersion())
 +	}
@@ -2169,45 +2205,41 @@ index 00000000000000..e3e13d793c4d8b
 +
 +// SetFIPS enables or disables FIPS mode.
 +//
-+// It implements the following provider fallback logic for OpenSSL 3:
-+//    - The "fips" provider is loaded if enabled=true and no loaded provider matches "fips=yes".
-+//    - The "default" provider is loaded if enabled=false and no loaded provider matches "fips=no".
-+// This logic allows advanced users to define their own providers that match "fips=yes" and "fips=no" using the OpenSSL config file.
++// On OpenSSL 3, the `fips` provider is loaded if enabled is true,
++// else the `default` provider is loaded.
 +func SetFIPS(enabled bool) error {
++	var mode C.int
++	if enabled {
++		mode = C.int(1)
++	} else {
++		mode = C.int(0)
++	}
 +	switch vMajor {
 +	case 1:
-+		var mode C.int
-+		if enabled {
-+			mode = C.int(1)
-+		} else {
-+			mode = C.int(0)
-+		}
 +		if C.go_openssl_FIPS_mode_set(mode) != 1 {
 +			return newOpenSSLError("openssl: FIPS_mode_set")
 +		}
 +		return nil
 +	case 3:
-+		var props, provName *C.char
++		var provName *C.char
 +		if enabled {
-+			props = propFipsYes
 +			provName = providerNameFips
 +		} else {
-+			props = propFipsNo
 +			provName = providerNameDefault
 +		}
-+		// Check if there is any provider that matches props.
-+		if !providerAvailable(props) {
++		// Check if provName is not loaded.
++		if C.go_openssl_OSSL_PROVIDER_available(nil, provName) == 0 {
 +			// If not, fallback to provName provider.
 +			if C.go_openssl_OSSL_PROVIDER_load(nil, provName) == nil {
-+				return newOpenSSLError("openssl: OSSL_PROVIDER_try_load")
++				return newOpenSSLError("openssl: OSSL_PROVIDER_load")
 +			}
 +			// Make sure we now have a provider available.
-+			if !providerAvailable(props) {
++			if C.go_openssl_OSSL_PROVIDER_available(nil, provName) == 0 {
 +				return fail("SetFIPS(" + strconv.FormatBool(enabled) + ") not supported")
 +			}
 +		}
-+		if C.go_openssl_EVP_set_default_properties(nil, props) != 1 {
-+			return newOpenSSLError("openssl: EVP_set_default_properties")
++		if C.go_openssl_EVP_default_properties_enable_fips(nil, mode) != 1 {
++			return newOpenSSLError("openssl: EVP_default_properties_enable_fips")
 +		}
 +		return nil
 +	default:
@@ -2283,6 +2315,7 @@ index 00000000000000..e3e13d793c4d8b
 +// output depends on the input. noescape is inlined and currently
 +// compiles down to zero instructions.
 +// USE CAREFULLY!
++//
 +//go:nosplit
 +func noescape(p unsafe.Pointer) unsafe.Pointer {
 +	x := uintptr(p)
@@ -2304,10 +2337,10 @@ index 00000000000000..e3e13d793c4d8b
 +}
 diff --git a/src/vendor/github.com/microsoft/go-crypto-openssl/openssl/openssl_funcs.h b/src/vendor/github.com/microsoft/go-crypto-openssl/openssl/openssl_funcs.h
 new file mode 100644
-index 00000000000000..fe72f90e9c7bba
+index 00000000000000..c1fd6a7fd82e05
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go-crypto-openssl/openssl/openssl_funcs.h
-@@ -0,0 +1,293 @@
+@@ -0,0 +1,292 @@
 +// Copyright (c) Microsoft Corporation.
 +// Licensed under the MIT License.
 +
@@ -2460,8 +2493,6 @@ index 00000000000000..fe72f90e9c7bba
 +// #include <openssl/provider.h>
 +// #endif
 +#define FOR_ALL_OPENSSL_FUNCTIONS \
-+DEFINEFUNC(int, ERR_set_mark, (void), ()) \
-+DEFINEFUNC(int, ERR_pop_to_mark, (void), ()) \
 +DEFINEFUNC(unsigned long, ERR_get_error, (void), ()) \
 +DEFINEFUNC(void, ERR_error_string_n, (unsigned long e, char *buf, size_t len), (e, buf, len)) \
 +DEFINEFUNC_RENAMED_1_1(const char *, OpenSSL_version, SSLeay_version, (int type), (type)) \
@@ -2475,8 +2506,9 @@ index 00000000000000..fe72f90e9c7bba
 +DEFINEFUNC_LEGACY_1(int, FIPS_mode, (void), ()) \
 +DEFINEFUNC_LEGACY_1(int, FIPS_mode_set, (int r), (r)) \
 +DEFINEFUNC_3_0(int, EVP_default_properties_is_fips_enabled, (GO_OSSL_LIB_CTX_PTR libctx), (libctx)) \
-+DEFINEFUNC_3_0(int, EVP_set_default_properties, (GO_OSSL_LIB_CTX_PTR libctx, const char *propq), (libctx, propq)) \
++DEFINEFUNC_3_0(int, EVP_default_properties_enable_fips, (GO_OSSL_LIB_CTX_PTR libctx, int enable), (libctx, enable)) \
 +DEFINEFUNC_3_0(GO_OSSL_PROVIDER_PTR, OSSL_PROVIDER_load, (GO_OSSL_LIB_CTX_PTR libctx, const char *name), (libctx, name)) \
++DEFINEFUNC_3_0(int, OSSL_PROVIDER_available, (GO_OSSL_LIB_CTX_PTR libctx, const char *name), (libctx, name)) \
 +DEFINEFUNC(int, RAND_bytes, (unsigned char* arg0, int arg1), (arg0, arg1)) \
 +DEFINEFUNC(int, EVP_DigestInit, (GO_EVP_MD_CTX_PTR ctx, const GO_EVP_MD_PTR type), (ctx, type)) \
 +DEFINEFUNC(int, EVP_DigestInit_ex, (GO_EVP_MD_CTX_PTR ctx, const GO_EVP_MD_PTR type, GO_ENGINE_PTR impl), (ctx, type, impl)) \
@@ -2496,8 +2528,6 @@ index 00000000000000..fe72f90e9c7bba
 +DEFINEFUNC(const GO_EVP_MD_PTR, EVP_sha384, (void), ()) \
 +DEFINEFUNC(const GO_EVP_MD_PTR, EVP_sha512, (void), ()) \
 +DEFINEFUNC_1_1(const GO_EVP_MD_PTR, EVP_md5_sha1, (void), ()) \
-+DEFINEFUNC_3_0(GO_EVP_MD_PTR, EVP_MD_fetch, (GO_OSSL_LIB_CTX_PTR ctx, const char *algorithm, const char *properties), (ctx, algorithm, properties)) \
-+DEFINEFUNC_3_0(void, EVP_MD_free, (GO_EVP_MD_PTR md), (md)) \
 +DEFINEFUNC_RENAMED_3_0(int, EVP_MD_get_size, EVP_MD_size, (const GO_EVP_MD_PTR arg0), (arg0)) \
 +DEFINEFUNC_LEGACY_1_0(void, HMAC_CTX_init, (GO_HMAC_CTX_PTR arg0), (arg0)) \
 +DEFINEFUNC_LEGACY_1_0(void, HMAC_CTX_cleanup, (GO_HMAC_CTX_PTR arg0), (arg0)) \
@@ -2592,6 +2622,7 @@ index 00000000000000..fe72f90e9c7bba
 +DEFINEFUNC(int, EVP_PKEY_derive_set_peer, (GO_EVP_PKEY_CTX_PTR ctx, GO_EVP_PKEY_PTR peer), (ctx, peer)) \
 +DEFINEFUNC(int, EVP_PKEY_derive, (GO_EVP_PKEY_CTX_PTR ctx, unsigned char *key, size_t *keylen), (ctx, key, keylen)) \
 +DEFINEFUNC_3_0(GO_EVP_MAC_PTR, EVP_MAC_fetch, (GO_OSSL_LIB_CTX_PTR ctx, const char *algorithm, const char *properties), (ctx, algorithm, properties)) \
++DEFINEFUNC_3_0(void, EVP_MAC_free, (GO_EVP_MAC_PTR mac), (mac)) \
 +DEFINEFUNC_3_0(GO_EVP_MAC_CTX_PTR, EVP_MAC_CTX_new, (GO_EVP_MAC_PTR arg0), (arg0)) \
 +DEFINEFUNC_3_0(void, EVP_MAC_CTX_free, (GO_EVP_MAC_CTX_PTR arg0), (arg0)) \
 +DEFINEFUNC_3_0(GO_EVP_MAC_CTX_PTR, EVP_MAC_CTX_dup, (const GO_EVP_MAC_CTX_PTR arg0), (arg0)) \
@@ -2600,6 +2631,7 @@ index 00000000000000..fe72f90e9c7bba
 +DEFINEFUNC_3_0(int, EVP_MAC_final, (GO_EVP_MAC_CTX_PTR ctx, unsigned char *out, size_t *outl, size_t outsize), (ctx, out, outl, outsize)) \
 +DEFINEFUNC_3_0(OSSL_PARAM, OSSL_PARAM_construct_utf8_string, (const char *key, char *buf, size_t bsize), (key, buf, bsize)) \
 +DEFINEFUNC_3_0(OSSL_PARAM, OSSL_PARAM_construct_end, (void), ()) \
++DEFINEFUNC_3_0(int, EVP_PKEY_CTX_set0_rsa_oaep_label, (GO_EVP_PKEY_CTX_PTR ctx, void *label, int len), (ctx, label, len)) \
 +
 diff --git a/src/vendor/github.com/microsoft/go-crypto-openssl/openssl/openssl_lock_setup.c b/src/vendor/github.com/microsoft/go-crypto-openssl/openssl/openssl_lock_setup.c
 new file mode 100644
@@ -3035,10 +3067,10 @@ index 00000000000000..b717ea932cd8a1
 +}
 diff --git a/src/vendor/github.com/microsoft/go-crypto-openssl/openssl/sha.go b/src/vendor/github.com/microsoft/go-crypto-openssl/openssl/sha.go
 new file mode 100644
-index 00000000000000..bb96a9bcaee7d4
+index 00000000000000..a1dd73d4e171ff
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go-crypto-openssl/openssl/sha.go
-@@ -0,0 +1,580 @@
+@@ -0,0 +1,604 @@
 +// Copyright (c) Microsoft Corporation.
 +// Licensed under the MIT License.
 +
@@ -3146,8 +3178,10 @@ index 00000000000000..bb96a9bcaee7d4
 +func (h *evpHash) Reset() {
 +	// There is no need to reset h.ctx2 because it is always reset after
 +	// use in evpHash.sum.
-+	if C.go_openssl_EVP_DigestInit(h.ctx, h.md) != 1 {
-+		panic("openssl: EVP_DigestInit failed")
++	// Calling EVP_DigestInit on an already initialized EVP_MD_CTX results in
++	// memory leak on OpenSSL 1.0.2, use EVP_DigestInit_ex  instead.
++	if C.go_openssl_EVP_DigestInit_ex(h.ctx, h.md, nil) != 1 {
++		panic("openssl: EVP_DigestInit_ex failed")
 +	}
 +	runtime.KeepAlive(h)
 +}
@@ -3158,6 +3192,28 @@ index 00000000000000..bb96a9bcaee7d4
 +	}
 +	runtime.KeepAlive(h)
 +	return len(p), nil
++}
++
++func (h *evpHash) WriteString(s string) (int, error) {
++	// TODO: use unsafe.StringData once we drop support
++	// for go1.19 and earlier.
++	hdr := (*struct {
++		Data *byte
++		Len  int
++	})(unsafe.Pointer(&s))
++	if len(s) > 0 && C.go_openssl_EVP_DigestUpdate(h.ctx, unsafe.Pointer(hdr.Data), C.size_t(len(s))) == 0 {
++		panic("openssl: EVP_DigestUpdate failed")
++	}
++	runtime.KeepAlive(h)
++	return len(s), nil
++}
++
++func (h *evpHash) WriteByte(c byte) error {
++	if C.go_openssl_EVP_DigestUpdate(h.ctx, unsafe.Pointer(&c), 1) == 0 {
++		panic("openssl: EVP_DigestUpdate failed")
++	}
++	runtime.KeepAlive(h)
++	return nil
 +}
 +
 +func (h *evpHash) Size() int {
@@ -6215,12 +6271,12 @@ index 00000000000000..1722410e5af193
 +	return getSystemDirectory() + "\\" + dll
 +}
 diff --git a/src/vendor/modules.txt b/src/vendor/modules.txt
-index fd6a1ae10b48be..45a8b4acce473d 100644
+index efe65014c8b31c..7ccaf5339e4f0e 100644
 --- a/src/vendor/modules.txt
 +++ b/src/vendor/modules.txt
 @@ -1,3 +1,15 @@
-+# github.com/microsoft/go-crypto-openssl v0.2.6
-+## explicit; go 1.16
++# github.com/microsoft/go-crypto-openssl v0.2.8
++## explicit; go 1.17
 +github.com/microsoft/go-crypto-openssl/openssl
 +github.com/microsoft/go-crypto-openssl/openssl/bbig
 +github.com/microsoft/go-crypto-openssl/openssl/internal/subtle
