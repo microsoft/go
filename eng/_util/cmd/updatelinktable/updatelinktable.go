@@ -5,6 +5,7 @@
 package main
 
 import (
+	"encoding/json"
 	"flag"
 	"fmt"
 	"log"
@@ -12,16 +13,19 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/microsoft/go/_core/supportdata"
 )
 
 var description = `
-This command updates the table in ` + docPath + `.
+This command updates the table in ` + docPath + ` and data in ` + jsonPath + `.
 `
 
 var supported = []version{
 	{
-		"1.20",
-		map[string]struct{}{
+		Number:       "1.20",
+		LatestStable: true,
+		Platforms: map[string]struct{}{
 			"linux-amd64":   {},
 			"linux-arm64":   {},
 			"linux-armv6l":  {},
@@ -30,8 +34,9 @@ var supported = []version{
 		},
 	},
 	{
-		"1.19",
-		map[string]struct{}{
+		Number:         "1.19",
+		PreviousStable: true,
+		Platforms: map[string]struct{}{
 			"linux-amd64":   {},
 			"linux-arm64":   {},
 			"linux-armv6l":  {},
@@ -46,31 +51,80 @@ var platformPrettyNames = map[string]string{
 }
 
 type version struct {
-	Number    string
-	Platforms map[string]struct{}
+	Number         string
+	LatestStable   bool
+	PreviousStable bool
+	Platforms      map[string]struct{}
 }
 
 var linuxFiles = []goFileType{
-	{"Binaries (tar.gz)", ".tar.gz"},
-	{"Checksum (SHA256)", ".tar.gz.sha256"},
-	{"Signature<sup>1</sup>", ".tar.gz.sig"},
+	{
+		Kind:      supportdata.Archive,
+		Name:      "Binaries (tar.gz)",
+		Ext:       ".tar.gz",
+		Checksum:  true,
+		Signature: true,
+	},
 }
+
 var windowsFiles = []goFileType{
-	{"Binaries (zip)", ".zip"},
-	{"Checksum (SHA256)", ".zip.sha256"},
+	{
+		Kind:     supportdata.Archive,
+		Name:     "Binaries (zip)",
+		Ext:      ".zip",
+		Checksum: true,
+	},
 }
+
 var sourceFiles = []goFileType{
-	{"Source (tar.gz)", ".tar.gz"},
-	{"Checksum (SHA256)", ".tar.gz.sha256"},
-	{"Signature<sup>1</sup>", ".tar.gz.sig"},
+	{
+		Kind:      supportdata.Source,
+		Name:      "Source (tar.gz)",
+		Ext:       ".tar.gz",
+		Checksum:  true,
+		Signature: true,
+	},
 }
 
 type goFileType struct {
-	Name string
-	Ext  string
+	Kind      supportdata.ArtifactKind
+	Name      string
+	Ext       string
+	Checksum  bool
+	Signature bool
 }
 
+func (t *goFileType) ArtifactLink(version, platform, os, arch string) *supportdata.LatestLink {
+	l := supportdata.LatestLink{
+		Filename: filename(version, platform, t.Ext),
+		OS:       os,
+		Arch:     arch,
+		Version:  "go" + version,
+		Kind:     t.Kind,
+		URL:      baseURL + filename(version, platform, t.Ext),
+	}
+	if t.Checksum {
+		l.ChecksumURL = baseURL + filename(version, platform, t.Ext+checksumSuffix)
+	}
+	if t.Signature {
+		l.SignatureURL = baseURL + filename(version, platform, t.Ext+signatureSuffix)
+	}
+	return &l
+}
+
+func filename(version, platform, ext string) string {
+	return "go" + version + "." + platform + ext
+}
+
+const checksumSuffix = ".sha256"
+const checksumMsg = "Checksum (SHA256)"
+const signatureSuffix = ".sig"
+const signatureMsg = "Signature<sup>1</sup>"
+
+const baseURL = "https://aka.ms/golang/release/latest/"
+
 var docPath = filepath.Join("eng", "doc", "Downloads.md")
+var jsonPath = filepath.Join("eng", "doc", "release-branch-links.json")
 
 const beginMark = "<!-- BEGIN TABLES -->"
 const endMark = "<!-- END TABLES -->"
@@ -90,12 +144,12 @@ func main() {
 		return
 	}
 
-	if err := writeTables(); err != nil {
+	if err := write(); err != nil {
 		log.Fatalln(err)
 	}
 }
 
-func writeTables() error {
+func write() error {
 	bytes, err := os.ReadFile(docPath)
 	if err != nil {
 		return err
@@ -113,18 +167,42 @@ func writeTables() error {
 		return fmt.Errorf("marker %#q not found after start mark in %#q", endMark, docPath)
 	}
 
-	content := s[:start] + "\n\n" + tables() + "\n\n" + s[end:]
-	return os.WriteFile(docPath, []byte(content), 0666)
+	table, branches := data()
+	content := s[:start] + "\n\n" + table + "\n\n" + s[end:]
+	if err := os.WriteFile(docPath, []byte(content), 0o666); err != nil {
+		return err
+	}
+
+	branchJSON, err := json.MarshalIndent(branches, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(jsonPath, append(branchJSON, '\n'), 0o666)
 }
 
-func tables() string {
+func data() (string, []supportdata.Branch) {
 	var b strings.Builder
+	branches := make([]supportdata.Branch, 0, len(supported))
+
+	writeURL := func(name, url string) {
+		b.WriteString("- [")
+		b.WriteString(name)
+		b.WriteString("](")
+		b.WriteString(url)
+		b.WriteString(")<br/>")
+	}
 
 	b.WriteString("|   |")
 	for _, v := range supported {
 		b.WriteString(" ")
 		b.WriteString(v.Number)
 		b.WriteString(" |")
+		branches = append(branches, supportdata.Branch{
+			Version:        "go" + v.Number,
+			Stable:         true,
+			LatestStable:   v.LatestStable,
+			PreviousStable: v.PreviousStable,
+		})
 	}
 	b.WriteString("\n| --- |")
 	for range supported {
@@ -132,24 +210,30 @@ func tables() string {
 	}
 	b.WriteString("\n|")
 	for _, p := range platforms() {
+		os, arch, _ := strings.Cut(p, "-")
+		if p == "src" {
+			os = ""
+		}
 		b.WriteString(" ")
 		b.WriteString(platformPrettyName(p))
 		b.WriteString(" |")
-		for _, v := range supported {
+		for vi, v := range supported {
+			branch := &branches[vi]
 			b.WriteString(" ")
 			types := fileTypes(p)
 			if _, ok := v.Platforms[p]; !ok {
 				types = fileTypes("")
 			}
 			for _, f := range types {
-				b.WriteString("- [")
-				b.WriteString(f.Name)
-				b.WriteString("](https://aka.ms/golang/release/latest/go")
-				b.WriteString(v.Number)
-				b.WriteString(".")
-				b.WriteString(p)
-				b.WriteString(f.Ext)
-				b.WriteString(")<br/>")
+				artifact := f.ArtifactLink(v.Number, p, os, arch)
+				writeURL(f.Name, artifact.URL)
+				branch.Files = append(branch.Files, artifact)
+				if artifact.ChecksumURL != "" {
+					writeURL(checksumMsg, artifact.ChecksumURL)
+				}
+				if artifact.SignatureURL != "" {
+					writeURL(signatureMsg, artifact.SignatureURL)
+				}
 			}
 			if len(types) == 0 {
 				b.WriteString("N/A")
@@ -159,7 +243,7 @@ func tables() string {
 		b.WriteString("\n")
 	}
 
-	return b.String()
+	return b.String(), branches
 }
 
 func platforms() []string {
