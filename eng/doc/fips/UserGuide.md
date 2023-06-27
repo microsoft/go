@@ -53,12 +53,12 @@ The Go crypto documentation is available online at https://pkg.go.dev/crypto.
     - [crypto/sha512](#cryptosha512)
       - [func New](#func-new-3)
       - [func New384](#func-new384)
-      - [func New512_224](#func-new512_224)
-      - [func New512_256](#func-new512_256)
+      - [func New512\_224](#func-new512_224)
+      - [func New512\_256](#func-new512_256)
       - [func Sum384](#func-sum384)
       - [func Sum512](#func-sum512)
-      - [func Sum512_224](#func-sum512_224)
-      - [func Sum512_256](#func-sum512_256)
+      - [func Sum512\_224](#func-sum512_224)
+      - [func Sum512\_256](#func-sum512_256)
     - [crypto/rsa](#cryptorsa)
       - [func DecryptOAEP](#func-decryptoaep)
       - [func DecryptPKCS1v15](#func-decryptpkcs1v15)
@@ -1230,8 +1230,6 @@ Does not contain crypto primitives, out of FIPS scope.
 ### [crypto/tls](https://pkg.go.dev/crypto/tls)
 
 Package tls partially implements TLS 1.2, as specified in RFC 5246, and TLS 1.3, as specified in RFC 8446.
-
-Package tls will automatically use FIPS compliant primitives implemented in other crypto packages, but it will accept non-FIPS ciphers and signature algorithms unless `crypto/tls/fipsonly` is imported.
 
 When using TLS in FIPS-only mode the TLS handshake has the following restrictions:
 

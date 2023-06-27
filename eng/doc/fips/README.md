@@ -167,13 +167,7 @@ This feature does not require any additional configuration, but it only works wi
 
 ### TLS with FIPS-approved settings
 
-The Go TLS stack will automatically use OpenSSL crypto primitives when running in FIPS mode. Yet, the FIPS 140-2 standard places additional restrictions on TLS communications, mainly on which cyphers and signers are allowed.
-
-A program can import the `crypto/tls/fipsonly` package to configure the Go TLS stack so it is compliant with these restrictions. The configuration is done by an `init()` function, so only importing it is necessary:
-
-```go
-  import _ "crypto/tls/fipsonly"
-```
+The Microsoft Go runtime will automatically enforce that `crypto/tls` and `crypto/x509` only use FIPS-approved settings when running in FIPS mode. These differs from upstream's BoringCrypto backend, in which to get these additional restrictions one has to import `crypto/tls/fipsonly`.
 
 Note that this can reduce compatibility with old devices that do not support modern cryptography techniques such as TLS 1.2.
 
