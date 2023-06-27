@@ -31,12 +31,12 @@ Subject: [PATCH] Add OpenSSL crypto backend
  src/crypto/x509/notboring.go                  |   2 +-
  src/go.mod                                    |   1 +
  src/go.sum                                    |   2 +
- src/go/build/deps_test.go                     |   7 +-
+ src/go/build/deps_test.go                     |   8 +-
  .../goexperiment/exp_opensslcrypto_off.go     |   9 +
  .../goexperiment/exp_opensslcrypto_on.go      |   9 +
  src/internal/goexperiment/flags.go            |   1 +
  src/os/exec/exec_test.go                      |   9 +
- 32 files changed, 291 insertions(+), 23 deletions(-)
+ 32 files changed, 292 insertions(+), 23 deletions(-)
  create mode 100644 src/crypto/internal/backend/bbig/big_openssl.go
  create mode 100644 src/crypto/internal/backend/openssl_linux.go
  create mode 100644 src/internal/goexperiment/exp_opensslcrypto_off.go
@@ -609,19 +609,21 @@ index 93d34efbe889f7..a9a97eef7d763d 100644
  golang.org/x/crypto v0.10.0/go.mod h1:o4eNf7Ede1fv+hwOwZsTHl9EsPFO6q6ZvYR8vYfY45I=
  golang.org/x/net v0.11.1-0.20230613203745-f5464ddb689c h1:icjsA5jFPWsTcuIb/yIeU6mgXRHPQBfo0Lzd1GQmKZI=
 diff --git a/src/go/build/deps_test.go b/src/go/build/deps_test.go
-index 3356154c7d1082..ef79bb8b7b24ca 100644
+index 3356154c7d1082..1131b9988d4128 100644
 --- a/src/go/build/deps_test.go
 +++ b/src/go/build/deps_test.go
-@@ -425,6 +425,8 @@ var depsRules = `
+@@ -425,7 +425,10 @@ var depsRules = `
  
  	crypto/cipher,
  	crypto/internal/boring/bcache
 +	< github.com/microsoft/go-crypto-openssl/openssl/internal/subtle
 +	< github.com/microsoft/go-crypto-openssl/openssl
  	< crypto/internal/boring
++	< crypto/internal/boring/fipstls
  	< crypto/internal/backend
  	< crypto/boring;
-@@ -459,6 +461,7 @@ var depsRules = `
+ 
+@@ -459,6 +462,7 @@ var depsRules = `
  
  	# CRYPTO-MATH is core bignum-based crypto - no cgo, net; fmt now ok.
  	CRYPTO, FMT, math/big
@@ -629,7 +631,7 @@ index 3356154c7d1082..ef79bb8b7b24ca 100644
  	< crypto/internal/boring/bbig
  	< crypto/internal/backend/bbig
  	< crypto/rand
-@@ -707,7 +710,7 @@ var buildIgnore = []byte("\n//go:build ignore")
+@@ -707,7 +711,7 @@ var buildIgnore = []byte("\n//go:build ignore")
  
  func findImports(pkg string) ([]string, error) {
  	vpkg := pkg
@@ -638,7 +640,7 @@ index 3356154c7d1082..ef79bb8b7b24ca 100644
  		vpkg = "vendor/" + pkg
  	}
  	dir := filepath.Join(Default.GOROOT, "src", vpkg)
-@@ -717,7 +720,7 @@ func findImports(pkg string) ([]string, error) {
+@@ -717,7 +721,7 @@ func findImports(pkg string) ([]string, error) {
  	}
  	var imports []string
  	var haveImport = map[string]bool{}
