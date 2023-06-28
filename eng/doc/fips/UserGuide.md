@@ -1231,6 +1231,11 @@ Does not contain crypto primitives, out of FIPS scope.
 
 Package tls partially implements TLS 1.2, as specified in RFC 5246, and TLS 1.3, as specified in RFC 8446.
 
+Package tls will automatically use FIPS compliant primitives implemented in other crypto packages. 
+
+Since Go 1.22, the Microsoft Go runtime will automatically enforce that tls only use FIPS-approved settings when running in FIPS mode.
+Prior to Go 1.22, a program should import the `crypto/tls/fipsonly` package to configure tls so it is compliant with these restrictions.
+
 When using TLS in FIPS-only mode the TLS handshake has the following restrictions:
 
 - TLS versions: `tls.VersionTLS12`
