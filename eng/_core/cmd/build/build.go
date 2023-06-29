@@ -230,9 +230,10 @@ func build(o *options) error {
 				// We aren't able to rebuild Go standard library packages under a crypto experiment,
 				// but "cmd/dist/test.go" will normally do this for local test runs to make sure the
 				// build is clean. The problem is that the build doesn't include cgo, which is
-				// required for some crypto backends. Set this variable to promise that our build is
-				// fresh and avoid the non-cgo build.
-				os.Setenv("GO_BUILD_FRESH", "1")
+				// required for some crypto backends. Set this variable specific to Microsoft Go to
+				// indicate that our build is fresh because it's running within our scripts and
+				// doesn't need a rebuild. A patch in the test runner detects this.
+				os.Setenv("GO_MSFT_SCRIPTED_BUILD", "1")
 			}
 
 			return runCmd(testCmd)

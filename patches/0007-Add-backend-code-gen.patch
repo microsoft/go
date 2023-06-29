@@ -26,7 +26,7 @@ Use "go/bin/go generate crypto/internal/backend" after recently building
 the repository to run the generators.
 ---
  src/cmd/dist/build.go                         |   2 +-
- src/cmd/dist/test.go                          |   8 +-
+ src/cmd/dist/test.go                          |   9 +-
  src/cmd/internal/obj/x86/pcrelative_test.go   |   4 +
  src/cmd/internal/testdir/testdir_test.go      |   4 +
  src/cmd/link/internal/ld/stackcheck_test.go   |   2 +-
@@ -43,7 +43,7 @@ the repository to run the generators.
  .../backenderr_gen_nofallback_openssl.go      |  19 ++
  .../backenderr_gen_systemcrypto_nobackend.go  |  16 +
  src/syscall/exec_linux_test.go                |   2 +-
- 18 files changed, 439 insertions(+), 8 deletions(-)
+ 18 files changed, 440 insertions(+), 8 deletions(-)
  create mode 100644 src/crypto/internal/backend/backendgen.go
  create mode 100644 src/crypto/internal/backend/backendgen_test.go
  create mode 100644 src/runtime/backenderr_gen_conflict_boring_cng.go
@@ -68,7 +68,7 @@ index 8973a871682816..61a2f52a462f4c 100644
  		run("", ShowOutput|CheckExit, pathf("%s/compile", tooldir), "-V=full")
  		copyfile(pathf("%s/compile2", tooldir), pathf("%s/compile", tooldir), writeExec)
 diff --git a/src/cmd/dist/test.go b/src/cmd/dist/test.go
-index a0525bf42e3c18..cf0c9dc5043d56 100644
+index a0525bf42e3c18..d123e25725eea2 100644
 --- a/src/cmd/dist/test.go
 +++ b/src/cmd/dist/test.go
 @@ -153,7 +153,7 @@ func (t *tester) run() {
@@ -76,23 +76,24 @@ index a0525bf42e3c18..cf0c9dc5043d56 100644
  
  	if !t.listMode {
 -		if builder := os.Getenv("GO_BUILDER_NAME"); builder == "" {
-+		if builder, fresh := os.Getenv("GO_BUILDER_NAME"), os.Getenv("GO_BUILD_FRESH"); builder == "" && fresh != "1" {
++		if builder, scripted := os.Getenv("GO_BUILDER_NAME"), os.Getenv("GO_MSFT_SCRIPTED_BUILD"); builder == "" && scripted != "1" {
  			// Ensure that installed commands are up to date, even with -no-rebuild,
  			// so that tests that run commands end up testing what's actually on disk.
  			// If everything is up-to-date, this is a no-op.
-@@ -166,6 +166,11 @@ func (t *tester) run() {
+@@ -166,6 +166,12 @@ func (t *tester) run() {
  			// and virtualization we usually start with a clean GOCACHE, so we would
  			// end up rebuilding large parts of the standard library that aren't
  			// otherwise relevant to the actual set of packages under test.
 +			//
-+			// Also skip this step if GO_BUILD_FRESH is 1. It's a promise from
-+			// the caller that the build is fresh. It can be used if rebuilding
-+			// the toolchain would not work. For example, the OpenSSLCrypto
-+			// GOEXPERIMENT requires cgo, which is disabled by toolenv.
++			// Also skip this step if GO_MSFT_SCRIPTED_BUILD is 1. This is
++			// similar to running in a builder, but it works locally. However,
++			// the skip isn't for performance reasons: rebuilding the toolchain
++			// may not work. For example, testing the OpenSSLCrypto GOEXPERIMENT
++			// requires cgo, but cgo is disabled by toolenv().
  			goInstall(toolenv(), gorootBinGo, toolchain...)
  			goInstall(toolenv(), gorootBinGo, toolchain...)
  			goInstall(toolenv(), gorootBinGo, "cmd")
-@@ -761,6 +766,7 @@ func (t *tester) registerTests() {
+@@ -761,6 +767,7 @@ func (t *tester) registerTests() {
  				ldflags:   "-linkmode=internal",
  				env:       []string{"CGO_ENABLED=0"},
  				pkg:       "reflect",
