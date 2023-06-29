@@ -133,10 +133,6 @@ func build(o *options) error {
 		return err
 	}
 
-	if o.Experiment != "" {
-		buildutil.AppendExperimentEnv(o.Experiment)
-	}
-
 	if !o.SkipBuild {
 		// If we have a stage 0 copy of Go in an env variable (as set by run.ps1), use it in the
 		// build command by setting GOROOT_BOOTSTRAP. The upstream build script "make.bash" uses
@@ -228,6 +224,17 @@ func build(o *options) error {
 			// The stderr output isn't used to determine whether the tests succeeded or not. (The
 			// redirect doesn't cause an issue where tests succeed that should have failed.)
 			testCmd.Stderr = os.Stdout
+
+			if o.Experiment != "" {
+				buildutil.AppendExperimentEnv(o.Experiment)
+				// We aren't able to rebuild Go standard library packages under a crypto experiment,
+				// but "cmd/dist/test.go" will normally do this for local test runs to make sure the
+				// build is clean. The problem is that the build doesn't include cgo, which is
+				// required for some crypto backends. Set this variable specific to Microsoft Go to
+				// indicate that our build is fresh because it's running within our scripts and
+				// doesn't need a rebuild. A patch in the test runner detects this.
+				os.Setenv("GO_MSFT_SCRIPTED_BUILD", "1")
+			}
 
 			return runCmd(testCmd)
 		}

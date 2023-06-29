@@ -25,21 +25,160 @@ harder to update the generators and to deal with conflicts.
 Use "go/bin/go generate crypto/internal/backend" after recently building
 the repository to run the generators.
 ---
+ src/cmd/dist/build.go                         |   2 +-
+ src/cmd/dist/test.go                          |   9 +-
+ src/cmd/internal/obj/x86/pcrelative_test.go   |   4 +
+ src/cmd/internal/testdir/testdir_test.go      |   4 +
+ src/cmd/link/internal/ld/stackcheck_test.go   |   2 +-
+ src/cmd/link/link_test.go                     |   4 +-
+ src/cmd/vet/vet_test.go                       |   2 +-
  src/crypto/internal/backend/backendgen.go     |  20 ++
- .../internal/backend/backendgen_test.go       | 249 ++++++++++++++++++
+ .../internal/backend/backendgen_test.go       | 273 ++++++++++++++++++
  src/crypto/internal/backend/nobackend.go      |   2 +-
  .../backenderr_gen_conflict_boring_cng.go     |  17 ++
  .../backenderr_gen_conflict_boring_openssl.go |  17 ++
  .../backenderr_gen_conflict_cng_openssl.go    |  17 ++
- .../backenderr_gen_systemcrypto_nobackend.go  |  16 ++
- 7 files changed, 337 insertions(+), 1 deletion(-)
+ .../backenderr_gen_nofallback_boring.go       |  19 ++
+ src/runtime/backenderr_gen_nofallback_cng.go  |  19 ++
+ .../backenderr_gen_nofallback_openssl.go      |  19 ++
+ .../backenderr_gen_systemcrypto_nobackend.go  |  16 +
+ src/syscall/exec_linux_test.go                |   2 +-
+ 18 files changed, 440 insertions(+), 8 deletions(-)
  create mode 100644 src/crypto/internal/backend/backendgen.go
  create mode 100644 src/crypto/internal/backend/backendgen_test.go
  create mode 100644 src/runtime/backenderr_gen_conflict_boring_cng.go
  create mode 100644 src/runtime/backenderr_gen_conflict_boring_openssl.go
  create mode 100644 src/runtime/backenderr_gen_conflict_cng_openssl.go
+ create mode 100644 src/runtime/backenderr_gen_nofallback_boring.go
+ create mode 100644 src/runtime/backenderr_gen_nofallback_cng.go
+ create mode 100644 src/runtime/backenderr_gen_nofallback_openssl.go
  create mode 100644 src/runtime/backenderr_gen_systemcrypto_nobackend.go
 
+diff --git a/src/cmd/dist/build.go b/src/cmd/dist/build.go
+index 8973a871682816..61a2f52a462f4c 100644
+--- a/src/cmd/dist/build.go
++++ b/src/cmd/dist/build.go
+@@ -1472,7 +1472,7 @@ func cmdbootstrap() {
+ 	// Now that cmd/go is in charge of the build process, enable GOEXPERIMENT.
+ 	os.Setenv("GOEXPERIMENT", goexperiment)
+ 	// No need to enable PGO for toolchain2.
+-	goInstall(toolenv(), goBootstrap, append([]string{"-pgo=off"}, toolchain...)...)
++	goInstall(toolenv(), goBootstrap, append([]string{"-pgo=off", "-tags=allow_missing_crypto_backend_fallback"}, toolchain...)...)
+ 	if debug {
+ 		run("", ShowOutput|CheckExit, pathf("%s/compile", tooldir), "-V=full")
+ 		copyfile(pathf("%s/compile2", tooldir), pathf("%s/compile", tooldir), writeExec)
+diff --git a/src/cmd/dist/test.go b/src/cmd/dist/test.go
+index a0525bf42e3c18..d123e25725eea2 100644
+--- a/src/cmd/dist/test.go
++++ b/src/cmd/dist/test.go
+@@ -153,7 +153,7 @@ func (t *tester) run() {
+ 	}
+ 
+ 	if !t.listMode {
+-		if builder := os.Getenv("GO_BUILDER_NAME"); builder == "" {
++		if builder, scripted := os.Getenv("GO_BUILDER_NAME"), os.Getenv("GO_MSFT_SCRIPTED_BUILD"); builder == "" && scripted != "1" {
+ 			// Ensure that installed commands are up to date, even with -no-rebuild,
+ 			// so that tests that run commands end up testing what's actually on disk.
+ 			// If everything is up-to-date, this is a no-op.
+@@ -166,6 +166,12 @@ func (t *tester) run() {
+ 			// and virtualization we usually start with a clean GOCACHE, so we would
+ 			// end up rebuilding large parts of the standard library that aren't
+ 			// otherwise relevant to the actual set of packages under test.
++			//
++			// Also skip this step if GO_MSFT_SCRIPTED_BUILD is 1. This is
++			// similar to running in a builder, but it works locally. However,
++			// the skip isn't for performance reasons: rebuilding the toolchain
++			// may not work. For example, testing the OpenSSLCrypto GOEXPERIMENT
++			// requires cgo, but cgo is disabled by toolenv().
+ 			goInstall(toolenv(), gorootBinGo, toolchain...)
+ 			goInstall(toolenv(), gorootBinGo, toolchain...)
+ 			goInstall(toolenv(), gorootBinGo, "cmd")
+@@ -761,6 +767,7 @@ func (t *tester) registerTests() {
+ 				ldflags:   "-linkmode=internal",
+ 				env:       []string{"CGO_ENABLED=0"},
+ 				pkg:       "reflect",
++				tags:      []string{"allow_missing_crypto_backend_fallback"},
+ 			})
+ 		// Also test a cgo package.
+ 		if t.cgoEnabled && t.internalLink() && !disablePIE {
+diff --git a/src/cmd/internal/obj/x86/pcrelative_test.go b/src/cmd/internal/obj/x86/pcrelative_test.go
+index 3827100123f26d..92344e8a681114 100644
+--- a/src/cmd/internal/obj/x86/pcrelative_test.go
++++ b/src/cmd/internal/obj/x86/pcrelative_test.go
+@@ -63,6 +63,10 @@ func objdumpOutput(t *testing.T, mname, source string) []byte {
+ 		testenv.GoToolPath(t), "build", "-o",
+ 		filepath.Join(tmpdir, "output"))
+ 
++	// Crypto backends are not available on all platforms (CNG is not available
++	// on Linux), but it's ok to fall back to pure Go for this test.
++	cmd.Args = append(cmd.Args, "-tags=allow_missing_crypto_backend_fallback")
++
+ 	cmd.Env = append(os.Environ(),
+ 		"GOARCH=amd64", "GOOS=linux", "GOPATH="+filepath.Join(tmpdir, "_gopath"))
+ 	cmd.Dir = tmpdir
+diff --git a/src/cmd/internal/testdir/testdir_test.go b/src/cmd/internal/testdir/testdir_test.go
+index bd7785900c637a..0657ee09dc04ca 100644
+--- a/src/cmd/internal/testdir/testdir_test.go
++++ b/src/cmd/internal/testdir/testdir_test.go
+@@ -694,6 +694,10 @@ func (t test) run() error {
+ 			// -S=2 forces outermost line numbers when disassembling inlined code.
+ 			cmdline := []string{"build", "-gcflags", "-S=2"}
+ 
++			// Crypto backends are not available on all platforms (386), but
++			// it's ok to fall back to pure Go for this test.
++			cmdline = append(cmdline, "-tags=allow_missing_crypto_backend_fallback")
++
+ 			// Append flags, but don't override -gcflags=-S=2; add to it instead.
+ 			for i := 0; i < len(flags); i++ {
+ 				flag := flags[i]
+diff --git a/src/cmd/link/internal/ld/stackcheck_test.go b/src/cmd/link/internal/ld/stackcheck_test.go
+index dd7e20528f0959..6b0d28d14f4935 100644
+--- a/src/cmd/link/internal/ld/stackcheck_test.go
++++ b/src/cmd/link/internal/ld/stackcheck_test.go
+@@ -19,7 +19,7 @@ func TestStackCheckOutput(t *testing.T) {
+ 	testenv.MustHaveGoBuild(t)
+ 	t.Parallel()
+ 
+-	cmd := testenv.Command(t, testenv.GoToolPath(t), "build", "-o", os.DevNull, "./testdata/stackcheck")
++	cmd := testenv.Command(t, testenv.GoToolPath(t), "build", "-tags=allow_missing_crypto_backend_fallback", "-o", os.DevNull, "./testdata/stackcheck")
+ 	// The rules for computing frame sizes on all of the
+ 	// architectures are complicated, so just do this on amd64.
+ 	cmd.Env = append(os.Environ(), "GOARCH=amd64", "GOOS=linux")
+diff --git a/src/cmd/link/link_test.go b/src/cmd/link/link_test.go
+index c37d6e57bc0920..a4fd751dcd7c3b 100644
+--- a/src/cmd/link/link_test.go
++++ b/src/cmd/link/link_test.go
+@@ -162,7 +162,7 @@ TEXT ·x(SB),0,$0
+         MOVD ·zero(SB), AX
+         RET
+ `)
+-	cmd := testenv.Command(t, testenv.GoToolPath(t), "build")
++	cmd := testenv.Command(t, testenv.GoToolPath(t), "build", "-tags=allow_missing_crypto_backend_fallback")
+ 	cmd.Dir = tmpdir
+ 	cmd.Env = append(os.Environ(),
+ 		"GOARCH=amd64", "GOOS=linux", "GOPATH="+filepath.Join(tmpdir, "_gopath"))
+@@ -362,7 +362,7 @@ func TestMachOBuildVersion(t *testing.T) {
+ 	}
+ 
+ 	exe := filepath.Join(tmpdir, "main")
+-	cmd := testenv.Command(t, testenv.GoToolPath(t), "build", "-ldflags=-linkmode=internal", "-o", exe, src)
++	cmd := testenv.Command(t, testenv.GoToolPath(t), "build", "-ldflags=-linkmode=internal", "-tags=allow_missing_crypto_backend_fallback", "-o", exe, src)
+ 	cmd.Env = append(os.Environ(),
+ 		"CGO_ENABLED=0",
+ 		"GOOS=darwin",
+diff --git a/src/cmd/vet/vet_test.go b/src/cmd/vet/vet_test.go
+index 8b29907e818c9d..f29a76796de71f 100644
+--- a/src/cmd/vet/vet_test.go
++++ b/src/cmd/vet/vet_test.go
+@@ -54,7 +54,7 @@ var (
+ )
+ 
+ func vetCmd(t *testing.T, arg, pkg string) *exec.Cmd {
+-	cmd := testenv.Command(t, testenv.GoToolPath(t), "vet", "-vettool="+vetPath(t), arg, path.Join("cmd/vet/testdata", pkg))
++	cmd := testenv.Command(t, testenv.GoToolPath(t), "vet", "-tags=allow_missing_crypto_backend_fallback", "-vettool="+vetPath(t), arg, path.Join("cmd/vet/testdata", pkg))
+ 	cmd.Env = os.Environ()
+ 	return cmd
+ }
 diff --git a/src/crypto/internal/backend/backendgen.go b/src/crypto/internal/backend/backendgen.go
 new file mode 100644
 index 00000000000000..acf0113bbefb6c
@@ -68,10 +207,10 @@ index 00000000000000..acf0113bbefb6c
 +//go:generate go test -run TestGenerated -fix
 diff --git a/src/crypto/internal/backend/backendgen_test.go b/src/crypto/internal/backend/backendgen_test.go
 new file mode 100644
-index 00000000000000..c21ccec1893f6d
+index 00000000000000..0013ffec084722
 --- /dev/null
 +++ b/src/crypto/internal/backend/backendgen_test.go
-@@ -0,0 +1,249 @@
+@@ -0,0 +1,273 @@
 +// Copyright 2023 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -201,6 +340,8 @@ index 00000000000000..c21ccec1893f6d
 +			f := testConflict(t, backends[i].name, backends[j].name)
 +			delete(existingFiles, f)
 +		}
++		f := testPreventUnintendedFallback(t, backends[i])
++		delete(existingFiles, f)
 +	}
 +	f := testUnsatisfied(t, backends)
 +	delete(existingFiles, f)
@@ -229,6 +370,28 @@ index 00000000000000..c21ccec1893f6d
 +		"//go:build goexperiment."+a+"crypto && goexperiment."+b+"crypto",
 +		"The "+a+" and "+b+" backends are both enabled, but they are mutually exclusive.",
 +		"Please make sure only one crypto backend experiment is enabled by GOEXPERIMENT or '-tags'.")
++	return f
++}
++
++func testPreventUnintendedFallback(t *testing.T, backend *backend) string {
++	expTag := &constraint.TagExpr{Tag: "goexperiment." + backend.name + "crypto"}
++	optOutTag := &constraint.TagExpr{Tag: "allow_missing_crypto_backend_fallback"}
++	c := constraint.AndExpr{
++		X: &constraint.AndExpr{
++			X: expTag,
++			Y: &constraint.NotExpr{X: backend.constraint},
++		},
++		Y: &constraint.NotExpr{X: optOutTag},
++	}
++	f := filepath.Join(runtimePackageDir, backendErrPrefix+"nofallback_"+backend.name+".go")
++	testErrorFile(
++		t,
++		f,
++		"//go:build "+c.String(),
++		"The "+expTag.String()+" tag is specified, but other tags required to enable that backend were not met.",
++		"Required build tags:",
++		"  "+backend.constraint.String(),
++		"Please check your build environment and build command for a reason one or more of these tags weren't specified.")
 +	return f
 +}
 +
@@ -403,6 +566,81 @@ index 00000000000000..bf44084570bbbc
 +	For more information, visit https://github.com/microsoft/go/tree/microsoft/main/eng/doc/fips
 +	`
 +}
+diff --git a/src/runtime/backenderr_gen_nofallback_boring.go b/src/runtime/backenderr_gen_nofallback_boring.go
+new file mode 100644
+index 00000000000000..29db6ff02df7ff
+--- /dev/null
++++ b/src/runtime/backenderr_gen_nofallback_boring.go
+@@ -0,0 +1,19 @@
++// Copyright 2023 The Go Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style
++// license that can be found in the LICENSE file.
++
++// This file is generated by crypto/internal/backend. DO NOT EDIT. DO NOT manually create files with the prefix "backenderr_gen_".
++
++//go:build goexperiment.boringcrypto && !(goexperiment.boringcrypto && linux && cgo && amd64 && !android && !cmd_go_bootstrap && !msan) && !allow_missing_crypto_backend_fallback
++
++package runtime
++
++func init() {
++	`
++	The goexperiment.boringcrypto tag is specified, but other tags required to enable that backend were not met.
++	Required build tags:
++	  goexperiment.boringcrypto && linux && cgo && amd64 && !android && !cmd_go_bootstrap && !msan
++	Please check your build environment and build command for a reason one or more of these tags weren't specified.
++	For more information, visit https://github.com/microsoft/go/tree/microsoft/main/eng/doc/fips
++	`
++}
+diff --git a/src/runtime/backenderr_gen_nofallback_cng.go b/src/runtime/backenderr_gen_nofallback_cng.go
+new file mode 100644
+index 00000000000000..1b71b79e7483e6
+--- /dev/null
++++ b/src/runtime/backenderr_gen_nofallback_cng.go
+@@ -0,0 +1,19 @@
++// Copyright 2023 The Go Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style
++// license that can be found in the LICENSE file.
++
++// This file is generated by crypto/internal/backend. DO NOT EDIT. DO NOT manually create files with the prefix "backenderr_gen_".
++
++//go:build goexperiment.cngcrypto && !(goexperiment.cngcrypto && windows && !cmd_go_bootstrap && !msan) && !allow_missing_crypto_backend_fallback
++
++package runtime
++
++func init() {
++	`
++	The goexperiment.cngcrypto tag is specified, but other tags required to enable that backend were not met.
++	Required build tags:
++	  goexperiment.cngcrypto && windows && !cmd_go_bootstrap && !msan
++	Please check your build environment and build command for a reason one or more of these tags weren't specified.
++	For more information, visit https://github.com/microsoft/go/tree/microsoft/main/eng/doc/fips
++	`
++}
+diff --git a/src/runtime/backenderr_gen_nofallback_openssl.go b/src/runtime/backenderr_gen_nofallback_openssl.go
+new file mode 100644
+index 00000000000000..d90c0cafebd623
+--- /dev/null
++++ b/src/runtime/backenderr_gen_nofallback_openssl.go
+@@ -0,0 +1,19 @@
++// Copyright 2023 The Go Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style
++// license that can be found in the LICENSE file.
++
++// This file is generated by crypto/internal/backend. DO NOT EDIT. DO NOT manually create files with the prefix "backenderr_gen_".
++
++//go:build goexperiment.opensslcrypto && !(goexperiment.opensslcrypto && linux && cgo && !android && !cmd_go_bootstrap && !msan) && !allow_missing_crypto_backend_fallback
++
++package runtime
++
++func init() {
++	`
++	The goexperiment.opensslcrypto tag is specified, but other tags required to enable that backend were not met.
++	Required build tags:
++	  goexperiment.opensslcrypto && linux && cgo && !android && !cmd_go_bootstrap && !msan
++	Please check your build environment and build command for a reason one or more of these tags weren't specified.
++	For more information, visit https://github.com/microsoft/go/tree/microsoft/main/eng/doc/fips
++	`
++}
 diff --git a/src/runtime/backenderr_gen_systemcrypto_nobackend.go b/src/runtime/backenderr_gen_systemcrypto_nobackend.go
 new file mode 100644
 index 00000000000000..97ba7da6260b50
@@ -425,3 +663,16 @@ index 00000000000000..97ba7da6260b50
 +	For more information, visit https://github.com/microsoft/go/tree/microsoft/main/eng/doc/fips
 +	`
 +}
+diff --git a/src/syscall/exec_linux_test.go b/src/syscall/exec_linux_test.go
+index f4ff7bf81b358b..b4504afac961c0 100644
+--- a/src/syscall/exec_linux_test.go
++++ b/src/syscall/exec_linux_test.go
+@@ -277,7 +277,7 @@ func TestUnshareMountNameSpaceChroot(t *testing.T) {
+ 		}
+ 	})
+ 
+-	cmd := testenv.Command(t, testenv.GoToolPath(t), "test", "-c", "-o", x, "syscall")
++	cmd := testenv.Command(t, testenv.GoToolPath(t), "test", "-c", "-o", x, "-tags=allow_missing_crypto_backend_fallback", "syscall")
+ 	cmd.Env = append(cmd.Environ(), "CGO_ENABLED=0")
+ 	if o, err := cmd.CombinedOutput(); err != nil {
+ 		t.Fatalf("Build of syscall in chroot failed, output %v, err %v", o, err)
