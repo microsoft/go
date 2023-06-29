@@ -12,8 +12,8 @@ Subject: [PATCH] Add CNG crypto backend
  src/crypto/internal/backend/backend_test.go   |   4 +-
  src/crypto/internal/backend/bbig/big.go       |   2 +-
  src/crypto/internal/backend/bbig/big_cng.go   |  12 +
- src/crypto/internal/backend/cng_windows.go    | 205 ++++++++++++++++++
- src/crypto/internal/backend/common.go         |  38 +++-
+ src/crypto/internal/backend/cng_windows.go    | 207 ++++++++++++++++++
+ src/crypto/internal/backend/common.go         |  33 ++-
  src/crypto/internal/boring/fipstls/stub.s     |   2 +-
  src/crypto/internal/boring/fipstls/tls.go     |   2 +-
  src/crypto/rand/rand_windows.go               |   9 +-
@@ -48,7 +48,7 @@ Subject: [PATCH] Add CNG crypto backend
  .../goexperiment/exp_cngcrypto_off.go         |   9 +
  src/internal/goexperiment/exp_cngcrypto_on.go |   9 +
  src/internal/goexperiment/flags.go            |   1 +
- 44 files changed, 404 insertions(+), 46 deletions(-)
+ 44 files changed, 403 insertions(+), 44 deletions(-)
  create mode 100644 src/crypto/internal/backend/bbig/big_cng.go
  create mode 100644 src/crypto/internal/backend/cng_windows.go
  create mode 100644 src/internal/goexperiment/exp_cngcrypto_off.go
@@ -167,10 +167,10 @@ index 00000000000000..92623031fd87d0
 +var Dec = bbig.Dec
 diff --git a/src/crypto/internal/backend/cng_windows.go b/src/crypto/internal/backend/cng_windows.go
 new file mode 100644
-index 00000000000000..9d1bbf010c0fb6
+index 00000000000000..bea98e0f838b41
 --- /dev/null
 +++ b/src/crypto/internal/backend/cng_windows.go
-@@ -0,0 +1,205 @@
+@@ -0,0 +1,207 @@
 +// Copyright 2017 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -196,7 +196,9 @@ index 00000000000000..9d1bbf010c0fb6
 +const Enabled = true
 +
 +func init() {
-+	if v, ok := envGoFIPS(); ok && v == "1" {
++	// 1: FIPS required: abort the process if the system is not in FIPS mode.
++	// other values: continue regardless of system-configured FIPS mode.
++	if v, _, ok := envGoFIPS(); ok && v == "1" {
 +		enabled, err := cng.FIPS()
 +		if err != nil {
 +			panic("cngcrypto: unknown FIPS mode: " + err.Error())
@@ -377,10 +379,10 @@ index 00000000000000..9d1bbf010c0fb6
 +	return cng.NewPublicKeyECDH(curve, bytes)
 +}
 diff --git a/src/crypto/internal/backend/common.go b/src/crypto/internal/backend/common.go
-index 007d8070538247..114f72c3d10ee4 100644
+index 19f6fc47e4daa3..7df07e9a8379fa 100644
 --- a/src/crypto/internal/backend/common.go
 +++ b/src/crypto/internal/backend/common.go
-@@ -5,16 +5,19 @@
+@@ -5,7 +5,9 @@
  package backend
  
  import (
@@ -390,19 +392,7 @@ index 007d8070538247..114f72c3d10ee4 100644
  	"runtime"
  	"syscall"
  )
- 
- func init() {
- 	if v, _ := envGoFIPS(); v == "1" {
--		if runtime.GOOS != "linux" {
-+		if runtime.GOOS != "linux" && runtime.GOOS != "windows" {
- 			panic("FIPS mode requested (GOFIPS=1) but not supported on " + runtime.GOOS)
--		} else if !iscgo {
-+		}
-+		if runtime.GOOS == "linux" && !iscgo {
- 			panic("FIPS mode requested (GOFIPS=1) but not supported with cgo disabled")
- 		}
- 	}
-@@ -54,7 +57,11 @@ func hasSuffix(s, t string) bool {
+@@ -70,7 +72,11 @@ func hasSuffix(s, t string) bool {
  // UnreachableExceptTests marks code that should be unreachable
  // when backend is in use. It panics.
  func UnreachableExceptTests() {
@@ -415,7 +405,7 @@ index 007d8070538247..114f72c3d10ee4 100644
  		name := runtime_arg0()
  		// If ran on Windows we'd need to allow _test.exe and .test.exe as well.
  		if !hasSuffix(name, "_test") && !hasSuffix(name, ".test") {
-@@ -63,3 +70,28 @@ func UnreachableExceptTests() {
+@@ -79,3 +85,28 @@ func UnreachableExceptTests() {
  		}
  	}
  }
