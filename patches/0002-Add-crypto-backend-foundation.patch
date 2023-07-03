@@ -17,11 +17,9 @@ Subject: [PATCH] Add crypto backend foundation
  src/crypto/hmac/hmac_test.go                 |   2 +-
  src/crypto/internal/backend/backend_test.go  |  30 +++++
  src/crypto/internal/backend/bbig/big.go      |  17 +++
- src/crypto/internal/backend/common.go        |  81 +++++++++++++
- src/crypto/internal/backend/iscgo.go         |  10 ++
+ src/crypto/internal/backend/common.go        |  78 +++++++++++++
  src/crypto/internal/backend/isrequirefips.go |   9 ++
  src/crypto/internal/backend/nobackend.go     | 116 +++++++++++++++++++
- src/crypto/internal/backend/nocgo.go         |  10 ++
  src/crypto/internal/backend/norequirefips.go |   9 ++
  src/crypto/internal/backend/stub.s           |  10 ++
  src/crypto/rand/rand_unix.go                 |   2 +-
@@ -40,14 +38,12 @@ Subject: [PATCH] Add crypto backend foundation
  src/crypto/tls/cipher_suites.go              |   2 +-
  src/go/build/deps_test.go                    |   2 +
  src/runtime/runtime_boring.go                |   5 +
- 36 files changed, 328 insertions(+), 29 deletions(-)
+ 34 files changed, 305 insertions(+), 29 deletions(-)
  create mode 100644 src/crypto/internal/backend/backend_test.go
  create mode 100644 src/crypto/internal/backend/bbig/big.go
  create mode 100644 src/crypto/internal/backend/common.go
- create mode 100644 src/crypto/internal/backend/iscgo.go
  create mode 100644 src/crypto/internal/backend/isrequirefips.go
  create mode 100644 src/crypto/internal/backend/nobackend.go
- create mode 100644 src/crypto/internal/backend/nocgo.go
  create mode 100644 src/crypto/internal/backend/norequirefips.go
  create mode 100644 src/crypto/internal/backend/stub.s
 
@@ -260,10 +256,10 @@ index 00000000000000..85bd3ed083f5b2
 +}
 diff --git a/src/crypto/internal/backend/common.go b/src/crypto/internal/backend/common.go
 new file mode 100644
-index 00000000000000..c69ee3b8b53c9e
+index 00000000000000..efdd080a1b7708
 --- /dev/null
 +++ b/src/crypto/internal/backend/common.go
-@@ -0,0 +1,81 @@
+@@ -0,0 +1,78 @@
 +// Copyright 2022 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -278,13 +274,10 @@ index 00000000000000..c69ee3b8b53c9e
 +
 +func init() {
 +	if v, r, ok := envGoFIPS(); ok && v == "1" {
-+		if runtime.GOOS != "linux" && runtime.GOOS != "windows" {
-+			panic("FIPS mode requested (" + r + ") but not supported on " + runtime.GOOS)
-+		}
-+		if runtime.GOOS == "linux" && !iscgo {
-+			panic("FIPS mode requested (" + r + ") but not supported with cgo disabled")
-+		}
 +		if !Enabled {
++			if runtime.GOOS != "linux" && runtime.GOOS != "windows" {
++				panic("FIPS mode requested (" + r + ") but no crypto backend is supported on " + runtime.GOOS)
++			}
 +			panic("FIPS mode requested (" + r + ") but no supported crypto backend is enabled")
 +		}
 +	}
@@ -345,22 +338,6 @@ index 00000000000000..c69ee3b8b53c9e
 +		}
 +	}
 +}
-diff --git a/src/crypto/internal/backend/iscgo.go b/src/crypto/internal/backend/iscgo.go
-new file mode 100644
-index 00000000000000..1e0d3cf8c18b55
---- /dev/null
-+++ b/src/crypto/internal/backend/iscgo.go
-@@ -0,0 +1,10 @@
-+// Copyright 2022 The Go Authors. All rights reserved.
-+// Use of this source code is governed by a BSD-style
-+// license that can be found in the LICENSE file.
-+
-+//go:build cgo
-+// +build cgo
-+
-+package backend
-+
-+const iscgo = true
 diff --git a/src/crypto/internal/backend/isrequirefips.go b/src/crypto/internal/backend/isrequirefips.go
 new file mode 100644
 index 00000000000000..e5d7570d6d4363
@@ -498,22 +475,6 @@ index 00000000000000..ad6081552af15d
 +func NewPublicKeyECDH(string, []byte) (*PublicKeyECDH, error) { panic("cryptobackend: not available") }
 +func (*PublicKeyECDH) Bytes() []byte                          { panic("cryptobackend: not available") }
 +func (*PrivateKeyECDH) PublicKey() (*PublicKeyECDH, error)    { panic("cryptobackend: not available") }
-diff --git a/src/crypto/internal/backend/nocgo.go b/src/crypto/internal/backend/nocgo.go
-new file mode 100644
-index 00000000000000..63c13fc4b01cba
---- /dev/null
-+++ b/src/crypto/internal/backend/nocgo.go
-@@ -0,0 +1,10 @@
-+// Copyright 2022 The Go Authors. All rights reserved.
-+// Use of this source code is governed by a BSD-style
-+// license that can be found in the LICENSE file.
-+
-+//go:build !cgo
-+// +build !cgo
-+
-+package backend
-+
-+const iscgo = false
 diff --git a/src/crypto/internal/backend/norequirefips.go b/src/crypto/internal/backend/norequirefips.go
 new file mode 100644
 index 00000000000000..26bfb5f6a643f3
