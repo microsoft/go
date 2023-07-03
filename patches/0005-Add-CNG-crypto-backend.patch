@@ -21,7 +21,7 @@ Subject: [PATCH] Add CNG crypto backend
  src/crypto/rsa/boring_test.go                 |   2 +-
  src/crypto/rsa/notboring.go                   |   2 +-
  src/crypto/rsa/pkcs1v15.go                    |  16 +-
- src/crypto/rsa/pss.go                         |  12 +-
+ src/crypto/rsa/pss.go                         |  11 +-
  src/crypto/rsa/pss_test.go                    |   2 +-
  src/crypto/rsa/rsa.go                         |  15 +-
  src/crypto/rsa/rsa_test.go                    |   8 +-
@@ -48,7 +48,7 @@ Subject: [PATCH] Add CNG crypto backend
  .../goexperiment/exp_cngcrypto_off.go         |   9 +
  src/internal/goexperiment/exp_cngcrypto_on.go |   9 +
  src/internal/goexperiment/flags.go            |   1 +
- 44 files changed, 403 insertions(+), 44 deletions(-)
+ 44 files changed, 403 insertions(+), 46 deletions(-)
  create mode 100644 src/crypto/internal/backend/bbig/big_cng.go
  create mode 100644 src/crypto/internal/backend/cng_windows.go
  create mode 100644 src/internal/goexperiment/exp_cngcrypto_off.go
@@ -523,10 +523,10 @@ index 933ac569e034a8..0f152b210fdd84 100644
  package rsa
  
 diff --git a/src/crypto/rsa/pkcs1v15.go b/src/crypto/rsa/pkcs1v15.go
-index 81c319d200a27a..be551d98c587fa 100644
+index 05357064930a92..19bea42f552cd2 100644
 --- a/src/crypto/rsa/pkcs1v15.go
 +++ b/src/crypto/rsa/pkcs1v15.go
-@@ -91,7 +91,9 @@ func DecryptPKCS1v15(random io.Reader, priv *PrivateKey, ciphertext []byte) ([]b
+@@ -94,7 +94,9 @@ func DecryptPKCS1v15(random io.Reader, priv *PrivateKey, ciphertext []byte) ([]b
  		return nil, err
  	}
  
@@ -537,7 +537,7 @@ index 81c319d200a27a..be551d98c587fa 100644
  		bkey, err := boringPrivateKey(priv)
  		if err != nil {
  			return nil, err
-@@ -185,7 +187,9 @@ func decryptPKCS1v15(priv *PrivateKey, ciphertext []byte) (valid int, em []byte,
+@@ -188,7 +190,9 @@ func decryptPKCS1v15(priv *PrivateKey, ciphertext []byte) (valid int, em []byte,
  		return
  	}
  
@@ -548,7 +548,7 @@ index 81c319d200a27a..be551d98c587fa 100644
  		var bkey *boring.PrivateKeyRSA
  		bkey, err = boringPrivateKey(priv)
  		if err != nil {
-@@ -293,7 +297,9 @@ func SignPKCS1v15(random io.Reader, priv *PrivateKey, hash crypto.Hash, hashed [
+@@ -296,7 +300,9 @@ func SignPKCS1v15(random io.Reader, priv *PrivateKey, hash crypto.Hash, hashed [
  		return nil, ErrMessageTooLong
  	}
  
@@ -559,7 +559,7 @@ index 81c319d200a27a..be551d98c587fa 100644
  		bkey, err := boringPrivateKey(priv)
  		if err != nil {
  			return nil, err
-@@ -319,7 +325,9 @@ func SignPKCS1v15(random io.Reader, priv *PrivateKey, hash crypto.Hash, hashed [
+@@ -322,7 +328,9 @@ func SignPKCS1v15(random io.Reader, priv *PrivateKey, hash crypto.Hash, hashed [
  // returning a nil error. If hash is zero then hashed is used directly. This
  // isn't advisable except for interoperability.
  func VerifyPKCS1v15(pub *PublicKey, hash crypto.Hash, hashed []byte, sig []byte) error {
@@ -571,7 +571,7 @@ index 81c319d200a27a..be551d98c587fa 100644
  		if err != nil {
  			return err
 diff --git a/src/crypto/rsa/pss.go b/src/crypto/rsa/pss.go
-index f2f2a64ed35e23..645434caf9c6d5 100644
+index 1096f5fbbb8846..b731d9524661f6 100644
 --- a/src/crypto/rsa/pss.go
 +++ b/src/crypto/rsa/pss.go
 @@ -214,7 +214,9 @@ func signPSSWithSalt(priv *PrivateKey, hash crypto.Hash, hashed, salt []byte) ([
@@ -585,18 +585,18 @@ index f2f2a64ed35e23..645434caf9c6d5 100644
  		bkey, err := boringPrivateKey(priv)
  		if err != nil {
  			return nil, err
-@@ -286,7 +288,9 @@ var invalidSaltLenErr = errors.New("crypto/rsa: PSSOptions.SaltLength cannot be
- // function. The opts argument may be nil, in which case sensible defaults are
- // used. If opts.Hash is set, it overrides hash.
- func SignPSS(rand io.Reader, priv *PrivateKey, hash crypto.Hash, digest []byte, opts *PSSOptions) ([]byte, error) {
--	if boring.Enabled && rand == boring.RandReader {
+@@ -295,8 +297,9 @@ func SignPSS(rand io.Reader, priv *PrivateKey, hash crypto.Hash, digest []byte,
+ 	// it's probably relied upon by some. It's a tolerable promise because a
+ 	// well-specified number of random bytes is included in the signature, in a
+ 	// well-specified way.
 +	if boring.Enabled && rand == boring.RandReader &&
 +		boring.IsHashSupported(hash) && boring.IsRSAKeySupported(len(priv.Primes)) {
-+
+ 
+-	if boring.Enabled && rand == boring.RandReader {
  		bkey, err := boringPrivateKey(priv)
  		if err != nil {
  			return nil, err
-@@ -329,7 +333,9 @@ func SignPSS(rand io.Reader, priv *PrivateKey, hash crypto.Hash, digest []byte,
+@@ -339,7 +342,9 @@ func SignPSS(rand io.Reader, priv *PrivateKey, hash crypto.Hash, digest []byte,
  // argument may be nil, in which case sensible defaults are used. opts.Hash is
  // ignored.
  func VerifyPSS(pub *PublicKey, hash crypto.Hash, digest []byte, sig []byte, opts *PSSOptions) error {
@@ -621,7 +621,7 @@ index cf03e3cb7ed2cc..361eab5db6137d 100644
  		t.Fatal(err)
  	}
 diff --git a/src/crypto/rsa/rsa.go b/src/crypto/rsa/rsa.go
-index 1124c6d09fbe18..1a14f5d2a9ae02 100644
+index 7f44522c7fe8c0..5d9be4f3e56b85 100644
 --- a/src/crypto/rsa/rsa.go
 +++ b/src/crypto/rsa/rsa.go
 @@ -35,6 +35,7 @@ import (
@@ -632,7 +632,7 @@ index 1124c6d09fbe18..1a14f5d2a9ae02 100644
  	"io"
  	"math"
  	"math/big"
-@@ -473,7 +474,11 @@ func mgf1XOR(out []byte, hash hash.Hash, seed []byte) {
+@@ -476,7 +477,11 @@ func mgf1XOR(out []byte, hash hash.Hash, seed []byte) {
  var ErrMessageTooLong = errors.New("crypto/rsa: message too long for RSA key size")
  
  func encrypt(pub *PublicKey, plaintext []byte) ([]byte, error) {
@@ -645,7 +645,7 @@ index 1124c6d09fbe18..1a14f5d2a9ae02 100644
  
  	// Most of the CPU time for encryption and verification is spent in this
  	// NewModulusFromBig call, because PublicKey doesn't have a Precomputed
-@@ -629,7 +634,9 @@ const noCheck = false
+@@ -639,7 +644,9 @@ const noCheck = false
  // m^e is calculated and compared with ciphertext, in order to defend against
  // errors in the CRT computation.
  func decrypt(priv *PrivateKey, ciphertext []byte, check bool) ([]byte, error) {
@@ -656,7 +656,7 @@ index 1124c6d09fbe18..1a14f5d2a9ae02 100644
  		boring.Unreachable()
  	}
  
-@@ -709,7 +716,9 @@ func decryptOAEP(hash, mgfHash hash.Hash, random io.Reader, priv *PrivateKey, ci
+@@ -719,7 +726,9 @@ func decryptOAEP(hash, mgfHash hash.Hash, random io.Reader, priv *PrivateKey, ci
  		return nil, ErrDecryption
  	}
  
