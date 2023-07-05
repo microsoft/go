@@ -8,12 +8,18 @@ goexperiment.systemcrypto behave as an alias that enables the recommended
 backend for the target GOOS. See src/internal/goexperiment/flags.go for more
 information about the behavior.
 
+Includes active crypto backend in the build info accessible in the
+binary, for example by "go version -m". This makes it easy to determine
+which backend is being used by a compiled Go program no matter which
+GOEXPERIMENT or build tag was used to enable it.
+
 Includes new tests in "build_test.go" and "buildbackend_test.go" to help
 maintain this feature. For more information, see the test files.
 ---
+ src/cmd/go/internal/load/pkg.go               |  5 ++
  src/cmd/go/internal/modindex/build.go         | 54 ++++++++++++++
  src/cmd/go/internal/modindex/build_test.go    | 73 +++++++++++++++++++
- src/go/build/build.go                         | 54 ++++++++++++++
+ src/go/build/build.go                         | 70 ++++++++++++++++++
  src/go/build/buildbackend_test.go             | 66 +++++++++++++++++
  .../testdata/backendtags_openssl/main.go      |  3 +
  .../testdata/backendtags_openssl/openssl.go   |  3 +
@@ -22,7 +28,7 @@ maintain this feature. For more information, see the test files.
  .../goexperiment/exp_systemcrypto_off.go      |  9 +++
  .../goexperiment/exp_systemcrypto_on.go       |  9 +++
  src/internal/goexperiment/flags.go            | 15 ++++
- 11 files changed, 292 insertions(+)
+ 12 files changed, 313 insertions(+)
  create mode 100644 src/cmd/go/internal/modindex/build_test.go
  create mode 100644 src/go/build/buildbackend_test.go
  create mode 100644 src/go/build/testdata/backendtags_openssl/main.go
@@ -32,6 +38,22 @@ maintain this feature. For more information, see the test files.
  create mode 100644 src/internal/goexperiment/exp_systemcrypto_off.go
  create mode 100644 src/internal/goexperiment/exp_systemcrypto_on.go
 
+diff --git a/src/cmd/go/internal/load/pkg.go b/src/cmd/go/internal/load/pkg.go
+index c0e6265e29d065..7b55a393d20ef4 100644
+--- a/src/cmd/go/internal/load/pkg.go
++++ b/src/cmd/go/internal/load/pkg.go
+@@ -2430,6 +2430,11 @@ func (p *Package) setBuildInfo(ctx context.Context, autoVCS bool) {
+ 	if key, val := cfg.GetArchEnv(); key != "" && val != "" {
+ 		appendSetting(key, val)
+ 	}
++	if backends := cfg.BuildContext.CryptoBackends(); len(backends) > 0 {
++		// It is an error to specify multiple backends, but this is reported by
++		// a source file with a build condition, not here.
++		appendSetting("cryptobackend", strings.Join(backends, ","))
++	}
+ 
+ 	// Add VCS status if all conditions are true:
+ 	//
 diff --git a/src/cmd/go/internal/modindex/build.go b/src/cmd/go/internal/modindex/build.go
 index b57f2f6368f0fe..9ddde1ce9a2286 100644
 --- a/src/cmd/go/internal/modindex/build.go
@@ -184,7 +206,7 @@ index 00000000000000..1756c5d027fee0
 +	}
 +}
 diff --git a/src/go/build/build.go b/src/go/build/build.go
-index dd6cdc903a21a8..48adcfed5cf3cb 100644
+index dd6cdc903a21a8..bd10b3b62dd833 100644
 --- a/src/go/build/build.go
 +++ b/src/go/build/build.go
 @@ -1947,13 +1947,67 @@ func (ctxt *Context) matchTag(name string, allTags map[string]bool) bool {
@@ -255,6 +277,29 @@ index dd6cdc903a21a8..48adcfed5cf3cb 100644
  		if tag == name {
  			return true
  		}
+@@ -1967,6 +2021,22 @@ func (ctxt *Context) matchTag(name string, allTags map[string]bool) bool {
+ 	return false
+ }
+ 
++// CryptoBackends returns the name of each crypto backend that is enabled in
++// this build context, e.g. "openssl", based on the active tags.
++// Only includes actual backends, not the "systemcrypto" alias.
++func (ctxt *Context) CryptoBackends() []string {
++	var tags []string
++	check := func(backend string) {
++		if ctxt.matchTag("goexperiment."+backend+"crypto", nil) {
++			tags = append(tags, backend)
++		}
++	}
++	check("openssl")
++	check("cng")
++	check("boring")
++	return tags
++}
++
+ // goodOSArchFile returns false if the name contains a $GOOS or $GOARCH
+ // suffix which does not match the current system.
+ // The recognized name formats are:
 diff --git a/src/go/build/buildbackend_test.go b/src/go/build/buildbackend_test.go
 new file mode 100644
 index 00000000000000..a22abbb42e37c0
