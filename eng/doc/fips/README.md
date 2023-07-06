@@ -160,7 +160,7 @@ To make the Go runtime panic during program initialization if FIPS mode is not e
 
 ## Usage: Extra configuration options
 
-### Enable FIPS mode at compile time
+### Build option to require FIPS mode
 
 The `requirefips` feature is available since Go 1.22.
 
