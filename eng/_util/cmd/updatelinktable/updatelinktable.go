@@ -31,6 +31,7 @@ var supported = []version{
 			"linux-armv6l":  {},
 			"windows-amd64": {},
 			"src":           {},
+			"assets":        {},
 		},
 	},
 	{
@@ -42,12 +43,14 @@ var supported = []version{
 			"linux-armv6l":  {},
 			"windows-amd64": {},
 			"src":           {},
+			"assets":        {},
 		},
 	},
 }
 
 var platformPrettyNames = map[string]string{
-	"src": "Source code",
+	"src":    "Source code",
+	"assets": "Metadata",
 }
 
 type version struct {
@@ -83,6 +86,14 @@ var sourceFiles = []goFileType{
 		Ext:       ".tar.gz",
 		Checksum:  true,
 		Signature: true,
+	},
+}
+
+var assetsFiles = []goFileType{
+	{
+		Kind: supportdata.Manifest,
+		Name: "Asset manifest (json)",
+		Ext:  ".json",
 	},
 }
 
@@ -211,7 +222,7 @@ func data() (string, []supportdata.Branch) {
 	b.WriteString("\n|")
 	for _, p := range platforms() {
 		os, arch, _ := strings.Cut(p, "-")
-		if p == "src" {
+		if p == "src" || p == "assets" {
 			os = ""
 		}
 		b.WriteString(" ")
@@ -253,16 +264,16 @@ func platforms() []string {
 			platforms[p] = struct{}{}
 		}
 	}
-	// Sort the platforms, but keep "src" always on top because it's very different and shouldn't be
+	// Sort the platforms, but keep "src" and "assets" always on top because it's very different and shouldn't be
 	// mixed in with the others. (Upstream also does this at go.dev/dl.)
 	keys := make([]string, 0, len(platforms))
 	for k := range platforms {
-		if k != "src" {
+		if k != "src" && k != "assets" {
 			keys = append(keys, k)
 		}
 	}
 	sort.Strings(keys)
-	keys = append([]string{"src"}, keys...)
+	keys = append([]string{"src", "assets"}, keys...)
 	return keys
 }
 
@@ -282,6 +293,9 @@ func fileTypes(platform string) []goFileType {
 	}
 	if platform == "src" {
 		return sourceFiles
+	}
+	if platform == "assets" {
+		return assetsFiles
 	}
 	return nil
 }
