@@ -24,6 +24,7 @@ const (
 	Archive   ArtifactKind = "archive"
 	Installer ArtifactKind = "installer"
 	Source    ArtifactKind = "source"
+	Manifest  ArtifactKind = "manifest"
 )
 
 type LatestLink struct {
