@@ -4,47 +4,47 @@ Date: Thu, 30 Jun 2022 10:03:03 +0200
 Subject: [PATCH] Add crypto backend foundation
 
 ---
- src/crypto/aes/cipher.go                    |   2 +-
- src/crypto/aes/cipher_asm.go                |   2 +-
- src/crypto/boring/boring.go                 |   2 +-
- src/crypto/ecdh/ecdh.go                     |   2 +-
- src/crypto/ecdh/nist.go                     |   2 +-
- src/crypto/ecdsa/boring.go                  |   4 +-
- src/crypto/ecdsa/ecdsa.go                   |   4 +-
- src/crypto/ecdsa/notboring.go               |   2 +-
- src/crypto/ed25519/ed25519_test.go          |   2 +-
- src/crypto/hmac/hmac.go                     |   2 +-
- src/crypto/hmac/hmac_test.go                |   2 +-
- src/crypto/internal/backend/backend_test.go |  30 +++++
- src/crypto/internal/backend/bbig/big.go     |  17 +++
- src/crypto/internal/backend/common.go       |  65 +++++++++++
- src/crypto/internal/backend/iscgo.go        |  10 ++
- src/crypto/internal/backend/nobackend.go    | 116 ++++++++++++++++++++
- src/crypto/internal/backend/nocgo.go        |  10 ++
- src/crypto/internal/backend/stub.s          |  10 ++
- src/crypto/rand/rand_unix.go                |   2 +-
- src/crypto/rsa/boring.go                    |   4 +-
- src/crypto/rsa/notboring.go                 |   2 +-
- src/crypto/rsa/pkcs1v15.go                  |   2 +-
- src/crypto/rsa/pss.go                       |   2 +-
- src/crypto/rsa/rsa.go                       |   4 +-
- src/crypto/rsa/rsa_test.go                  |   2 +-
- src/crypto/sha1/boring.go                   |   2 +-
- src/crypto/sha1/sha1_test.go                |   2 +-
- src/crypto/sha256/sha256.go                 |   2 +-
- src/crypto/sha256/sha256_test.go            |   2 +-
- src/crypto/sha512/sha512.go                 |   2 +-
- src/crypto/sha512/sha512_test.go            |   2 +-
- src/crypto/tls/cipher_suites.go             |   2 +-
- src/go/build/deps_test.go                   |   2 +
- src/runtime/runtime_boring.go               |   5 +
- 34 files changed, 294 insertions(+), 29 deletions(-)
+ src/crypto/aes/cipher.go                     |   2 +-
+ src/crypto/aes/cipher_asm.go                 |   2 +-
+ src/crypto/boring/boring.go                  |   2 +-
+ src/crypto/ecdh/ecdh.go                      |   2 +-
+ src/crypto/ecdh/nist.go                      |   2 +-
+ src/crypto/ecdsa/boring.go                   |   4 +-
+ src/crypto/ecdsa/ecdsa.go                    |   4 +-
+ src/crypto/ecdsa/notboring.go                |   2 +-
+ src/crypto/ed25519/ed25519_test.go           |   2 +-
+ src/crypto/hmac/hmac.go                      |   2 +-
+ src/crypto/hmac/hmac_test.go                 |   2 +-
+ src/crypto/internal/backend/backend_test.go  |  30 +++++
+ src/crypto/internal/backend/bbig/big.go      |  17 +++
+ src/crypto/internal/backend/common.go        |  78 +++++++++++++
+ src/crypto/internal/backend/isrequirefips.go |   9 ++
+ src/crypto/internal/backend/nobackend.go     | 116 +++++++++++++++++++
+ src/crypto/internal/backend/norequirefips.go |   9 ++
+ src/crypto/internal/backend/stub.s           |  10 ++
+ src/crypto/rand/rand_unix.go                 |   2 +-
+ src/crypto/rsa/boring.go                     |   4 +-
+ src/crypto/rsa/notboring.go                  |   2 +-
+ src/crypto/rsa/pkcs1v15.go                   |   2 +-
+ src/crypto/rsa/pss.go                        |   2 +-
+ src/crypto/rsa/rsa.go                        |   4 +-
+ src/crypto/rsa/rsa_test.go                   |   2 +-
+ src/crypto/sha1/boring.go                    |   2 +-
+ src/crypto/sha1/sha1_test.go                 |   2 +-
+ src/crypto/sha256/sha256.go                  |   2 +-
+ src/crypto/sha256/sha256_test.go             |   2 +-
+ src/crypto/sha512/sha512.go                  |   2 +-
+ src/crypto/sha512/sha512_test.go             |   2 +-
+ src/crypto/tls/cipher_suites.go              |   2 +-
+ src/go/build/deps_test.go                    |   2 +
+ src/runtime/runtime_boring.go                |   5 +
+ 34 files changed, 305 insertions(+), 29 deletions(-)
  create mode 100644 src/crypto/internal/backend/backend_test.go
  create mode 100644 src/crypto/internal/backend/bbig/big.go
  create mode 100644 src/crypto/internal/backend/common.go
- create mode 100644 src/crypto/internal/backend/iscgo.go
+ create mode 100644 src/crypto/internal/backend/isrequirefips.go
  create mode 100644 src/crypto/internal/backend/nobackend.go
- create mode 100644 src/crypto/internal/backend/nocgo.go
+ create mode 100644 src/crypto/internal/backend/norequirefips.go
  create mode 100644 src/crypto/internal/backend/stub.s
 
 diff --git a/src/crypto/aes/cipher.go b/src/crypto/aes/cipher.go
@@ -256,10 +256,10 @@ index 00000000000000..85bd3ed083f5b2
 +}
 diff --git a/src/crypto/internal/backend/common.go b/src/crypto/internal/backend/common.go
 new file mode 100644
-index 00000000000000..007d8070538247
+index 00000000000000..efdd080a1b7708
 --- /dev/null
 +++ b/src/crypto/internal/backend/common.go
-@@ -0,0 +1,65 @@
+@@ -0,0 +1,78 @@
 +// Copyright 2022 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -273,25 +273,38 @@ index 00000000000000..007d8070538247
 +)
 +
 +func init() {
-+	if v, _ := envGoFIPS(); v == "1" {
-+		if runtime.GOOS != "linux" {
-+			panic("FIPS mode requested (GOFIPS=1) but not supported on " + runtime.GOOS)
-+		} else if !iscgo {
-+			panic("FIPS mode requested (GOFIPS=1) but not supported with cgo disabled")
++	if v, r, ok := envGoFIPS(); ok && v == "1" {
++		if !Enabled {
++			if runtime.GOOS != "linux" && runtime.GOOS != "windows" {
++				panic("FIPS mode requested (" + r + ") but no crypto backend is supported on " + runtime.GOOS)
++			}
++			panic("FIPS mode requested (" + r + ") but no supported crypto backend is enabled")
 +		}
 +	}
 +}
 +
-+func envGoFIPS() (string, bool) {
-+	if v, ok := syscall.Getenv("GOFIPS"); ok {
-+		return v, true
-+	}
++func envGoFIPS() (value string, reason string, ok bool) {
 +	// TODO: Decide which environment variable to use.
 +	// See https://github.com/microsoft/go/issues/397.
-+	if v, ok := syscall.Getenv("GOLANG_FIPS"); ok {
-+		return v, true
++	var varName string
++	if value, ok = syscall.Getenv("GOFIPS"); ok {
++		varName = "GOFIPS"
++	} else if value, ok = syscall.Getenv("GOLANG_FIPS"); ok {
++		varName = "GOLANG_FIPS"
 +	}
-+	return "", false
++	if isRequireFIPS {
++		if ok && value != "1" {
++			panic("the 'requirefips' build tag is enabled, but it conflicts " +
++				"with the detected env variable " +
++				varName + "=" + value +
++				" which would disable FIPS mode")
++		}
++		return "1", "requirefips tag set", true
++	}
++	if ok {
++		return value, "environment variable " + varName + "=1", true
++	}
++	return "", "", false
 +}
 +
 +// Unreachable marks code that should be unreachable
@@ -325,22 +338,21 @@ index 00000000000000..007d8070538247
 +		}
 +	}
 +}
-diff --git a/src/crypto/internal/backend/iscgo.go b/src/crypto/internal/backend/iscgo.go
+diff --git a/src/crypto/internal/backend/isrequirefips.go b/src/crypto/internal/backend/isrequirefips.go
 new file mode 100644
-index 00000000000000..1e0d3cf8c18b55
+index 00000000000000..e5d7570d6d4363
 --- /dev/null
-+++ b/src/crypto/internal/backend/iscgo.go
-@@ -0,0 +1,10 @@
++++ b/src/crypto/internal/backend/isrequirefips.go
+@@ -0,0 +1,9 @@
 +// Copyright 2022 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
 +
-+//go:build cgo
-+// +build cgo
++//go:build requirefips
 +
 +package backend
 +
-+const iscgo = true
++const isRequireFIPS = true
 diff --git a/src/crypto/internal/backend/nobackend.go b/src/crypto/internal/backend/nobackend.go
 new file mode 100644
 index 00000000000000..ad6081552af15d
@@ -463,22 +475,21 @@ index 00000000000000..ad6081552af15d
 +func NewPublicKeyECDH(string, []byte) (*PublicKeyECDH, error) { panic("cryptobackend: not available") }
 +func (*PublicKeyECDH) Bytes() []byte                          { panic("cryptobackend: not available") }
 +func (*PrivateKeyECDH) PublicKey() (*PublicKeyECDH, error)    { panic("cryptobackend: not available") }
-diff --git a/src/crypto/internal/backend/nocgo.go b/src/crypto/internal/backend/nocgo.go
+diff --git a/src/crypto/internal/backend/norequirefips.go b/src/crypto/internal/backend/norequirefips.go
 new file mode 100644
-index 00000000000000..63c13fc4b01cba
+index 00000000000000..26bfb5f6a643f3
 --- /dev/null
-+++ b/src/crypto/internal/backend/nocgo.go
-@@ -0,0 +1,10 @@
++++ b/src/crypto/internal/backend/norequirefips.go
+@@ -0,0 +1,9 @@
 +// Copyright 2022 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
 +
-+//go:build !cgo
-+// +build !cgo
++//go:build !requirefips
 +
 +package backend
 +
-+const iscgo = false
++const isRequireFIPS = false
 diff --git a/src/crypto/internal/backend/stub.s b/src/crypto/internal/backend/stub.s
 new file mode 100644
 index 00000000000000..5e4b436554d44d

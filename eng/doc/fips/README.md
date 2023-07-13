@@ -234,7 +234,10 @@ The `opensslcrypto` Go runtime automatically loads the OpenSSL shared library `l
 The `libcrypto` shared library file name varies among different platforms, so a best effort is done to find and load the right file:
 
 - The base name is always `libcrypto.so.`
-- Well-known version strings are appended to the base name, until the file is found, in the following order: `3` -> `1.1` -> `11` -> `111` -> `1.0.2` -> `1.0.0`.
+- Well-known version strings are appended to the base name in this order: `3` -> `1.1` -> `11` -> `111` -> `1.0.2` -> `1.0.0`.
+- This may find multiple libraries installed on the machine, so to pick one:
+  - A matching library with FIPS mode on by default (e.g. set by system configuration) is chosen immediately.
+  - If none have FIPS mode on by default, the first match is used.
 
 This algorithm can be overridden by setting the environment variable `GO_OPENSSL_VERSION_OVERRIDE` to the desired version string. For example, `GO_OPENSSL_VERSION_OVERRIDE="1.1.1k-fips"` makes the runtime look for the shared library `libcrypto.so.1.1.1k-fips` before running the checks for well-known versions.
 
