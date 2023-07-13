@@ -81,7 +81,8 @@ Some configurations are invalid and intentionally result in a build error or run
 
 The `GOEXPERIMENT` environment variable is used at build time to select a cryptographic library backend. This modifies the Go runtime included in the program to use the specified platform-provided cryptographic library whenever it calls a Go standard library crypto API. The `GOEXPERIMENT` values that pick a crypto backend are:
 
-- *Recommended:* `systemcrypto` automatically selects the crypto backend we suggest for the target platform
+- *Recommended:* `systemcrypto` automatically selects the suggested crypto backend for the target platform
+  - The selection matches the internal Microsoft crypto policy for Go
   > Prior to Go 1.21, this alias is not available and the backend must be selected manually
 - `opensslcrypto` selects OpenSSL, for Linux
 - `cngcrypto` selects CNG, for Windows
