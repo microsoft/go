@@ -38,7 +38,7 @@ It is important to note that an application built with Microsoft's Go toolchain 
 The `GOEXPERIMENT` environment variable is used at build time to select a cryptographic library backend. This modifies the Go runtime included in the program to use the specified platform-provided cryptographic library whenever it calls a Go standard library crypto API. The `GOEXPERIMENT` values that pick a crypto backend are:
 
 - *Recommended:* `systemcrypto` automatically selects the crypto backend we suggest for the target platform
-  > Prior to Go 1.22, this alias is not available and the backend must be selected manually
+  > Prior to Go 1.21, this alias is not available and the backend must be selected manually
 - `opensslcrypto` selects OpenSSL, for Linux
 - `cngcrypto` selects CNG, for Windows
 - `boringcrypto` selects the upstream BoringCrypto backend, which is **not supported**
@@ -46,7 +46,7 @@ The `GOEXPERIMENT` environment variable is used at build time to select a crypto
 
 The options are exclusive and must not be enabled at the same time as one another.
 
-The crypto backend selection must match the target platform. In a cross-build scenario, such as using Linux to build an app that will run on Windows, `GOOS=windows GOEXPERIMENT=systemcrypto` will correctly select `cngcrypto`. Prior to Go 1.22, the selection must be made manually: `GOOS=windows GOEXPERIMENT=cngcrypto`.
+The crypto backend selection must match the target platform. In a cross-build scenario, such as using Linux to build an app that will run on Windows, `GOOS=windows GOEXPERIMENT=systemcrypto` will correctly select `cngcrypto`. Prior to Go 1.21, the selection must be made manually: `GOOS=windows GOEXPERIMENT=cngcrypto`.
 
 Setting the `goexperiment.<option>` build tag can be used as an alternative to setting the `GOEXPERIMENT` environment variable.
 
@@ -60,9 +60,9 @@ The next sections describe how to select a crypto backend in some common scenari
 
 ### Dockerfile base image
 
-Since Go 1.22, you can swap your Dockerfile's base image to the special Microsoft Go images marked with `-fips-`. These images include `env GOEXPERIMENT=systemcrypto` and are otherwise the same as the non`-fips-` images. These exist for convenience. See [the microsoft/go-images documentation][microsoft-go-images] for more information about available images and how to use them.
+Since Go 1.21, you can swap your Dockerfile's base image to the special Microsoft Go images marked with `-fips-`. These images include `env GOEXPERIMENT=systemcrypto` and are otherwise the same as the non`-fips-` images. These exist for convenience. See [the microsoft/go-images documentation][microsoft-go-images] for more information about available images and how to use them.
 
-> Prior to Go 1.22, `-fips-` images do exist, but they are only available for Linux and include `env GOEXPERIMENT=opensslcrypto`. For this reason, these images can't easily be used to build Windows binaries on a Linux host.
+> Prior to Go 1.21, `-fips-` images do exist, but they are only available for Linux and include `env GOEXPERIMENT=opensslcrypto`. For this reason, these images can't easily be used to build Windows binaries on a Linux host.
 
 ### Dockerfile env instruction
 
@@ -72,13 +72,13 @@ If you don't use the standard Go base images (e.g. your Dockerfile downloads Mic
 env GOEXPERIMENT=systemcrypto
 ```
 
-> Prior to Go 1.22, `systemcrypto` doesn't exist and `opensslcrypto` or `cngcrypto` must be used.
+> Prior to Go 1.21, `systemcrypto` doesn't exist and `opensslcrypto` or `cngcrypto` must be used.
 
 ### Modify the build command
 
 Another approach that generally works for any build system is to modify the build command or build script. This section lists some helpful snippets to select a backend. Click on a description to open the full example.
 
-> The examples use `systemcrypto`, available since Go 1.22. Prior to Go 1.22, `opensslcrypto` or `cngcrypto` must be used instead.
+> The examples use `systemcrypto`, available since Go 1.21. Prior to Go 1.21, `opensslcrypto` or `cngcrypto` must be used instead.
 
 <details><summary>Linux shell (bash) - Set GOEXPERIMENT environment variable</summary>
 
@@ -162,7 +162,7 @@ To make the Go runtime panic during program initialization if FIPS mode is not e
 
 ### Build option to require FIPS mode
 
-The `requirefips` feature is available since Go 1.22.
+The `requirefips` feature is available since Go 1.21.
 
 FIPS mode is normally determined at runtime, but the `requirefips` build tag can be used to make a program always require FIPS mode and panic if FIPS mode can't be enabled for any reason.
 
@@ -205,11 +205,11 @@ For example, `go build -tags=goexperiment.systemcrypto` command will enable the 
 
 Normally this is not necessary, but a shared package may need to change its implementation when compiled with a crypto backend rather than the ordinary Go backend. For example, the library may need to remove use of cryptographic algorithms that would not be permitted by FIPS, in a way that will still allow the library to function. This is done using [build constraints](https://pkg.go.dev/go/build#hdr-Build_Constraints), also known as build tags.
 
-Since Go 1.22:
+Since Go 1.21:
 - `//go:build goexperiment.systemcrypto` conditionally includes the source file if *any* crypto backend is enabled.
 - `//go:build !goexperiment.systemcrypto` includes the file if *no* crypto backend is enabled.
 
-> Prior to the introduction of the systemcrypto alias in Go 1.22, the constraint is:  
+> Prior to the introduction of the systemcrypto alias in Go 1.21, the constraint is:  
   `//go:build goexperiment.opensslcrypto && goexperiment.cngcrypto && goexperiment.boringcrypto`.
 
 The `goexperiment.systemcrypto` tag's behavior is implemented in a Microsoft Go patch to the build system. It is not available in builds of upstream Go. The constraint `//go:build !goexperiment.systemcrypto` won't cause a build to fail with upstream Go, but it is always satisfied even if the BoringCrypto backend is enabled.
