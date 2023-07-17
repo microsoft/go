@@ -9,6 +9,7 @@ import (
 	"log"
 	"os"
 	"strconv"
+	"strings"
 )
 
 // Retry runs f until it succeeds or the attempt limit is reached.
@@ -91,6 +92,15 @@ func GetEnvOrDefault(varName, defaultValue string) (string, error) {
 // AppendExperimentEnv sets the GOEXPERIMENT env var to the given value, or if GOEXPERIMENT is
 // already set, appends a comma separator and then the given value.
 func AppendExperimentEnv(experiment string) {
+	// If the experiment enables a crypto backend, allow fallback to Go crypto. Go turns off cgo
+	// and/or cross-builds in various situations during the build/tests, so we need to allow for it.
+	if strings.Contains(experiment, "opensslcrypto") ||
+		strings.Contains(experiment, "cngcrypto") ||
+		strings.Contains(experiment, "boringcrypto") ||
+		strings.Contains(experiment, "systemcrypto") {
+
+		experiment += ",allowcryptofallback"
+	}
 	if v, ok := os.LookupEnv("GOEXPERIMENT"); ok {
 		experiment = v + "," + experiment
 	}
