@@ -41,6 +41,7 @@ The Microsoft Go fork provides several ways to configure the crypto backend and 
   - [`GOEXPERIMENT=<backend>crypto` environment variable](#usage-build)
   - [`goexperiment.<backend>crypto` build tag](#usage-build)
   - [`requirefips` build tag](#build-option-to-require-fips-mode)
+  - [`GOEXPERIMENT` `allowcryptofallback`](#build-option-to-allow-go-standard-library-crypto-fallback)
   - [`import _ "crypto/tls/fipsonly"` source change](#tls-with-fips-approved-settings)
 - Runtime configuration:
   - [`GOFIPS` environment variable](#usage-runtime)
@@ -102,6 +103,13 @@ The crypto backend selection must match the target platform. In a cross-build sc
 Setting the `goexperiment.<option>` build tag can be used as an alternative to setting the `GOEXPERIMENT` environment variable.
 
 > For details about combining multiple `GOEXPERIMENT`s and using build tags to customize your build, see [Usage: GOEXPERIMENTs and backend build tags](#usage-goexperiments-and-backend-build-tags).
+
+If a crypto backend is selected but isn't supported, the build fails. For example, attempting to use the OpenSSL backend without cgo enabled results in a build error.
+
+> Prior to Go 1.21, instead of failing, the build automatically uses the Go standard library crypto implementation. This behavior can cause accidental or unclear fallback to Go crypto, silently breaking compliance with the internal Microsoft crypto policy.
+>
+> In 1.21, this behavior was changed. Fallback is now opt-in with the `GOEXPERIMENT` `allowcryptofallback`. This option is primarily intended for internal use during the Microsoft Go build and should be avoided in general use. See [`allowcryptofallback`](#build-option-to-allow-go-standard-library-crypto-fallback) for more information.
+
 
 The Microsoft Go fork must be used for these `GOEXPERIMENT` values to work. See setup instructions in [the distribution section of the microsoft/go readme][microsoft-go-download].
 
@@ -226,6 +234,21 @@ Most programs aren't expected to use this tag. Determining FIPS mode at runtime 
 We chose to make a `requirefips` Go program panic if `GOFIPS=0` rather than silently ignoring the setting. This helps avoid a surprise if a user of a `requirefips` program sets `GOFIPS=0` and expects it to turn off FIPS mode. It may not be obvious which programs are built using `requirefips`, and the panic is intended to help avoid confusion.
 
 Modifying the `go build` command to include `-tags=requirefips` enables this feature. However, if it is difficult to change the build command but possible to change the environment (e.g. by modifying a Dockerfile's `FROM` image), the `GOFLAGS` environment variable can be used to pass `-tags=requirefips` to every `go build` command that runs. See [the "GOFLAGS" example in the build section](#modify-the-build-command).
+
+### Build option to allow Go standard library crypto fallback
+
+Including `allowcryptofallback` in `GOEXPERIMENT` or enabling it as a build tag directs Microsoft Go to use the Go standard library crypto implementation if the specified crypto backend isn't supported. A common unsupported build configuration is `GOOS=linux CGO_ENABLED=0 GOEXPERIMENT=opensslcrypto`: the OpenSSL backend requires cgo, so the build fails.
+
+`allowcryptofallback` is not recommended. It makes it unclear whether or not the app is intended to be compliant with the internal Microsoft crypto policy (or FIPS). Instead, we recommend a fix that clearly shows intent:
+
+- Fix the build environment to allow the crypto backend to be used.
+  - E.g. enable cgo
+- Remove `GOEXPERIMENT` entirely. This intentionally doesn't comply with the internal Microsoft crypto policy or FIPS, so for builds within Microsoft, this should only be done under a documented exception.
+  - E.g. build with `GOOS=linux CGO_ENABLED=0`
+
+In rare cases, it may be more practical to use `allowcryptofallback` than remove the `GOEXPERIMENT`. For example, a generic build script that supports many platforms, some of which don't support crypto backends, may find it practical to use `GOEXPERIMENT=systemcrypto,allowcryptofallback` despite the risk of unclear or accidental fallback to Go crypto.
+
+> `allowcryptofallback` plays an important role in the Microsoft Go build process. We have CI jobs that run the build and tests under the OpenSSL, CNG, and Boring cryto backends, but parts of the upstream build and tests disable cgo and run cross-builds. This would cause a failure because the backend can't be enabled, but by including `allowcryptofallback`, the build is allowed to continue and fall back to the Go standard library crypto implementation when necessary.
 
 ### Runtime OpenSSL version override
 
