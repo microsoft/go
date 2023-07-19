@@ -196,6 +196,8 @@ A program built with `opensslcrypto` always uses the OpenSSL library present on 
 
 The following sections describe how to enable FIPS mode.
 
+> The options described in this section have no effect at build time, only when the system running the Go program is changed. This is normally the desired behavior. See [`requirefips`](#build-option-to-require-fips-mode) for the optional build tag that enables FIPS mode.
+
 ### Linux FIPS mode (OpenSSL)
 
 To set FIPS mode on Linux, use one of the following options. The first match wins:
@@ -324,7 +326,7 @@ It's common in the Go ecosystem to statically link all dependencies to produce a
 
 ### Portable OpenSSL
 
-The OpenSSL bindings are implemented in such a way that the OpenSSL version used when building a program does not have to match with the OpenSSL version used when running it. It is even possible to build a program using plain Go crypto (i.e. setting `GOFIPS=0`) and then running that same program in FIPS mode.
+The OpenSSL version present when building a program does not have to match the OpenSSL version used when running it. In fact, OpenSSL doesn't need to be present on the builder at all if the built program isn't executed on that system. *Dynamic loading* rather than *linking* makes this possible.
 
 This feature does not require any additional configuration, but it only works with OpenSSL versions known and supported by the Go toolchain.
 
