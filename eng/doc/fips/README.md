@@ -131,15 +131,15 @@ If you don't use the standard Go base images (e.g. your Dockerfile downloads Mic
 env GOEXPERIMENT=systemcrypto
 ```
 
-> Prior to Go 1.21, `systemcrypto` doesn't exist and `opensslcrypto` or `cngcrypto` must be used.
+> Prior to Go 1.21, `systemcrypto` doesn't exist and `opensslcrypto` or `cngcrypto` must be used depending on the target platform.
 
 ### Modify the build command
 
-Another approach that generally works for any build system is to modify the build command or build script. This section lists some helpful snippets to select a backend. Click on a description to open the full example.
+Another approach that generally works for any build system is to modify the build command or build script. This section lists some helpful snippets to select a backend.
 
-> The examples use `systemcrypto`, available since Go 1.21. Prior to Go 1.21, `opensslcrypto` or `cngcrypto` must be used instead.
+> Prior to Go 1.21, `systemcrypto` doesn't exist and `opensslcrypto` or `cngcrypto` must be used depending on the target platform.
 
-<details><summary>Linux shell (bash) - Set GOEXPERIMENT environment variable</summary>
+#### Linux shell (bash) - Set `GOEXPERIMENT` environment variable
 
 - Set the environment variable for all future commands:
   ```sh
@@ -152,27 +152,21 @@ Another approach that generally works for any build system is to modify the buil
   GOEXPERIMENT=systemcrypto go build ./myapp
   ```
 
-</details>
-
-<details><summary>PowerShell - Set GOEXPERIMENT environment variable</summary>
+#### PowerShell - Set `GOEXPERIMENT` environment variable
 
 - ```pwsh
   $env:GOEXPERIMENT = "cngcrypto"
   go build ./myapp
   ```
 
-</details>
-
-<details><summary>Pass "-tags=..." flag to "go build"</summary>
+#### Shell independent - Pass `-tags=...` flag to `go build`
 
 - ```
   go build "-tags=goexperiment.systemcrypto" ./myapp
   ```
   > Quoting the argument is necessary in some shells (notably PowerShell) to escape "`.`" or "`,`" if present. Quoting isn't required by every shell.
 
-</details>
-
-<details><summary>Assign "GOFLAGS" environment variable to automatically pass "-tags=..." to "go build"</summary>
+#### Assign `GOFLAGS` environment variable to automatically pass `-tags=...` to `go build`
 
 - Instead of assigning `GOEXPERIMENT` directly, you can assign `GOFLAGS` to pass `-tags` to `go build`. This is useful if you already use `GOFLAGS` for other purposes, or if it would be difficult to modify `GOEXPERIMENT` for some other reason.
 - This is generally not necessary, and using the simpler `GOEXPERIMENT` environment variable is recommended.
@@ -187,8 +181,6 @@ Another approach that generally works for any build system is to modify the buil
   go build ./myapp
   ```
 - Note: if `-tags` is specified in `GOFLAGS` and `-tags` is also passed to the build command, the value passed to the build command is used and the one in `GOFLAGS` is ignored.
-
-</details>
 
 ## Usage: Runtime
 
