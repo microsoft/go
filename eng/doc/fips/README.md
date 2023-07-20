@@ -363,6 +363,7 @@ This list of major changes is intended for quick reference and for access to his
 
 ### Go 1.19 (Aug 2022)
 
+- CNG (Windows) backend introduced.
 - `GOEXPERIMENT` environment variable is now used to select the backend.
   - Upstream Go made this change for BoringCrypto, and we adopted it for our OpenSSL and CNG backends. See [the `dev.boringcrypto` branch readme](https://github.com/golang/go/blob/dev.boringcrypto/README.boringcrypto.md). For more details about the merge, see [golang/go#51940](https://github.com/golang/go/issues/51940). `dev.boringcrypto*` branches are no longer maintained.
   - Downloading a different toolset build to build FIPS vs. non-FIPS programs is no longer necessary.
@@ -371,6 +372,7 @@ This list of major changes is intended for quick reference and for access to his
 
 ### Go 1.16 (Feb 2022)
 
+- OpenSSL (Linux) backend introduced.
 - Introduction of FIPS features in the Microsoft Go fork based on the upstream `dev.boringcrypto*` branches of Go.
 - The backend is only used if FIPS mode is requested (e.g. `GOFIPS=1`), otherwise Microsoft Go falls back to the Go standard library at runtime.
 - To build a FIPS-compliant program, a FIPS-specific toolset build must be downloaded and used.
