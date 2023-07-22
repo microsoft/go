@@ -28,12 +28,12 @@
     <Message Text="Signing files in $(SignFilesDir)." Importance="high" />
 
     <ItemGroup>
-      <LinuxGoFile Include="$([MSBuild]::NormalizeDirectory('$(SignFilesDir)'))**/go.*.tar.gz" />
+      <LinuxGoFile Include="$([MSBuild]::NormalizeDirectory('$(SignFilesDir)'))**/go*.tar.gz" />
 
       <LinuxGoSigFile Include="@(LinuxGoFile -> '%(Identity).sig')" />
       <ItemsToSign Include="@(LinuxGoSigFile)" />
 
-      <GoZipFile Include="$([MSBuild]::NormalizeDirectory('$(SignFilesDir)'))**/go.*.zip" />
+      <GoZipFile Include="$([MSBuild]::NormalizeDirectory('$(SignFilesDir)'))**/go*.zip" />
       <GoZipFile ExtractedDir="$([MSBuild]::NormalizeDirectory('%(Identity).extracted'))" />
 
       <FileExtensionSignInfo Include=".sig" CertificateName="LinuxSignManagedLanguageCompiler" />
@@ -88,11 +88,16 @@
       MicroBuildCorePath="$(NuGetPackageRoot)microbuild.core\$(MicroBuildCoreVersion)"/>
     
     <!--
-      Now that the contents are signed (in place), re-pack the zip file. Use our "pack" command
-      (rather than MSBuild's ZipDirectory task) so we also generate a new checksum file
-      automatically. Signing the zip's contents has invalidated the old checksum.
+      Now that the contents are signed (in place), re-pack the zip file(s). Also generate a checksum
+      file for each one: changing the zip's contents means we have to wait until now to do this.
     -->
-    <Exec Command="pwsh ..\run.ps1 pack -source %(GoZipFile.ExtractedDir)go -o %(GoZipFile.Identity)" />
+    <ZipDirectory
+      SourceDirectory="%(GoZipFile.ExtractedDir)"
+      DestinationFile="%(GoZipFile.Identity)"
+      Overwrite="true" />
+
+    <Exec Command="pwsh ..\run.ps1 write-checksum @(GoZipFile, ' ')" />
+
     <!-- Remove the large extracted dir so the build job doesn't upload it. -->
     <RemoveDir Directories="@(GoZipFile -> '%(ExtractedDir)')" />
   </Target>
