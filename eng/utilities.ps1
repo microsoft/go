@@ -24,7 +24,7 @@ function Get-Stage0GoRoot() {
   # pre-installed. This CI script installs a consistent, official version of Go to a directory in
   # $HOME to handle this. This also makes it easier to locally repro issues in CI that involve a
   # specific version of Go. The downloaded copy of Go is called the "stage 0" version.
-  $stage0_go_version = '1.18.7'
+  $stage0_go_version = '1.20.6'
 
   $proc_arch = ([System.Runtime.InteropServices.RuntimeInformation]::ProcessArchitecture).ToString().ToLowerInvariant()
   if ($IsWindows) {
