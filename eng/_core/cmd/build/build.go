@@ -275,18 +275,29 @@ func build(o *options) error {
 		// distpack creates some files we don't need. Recreate the naming logic here to pick out the
 		// files we want and copy them to our artifacts dir.
 		distPackDir := filepath.Join(goRootDir, "pkg", "distpack")
-		var packs []string
+		artifactsBinDir := filepath.Join(rootDir, "eng", "artifacts", "bin")
+		type packCopy struct{ src, dst string }
+		var packs []packCopy
+		// Insert the build ID to make sure the archive filename is unique. We might change
+		// patches but build the same submodule commit multiple times.
+		buildID := getBuildID()
 		if o.PackBuild {
-			packs = append(packs, filepath.Join(distPackDir, version+"."+targetOS+"-"+targetArch+archiveExtension))
+			packs = append(packs, packCopy{
+				src: filepath.Join(distPackDir, version+"."+targetOS+"-"+targetArch+archiveExtension),
+				dst: filepath.Join(artifactsBinDir, version+"-"+buildID+"."+targetOS+"-"+targetArch+archiveExtension),
+			})
 		}
 		if o.PackSource {
-			packs = append(packs, filepath.Join(distPackDir, version+".src.tar.gz"))
+			packs = append(packs)
+			packs = append(packs, packCopy{
+				src: filepath.Join(distPackDir, version+".src.tar.gz"),
+				dst: filepath.Join(distPackDir, version+"-"+buildID+".src.tar.gz"),
+			})
 		}
-		artifactsBinDir := filepath.Join(rootDir, "eng", "artifacts", "bin")
 		fmt.Printf("---- Copying distpack output to artifacts dir %v\n", artifactsBinDir)
 		for _, p := range packs {
-			fmt.Printf("---- Copying %v ...\n", p)
-			if err := copyFile(filepath.Join(artifactsBinDir, filepath.Base(p)), p); err != nil {
+			fmt.Printf("---- Copying %q to %q...\n", p.src, p.dst)
+			if err := copyFile(p.dst, p.src); err != nil {
 				return err
 			}
 		}
@@ -359,4 +370,13 @@ func runCommandLine(commandLine ...string) error {
 func runCmd(cmd *exec.Cmd) error {
 	fmt.Printf("---- Running command: %v\n", cmd.Args)
 	return cmd.Run()
+}
+
+// getBuildID returns BUILD_BUILDNUMBER if defined (e.g. a CI build). Otherwise, "dev".
+func getBuildID() string {
+	archiveVersion := os.Getenv("BUILD_BUILDNUMBER")
+	if archiveVersion == "" {
+		return "dev"
+	}
+	return archiveVersion
 }
