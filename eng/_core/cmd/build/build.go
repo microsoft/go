@@ -290,7 +290,7 @@ func build(o *options) error {
 		if o.PackSource {
 			packs = append(packs, packCopy{
 				src: filepath.Join(distPackDir, version+".src.tar.gz"),
-				dst: filepath.Join(distPackDir, version+"-"+buildID+".src.tar.gz"),
+				dst: filepath.Join(artifactsBinDir, version+"-"+buildID+".src.tar.gz"),
 			})
 		}
 		fmt.Printf("---- Copying distpack output to artifacts dir %v\n", artifactsBinDir)
