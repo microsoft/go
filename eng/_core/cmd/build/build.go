@@ -288,7 +288,6 @@ func build(o *options) error {
 			})
 		}
 		if o.PackSource {
-			packs = append(packs)
 			packs = append(packs, packCopy{
 				src: filepath.Join(distPackDir, version+".src.tar.gz"),
 				dst: filepath.Join(distPackDir, version+"-"+buildID+".src.tar.gz"),
@@ -321,7 +320,7 @@ func writeDevelVersionFile(goRootDir, toolsDir string) (string, error) {
 	if fields[0] != "devel" {
 		return "", fmt.Errorf("expected first field 'devel' in dist version, got %q", fields[0])
 	}
-	// The second field should be someting like "go1.21-abcde1234", and the remaining fields are a
+	// The second field should be something like "go1.21-abcde1234", and the remaining fields are a
 	// timestamp. Just using the second field is: the full VERSION file string is placed into the
 	// archive filename, so this keeps it simple and avoids special characters.
 	if err := os.WriteFile(filepath.Join(goRootDir, "VERSION"), []byte(fields[1]), 0o666); err != nil {
