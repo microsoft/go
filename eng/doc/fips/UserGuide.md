@@ -53,12 +53,12 @@ The Go crypto documentation is available online at https://pkg.go.dev/crypto.
     - [crypto/sha512](#cryptosha512)
       - [func New](#func-new-3)
       - [func New384](#func-new384)
-      - [func New512_224](#func-new512_224)
-      - [func New512_256](#func-new512_256)
+      - [func New512\_224](#func-new512_224)
+      - [func New512\_256](#func-new512_256)
       - [func Sum384](#func-sum384)
       - [func Sum512](#func-sum512)
-      - [func Sum512_224](#func-sum512_224)
-      - [func Sum512_256](#func-sum512_256)
+      - [func Sum512\_224](#func-sum512_224)
+      - [func Sum512\_256](#func-sum512_256)
     - [crypto/rsa](#cryptorsa)
       - [func DecryptOAEP](#func-decryptoaep)
       - [func DecryptPKCS1v15](#func-decryptpkcs1v15)
@@ -560,7 +560,7 @@ New returns a new HMAC hash using the given hash.Hash type and key.
 
 **Implementation**
 
-<details><summary>OpenSSL (click for details)</summary>
+<details><summary>OpenSSL 1.x (click for details)</summary>
 
 The hmac is generated using [HMAC_CTX_new] and [HMAC_Init_ex].
 
@@ -569,6 +569,18 @@ The hash.Hash methods are implemented as follows:
 - `Write` using [HMAC_Update].
 - `Sum` using [HMAC_Final].
 - `Reset` using [HMAC_Init_ex].
+
+</details>
+
+<details><summary>OpenSSL 3.x (click for details)</summary>
+
+The hmac is generated using [EVP_MAC_CTX_new] and [EVP_MAC_init].
+
+The hash.Hash methods are implemented as follows:
+
+- `Write` using [EVP_MAC_update].
+- `Sum` using [EVP_MAC_final].
+- `Reset` using [EVP_MAC_init].
 
 </details>
 
@@ -1299,7 +1311,10 @@ When using TLS in FIPS-only mode the TLS handshake has the following restriction
 [HMAC_Init_ex]: https://www.openssl.org/docs/man3.0/man3/HMAC_Init_ex.html
 [HMAC_Update]: https://www.openssl.org/docs/man3.0/man3/HMAC_Update.html
 [HMAC_Final]: https://www.openssl.org/docs/man3.0/man3/HMAC_Final.html
-[HMAC_Init_ex]: https://www.openssl.org/docs/man3.0/man3/HMAC_Init_ex.html
+[EVP_MAC_CTX_new]: https://www.openssl.org/docs/man3.0/man3/EVP_MAC_CTX_new.html
+[EVP_MAC_init]: https://www.openssl.org/docs/man3.0/man3/EVP_MAC_init.html
+[EVP_MAC_update]: https://www.openssl.org/docs/man3.0/man3/EVP_MAC_update.html
+[EVP_MAC_final]: https://www.openssl.org/docs/man3.0/man3/EVP_MAC_final.html
 
 [algorithm identifier]: https://docs.microsoft.com/en-us/windows/win32/seccng/cng-algorithm-identifiers
 [named elliptic curve]: https://docs.microsoft.com/en-us/windows/win32/seccng/cng-named-elliptic-curves
