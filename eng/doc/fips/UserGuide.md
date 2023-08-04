@@ -23,6 +23,12 @@ The Go crypto documentation is available online at https://pkg.go.dev/crypto.
       - [func StreamWriter.Close](#func-streamwriterclose)
     - [crypto/des](#cryptodes)
     - [crypto/dsa](#cryptodsa)
+    - [crypto/ecdh](#cryptoecdh)
+      - [func P256](#func-p256)
+      - [func P384](#func-p384)
+      - [func P521](#func-p521)
+      - [func X25519](#func-x25519)
+      - [func PrivateKey.ECDH](#func-privatekeyecdh)
     - [crypto/ecdsa](#cryptoecdsa)
       - [func Sign](#func-sign)
       - [func SignASN1](#func-signasn1)
@@ -30,12 +36,6 @@ The Go crypto documentation is available online at https://pkg.go.dev/crypto.
       - [func VerifyASN1](#func-verifyasn1)
       - [func GenerateKey](#func-generatekey)
       - [func PrivateKey.Sign](#func-privatekeysign)
-    - [crypto/ecdh](#cryptoecdh)
-      - [func P256](#func-p256)
-      - [func P384](#func-p384)
-      - [func P521](#func-p521)
-      - [func X25519](#func-x25519)
-      - [func PrivateKey.ECDH](#func-privatekeyecdh)
     - [crypto/ed25519](#cryptoed25519)
     - [crypto/elliptic](#cryptoelliptic)
     - [crypto/hmac](#cryptohmac)
@@ -387,6 +387,126 @@ Not implemented by any backend.
 
 Not implemented by any backend.
 
+### [crypto/ecdh](https://pkg.go.dev/crypto/ecdh)
+
+Package ecdh implements Elliptic Curve Diffie-Hellman over NIST curves and Curve25519.
+
+**Implementation**
+
+All supported curves implement the `ecdh.Curve` interface as follows:
+
+<details><summary>OpenSSL (click for details)</summary>
+
+ - `GenerateKey` uses [EVP_PKEY_keygen].
+ - `NewPrivateKey` uses [EVP_PKEY_new].
+ - `NewPublicKey` uses [EVP_PKEY_new].
+
+</details>
+
+<details><summary>CNG (click for details)</summary>
+
+ - `GenerateKey` uses [BCryptGenerateKeyPair] and [BCryptExportKey].
+ - `NewPrivateKey` uses [BCryptImportKeyPair].
+ - `NewPublicKey` uses [BCryptImportKeyPair].
+
+</details>
+
+#### func [P256](https://pkg.go.dev/crypto/ecdh#P256)
+
+```go
+func ecdh.P256() ecdh.Curve
+```
+
+P256 returns a Curve which implements NIST P-256.
+
+**Implementation**
+
+<details><summary>OpenSSL (click for details)</summary>
+
+The curve uses `NID_X9_62_prime256v1`.
+
+</details>
+
+<details><summary>CNG (click for details)</summary>
+
+The curve uses `BCRYPT_ECC_CURVE_NISTP256`.
+
+</details>
+
+#### func [P384](https://pkg.go.dev/crypto/ecdh#P384)
+
+```go
+func ecdh.P384() ecdh.Curve
+```
+
+P384 returns a Curve which implements NIST P-384.
+
+**Implementation**
+
+<details><summary>OpenSSL (click for details)</summary>
+
+The curve uses `NID_secp384r1`.
+
+</details>
+
+<details><summary>CNG (click for details)</summary>
+
+The curve uses `BCRYPT_ECC_CURVE_NISTP384`.
+
+</details>
+
+#### func [P521](https://pkg.go.dev/crypto/ecdh#P521)
+
+```go
+func ecdh.P521() ecdh.Curve
+```
+
+P521 returns a Curve which implements NIST P-521.
+
+**Implementation**
+
+<details><summary>OpenSSL (click for details)</summary>
+
+The curve uses `NID_secp521r1`.
+
+</details>
+
+<details><summary>CNG (click for details)</summary>
+
+The curve uses `BCRYPT_ECC_CURVE_NISTP521`.
+
+</details>
+
+#### func [X25519](https://pkg.go.dev/crypto/ecdh#X25519)
+
+ecdh.X25519 is not implemented by any backend.
+
+#### func [PrivateKey.ECDH](https://pkg.go.dev/crypto/ecdh#PrivateKey.ECDH)
+
+```go
+func (k *ecdh.PrivateKey) ECDH(remote *ecdh.PublicKey) ([]byte, error)
+```
+
+ECDH performs an ECDH exchange and returns the shared secret. The PrivateKey and PublicKey must use the same curve.
+
+**Requirements**
+
+- `remote` must be an object created from `ecdh.P256()`, `ecdh.P384()`, or `ecdh.P521()`.
+
+**Implementation**
+
+<details><summary>OpenSSL (click for details)</summary>
+
+The key is derived using [EVP_PKEY_derive].
+
+</details>
+
+<details><summary>CNG (click for details)</summary>
+
+The key is derived using [BCryptDeriveKey].
+
+</details>
+
 ### [crypto/ecdsa](https://pkg.go.dev/crypto/ecdsa)
 
 Package ecdsa implements the Elliptic Curve Digital Signature Algorithm, as defined in FIPS 186-3.
@@ -526,126 +646,6 @@ The message is signed using [EVP_PKEY_sign].
 <details><summary>CNG (click for details)</summary>
 
 The message is signed using [BCryptSignHash].
-
-</details>
-
-### [crypto/ecdh](https://pkg.go.dev/crypto/ecdh)
-
-Package ecdh implements Elliptic Curve Diffie-Hellman over NIST curves and Curve25519.
-
-**Implementation**
-
-All supported curves implement the `ecdh.Curve` interface as follows:
-
-<details><summary>OpenSSL (click for details)</summary>
-
- - `GenerateKey` uses [EVP_PKEY_keygen].
- - `NewPrivateKey` uses [EVP_PKEY_new].
- - `NewPublicKey` uses [EVP_PKEY_new].
-
-</details>
-
-<details><summary>CNG (click for details)</summary>
-
- - `GenerateKey` uses [BCryptGenerateKeyPair] and [BCryptExportKey].
- - `NewPrivateKey` uses [BCryptImportKeyPair].
- - `NewPublicKey` uses [BCryptImportKeyPair].
-
-</details>
-
-#### func [P256](https://pkg.go.dev/crypto/ecdh#P256)
-
-```go
-func ecdh.P256() ecdh.Curve
-```
-
-P256 returns a Curve which implements NIST P-256.
-
-**Implementation**
-
-<details><summary>OpenSSL (click for details)</summary>
-
-The curve uses `NID_X9_62_prime256v1`.
-
-</details>
-
-<details><summary>CNG (click for details)</summary>
-
-The curve uses `BCRYPT_ECC_CURVE_NISTP256`.
-
-</details>
-
-#### func [P384](https://pkg.go.dev/crypto/ecdh#P384)
-
-```go
-func ecdh.P384() ecdh.Curve
-```
-
-P384 returns a Curve which implements NIST P-384.
-
-**Implementation**
-
-<details><summary>OpenSSL (click for details)</summary>
-
-The curve uses `NID_secp384r1`.
-
-</details>
-
-<details><summary>CNG (click for details)</summary>
-
-The curve uses `BCRYPT_ECC_CURVE_NISTP384`.
-
-</details>
-
-#### func [P521](https://pkg.go.dev/crypto/ecdh#P521)
-
-```go
-func ecdh.P521() ecdh.Curve
-```
-
-P521 returns a Curve which implements NIST P-521.
-
-**Implementation**
-
-<details><summary>OpenSSL (click for details)</summary>
-
-The curve uses `NID_secp521r1`.
-
-</details>
-
-<details><summary>CNG (click for details)</summary>
-
-The curve uses `BCRYPT_ECC_CURVE_NISTP521`.
-
-</details>
-
-#### func [X25519](https://pkg.go.dev/crypto/ecdh#X25519)
-
-ecdh.X25519 is not implemented by any backend.
-
-#### func [PrivateKey.ECDH](https://pkg.go.dev/crypto/ecdh#PrivateKey.ECDH)
-
-```go
-func (k *ecdh.PrivateKey) ECDH(remote *ecdh.PublicKey) ([]byte, error)
-```
-
-ECDH performs an ECDH exchange and returns the shared secret. The PrivateKey and PublicKey must use the same curve.
-
-**Requirements**
-
-- `remote` must be an object created from `ecdh.P256()`, `ecdh.P384()`, or `ecdh.P521()`.
-
-**Implementation**
-
-<details><summary>OpenSSL (click for details)</summary>
-
-The key is derived using [EVP_PKEY_derive].
-
-</details>
-
-<details><summary>CNG (click for details)</summary>
-
-The key is derived using [BCryptDeriveKey].
 
 </details>
 
