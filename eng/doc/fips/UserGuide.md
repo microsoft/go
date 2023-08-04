@@ -629,7 +629,7 @@ ecdh.X25519 is not implemented by any backend.
 func (k *ecdh.PrivateKey) ECDH(remote *ecdh.PublicKey) ([]byte, error)
 ```
 
-ECDH performs a ECDH exchange and returns the shared secret. The PrivateKey and PublicKey must use the same curve.
+ECDH performs an ECDH exchange and returns the shared secret. The PrivateKey and PublicKey must use the same curve.
 
 **Requirements**
 
@@ -655,7 +655,7 @@ Not implemented by any backend.
 
 ### [crypto/elliptic](https://pkg.go.dev/crypto/elliptic)
 
-Not implemented by any backend, but the following `elliptic.Curve` constructors can be used together with `crypto/ecdsa`.
+Not implemented by any backend, but to use `ecdsa.GenerateKey`, one of the following `elliptic.Curve` constructors must be used to specify the curve. See [`ecdsa.GenerateKey`](#func-generatekey) for additional requirements. As long as the requirements are met, only the name of the curve is used, not the curve parameters or methods implemented by standard Go crypto, allowing FIPS compliance.
 
 ```go
 func elliptic.P224() elliptic.Curve
