@@ -19,15 +19,6 @@ The 1.21 release includes some changes to FIPS-related functionality. The follow
 
 For more details, see the [FIPS readme](https://github.com/microsoft/go/blob/microsoft/main/eng/doc/fips/README.md) page, which has been updated significantly for this release.
 
-## Crypto backends
-
-The OpenSSL crypto backend has been updated to use [golang-fips/openssl](https://github.com/golang-fips/openssl), a new shared project used by multiple Go forks concerned with FIPS compliance. Future development of this backend will occur in that repository, and we plan to archive [microsoft/go-crypto-openssl](https://github.com/microsoft/go-crypto-openssl) once the transition is complete in all supported versions of Go. This move isn't expected to change any backend behavior.
-
-Both OpenSSL and CNG crypto backends have been updated to support new crypto APIs required in Go 1.21:
-
-* [sha: add WriteString and WriteByte method (golang-fips/openssl#64)](https://github.com/golang-fips/openssl/pull/64)
-* [sha: add WriteString and WriteByte method (microsoft/go-crypto-winnative#36)](https://github.com/microsoft/go-crypto-winnative/pull/36)
-
 ## Feature that downloads newer versions of Go during the build introduced by upstream; disabled by default in Microsoft Go
 
 Go 1.21 introduces [Go Toolchains](https://go.dev/doc/toolchain), which in some cases will download a new version of the Go toolset from upstream sources to perform the build. This feature could cause the Microsoft Go toolset to download an unpatched, upstream version of Go during `go build`, resulting in (among other issues) unintended use of Go crypto rather than OpenSSL/CNG.
