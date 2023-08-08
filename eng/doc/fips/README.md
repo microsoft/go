@@ -78,6 +78,13 @@ Some configurations are invalid and intentionally result in a build error or run
 | `GOEXPERIMENT=cngcrypto,opensslcrypto` | | The build fails. Only one crypto backend can be enabled at a time. |
 | `GOOS=linux CGO_ENABLED=0 GOEXPERIMENT=systemcrypto` | | The build fails. Cgo is required to use the OpenSSL backend. |
 
+The `allowcryptofallback` build option is not recommended. For more details, see [the `allowcryptofallback` docs](#build-option-to-allow-go-standard-library-crypto-fallback). This table shows an example of the fragile behavior that results from using it:
+
+| Build-time config | Internal Microsoft crypto policy | FIPS behavior |
+| --- | --- | --- |
+| `GOOS=linux GOEXPERIMENT=systemcrypto,allowcryptofallback` | Compliant | *Not recommended,* but can be used to create a compliant app, as `allowcryptofallback` has no effect in this situation. |
+| `GOOS=linux CGO_ENABLED=0 GOEXPERIMENT=systemcrypto,allowcryptofallback` | Not compliant | Crypto usage is not FIPS compliant. `systemcrypto` on `linux` picks the OpenSSL backend. The backend requires cgo, so `CGO_ENABLED=0` would normally result in a build error. However, `allowcryptofallback` causes the Go standard library crypto to be used and ignores the error. |
+
 ## Usage: Build
 
 The `GOEXPERIMENT` environment variable is used at build time to select a cryptographic library backend. This modifies the Go runtime included in the program to use the specified platform-provided cryptographic library whenever it calls a Go standard library crypto API. The `GOEXPERIMENT` values that pick a crypto backend are:
@@ -86,17 +93,18 @@ The `GOEXPERIMENT` environment variable is used at build time to select a crypto
   > Prior to Go 1.21, this alias is not available and the backend must be selected manually
 - `opensslcrypto` selects OpenSSL, for Linux
 - `cngcrypto` selects CNG, for Windows
-- `boringcrypto` selects the upstream BoringCrypto backend, which is **not supported**
+- `boringcrypto` selects the upstream BoringCrypto backend, which is **not supported nor compliant**
 - If no option is selected, Go standard library cryptography is used.
 
 The options are exclusive and must not be enabled at the same time as one another.
 
-`systemcrypto` matches the internal Microsoft crypto policy for Go:
+`systemcrypto` matches the internal Microsoft crypto policy for Go. If the target platform is not supported, the build fails.
 
 | Target platform | `systemcrypto` selection | Library |
 | --- | --- | --- |
 | Linux | `opensslcrypto` | OpenSSL |
 | Windows | `cngcrypto` | CNG |
+| macOS (not supported: [microsoft/go#1013](https://github.com/microsoft/go/issues/1013)) | N/A, build error | N/A  |
 
 The crypto backend selection must match the target platform. In a cross-build scenario, such as using Linux to build an app that will run on Windows, `GOOS=windows GOEXPERIMENT=systemcrypto` will correctly select `cngcrypto`. Prior to Go 1.21, the selection must be made manually: `GOOS=windows GOEXPERIMENT=cngcrypto`.
 
