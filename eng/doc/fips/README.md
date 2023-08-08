@@ -98,7 +98,7 @@ The `GOEXPERIMENT` environment variable is used at build time to select a crypto
 
 The options are exclusive and must not be enabled at the same time as one another.
 
-`systemcrypto` matches the internal Microsoft crypto policy for Go. If the target platform is not supported, the build fails.
+`systemcrypto` matches the internal Microsoft crypto policy for Go. If no compliant backend exists matching the target platform, the build fails.
 
 | Target platform | `systemcrypto` selection | Library |
 | --- | --- | --- |
