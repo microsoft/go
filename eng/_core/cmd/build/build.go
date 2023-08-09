@@ -5,14 +5,16 @@
 package main
 
 import (
+	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 
-	"github.com/microsoft/go/_core/archive"
 	"github.com/microsoft/go/_core/buildutil"
 	"github.com/microsoft/go/_core/patch"
 	"github.com/microsoft/go/_core/submodule"
@@ -41,7 +43,8 @@ func main() {
 	flag.BoolVar(&o.SkipBuild, "skipbuild", false, "Disable building Go.")
 	flag.BoolVar(&o.Test, "test", false, "Enable running tests.")
 	flag.BoolVar(&o.JSON, "json", false, "Runs tests with -json flag to emit verbose results in JSON format. For use in CI.")
-	flag.BoolVar(&o.Pack, "pack", false, "Enable creating an archive file similar to the official Go binary release.")
+	flag.BoolVar(&o.PackBuild, "packbuild", false, "Enable creating an archive of this build using upstream 'distpack' and placing it in eng/artifacts/bin.")
+	flag.BoolVar(&o.PackSource, "packsource", false, "Enable creating a source archive using upstream 'distpack' and placing it in eng/artifacts/bin.")
 
 	flag.BoolVar(
 		&o.Refresh, "refresh", false,
@@ -78,7 +81,8 @@ type options struct {
 	SkipBuild  bool
 	Test       bool
 	JSON       bool
-	Pack       bool
+	PackBuild  bool
+	PackSource bool
 	Refresh    bool
 	Experiment string
 
@@ -90,11 +94,13 @@ func build(o *options) error {
 
 	scriptExtension := ".bash"
 	executableExtension := ""
+	archiveExtension := ".tar.gz"
 	shellPrefix := []string{"bash"}
 
 	if runtime.GOOS == "windows" {
 		scriptExtension = ".bat"
 		executableExtension = ".exe"
+		archiveExtension = ".zip"
 		shellPrefix = []string{"cmd.exe", "/c"}
 	}
 
@@ -126,6 +132,7 @@ func build(o *options) error {
 	if err != nil {
 		return err
 	}
+	fmt.Printf("---- Target platform: %v_%v\n", targetOS, targetArch)
 
 	// The upstream build scripts in {repo-root}/src require your working directory to be src, or
 	// they instantly fail. Change the current process dir so that we can run them.
@@ -237,15 +244,118 @@ func build(o *options) error {
 		}
 	}
 
-	if o.Pack {
+	if o.PackBuild || o.PackSource {
 		goRootDir := filepath.Join(rootDir, "go")
-		output := archive.DefaultBuildOutputPath(goRootDir, targetOS, targetArch)
-		if err := archive.CreateFromBuild(goRootDir, output); err != nil {
-			return err
+		// Find the host version of distpack. (Not the target version, which might not run.)
+		toolsDir := filepath.Join(goRootDir, "pkg", "tool", runtime.GOOS+"_"+runtime.GOARCH)
+		// distpack needs a VERSION file to run. If we're on the main branch, we don't have one, so
+		// use dist's version calculation to create a temp dev version and put it in VERSION.
+		var version string
+		if data, err := os.ReadFile(filepath.Join(goRootDir, "VERSION")); err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				if version, err = writeDevelVersionFile(goRootDir, toolsDir); err != nil {
+					return fmt.Errorf("unable to pack: failed writing development VERSION file: %v", err)
+				}
+				// Best effort: clean up the VERSION file when we're done. This is just for dev
+				// workflows: the temp VERSION file should never be checked in.
+				defer os.Remove(filepath.Join(goRootDir, "VERSION"))
+			} else {
+				return fmt.Errorf("unable to pack: VERSION file in unexpected state: %v", err)
+			}
+		} else {
+			version, _, _ = strings.Cut(string(data), "\n")
+		}
+		cmd := exec.Command(filepath.Join(toolsDir, "distpack"+executableExtension))
+		cmd.Env = append(os.Environ(), "GOROOT="+goRootDir)
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		if err := runCmd(cmd); err != nil {
+			return fmt.Errorf("distpack failed: %v", err)
+		}
+		// distpack creates some files we don't need. Recreate the naming logic here to pick out the
+		// files we want and copy them to our artifacts dir.
+		distPackDir := filepath.Join(goRootDir, "pkg", "distpack")
+		artifactsBinDir := filepath.Join(rootDir, "eng", "artifacts", "bin")
+		type packCopy struct{ src, dst string }
+		var packs []packCopy
+		// Insert the build ID to make sure the archive filename is unique. We might change
+		// patches but build the same submodule commit multiple times.
+		buildID := getBuildID()
+		if o.PackBuild {
+			packs = append(packs, packCopy{
+				src: filepath.Join(distPackDir, version+"."+targetOS+"-"+targetArch+archiveExtension),
+				dst: filepath.Join(artifactsBinDir, version+"-"+buildID+"."+targetOS+"-"+targetArch+archiveExtension),
+			})
+		}
+		if o.PackSource {
+			packs = append(packs, packCopy{
+				src: filepath.Join(distPackDir, version+".src.tar.gz"),
+				dst: filepath.Join(artifactsBinDir, version+"-"+buildID+".src.tar.gz"),
+			})
+		}
+		fmt.Printf("---- Copying distpack output to artifacts dir %v\n", artifactsBinDir)
+		for _, p := range packs {
+			fmt.Printf("---- Copying %q to %q...\n", p.src, p.dst)
+			if err := copyFile(p.dst, p.src); err != nil {
+				return err
+			}
 		}
 	}
 
 	fmt.Printf("---- Build command complete.\n")
+	return nil
+}
+
+func writeDevelVersionFile(goRootDir, toolsDir string) (string, error) {
+	cmd := exec.Command(filepath.Join(toolsDir, "dist"), "version")
+	cmd.Env = append(os.Environ(), "GOROOT="+goRootDir)
+	vBytes, err := cmd.CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("unable to get dist version: %v (%v)", err, string(vBytes))
+	}
+	fields := strings.Fields(string(vBytes))
+	if len(fields) < 2 {
+		return "", fmt.Errorf("expected at least 2 fields in dist version output, got %q in %q", len(fields), string(vBytes))
+	}
+	if fields[0] != "devel" {
+		return "", fmt.Errorf("expected first field 'devel' in dist version, got %q", fields[0])
+	}
+	// The second field should be something like "go1.21-abcde1234", and the remaining fields are a
+	// timestamp. Just using the second field as is: the full VERSION file string is placed into the
+	// archive filename, so this keeps it simple and avoids special characters.
+	if err := os.WriteFile(filepath.Join(goRootDir, "VERSION"), []byte(fields[1]), 0o666); err != nil {
+		return "", err
+	}
+	return fields[1], nil
+}
+
+// copyFile copies src to dst, creating dst's directory if necessary. Handles errors robustly,
+// see https://github.com/golang/go/blob/c3458e35f4/src/cmd/internal/archive/archive_test.go#L57
+// Doesn't copy file permissions.
+func copyFile(dst, src string) (err error) {
+	err = os.MkdirAll(filepath.Dir(dst), os.ModePerm)
+	if err != nil {
+		return err
+	}
+	var s, d *os.File
+	s, err = os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer s.Close()
+	d, err = os.Create(dst)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if e := d.Close(); err == nil {
+			err = e
+		}
+	}()
+	_, err = io.Copy(d, s)
+	if err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -259,4 +369,13 @@ func runCommandLine(commandLine ...string) error {
 func runCmd(cmd *exec.Cmd) error {
 	fmt.Printf("---- Running command: %v\n", cmd.Args)
 	return cmd.Run()
+}
+
+// getBuildID returns BUILD_BUILDNUMBER if defined (e.g. a CI build). Otherwise, "dev".
+func getBuildID() string {
+	archiveVersion := os.Getenv("BUILD_BUILDNUMBER")
+	if archiveVersion == "" {
+		return "dev"
+	}
+	return archiveVersion
 }

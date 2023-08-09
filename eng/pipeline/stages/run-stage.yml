@@ -117,15 +117,6 @@ stages:
 
           - template: ../steps/init-submodule-task.yml
 
-          # Create the source archive on one job only. The os choice is arbitrary.
-          - ${{ if and(eq(parameters.createSourceArchive, true), eq(parameters.builder.config, 'buildandpack'), eq(parameters.builder.os, 'linux'), eq(parameters.builder.arch, 'amd64')) }}:
-            - template: ../steps/set-bot-git-author-task.yml
-            - pwsh: |
-                # Turn the patches into commits, so HEAD includes the changes.
-                eng/run.ps1 submodule-refresh -commits
-                eng/run.ps1 pack-source
-              displayName: Archive submodule source
-
           - ${{ if eq(parameters.builder.config, 'longtest') }}:
             # Set Git authorship info for 'cmd/go TestScript/build_buildvcs_auto'.
             - template: ../steps/set-bot-git-author-task.yml
@@ -169,8 +160,20 @@ stages:
           - ${{ if eq(parameters.builder.config, 'buildandpack' ) }}:
             - pwsh: |
                 eng/run.ps1 cmdscan -envprefix GO_CMDSCAN_RULE_ -- `
-                  pwsh eng/run.ps1 build -pack
+                  pwsh eng/run.ps1 build -packbuild $env:PACK_SOURCE_ARG
+              env:
+                # Generate the source archive on one job only. The os choice is arbitrary.
+                ${{ if and(eq(parameters.createSourceArchive, true), eq(parameters.builder.config, 'buildandpack'), eq(parameters.builder.os, 'linux'), eq(parameters.builder.arch, 'amd64')) }}:
+                  PACK_SOURCE_ARG: '-packsource'
               displayName: Build and Pack
+
+            # We want to create a checksum as early as possible, but Windows signing involves
+            # repacking the zip, invalidating any checksum. Defer creating Windows checksums until
+            # after signing.
+            - ${{ if ne(parameters.builder.os, 'windows') }}:
+              - pwsh: |
+                  pwsh eng/run.ps1 write-checksum eng/artifacts/bin/*
+                displayName: Write checksum
 
             - publish: eng/artifacts/bin
               artifact: Binaries ${{ parameters.builder.id }}
