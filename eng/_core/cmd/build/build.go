@@ -321,7 +321,7 @@ func writeDevelVersionFile(goRootDir, toolsDir string) (string, error) {
 		return "", fmt.Errorf("expected first field 'devel' in dist version, got %q", fields[0])
 	}
 	// The second field should be something like "go1.21-abcde1234", and the remaining fields are a
-	// timestamp. Just using the second field is: the full VERSION file string is placed into the
+	// timestamp. Just using the second field as is: the full VERSION file string is placed into the
 	// archive filename, so this keeps it simple and avoids special characters.
 	if err := os.WriteFile(filepath.Join(goRootDir, "VERSION"), []byte(fields[1]), 0o666); err != nil {
 		return "", err
