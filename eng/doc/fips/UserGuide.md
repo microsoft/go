@@ -23,6 +23,12 @@ The Go crypto documentation is available online at https://pkg.go.dev/crypto.
       - [func StreamWriter.Close](#func-streamwriterclose)
     - [crypto/des](#cryptodes)
     - [crypto/dsa](#cryptodsa)
+    - [crypto/ecdh](#cryptoecdh)
+      - [func P256](#func-p256)
+      - [func P384](#func-p384)
+      - [func P521](#func-p521)
+      - [func X25519](#func-x25519)
+      - [func PrivateKey.ECDH](#func-privatekeyecdh)
     - [crypto/ecdsa](#cryptoecdsa)
       - [func Sign](#func-sign)
       - [func SignASN1](#func-signasn1)
@@ -381,6 +387,126 @@ Not implemented by any backend.
 
 Not implemented by any backend.
 
+### [crypto/ecdh](https://pkg.go.dev/crypto/ecdh)
+
+Package ecdh implements Elliptic Curve Diffie-Hellman over NIST curves and Curve25519.
+
+**Implementation**
+
+All supported curves implement the `ecdh.Curve` interface as follows:
+
+<details><summary>OpenSSL (click for details)</summary>
+
+ - `GenerateKey` uses [EVP_PKEY_keygen].
+ - `NewPrivateKey` uses [EVP_PKEY_new].
+ - `NewPublicKey` uses [EVP_PKEY_new].
+
+</details>
+
+<details><summary>CNG (click for details)</summary>
+
+ - `GenerateKey` uses [BCryptGenerateKeyPair] and [BCryptExportKey].
+ - `NewPrivateKey` uses [BCryptImportKeyPair].
+ - `NewPublicKey` uses [BCryptImportKeyPair].
+
+</details>
+
+#### func [P256](https://pkg.go.dev/crypto/ecdh#P256)
+
+```go
+func ecdh.P256() ecdh.Curve
+```
+
+P256 returns a Curve which implements NIST P-256.
+
+**Implementation**
+
+<details><summary>OpenSSL (click for details)</summary>
+
+The curve uses `NID_X9_62_prime256v1`.
+
+</details>
+
+<details><summary>CNG (click for details)</summary>
+
+The curve uses `BCRYPT_ECC_CURVE_NISTP256`.
+
+</details>
+
+#### func [P384](https://pkg.go.dev/crypto/ecdh#P384)
+
+```go
+func ecdh.P384() ecdh.Curve
+```
+
+P384 returns a Curve which implements NIST P-384.
+
+**Implementation**
+
+<details><summary>OpenSSL (click for details)</summary>
+
+The curve uses `NID_secp384r1`.
+
+</details>
+
+<details><summary>CNG (click for details)</summary>
+
+The curve uses `BCRYPT_ECC_CURVE_NISTP384`.
+
+</details>
+
+#### func [P521](https://pkg.go.dev/crypto/ecdh#P521)
+
+```go
+func ecdh.P521() ecdh.Curve
+```
+
+P521 returns a Curve which implements NIST P-521.
+
+**Implementation**
+
+<details><summary>OpenSSL (click for details)</summary>
+
+The curve uses `NID_secp521r1`.
+
+</details>
+
+<details><summary>CNG (click for details)</summary>
+
+The curve uses `BCRYPT_ECC_CURVE_NISTP521`.
+
+</details>
+
+#### func [X25519](https://pkg.go.dev/crypto/ecdh#X25519)
+
+ecdh.X25519 is not implemented by any backend.
+
+#### func [PrivateKey.ECDH](https://pkg.go.dev/crypto/ecdh#PrivateKey.ECDH)
+
+```go
+func (k *ecdh.PrivateKey) ECDH(remote *ecdh.PublicKey) ([]byte, error)
+```
+
+ECDH performs an ECDH exchange and returns the shared secret. The PrivateKey and PublicKey must use the same curve.
+
+**Requirements**
+
+- `remote` must be an object created from `ecdh.P256()`, `ecdh.P384()`, or `ecdh.P521()`.
+
+**Implementation**
+
+<details><summary>OpenSSL (click for details)</summary>
+
+The key is derived using [EVP_PKEY_derive].
+
+</details>
+
+<details><summary>CNG (click for details)</summary>
+
+The key is derived using [BCryptDeriveKey].
+
+</details>
+
 ### [crypto/ecdsa](https://pkg.go.dev/crypto/ecdsa)
 
 Package ecdsa implements the Elliptic Curve Digital Signature Algorithm, as defined in FIPS 186-3.
@@ -529,7 +655,14 @@ Not implemented by any backend.
 
 ### [crypto/elliptic](https://pkg.go.dev/crypto/elliptic)
 
-Not implemented by any backend.
+Not implemented by any backend, but to use `ecdsa.GenerateKey`, one of the following `elliptic.Curve` constructors must be used to specify the curve. See [`ecdsa.GenerateKey`](#func-generatekey) for additional requirements. As long as the requirements are met, only the name of the curve is used, not the curve parameters or methods implemented by standard Go crypto, allowing FIPS compliance.
+
+```go
+func elliptic.P224() elliptic.Curve
+func elliptic.P256() elliptic.Curve
+func elliptic.P384() elliptic.Curve
+func elliptic.P521() elliptic.Curve
+```
 
 ### [crypto/hmac](https://pkg.go.dev/crypto/hmac)
 
@@ -1277,11 +1410,13 @@ When using TLS in FIPS-only mode the TLS handshake has the following restriction
 [EVP_DecryptUpdate]: https://www.openssl.org/docs/man3.0/man3/EVP_DecryptUpdate.html
 [RAND_bytes]: https://www.openssl.org/docs/man3.0/man3/RAND_bytes.html
 [EVP_PKEY]: https://www.openssl.org/docs/man3.0/man3/EVP_PKEY.html
+[EVP_PKEY_new]: https://www.openssl.org/docs/man3.0/man3/EVP_PKEY_new.html
 [EVP_PKEY_keygen]: https://www.openssl.org/docs/man3.0/man3/EVP_PKEY_keygen.html
 [EVP_PKEY_sign]: https://www.openssl.org/docs/man3.0/man3/EVP_PKEY_sign.html
 [EVP_PKEY_verify]: https://www.openssl.org/docs/man3.0/man3/EVP_PKEY_verify.html
 [EVP_PKEY_encrypt]: https://www.openssl.org/docs/man3.0/man3/EVP_PKEY_encrypt.html
 [EVP_PKEY_decrypt]: https://www.openssl.org/docs/man3.0/man3/EVP_PKEY_decrypt.html
+[EVP_PKEY_derive]: https://www.openssl.org/docs/man3.0/man3/EVP_PKEY_derive.html
 [EVP_MD_CTX_new]: https://www.openssl.org/docs/man3.0/man3/EVP_MD_CTX_new.html
 [EVP_DigestUpdate]: https://www.openssl.org/docs/man3.0/man3/EVP_DigestUpdate.html
 [EVP_DigestFinal]: https://www.openssl.org/docs/man3.0/man3/EVP_DigestFinal.html
@@ -1322,6 +1457,7 @@ When using TLS in FIPS-only mode the TLS handshake has the following restriction
 [BCryptGenerateSymmetricKey]: https://docs.microsoft.com/en-us/windows/win32/api/bcrypt/nf-bcrypt-bcryptgeneratesymmetrickey
 [BCryptGenerateKeyPair]: https://docs.microsoft.com/en-us/windows/win32/api/bcrypt/nf-bcrypt-bcryptgeneratekeypair
 [BCryptImportKeyPair]: https://docs.microsoft.com/en-us/windows/win32/api/bcrypt/nf-bcrypt-bcryptimportkeypair
+[BCryptExportKey]: https://docs.microsoft.com/en-us/windows/win32/api/bcrypt/nf-bcrypt-bcryptexportkey
 [BCryptEncrypt]: https://docs.microsoft.com/en-us/windows/win32/api/bcrypt/nf-bcrypt-bcryptencrypt
 [BCryptDecrypt]: https://docs.microsoft.com/en-us/windows/win32/api/bcrypt/nf-bcrypt-bcryptdecrypt
 [BCryptSignHash]: https://docs.microsoft.com/en-us/windows/win32/api/bcrypt/nf-bcrypt-bcryptsignhash
@@ -1333,3 +1469,4 @@ When using TLS in FIPS-only mode the TLS handshake has the following restriction
 [BCRYPT_OAEP_PADDING_INFO]: https://docs.microsoft.com/en-us/windows/win32/api/Bcrypt/ns-bcrypt-bcrypt_oaep_padding_info
 [BCRYPT_PKCS1_PADDING_INFO]: https://docs.microsoft.com/en-us/windows/win32/api/Bcrypt/ns-bcrypt-bcrypt_pkcs1_padding_info
 [BCRYPT_PSS_PADDING_INFO]: https://docs.microsoft.com/en-us/windows/win32/api/Bcrypt/ns-bcrypt-bcrypt_pss_padding_info
+[BCryptDeriveKey]: https://docs.microsoft.com/en-us/windows/win32/api/bcrypt/nf-bcrypt-bcryptderivekey
