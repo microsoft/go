@@ -13,10 +13,11 @@ $downloadedArtifactsDirectory = Join-Path $env:BUILD_ARTIFACTSTAGINGDIRECTORY "a
 # Remove verison number from the artifact path to make path-based issue suppression more reliable.
 foreach ($item in Get-ChildItem -Directory $downloadedArtifactsDirectory)
 {
-  if ($item.Name.StartsWith("go.") -and $item.Name.EndsWith(".extracted"))
+  # Handle e.g. "go1.22-cd589c8-20230809.2.linux-arm64.tar.gz"
+  if ($item.Name.StartsWith("go") -and $item.Name.EndsWith(".extracted"))
   {
     $oldName = $item.FullName
-    $newName = $item.FullName -replace '\\go\.[0-9]+\.[0-9]+\.', '\go.'
+    $newName = $item.FullName -replace '\\go[0-9]+\.[-a-f0-9]+\.[0-9]+\.', '\go.'
     if ($oldName -ne $newName)
     {
       Write-Host "Renaming '$oldName' to '$newName'"
