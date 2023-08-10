@@ -18,6 +18,7 @@ BSD-style license found in the LICENSE file.
 If you are using this fork and have a Microsoft corporate account, consider
 [clicking here to instantly join the Microsoft Go Toolset Announcements email distribution list 📧](https://idwebelements.microsoft.com/GroupManagement.aspx?Group=golang-announce&Operation=join)
 and receive notifications about Microsoft releases of Go and breaking changes.
+We also maintain an [internal doc page](https://eng.ms/docs/more/languages-at-microsoft/go/articles/overview).
 
 ## Why does this fork exist?
 
@@ -35,6 +36,24 @@ We call this repository a fork even though it isn't a traditional Git fork. Its
 branches do not share Git ancestry with the Go repository. However, the
 repository serves the same purpose as a Git fork: maintaining a modified version
 of the Go source code over time.
+
+## Support
+
+This project follows the upstream Go
+[Release Policy](https://go.dev/doc/devel/release#policy).
+This means we support each major release (1.X) until there are two newer major
+releases. A new Go major version is
+[released every six months](https://github.com/golang/go/wiki/Go-Release-Cycle),
+so each Go major version is supported for about one year.
+
+When upstream Go releases a new minor version (1.X.Y), we release a
+corresponding microsoft/go version that may also include fork-specific changes.
+This normally happens once a month. At any time, we may release a new revision
+(1.X.Y-Z) to fix an issue without waiting for the next upstream minor release.
+Revision releases are uncommon.
+
+Each microsoft/go release is announced in
+[the internal Microsoft Go Toolset Announcements email distribution list 📧](https://idwebelements.microsoft.com/GroupManagement.aspx?Group=golang-announce&Operation=join).
 
 ## Download and install
 
