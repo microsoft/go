@@ -282,9 +282,16 @@ func build(o *options) error {
 		// patches but build the same submodule commit multiple times.
 		buildID := getBuildID()
 		if o.PackBuild {
+			// distpack calls GOARCH=arm "arm" in its tar.gz filename, but the upstream release
+			// process changes it to "armv6l" on https://go.dev/dl/ to match the historical name.
+			// Do the same here.
+			brandingTargetArch := targetArch
+			if brandingTargetArch == "arm" {
+				brandingTargetArch = "armv6l"
+			}
 			packs = append(packs, packCopy{
 				src: filepath.Join(distPackDir, version+"."+targetOS+"-"+targetArch+archiveExtension),
-				dst: filepath.Join(artifactsBinDir, version+"-"+buildID+"."+targetOS+"-"+targetArch+archiveExtension),
+				dst: filepath.Join(artifactsBinDir, version+"-"+buildID+"."+targetOS+"-"+brandingTargetArch+archiveExtension),
 			})
 		}
 		if o.PackSource {
