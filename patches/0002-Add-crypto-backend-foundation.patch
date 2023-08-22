@@ -17,9 +17,9 @@ Subject: [PATCH] Add crypto backend foundation
  src/crypto/hmac/hmac_test.go                 |   2 +-
  src/crypto/internal/backend/backend_test.go  |  30 +++++
  src/crypto/internal/backend/bbig/big.go      |  17 +++
- src/crypto/internal/backend/common.go        |  78 +++++++++++++
+ src/crypto/internal/backend/common.go        |  78 ++++++++++++
  src/crypto/internal/backend/isrequirefips.go |   9 ++
- src/crypto/internal/backend/nobackend.go     | 116 +++++++++++++++++++
+ src/crypto/internal/backend/nobackend.go     | 125 +++++++++++++++++++
  src/crypto/internal/backend/norequirefips.go |   9 ++
  src/crypto/internal/backend/stub.s           |  10 ++
  src/crypto/rand/rand_unix.go                 |   2 +-
@@ -38,7 +38,7 @@ Subject: [PATCH] Add crypto backend foundation
  src/crypto/tls/cipher_suites.go              |   2 +-
  src/go/build/deps_test.go                    |   2 +
  src/runtime/runtime_boring.go                |   5 +
- 34 files changed, 305 insertions(+), 29 deletions(-)
+ 34 files changed, 314 insertions(+), 29 deletions(-)
  create mode 100644 src/crypto/internal/backend/backend_test.go
  create mode 100644 src/crypto/internal/backend/bbig/big.go
  create mode 100644 src/crypto/internal/backend/common.go
@@ -355,10 +355,10 @@ index 00000000000000..e5d7570d6d4363
 +const isRequireFIPS = true
 diff --git a/src/crypto/internal/backend/nobackend.go b/src/crypto/internal/backend/nobackend.go
 new file mode 100644
-index 00000000000000..ad6081552af15d
+index 00000000000000..3698bbac41e5c8
 --- /dev/null
 +++ b/src/crypto/internal/backend/nobackend.go
-@@ -0,0 +1,116 @@
+@@ -0,0 +1,125 @@
 +// Copyright 2017 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -373,6 +373,7 @@ index 00000000000000..ad6081552af15d
 +	"crypto"
 +	"crypto/cipher"
 +	"hash"
++	"io"
 +)
 +
 +const Enabled = false
@@ -475,6 +476,14 @@ index 00000000000000..ad6081552af15d
 +func NewPublicKeyECDH(string, []byte) (*PublicKeyECDH, error) { panic("cryptobackend: not available") }
 +func (*PublicKeyECDH) Bytes() []byte                          { panic("cryptobackend: not available") }
 +func (*PrivateKeyECDH) PublicKey() (*PublicKeyECDH, error)    { panic("cryptobackend: not available") }
++
++func ExpandHKDF(h func() hash.Hash, pseudorandomKey, info []byte) (io.Reader, error) {
++	panic("cryptobackend: not available")
++}
++
++func ExtractHKDF(h func() hash.Hash, secret, salt []byte) ([]byte, error) {
++	panic("cryptobackend: not available")
++}
 diff --git a/src/crypto/internal/backend/norequirefips.go b/src/crypto/internal/backend/norequirefips.go
 new file mode 100644
 index 00000000000000..26bfb5f6a643f3
@@ -694,7 +703,7 @@ index 589e8b6fafbba3..0a6d665ee3096d 100644
  	"crypto/sha1"
  	"crypto/sha256"
 diff --git a/src/go/build/deps_test.go b/src/go/build/deps_test.go
-index bdb09737b03954..184447eb7992a0 100644
+index ff03691eb90397..1a8530d999b0c9 100644
 --- a/src/go/build/deps_test.go
 +++ b/src/go/build/deps_test.go
 @@ -428,6 +428,7 @@ var depsRules = `

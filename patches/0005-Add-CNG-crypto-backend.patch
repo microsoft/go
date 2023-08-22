@@ -12,7 +12,7 @@ Subject: [PATCH] Add CNG crypto backend
  src/crypto/internal/backend/backend_test.go   |   4 +-
  src/crypto/internal/backend/bbig/big.go       |   2 +-
  src/crypto/internal/backend/bbig/big_cng.go   |  12 +
- src/crypto/internal/backend/cng_windows.go    | 207 ++++++++++++++++++
+ src/crypto/internal/backend/cng_windows.go    | 216 ++++++++++++++++++
  src/crypto/internal/backend/common.go         |  33 ++-
  src/crypto/internal/boring/fipstls/stub.s     |   2 +-
  src/crypto/internal/boring/fipstls/tls.go     |   2 +-
@@ -34,6 +34,7 @@ Subject: [PATCH] Add CNG crypto backend
  src/crypto/tls/fipsonly/fipsonly.go           |   2 +-
  src/crypto/tls/fipsonly/fipsonly_test.go      |   2 +-
  src/crypto/tls/handshake_server_tls13.go      |  10 +
+ src/crypto/tls/key_schedule.go                |   4 +-
  src/crypto/tls/notboring.go                   |   2 +-
  src/crypto/x509/boring.go                     |   2 +-
  src/crypto/x509/boring_test.go                |   2 +-
@@ -46,14 +47,14 @@ Subject: [PATCH] Add CNG crypto backend
  .../goexperiment/exp_cngcrypto_off.go         |   9 +
  src/internal/goexperiment/exp_cngcrypto_on.go |   9 +
  src/internal/goexperiment/flags.go            |   1 +
- 42 files changed, 398 insertions(+), 40 deletions(-)
+ 43 files changed, 408 insertions(+), 42 deletions(-)
  create mode 100644 src/crypto/internal/backend/bbig/big_cng.go
  create mode 100644 src/crypto/internal/backend/cng_windows.go
  create mode 100644 src/internal/goexperiment/exp_cngcrypto_off.go
  create mode 100644 src/internal/goexperiment/exp_cngcrypto_on.go
 
 diff --git a/src/cmd/api/boring_test.go b/src/cmd/api/boring_test.go
-index 01765f01736ccb..7598da96946b9f 100644
+index 0e9aceeb832d3b..aecf81b09c8ad3 100644
 --- a/src/cmd/api/boring_test.go
 +++ b/src/cmd/api/boring_test.go
 @@ -2,7 +2,7 @@
@@ -165,10 +166,10 @@ index 00000000000000..92623031fd87d0
 +var Dec = bbig.Dec
 diff --git a/src/crypto/internal/backend/cng_windows.go b/src/crypto/internal/backend/cng_windows.go
 new file mode 100644
-index 00000000000000..1e39e1fb5c8da1
+index 00000000000000..6841062f39dfbb
 --- /dev/null
 +++ b/src/crypto/internal/backend/cng_windows.go
-@@ -0,0 +1,207 @@
+@@ -0,0 +1,216 @@
 +// Copyright 2017 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -185,6 +186,7 @@ index 00000000000000..1e39e1fb5c8da1
 +	"crypto/cipher"
 +	"crypto/internal/boring/sig"
 +	"hash"
++	"io"
 +	_ "unsafe"
 +
 +	"github.com/microsoft/go-crypto-winnative/cng"
@@ -375,6 +377,14 @@ index 00000000000000..1e39e1fb5c8da1
 +
 +func NewPublicKeyECDH(curve string, bytes []byte) (*cng.PublicKeyECDH, error) {
 +	return cng.NewPublicKeyECDH(curve, bytes)
++}
++
++func ExpandHKDF(h func() hash.Hash, pseudorandomKey, info []byte) (io.Reader, error) {
++	return cng.ExpandHKDF(h, pseudorandomKey, info)
++}
++
++func ExtractHKDF(h func() hash.Hash, secret, salt []byte) ([]byte, error) {
++	return cng.ExtractHKDF(h, secret, salt)
 +}
 diff --git a/src/crypto/internal/backend/common.go b/src/crypto/internal/backend/common.go
 index efdd080a1b7708..9d7f7b849d6485 100644
@@ -938,6 +948,28 @@ index 07b1a3851e0714..6fae2b4ba22540 100644
  		return nil
  	}
  	state, err := marshaler.MarshalBinary()
+diff --git a/src/crypto/tls/key_schedule.go b/src/crypto/tls/key_schedule.go
+index ee9d4650e3523b..4d792561cabe04 100644
+--- a/src/crypto/tls/key_schedule.go
++++ b/src/crypto/tls/key_schedule.go
+@@ -62,7 +62,7 @@ func (c *cipherSuiteTLS13) expandLabel(secret []byte, label string, context []by
+ 	}
+ 	out := make([]byte, length)
+ 	var r io.Reader
+-	if goexperiment.OpenSSLCrypto {
++	if goexperiment.OpenSSLCrypto || goexperiment.CNGCrypto {
+ 		r, err = boring.ExpandHKDF(c.hash.New, secret, hkdfLabelBytes)
+ 		if err != nil {
+ 			panic(fmt.Errorf("tls: HKDF-Expand-Label invocation failed unexpectedly: %s", err))
+@@ -90,7 +90,7 @@ func (c *cipherSuiteTLS13) extract(newSecret, currentSecret []byte) []byte {
+ 	if newSecret == nil {
+ 		newSecret = make([]byte, c.hash.Size())
+ 	}
+-	if goexperiment.OpenSSLCrypto {
++	if goexperiment.OpenSSLCrypto || goexperiment.CNGCrypto {
+ 		v, err := boring.ExtractHKDF(c.hash.New, newSecret, currentSecret)
+ 		if err != nil {
+ 			panic(fmt.Errorf("tls: HKDF-Extract invocation failed unexpectedly: %s", err))
 diff --git a/src/crypto/tls/notboring.go b/src/crypto/tls/notboring.go
 index 1aaabd5ef486aa..5a133c9b2f94c7 100644
 --- a/src/crypto/tls/notboring.go
@@ -991,34 +1023,34 @@ index a0548a7f9179c5..ae6117a1554b7f 100644
  package x509
  
 diff --git a/src/go.mod b/src/go.mod
-index e52d56ea42e0a0..fc903b34f227f3 100644
+index 3de2b296d0fecb..e441e40d1227b0 100644
 --- a/src/go.mod
 +++ b/src/go.mod
 @@ -4,6 +4,7 @@ go 1.22
  
  require (
  	github.com/golang-fips/openssl/v2 v2.0.0-rc.2
-+	github.com/microsoft/go-crypto-winnative v0.0.0-20230502061212-6eb98854418e
++	github.com/microsoft/go-crypto-winnative v0.0.0-20230822062938-306d53ca6072
  	golang.org/x/crypto v0.12.0
  	golang.org/x/net v0.14.1-0.20230809150940-1e23797619c9
  )
 diff --git a/src/go.sum b/src/go.sum
-index 0b6e1010f5679c..2f7b86d1166c41 100644
+index ff87d3883113cd..497d219d18acd9 100644
 --- a/src/go.sum
 +++ b/src/go.sum
 @@ -1,5 +1,7 @@
  github.com/golang-fips/openssl/v2 v2.0.0-rc.2 h1:0RFGh/pnzSAe5LlriE416hQUYxYNFZD9y/53d0ld7K0=
  github.com/golang-fips/openssl/v2 v2.0.0-rc.2/go.mod h1:7tuBqX2Zov8Yq5mJ2yzlKhpnxOnWyEzi38AzeWRuQdg=
-+github.com/microsoft/go-crypto-winnative v0.0.0-20230502061212-6eb98854418e h1:BB2UybwbUjtxG2OFs6KnKi8AOlk9rjH7ekjkbW+vHA0=
-+github.com/microsoft/go-crypto-winnative v0.0.0-20230502061212-6eb98854418e/go.mod h1:fveERXKbeK+XLmOyU24caKnIT/S5nniAX9XCRHfnrM4=
++github.com/microsoft/go-crypto-winnative v0.0.0-20230822062938-306d53ca6072 h1:FyW57WKhBHQm/ebpbvQ7+eMiKBRQuLEA6iq228Py1fI=
++github.com/microsoft/go-crypto-winnative v0.0.0-20230822062938-306d53ca6072/go.mod h1:fveERXKbeK+XLmOyU24caKnIT/S5nniAX9XCRHfnrM4=
  golang.org/x/crypto v0.12.0 h1:tFM/ta59kqch6LlvYnPa0yx5a83cL2nHflFhYKvv9Yk=
  golang.org/x/crypto v0.12.0/go.mod h1:NF0Gs7EO5K4qLn+Ylc+fih8BSTeIjAP05siRnAh98yw=
  golang.org/x/net v0.14.1-0.20230809150940-1e23797619c9 h1:eQR0jFW5dN2q8lFzSF7rjkRCOOnBf0llczNvITm6ICs=
 diff --git a/src/go/build/deps_test.go b/src/go/build/deps_test.go
-index b584ed4fee1373..db054c5b2230f1 100644
+index a31878487bc285..0a7ef1f77b040a 100644
 --- a/src/go/build/deps_test.go
 +++ b/src/go/build/deps_test.go
-@@ -425,6 +425,10 @@ var depsRules = `
+@@ -427,6 +427,10 @@ var depsRules = `
  
  	crypto/cipher,
  	crypto/internal/boring/bcache
@@ -1029,7 +1061,7 @@ index b584ed4fee1373..db054c5b2230f1 100644
  	< github.com/golang-fips/openssl/v2/internal/subtle
  	< github.com/golang-fips/openssl/v2
  	< crypto/internal/boring
-@@ -461,6 +465,7 @@ var depsRules = `
+@@ -463,6 +467,7 @@ var depsRules = `
  
  	# CRYPTO-MATH is core bignum-based crypto - no cgo, net; fmt now ok.
  	CRYPTO, FMT, math/big
@@ -1103,7 +1135,7 @@ index 00000000000000..99ee2542ca38a9
 +const CNGCrypto = true
 +const CNGCryptoInt = 1
 diff --git a/src/internal/goexperiment/flags.go b/src/internal/goexperiment/flags.go
-index 8c3cd998d0e7e1..c2f69930e2240e 100644
+index 416b5002944529..9bb027e3c70fe7 100644
 --- a/src/internal/goexperiment/flags.go
 +++ b/src/internal/goexperiment/flags.go
 @@ -60,6 +60,7 @@ type Flags struct {
