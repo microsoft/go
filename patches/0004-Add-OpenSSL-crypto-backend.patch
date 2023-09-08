@@ -14,7 +14,7 @@ Subject: [PATCH] Add OpenSSL crypto backend
  src/crypto/ecdsa/notboring.go                 |   2 +-
  src/crypto/internal/backend/bbig/big.go       |   2 +-
  .../internal/backend/bbig/big_openssl.go      |  12 +
- src/crypto/internal/backend/openssl_linux.go  | 235 ++++++++++++++++++
+ src/crypto/internal/backend/openssl_linux.go  | 239 ++++++++++++++++++
  src/crypto/internal/boring/fipstls/stub.s     |   2 +-
  src/crypto/internal/boring/fipstls/tls.go     |   2 +-
  src/crypto/rsa/boring.go                      |   2 +-
@@ -25,7 +25,7 @@ Subject: [PATCH] Add OpenSSL crypto backend
  src/crypto/tls/boring_test.go                 |   2 +-
  src/crypto/tls/fipsonly/fipsonly.go           |   2 +-
  src/crypto/tls/fipsonly/fipsonly_test.go      |   2 +-
- src/crypto/tls/key_schedule.go                |  20 +-
+ src/crypto/tls/key_schedule.go                |   1 +
  src/crypto/tls/notboring.go                   |   2 +-
  src/crypto/x509/boring.go                     |   2 +-
  src/crypto/x509/boring_test.go                |   2 +-
@@ -37,7 +37,7 @@ Subject: [PATCH] Add OpenSSL crypto backend
  .../goexperiment/exp_opensslcrypto_on.go      |   9 +
  src/internal/goexperiment/flags.go            |   1 +
  src/os/exec/exec_test.go                      |   9 +
- 33 files changed, 335 insertions(+), 24 deletions(-)
+ 33 files changed, 321 insertions(+), 23 deletions(-)
  create mode 100644 src/crypto/internal/backend/bbig/big_openssl.go
  create mode 100644 src/crypto/internal/backend/openssl_linux.go
  create mode 100644 src/internal/goexperiment/exp_opensslcrypto_off.go
@@ -190,10 +190,10 @@ index 00000000000000..e6695dd66b1d02
 +var Dec = bbig.Dec
 diff --git a/src/crypto/internal/backend/openssl_linux.go b/src/crypto/internal/backend/openssl_linux.go
 new file mode 100644
-index 00000000000000..9995444d1f1e9f
+index 00000000000000..401ac5ce6101d9
 --- /dev/null
 +++ b/src/crypto/internal/backend/openssl_linux.go
-@@ -0,0 +1,235 @@
+@@ -0,0 +1,239 @@
 +// Copyright 2017 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -422,6 +422,10 @@ index 00000000000000..9995444d1f1e9f
 +	return openssl.NewPublicKeyECDH(curve, bytes)
 +}
 +
++func SupportsHKDF() bool {
++	return openssl.SupportsHKDF()
++}
++
 +func ExpandHKDF(h func() hash.Hash, pseudorandomKey, info []byte) (io.Reader, error) {
 +	return openssl.ExpandHKDF(h, pseudorandomKey, info)
 +}
@@ -561,10 +565,10 @@ index f8485dc3ca1c29..9c1d3d279c472f 100644
  package fipsonly
  
 diff --git a/src/crypto/tls/key_schedule.go b/src/crypto/tls/key_schedule.go
-index d7f082c9ee1e04..ee9d4650e3523b 100644
+index 14a85fbf1bd465..5caa181eec51a5 100644
 --- a/src/crypto/tls/key_schedule.go
 +++ b/src/crypto/tls/key_schedule.go
-@@ -7,9 +7,11 @@ package tls
+@@ -7,6 +7,7 @@ package tls
  import (
  	"crypto/ecdh"
  	"crypto/hmac"
@@ -572,42 +576,6 @@ index d7f082c9ee1e04..ee9d4650e3523b 100644
  	"errors"
  	"fmt"
  	"hash"
-+	"internal/goexperiment"
- 	"io"
- 
- 	"golang.org/x/crypto/cryptobyte"
-@@ -59,7 +61,16 @@ func (c *cipherSuiteTLS13) expandLabel(secret []byte, label string, context []by
- 		panic(fmt.Errorf("failed to construct HKDF label: %s", err))
- 	}
- 	out := make([]byte, length)
--	n, err := hkdf.Expand(c.hash.New, secret, hkdfLabelBytes).Read(out)
-+	var r io.Reader
-+	if goexperiment.OpenSSLCrypto {
-+		r, err = boring.ExpandHKDF(c.hash.New, secret, hkdfLabelBytes)
-+		if err != nil {
-+			panic(fmt.Errorf("tls: HKDF-Expand-Label invocation failed unexpectedly: %s", err))
-+		}
-+	} else {
-+		r = hkdf.Expand(c.hash.New, secret, hkdfLabelBytes)
-+	}
-+	n, err := r.Read(out)
- 	if err != nil || n != length {
- 		panic("tls: HKDF-Expand-Label invocation failed unexpectedly")
- 	}
-@@ -79,6 +90,13 @@ func (c *cipherSuiteTLS13) extract(newSecret, currentSecret []byte) []byte {
- 	if newSecret == nil {
- 		newSecret = make([]byte, c.hash.Size())
- 	}
-+	if goexperiment.OpenSSLCrypto {
-+		prk, err := boring.ExtractHKDF(c.hash.New, newSecret, currentSecret)
-+		if err != nil {
-+			panic(fmt.Errorf("tls: HKDF-Extract invocation failed unexpectedly: %s", err))
-+		}
-+		return prk
-+	}
- 	return hkdf.Extract(c.hash.New, newSecret, currentSecret)
- }
- 
 diff --git a/src/crypto/tls/notboring.go b/src/crypto/tls/notboring.go
 index 7d85b39c59319e..1aaabd5ef486aa 100644
 --- a/src/crypto/tls/notboring.go
