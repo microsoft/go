@@ -12,7 +12,7 @@ Subject: [PATCH] Add CNG crypto backend
  src/crypto/internal/backend/backend_test.go   |   4 +-
  src/crypto/internal/backend/bbig/big.go       |   2 +-
  src/crypto/internal/backend/bbig/big_cng.go   |  12 +
- src/crypto/internal/backend/cng_windows.go    | 216 ++++++++++++++++++
+ src/crypto/internal/backend/cng_windows.go    | 245 ++++++++++++++++++
  src/crypto/internal/backend/common.go         |  33 ++-
  src/crypto/internal/boring/fipstls/stub.s     |   2 +-
  src/crypto/internal/boring/fipstls/tls.go     |   2 +-
@@ -47,7 +47,7 @@ Subject: [PATCH] Add CNG crypto backend
  .../goexperiment/exp_cngcrypto_off.go         |   9 +
  src/internal/goexperiment/exp_cngcrypto_on.go |   9 +
  src/internal/goexperiment/flags.go            |   1 +
- 43 files changed, 408 insertions(+), 42 deletions(-)
+ 43 files changed, 437 insertions(+), 42 deletions(-)
  create mode 100644 src/crypto/internal/backend/bbig/big_cng.go
  create mode 100644 src/crypto/internal/backend/cng_windows.go
  create mode 100644 src/internal/goexperiment/exp_cngcrypto_off.go
@@ -166,10 +166,10 @@ index 00000000000000..92623031fd87d0
 +var Dec = bbig.Dec
 diff --git a/src/crypto/internal/backend/cng_windows.go b/src/crypto/internal/backend/cng_windows.go
 new file mode 100644
-index 00000000000000..6841062f39dfbb
+index 00000000000000..37fc8f69dc9ae4
 --- /dev/null
 +++ b/src/crypto/internal/backend/cng_windows.go
-@@ -0,0 +1,216 @@
+@@ -0,0 +1,245 @@
 +// Copyright 2017 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -230,6 +230,18 @@ index 00000000000000..6841062f39dfbb
 +	return cng.NewSHA512()
 +}
 +
++func NewSHA3_256() hash.Hash {
++	return cng.NewSHA3_256()
++}
++
++func NewSHA3_384() hash.Hash {
++	return cng.NewSHA3_384()
++}
++
++func NewSHA3_512() hash.Hash {
++	return cng.NewSHA3_512()
++}
++
 +func SHA1(p []byte) (sum [20]byte) {
 +	return cng.SHA1(p)
 +}
@@ -247,6 +259,23 @@ index 00000000000000..6841062f39dfbb
 +func SHA512(p []byte) (sum [64]byte) {
 +	return cng.SHA512(p)
 +}
++
++// xcrypto_backend_map:noescape
++func SHA3_256(p []byte) (sum [32]byte) {
++	return cng.SHA3_256(p)
++}
++
++// xcrypto_backend_map:noescape
++func SHA3_384(p []byte) (sum [48]byte) {
++	return cng.SHA3_384(p)
++}
++
++// xcrypto_backend_map:noescape
++func SHA3_512(p []byte) (sum [64]byte) {
++	return cng.SHA3_512(p)
++}
++
++func SupportsHash(h crypto.Hash) bool { return cng.SupportsHash(h) }
 +
 +func NewHMAC(h func() hash.Hash, key []byte) hash.Hash {
 +	return cng.NewHMAC(h, key)
@@ -949,7 +978,7 @@ index 07b1a3851e0714..6fae2b4ba22540 100644
  	}
  	state, err := marshaler.MarshalBinary()
 diff --git a/src/crypto/tls/key_schedule.go b/src/crypto/tls/key_schedule.go
-index ee9d4650e3523b..4d792561cabe04 100644
+index 5ceaa04e4bc7ed..3a8490bf32cffb 100644
 --- a/src/crypto/tls/key_schedule.go
 +++ b/src/crypto/tls/key_schedule.go
 @@ -62,7 +62,7 @@ func (c *cipherSuiteTLS13) expandLabel(secret []byte, label string, context []by
@@ -1047,7 +1076,7 @@ index ff87d3883113cd..497d219d18acd9 100644
  golang.org/x/crypto v0.12.0/go.mod h1:NF0Gs7EO5K4qLn+Ylc+fih8BSTeIjAP05siRnAh98yw=
  golang.org/x/net v0.14.1-0.20230809150940-1e23797619c9 h1:eQR0jFW5dN2q8lFzSF7rjkRCOOnBf0llczNvITm6ICs=
 diff --git a/src/go/build/deps_test.go b/src/go/build/deps_test.go
-index a31878487bc285..0a7ef1f77b040a 100644
+index 0a6be3cc0231fc..d9cf7f503b107b 100644
 --- a/src/go/build/deps_test.go
 +++ b/src/go/build/deps_test.go
 @@ -427,6 +427,10 @@ var depsRules = `

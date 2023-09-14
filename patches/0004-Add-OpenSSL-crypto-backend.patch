@@ -14,7 +14,7 @@ Subject: [PATCH] Add OpenSSL crypto backend
  src/crypto/ecdsa/notboring.go                 |   2 +-
  src/crypto/internal/backend/bbig/big.go       |   2 +-
  .../internal/backend/bbig/big_openssl.go      |  12 +
- src/crypto/internal/backend/openssl_linux.go  | 235 ++++++++++++++++++
+ src/crypto/internal/backend/openssl_linux.go  | 253 ++++++++++++++++++
  src/crypto/internal/boring/fipstls/stub.s     |   2 +-
  src/crypto/internal/boring/fipstls/tls.go     |   2 +-
  src/crypto/rsa/boring.go                      |   2 +-
@@ -37,7 +37,7 @@ Subject: [PATCH] Add OpenSSL crypto backend
  .../goexperiment/exp_opensslcrypto_on.go      |   9 +
  src/internal/goexperiment/flags.go            |   1 +
  src/os/exec/exec_test.go                      |   9 +
- 33 files changed, 335 insertions(+), 24 deletions(-)
+ 33 files changed, 353 insertions(+), 24 deletions(-)
  create mode 100644 src/crypto/internal/backend/bbig/big_openssl.go
  create mode 100644 src/crypto/internal/backend/openssl_linux.go
  create mode 100644 src/internal/goexperiment/exp_opensslcrypto_off.go
@@ -190,10 +190,10 @@ index 00000000000000..e6695dd66b1d02
 +var Dec = bbig.Dec
 diff --git a/src/crypto/internal/backend/openssl_linux.go b/src/crypto/internal/backend/openssl_linux.go
 new file mode 100644
-index 00000000000000..9995444d1f1e9f
+index 00000000000000..31e28bd1ac31e4
 --- /dev/null
 +++ b/src/crypto/internal/backend/openssl_linux.go
-@@ -0,0 +1,235 @@
+@@ -0,0 +1,253 @@
 +// Copyright 2017 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -308,17 +308,35 @@ index 00000000000000..9995444d1f1e9f
 +
 +const RandReader = openssl.RandReader
 +
-+func NewSHA1() hash.Hash   { return openssl.NewSHA1() }
-+func NewSHA224() hash.Hash { return openssl.NewSHA224() }
-+func NewSHA256() hash.Hash { return openssl.NewSHA256() }
-+func NewSHA384() hash.Hash { return openssl.NewSHA384() }
-+func NewSHA512() hash.Hash { return openssl.NewSHA512() }
++func NewSHA1() hash.Hash     { return openssl.NewSHA1() }
++func NewSHA224() hash.Hash   { return openssl.NewSHA224() }
++func NewSHA256() hash.Hash   { return openssl.NewSHA256() }
++func NewSHA384() hash.Hash   { return openssl.NewSHA384() }
++func NewSHA512() hash.Hash   { return openssl.NewSHA512() }
++func NewSHA3_224() hash.Hash { return openssl.NewSHA3_224() }
++func NewSHA3_256() hash.Hash { return openssl.NewSHA3_256() }
++func NewSHA3_384() hash.Hash { return openssl.NewSHA3_384() }
++func NewSHA3_512() hash.Hash { return openssl.NewSHA3_512() }
 +
 +func SHA1(p []byte) (sum [20]byte)   { return openssl.SHA1(p) }
 +func SHA224(p []byte) (sum [28]byte) { return openssl.SHA224(p) }
 +func SHA256(p []byte) (sum [32]byte) { return openssl.SHA256(p) }
 +func SHA384(p []byte) (sum [48]byte) { return openssl.SHA384(p) }
 +func SHA512(p []byte) (sum [64]byte) { return openssl.SHA512(p) }
++
++// xcrypto_backend_map:noescape
++func SHA3_224(p []byte) (sum [28]byte) { return openssl.SHA3_224(p) }
++
++// xcrypto_backend_map:noescape
++func SHA3_256(p []byte) (sum [32]byte) { return openssl.SHA3_256(p) }
++
++// xcrypto_backend_map:noescape
++func SHA3_384(p []byte) (sum [48]byte) { return openssl.SHA3_384(p) }
++
++// xcrypto_backend_map:noescape
++func SHA3_512(p []byte) (sum [64]byte) { return openssl.SHA3_512(p) }
++
++func SupportsHash(h crypto.Hash) bool { return openssl.SupportsHash(h) }
 +
 +func NewHMAC(h func() hash.Hash, key []byte) hash.Hash { return openssl.NewHMAC(h, key) }
 +
@@ -561,7 +579,7 @@ index f8485dc3ca1c29..9c1d3d279c472f 100644
  package fipsonly
  
 diff --git a/src/crypto/tls/key_schedule.go b/src/crypto/tls/key_schedule.go
-index d7f082c9ee1e04..ee9d4650e3523b 100644
+index d7f082c9ee1e04..5ceaa04e4bc7ed 100644
 --- a/src/crypto/tls/key_schedule.go
 +++ b/src/crypto/tls/key_schedule.go
 @@ -7,9 +7,11 @@ package tls
@@ -683,7 +701,7 @@ index 81b83159f77a36..ff87d3883113cd 100644
  golang.org/x/crypto v0.12.0/go.mod h1:NF0Gs7EO5K4qLn+Ylc+fih8BSTeIjAP05siRnAh98yw=
  golang.org/x/net v0.14.1-0.20230809150940-1e23797619c9 h1:eQR0jFW5dN2q8lFzSF7rjkRCOOnBf0llczNvITm6ICs=
 diff --git a/src/go/build/deps_test.go b/src/go/build/deps_test.go
-index 1a8530d999b0c9..a31878487bc285 100644
+index 4a6d42b18c46bc..0a6be3cc0231fc 100644
 --- a/src/go/build/deps_test.go
 +++ b/src/go/build/deps_test.go
 @@ -427,6 +427,8 @@ var depsRules = `
