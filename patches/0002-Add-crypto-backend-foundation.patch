@@ -15,11 +15,11 @@ Subject: [PATCH] Add crypto backend foundation
  src/crypto/ed25519/ed25519_test.go           |   2 +-
  src/crypto/hmac/hmac.go                      |   2 +-
  src/crypto/hmac/hmac_test.go                 |   2 +-
- src/crypto/internal/backend/backend_test.go  |  30 +++++
+ src/crypto/internal/backend/backend_test.go  |  30 ++++
  src/crypto/internal/backend/bbig/big.go      |  17 +++
  src/crypto/internal/backend/common.go        |  78 +++++++++++
  src/crypto/internal/backend/isrequirefips.go |   9 ++
- src/crypto/internal/backend/nobackend.go     | 135 +++++++++++++++++++
+ src/crypto/internal/backend/nobackend.go     | 137 +++++++++++++++++++
  src/crypto/internal/backend/norequirefips.go |   9 ++
  src/crypto/internal/backend/stub.s           |  10 ++
  src/crypto/rand/rand_unix.go                 |   2 +-
@@ -36,9 +36,10 @@ Subject: [PATCH] Add crypto backend foundation
  src/crypto/sha512/sha512.go                  |   2 +-
  src/crypto/sha512/sha512_test.go             |   2 +-
  src/crypto/tls/cipher_suites.go              |   2 +-
+ src/crypto/tls/key_schedule.go               |  18 ++-
  src/go/build/deps_test.go                    |   2 +
  src/runtime/runtime_boring.go                |   5 +
- 34 files changed, 324 insertions(+), 29 deletions(-)
+ 35 files changed, 343 insertions(+), 30 deletions(-)
  create mode 100644 src/crypto/internal/backend/backend_test.go
  create mode 100644 src/crypto/internal/backend/bbig/big.go
  create mode 100644 src/crypto/internal/backend/common.go
@@ -355,10 +356,10 @@ index 00000000000000..e5d7570d6d4363
 +const isRequireFIPS = true
 diff --git a/src/crypto/internal/backend/nobackend.go b/src/crypto/internal/backend/nobackend.go
 new file mode 100644
-index 00000000000000..205fe23d4b51b2
+index 00000000000000..c1b21c4559f841
 --- /dev/null
 +++ b/src/crypto/internal/backend/nobackend.go
-@@ -0,0 +1,135 @@
+@@ -0,0 +1,137 @@
 +// Copyright 2017 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -486,6 +487,8 @@ index 00000000000000..205fe23d4b51b2
 +func NewPublicKeyECDH(string, []byte) (*PublicKeyECDH, error) { panic("cryptobackend: not available") }
 +func (*PublicKeyECDH) Bytes() []byte                          { panic("cryptobackend: not available") }
 +func (*PrivateKeyECDH) PublicKey() (*PublicKeyECDH, error)    { panic("cryptobackend: not available") }
++
++func SupportsHKDF() bool { panic("cryptobackend: not available") }
 +
 +func ExpandHKDF(h func() hash.Hash, pseudorandomKey, info []byte) (io.Reader, error) {
 +	panic("cryptobackend: not available")
@@ -712,6 +715,42 @@ index 589e8b6fafbba3..0a6d665ee3096d 100644
  	"crypto/rc4"
  	"crypto/sha1"
  	"crypto/sha256"
+diff --git a/src/crypto/tls/key_schedule.go b/src/crypto/tls/key_schedule.go
+index d7f082c9ee1e04..14a85fbf1bd465 100644
+--- a/src/crypto/tls/key_schedule.go
++++ b/src/crypto/tls/key_schedule.go
+@@ -59,7 +59,16 @@ func (c *cipherSuiteTLS13) expandLabel(secret []byte, label string, context []by
+ 		panic(fmt.Errorf("failed to construct HKDF label: %s", err))
+ 	}
+ 	out := make([]byte, length)
+-	n, err := hkdf.Expand(c.hash.New, secret, hkdfLabelBytes).Read(out)
++	var r io.Reader
++	if boring.Enabled && boring.SupportsHKDF() {
++		r, err = boring.ExpandHKDF(c.hash.New, secret, hkdfLabelBytes)
++		if err != nil {
++			panic(fmt.Errorf("tls: HKDF-Expand-Label invocation failed unexpectedly: %s", err))
++		}
++	} else {
++		r = hkdf.Expand(c.hash.New, secret, hkdfLabelBytes)
++	}
++	n, err := r.Read(out)
+ 	if err != nil || n != length {
+ 		panic("tls: HKDF-Expand-Label invocation failed unexpectedly")
+ 	}
+@@ -79,6 +88,13 @@ func (c *cipherSuiteTLS13) extract(newSecret, currentSecret []byte) []byte {
+ 	if newSecret == nil {
+ 		newSecret = make([]byte, c.hash.Size())
+ 	}
++	if boring.Enabled && boring.SupportsHKDF() {
++		prk, err := boring.ExtractHKDF(c.hash.New, newSecret, currentSecret)
++		if err != nil {
++			panic(fmt.Errorf("tls: HKDF-Extract invocation failed unexpectedly: %s", err))
++		}
++		return prk
++	}
+ 	return hkdf.Extract(c.hash.New, newSecret, currentSecret)
+ }
+ 
 diff --git a/src/go/build/deps_test.go b/src/go/build/deps_test.go
 index ca0c4089a2e505..4a6d42b18c46bc 100644
 --- a/src/go/build/deps_test.go
