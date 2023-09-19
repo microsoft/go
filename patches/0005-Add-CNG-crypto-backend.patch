@@ -12,7 +12,7 @@ Subject: [PATCH] Add CNG crypto backend
  src/crypto/internal/backend/backend_test.go   |   4 +-
  src/crypto/internal/backend/bbig/big.go       |   2 +-
  src/crypto/internal/backend/bbig/big_cng.go   |  12 +
- src/crypto/internal/backend/cng_windows.go    | 216 ++++++++++++++++++
+ src/crypto/internal/backend/cng_windows.go    | 220 ++++++++++++++++++
  src/crypto/internal/backend/common.go         |  33 ++-
  src/crypto/internal/boring/fipstls/stub.s     |   2 +-
  src/crypto/internal/boring/fipstls/tls.go     |   2 +-
@@ -34,7 +34,6 @@ Subject: [PATCH] Add CNG crypto backend
  src/crypto/tls/fipsonly/fipsonly.go           |   2 +-
  src/crypto/tls/fipsonly/fipsonly_test.go      |   2 +-
  src/crypto/tls/handshake_server_tls13.go      |  10 +
- src/crypto/tls/key_schedule.go                |   4 +-
  src/crypto/tls/notboring.go                   |   2 +-
  src/crypto/x509/boring.go                     |   2 +-
  src/crypto/x509/boring_test.go                |   2 +-
@@ -47,7 +46,7 @@ Subject: [PATCH] Add CNG crypto backend
  .../goexperiment/exp_cngcrypto_off.go         |   9 +
  src/internal/goexperiment/exp_cngcrypto_on.go |   9 +
  src/internal/goexperiment/flags.go            |   1 +
- 43 files changed, 408 insertions(+), 42 deletions(-)
+ 42 files changed, 410 insertions(+), 40 deletions(-)
  create mode 100644 src/crypto/internal/backend/bbig/big_cng.go
  create mode 100644 src/crypto/internal/backend/cng_windows.go
  create mode 100644 src/internal/goexperiment/exp_cngcrypto_off.go
@@ -166,10 +165,10 @@ index 00000000000000..92623031fd87d0
 +var Dec = bbig.Dec
 diff --git a/src/crypto/internal/backend/cng_windows.go b/src/crypto/internal/backend/cng_windows.go
 new file mode 100644
-index 00000000000000..6841062f39dfbb
+index 00000000000000..a6127c1fa36403
 --- /dev/null
 +++ b/src/crypto/internal/backend/cng_windows.go
-@@ -0,0 +1,216 @@
+@@ -0,0 +1,220 @@
 +// Copyright 2017 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -377,6 +376,10 @@ index 00000000000000..6841062f39dfbb
 +
 +func NewPublicKeyECDH(curve string, bytes []byte) (*cng.PublicKeyECDH, error) {
 +	return cng.NewPublicKeyECDH(curve, bytes)
++}
++
++func SupportsHKDF() bool {
++	return cng.SupportsHKDF()
 +}
 +
 +func ExpandHKDF(h func() hash.Hash, pseudorandomKey, info []byte) (io.Reader, error) {
@@ -948,28 +951,6 @@ index 07b1a3851e0714..6fae2b4ba22540 100644
  		return nil
  	}
  	state, err := marshaler.MarshalBinary()
-diff --git a/src/crypto/tls/key_schedule.go b/src/crypto/tls/key_schedule.go
-index ee9d4650e3523b..4d792561cabe04 100644
---- a/src/crypto/tls/key_schedule.go
-+++ b/src/crypto/tls/key_schedule.go
-@@ -62,7 +62,7 @@ func (c *cipherSuiteTLS13) expandLabel(secret []byte, label string, context []by
- 	}
- 	out := make([]byte, length)
- 	var r io.Reader
--	if goexperiment.OpenSSLCrypto {
-+	if goexperiment.OpenSSLCrypto || goexperiment.CNGCrypto {
- 		r, err = boring.ExpandHKDF(c.hash.New, secret, hkdfLabelBytes)
- 		if err != nil {
- 			panic(fmt.Errorf("tls: HKDF-Expand-Label invocation failed unexpectedly: %s", err))
-@@ -90,7 +90,7 @@ func (c *cipherSuiteTLS13) extract(newSecret, currentSecret []byte) []byte {
- 	if newSecret == nil {
- 		newSecret = make([]byte, c.hash.Size())
- 	}
--	if goexperiment.OpenSSLCrypto {
-+	if goexperiment.OpenSSLCrypto || goexperiment.CNGCrypto {
- 		prk, err := boring.ExtractHKDF(c.hash.New, newSecret, currentSecret)
- 		if err != nil {
- 			panic(fmt.Errorf("tls: HKDF-Extract invocation failed unexpectedly: %s", err))
 diff --git a/src/crypto/tls/notboring.go b/src/crypto/tls/notboring.go
 index 1aaabd5ef486aa..5a133c9b2f94c7 100644
 --- a/src/crypto/tls/notboring.go
