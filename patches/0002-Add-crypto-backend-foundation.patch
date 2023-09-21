@@ -17,9 +17,9 @@ Subject: [PATCH] Add crypto backend foundation
  src/crypto/hmac/hmac_test.go                 |   2 +-
  src/crypto/internal/backend/backend_test.go  |  30 +++++
  src/crypto/internal/backend/bbig/big.go      |  17 +++
- src/crypto/internal/backend/common.go        |  78 ++++++++++++
+ src/crypto/internal/backend/common.go        |  78 +++++++++++
  src/crypto/internal/backend/isrequirefips.go |   9 ++
- src/crypto/internal/backend/nobackend.go     | 127 +++++++++++++++++++
+ src/crypto/internal/backend/nobackend.go     | 135 +++++++++++++++++++
  src/crypto/internal/backend/norequirefips.go |   9 ++
  src/crypto/internal/backend/stub.s           |  10 ++
  src/crypto/rand/rand_unix.go                 |   2 +-
@@ -37,9 +37,10 @@ Subject: [PATCH] Add crypto backend foundation
  src/crypto/sha512/sha512_test.go             |   2 +-
  src/crypto/tls/cipher_suites.go              |   2 +-
  src/crypto/tls/key_schedule.go               |  18 ++-
+ src/crypto/tls/prf.go                        |  39 ++++--
  src/go/build/deps_test.go                    |   2 +
  src/runtime/runtime_boring.go                |   5 +
- 35 files changed, 333 insertions(+), 30 deletions(-)
+ 36 files changed, 371 insertions(+), 39 deletions(-)
  create mode 100644 src/crypto/internal/backend/backend_test.go
  create mode 100644 src/crypto/internal/backend/bbig/big.go
  create mode 100644 src/crypto/internal/backend/common.go
@@ -356,10 +357,10 @@ index 00000000000000..e5d7570d6d4363
 +const isRequireFIPS = true
 diff --git a/src/crypto/internal/backend/nobackend.go b/src/crypto/internal/backend/nobackend.go
 new file mode 100644
-index 00000000000000..2be7b5a47926bb
+index 00000000000000..e3e9817a7c5c40
 --- /dev/null
 +++ b/src/crypto/internal/backend/nobackend.go
-@@ -0,0 +1,127 @@
+@@ -0,0 +1,135 @@
 +// Copyright 2017 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -386,6 +387,8 @@ index 00000000000000..2be7b5a47926bb
 +func (randReader) Read(b []byte) (int, error) { panic("cryptobackend: not available") }
 +
 +const RandReader = randReader(0)
++
++func SupportsHash(h crypto.Hash) bool { panic("cryptobackend: not available") }
 +
 +func NewSHA1() hash.Hash   { panic("cryptobackend: not available") }
 +func NewSHA224() hash.Hash { panic("cryptobackend: not available") }
@@ -485,6 +488,12 @@ index 00000000000000..2be7b5a47926bb
 +}
 +
 +func ExtractHKDF(h func() hash.Hash, secret, salt []byte) ([]byte, error) {
++	panic("cryptobackend: not available")
++}
++
++func SupportsTLS1PRF() bool { panic("cryptobackend: not available") }
++
++func TLS1PRF(result, secret, label, seed []byte, h func() hash.Hash) error {
 +	panic("cryptobackend: not available")
 +}
 diff --git a/src/crypto/internal/backend/norequirefips.go b/src/crypto/internal/backend/norequirefips.go
@@ -741,8 +750,112 @@ index d7f082c9ee1e04..14a85fbf1bd465 100644
  	return hkdf.Extract(c.hash.New, newSecret, currentSecret)
  }
  
+diff --git a/src/crypto/tls/prf.go b/src/crypto/tls/prf.go
+index 20bac96e86703b..de4d681151878f 100644
+--- a/src/crypto/tls/prf.go
++++ b/src/crypto/tls/prf.go
+@@ -7,6 +7,7 @@ package tls
+ import (
+ 	"crypto"
+ 	"crypto/hmac"
++	boring "crypto/internal/backend"
+ 	"crypto/md5"
+ 	"crypto/sha1"
+ 	"crypto/sha256"
+@@ -45,7 +46,13 @@ func pHash(result, secret, seed []byte, hash func() hash.Hash) {
+ }
+ 
+ // prf10 implements the TLS 1.0 pseudo-random function, as defined in RFC 2246, Section 5.
+-func prf10(result, secret, label, seed []byte) {
++func prf10(result, secret, label, seed []byte) error {
++	if boring.Enabled && boring.SupportsTLS1PRF() && boring.SupportsHash(crypto.MD5SHA1) {
++		if err := boring.TLS1PRF(result, secret, label, seed, nil); err != nil {
++			return fmt.Errorf("crypto/tls: prf10: %v", err)
++		}
++		return nil
++	}
+ 	hashSHA1 := sha1.New
+ 	hashMD5 := md5.New
+ 
+@@ -61,16 +68,24 @@ func prf10(result, secret, label, seed []byte) {
+ 	for i, b := range result2 {
+ 		result[i] ^= b
+ 	}
++	return nil
+ }
+ 
+ // prf12 implements the TLS 1.2 pseudo-random function, as defined in RFC 5246, Section 5.
+-func prf12(hashFunc func() hash.Hash) func(result, secret, label, seed []byte) {
+-	return func(result, secret, label, seed []byte) {
++func prf12(h crypto.Hash, hashFunc func() hash.Hash) func(result, secret, label, seed []byte) error {
++	return func(result, secret, label, seed []byte) error {
++		if boring.Enabled && boring.SupportsTLS1PRF() && boring.SupportsHash(h) {
++			if err := boring.TLS1PRF(result, secret, label, seed, hashFunc); err != nil {
++				return fmt.Errorf("crypto/tls: prf12: %v", err)
++			}
++			return nil
++		}
+ 		labelAndSeed := make([]byte, len(label)+len(seed))
+ 		copy(labelAndSeed, label)
+ 		copy(labelAndSeed[len(label):], seed)
+ 
+ 		pHash(result, secret, labelAndSeed, hashFunc)
++		return nil
+ 	}
+ }
+ 
+@@ -85,21 +100,23 @@ var keyExpansionLabel = []byte("key expansion")
+ var clientFinishedLabel = []byte("client finished")
+ var serverFinishedLabel = []byte("server finished")
+ 
+-func prfAndHashForVersion(version uint16, suite *cipherSuite) (func(result, secret, label, seed []byte), crypto.Hash) {
++func prfAndHashForVersion(version uint16, suite *cipherSuite) (func(result, secret, label, seed []byte) error, crypto.Hash) {
+ 	switch version {
+ 	case VersionTLS10, VersionTLS11:
+ 		return prf10, crypto.Hash(0)
+ 	case VersionTLS12:
+ 		if suite.flags&suiteSHA384 != 0 {
+-			return prf12(sha512.New384), crypto.SHA384
++			h := crypto.SHA384
++			return prf12(h, sha512.New384), h
+ 		}
+-		return prf12(sha256.New), crypto.SHA256
++		h := crypto.SHA256
++		return prf12(h, sha256.New), h
+ 	default:
+ 		panic("unknown version")
+ 	}
+ }
+ 
+-func prfForVersion(version uint16, suite *cipherSuite) func(result, secret, label, seed []byte) {
++func prfForVersion(version uint16, suite *cipherSuite) func(result, secret, label, seed []byte) error {
+ 	prf, _ := prfAndHashForVersion(version, suite)
+ 	return prf
+ }
+@@ -177,7 +194,7 @@ type finishedHash struct {
+ 	buffer []byte
+ 
+ 	version uint16
+-	prf     func(result, secret, label, seed []byte)
++	prf     func(result, secret, label, seed []byte) error
+ }
+ 
+ func (h *finishedHash) Write(msg []byte) (n int, err error) {
+@@ -286,7 +303,11 @@ func ekmFromMasterSecret(version uint16, suite *cipherSuite, masterSecret, clien
+ 		}
+ 
+ 		keyMaterial := make([]byte, length)
+-		prfForVersion(version, suite)(keyMaterial, masterSecret, []byte(label), seed)
++		if err := prfForVersion(version, suite)(keyMaterial, masterSecret, []byte(label), seed); err != nil {
++			// Could happen if the seed is too large. The Go implementation doesn't limit the seed size,
++			// as RFC 5705 doesn't specify a limit, but stock OpenSSL restrict it to 1024 and CNG to 256.
++			return nil, err
++		}
+ 		return keyMaterial, nil
+ 	}
+ }
 diff --git a/src/go/build/deps_test.go b/src/go/build/deps_test.go
-index ff03691eb90397..1a8530d999b0c9 100644
+index ca0c4089a2e505..4a6d42b18c46bc 100644
 --- a/src/go/build/deps_test.go
 +++ b/src/go/build/deps_test.go
 @@ -428,6 +428,7 @@ var depsRules = `
