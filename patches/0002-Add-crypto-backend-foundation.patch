@@ -17,9 +17,9 @@ Subject: [PATCH] Add crypto backend foundation
  src/crypto/hmac/hmac_test.go                 |   2 +-
  src/crypto/internal/backend/backend_test.go  |  30 +++++
  src/crypto/internal/backend/bbig/big.go      |  17 +++
- src/crypto/internal/backend/common.go        |  78 ++++++++++++
+ src/crypto/internal/backend/common.go        |  78 +++++++++++
  src/crypto/internal/backend/isrequirefips.go |   9 ++
- src/crypto/internal/backend/nobackend.go     | 127 +++++++++++++++++++
+ src/crypto/internal/backend/nobackend.go     | 135 +++++++++++++++++++
  src/crypto/internal/backend/norequirefips.go |   9 ++
  src/crypto/internal/backend/stub.s           |  10 ++
  src/crypto/rand/rand_unix.go                 |   2 +-
@@ -36,10 +36,14 @@ Subject: [PATCH] Add crypto backend foundation
  src/crypto/sha512/sha512.go                  |   2 +-
  src/crypto/sha512/sha512_test.go             |   2 +-
  src/crypto/tls/cipher_suites.go              |   2 +-
+ src/crypto/tls/handshake_client.go           |  25 +++-
+ src/crypto/tls/handshake_server.go           |  25 +++-
  src/crypto/tls/key_schedule.go               |  18 ++-
+ src/crypto/tls/prf.go                        |  77 +++++++----
+ src/crypto/tls/prf_test.go                   |  12 +-
  src/go/build/deps_test.go                    |   2 +
  src/runtime/runtime_boring.go                |   5 +
- 35 files changed, 333 insertions(+), 30 deletions(-)
+ 39 files changed, 445 insertions(+), 65 deletions(-)
  create mode 100644 src/crypto/internal/backend/backend_test.go
  create mode 100644 src/crypto/internal/backend/bbig/big.go
  create mode 100644 src/crypto/internal/backend/common.go
@@ -356,10 +360,10 @@ index 00000000000000..e5d7570d6d4363
 +const isRequireFIPS = true
 diff --git a/src/crypto/internal/backend/nobackend.go b/src/crypto/internal/backend/nobackend.go
 new file mode 100644
-index 00000000000000..2be7b5a47926bb
+index 00000000000000..e3e9817a7c5c40
 --- /dev/null
 +++ b/src/crypto/internal/backend/nobackend.go
-@@ -0,0 +1,127 @@
+@@ -0,0 +1,135 @@
 +// Copyright 2017 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -386,6 +390,8 @@ index 00000000000000..2be7b5a47926bb
 +func (randReader) Read(b []byte) (int, error) { panic("cryptobackend: not available") }
 +
 +const RandReader = randReader(0)
++
++func SupportsHash(h crypto.Hash) bool { panic("cryptobackend: not available") }
 +
 +func NewSHA1() hash.Hash   { panic("cryptobackend: not available") }
 +func NewSHA224() hash.Hash { panic("cryptobackend: not available") }
@@ -485,6 +491,12 @@ index 00000000000000..2be7b5a47926bb
 +}
 +
 +func ExtractHKDF(h func() hash.Hash, secret, salt []byte) ([]byte, error) {
++	panic("cryptobackend: not available")
++}
++
++func SupportsTLS1PRF() bool { panic("cryptobackend: not available") }
++
++func TLS1PRF(result, secret, label, seed []byte, h func() hash.Hash) error {
 +	panic("cryptobackend: not available")
 +}
 diff --git a/src/crypto/internal/backend/norequirefips.go b/src/crypto/internal/backend/norequirefips.go
@@ -705,6 +717,130 @@ index 589e8b6fafbba3..0a6d665ee3096d 100644
  	"crypto/rc4"
  	"crypto/sha1"
  	"crypto/sha256"
+diff --git a/src/crypto/tls/handshake_client.go b/src/crypto/tls/handshake_client.go
+index 4649f36dea6773..f96b2b28862234 100644
+--- a/src/crypto/tls/handshake_client.go
++++ b/src/crypto/tls/handshake_client.go
+@@ -653,12 +653,16 @@ func (hs *clientHandshakeState) doFullHandshake() error {
+ 
+ 	if hs.serverHello.extendedMasterSecret {
+ 		c.extMasterSecret = true
+-		hs.masterSecret = extMasterFromPreMasterSecret(c.vers, hs.suite, preMasterSecret,
++		hs.masterSecret, err = extMasterFromPreMasterSecret(c.vers, hs.suite, preMasterSecret,
+ 			hs.finishedHash.Sum())
+ 	} else {
+-		hs.masterSecret = masterFromPreMasterSecret(c.vers, hs.suite, preMasterSecret,
++		hs.masterSecret, err = masterFromPreMasterSecret(c.vers, hs.suite, preMasterSecret,
+ 			hs.hello.random, hs.serverHello.random)
+ 	}
++	if err != nil {
++		c.sendAlert(alertInternalError)
++		return err
++	}
+ 	if err := c.config.writeKeyLog(keyLogLabelTLS12, hs.hello.random, hs.masterSecret); err != nil {
+ 		c.sendAlert(alertInternalError)
+ 		return errors.New("tls: failed to write to key log: " + err.Error())
+@@ -719,8 +723,12 @@ func (hs *clientHandshakeState) doFullHandshake() error {
+ func (hs *clientHandshakeState) establishKeys() error {
+ 	c := hs.c
+ 
+-	clientMAC, serverMAC, clientKey, serverKey, clientIV, serverIV :=
++	clientMAC, serverMAC, clientKey, serverKey, clientIV, serverIV, err :=
+ 		keysFromMasterSecret(c.vers, hs.suite, hs.masterSecret, hs.hello.random, hs.serverHello.random, hs.suite.macLen, hs.suite.keyLen, hs.suite.ivLen)
++	if err != nil {
++		c.sendAlert(alertInternalError)
++		return err
++	}
+ 	var clientCipher, serverCipher any
+ 	var clientHash, serverHash hash.Hash
+ 	if hs.suite.cipher != nil {
+@@ -860,7 +868,11 @@ func (hs *clientHandshakeState) readFinished(out []byte) error {
+ 		return unexpectedMessageError(serverFinished, msg)
+ 	}
+ 
+-	verify := hs.finishedHash.serverSum(hs.masterSecret)
++	verify, err := hs.finishedHash.serverSum(hs.masterSecret)
++	if err != nil {
++		c.sendAlert(alertHandshakeFailure)
++		return err
++	}
+ 	if len(verify) != len(serverFinished.verifyData) ||
+ 		subtle.ConstantTimeCompare(verify, serverFinished.verifyData) != 1 {
+ 		c.sendAlert(alertHandshakeFailure)
+@@ -930,7 +942,10 @@ func (hs *clientHandshakeState) sendFinished(out []byte) error {
+ 	}
+ 
+ 	finished := new(finishedMsg)
+-	finished.verifyData = hs.finishedHash.clientSum(hs.masterSecret)
++	var err error
++	if finished.verifyData, err = hs.finishedHash.clientSum(hs.masterSecret); err != nil {
++		return err
++	}
+ 	if _, err := hs.c.writeHandshakeRecord(finished, &hs.finishedHash); err != nil {
+ 		return err
+ 	}
+diff --git a/src/crypto/tls/handshake_server.go b/src/crypto/tls/handshake_server.go
+index 996b23b1f52341..0c645ead0adba3 100644
+--- a/src/crypto/tls/handshake_server.go
++++ b/src/crypto/tls/handshake_server.go
+@@ -668,12 +668,16 @@ func (hs *serverHandshakeState) doFullHandshake() error {
+ 	}
+ 	if hs.hello.extendedMasterSecret {
+ 		c.extMasterSecret = true
+-		hs.masterSecret = extMasterFromPreMasterSecret(c.vers, hs.suite, preMasterSecret,
++		hs.masterSecret, err = extMasterFromPreMasterSecret(c.vers, hs.suite, preMasterSecret,
+ 			hs.finishedHash.Sum())
+ 	} else {
+-		hs.masterSecret = masterFromPreMasterSecret(c.vers, hs.suite, preMasterSecret,
++		hs.masterSecret, err = masterFromPreMasterSecret(c.vers, hs.suite, preMasterSecret,
+ 			hs.clientHello.random, hs.hello.random)
+ 	}
++	if err != nil {
++		c.sendAlert(alertInternalError)
++		return err
++	}
+ 	if err := c.config.writeKeyLog(keyLogLabelTLS12, hs.clientHello.random, hs.masterSecret); err != nil {
+ 		c.sendAlert(alertInternalError)
+ 		return err
+@@ -737,8 +741,12 @@ func (hs *serverHandshakeState) doFullHandshake() error {
+ func (hs *serverHandshakeState) establishKeys() error {
+ 	c := hs.c
+ 
+-	clientMAC, serverMAC, clientKey, serverKey, clientIV, serverIV :=
++	clientMAC, serverMAC, clientKey, serverKey, clientIV, serverIV, err :=
+ 		keysFromMasterSecret(c.vers, hs.suite, hs.masterSecret, hs.clientHello.random, hs.hello.random, hs.suite.macLen, hs.suite.keyLen, hs.suite.ivLen)
++	if err != nil {
++		c.sendAlert(alertInternalError)
++		return err
++	}
+ 
+ 	var clientCipher, serverCipher any
+ 	var clientHash, serverHash hash.Hash
+@@ -779,7 +787,11 @@ func (hs *serverHandshakeState) readFinished(out []byte) error {
+ 		return unexpectedMessageError(clientFinished, msg)
+ 	}
+ 
+-	verify := hs.finishedHash.clientSum(hs.masterSecret)
++	verify, err := hs.finishedHash.clientSum(hs.masterSecret)
++	if err != nil {
++		c.sendAlert(alertHandshakeFailure)
++		return err
++	}
+ 	if len(verify) != len(clientFinished.verifyData) ||
+ 		subtle.ConstantTimeCompare(verify, clientFinished.verifyData) != 1 {
+ 		c.sendAlert(alertHandshakeFailure)
+@@ -843,7 +855,10 @@ func (hs *serverHandshakeState) sendFinished(out []byte) error {
+ 	}
+ 
+ 	finished := new(finishedMsg)
+-	finished.verifyData = hs.finishedHash.serverSum(hs.masterSecret)
++	var err error
++	if finished.verifyData, err = hs.finishedHash.serverSum(hs.masterSecret); err != nil {
++		return err
++	}
+ 	if _, err := hs.c.writeHandshakeRecord(finished, &hs.finishedHash); err != nil {
+ 		return err
+ 	}
 diff --git a/src/crypto/tls/key_schedule.go b/src/crypto/tls/key_schedule.go
 index d7f082c9ee1e04..14a85fbf1bd465 100644
 --- a/src/crypto/tls/key_schedule.go
@@ -741,8 +877,218 @@ index d7f082c9ee1e04..14a85fbf1bd465 100644
  	return hkdf.Extract(c.hash.New, newSecret, currentSecret)
  }
  
+diff --git a/src/crypto/tls/prf.go b/src/crypto/tls/prf.go
+index 20bac96e86703b..c47391f684dc6f 100644
+--- a/src/crypto/tls/prf.go
++++ b/src/crypto/tls/prf.go
+@@ -7,6 +7,7 @@ package tls
+ import (
+ 	"crypto"
+ 	"crypto/hmac"
++	boring "crypto/internal/backend"
+ 	"crypto/md5"
+ 	"crypto/sha1"
+ 	"crypto/sha256"
+@@ -45,7 +46,13 @@ func pHash(result, secret, seed []byte, hash func() hash.Hash) {
+ }
+ 
+ // prf10 implements the TLS 1.0 pseudo-random function, as defined in RFC 2246, Section 5.
+-func prf10(result, secret, label, seed []byte) {
++func prf10(result, secret, label, seed []byte) error {
++	if boring.Enabled && boring.SupportsTLS1PRF() && boring.SupportsHash(crypto.MD5SHA1) {
++		if err := boring.TLS1PRF(result, secret, label, seed, nil); err != nil {
++			return fmt.Errorf("crypto/tls: prf10: %v", err)
++		}
++		return nil
++	}
+ 	hashSHA1 := sha1.New
+ 	hashMD5 := md5.New
+ 
+@@ -61,16 +68,24 @@ func prf10(result, secret, label, seed []byte) {
+ 	for i, b := range result2 {
+ 		result[i] ^= b
+ 	}
++	return nil
+ }
+ 
+ // prf12 implements the TLS 1.2 pseudo-random function, as defined in RFC 5246, Section 5.
+-func prf12(hashFunc func() hash.Hash) func(result, secret, label, seed []byte) {
+-	return func(result, secret, label, seed []byte) {
++func prf12(h crypto.Hash, hashFunc func() hash.Hash) func(result, secret, label, seed []byte) error {
++	return func(result, secret, label, seed []byte) error {
++		if boring.Enabled && boring.SupportsTLS1PRF() && boring.SupportsHash(h) {
++			if err := boring.TLS1PRF(result, secret, label, seed, hashFunc); err != nil {
++				return fmt.Errorf("crypto/tls: prf12: %v", err)
++			}
++			return nil
++		}
+ 		labelAndSeed := make([]byte, len(label)+len(seed))
+ 		copy(labelAndSeed, label)
+ 		copy(labelAndSeed[len(label):], seed)
+ 
+ 		pHash(result, secret, labelAndSeed, hashFunc)
++		return nil
+ 	}
+ }
+ 
+@@ -85,56 +100,64 @@ var keyExpansionLabel = []byte("key expansion")
+ var clientFinishedLabel = []byte("client finished")
+ var serverFinishedLabel = []byte("server finished")
+ 
+-func prfAndHashForVersion(version uint16, suite *cipherSuite) (func(result, secret, label, seed []byte), crypto.Hash) {
++func prfAndHashForVersion(version uint16, suite *cipherSuite) (func(result, secret, label, seed []byte) error, crypto.Hash) {
+ 	switch version {
+ 	case VersionTLS10, VersionTLS11:
+ 		return prf10, crypto.Hash(0)
+ 	case VersionTLS12:
+ 		if suite.flags&suiteSHA384 != 0 {
+-			return prf12(sha512.New384), crypto.SHA384
++			h := crypto.SHA384
++			return prf12(h, sha512.New384), h
+ 		}
+-		return prf12(sha256.New), crypto.SHA256
++		h := crypto.SHA256
++		return prf12(h, sha256.New), h
+ 	default:
+ 		panic("unknown version")
+ 	}
+ }
+ 
+-func prfForVersion(version uint16, suite *cipherSuite) func(result, secret, label, seed []byte) {
++func prfForVersion(version uint16, suite *cipherSuite) func(result, secret, label, seed []byte) error {
+ 	prf, _ := prfAndHashForVersion(version, suite)
+ 	return prf
+ }
+ 
+ // masterFromPreMasterSecret generates the master secret from the pre-master
+ // secret. See RFC 5246, Section 8.1.
+-func masterFromPreMasterSecret(version uint16, suite *cipherSuite, preMasterSecret, clientRandom, serverRandom []byte) []byte {
++func masterFromPreMasterSecret(version uint16, suite *cipherSuite, preMasterSecret, clientRandom, serverRandom []byte) ([]byte, error) {
+ 	seed := make([]byte, 0, len(clientRandom)+len(serverRandom))
+ 	seed = append(seed, clientRandom...)
+ 	seed = append(seed, serverRandom...)
+ 
+ 	masterSecret := make([]byte, masterSecretLength)
+-	prfForVersion(version, suite)(masterSecret, preMasterSecret, masterSecretLabel, seed)
+-	return masterSecret
++	if err := prfForVersion(version, suite)(masterSecret, preMasterSecret, masterSecretLabel, seed); err != nil {
++		return nil, err
++	}
++	return masterSecret, nil
+ }
+ 
+ // extMasterFromPreMasterSecret generates the extended master secret from the
+ // pre-master secret. See RFC 7627.
+-func extMasterFromPreMasterSecret(version uint16, suite *cipherSuite, preMasterSecret, transcript []byte) []byte {
++func extMasterFromPreMasterSecret(version uint16, suite *cipherSuite, preMasterSecret, transcript []byte) ([]byte, error) {
+ 	masterSecret := make([]byte, masterSecretLength)
+-	prfForVersion(version, suite)(masterSecret, preMasterSecret, extendedMasterSecretLabel, transcript)
+-	return masterSecret
++	if err := prfForVersion(version, suite)(masterSecret, preMasterSecret, extendedMasterSecretLabel, transcript); err != nil {
++		return nil, err
++	}
++	return masterSecret, nil
+ }
+ 
+ // keysFromMasterSecret generates the connection keys from the master
+ // secret, given the lengths of the MAC key, cipher key and IV, as defined in
+ // RFC 2246, Section 6.3.
+-func keysFromMasterSecret(version uint16, suite *cipherSuite, masterSecret, clientRandom, serverRandom []byte, macLen, keyLen, ivLen int) (clientMAC, serverMAC, clientKey, serverKey, clientIV, serverIV []byte) {
++func keysFromMasterSecret(version uint16, suite *cipherSuite, masterSecret, clientRandom, serverRandom []byte, macLen, keyLen, ivLen int) (clientMAC, serverMAC, clientKey, serverKey, clientIV, serverIV []byte, err error) {
+ 	seed := make([]byte, 0, len(serverRandom)+len(clientRandom))
+ 	seed = append(seed, serverRandom...)
+ 	seed = append(seed, clientRandom...)
+ 
+ 	n := 2*macLen + 2*keyLen + 2*ivLen
+ 	keyMaterial := make([]byte, n)
+-	prfForVersion(version, suite)(keyMaterial, masterSecret, keyExpansionLabel, seed)
++	if err = prfForVersion(version, suite)(keyMaterial, masterSecret, keyExpansionLabel, seed); err != nil {
++		return
++	}
+ 	clientMAC = keyMaterial[:macLen]
+ 	keyMaterial = keyMaterial[macLen:]
+ 	serverMAC = keyMaterial[:macLen]
+@@ -177,7 +200,7 @@ type finishedHash struct {
+ 	buffer []byte
+ 
+ 	version uint16
+-	prf     func(result, secret, label, seed []byte)
++	prf     func(result, secret, label, seed []byte) error
+ }
+ 
+ func (h *finishedHash) Write(msg []byte) (n int, err error) {
+@@ -208,18 +231,22 @@ func (h finishedHash) Sum() []byte {
+ 
+ // clientSum returns the contents of the verify_data member of a client's
+ // Finished message.
+-func (h finishedHash) clientSum(masterSecret []byte) []byte {
++func (h finishedHash) clientSum(masterSecret []byte) ([]byte, error) {
+ 	out := make([]byte, finishedVerifyLength)
+-	h.prf(out, masterSecret, clientFinishedLabel, h.Sum())
+-	return out
++	if err := h.prf(out, masterSecret, clientFinishedLabel, h.Sum()); err != nil {
++		return nil, err
++	}
++	return out, nil
+ }
+ 
+ // serverSum returns the contents of the verify_data member of a server's
+ // Finished message.
+-func (h finishedHash) serverSum(masterSecret []byte) []byte {
++func (h finishedHash) serverSum(masterSecret []byte) ([]byte, error) {
+ 	out := make([]byte, finishedVerifyLength)
+-	h.prf(out, masterSecret, serverFinishedLabel, h.Sum())
+-	return out
++	if err := h.prf(out, masterSecret, serverFinishedLabel, h.Sum()); err != nil {
++		return nil, err
++	}
++	return out, nil
+ }
+ 
+ // hashForClientCertificate returns the handshake messages so far, pre-hashed if
+@@ -286,7 +313,11 @@ func ekmFromMasterSecret(version uint16, suite *cipherSuite, masterSecret, clien
+ 		}
+ 
+ 		keyMaterial := make([]byte, length)
+-		prfForVersion(version, suite)(keyMaterial, masterSecret, []byte(label), seed)
++		if err := prfForVersion(version, suite)(keyMaterial, masterSecret, []byte(label), seed); err != nil {
++			// Could happen if the seed is too large. The Go implementation doesn't limit the seed size,
++			// as RFC 5705 doesn't specify a limit, but stock OpenSSL restrict it to 1024 and CNG to 256.
++			return nil, err
++		}
+ 		return keyMaterial, nil
+ 	}
+ }
+diff --git a/src/crypto/tls/prf_test.go b/src/crypto/tls/prf_test.go
+index 8233985a62bd22..f46d4636557714 100644
+--- a/src/crypto/tls/prf_test.go
++++ b/src/crypto/tls/prf_test.go
+@@ -51,13 +51,21 @@ func TestKeysFromPreMasterSecret(t *testing.T) {
+ 		clientRandom, _ := hex.DecodeString(test.clientRandom)
+ 		serverRandom, _ := hex.DecodeString(test.serverRandom)
+ 
+-		masterSecret := masterFromPreMasterSecret(test.version, test.suite, in, clientRandom, serverRandom)
++		masterSecret, err := masterFromPreMasterSecret(test.version, test.suite, in, clientRandom, serverRandom)
++		if err != nil {
++			t.Errorf("#%d: masterFromPreMasterSecret failed: %s", i, err)
++			continue
++		}
+ 		if s := hex.EncodeToString(masterSecret); s != test.masterSecret {
+ 			t.Errorf("#%d: bad master secret %s, want %s", i, s, test.masterSecret)
+ 			continue
+ 		}
+ 
+-		clientMAC, serverMAC, clientKey, serverKey, _, _ := keysFromMasterSecret(test.version, test.suite, masterSecret, clientRandom, serverRandom, test.macLen, test.keyLen, 0)
++		clientMAC, serverMAC, clientKey, serverKey, _, _, err := keysFromMasterSecret(test.version, test.suite, masterSecret, clientRandom, serverRandom, test.macLen, test.keyLen, 0)
++		if err != nil {
++			t.Errorf("#%d: keysFromMasterSecret failed: %s", i, err)
++			continue
++		}
+ 		clientMACString := hex.EncodeToString(clientMAC)
+ 		serverMACString := hex.EncodeToString(serverMAC)
+ 		clientKeyString := hex.EncodeToString(clientKey)
 diff --git a/src/go/build/deps_test.go b/src/go/build/deps_test.go
-index ff03691eb90397..1a8530d999b0c9 100644
+index ca0c4089a2e505..4a6d42b18c46bc 100644
 --- a/src/go/build/deps_test.go
 +++ b/src/go/build/deps_test.go
 @@ -428,6 +428,7 @@ var depsRules = `
