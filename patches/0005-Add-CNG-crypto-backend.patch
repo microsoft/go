@@ -12,7 +12,7 @@ Subject: [PATCH] Add CNG crypto backend
  src/crypto/internal/backend/backend_test.go   |   4 +-
  src/crypto/internal/backend/bbig/big.go       |   2 +-
  src/crypto/internal/backend/bbig/big_cng.go   |  12 +
- src/crypto/internal/backend/cng_windows.go    | 249 ++++++++++++++++++
+ src/crypto/internal/backend/cng_windows.go    | 259 ++++++++++++++++++
  src/crypto/internal/backend/common.go         |  33 ++-
  src/crypto/internal/boring/fipstls/stub.s     |   2 +-
  src/crypto/internal/boring/fipstls/tls.go     |   2 +-
@@ -46,7 +46,7 @@ Subject: [PATCH] Add CNG crypto backend
  .../goexperiment/exp_cngcrypto_off.go         |   9 +
  src/internal/goexperiment/exp_cngcrypto_on.go |   9 +
  src/internal/goexperiment/flags.go            |   1 +
- 42 files changed, 439 insertions(+), 40 deletions(-)
+ 42 files changed, 449 insertions(+), 40 deletions(-)
  create mode 100644 src/crypto/internal/backend/bbig/big_cng.go
  create mode 100644 src/crypto/internal/backend/cng_windows.go
  create mode 100644 src/internal/goexperiment/exp_cngcrypto_off.go
@@ -165,10 +165,10 @@ index 00000000000000..92623031fd87d0
 +var Dec = bbig.Dec
 diff --git a/src/crypto/internal/backend/cng_windows.go b/src/crypto/internal/backend/cng_windows.go
 new file mode 100644
-index 00000000000000..3a8dda89014737
+index 00000000000000..b21f212d7d19d2
 --- /dev/null
 +++ b/src/crypto/internal/backend/cng_windows.go
-@@ -0,0 +1,249 @@
+@@ -0,0 +1,259 @@
 +// Copyright 2017 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -210,6 +210,10 @@ index 00000000000000..3a8dda89014737
 +}
 +
 +const RandReader = cng.RandReader
++
++func SupportsHash(h crypto.Hash) bool {
++	return cng.SupportsHash(h)
++}
 +
 +func NewSHA1() hash.Hash {
 +	return cng.NewSHA1()
@@ -273,8 +277,6 @@ index 00000000000000..3a8dda89014737
 +func SHA3_512(p []byte) (sum [64]byte) {
 +	return cng.SHA3_512(p)
 +}
-+
-+func SupportsHash(h crypto.Hash) bool { return cng.SupportsHash(h) }
 +
 +func NewHMAC(h func() hash.Hash, key []byte) hash.Hash {
 +	return cng.NewHMAC(h, key)
@@ -417,6 +419,14 @@ index 00000000000000..3a8dda89014737
 +
 +func ExtractHKDF(h func() hash.Hash, secret, salt []byte) ([]byte, error) {
 +	return cng.ExtractHKDF(h, secret, salt)
++}
++
++func SupportsTLS1PRF() bool {
++	return true
++}
++
++func TLS1PRF(result, secret, label, seed []byte, h func() hash.Hash) error {
++	return cng.TLS1PRF(result, secret, label, seed, h)
 +}
 diff --git a/src/crypto/internal/backend/common.go b/src/crypto/internal/backend/common.go
 index efdd080a1b7708..9d7f7b849d6485 100644
@@ -914,7 +924,7 @@ index 70baa62d63754a..ecd0f5a7b3e9ed 100644
  package tls
  
 diff --git a/src/crypto/tls/boring_test.go b/src/crypto/tls/boring_test.go
-index 929111d8679cc2..3e63ba6a053c42 100644
+index 7b7de66cb7e8c4..86595e588cf604 100644
 --- a/src/crypto/tls/boring_test.go
 +++ b/src/crypto/tls/boring_test.go
 @@ -2,7 +2,7 @@
@@ -1033,31 +1043,31 @@ index a0548a7f9179c5..ae6117a1554b7f 100644
  package x509
  
 diff --git a/src/go.mod b/src/go.mod
-index 3de2b296d0fecb..e441e40d1227b0 100644
+index 5fe135982d20ee..8e312e40abd195 100644
 --- a/src/go.mod
 +++ b/src/go.mod
 @@ -4,6 +4,7 @@ go 1.22
  
  require (
- 	github.com/golang-fips/openssl/v2 v2.0.0-rc.2
-+	github.com/microsoft/go-crypto-winnative v0.0.0-20230822062938-306d53ca6072
+ 	github.com/golang-fips/openssl/v2 v2.0.0-rc.3.0.20230926133027-251d5fd9efa6
++	github.com/microsoft/go-crypto-winnative v0.0.0-20230919193409-4899d534a7ff
  	golang.org/x/crypto v0.12.0
  	golang.org/x/net v0.14.1-0.20230809150940-1e23797619c9
  )
 diff --git a/src/go.sum b/src/go.sum
-index ff87d3883113cd..497d219d18acd9 100644
+index daaf12048cf9f7..0323d2b19d2f8f 100644
 --- a/src/go.sum
 +++ b/src/go.sum
 @@ -1,5 +1,7 @@
- github.com/golang-fips/openssl/v2 v2.0.0-rc.2 h1:0RFGh/pnzSAe5LlriE416hQUYxYNFZD9y/53d0ld7K0=
- github.com/golang-fips/openssl/v2 v2.0.0-rc.2/go.mod h1:7tuBqX2Zov8Yq5mJ2yzlKhpnxOnWyEzi38AzeWRuQdg=
-+github.com/microsoft/go-crypto-winnative v0.0.0-20230822062938-306d53ca6072 h1:FyW57WKhBHQm/ebpbvQ7+eMiKBRQuLEA6iq228Py1fI=
-+github.com/microsoft/go-crypto-winnative v0.0.0-20230822062938-306d53ca6072/go.mod h1:fveERXKbeK+XLmOyU24caKnIT/S5nniAX9XCRHfnrM4=
+ github.com/golang-fips/openssl/v2 v2.0.0-rc.3.0.20230926133027-251d5fd9efa6 h1:htngJbDceHA29WbezaO55msU/iITDkdto1p1iHHmjC0=
+ github.com/golang-fips/openssl/v2 v2.0.0-rc.3.0.20230926133027-251d5fd9efa6/go.mod h1:7tuBqX2Zov8Yq5mJ2yzlKhpnxOnWyEzi38AzeWRuQdg=
++github.com/microsoft/go-crypto-winnative v0.0.0-20230919193409-4899d534a7ff h1:m0Cr4tuDOCmNoHtQV7RRTTH54d5Q9yV2g0AC2SO/7uI=
++github.com/microsoft/go-crypto-winnative v0.0.0-20230919193409-4899d534a7ff/go.mod h1:fveERXKbeK+XLmOyU24caKnIT/S5nniAX9XCRHfnrM4=
  golang.org/x/crypto v0.12.0 h1:tFM/ta59kqch6LlvYnPa0yx5a83cL2nHflFhYKvv9Yk=
  golang.org/x/crypto v0.12.0/go.mod h1:NF0Gs7EO5K4qLn+Ylc+fih8BSTeIjAP05siRnAh98yw=
  golang.org/x/net v0.14.1-0.20230809150940-1e23797619c9 h1:eQR0jFW5dN2q8lFzSF7rjkRCOOnBf0llczNvITm6ICs=
 diff --git a/src/go/build/deps_test.go b/src/go/build/deps_test.go
-index 0a6be3cc0231fc..d9cf7f503b107b 100644
+index 07bc42530a2cca..416f0c1b83c720 100644
 --- a/src/go/build/deps_test.go
 +++ b/src/go/build/deps_test.go
 @@ -427,6 +427,10 @@ var depsRules = `
@@ -1145,7 +1155,7 @@ index 00000000000000..99ee2542ca38a9
 +const CNGCrypto = true
 +const CNGCryptoInt = 1
 diff --git a/src/internal/goexperiment/flags.go b/src/internal/goexperiment/flags.go
-index 416b5002944529..9bb027e3c70fe7 100644
+index 47391d37269b9e..88df36e379eece 100644
 --- a/src/internal/goexperiment/flags.go
 +++ b/src/internal/goexperiment/flags.go
 @@ -60,6 +60,7 @@ type Flags struct {
