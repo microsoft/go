@@ -50,6 +50,15 @@ func main() {
 		&o.Refresh, "refresh", false,
 		"Refresh Go submodule: clean untracked files, reset tracked files, and apply patches before building.\n"+
 			"For more refresh options, use the top level 'submodule-refresh' command instead of 'build'.")
+	flag.BoolVar(
+		&o.SkipMSMod, "skipmsmod", false,
+		"Skip creating the _ms_mod directory with the x/crypto fork to be used by the XCryptoSwap experiment.\n"+
+			"Note: tests will fail. The patched standard library test suite will notice if the the backend isn't used for x/crypto.\n"+
+			"A alternate way to fix tests without _ms_mod generation is to set MS_MODROOT to a manually created fork.")
+	flag.BoolVar(
+		&o.CleanMSMod, "cleanmsmod", false,
+		"Remove _ms_mod directory when the build is complete.\n"+
+			"This may be useful during development to run tests without polluting the Go submodule's working tree.")
 
 	flag.StringVar(&o.Experiment, "experiment", "", "Include this string in GOEXPERIMENT.")
 
@@ -84,6 +93,8 @@ type options struct {
 	PackBuild  bool
 	PackSource bool
 	Refresh    bool
+	SkipMSMod  bool
+	CleanMSMod bool
 	Experiment string
 
 	MaxMakeAttempts int
@@ -118,6 +129,21 @@ func build(o *options) error {
 		if err := patch.Apply(rootDir, patch.ApplyModeIndex); err != nil {
 			return err
 		}
+	}
+
+	if !o.SkipMSMod {
+		fmt.Println("---- Generating _ms_mod...")
+		if err := submodule.GenerateMSMod(rootDir); err != nil {
+			return fmt.Errorf("failed to generate _ms_mod: %v", err)
+		}
+	}
+	if o.CleanMSMod {
+		defer func() {
+			fmt.Println("---- Cleanup: removing _ms_mod directory...")
+			if err := submodule.RemoveMSMod(rootDir); err != nil {
+				fmt.Printf("---- Error removing _ms_mod directory: %v\n", err)
+			}
+		}()
 	}
 
 	// Get the target platform information. If the environment variable is different from the

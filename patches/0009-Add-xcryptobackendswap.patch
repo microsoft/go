@@ -6,7 +6,8 @@ Subject: [PATCH] Add xcryptobackendswap
 Use '-modfile' for x/crypto replacement when the xcryptobackendswap
 experiment is enabled.
 
-Points at an x/crypto copy in the GOROOT directory.
+Points at an x/crypto copy in the GOROOT directory or an override
+provided by the MS_MODROOT environment variable.
 
 Includes tests for x/crypto backend swap, using the standard library cmd/go
 test framework to run tests on the swapping functionality.
@@ -15,22 +16,23 @@ These can be run without running the other tests using:
 
   go test cmd/go -testwork -run=Script/^modswap_.*$
 ---
- ms_mod/README.md                              |   5 +
+ _ms_mod/README.md                             |   7 +
  src/cmd/go/internal/modload/import.go         |   6 +-
  src/cmd/go/internal/modload/init.go           |  10 ++
  src/cmd/go/internal/modload/vendor.go         |  16 ++
- src/cmd/go/internal/modload/xcryptoswap.go    | 152 ++++++++++++++++++
- src/cmd/go/testdata/script/modswap_basics.txt |  65 ++++++++
+ src/cmd/go/internal/modload/xcryptoswap.go    | 165 ++++++++++++++++++
+ src/cmd/go/testdata/script/modswap_basics.txt |  65 +++++++
  .../script/modswap_compatible_vendoring.txt   |  40 +++++
- .../go/testdata/script/modswap_nocrypto.txt   |  28 ++++
+ .../go/testdata/script/modswap_nocrypto.txt   |  28 +++
  .../testdata/script/modswap_reject_work.txt   |  22 +++
  .../testdata/script/modswap_test_openssl.txt  |  43 +++++
  .../testdata/script/modswap_uses_openssl.txt  |  60 +++++++
- .../exp_xcryptobackendswap_off.go             |   9 ++
- .../goexperiment/exp_xcryptobackendswap_on.go |   9 ++
+ src/internal/cfg/cfg.go                       |   1 +
+ .../exp_xcryptobackendswap_off.go             |   9 +
+ .../goexperiment/exp_xcryptobackendswap_on.go |   9 +
  src/internal/goexperiment/flags.go            |   6 +
- 14 files changed, 470 insertions(+), 1 deletion(-)
- create mode 100644 ms_mod/README.md
+ 15 files changed, 486 insertions(+), 1 deletion(-)
+ create mode 100644 _ms_mod/README.md
  create mode 100644 src/cmd/go/internal/modload/xcryptoswap.go
  create mode 100644 src/cmd/go/testdata/script/modswap_basics.txt
  create mode 100644 src/cmd/go/testdata/script/modswap_compatible_vendoring.txt
@@ -41,17 +43,19 @@ These can be run without running the other tests using:
  create mode 100644 src/internal/goexperiment/exp_xcryptobackendswap_off.go
  create mode 100644 src/internal/goexperiment/exp_xcryptobackendswap_on.go
 
-diff --git a/ms_mod/README.md b/ms_mod/README.md
+diff --git a/_ms_mod/README.md b/_ms_mod/README.md
 new file mode 100644
-index 00000000000000..cc658f4a25528d
+index 00000000000000..3db282dd1701e7
 --- /dev/null
-+++ b/ms_mod/README.md
-@@ -0,0 +1,5 @@
-+# ms_mod: Microsoft modules shipped with the Go toolset
++++ b/_ms_mod/README.md
+@@ -0,0 +1,7 @@
++# _ms_mod: Microsoft modules shipped with the Go toolset
 +
 +This dir contains modules that are shipped with the Microsoft Go toolset.
 +It is essentially a vendor directory that takes priority over a project's local vendor directory.
 +Patches to the toolset enable this behavior if `GOEXPERIMENT` includes `xcryptobackendswap`.
++
++It begins with `_` to avoid being scanned by the `cmd/internal/moddeps` `TestAllDependencies` test.
 diff --git a/src/cmd/go/internal/modload/import.go b/src/cmd/go/internal/modload/import.go
 index cc6a482fd450d0..16f056c042481c 100644
 --- a/src/cmd/go/internal/modload/import.go
@@ -126,10 +130,10 @@ index b2cb44100ec4d2..23bee33d44d1ba 100644
  
 diff --git a/src/cmd/go/internal/modload/xcryptoswap.go b/src/cmd/go/internal/modload/xcryptoswap.go
 new file mode 100644
-index 00000000000000..be7b46ded2be0a
+index 00000000000000..5b367cd14385f1
 --- /dev/null
 +++ b/src/cmd/go/internal/modload/xcryptoswap.go
-@@ -0,0 +1,152 @@
+@@ -0,0 +1,165 @@
 +// Copyright 2023 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -217,11 +221,19 @@ index 00000000000000..be7b46ded2be0a
 +	if !modFileUsesXCrypto(modFile) && cfg.BuildMod != "mod" {
 +		return nil
 +	}
++	// Make sure the replacement actually exists. Perhaps the module was packed
++	// wrong, or MS_MODROOT is set incorrectly.
++	newModPath := xCryptoNewModPath()
++	if fi, err := os.Stat(newModPath); err != nil {
++		return fmt.Errorf("unable to get FileInfo for replacement path: %v", err)
++	} else if !fi.IsDir() {
++		return fmt.Errorf("replacement %#q is not a directory", newModPath)
++	}
 +	// Add (or update!) a replace directive.
 +	modFile.AddReplace(
 +		"golang.org/x/crypto",
 +		"",
-+		xCryptoNewModPath(),
++		newModPath,
 +		"",
 +	)
 +	modFile.Cleanup()
@@ -257,11 +269,16 @@ index 00000000000000..be7b46ded2be0a
 +	return false
 +}
 +
-+// toolsetOverrideModuleDir returns the path to a directory in GOROOT where copies of modules are
-+// kept that may be used when building a program with that particular toolset. It is similar to a
-+// vendor directory, but only contains the modules, no modules.txt.
++// toolsetOverrideModuleDir returns the path to a directory in GOROOT where
++// copies of modules are kept that may be used when building a program with that
++// particular toolset. It is similar to a vendor directory, but only contains
++// the modules, no modules.txt. For development purposes, the MS_MODROOT
++// environment variable can redirect to a specified directory.
 +func toolsetOverrideModuleDir() string {
-+	return filepath.Join(cfg.BuildContext.GOROOT, "ms_mod")
++	if msModRoot := cfg.Getenv("MS_MODROOT"); msModRoot != "" {
++		return msModRoot
++	}
++	return filepath.Join(cfg.BuildContext.GOROOT, "_ms_mod")
 +}
 +
 +// xCryptoNewModPath returns the module path that x/crypto should be replaced with.
@@ -284,7 +301,7 @@ index 00000000000000..be7b46ded2be0a
 +}
 diff --git a/src/cmd/go/testdata/script/modswap_basics.txt b/src/cmd/go/testdata/script/modswap_basics.txt
 new file mode 100644
-index 00000000000000..0f28da05789d1c
+index 00000000000000..c1a938be44dc45
 --- /dev/null
 +++ b/src/cmd/go/testdata/script/modswap_basics.txt
 @@ -0,0 +1,65 @@
@@ -303,11 +320,11 @@ index 00000000000000..0f28da05789d1c
 +
 +# When vendoring isn't involved, the replacement path is used.
 +go list -mod= -deps -f '{{.Dir}}'
-+stdout $GOROOT/ms_mod/golang.org/x/crypto
++stdout $GOROOT/_ms_mod/golang.org/x/crypto
 +go list -mod=mod -deps -f '{{.Dir}}'
-+stdout $GOROOT/ms_mod/golang.org/x/crypto
++stdout $GOROOT/_ms_mod/golang.org/x/crypto
 +go list -mod=readonly -deps -f '{{.Dir}}'
-+stdout $GOROOT/ms_mod/golang.org/x/crypto
++stdout $GOROOT/_ms_mod/golang.org/x/crypto
 +
 +# Make sure the build works other than vendor mode.
 +go build -mod= .
@@ -326,13 +343,13 @@ index 00000000000000..0f28da05789d1c
 +# Now that vendoring is involved, still use the replacement path.
 +env GOEXPERIMENT=systemcrypto,xcryptobackendswap
 +go list -mod= -deps -f '{{.Dir}}'
-+stdout $GOROOT/ms_mod/golang.org/x/crypto
++stdout $GOROOT/_ms_mod/golang.org/x/crypto
 +go list -mod=mod -deps -f '{{.Dir}}'
-+stdout $GOROOT/ms_mod/golang.org/x/crypto
++stdout $GOROOT/_ms_mod/golang.org/x/crypto
 +go list -mod=readonly -deps -f '{{.Dir}}'
-+stdout $GOROOT/ms_mod/golang.org/x/crypto
++stdout $GOROOT/_ms_mod/golang.org/x/crypto
 +go list -mod=vendor -deps -f '{{.Dir}}'
-+stdout $GOROOT/ms_mod/golang.org/x/crypto
++stdout $GOROOT/_ms_mod/golang.org/x/crypto
 +
 +# Make sure the build works and is always the same.
 +go build -mod= -o no_mod.out .
@@ -576,6 +593,16 @@ index 00000000000000..03cbd2ca4a81ac
 +		t.Errorf("want %q, got %q", wantTypeName, typeName)
 +	}
 +}
+diff --git a/src/internal/cfg/cfg.go b/src/internal/cfg/cfg.go
+index 2af0ec70786894..585cc01a9137e3 100644
+--- a/src/internal/cfg/cfg.go
++++ b/src/internal/cfg/cfg.go
+@@ -67,4 +67,5 @@ const KnownEnv = `
+ 	GOWORK
+ 	GO_EXTLINK_ENABLED
+ 	PKG_CONFIG
++	MS_MODROOT
+ `
 diff --git a/src/internal/goexperiment/exp_xcryptobackendswap_off.go b/src/internal/goexperiment/exp_xcryptobackendswap_off.go
 new file mode 100644
 index 00000000000000..8fceaa28b7e6f0
