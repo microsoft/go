@@ -54,7 +54,7 @@ func main() {
 		&o.SkipMSMod, "skipmsmod", false,
 		"Skip creating the _ms_mod directory with the x/crypto fork to be used by the XCryptoSwap experiment.\n"+
 			"Note: tests will fail. The patched standard library test suite will notice if the the backend isn't used for x/crypto.\n"+
-			"A alternate way to fix tests without _ms_mod generation is to set MS_MODROOT to a manually created fork.")
+			"A alternate way to fix tests without _ms_mod generation is to set GOMSMODROOT to a manually created fork.")
 	flag.BoolVar(
 		&o.CleanMSMod, "cleanmsmod", false,
 		"Remove _ms_mod directory when the build is complete.\n"+
