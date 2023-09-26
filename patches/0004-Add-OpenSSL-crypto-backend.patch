@@ -14,7 +14,7 @@ Subject: [PATCH] Add OpenSSL crypto backend
  src/crypto/ecdsa/notboring.go                 |   2 +-
  src/crypto/internal/backend/bbig/big.go       |   2 +-
  .../internal/backend/bbig/big_openssl.go      |  12 +
- src/crypto/internal/backend/openssl_linux.go  | 261 ++++++++++++++++++
+ src/crypto/internal/backend/openssl_linux.go  | 277 ++++++++++++++++++
  src/crypto/internal/boring/fipstls/stub.s     |   2 +-
  src/crypto/internal/boring/fipstls/tls.go     |   2 +-
  src/crypto/rsa/boring.go                      |   2 +-
@@ -37,7 +37,7 @@ Subject: [PATCH] Add OpenSSL crypto backend
  .../goexperiment/exp_opensslcrypto_on.go      |   9 +
  src/internal/goexperiment/flags.go            |   1 +
  src/os/exec/exec_test.go                      |   9 +
- 33 files changed, 343 insertions(+), 23 deletions(-)
+ 33 files changed, 359 insertions(+), 23 deletions(-)
  create mode 100644 src/crypto/internal/backend/bbig/big_openssl.go
  create mode 100644 src/crypto/internal/backend/openssl_linux.go
  create mode 100644 src/internal/goexperiment/exp_opensslcrypto_off.go
@@ -190,10 +190,10 @@ index 00000000000000..e6695dd66b1d02
 +var Dec = bbig.Dec
 diff --git a/src/crypto/internal/backend/openssl_linux.go b/src/crypto/internal/backend/openssl_linux.go
 new file mode 100644
-index 00000000000000..1da89e6645069f
+index 00000000000000..bc10293bb719ff
 --- /dev/null
 +++ b/src/crypto/internal/backend/openssl_linux.go
-@@ -0,0 +1,261 @@
+@@ -0,0 +1,277 @@
 +// Copyright 2017 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -455,6 +455,22 @@ index 00000000000000..1da89e6645069f
 +func TLS1PRF(result, secret, label, seed []byte, h func() hash.Hash) error {
 +	return openssl.TLS1PRF(result, secret, label, seed, h)
 +}
++
++func SupportsDESCipher() bool {
++	return openssl.SupportsDESCipher()
++}
++
++func SupportsTripleDESCipher() bool {
++	return openssl.SupportsTripleDESCipher()
++}
++
++func NewDESCipher(key []byte) (cipher.Block, error) {
++	return openssl.NewDESCipher(key)
++}
++
++func NewTripleDESCipher(key []byte) (cipher.Block, error) {
++	return openssl.NewTripleDESCipher(key)
++}
 diff --git a/src/crypto/internal/boring/fipstls/stub.s b/src/crypto/internal/boring/fipstls/stub.s
 index f2e5a503eaacb6..1dc7116efdff2e 100644
 --- a/src/crypto/internal/boring/fipstls/stub.s
@@ -548,7 +564,7 @@ index 1827f764589b58..70baa62d63754a 100644
  package tls
  
 diff --git a/src/crypto/tls/boring_test.go b/src/crypto/tls/boring_test.go
-index ba68f355eb037c..929111d8679cc2 100644
+index 085ff5713ec52f..7b7de66cb7e8c4 100644
 --- a/src/crypto/tls/boring_test.go
 +++ b/src/crypto/tls/boring_test.go
 @@ -2,7 +2,7 @@
@@ -651,7 +667,7 @@ index c83a7272c9f01f..a0548a7f9179c5 100644
  package x509
  
 diff --git a/src/go.mod b/src/go.mod
-index beb4d13d8bdc6f..8bc13536fc98c0 100644
+index 021d00b3f6f519..5fe135982d20ee 100644
 --- a/src/go.mod
 +++ b/src/go.mod
 @@ -3,6 +3,7 @@ module std
@@ -663,7 +679,7 @@ index beb4d13d8bdc6f..8bc13536fc98c0 100644
  	golang.org/x/net v0.14.1-0.20230809150940-1e23797619c9
  )
 diff --git a/src/go.sum b/src/go.sum
-index 81b83159f77a36..fca63cfe4a8d1d 100644
+index cae131c06ee904..daaf12048cf9f7 100644
 --- a/src/go.sum
 +++ b/src/go.sum
 @@ -1,3 +1,5 @@
@@ -673,7 +689,7 @@ index 81b83159f77a36..fca63cfe4a8d1d 100644
  golang.org/x/crypto v0.12.0/go.mod h1:NF0Gs7EO5K4qLn+Ylc+fih8BSTeIjAP05siRnAh98yw=
  golang.org/x/net v0.14.1-0.20230809150940-1e23797619c9 h1:eQR0jFW5dN2q8lFzSF7rjkRCOOnBf0llczNvITm6ICs=
 diff --git a/src/go/build/deps_test.go b/src/go/build/deps_test.go
-index 4a6d42b18c46bc..0a6be3cc0231fc 100644
+index 0fc11c2fb3ae7b..07bc42530a2cca 100644
 --- a/src/go/build/deps_test.go
 +++ b/src/go/build/deps_test.go
 @@ -427,6 +427,8 @@ var depsRules = `
@@ -742,7 +758,7 @@ index 00000000000000..a7f2712e9e1464
 +const OpenSSLCrypto = true
 +const OpenSSLCryptoInt = 1
 diff --git a/src/internal/goexperiment/flags.go b/src/internal/goexperiment/flags.go
-index 5d0f5b678b4f9d..416b5002944529 100644
+index 50a1e8ed557a4b..47391d37269b9e 100644
 --- a/src/internal/goexperiment/flags.go
 +++ b/src/internal/goexperiment/flags.go
 @@ -59,6 +59,7 @@ type Flags struct {
