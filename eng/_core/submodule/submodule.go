@@ -139,6 +139,17 @@ func GenerateMSMod(rootDir string) error {
 			return fmt.Errorf("failed to write proxy based on %q: %v", b.Filename, err)
 		}
 	}
+	// Also generate a placeholder based on nobackend for the x/crypto fork
+	// itself. This is intended to be used during dev so x/crypto will build,
+	// but avoid making it specific to the proxies generated for our fork.
+	backendAPI.Constraint = ""
+	placeholderDir := filepath.Join(rootDir, "eng", "artifacts", "xcrypto-backend-placeholder")
+	if err := os.MkdirAll(placeholderDir, 0o777); err != nil {
+		return err
+	}
+	if err := writeBackend(backendAPI, filepath.Join(placeholderDir, "placeholder.go")); err != nil {
+		return fmt.Errorf("failed to write placeholder backend based on %q: %v", backendAPI.Filename, err)
+	}
 	return nil
 }
 
