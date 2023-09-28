@@ -15,13 +15,14 @@ Subject: [PATCH] Add crypto backend foundation
  src/crypto/ed25519/ed25519_test.go           |   2 +-
  src/crypto/hmac/hmac.go                      |   2 +-
  src/crypto/hmac/hmac_test.go                 |   2 +-
- src/crypto/internal/backend/backend_test.go  |  30 +++++
+ src/crypto/internal/backend/backend_test.go  |  30 ++++
  src/crypto/internal/backend/bbig/big.go      |  17 +++
  src/crypto/internal/backend/common.go        |  78 +++++++++++
  src/crypto/internal/backend/isrequirefips.go |   9 ++
- src/crypto/internal/backend/nobackend.go     | 135 +++++++++++++++++++
+ src/crypto/internal/backend/nobackend.go     | 137 +++++++++++++++++++
  src/crypto/internal/backend/norequirefips.go |   9 ++
  src/crypto/internal/backend/stub.s           |  10 ++
+ src/crypto/md5/md5.go                        |   7 +
  src/crypto/rand/rand_unix.go                 |   2 +-
  src/crypto/rsa/boring.go                     |   4 +-
  src/crypto/rsa/notboring.go                  |   2 +-
@@ -43,7 +44,7 @@ Subject: [PATCH] Add crypto backend foundation
  src/crypto/tls/prf_test.go                   |  12 +-
  src/go/build/deps_test.go                    |   2 +
  src/runtime/runtime_boring.go                |   5 +
- 39 files changed, 445 insertions(+), 65 deletions(-)
+ 40 files changed, 454 insertions(+), 65 deletions(-)
  create mode 100644 src/crypto/internal/backend/backend_test.go
  create mode 100644 src/crypto/internal/backend/bbig/big.go
  create mode 100644 src/crypto/internal/backend/common.go
@@ -92,7 +93,7 @@ index 097c37e343fdb8..1cf43edba40359 100644
  // Enabled reports whether BoringCrypto handles supported crypto operations.
  func Enabled() bool {
 diff --git a/src/crypto/ecdh/ecdh.go b/src/crypto/ecdh/ecdh.go
-index b86f5217878251..a48043a044f309 100644
+index b21b5697d0e37f..5e373cd27b350f 100644
 --- a/src/crypto/ecdh/ecdh.go
 +++ b/src/crypto/ecdh/ecdh.go
 @@ -8,7 +8,7 @@ package ecdh
@@ -360,10 +361,10 @@ index 00000000000000..e5d7570d6d4363
 +const isRequireFIPS = true
 diff --git a/src/crypto/internal/backend/nobackend.go b/src/crypto/internal/backend/nobackend.go
 new file mode 100644
-index 00000000000000..e3e9817a7c5c40
+index 00000000000000..8720e85ba2bebf
 --- /dev/null
 +++ b/src/crypto/internal/backend/nobackend.go
-@@ -0,0 +1,135 @@
+@@ -0,0 +1,137 @@
 +// Copyright 2017 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -393,12 +394,14 @@ index 00000000000000..e3e9817a7c5c40
 +
 +func SupportsHash(h crypto.Hash) bool { panic("cryptobackend: not available") }
 +
++func NewMD5() hash.Hash    { panic("cryptobackend: not available") }
 +func NewSHA1() hash.Hash   { panic("cryptobackend: not available") }
 +func NewSHA224() hash.Hash { panic("cryptobackend: not available") }
 +func NewSHA256() hash.Hash { panic("cryptobackend: not available") }
 +func NewSHA384() hash.Hash { panic("cryptobackend: not available") }
 +func NewSHA512() hash.Hash { panic("cryptobackend: not available") }
 +
++func MD5(p []byte) (sum [16]byte)    { panic("cryptobackend: not available") }
 +func SHA1(p []byte) (sum [20]byte)   { panic("cryptobackend: not available") }
 +func SHA224(p []byte) (sum [28]byte) { panic("cryptobackend: not available") }
 +func SHA256(p []byte) (sum [32]byte) { panic("cryptobackend: not available") }
@@ -530,6 +533,38 @@ index 00000000000000..5e4b436554d44d
 +// Having this assembly file keeps the go command
 +// from complaining about the missing body
 +// (because the implementation might be here).
+diff --git a/src/crypto/md5/md5.go b/src/crypto/md5/md5.go
+index ccee4ea3a9914f..206249f5bf261e 100644
+--- a/src/crypto/md5/md5.go
++++ b/src/crypto/md5/md5.go
+@@ -12,6 +12,7 @@ package md5
+ 
+ import (
+ 	"crypto"
++	boring "crypto/internal/backend"
+ 	"encoding/binary"
+ 	"errors"
+ 	"hash"
+@@ -99,6 +100,9 @@ func consumeUint32(b []byte) ([]byte, uint32) {
+ // implements encoding.BinaryMarshaler and encoding.BinaryUnmarshaler to
+ // marshal and unmarshal the internal state of the hash.
+ func New() hash.Hash {
++	if boring.Enabled && boring.SupportsHash(crypto.MD5) {
++		return boring.NewMD5()
++	}
+ 	d := new(digest)
+ 	d.Reset()
+ 	return d
+@@ -176,6 +180,9 @@ func (d *digest) checkSum() [Size]byte {
+ 
+ // Sum returns the MD5 checksum of the data.
+ func Sum(data []byte) [Size]byte {
++	if boring.Enabled && boring.SupportsHash(crypto.MD5) {
++		return boring.MD5(data)
++	}
+ 	var d digest
+ 	d.Reset()
+ 	d.Write(data)
 diff --git a/src/crypto/rand/rand_unix.go b/src/crypto/rand/rand_unix.go
 index 40fce36314adfa..1d6231ae91d5ae 100644
 --- a/src/crypto/rand/rand_unix.go
@@ -1088,7 +1123,7 @@ index 8233985a62bd22..f46d4636557714 100644
  		serverMACString := hex.EncodeToString(serverMAC)
  		clientKeyString := hex.EncodeToString(clientKey)
 diff --git a/src/go/build/deps_test.go b/src/go/build/deps_test.go
-index ca0c4089a2e505..4a6d42b18c46bc 100644
+index 187dff74cfcb54..0fc11c2fb3ae7b 100644
 --- a/src/go/build/deps_test.go
 +++ b/src/go/build/deps_test.go
 @@ -428,6 +428,7 @@ var depsRules = `
