@@ -1,0 +1,652 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Davis Goodin <dagood@microsoft.com>
+Date: Tue, 22 Aug 2023 17:16:04 -0500
+Subject: [PATCH] Add xcryptobackendswap
+
+Use '-modfile' for x/crypto replacement when the xcryptobackendswap
+experiment is enabled.
+
+Points at an x/crypto copy in the GOROOT directory or an override
+provided by the MS_MODROOT environment variable.
+
+Includes tests for x/crypto backend swap, using the standard library cmd/go
+test framework to run tests on the swapping functionality.
+
+These can be run without running the other tests using:
+
+  go test cmd/go -testwork -run=Script/^modswap_.*$
+---
+ _ms_mod/README.md                             |   7 +
+ src/cmd/go/internal/modload/import.go         |   6 +-
+ src/cmd/go/internal/modload/init.go           |  10 ++
+ src/cmd/go/internal/modload/vendor.go         |  16 ++
+ src/cmd/go/internal/modload/xcryptoswap.go    | 165 ++++++++++++++++++
+ src/cmd/go/testdata/script/modswap_basics.txt |  65 +++++++
+ .../script/modswap_compatible_vendoring.txt   |  40 +++++
+ .../go/testdata/script/modswap_nocrypto.txt   |  28 +++
+ .../testdata/script/modswap_reject_work.txt   |  22 +++
+ .../testdata/script/modswap_test_openssl.txt  |  43 +++++
+ .../testdata/script/modswap_uses_openssl.txt  |  60 +++++++
+ src/internal/cfg/cfg.go                       |   1 +
+ .../exp_xcryptobackendswap_off.go             |   9 +
+ .../goexperiment/exp_xcryptobackendswap_on.go |   9 +
+ src/internal/goexperiment/flags.go            |   6 +
+ 15 files changed, 486 insertions(+), 1 deletion(-)
+ create mode 100644 _ms_mod/README.md
+ create mode 100644 src/cmd/go/internal/modload/xcryptoswap.go
+ create mode 100644 src/cmd/go/testdata/script/modswap_basics.txt
+ create mode 100644 src/cmd/go/testdata/script/modswap_compatible_vendoring.txt
+ create mode 100644 src/cmd/go/testdata/script/modswap_nocrypto.txt
+ create mode 100644 src/cmd/go/testdata/script/modswap_reject_work.txt
+ create mode 100644 src/cmd/go/testdata/script/modswap_test_openssl.txt
+ create mode 100644 src/cmd/go/testdata/script/modswap_uses_openssl.txt
+ create mode 100644 src/internal/goexperiment/exp_xcryptobackendswap_off.go
+ create mode 100644 src/internal/goexperiment/exp_xcryptobackendswap_on.go
+
+diff --git a/_ms_mod/README.md b/_ms_mod/README.md
+new file mode 100644
+index 00000000000000..3db282dd1701e7
+--- /dev/null
++++ b/_ms_mod/README.md
+@@ -0,0 +1,7 @@
++# _ms_mod: Microsoft modules shipped with the Go toolset
++
++This dir contains modules that are shipped with the Microsoft Go toolset.
++It is essentially a vendor directory that takes priority over a project's local vendor directory.
++Patches to the toolset enable this behavior if `GOEXPERIMENT` includes `xcryptobackendswap`.
++
++It begins with `_` to avoid being scanned by the `cmd/internal/moddeps` `TestAllDependencies` test.
+diff --git a/src/cmd/go/internal/modload/import.go b/src/cmd/go/internal/modload/import.go
+index cc6a482fd450d0..16f056c042481c 100644
+--- a/src/cmd/go/internal/modload/import.go
++++ b/src/cmd/go/internal/modload/import.go
+@@ -336,7 +336,11 @@ func importFromModules(ctx context.Context, path string, rs *Requirements, mg *M
+ 			}
+ 		}
+ 
+-		if HasModRoot() {
++		if dir, vendorDir, ok := toolsetOverridePackage(path); ok {
++			mods = append(mods, vendorPkgModule[path])
++			dirs = append(dirs, dir)
++			roots = append(roots, vendorDir)
++		} else if HasModRoot() {
+ 			vendorDir := VendorDir()
+ 			dir, vendorOK, _ := dirInModule(path, "", vendorDir, false)
+ 			if vendorOK {
+diff --git a/src/cmd/go/internal/modload/init.go b/src/cmd/go/internal/modload/init.go
+index e1575de2e0e72b..e2424182cef766 100644
+--- a/src/cmd/go/internal/modload/init.go
++++ b/src/cmd/go/internal/modload/init.go
+@@ -481,6 +481,11 @@ func Init() {
+ 	// We're in module mode. Set any global variables that need to be set.
+ 	cfg.ModulesEnabled = true
+ 	setDefaultBuildMod()
++
++	if err := initXCryptoSwap(); err != nil {
++		base.Fatalf("go: failed to initialize x/crypto replacement: %v", err)
++	}
++
+ 	list := filepath.SplitList(cfg.BuildContext.GOPATH)
+ 	if len(list) > 0 && list[0] != "" {
+ 		gopath = list[0]
+@@ -827,6 +832,11 @@ func loadModFile(ctx context.Context, opts *PackageOpts) (*Requirements, error)
+ 		// For example, 'go get' does this, since it is expected to resolve paths.
+ 		//
+ 		// See golang.org/issue/32027.
++	} else if xCryptoSwap {
++		// We duplicated the go.mod file, but keep using the existing go.sum.
++		// The old sum file will contain an unused x/crypto entry, but this is
++		// fine. We still need it for other modules.
++		modfetch.GoSumFile = strings.TrimSuffix(preXCryptoSwapModFile, ".mod") + ".sum"
+ 	} else {
+ 		modfetch.GoSumFile = strings.TrimSuffix(modFilePath(modRoots[0]), ".mod") + ".sum"
+ 	}
+diff --git a/src/cmd/go/internal/modload/vendor.go b/src/cmd/go/internal/modload/vendor.go
+index b2cb44100ec4d2..23bee33d44d1ba 100644
+--- a/src/cmd/go/internal/modload/vendor.go
++++ b/src/cmd/go/internal/modload/vendor.go
+@@ -134,6 +134,22 @@ func readVendorList(vendorDir string) {
+ 				}
+ 			}
+ 		}
++		// Fix "inconsistent vendoring" errors in -mod= and -mod=vendor modes:
++		//
++		//   golang.org/x/crypto: is replaced in /tmp/xcrypto-replacement-go-89165251.mod, but not marked as replaced in vendor/modules.txt
++		//
++		// We need to fix this without modifying vendor/modules.txt, so create a
++		// fake replacement here. Doing this in the read func means the rest of
++		// the code should behave as if this is correct, and we don't need to
++		// modify e.g. checkVendorConsistency.
++		if xCryptoSwap {
++			mod.Path = "golang.org/x/crypto"
++			mod.Version = ""
++			meta := vendorMeta[mod]
++			meta.Replacement = module.Version{Path: xCryptoNewModPath()}
++			vendorReplaced = append(vendorReplaced, mod)
++			vendorMeta[mod] = meta
++		}
+ 	})
+ }
+ 
+diff --git a/src/cmd/go/internal/modload/xcryptoswap.go b/src/cmd/go/internal/modload/xcryptoswap.go
+new file mode 100644
+index 00000000000000..8262bd64e7c6c5
+--- /dev/null
++++ b/src/cmd/go/internal/modload/xcryptoswap.go
+@@ -0,0 +1,165 @@
++// Copyright 2023 The Go Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style
++// license that can be found in the LICENSE file.
++
++package modload
++
++import (
++	"cmd/go/internal/base"
++	"cmd/go/internal/cfg"
++	"cmd/go/internal/lockedfile"
++	"fmt"
++	"io"
++	"os"
++	"path/filepath"
++	"strings"
++
++	"golang.org/x/mod/modfile"
++)
++
++var (
++	// True if x/crypto is being swapped out with a module replacement.
++	xCryptoSwap bool
++	// The path to the original go.mod file before x/crypto was swapped out.
++	// Empty string if no replacement happened.
++	preXCryptoSwapModFile string
++)
++
++// initXCryptoSwap determines whether x/crypto should be swapped out and if so, performs the swap by
++// creating a temp go.mod with a new replace directive and passing it to cfg.ModFile.
++func initXCryptoSwap() error {
++	// Use build constraint evaluation to find if swapping is enabled in this build context.
++	// This runs the build tag through the same system that is used to evaluate build tags in source
++	// code, so we know it will match up with the build tags the dev intends to use.
++	//
++	// This looks weird: there is no "easy" API to check a build tag. We follow an approach also
++	// used in go/build/build_test.go TestMatchFile: copy the build context to avoid modifying the
++	// original and assign OpenFile to a new func that defines the content of a source file without
++	// actually needing to write anything to disk.
++	backendCheckContext := cfg.BuildContext
++	backendCheckContext.OpenFile = func(path string) (io.ReadCloser, error) {
++		source := "//go:build goexperiment.xcryptobackendswap"
++		return io.NopCloser(strings.NewReader(source)), nil
++	}
++	match, err := backendCheckContext.MatchFile("", "backendcheck.go")
++	if err != nil {
++		return fmt.Errorf("error checking for crypto backend: %v", err)
++	}
++	if !match {
++		return nil
++	}
++
++	switch cfg.CmdName {
++	// Look for commands where we must not include the replace directive.
++	//
++	// As of writing, this follows the approach of setDefaultBuildMod and checks for specific
++	// command names. When the TODO in setDefaultBuildMod is addressed to handle this more
++	// elegantly (https://github.com/golang/go/issues/40775), we should follow suit.
++	//
++	// E.g. if we included the replacement with "go mod download", it could update the go.sum
++	// file but without the checksum necessary to build with ordinary golang.org/x/crypto.
++	case "get", "mod download", "mod init", "mod tidy", "mod edit", "mod vendor":
++		return nil
++	}
++	if workFilePath != "" {
++		return fmt.Errorf("unable to replace in workspace mode because '-modfile' is not supported")
++	}
++	// At this point there are no known reasons there would be 0 or >1 modRoots, but check just in
++	// case we're missing a scenario.
++	if len(modRoots) != 1 {
++		return fmt.Errorf("expected 1 modroot, found %v, %#v", len(modRoots), modRoots)
++	}
++
++	oldFilePath := modFilePath(modRoots[0])
++	data, err := lockedfile.Read(oldFilePath)
++	if err != nil {
++		return fmt.Errorf("failed to read go.mod file: %v", err)
++	}
++	modFile, err := modfile.Parse(oldFilePath, data, nil)
++	if err != nil {
++		return fmt.Errorf("failed to parse go.mod file: %v", err)
++	}
++	// If this is "go build -mod=mod", include the replacement even if the go.mod doesn't include
++	// x/crypto. There might be a transitive dependency we don't know about until imports are
++	// evaluated and find an x/crypto reference.
++	if !modFileUsesXCrypto(modFile) && cfg.BuildMod != "mod" {
++		return nil
++	}
++	// Make sure the replacement actually exists. Perhaps the module was packed
++	// wrong, or MS_MODROOT is set incorrectly.
++	newModPath := xCryptoNewModPath()
++	if fi, err := os.Stat(newModPath); err != nil {
++		return fmt.Errorf("unable to get FileInfo for replacement path: %v", err)
++	} else if !fi.IsDir() {
++		return fmt.Errorf("replacement %#q is not a directory", newModPath)
++	}
++	// Add (or update!) a replace directive.
++	modFile.AddReplace(
++		"golang.org/x/crypto",
++		"",
++		newModPath,
++		"",
++	)
++	modFile.Cleanup()
++	afterData, err := modFile.Format()
++	if err != nil {
++		return fmt.Errorf("failed to format (marshal) go.mod file: %v", err)
++	}
++	f, err := os.CreateTemp("", "xcrypto-replacement-go-*.mod")
++	if err != nil {
++		return fmt.Errorf("failed to create temp go.mod file: %v", err)
++	}
++	base.AtExit(func() {
++		// Best effort cleanup.
++		if err := os.Remove(f.Name()); err != nil {
++			base.Errorf("go: failed to remove temp go.mod file %q with x/crypto replacement: %v", f.Name(), err)
++		}
++	})
++	if _, err := f.Write(afterData); err != nil {
++		return fmt.Errorf("failed to write temp go.mod file data: %v", err)
++	}
++	cfg.ModFile = f.Name()
++	xCryptoSwap = true
++	preXCryptoSwapModFile = oldFilePath
++	return nil
++}
++
++func modFileUsesXCrypto(m *modfile.File) bool {
++	for _, r := range m.Require {
++		if r.Mod.Path == "golang.org/x/crypto" {
++			return true
++		}
++	}
++	return false
++}
++
++// toolsetOverrideModuleDir returns the path to a directory in GOROOT where
++// copies of modules are kept that may be used when building a program with that
++// particular toolset. It is similar to a vendor directory, but only contains
++// the modules, no modules.txt. For development purposes, the GOMSMODROOT
++// environment variable can redirect to a specified directory.
++func toolsetOverrideModuleDir() string {
++	if msModRoot := cfg.Getenv("GOMSMODROOT"); msModRoot != "" {
++		return msModRoot
++	}
++	return filepath.Join(cfg.BuildContext.GOROOT, "_ms_mod")
++}
++
++// xCryptoNewModPath returns the module path that x/crypto should be replaced with.
++func xCryptoNewModPath() string {
++	return filepath.Join(toolsetOverrideModuleDir(), "golang.org", "x", "crypto")
++}
++
++func toolsetOverridePackage(path string) (dir string, vendorDir string, ok bool) {
++	if !HasModRoot() || !xCryptoSwap {
++		return "", "", false
++	}
++	vendorDir = toolsetOverrideModuleDir()
++	// Before checking the main vendor directory, check the toolset's override vendor directory.
++	// This is where the x/crypto fork is located that needs to be swapped in.
++	dir, haveGoFiles, _ := dirInModule(path, "", vendorDir, false)
++	if !haveGoFiles {
++		return "", "", false
++	}
++	return dir, vendorDir, true
++}
+diff --git a/src/cmd/go/testdata/script/modswap_basics.txt b/src/cmd/go/testdata/script/modswap_basics.txt
+new file mode 100644
+index 00000000000000..c1a938be44dc45
+--- /dev/null
++++ b/src/cmd/go/testdata/script/modswap_basics.txt
+@@ -0,0 +1,65 @@
++# Test the basics of the x/crypto swap.
++
++[!net:golang.org] skip
++[!git] skip
++
++env GO111MODULE=on
++env GOPROXY=direct
++env GOSUMDB=off
++
++go mod tidy
++
++env GOEXPERIMENT=systemcrypto,xcryptobackendswap
++
++# When vendoring isn't involved, the replacement path is used.
++go list -mod= -deps -f '{{.Dir}}'
++stdout $GOROOT/_ms_mod/golang.org/x/crypto
++go list -mod=mod -deps -f '{{.Dir}}'
++stdout $GOROOT/_ms_mod/golang.org/x/crypto
++go list -mod=readonly -deps -f '{{.Dir}}'
++stdout $GOROOT/_ms_mod/golang.org/x/crypto
++
++# Make sure the build works other than vendor mode.
++go build -mod= .
++go build -mod=mod .
++go build -mod=readonly .
++
++# Vendor mode shouldn't work because we haven't vendored yet.
++! go list -mod=vendor -deps -f '{{.Dir}}'
++stderr 'inconsistent vendoring'
++! go build -mod=vendor .
++
++# We must not do the swap when vendoring or else the replacement gets baked in.
++env GOEXPERIMENT=
++go mod vendor
++
++# Now that vendoring is involved, still use the replacement path.
++env GOEXPERIMENT=systemcrypto,xcryptobackendswap
++go list -mod= -deps -f '{{.Dir}}'
++stdout $GOROOT/_ms_mod/golang.org/x/crypto
++go list -mod=mod -deps -f '{{.Dir}}'
++stdout $GOROOT/_ms_mod/golang.org/x/crypto
++go list -mod=readonly -deps -f '{{.Dir}}'
++stdout $GOROOT/_ms_mod/golang.org/x/crypto
++go list -mod=vendor -deps -f '{{.Dir}}'
++stdout $GOROOT/_ms_mod/golang.org/x/crypto
++
++# Make sure the build works and is always the same.
++go build -mod= -o no_mod.out .
++go build -mod=mod -o mod_mod.out .
++go build -mod=readonly -o readonly_mod.out .
++go build -mod=vendor -o vendor_mod.out .
++
++cmp mod_mod.out no_mod.out
++cmp mod_mod.out readonly_mod.out
++cmp mod_mod.out vendor_mod.out
++
++-- go.mod --
++module example.com/modswap
++
++require golang.org/x/crypto v0.12.0
++
++-- imports.go --
++package replace
++
++import _ "golang.org/x/crypto/sha3"
+diff --git a/src/cmd/go/testdata/script/modswap_compatible_vendoring.txt b/src/cmd/go/testdata/script/modswap_compatible_vendoring.txt
+new file mode 100644
+index 00000000000000..9505055005ac9b
+--- /dev/null
++++ b/src/cmd/go/testdata/script/modswap_compatible_vendoring.txt
+@@ -0,0 +1,40 @@
++# Test that if we vendor x/crypto while swapping is enabled, the replacement isn't applied and we
++# vendor "normal" x/crypto.
++
++[!net:golang.org] skip
++[!git] skip
++[!GOOS:linux] skip
++[!GOARCH:amd64] skip
++[!cgo] skip
++
++env GO111MODULE=on
++env GOPROXY=direct
++env GOSUMDB=off
++
++env GOEXPERIMENT=systemcrypto,xcryptobackendswap
++go mod tidy
++go mod vendor
++
++env GOEXPERIMENT=
++# If we got it wrong and the replacement was applied during "go mod vendor",
++# this will fail due to inconsistent vendoring.
++go test .
++
++-- go.mod --
++module example.com/modswap
++
++require golang.org/x/crypto v0.12.0
++
++-- modswap_test.go --
++package modswap
++
++import (
++	"testing"
++
++	"golang.org/x/crypto/sha3"
++)
++
++func TestCallSha3_256(t *testing.T) {
++	hash := sha3.New256()
++	hash.Sum([]byte("some data to hash"))
++}
+diff --git a/src/cmd/go/testdata/script/modswap_nocrypto.txt b/src/cmd/go/testdata/script/modswap_nocrypto.txt
+new file mode 100644
+index 00000000000000..978ef92a7e1700
+--- /dev/null
++++ b/src/cmd/go/testdata/script/modswap_nocrypto.txt
+@@ -0,0 +1,28 @@
++# Test that if there is no use of x/crypto, the swap feature doesn't change the output assembly. 
++
++env GO111MODULE=on
++
++env GOEXPERIMENT=
++go build -gcflags=-S .
++cp stderr ordinary.out
++
++env GOEXPERIMENT=systemcrypto,xcryptobackendswap
++go build -gcflags=-S .
++cp stderr swapped.out
++
++# We can't directly compare compiled output: the experiment list is embedded
++# in the binary, making it unavoidably different.
++# So, check for the swap by comparing assembly instead.
++cmp ordinary.out swapped.out
++
++-- go.mod --
++module example.com/hello
++
++-- main.go --
++package replace
++
++import "fmt"
++
++func main() {
++    fmt.Println("Hello, world!")
++}
+diff --git a/src/cmd/go/testdata/script/modswap_reject_work.txt b/src/cmd/go/testdata/script/modswap_reject_work.txt
+new file mode 100644
+index 00000000000000..dc29c609a5c012
+--- /dev/null
++++ b/src/cmd/go/testdata/script/modswap_reject_work.txt
+@@ -0,0 +1,22 @@
++# x/crypto replacement doesn't work with go.work files. Check that it is properly rejected.
++
++env GOEXPERIMENT=systemcrypto,xcryptobackendswap
++! go build .
++stderr 'go: failed to initialize x/crypto replacement: unable to replace in workspace mode'
++
++-- go.work --
++go 1.22
++
++use .
++
++-- go.mod --
++module example.com/hello
++
++-- main.go --
++package replace
++
++import "fmt"
++
++func main() {
++    fmt.Println("Hello, world!")
++}
+diff --git a/src/cmd/go/testdata/script/modswap_test_openssl.txt b/src/cmd/go/testdata/script/modswap_test_openssl.txt
+new file mode 100644
+index 00000000000000..ee762ee8e36487
+--- /dev/null
++++ b/src/cmd/go/testdata/script/modswap_test_openssl.txt
+@@ -0,0 +1,43 @@
++# Test that "go test" works with the x/crypto swap feature.
++
++[!net:golang.org] skip
++[!git] skip
++[!GOOS:linux] skip
++[!GOARCH:amd64] skip
++[!cgo] skip
++
++env GO111MODULE=on
++env GOPROXY=direct
++env GOSUMDB=off
++
++go mod tidy
++
++go test .
++
++env GOEXPERIMENT=systemcrypto,xcryptobackendswap
++go test .
++
++-- go.mod --
++module example.com/modswap
++
++require golang.org/x/crypto v0.12.0
++
++-- modswap_test.go --
++package modswap
++
++import (
++	"bytes"
++	"encoding/hex"
++	"testing"
++
++	"golang.org/x/crypto/sha3"
++)
++
++func TestKnownValueSha3_256(t *testing.T) {
++	hash := sha3.New256()
++	r := hash.Sum([]byte("some data to hash"))
++	want, _ := hex.DecodeString("736f6d65206461746120746f2068617368a7ffc6f8bf1ed76651c14756a061d662f580ff4de43b49fa82d80a4b80f8434a")
++	if !bytes.Equal(r, want) {
++		t.Errorf("want %x, got %x", want, r)
++	}
++}
+diff --git a/src/cmd/go/testdata/script/modswap_uses_openssl.txt b/src/cmd/go/testdata/script/modswap_uses_openssl.txt
+new file mode 100644
+index 00000000000000..03cbd2ca4a81ac
+--- /dev/null
++++ b/src/cmd/go/testdata/script/modswap_uses_openssl.txt
+@@ -0,0 +1,60 @@
++# When x/crypto is swapped (and only then!), the app should use the OpenSSL backend.
++
++[!net:golang.org] skip
++[!git] skip
++[!GOOS:linux] skip
++[!GOARCH:amd64] skip
++[!cgo] skip
++
++env GO111MODULE=on
++env GOPROXY=direct
++env GOSUMDB=off
++
++go mod tidy
++
++env GOEXPERIMENT=
++go test -run=^TestStandardHasher$ .
++env GOEXPERIMENT=systemcrypto
++go test -run=^TestStandardHasher$ .
++env GOEXPERIMENT=systemcrypto,xcryptobackendswap
++go test -run=^TestOpenSSLHasher$ .
++
++-- go.mod --
++module example.com/modswap
++
++require golang.org/x/crypto v0.12.0
++
++-- modswap_test.go --
++package modswap
++
++import (
++	"bytes"
++	"encoding/hex"
++	"reflect"
++	"testing"
++
++	"golang.org/x/crypto/sha3"
++)
++
++func TestStandardHasher(t *testing.T) {
++	testHasher(t, "*sha3.state")
++}
++
++func TestOpenSSLHasher(t *testing.T) {
++	testHasher(t, "*openssl.sha3_256Hash")
++}
++
++func testHasher(t *testing.T, wantTypeName string) {
++	hash := sha3.New256()
++	// Test that it functions correctly.
++	r := hash.Sum([]byte("some data to hash"))
++	want, _ := hex.DecodeString("736f6d65206461746120746f2068617368a7ffc6f8bf1ed76651c14756a061d662f580ff4de43b49fa82d80a4b80f8434a")
++	if !bytes.Equal(r, want) {
++		t.Errorf("want %x, got %x", want, r)
++	}
++	// Test that the hasher is from the expected backend.
++	typeName := reflect.TypeOf(hash).String()
++	if typeName != wantTypeName {
++		t.Errorf("want %q, got %q", wantTypeName, typeName)
++	}
++}
+diff --git a/src/internal/cfg/cfg.go b/src/internal/cfg/cfg.go
+index 2af0ec70786894..5739e06a6aaacd 100644
+--- a/src/internal/cfg/cfg.go
++++ b/src/internal/cfg/cfg.go
+@@ -67,4 +67,5 @@ const KnownEnv = `
+ 	GOWORK
+ 	GO_EXTLINK_ENABLED
+ 	PKG_CONFIG
++	GOMSMODROOT
+ `
+diff --git a/src/internal/goexperiment/exp_xcryptobackendswap_off.go b/src/internal/goexperiment/exp_xcryptobackendswap_off.go
+new file mode 100644
+index 00000000000000..8fceaa28b7e6f0
+--- /dev/null
++++ b/src/internal/goexperiment/exp_xcryptobackendswap_off.go
+@@ -0,0 +1,9 @@
++// Code generated by mkconsts.go. DO NOT EDIT.
++
++//go:build !goexperiment.xcryptobackendswap
++// +build !goexperiment.xcryptobackendswap
++
++package goexperiment
++
++const XCryptoBackendSwap = false
++const XCryptoBackendSwapInt = 0
+diff --git a/src/internal/goexperiment/exp_xcryptobackendswap_on.go b/src/internal/goexperiment/exp_xcryptobackendswap_on.go
+new file mode 100644
+index 00000000000000..77018702a444be
+--- /dev/null
++++ b/src/internal/goexperiment/exp_xcryptobackendswap_on.go
+@@ -0,0 +1,9 @@
++// Code generated by mkconsts.go. DO NOT EDIT.
++
++//go:build goexperiment.xcryptobackendswap
++// +build goexperiment.xcryptobackendswap
++
++package goexperiment
++
++const XCryptoBackendSwap = true
++const XCryptoBackendSwapInt = 1
+diff --git a/src/internal/goexperiment/flags.go b/src/internal/goexperiment/flags.go
+index 60a1dda7376e38..08e527c2866520 100644
+--- a/src/internal/goexperiment/flags.go
++++ b/src/internal/goexperiment/flags.go
+@@ -85,6 +85,12 @@ type Flags struct {
+ 	// GOEXPERIMENT=opensslcrypto,allowcryptofallback must be used to succeed.
+ 	AllowCryptoFallback bool
+ 
++	// XCryptoBackendSwap enables detection of the golang.org/x/crypto module
++	// and automatically replaces it with an x/crypto module maintained in the
++	// Microsoft Go fork that implements the same API but with the chosen crypto
++	// backend.
++	XCryptoBackendSwap bool
++
+ 	// Regabi is split into several sub-experiments that can be
+ 	// enabled individually. Not all combinations work.
+ 	// The "regabi" GOEXPERIMENT is an alias for all "working"
