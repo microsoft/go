@@ -16,7 +16,7 @@ Subject: [PATCH] Add CNG crypto backend
  src/crypto/internal/backend/common.go         |  33 ++-
  src/crypto/internal/boring/fipstls/stub.s     |   2 +-
  src/crypto/internal/boring/fipstls/tls.go     |   2 +-
- src/crypto/md5/md5_test.go                    |   4 +
+ src/crypto/md5/md5_test.go                    |   7 +
  src/crypto/rand/rand_windows.go               |   9 +-
  src/crypto/rsa/boring.go                      |   2 +-
  src/crypto/rsa/boring_test.go                 |   2 +-
@@ -47,7 +47,7 @@ Subject: [PATCH] Add CNG crypto backend
  .../goexperiment/exp_cngcrypto_off.go         |   9 +
  src/internal/goexperiment/exp_cngcrypto_on.go |   9 +
  src/internal/goexperiment/flags.go            |   1 +
- 43 files changed, 404 insertions(+), 40 deletions(-)
+ 43 files changed, 407 insertions(+), 40 deletions(-)
  create mode 100644 src/crypto/internal/backend/bbig/big_cng.go
  create mode 100644 src/crypto/internal/backend/cng_windows.go
  create mode 100644 src/internal/goexperiment/exp_cngcrypto_off.go
@@ -463,10 +463,10 @@ index 4e629a4db8f7c7..a7cd24a0d15647 100644
  // Package fipstls allows control over whether crypto/tls requires FIPS-approved settings.
  // This package only exists with GOEXPERIMENT=boringcrypto, but the effects are independent
 diff --git a/src/crypto/md5/md5_test.go b/src/crypto/md5/md5_test.go
-index 851e7fb10d42f5..9d52abe2856e14 100644
+index f9d1037c9b82b9..6b91d4388b73fe 100644
 --- a/src/crypto/md5/md5_test.go
 +++ b/src/crypto/md5/md5_test.go
-@@ -10,6 +10,7 @@ import (
+@@ -11,6 +11,7 @@ import (
  	"encoding"
  	"fmt"
  	"hash"
@@ -474,7 +474,7 @@ index 851e7fb10d42f5..9d52abe2856e14 100644
  	"io"
  	"testing"
  	"unsafe"
-@@ -87,6 +88,9 @@ func TestGolden(t *testing.T) {
+@@ -88,6 +89,9 @@ func TestGolden(t *testing.T) {
  }
  
  func TestGoldenMarshal(t *testing.T) {
@@ -484,6 +484,16 @@ index 851e7fb10d42f5..9d52abe2856e14 100644
  	for _, g := range golden {
  		h := New()
  		h2 := New()
+@@ -195,6 +199,9 @@ func safeSum(h hash.Hash) (sum []byte, err error) {
+ }
+ 
+ func TestLargeHashes(t *testing.T) {
++	if goexperiment.CNGCrypto {
++		t.Skip("CNGCrypto does not support hash marshalling")
++	}
+ 	for i, test := range largeUnmarshalTests {
+ 
+ 		h := New()
 diff --git a/src/crypto/rand/rand_windows.go b/src/crypto/rand/rand_windows.go
 index 6c0655c72b692a..755861fc5bc21d 100644
 --- a/src/crypto/rand/rand_windows.go
