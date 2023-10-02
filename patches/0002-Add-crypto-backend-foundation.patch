@@ -7,6 +7,7 @@ Subject: [PATCH] Add crypto backend foundation
  src/crypto/aes/cipher.go                     |   2 +-
  src/crypto/aes/cipher_asm.go                 |   2 +-
  src/crypto/boring/boring.go                  |   2 +-
+ src/crypto/des/cipher.go                     |   7 +
  src/crypto/ecdh/ecdh.go                      |   2 +-
  src/crypto/ecdh/nist.go                      |   2 +-
  src/crypto/ecdsa/boring.go                   |   4 +-
@@ -15,11 +16,11 @@ Subject: [PATCH] Add crypto backend foundation
  src/crypto/ed25519/ed25519_test.go           |   2 +-
  src/crypto/hmac/hmac.go                      |   2 +-
  src/crypto/hmac/hmac_test.go                 |   2 +-
- src/crypto/internal/backend/backend_test.go  |  30 +++++
+ src/crypto/internal/backend/backend_test.go  |  30 ++++
  src/crypto/internal/backend/bbig/big.go      |  17 +++
- src/crypto/internal/backend/common.go        |  78 +++++++++++
+ src/crypto/internal/backend/common.go        |  78 ++++++++++
  src/crypto/internal/backend/isrequirefips.go |   9 ++
- src/crypto/internal/backend/nobackend.go     | 135 +++++++++++++++++++
+ src/crypto/internal/backend/nobackend.go     | 143 +++++++++++++++++++
  src/crypto/internal/backend/norequirefips.go |   9 ++
  src/crypto/internal/backend/stub.s           |  10 ++
  src/crypto/rand/rand_unix.go                 |   2 +-
@@ -39,11 +40,11 @@ Subject: [PATCH] Add crypto backend foundation
  src/crypto/tls/handshake_client.go           |  25 +++-
  src/crypto/tls/handshake_server.go           |  25 +++-
  src/crypto/tls/key_schedule.go               |  18 ++-
- src/crypto/tls/prf.go                        |  77 +++++++----
+ src/crypto/tls/prf.go                        |  77 +++++++---
  src/crypto/tls/prf_test.go                   |  12 +-
  src/go/build/deps_test.go                    |   2 +
  src/runtime/runtime_boring.go                |   5 +
- 39 files changed, 445 insertions(+), 65 deletions(-)
+ 40 files changed, 460 insertions(+), 65 deletions(-)
  create mode 100644 src/crypto/internal/backend/backend_test.go
  create mode 100644 src/crypto/internal/backend/bbig/big.go
  create mode 100644 src/crypto/internal/backend/common.go
@@ -91,6 +92,38 @@ index 097c37e343fdb8..1cf43edba40359 100644
  
  // Enabled reports whether BoringCrypto handles supported crypto operations.
  func Enabled() bool {
+diff --git a/src/crypto/des/cipher.go b/src/crypto/des/cipher.go
+index 699e5177aef5d5..7e9c2a74adf74b 100644
+--- a/src/crypto/des/cipher.go
++++ b/src/crypto/des/cipher.go
+@@ -7,6 +7,7 @@ package des
+ import (
+ 	"crypto/cipher"
+ 	"crypto/internal/alias"
++	boring "crypto/internal/backend"
+ 	"encoding/binary"
+ 	"strconv"
+ )
+@@ -30,6 +31,9 @@ func NewCipher(key []byte) (cipher.Block, error) {
+ 	if len(key) != 8 {
+ 		return nil, KeySizeError(len(key))
+ 	}
++	if boring.Enabled && boring.SupportsDESCipher() {
++		return boring.NewDESCipher(key)
++	}
+ 
+ 	c := new(desCipher)
+ 	c.generateSubkeys(key)
+@@ -74,6 +78,9 @@ func NewTripleDESCipher(key []byte) (cipher.Block, error) {
+ 	if len(key) != 24 {
+ 		return nil, KeySizeError(len(key))
+ 	}
++	if boring.Enabled && boring.SupportsTripleDESCipher() {
++		return boring.NewTripleDESCipher(key)
++	}
+ 
+ 	c := new(tripleDESCipher)
+ 	c.cipher1.generateSubkeys(key[:8])
 diff --git a/src/crypto/ecdh/ecdh.go b/src/crypto/ecdh/ecdh.go
 index b86f5217878251..a48043a044f309 100644
 --- a/src/crypto/ecdh/ecdh.go
@@ -360,10 +393,10 @@ index 00000000000000..e5d7570d6d4363
 +const isRequireFIPS = true
 diff --git a/src/crypto/internal/backend/nobackend.go b/src/crypto/internal/backend/nobackend.go
 new file mode 100644
-index 00000000000000..e3e9817a7c5c40
+index 00000000000000..75eb22290bcc92
 --- /dev/null
 +++ b/src/crypto/internal/backend/nobackend.go
-@@ -0,0 +1,135 @@
+@@ -0,0 +1,143 @@
 +// Copyright 2017 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -499,6 +532,14 @@ index 00000000000000..e3e9817a7c5c40
 +func TLS1PRF(result, secret, label, seed []byte, h func() hash.Hash) error {
 +	panic("cryptobackend: not available")
 +}
++
++func SupportsDESCipher() bool { panic("cryptobackend: not available") }
++
++func SupportsTripleDESCipher() bool { panic("cryptobackend: not available") }
++
++func NewDESCipher(key []byte) (cipher.Block, error) { panic("cryptobackend: not available") }
++
++func NewTripleDESCipher(key []byte) (cipher.Block, error) { panic("cryptobackend: not available") }
 diff --git a/src/crypto/internal/backend/norequirefips.go b/src/crypto/internal/backend/norequirefips.go
 new file mode 100644
 index 00000000000000..26bfb5f6a643f3
@@ -1088,7 +1129,7 @@ index 8233985a62bd22..f46d4636557714 100644
  		serverMACString := hex.EncodeToString(serverMAC)
  		clientKeyString := hex.EncodeToString(clientKey)
 diff --git a/src/go/build/deps_test.go b/src/go/build/deps_test.go
-index ca0c4089a2e505..4a6d42b18c46bc 100644
+index 187dff74cfcb54..0fc11c2fb3ae7b 100644
 --- a/src/go/build/deps_test.go
 +++ b/src/go/build/deps_test.go
 @@ -428,6 +428,7 @@ var depsRules = `
