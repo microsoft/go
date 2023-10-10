@@ -22,7 +22,7 @@ This command is used in CI to run a build/test/pack configuration.
 
 Example: Build and run tests using the dev scripts:
 
-  eng/run.ps1 run-builder -builder linux-amd64-devscript
+  eng/run.ps1 run-builder -build -test -builder linux-amd64-devscript
 
 For a list of builders that are run in CI, see 'azure-pipelines.yml'. This
 doesn't include every builder that upstream uses. It also adds some builders
@@ -41,6 +41,9 @@ func main() {
 	var experiment = flag.String("experiment", "", "Include this string in GOEXPERIMENT.")
 	var fipsMode = flag.Bool("fipsmode", false, "Run the Go tests in FIPS mode.")
 	var jUnitFile = flag.String("junitfile", "", "Write a JUnit XML file to this path if this builder runs tests.")
+	var build = flag.Bool("build", false, "Run the build.")
+	var test = flag.Bool("test", false, "Run the tests.")
+
 	var help = flag.Bool("h", false, "Print this help message.")
 
 	flag.Usage = func() {
@@ -69,7 +72,6 @@ func main() {
 	goos, goarch, config := builderParts[0], builderParts[1], strings.Join(builderParts[2:], "-")
 	fmt.Printf("Found os '%s', arch '%s', config '%s'\n", goos, goarch, config)
 
-	maxTestRetries := buildutil.MaxTestRetryAttemptsOrExit()
 	// Scale this variable to increase timeout time based on scenario or builder speed.
 	timeoutScale := 1
 
@@ -111,8 +113,16 @@ func main() {
 		buildCmdline = append(buildCmdline, "-experiment", *experiment)
 	}
 
-	runOrPanic(buildCmdline...)
+	if *build {
+		runOrPanic(buildCmdline...)
+	} else {
+		fmt.Println("Skipping build: '-build' not passed.")
+	}
 
+	if !*test {
+		fmt.Println("Skipping tests: '-test' not passed.")
+		return
+	}
 	// After the build completes, run builder-specific commands.
 	switch config {
 	case "devscript":
@@ -180,9 +190,7 @@ func main() {
 			)
 		}
 
-		err := buildutil.Retry(maxTestRetries, func() error {
-			return runTest(cmdline, *jUnitFile)
-		})
+		err := runTest(cmdline, *jUnitFile)
 		// If we got an ExitError, the error message was already printed by the command. We just
 		// need to exit with the same exit code.
 		if exitErr, ok := err.(*exec.ExitError); ok {
