@@ -54,7 +54,6 @@ func main() {
 	flag.StringVar(&o.Experiment, "experiment", "", "Include this string in GOEXPERIMENT.")
 
 	o.MaxMakeAttempts = buildutil.MaxMakeRetryAttemptsOrExit()
-	o.MaxTestAttempts = buildutil.MaxTestRetryAttemptsOrExit()
 
 	flag.Usage = func() {
 		fmt.Fprintf(flag.CommandLine.Output(), "Usage:\n")
@@ -87,7 +86,6 @@ type options struct {
 	Experiment string
 
 	MaxMakeAttempts int
-	MaxTestAttempts int
 }
 
 func build(o *options) error {
@@ -216,30 +214,25 @@ func build(o *options) error {
 			testCommandLine = append(testCommandLine, "-json")
 		}
 
-		test := func() error {
-			testCmd := exec.Command(testCommandLine[0], testCommandLine[1:]...)
-			testCmd.Stdout = os.Stdout
-			// Redirect stderr to stdout. We expect some lines of stderr to always show up during the
-			// test run, but "build"'s caller might not understand that.
-			//
-			// For example, if we're running in CI, gotestsum may be capturing our output to report in a
-			// JUnit file. If gotestsum detects output in stderr, it prints it in an error message. This
-			// error message stands out, and could mislead someone trying to diagnose a failed test run.
-			// Redirecting all stderr output avoids this scenario. (See /eng/_core/README.md for more
-			// info on why we may be wrapped by gotestsum.)
-			//
-			// An example of benign stderr output is when the tests check for machine capabilities. A
-			// Cgo static linking test emits "/usr/bin/ld: cannot find -lc" when it checks the
-			// capabilities of "ld" on the current system.
-			//
-			// The stderr output isn't used to determine whether the tests succeeded or not. (The
-			// redirect doesn't cause an issue where tests succeed that should have failed.)
-			testCmd.Stderr = os.Stdout
-
-			return runCmd(testCmd)
-		}
-
-		if err := buildutil.Retry(o.MaxTestAttempts, test); err != nil {
+		testCmd := exec.Command(testCommandLine[0], testCommandLine[1:]...)
+		testCmd.Stdout = os.Stdout
+		// Redirect stderr to stdout. We expect some lines of stderr to always show up during the
+		// test run, but "build"'s caller might not understand that.
+		//
+		// For example, if we're running in CI, gotestsum may be capturing our output to report in a
+		// JUnit file. If gotestsum detects output in stderr, it prints it in an error message. This
+		// error message stands out, and could mislead someone trying to diagnose a failed test run.
+		// Redirecting all stderr output avoids this scenario. (See /eng/_core/README.md for more
+		// info on why we may be wrapped by gotestsum.)
+		//
+		// An example of benign stderr output is when the tests check for machine capabilities. A
+		// Cgo static linking test emits "/usr/bin/ld: cannot find -lc" when it checks the
+		// capabilities of "ld" on the current system.
+		//
+		// The stderr output isn't used to determine whether the tests succeeded or not. (The
+		// redirect doesn't cause an issue where tests succeed that should have failed.)
+		testCmd.Stderr = os.Stdout
+		if err := runCmd(testCmd); err != nil {
 			return err
 		}
 	}

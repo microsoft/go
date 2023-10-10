@@ -21,7 +21,8 @@ import (
 const description = `
 Cmdscan runs the command given to it as args and monitors the output for text patterns that should
 be elevated to AzDO Pipeline warnings using AzDO logging commands. Timeline events can be discovered
-more easily in the UI and by automated tools like runfo.
+more easily in the UI and by automated tools like runfo. This tool is also able to set a specified
+AzDO variable to 'true' if the command succeeds, to help with retry implementation.
 
 Uses the "log issue" pipeline logging command to create timeline warnings:
 https://docs.microsoft.com/en-us/azure/devops/pipelines/scripts/logging-commands?view=azure-devops&tabs=bash#logissue-log-an-error-or-warning
@@ -67,6 +68,7 @@ var filters []filter
 func main() {
 	help := flag.Bool("h", false, "Print this help message.")
 	prefix := flag.String("envprefix", "", "The env var prefix to use to find scan rules.")
+	successVar := flag.String("successvar", "", "The AzDO pipeline variable name to set to 'true' upon success.")
 
 	flag.Usage = func() {
 		fmt.Fprintf(flag.CommandLine.Output(), "Usage:\n")
@@ -100,6 +102,10 @@ func main() {
 
 	if err := run(); err != nil {
 		log.Fatalln(err)
+	}
+
+	if *successVar != "" {
+		fmt.Printf("##vso[task.setvariable variable=%v]true\n", *successVar)
 	}
 }
 
