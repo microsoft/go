@@ -13,20 +13,23 @@ Subject: [PATCH] Add crypto backend foundation
  src/crypto/ecdsa/boring.go                   |   4 +-
  src/crypto/ecdsa/ecdsa.go                    |   4 +-
  src/crypto/ecdsa/notboring.go                |   2 +-
+ src/crypto/ed25519/boring.go                 |  67 +++++++
+ src/crypto/ed25519/ed25519.go                |  48 ++++-
  src/crypto/ed25519/ed25519_test.go           |   2 +-
+ src/crypto/ed25519/notboring.go              |  12 ++
  src/crypto/hmac/hmac.go                      |   2 +-
  src/crypto/hmac/hmac_test.go                 |   2 +-
- src/crypto/internal/backend/backend_test.go  |  30 ++++
+ src/crypto/internal/backend/backend_test.go  |  30 +++
  src/crypto/internal/backend/bbig/big.go      |  17 ++
- src/crypto/internal/backend/common.go        |  78 ++++++++++
- src/crypto/internal/backend/isrequirefips.go |   9 ++
- src/crypto/internal/backend/nobackend.go     | 154 +++++++++++++++++++
- src/crypto/internal/backend/norequirefips.go |   9 ++
- src/crypto/internal/backend/stub.s           |  10 ++
+ src/crypto/internal/backend/common.go        |  78 ++++++++
+ src/crypto/internal/backend/isrequirefips.go |   9 +
+ src/crypto/internal/backend/nobackend.go     | 183 +++++++++++++++++++
+ src/crypto/internal/backend/norequirefips.go |   9 +
+ src/crypto/internal/backend/stub.s           |  10 +
  src/crypto/md5/md5.go                        |   7 +
  src/crypto/md5/md5_test.go                   |   4 +
  src/crypto/rand/rand_unix.go                 |   2 +-
- src/crypto/rc4/rc4.go                        |  18 +++
+ src/crypto/rc4/rc4.go                        |  18 ++
  src/crypto/rsa/boring.go                     |   4 +-
  src/crypto/rsa/notboring.go                  |   2 +-
  src/crypto/rsa/pkcs1v15.go                   |   2 +-
@@ -42,12 +45,14 @@ Subject: [PATCH] Add crypto backend foundation
  src/crypto/tls/cipher_suites.go              |   2 +-
  src/crypto/tls/handshake_client.go           |  25 ++-
  src/crypto/tls/handshake_server.go           |  25 ++-
- src/crypto/tls/key_schedule.go               |  18 ++-
- src/crypto/tls/prf.go                        |  77 +++++++---
+ src/crypto/tls/key_schedule.go               |  18 +-
+ src/crypto/tls/prf.go                        |  77 +++++---
  src/crypto/tls/prf_test.go                   |  12 +-
  src/go/build/deps_test.go                    |   2 +
  src/runtime/runtime_boring.go                |   5 +
- 43 files changed, 500 insertions(+), 65 deletions(-)
+ 46 files changed, 655 insertions(+), 66 deletions(-)
+ create mode 100644 src/crypto/ed25519/boring.go
+ create mode 100644 src/crypto/ed25519/notboring.go
  create mode 100644 src/crypto/internal/backend/backend_test.go
  create mode 100644 src/crypto/internal/backend/bbig/big.go
  create mode 100644 src/crypto/internal/backend/common.go
@@ -197,6 +202,173 @@ index 039bd82ed21f9f..19188518e85e65 100644
  
  func boringPublicKey(*PublicKey) (*boring.PublicKeyECDSA, error) {
  	panic("boringcrypto: not available")
+diff --git a/src/crypto/ed25519/boring.go b/src/crypto/ed25519/boring.go
+new file mode 100644
+index 00000000000000..b1c1017eddc47a
+--- /dev/null
++++ b/src/crypto/ed25519/boring.go
+@@ -0,0 +1,67 @@
++//go:build boringcrypto || goexperiment.opensslcrypto || goexperiment.cngcrypto
++
++package ed25519
++
++import (
++	boring "crypto/internal/backend"
++	"crypto/internal/boring/bcache"
++	"unsafe"
++)
++
++var pubCache bcache.Cache[byte, boringPub]
++var privCache bcache.Cache[byte, boringPriv]
++
++func init() {
++	if boring.SupportsEd25519() {
++		pubCache.Register()
++		privCache.Register()
++	}
++}
++
++type boringPub struct {
++	key  *boring.PublicKeyEd25519
++	orig [PublicKeySize]byte
++}
++
++func boringPublicKey(pub PublicKey) (*boring.PublicKeyEd25519, error) {
++	// Use the pointer to the underlying pub array as key.
++	p := unsafe.SliceData(pub)
++	b := pubCache.Get(p)
++	if b != nil && PublicKey(b.orig[:]).Equal(pub) {
++		return b.key, nil
++	}
++
++	b = new(boringPub)
++	copy(b.orig[:], pub)
++	key, err := boring.NewPublicKeyEd25119(b.orig[:])
++	if err != nil {
++		return nil, err
++	}
++	b.key = key
++	pubCache.Put(p, b)
++	return key, nil
++}
++
++type boringPriv struct {
++	key  *boring.PrivateKeyEd25519
++	orig [PrivateKeySize]byte
++}
++
++func boringPrivateKey(priv PrivateKey) (*boring.PrivateKeyEd25519, error) {
++	// Use the pointer to the underlying priv array as key.
++	p := unsafe.SliceData(priv)
++	b := privCache.Get(p)
++	if b != nil && PrivateKey(b.orig[:]).Equal(priv) {
++		return b.key, nil
++	}
++
++	b = new(boringPriv)
++	copy(b.orig[:], priv)
++	key, err := boring.NewPrivateKeyEd25119(b.orig[:])
++	if err != nil {
++		return nil, err
++	}
++	b.key = key
++	privCache.Put(p, b)
++	return key, nil
++}
+diff --git a/src/crypto/ed25519/ed25519.go b/src/crypto/ed25519/ed25519.go
+index 1dda9e5e9a5ab3..511ca7cd1301d2 100644
+--- a/src/crypto/ed25519/ed25519.go
++++ b/src/crypto/ed25519/ed25519.go
+@@ -15,6 +15,7 @@ package ed25519
+ import (
+ 	"bytes"
+ 	"crypto"
++	boring "crypto/internal/backend"
+ 	"crypto/internal/edwards25519"
+ 	cryptorand "crypto/rand"
+ 	"crypto/sha512"
+@@ -139,6 +140,22 @@ func GenerateKey(rand io.Reader) (PublicKey, PrivateKey, error) {
+ 	if rand == nil {
+ 		rand = cryptorand.Reader
+ 	}
++	if boring.Enabled && boring.SupportsEd25519() {
++		if rand == boring.RandReader {
++			_, priv, err := boring.GenerateKeyEd25519()
++			if err != nil {
++				return nil, nil, err
++			}
++			privData, err := priv.Bytes()
++			if err != nil {
++				return nil, nil, err
++			}
++			privKey := PrivateKey(privData)
++			pubKey := privKey.Public().(PublicKey)
++			return pubKey, privKey, err
++		}
++		boring.UnreachableExceptTests()
++	}
+ 
+ 	seed := make([]byte, SeedSize)
+ 	if _, err := io.ReadFull(rand, seed); err != nil {
+@@ -157,6 +174,17 @@ func GenerateKey(rand io.Reader) (PublicKey, PrivateKey, error) {
+ // with RFC 8032. RFC 8032's private keys correspond to seeds in this
+ // package.
+ func NewKeyFromSeed(seed []byte) PrivateKey {
++	if boring.Enabled && boring.SupportsEd25519() {
++		key, err := boring.NewPrivateKeyEd25519FromSeed(seed)
++		if err != nil {
++			panic(err)
++		}
++		d, err := key.Bytes()
++		if err != nil {
++			panic(err)
++		}
++		return PrivateKey(d)
++	}
+ 	// Outline the function body so that the returned key can be stack-allocated.
+ 	privateKey := make([]byte, PrivateKeySize)
+ 	newKeyFromSeed(privateKey, seed)
+@@ -184,6 +212,17 @@ func newKeyFromSeed(privateKey, seed []byte) {
+ // Sign signs the message with privateKey and returns a signature. It will
+ // panic if len(privateKey) is not [PrivateKeySize].
+ func Sign(privateKey PrivateKey, message []byte) []byte {
++	if boring.Enabled && boring.SupportsEd25519() {
++		priv, err := boringPrivateKey(privateKey)
++		if err != nil {
++			panic(err)
++		}
++		signature, err := boring.SignEd25519(priv, message)
++		if err != nil {
++			panic(err)
++		}
++		return signature
++	}
+ 	// Outline the function body so that the returned signature can be
+ 	// stack-allocated.
+ 	signature := make([]byte, SignatureSize)
+@@ -259,6 +298,13 @@ func sign(signature, privateKey, message []byte, domPrefix, context string) {
+ // Verify reports whether sig is a valid signature of message by publicKey. It
+ // will panic if len(publicKey) is not [PublicKeySize].
+ func Verify(publicKey PublicKey, message, sig []byte) bool {
++	if boring.Enabled && boring.SupportsEd25519() {
++		pub, err := boringPublicKey(publicKey)
++		if err != nil {
++			return false
++		}
++		return boring.VerifyEd25519(pub, message, sig) == nil
++	}
+ 	return verify(publicKey, message, sig, domPrefixPure, "")
+ }
+ 
+@@ -292,7 +338,7 @@ func VerifyWithOptions(publicKey PublicKey, message, sig []byte, opts *Options)
+ 		}
+ 		return nil
+ 	case opts.Hash == crypto.Hash(0): // Ed25519
+-		if !verify(publicKey, message, sig, domPrefixPure, "") {
++		if !Verify(publicKey, message, sig) {
+ 			return errors.New("ed25519: invalid signature")
+ 		}
+ 		return nil
 diff --git a/src/crypto/ed25519/ed25519_test.go b/src/crypto/ed25519/ed25519_test.go
 index 47c8698e2a5945..02eff207ae365a 100644
 --- a/src/crypto/ed25519/ed25519_test.go
@@ -210,6 +382,24 @@ index 47c8698e2a5945..02eff207ae365a 100644
  	"crypto/rand"
  	"crypto/sha512"
  	"encoding/hex"
+diff --git a/src/crypto/ed25519/notboring.go b/src/crypto/ed25519/notboring.go
+new file mode 100644
+index 00000000000000..ec914ec68412ad
+--- /dev/null
++++ b/src/crypto/ed25519/notboring.go
+@@ -0,0 +1,12 @@
++//go:build !boringcrypto && !goexperiment.opensslcrypto && !goexperiment.cngcrypto
++
++package ed25519
++
++import boring "crypto/internal/backend"
++
++func boringPublicKey(*PublicKey) (*boring.PublicKeyEd25519, error) {
++	panic("boringcrypto: not available")
++}
++func boringPrivateKey(*PrivateKey) (*boring.PrivateKeyEd25519, error) {
++	panic("boringcrypto: not available")
++}
 diff --git a/src/crypto/hmac/hmac.go b/src/crypto/hmac/hmac.go
 index 35b9d5a17aa545..d6dc0244f7eba8 100644
 --- a/src/crypto/hmac/hmac.go
@@ -396,10 +586,10 @@ index 00000000000000..e5d7570d6d4363
 +const isRequireFIPS = true
 diff --git a/src/crypto/internal/backend/nobackend.go b/src/crypto/internal/backend/nobackend.go
 new file mode 100644
-index 00000000000000..f45f2fe76d54f1
+index 00000000000000..c55629a4b35292
 --- /dev/null
 +++ b/src/crypto/internal/backend/nobackend.go
-@@ -0,0 +1,154 @@
+@@ -0,0 +1,183 @@
 +// Copyright 2017 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -554,6 +744,35 @@ index 00000000000000..f45f2fe76d54f1
 +func (c *RC4Cipher) XORKeyStream(dst, src []byte) { panic("cryptobackend: not available") }
 +
 +func NewRC4Cipher(key []byte) (*RC4Cipher, error) { panic("cryptobackend: not available") }
++
++func SupportsEd25519() bool { panic("cryptobackend: not available") }
++
++type PublicKeyEd25519 struct{}
++type PrivateKeyEd25519 struct{}
++
++func GenerateKeyEd25519() (*PublicKeyEd25519, *PrivateKeyEd25519, error) {
++	panic("cryptobackend: not available")
++}
++
++func NewPrivateKeyEd25119(priv []byte) (*PrivateKeyEd25519, error) {
++	panic("cryptobackend: not available")
++}
++
++func NewPublicKeyEd25119(pub []byte) (*PublicKeyEd25519, error) {
++	panic("cryptobackend: not available")
++}
++
++func NewPrivateKeyEd25519FromSeed(seed []byte) (*PrivateKeyEd25519, error) {
++	panic("cryptobackend: not available")
++}
++
++func SignEd25519(priv *PrivateKeyEd25519, message []byte) ([]byte, error) {
++	panic("cryptobackend: not available")
++}
++
++func VerifyEd25519(pub *PublicKeyEd25519, message, sig []byte) error {
++	panic("cryptobackend: not available")
++}
 diff --git a/src/crypto/internal/backend/norequirefips.go b/src/crypto/internal/backend/norequirefips.go
 new file mode 100644
 index 00000000000000..26bfb5f6a643f3
