@@ -817,6 +817,11 @@ func rc4.NewCipher() rc4.Cipher
 
 NewCipher creates and returns a new Cipher. The key argument should be the RC4 key, at least 1 byte and at most 256 bytes.
 
+**Requirements**
+
+Some OpenSSL distributions don't implement RC4, e.g., OpenSSL 1.x compiled with `-DOPENSSL_NO_RC4` and OpenSSL 3.x that can't load the legacy provider.
+In those cases, `rc4.NewCipher()` will fall back to standard Go crypto.
+
 **Implementation**
 
 <details><summary>OpenSSL (click for details)</summary>
