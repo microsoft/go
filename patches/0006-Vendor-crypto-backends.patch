@@ -11,8 +11,8 @@ To reproduce, run 'go mod vendor' in 'go/src'.
  .../github.com/golang-fips/openssl/v2/aes.go  |  90 ++
  .../golang-fips/openssl/v2/bbig/big.go        |  37 +
  .../github.com/golang-fips/openssl/v2/big.go  |  11 +
- .../golang-fips/openssl/v2/cgo_go122.go       |  13 +
- .../golang-fips/openssl/v2/cipher.go          | 511 +++++++++++
+ .../golang-fips/openssl/v2/cgo_go122.go       |  15 +
+ .../golang-fips/openssl/v2/cipher.go          | 534 ++++++++++++
  .../github.com/golang-fips/openssl/v2/des.go  | 113 +++
  .../github.com/golang-fips/openssl/v2/ec.go   |  59 ++
  .../github.com/golang-fips/openssl/v2/ecdh.go | 323 +++++++
@@ -30,8 +30,9 @@ To reproduce, run 'go mod vendor' in 'go/src'.
  .../golang-fips/openssl/v2/pbkdf2.go          |  28 +
  .../openssl/v2/port_evp_md5_sha1.c            | 126 +++
  .../github.com/golang-fips/openssl/v2/rand.go |  20 +
+ .../github.com/golang-fips/openssl/v2/rc4.go  |  63 ++
  .../github.com/golang-fips/openssl/v2/rsa.go  | 419 +++++++++
- .../github.com/golang-fips/openssl/v2/shims.h | 358 ++++++++
+ .../github.com/golang-fips/openssl/v2/shims.h | 360 ++++++++
  .../openssl/v2/thread_setup_unix.c            |  35 +
  .../openssl/v2/thread_setup_windows.c         |  33 +
  .../golang-fips/openssl/v2/tls1prf.go         | 104 +++
@@ -44,20 +45,21 @@ To reproduce, run 'go mod vendor' in 'go/src'.
  .../microsoft/go-crypto-winnative/cng/des.go  | 107 +++
  .../microsoft/go-crypto-winnative/cng/ecdh.go | 260 ++++++
  .../go-crypto-winnative/cng/ecdsa.go          | 175 ++++
- .../microsoft/go-crypto-winnative/cng/hash.go | 298 +++++++
- .../microsoft/go-crypto-winnative/cng/hkdf.go | 150 ++++
- .../microsoft/go-crypto-winnative/cng/hmac.go |  55 ++
+ .../microsoft/go-crypto-winnative/cng/hash.go | 320 +++++++
+ .../microsoft/go-crypto-winnative/cng/hkdf.go | 179 ++++
+ .../microsoft/go-crypto-winnative/cng/hmac.go |  35 +
  .../microsoft/go-crypto-winnative/cng/keys.go | 178 ++++
  .../go-crypto-winnative/cng/pbkdf2.go         |  74 ++
  .../microsoft/go-crypto-winnative/cng/rand.go |  28 +
+ .../microsoft/go-crypto-winnative/cng/rc4.go  |  61 ++
  .../microsoft/go-crypto-winnative/cng/rsa.go  | 374 +++++++++
  .../go-crypto-winnative/cng/tls1prf.go        |  92 ++
- .../internal/bcrypt/bcrypt_windows.go         | 283 +++++++
+ .../internal/bcrypt/bcrypt_windows.go         | 284 +++++++
  .../internal/bcrypt/zsyscall_windows.go       | 389 +++++++++
  .../internal/subtle/aliasing.go               |  32 +
  .../internal/sysdll/sys_windows.go            |  55 ++
  src/vendor/modules.txt                        |  11 +
- 52 files changed, 8369 insertions(+)
+ 54 files changed, 8552 insertions(+)
  create mode 100644 src/vendor/github.com/golang-fips/openssl/v2/.gitleaks.toml
  create mode 100644 src/vendor/github.com/golang-fips/openssl/v2/LICENSE
  create mode 100644 src/vendor/github.com/golang-fips/openssl/v2/README.md
@@ -83,6 +85,7 @@ To reproduce, run 'go mod vendor' in 'go/src'.
  create mode 100644 src/vendor/github.com/golang-fips/openssl/v2/pbkdf2.go
  create mode 100644 src/vendor/github.com/golang-fips/openssl/v2/port_evp_md5_sha1.c
  create mode 100644 src/vendor/github.com/golang-fips/openssl/v2/rand.go
+ create mode 100644 src/vendor/github.com/golang-fips/openssl/v2/rc4.go
  create mode 100644 src/vendor/github.com/golang-fips/openssl/v2/rsa.go
  create mode 100644 src/vendor/github.com/golang-fips/openssl/v2/shims.h
  create mode 100644 src/vendor/github.com/golang-fips/openssl/v2/thread_setup_unix.c
@@ -103,6 +106,7 @@ To reproduce, run 'go mod vendor' in 'go/src'.
  create mode 100644 src/vendor/github.com/microsoft/go-crypto-winnative/cng/keys.go
  create mode 100644 src/vendor/github.com/microsoft/go-crypto-winnative/cng/pbkdf2.go
  create mode 100644 src/vendor/github.com/microsoft/go-crypto-winnative/cng/rand.go
+ create mode 100644 src/vendor/github.com/microsoft/go-crypto-winnative/cng/rc4.go
  create mode 100644 src/vendor/github.com/microsoft/go-crypto-winnative/cng/rsa.go
  create mode 100644 src/vendor/github.com/microsoft/go-crypto-winnative/cng/tls1prf.go
  create mode 100644 src/vendor/github.com/microsoft/go-crypto-winnative/internal/bcrypt/bcrypt_windows.go
@@ -378,10 +382,10 @@ index 00000000000000..6461f241f863fc
 +type BigInt []uint
 diff --git a/src/vendor/github.com/golang-fips/openssl/v2/cgo_go122.go b/src/vendor/github.com/golang-fips/openssl/v2/cgo_go122.go
 new file mode 100644
-index 00000000000000..555f58c59979a8
+index 00000000000000..17ad0afb5d5bf6
 --- /dev/null
 +++ b/src/vendor/github.com/golang-fips/openssl/v2/cgo_go122.go
-@@ -0,0 +1,13 @@
+@@ -0,0 +1,15 @@
 +//go:build go1.22 && !cmd_go_bootstrap
 +
 +package openssl
@@ -393,14 +397,16 @@ index 00000000000000..555f58c59979a8
 +// functions that are known to allocate.
 +#cgo noescape go_openssl_EVP_PKEY_derive
 +#cgo nocallback go_openssl_EVP_PKEY_derive
++#cgo noescape go_openssl_EVP_EncryptUpdate
++#cgo nocallback go_openssl_EVP_EncryptUpdate
 +*/
 +import "C"
 diff --git a/src/vendor/github.com/golang-fips/openssl/v2/cipher.go b/src/vendor/github.com/golang-fips/openssl/v2/cipher.go
 new file mode 100644
-index 00000000000000..c88286905ee4d8
+index 00000000000000..aadba3e77aab70
 --- /dev/null
 +++ b/src/vendor/github.com/golang-fips/openssl/v2/cipher.go
-@@ -0,0 +1,511 @@
+@@ -0,0 +1,534 @@
 +//go:build !cmd_go_bootstrap
 +
 +package openssl
@@ -425,6 +431,7 @@ index 00000000000000..c88286905ee4d8
 +	cipherAES256
 +	cipherDES
 +	cipherDES3
++	cipherRC4
 +)
 +
 +func (c cipherKind) String() string {
@@ -439,6 +446,8 @@ index 00000000000000..c88286905ee4d8
 +		return "DES"
 +	case cipherDES3:
 +		return "DES3"
++	case cipherRC4:
++		return "RC4"
 +	default:
 +		panic("unknown cipher kind: " + strconv.Itoa(int(c)))
 +	}
@@ -447,7 +456,8 @@ index 00000000000000..c88286905ee4d8
 +type cipherMode int8
 +
 +const (
-+	cipherModeECB cipherMode = iota
++	cipherModeNone cipherMode = -1
++	cipherModeECB  cipherMode = iota
 +	cipherModeCBC
 +	cipherModeCTR
 +	cipherModeGCM
@@ -536,6 +546,8 @@ index 00000000000000..c88286905ee4d8
 +		case cipherModeCBC:
 +			cipher = C.go_openssl_EVP_des_ede3_cbc()
 +		}
++	case cipherRC4:
++		cipher = C.go_openssl_EVP_rc4()
 +	}
 +	return cipher
 +}
@@ -882,17 +894,34 @@ index 00000000000000..c88286905ee4d8
 +	return
 +}
 +
-+func newCipherCtx(kind cipherKind, mode cipherMode, encrypt cipherOp, key, iv []byte) (C.GO_EVP_CIPHER_CTX_PTR, error) {
++func newCipherCtx(kind cipherKind, mode cipherMode, encrypt cipherOp, key, iv []byte) (ctx C.GO_EVP_CIPHER_CTX_PTR, err error) {
 +	cipher := loadCipher(kind, mode)
 +	if cipher == nil {
 +		panic("crypto/cipher: unsupported cipher: " + kind.String())
 +	}
-+	ctx := C.go_openssl_EVP_CIPHER_CTX_new()
++	ctx = C.go_openssl_EVP_CIPHER_CTX_new()
 +	if ctx == nil {
 +		return nil, fail("unable to create EVP cipher ctx")
 +	}
++	defer func() {
++		if err != nil {
++			C.go_openssl_EVP_CIPHER_CTX_free(ctx)
++		}
++	}()
++	if kind == cipherRC4 {
++		// RC4 cipher supports a variable key length.
++		// We need to set the key length before setting the key,
++		// and to do so we need to have an initialized cipher ctx.
++		if C.go_openssl_EVP_CipherInit_ex(ctx, cipher, nil, nil, nil, C.int(encrypt)) != 1 {
++			return nil, newOpenSSLError("EVP_CipherInit_ex")
++		}
++		if C.go_openssl_EVP_CIPHER_CTX_set_key_length(ctx, C.int(len(key))) != 1 {
++			return nil, newOpenSSLError("EVP_CIPHER_CTX_set_key_length")
++		}
++		// Pass nil to the next call to EVP_CipherInit_ex to avoid resetting ctx's cipher.
++		cipher = nil
++	}
 +	if C.go_openssl_EVP_CipherInit_ex(ctx, cipher, nil, base(key), base(iv), C.int(encrypt)) != 1 {
-+		C.go_openssl_EVP_CIPHER_CTX_free(ctx)
 +		return nil, fail("unable to initialize EVP cipher ctx")
 +	}
 +	return ctx, nil
@@ -4522,6 +4551,75 @@ index 00000000000000..9fd709635c3b40
 +}
 +
 +const RandReader = randReader(0)
+diff --git a/src/vendor/github.com/golang-fips/openssl/v2/rc4.go b/src/vendor/github.com/golang-fips/openssl/v2/rc4.go
+new file mode 100644
+index 00000000000000..db28b61f3d1bea
+--- /dev/null
++++ b/src/vendor/github.com/golang-fips/openssl/v2/rc4.go
+@@ -0,0 +1,63 @@
++//go:build !cmd_go_bootstrap
++
++package openssl
++
++// #include "goopenssl.h"
++import "C"
++import "runtime"
++
++// SupportsRC4 returns true if NewRC4Cipher is supported.
++func SupportsRC4() bool {
++	// True for stock OpenSSL 1.
++	// False for stock OpenSSL 3 unless the legacy provider is available.
++	return loadCipher(cipherRC4, cipherModeNone) != nil
++}
++
++// A RC4Cipher is an instance of RC4 using a particular key.
++type RC4Cipher struct {
++	ctx C.GO_EVP_CIPHER_CTX_PTR
++}
++
++// NewRC4Cipher creates and returns a new Cipher.
++func NewRC4Cipher(key []byte) (*RC4Cipher, error) {
++	ctx, err := newCipherCtx(cipherRC4, cipherModeNone, cipherOpEncrypt, key, nil)
++	if err != nil {
++		return nil, err
++	}
++	c := &RC4Cipher{ctx}
++	runtime.SetFinalizer(c, (*RC4Cipher).finalize)
++	return c, nil
++}
++
++func (c *RC4Cipher) finalize() {
++	if c.ctx != nil {
++		C.go_openssl_EVP_CIPHER_CTX_free(c.ctx)
++	}
++}
++
++// Reset zeros the key data and makes the Cipher unusable.
++func (c *RC4Cipher) Reset() {
++	if c.ctx != nil {
++		C.go_openssl_EVP_CIPHER_CTX_free(c.ctx)
++		c.ctx = nil
++	}
++}
++
++// XORKeyStream sets dst to the result of XORing src with the key stream.
++// Dst and src must overlap entirely or not at all.
++func (c *RC4Cipher) XORKeyStream(dst, src []byte) {
++	if c.ctx == nil || len(src) == 0 {
++		return
++	}
++	if inexactOverlap(dst[:len(src)], src) {
++		panic("crypto/rc4: invalid buffer overlap")
++	}
++	var outLen C.int
++	if C.go_openssl_EVP_EncryptUpdate(c.ctx, base(dst), &outLen, base(src), C.int(len(src))) != 1 {
++		panic("crypto/cipher: EncryptUpdate failed")
++	}
++	if int(outLen) != len(src) {
++		panic("crypto/rc4: src not fully XORed")
++	}
++	runtime.KeepAlive(c)
++}
 diff --git a/src/vendor/github.com/golang-fips/openssl/v2/rsa.go b/src/vendor/github.com/golang-fips/openssl/v2/rsa.go
 new file mode 100644
 index 00000000000000..5aef65b84f6781
@@ -4949,10 +5047,10 @@ index 00000000000000..5aef65b84f6781
 +}
 diff --git a/src/vendor/github.com/golang-fips/openssl/v2/shims.h b/src/vendor/github.com/golang-fips/openssl/v2/shims.h
 new file mode 100644
-index 00000000000000..858c47e747026c
+index 00000000000000..071bf706b93b93
 --- /dev/null
 +++ b/src/vendor/github.com/golang-fips/openssl/v2/shims.h
-@@ -0,0 +1,358 @@
+@@ -0,0 +1,360 @@
 +#include <stdlib.h> // size_t
 +#include <stdint.h> // uint64_t
 +
@@ -5212,7 +5310,9 @@ index 00000000000000..858c47e747026c
 +DEFINEFUNC(const GO_EVP_CIPHER_PTR, EVP_des_cbc, (void), ()) \
 +DEFINEFUNC(const GO_EVP_CIPHER_PTR, EVP_des_ede3_ecb, (void), ()) \
 +DEFINEFUNC(const GO_EVP_CIPHER_PTR, EVP_des_ede3_cbc, (void), ()) \
++DEFINEFUNC(const GO_EVP_CIPHER_PTR, EVP_rc4, (void), ()) \
 +DEFINEFUNC_RENAMED_3_0(int, EVP_CIPHER_get_block_size, EVP_CIPHER_block_size, (const GO_EVP_CIPHER_PTR cipher), (cipher)) \
++DEFINEFUNC(int, EVP_CIPHER_CTX_set_key_length, (GO_EVP_CIPHER_CTX_PTR x, int keylen), (x, keylen)) \
 +DEFINEFUNC(void, EVP_CIPHER_CTX_free, (GO_EVP_CIPHER_CTX_PTR arg0), (arg0)) \
 +DEFINEFUNC(int, EVP_CIPHER_CTX_ctrl, (GO_EVP_CIPHER_CTX_PTR ctx, int type, int arg, void *ptr), (ctx, type, arg, ptr)) \
 +DEFINEFUNC(GO_EVP_PKEY_PTR, EVP_PKEY_new, (void), ()) \
@@ -6698,10 +6798,10 @@ index 00000000000000..a77ff97bb8f521
 +}
 diff --git a/src/vendor/github.com/microsoft/go-crypto-winnative/cng/hash.go b/src/vendor/github.com/microsoft/go-crypto-winnative/cng/hash.go
 new file mode 100644
-index 00000000000000..d894c07822fa8c
+index 00000000000000..bebbc999337efb
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go-crypto-winnative/cng/hash.go
-@@ -0,0 +1,298 @@
+@@ -0,0 +1,320 @@
 +// Copyright (c) Microsoft Corporation.
 +// Licensed under the MIT License.
 +
@@ -6855,11 +6955,12 @@ index 00000000000000..d894c07822fa8c
 +
 +type hashAlgorithm struct {
 +	handle    bcrypt.ALG_HANDLE
++	id        string
 +	size      uint32
 +	blockSize uint32
 +}
 +
-+func loadHash(id string, flags bcrypt.AlgorithmProviderFlags) (hashAlgorithm, error) {
++func loadHash(id string, flags bcrypt.AlgorithmProviderFlags) (*hashAlgorithm, error) {
 +	v, err := loadOrStoreAlg(id, flags, "", func(h bcrypt.ALG_HANDLE) (interface{}, error) {
 +		size, err := getUint32(bcrypt.HANDLE(h), bcrypt.HASH_LENGTH)
 +		if err != nil {
@@ -6869,89 +6970,108 @@ index 00000000000000..d894c07822fa8c
 +		if err != nil {
 +			return nil, err
 +		}
-+		return hashAlgorithm{h, size, blockSize}, nil
++		return &hashAlgorithm{h, id, size, blockSize}, nil
 +	})
 +	if err != nil {
-+		return hashAlgorithm{}, err
++		return nil, err
 +	}
-+	return v.(hashAlgorithm), nil
++	return v.(*hashAlgorithm), nil
++}
++
++// hashToID converts a hash.Hash implementation from this package
++// to a CNG hash ID
++func hashToID(h hash.Hash) string {
++	hx, ok := h.(*hashX)
++	if !ok {
++		return ""
++	}
++	return hx.alg.id
 +}
 +
 +type hashX struct {
-+	h         bcrypt.ALG_HANDLE
-+	ctx       bcrypt.HASH_HANDLE
-+	size      int
-+	blockSize int
-+	buf       []byte
-+	key       []byte
++	alg  *hashAlgorithm
++	_ctx bcrypt.HASH_HANDLE // access it using withCtx
++
++	buf []byte
++	key []byte
 +}
 +
++// newHashX returns a new hash.Hash using the specified algorithm.
 +func newHashX(id string, flag bcrypt.AlgorithmProviderFlags, key []byte) *hashX {
-+	h, err := loadHash(id, flag)
++	alg, err := loadHash(id, flag)
 +	if err != nil {
 +		panic(err)
 +	}
-+	hx := new(hashX)
-+	hx.h = h.handle
-+	hx.size = int(h.size)
-+	hx.blockSize = int(h.blockSize)
-+	hx.buf = make([]byte, hx.size)
++	h := new(hashX)
++	h.alg = alg
 +	if len(key) > 0 {
-+		hx.key = make([]byte, len(key))
-+		copy(hx.key, key)
++		h.key = make([]byte, len(key))
++		copy(h.key, key)
 +	}
-+	hx.Reset()
-+	runtime.SetFinalizer(hx, (*hashX).finalize)
-+	return hx
++	// Don't allocate hx.buf nor call bcrypt.CreateHash yet,
++	// which would be wasteful if the caller only wants to know
++	// the hash type. This is a common pattern in this package,
++	// as some functions accept a `func() hash.Hash` parameter
++	// and call it just to know the hash type.
++	runtime.SetFinalizer(h, (*hashX).finalize)
++	return h
 +}
 +
 +func (h *hashX) finalize() {
-+	if h.ctx != 0 {
-+		bcrypt.DestroyHash(h.ctx)
++	if h._ctx != 0 {
++		bcrypt.DestroyHash(h._ctx)
 +	}
++}
++
++func (h *hashX) withCtx(fn func(ctx bcrypt.HASH_HANDLE) error) error {
++	defer runtime.KeepAlive(h)
++	if h._ctx == 0 {
++		err := bcrypt.CreateHash(h.alg.handle, &h._ctx, nil, h.key, 0)
++		if err != nil {
++			panic(err)
++		}
++	}
++	return fn(h._ctx)
 +}
 +
 +func (h *hashX) Clone() (hash.Hash, error) {
 +	h2 := &hashX{
-+		h:         h.h,
-+		size:      h.size,
-+		blockSize: h.blockSize,
-+		buf:       make([]byte, len(h.buf)),
-+		key:       make([]byte, len(h.key)),
++		alg: h.alg,
 +	}
-+	copy(h2.key, h.key)
-+	err := bcrypt.DuplicateHash(h.ctx, &h2.ctx, nil, 0)
++	if h.key != nil {
++		h2.key = make([]byte, len(h.key))
++		copy(h2.key, h.key)
++	}
++	err := h.withCtx(func(ctx bcrypt.HASH_HANDLE) error {
++		return bcrypt.DuplicateHash(ctx, &h2._ctx, nil, 0)
++	})
 +	if err != nil {
 +		return nil, err
 +	}
 +	runtime.SetFinalizer(h2, (*hashX).finalize)
-+	runtime.KeepAlive(h)
 +	return h2, nil
 +}
 +
 +func (h *hashX) Reset() {
-+	if h.ctx != 0 {
-+		bcrypt.DestroyHash(h.ctx)
-+		h.ctx = 0
++	if h._ctx != 0 {
++		bcrypt.DestroyHash(h._ctx)
++		h._ctx = 0
 +	}
-+	err := bcrypt.CreateHash(h.h, &h.ctx, nil, h.key, 0)
-+	if err != nil {
-+		panic(err)
-+	}
-+	runtime.KeepAlive(h)
 +}
 +
 +func (h *hashX) Write(p []byte) (n int, err error) {
-+	for n < len(p) && err == nil {
-+		nn := len32(p[n:])
-+		err = bcrypt.HashData(h.ctx, p[n:n+nn], 0)
-+		n += nn
-+	}
++	err = h.withCtx(func(ctx bcrypt.HASH_HANDLE) error {
++		for n < len(p) && err == nil {
++			nn := len32(p[n:])
++			err = bcrypt.HashData(h._ctx, p[n:n+nn], 0)
++			n += nn
++		}
++		return err
++	})
 +	if err != nil {
 +		// hash.Hash interface mandates Write should never return an error.
 +		panic(err)
 +	}
-+	runtime.KeepAlive(h)
 +	return len(p), nil
 +}
 +
@@ -6966,46 +7086,48 @@ index 00000000000000..d894c07822fa8c
 +}
 +
 +func (h *hashX) WriteByte(c byte) error {
-+	if err := bcrypt.HashDataRaw(h.ctx, &c, 1, 0); err != nil {
++	err := h.withCtx(func(ctx bcrypt.HASH_HANDLE) error {
++		return bcrypt.HashDataRaw(h._ctx, &c, 1, 0)
++	})
++	if err != nil {
 +		// hash.Hash interface mandates Write should never return an error.
 +		panic(err)
 +	}
-+	runtime.KeepAlive(h)
 +	return nil
 +}
 +
 +func (h *hashX) Size() int {
-+	return h.size
++	return int(h.alg.size)
 +}
 +
 +func (h *hashX) BlockSize() int {
-+	return h.blockSize
++	return int(h.alg.blockSize)
 +}
 +
 +func (h *hashX) Sum(in []byte) []byte {
-+	h.sum(h.buf)
-+	return append(in, h.buf...)
-+}
-+
-+func (h *hashX) sum(out []byte) {
 +	var ctx2 bcrypt.HASH_HANDLE
-+	err := bcrypt.DuplicateHash(h.ctx, &ctx2, nil, 0)
++	err := h.withCtx(func(ctx bcrypt.HASH_HANDLE) error {
++		return bcrypt.DuplicateHash(ctx, &ctx2, nil, 0)
++	})
 +	if err != nil {
 +		panic(err)
 +	}
 +	defer bcrypt.DestroyHash(ctx2)
-+	err = bcrypt.FinishHash(ctx2, out, 0)
++	if h.buf == nil {
++		h.buf = make([]byte, h.alg.size)
++	}
++	err = bcrypt.FinishHash(ctx2, h.buf, 0)
 +	if err != nil {
 +		panic(err)
 +	}
-+	runtime.KeepAlive(h)
++	return append(in, h.buf...)
 +}
 diff --git a/src/vendor/github.com/microsoft/go-crypto-winnative/cng/hkdf.go b/src/vendor/github.com/microsoft/go-crypto-winnative/cng/hkdf.go
 new file mode 100644
-index 00000000000000..725fa5c1b45784
+index 00000000000000..6f164ced8a9656
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go-crypto-winnative/cng/hkdf.go
-@@ -0,0 +1,150 @@
+@@ -0,0 +1,179 @@
 +// Copyright (c) Microsoft Corporation.
 +// Licensed under the MIT License.
 +
@@ -7045,45 +7167,74 @@ index 00000000000000..725fa5c1b45784
 +	info []byte
 +
 +	hashLen int
-+	buf     []byte
++	n       int // count of bytes requested from Read
++	// buf contains the derived data.
++	// len(buf) can be larger than n, as Read may derive
++	// more data than requested and cache it in buf.
++	buf []byte
 +}
 +
 +func (c *hkdf) finalize() {
 +	bcrypt.DestroyKey(c.hkey)
 +}
 +
-+func (c *hkdf) Read(p []byte) (int, error) {
++func hkdfDerive(hkey bcrypt.KEY_HANDLE, info, out []byte) (int, error) {
 +	var params *bcrypt.BufferDesc
-+	if len(c.info) > 0 {
++	if len(info) > 0 {
 +		params = &bcrypt.BufferDesc{
 +			Count: 1,
 +			Buffers: &bcrypt.Buffer{
-+				Length: uint32(len(c.info)),
++				Length: uint32(len(info)),
 +				Type:   bcrypt.KDF_HKDF_INFO,
-+				Data:   uintptr(unsafe.Pointer(&c.info[0])),
++				Data:   uintptr(unsafe.Pointer(&info[0])),
 +			},
 +		}
++		defer runtime.KeepAlive(params)
 +	}
++	var n uint32
++	err := bcrypt.KeyDerivation(hkey, params, out, &n, 0)
++	return int(n), err
++}
++
++func (c *hkdf) Read(p []byte) (int, error) {
 +	// KeyDerivation doesn't support incremental output, each call
 +	// derives the key from scratch and returns the requested bytes.
 +	// To implement io.Reader, we need to ask for len(c.buf) + len(p)
 +	// bytes and copy the last derived len(p) bytes to p.
-+	// We use c.buf to know how many bytes we've already derived and
-+	// to avoid allocating the whole output buffer on each call.
-+	prevLen := len(c.buf)
-+	needLen := len(p)
-+	remains := 255*c.hashLen - prevLen
-+	// Check whether enough data can be generated.
-+	if remains < needLen {
++	maxDerived := 255 * c.hashLen
++	totalDerived := c.n + len(p)
++	// Check whether enough data can be derived.
++	if totalDerived > maxDerived {
 +		return 0, errors.New("hkdf: entropy limit reached")
 +	}
-+	c.buf = append(c.buf, make([]byte, needLen)...)
-+	var size uint32
-+	if err := bcrypt.KeyDerivation(c.hkey, params, c.buf, &size, 0); err != nil {
-+		return 0, err
++	// Check whether c.buf already contains enough derived data,
++	// otherwise derive more data.
++	if bytesNeeded := totalDerived - len(c.buf); bytesNeeded > 0 {
++		// It is common to derive multiple equally sized keys from the same HKDF instance.
++		// Optimize this case by allocating a buffer large enough to hold
++		// at least 3 of such keys each time there is not enough data.
++		// Round up to the next multiple of hashLen.
++		blocks := (bytesNeeded-1)/c.hashLen + 1
++		const minBlocks = 3
++		if blocks < minBlocks {
++			blocks = minBlocks
++		}
++		alloc := blocks * c.hashLen
++		if len(c.buf)+alloc > maxDerived {
++			// The buffer can't grow beyond maxDerived.
++			alloc = maxDerived - len(c.buf)
++		}
++		c.buf = append(c.buf, make([]byte, alloc)...)
++		n, err := hkdfDerive(c.hkey, c.info, c.buf)
++		if err != nil {
++			c.buf = c.buf[:c.n]
++			return 0, err
++		}
++		// Adjust totalDerived to the actual number of bytes derived.
++		totalDerived = n
 +	}
-+	runtime.KeepAlive(params)
-+	n := copy(p, c.buf[prevLen:size])
++	n := copy(p, c.buf[c.n:totalDerived])
++	c.n += n
 +	return n, nil
 +}
 +
@@ -7116,7 +7267,7 @@ index 00000000000000..725fa5c1b45784
 +		bcrypt.DestroyKey(kh)
 +		return nil, err
 +	}
-+	k := &hkdf{kh, info, ch.Size(), nil}
++	k := &hkdf{kh, info, ch.Size(), 0, nil}
 +	runtime.SetFinalizer(k, (*hkdf).finalize)
 +	return k, nil
 +}
@@ -7158,10 +7309,10 @@ index 00000000000000..725fa5c1b45784
 +}
 diff --git a/src/vendor/github.com/microsoft/go-crypto-winnative/cng/hmac.go b/src/vendor/github.com/microsoft/go-crypto-winnative/cng/hmac.go
 new file mode 100644
-index 00000000000000..76a80ce8c3bc56
+index 00000000000000..2d9fd36ce7252e
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go-crypto-winnative/cng/hmac.go
-@@ -0,0 +1,55 @@
+@@ -0,0 +1,35 @@
 +// Copyright (c) Microsoft Corporation.
 +// Licensed under the MIT License.
 +
@@ -7175,26 +7326,6 @@ index 00000000000000..76a80ce8c3bc56
 +
 +	"github.com/microsoft/go-crypto-winnative/internal/bcrypt"
 +)
-+
-+// hashToID converts a hash.Hash implementation from this package
-+// to a CNG hash ID
-+func hashToID(h hash.Hash) string {
-+	if _, ok := h.(*hashX); !ok {
-+		return ""
-+	}
-+	var id string
-+	switch h.Size() {
-+	case 20:
-+		id = bcrypt.SHA1_ALGORITHM
-+	case 256 / 8:
-+		id = bcrypt.SHA256_ALGORITHM
-+	case 384 / 8:
-+		id = bcrypt.SHA384_ALGORITHM
-+	case 512 / 8:
-+		id = bcrypt.SHA512_ALGORITHM
-+	}
-+	return id
-+}
 +
 +// NewHMAC returns a new HMAC using BCrypt.
 +// The function h must return a hash implemented by
@@ -7515,6 +7646,73 @@ index 00000000000000..cdd845ab5bea98
 +}
 +
 +const RandReader = randReader(0)
+diff --git a/src/vendor/github.com/microsoft/go-crypto-winnative/cng/rc4.go b/src/vendor/github.com/microsoft/go-crypto-winnative/cng/rc4.go
+new file mode 100644
+index 00000000000000..e0d45070f26723
+--- /dev/null
++++ b/src/vendor/github.com/microsoft/go-crypto-winnative/cng/rc4.go
+@@ -0,0 +1,61 @@
++// Copyright (c) Microsoft Corporation.
++// Licensed under the MIT License.
++
++//go:build windows
++// +build windows
++
++package cng
++
++import (
++	"runtime"
++
++	"github.com/microsoft/go-crypto-winnative/internal/bcrypt"
++	"github.com/microsoft/go-crypto-winnative/internal/subtle"
++)
++
++// A RC4Cipher is an instance of RC4 using a particular key.
++type RC4Cipher struct {
++	kh bcrypt.KEY_HANDLE
++}
++
++// NewRC4Cipher creates and returns a new Cipher.
++func NewRC4Cipher(key []byte) (*RC4Cipher, error) {
++	kh, err := newCipherHandle(bcrypt.RC4_ALGORITHM, "", key)
++	if err != nil {
++		return nil, err
++	}
++	c := &RC4Cipher{kh: kh}
++	runtime.SetFinalizer(c, (*RC4Cipher).finalize)
++	return c, nil
++}
++
++func (c *RC4Cipher) finalize() {
++	if c.kh != 0 {
++		bcrypt.DestroyKey(c.kh)
++	}
++}
++
++// Reset zeros the key data and makes the Cipher unusable.
++func (c *RC4Cipher) Reset() {
++	bcrypt.DestroyKey(c.kh)
++	c.kh = 0
++}
++
++// XORKeyStream sets dst to the result of XORing src with the key stream.
++// Dst and src must overlap entirely or not at all.
++func (c *RC4Cipher) XORKeyStream(dst, src []byte) {
++	if c.kh == 0 || len(src) == 0 {
++		return
++	}
++	if subtle.InexactOverlap(dst[:len(src)], src) {
++		panic("crypto/rc4: invalid buffer overlap")
++	}
++	var outLen uint32
++	if err := bcrypt.Encrypt(c.kh, src, nil, nil, dst, &outLen, 0); err != nil {
++		panic("crypto/rc4: encryption failed: " + err.Error())
++	}
++	if int(outLen) != len(src) {
++		panic("crypto/rc4: src not fully XORed")
++	}
++	runtime.KeepAlive(c)
++}
 diff --git a/src/vendor/github.com/microsoft/go-crypto-winnative/cng/rsa.go b/src/vendor/github.com/microsoft/go-crypto-winnative/cng/rsa.go
 new file mode 100644
 index 00000000000000..7e3f7abe3487cb
@@ -7995,10 +8193,10 @@ index 00000000000000..30ef2242bc3cf3
 +}
 diff --git a/src/vendor/github.com/microsoft/go-crypto-winnative/internal/bcrypt/bcrypt_windows.go b/src/vendor/github.com/microsoft/go-crypto-winnative/internal/bcrypt/bcrypt_windows.go
 new file mode 100644
-index 00000000000000..829ec6611c1d86
+index 00000000000000..37c64ba6a7fa96
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go-crypto-winnative/internal/bcrypt/bcrypt_windows.go
-@@ -0,0 +1,283 @@
+@@ -0,0 +1,284 @@
 +// Copyright (c) Microsoft Corporation.
 +// Licensed under the MIT License.
 +
@@ -8020,6 +8218,7 @@ index 00000000000000..829ec6611c1d86
 +	SHA3_384_ALGORITHM   = "SHA3-384"
 +	SHA3_512_ALGORITHM   = "SHA3-512"
 +	AES_ALGORITHM        = "AES"
++	RC4_ALGORITHM        = "RC4"
 +	RSA_ALGORITHM        = "RSA"
 +	MD4_ALGORITHM        = "MD4"
 +	MD5_ALGORITHM        = "MD5"
@@ -8777,15 +8976,15 @@ index 00000000000000..1722410e5af193
 +	return getSystemDirectory() + "\\" + dll
 +}
 diff --git a/src/vendor/modules.txt b/src/vendor/modules.txt
-index bc4eb872eb8495..1cafbc7fb60d2e 100644
+index bc4eb872eb8495..79c81153f285e5 100644
 --- a/src/vendor/modules.txt
 +++ b/src/vendor/modules.txt
 @@ -1,3 +1,14 @@
-+# github.com/golang-fips/openssl/v2 v2.0.0-rc.3.0.20230926133027-251d5fd9efa6
++# github.com/golang-fips/openssl/v2 v2.0.0-rc.3.0.20231012073833-78dacc36e1ae
 +## explicit; go 1.20
 +github.com/golang-fips/openssl/v2
 +github.com/golang-fips/openssl/v2/bbig
-+# github.com/microsoft/go-crypto-winnative v0.0.0-20230927101859-4de4807139a7
++# github.com/microsoft/go-crypto-winnative v0.0.0-20231013074141-ebaf9de20b54
 +## explicit; go 1.17
 +github.com/microsoft/go-crypto-winnative/cng
 +github.com/microsoft/go-crypto-winnative/cng/bbig
