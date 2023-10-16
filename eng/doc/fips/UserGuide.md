@@ -703,6 +703,10 @@ func Verify(publicKey ed25519.PublicKey, message, sig []byte) bool
 
 Verify reports whether sig is a valid signature of message by publicKey. It will panic if len(publicKey) is not PublicKeySize.
 
+**Requirements**
+
+- Falls back to standard Go code when using OpenSSL 1.1.1a or lower.
+
 **Implementation**
 
 <details><summary>OpenSSL (click for details)</summary>

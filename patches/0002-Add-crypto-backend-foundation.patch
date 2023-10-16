@@ -14,7 +14,7 @@ Subject: [PATCH] Add crypto backend foundation
  src/crypto/ecdsa/ecdsa.go                    |   4 +-
  src/crypto/ecdsa/notboring.go                |   2 +-
  src/crypto/ed25519/boring.go                 |  67 +++++++
- src/crypto/ed25519/ed25519.go                |  48 ++++-
+ src/crypto/ed25519/ed25519.go                |  75 +++++++-
  src/crypto/ed25519/ed25519_test.go           |   2 +-
  src/crypto/ed25519/notboring.go              |  12 ++
  src/crypto/hmac/hmac.go                      |   2 +-
@@ -50,7 +50,7 @@ Subject: [PATCH] Add crypto backend foundation
  src/crypto/tls/prf_test.go                   |  12 +-
  src/go/build/deps_test.go                    |   2 +
  src/runtime/runtime_boring.go                |   5 +
- 46 files changed, 664 insertions(+), 66 deletions(-)
+ 46 files changed, 691 insertions(+), 66 deletions(-)
  create mode 100644 src/crypto/ed25519/boring.go
  create mode 100644 src/crypto/ed25519/notboring.go
  create mode 100644 src/crypto/internal/backend/backend_test.go
@@ -204,7 +204,7 @@ index 039bd82ed21f9f..19188518e85e65 100644
  	panic("boringcrypto: not available")
 diff --git a/src/crypto/ed25519/boring.go b/src/crypto/ed25519/boring.go
 new file mode 100644
-index 00000000000000..b1c1017eddc47a
+index 00000000000000..0620ae327207a3
 --- /dev/null
 +++ b/src/crypto/ed25519/boring.go
 @@ -0,0 +1,67 @@
@@ -276,7 +276,7 @@ index 00000000000000..b1c1017eddc47a
 +	return key, nil
 +}
 diff --git a/src/crypto/ed25519/ed25519.go b/src/crypto/ed25519/ed25519.go
-index 1dda9e5e9a5ab3..511ca7cd1301d2 100644
+index 1dda9e5e9a5ab3..c9fdbf2cfbf1cc 100644
 --- a/src/crypto/ed25519/ed25519.go
 +++ b/src/crypto/ed25519/ed25519.go
 @@ -15,6 +15,7 @@ package ed25519
@@ -287,7 +287,15 @@ index 1dda9e5e9a5ab3..511ca7cd1301d2 100644
  	"crypto/internal/edwards25519"
  	cryptorand "crypto/rand"
  	"crypto/sha512"
-@@ -139,6 +140,22 @@ func GenerateKey(rand io.Reader) (PublicKey, PrivateKey, error) {
+@@ -22,6 +23,7 @@ import (
+ 	"errors"
+ 	"io"
+ 	"strconv"
++	"sync"
+ )
+ 
+ const (
+@@ -139,6 +141,22 @@ func GenerateKey(rand io.Reader) (PublicKey, PrivateKey, error) {
  	if rand == nil {
  		rand = cryptorand.Reader
  	}
@@ -310,7 +318,7 @@ index 1dda9e5e9a5ab3..511ca7cd1301d2 100644
  
  	seed := make([]byte, SeedSize)
  	if _, err := io.ReadFull(rand, seed); err != nil {
-@@ -157,6 +174,17 @@ func GenerateKey(rand io.Reader) (PublicKey, PrivateKey, error) {
+@@ -157,6 +175,17 @@ func GenerateKey(rand io.Reader) (PublicKey, PrivateKey, error) {
  // with RFC 8032. RFC 8032's private keys correspond to seeds in this
  // package.
  func NewKeyFromSeed(seed []byte) PrivateKey {
@@ -328,7 +336,7 @@ index 1dda9e5e9a5ab3..511ca7cd1301d2 100644
  	// Outline the function body so that the returned key can be stack-allocated.
  	privateKey := make([]byte, PrivateKeySize)
  	newKeyFromSeed(privateKey, seed)
-@@ -184,6 +212,17 @@ func newKeyFromSeed(privateKey, seed []byte) {
+@@ -184,6 +213,17 @@ func newKeyFromSeed(privateKey, seed []byte) {
  // Sign signs the message with privateKey and returns a signature. It will
  // panic if len(privateKey) is not [PrivateKeySize].
  func Sign(privateKey PrivateKey, message []byte) []byte {
@@ -346,11 +354,11 @@ index 1dda9e5e9a5ab3..511ca7cd1301d2 100644
  	// Outline the function body so that the returned signature can be
  	// stack-allocated.
  	signature := make([]byte, SignatureSize)
-@@ -259,6 +298,13 @@ func sign(signature, privateKey, message []byte, domPrefix, context string) {
+@@ -259,9 +299,42 @@ func sign(signature, privateKey, message []byte, domPrefix, context string) {
  // Verify reports whether sig is a valid signature of message by publicKey. It
  // will panic if len(publicKey) is not [PublicKeySize].
  func Verify(publicKey PublicKey, message, sig []byte) bool {
-+	if boring.Enabled && boring.SupportsEd25519() {
++	if boring.Enabled && boring.SupportsEd25519() && testMalleability() {
 +		pub, err := boringPublicKey(publicKey)
 +		if err != nil {
 +			return false
@@ -360,7 +368,36 @@ index 1dda9e5e9a5ab3..511ca7cd1301d2 100644
  	return verify(publicKey, message, sig, domPrefixPure, "")
  }
  
-@@ -292,7 +338,7 @@ func VerifyWithOptions(publicKey PublicKey, message, sig []byte, opts *Options)
++// testMalleability returns true if the crypto backend correctly rejects
++// malleable signatures. The only known backend that fails to do so is
++// OpenSSL version 1.1.1a or lower.
++// See https://github.com/openssl/openssl/issues/7693.
++var testMalleability = sync.OnceValue(func() bool {
++	msg := []byte{0x54, 0x65, 0x73, 0x74}
++	sig := []byte{
++		0x7c, 0x38, 0xe0, 0x26, 0xf2, 0x9e, 0x14, 0xaa, 0xbd, 0x05, 0x9a,
++		0x0f, 0x2d, 0xb8, 0xb0, 0xcd, 0x78, 0x30, 0x40, 0x60, 0x9a, 0x8b,
++		0xe6, 0x84, 0xdb, 0x12, 0xf8, 0x2a, 0x27, 0x77, 0x4a, 0xb0, 0x67,
++		0x65, 0x4b, 0xce, 0x38, 0x32, 0xc2, 0xd7, 0x6f, 0x8f, 0x6f, 0x5d,
++		0xaf, 0xc0, 0x8d, 0x93, 0x39, 0xd4, 0xee, 0xf6, 0x76, 0x57, 0x33,
++		0x36, 0xa5, 0xc5, 0x1e, 0xb6, 0xf9, 0x46, 0xb3, 0x1d,
++	}
++	pkey := []byte{
++		0x7d, 0x4d, 0x0e, 0x7f, 0x61, 0x53, 0xa6, 0x9b, 0x62, 0x42, 0xb5,
++		0x22, 0xab, 0xbe, 0xe6, 0x85, 0xfd, 0xa4, 0x42, 0x0f, 0x88, 0x34,
++		0xb1, 0x08, 0xc3, 0xbd, 0xae, 0x36, 0x9e, 0xf5, 0x49, 0xfa,
++	}
++	pub, err := boring.NewPublicKeyEd25119(pkey)
++	if err != nil {
++		return false
++	}
++	return boring.VerifyEd25519(pub, msg, sig) != nil
++})
++
+ // VerifyWithOptions reports whether sig is a valid signature of message by
+ // publicKey. A valid signature is indicated by returning a nil error. It will
+ // panic if len(publicKey) is not [PublicKeySize].
+@@ -292,7 +365,7 @@ func VerifyWithOptions(publicKey PublicKey, message, sig []byte, opts *Options)
  		}
  		return nil
  	case opts.Hash == crypto.Hash(0): // Ed25519
@@ -384,7 +421,7 @@ index 47c8698e2a5945..02eff207ae365a 100644
  	"encoding/hex"
 diff --git a/src/crypto/ed25519/notboring.go b/src/crypto/ed25519/notboring.go
 new file mode 100644
-index 00000000000000..ec914ec68412ad
+index 00000000000000..577c297c1ffe0e
 --- /dev/null
 +++ b/src/crypto/ed25519/notboring.go
 @@ -0,0 +1,12 @@
