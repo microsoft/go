@@ -837,7 +837,7 @@ The rc4.Cipher methods are implemented as follows:
 
 <details><summary>CNG (click for details)</summary>
 
-The cipher is generated using [GenerateSymmetricKey] using the `BCRYPT_RC4_ALGORITHM` mode.
+The cipher is generated using [BCryptGenerateSymmetricKey] using the `BCRYPT_RC4_ALGORITHM` mode.
 
 The rc4.Cipher methods are implemented as follows:
 
