@@ -675,7 +675,7 @@ GenerateKey generates a public/private key pair using entropy from rand. If rand
 
 <details><summary>OpenSSL (click for details)</summary>
 
-`pub` and `priv` are generated using using [EVP_PKEY_keygen] using the `EVP_PKEY_ED25519` algorithm.
+`pub` and `priv` are generated using [EVP_PKEY_keygen] with the `EVP_PKEY_ED25519` algorithm.
 
 </details>
 
@@ -705,13 +705,14 @@ Verify reports whether sig is a valid signature of message by publicKey. It will
 
 **Requirements**
 
-- Falls back to standard Go code when using OpenSSL 1.1.1a or lower.
+- OpenSSL version must be 1.1.1b or higher. Otherwise, falls back to standard Go crypto.
 
 **Implementation**
 
 <details><summary>OpenSSL (click for details)</summary>
 
-`message` is verified against `sig` using [EVP_MD_CTX_new], [DigestVerifyInit] and [EVP_DigestVerify].
+`message` is verified against `sig` using [EVP_MD_CTX_new], [EVP_DigestVerifyInit] and [EVP_DigestVerify].
+
 
 </details>
 
@@ -731,7 +732,8 @@ VerifyWithOptions reports whether sig is a valid signature of message by publicK
 
 <details><summary>OpenSSL (click for details)</summary>
 
-`message` is verified against `sig` using [EVP_MD_CTX_new], [DigestVerifyInit] and [EVP_DigestVerify].
+`message` is verified against `sig` using [EVP_MD_CTX_new], [EVP_DigestVerifyInit] and [EVP_DigestVerify].
+
 
 </details>
 
@@ -747,7 +749,8 @@ NewKeyFromSeed calculates a private key from a seed. It will panic if len(seed) 
 
 <details><summary>OpenSSL (click for details)</summary>
 
-`priv` is generated using using [EVP_PKEY_new_raw_private_key] using the `EVP_PKEY_ED25519` algorithm.
+`priv` is generated using [EVP_PKEY_new_raw_private_key] with the `EVP_PKEY_ED25519` algorithm.
+
 
 </details>
 
@@ -1581,6 +1584,7 @@ When using TLS in FIPS-only mode the TLS handshake has the following restriction
 [EVP_DigestSign]: https://www.openssl.org/docs/man3.0/man3/EVP_DigestSign.html
 [EVP_DigestVerify]: https://www.openssl.org/docs/man3.0/man3/EVP_DigestVerify.html
 [EVP_DigestSign]: https://www.openssl.org/docs/man3.0/man3/EVP_DigestSign.html
+[EVP_DigestSignInit]: https://www.openssl.org/docs/man3.0/man3/EVP_DigestSignInit.html
 [EVP_DigestVerifyInit]: https://www.openssl.org/docs/man3.0/man3/EVP_DigestVerifyInit.html
 [EVP_EncryptFinal_ex]: https://www.openssl.org/docs/man3.0/man3/EVP_EncryptFinal_ex.html
 [EVP_DecryptFinal_ex]: https://www.openssl.org/docs/man3.0/man3/EVP_DecryptFinal_ex.html
