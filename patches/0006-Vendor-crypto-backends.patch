@@ -17,8 +17,8 @@ To reproduce, run 'go mod vendor' in 'go/src'.
  .../github.com/golang-fips/openssl/v2/ec.go   |  59 ++
  .../github.com/golang-fips/openssl/v2/ecdh.go | 323 +++++++
  .../golang-fips/openssl/v2/ecdsa.go           | 217 +++++
- .../golang-fips/openssl/v2/ed25519.go         | 216 +++++
- .../github.com/golang-fips/openssl/v2/evp.go  | 473 +++++++++++
+ .../golang-fips/openssl/v2/ed25519.go         | 218 +++++
+ .../github.com/golang-fips/openssl/v2/evp.go  | 467 +++++++++++
  .../golang-fips/openssl/v2/goopenssl.c        | 218 +++++
  .../golang-fips/openssl/v2/goopenssl.h        | 183 ++++
  .../github.com/golang-fips/openssl/v2/hash.go | 793 ++++++++++++++++++
@@ -60,7 +60,7 @@ To reproduce, run 'go mod vendor' in 'go/src'.
  .../internal/subtle/aliasing.go               |  32 +
  .../internal/sysdll/sys_windows.go            |  55 ++
  src/vendor/modules.txt                        |  11 +
- 55 files changed, 8785 insertions(+)
+ 55 files changed, 8781 insertions(+)
  create mode 100644 src/vendor/github.com/golang-fips/openssl/v2/.gitleaks.toml
  create mode 100644 src/vendor/github.com/golang-fips/openssl/v2/LICENSE
  create mode 100644 src/vendor/github.com/golang-fips/openssl/v2/README.md
@@ -1685,10 +1685,10 @@ index 00000000000000..46b16abf483e65
 +}
 diff --git a/src/vendor/github.com/golang-fips/openssl/v2/ed25519.go b/src/vendor/github.com/golang-fips/openssl/v2/ed25519.go
 new file mode 100644
-index 00000000000000..81961da8e943bc
+index 00000000000000..33e26a5535ddb2
 --- /dev/null
 +++ b/src/vendor/github.com/golang-fips/openssl/v2/ed25519.go
-@@ -0,0 +1,216 @@
+@@ -0,0 +1,218 @@
 +//go:build !cmd_go_bootstrap
 +
 +package openssl
@@ -1776,25 +1776,27 @@ index 00000000000000..81961da8e943bc
 +	return priv, nil
 +}
 +
-+// GenerateKeyEd25519 generates a public/private key pair.
-+func GenerateKeyEd25519() (*PublicKeyEd25519, *PrivateKeyEd25519, error) {
-+	pkeyPriv, err := generateEVPPKey(C.GO_EVP_PKEY_ED25519, 0, "")
-+	if err != nil {
-+		return nil, nil, err
-+	}
++func (k *PrivateKeyEd25519) Public() (*PublicKeyEd25519, error) {
 +	pub := make([]byte, publicKeySizeEd25519)
-+	if err := extractPKEYPubEd25519(pkeyPriv, pub); err != nil {
-+		C.go_openssl_EVP_PKEY_free(pkeyPriv)
-+		return nil, nil, err
++	if err := extractPKEYPubEd25519(k._pkey, pub); err != nil {
++		return nil, err
 +	}
 +	pubk, err := NewPublicKeyEd25119(pub)
 +	if err != nil {
-+		C.go_openssl_EVP_PKEY_free(pkeyPriv)
-+		return nil, nil, err
++		return nil, err
 +	}
-+	privk := &PrivateKeyEd25519{_pkey: pkeyPriv}
-+	runtime.SetFinalizer(privk, (*PrivateKeyEd25519).finalize)
-+	return pubk, privk, nil
++	return pubk, nil
++}
++
++// GenerateKeyEd25519 generates a private key.
++func GenerateKeyEd25519() (*PrivateKeyEd25519, error) {
++	pkeyPriv, err := generateEVPPKey(C.GO_EVP_PKEY_ED25519, 0, "")
++	if err != nil {
++		return nil, err
++	}
++	priv := &PrivateKeyEd25519{_pkey: pkeyPriv}
++	runtime.SetFinalizer(priv, (*PrivateKeyEd25519).finalize)
++	return priv, nil
 +}
 +
 +func NewPrivateKeyEd25119(priv []byte) (*PrivateKeyEd25519, error) {
@@ -1907,10 +1909,10 @@ index 00000000000000..81961da8e943bc
 +}
 diff --git a/src/vendor/github.com/golang-fips/openssl/v2/evp.go b/src/vendor/github.com/golang-fips/openssl/v2/evp.go
 new file mode 100644
-index 00000000000000..3775fa42a41559
+index 00000000000000..68adf7cd627675
 --- /dev/null
 +++ b/src/vendor/github.com/golang-fips/openssl/v2/evp.go
-@@ -0,0 +1,473 @@
+@@ -0,0 +1,467 @@
 +//go:build !cmd_go_bootstrap
 +
 +package openssl
@@ -2122,28 +2124,22 @@ index 00000000000000..3775fa42a41559
 +		if len(label) > 0 {
 +			clabel = (*C.uchar)(cryptoMalloc(len(label)))
 +			copy((*[1 << 30]byte)(unsafe.Pointer(clabel))[:len(label)], label)
-+		}
-+		var err error
-+		if vMajor == 3 {
-+			// Docs say EVP_PKEY_CTX_set0_rsa_oaep_label accepts a null label,
-+			// but it does not: https://github.com/openssl/openssl/issues/21288
-+			if len(label) == 0 {
-+				// cryptoMalloc can't create a zero-length array: use size 1.
-+				clabel = (*C.uchar)(cryptoMalloc(1))
++			var err error
++			if vMajor == 3 {
++				ret := C.go_openssl_EVP_PKEY_CTX_set0_rsa_oaep_label(ctx, unsafe.Pointer(clabel), C.int(len(label)))
++				if ret != 1 {
++					err = newOpenSSLError("EVP_PKEY_CTX_set0_rsa_oaep_label failed")
++				}
++			} else {
++				ret := C.go_openssl_EVP_PKEY_CTX_ctrl(ctx, C.GO_EVP_PKEY_RSA, -1, C.GO_EVP_PKEY_CTRL_RSA_OAEP_LABEL, C.int(len(label)), unsafe.Pointer(clabel))
++				if ret != 1 {
++					err = newOpenSSLError("EVP_PKEY_CTX_ctrl failed")
++				}
 +			}
-+			ret := C.go_openssl_EVP_PKEY_CTX_set0_rsa_oaep_label(ctx, unsafe.Pointer(clabel), C.int(len(label)))
-+			if ret != 1 {
-+				err = newOpenSSLError("EVP_PKEY_CTX_set0_rsa_oaep_label failed")
++			if err != nil {
++				cryptoFree(unsafe.Pointer(clabel))
++				return nil, err
 +			}
-+		} else {
-+			ret := C.go_openssl_EVP_PKEY_CTX_ctrl(ctx, C.GO_EVP_PKEY_RSA, -1, C.GO_EVP_PKEY_CTRL_RSA_OAEP_LABEL, C.int(len(label)), unsafe.Pointer(clabel))
-+			if ret != 1 {
-+				err = newOpenSSLError("EVP_PKEY_CTX_ctrl failed")
-+			}
-+		}
-+		if err != nil {
-+			cryptoFree(unsafe.Pointer(clabel))
-+			return nil, err
 +		}
 +	case C.GO_RSA_PKCS1_PSS_PADDING:
 +		md := cryptoHashToMD(ch)
@@ -9217,11 +9213,11 @@ index 00000000000000..1722410e5af193
 +	return getSystemDirectory() + "\\" + dll
 +}
 diff --git a/src/vendor/modules.txt b/src/vendor/modules.txt
-index bc4eb872eb8495..fcb646c35d9286 100644
+index bc4eb872eb8495..aa6be1b04abb53 100644
 --- a/src/vendor/modules.txt
 +++ b/src/vendor/modules.txt
 @@ -1,3 +1,14 @@
-+# github.com/golang-fips/openssl/v2 v2.0.0-rc.3.0.20231013091736-92d3f16e56cd
++# github.com/golang-fips/openssl/v2 v2.0.0-rc.3.0.20231017103527-08f07a7a41c3
 +## explicit; go 1.20
 +github.com/golang-fips/openssl/v2
 +github.com/golang-fips/openssl/v2/bbig
