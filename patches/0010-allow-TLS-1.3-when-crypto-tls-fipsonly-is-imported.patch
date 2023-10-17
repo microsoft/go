@@ -4,13 +4,13 @@ Date: Mon, 16 Oct 2023 12:04:32 +0000
 Subject: [PATCH] allow TLS 1.3 when crypto/tls/fipsonly is imported
 
 ---
- src/crypto/tls/boring.go                 | 2 +-
- src/crypto/tls/boring_test.go            | 8 +++++---
- src/crypto/tls/cipher_suites.go          | 5 +++++
- src/crypto/tls/handshake_client.go       | 4 +++-
- src/crypto/tls/handshake_client_tls13.go | 4 ----
- src/crypto/tls/handshake_server_tls13.go | 8 +++-----
- 6 files changed, 17 insertions(+), 14 deletions(-)
+ src/crypto/tls/boring.go                 |  2 +-
+ src/crypto/tls/boring_test.go            | 19 ++++++++++++++-----
+ src/crypto/tls/cipher_suites.go          |  5 +++++
+ src/crypto/tls/handshake_client.go       |  4 +++-
+ src/crypto/tls/handshake_client_tls13.go |  4 ----
+ src/crypto/tls/handshake_server_tls13.go |  8 +++-----
+ 6 files changed, 26 insertions(+), 16 deletions(-)
 
 diff --git a/src/crypto/tls/boring.go b/src/crypto/tls/boring.go
 index ecd0f5a7b3e9ed..38d546a607774f 100644
@@ -26,10 +26,10 @@ index ecd0f5a7b3e9ed..38d546a607774f 100644
  
  // default defaultFIPSCurvePreferences is the FIPS-allowed curves,
 diff --git a/src/crypto/tls/boring_test.go b/src/crypto/tls/boring_test.go
-index 86595e588cf604..6c085351e7d33d 100644
+index 86595e588cf604..de90b1860a39be 100644
 --- a/src/crypto/tls/boring_test.go
 +++ b/src/crypto/tls/boring_test.go
-@@ -52,11 +52,11 @@ func TestBoringServerProtocolVersion(t *testing.T) {
+@@ -52,14 +52,14 @@ func TestBoringServerProtocolVersion(t *testing.T) {
  	test("VersionTLS10", VersionTLS10, "client offered only unsupported versions")
  	test("VersionTLS11", VersionTLS11, "client offered only unsupported versions")
  	test("VersionTLS12", VersionTLS12, "")
@@ -42,18 +42,45 @@ index 86595e588cf604..6c085351e7d33d 100644
 +	return v == VersionTLS12 || v == VersionTLS13
  }
  
- func isBoringCipherSuite(id uint16) bool {
-@@ -66,7 +66,9 @@ func isBoringCipherSuite(id uint16) bool {
- 		TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
- 		TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
- 		TLS_RSA_WITH_AES_128_GCM_SHA256,
--		TLS_RSA_WITH_AES_256_GCM_SHA384:
-+		TLS_RSA_WITH_AES_256_GCM_SHA384,
-+		TLS_AES_128_GCM_SHA256,
-+		TLS_AES_256_GCM_SHA384:
- 		return true
- 	}
+-func isBoringCipherSuite(id uint16) bool {
++func isBoringCipherSuiteTLS12(id uint16) bool {
+ 	switch id {
+ 	case TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
+ 		TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
+@@ -72,6 +72,15 @@ func isBoringCipherSuite(id uint16) bool {
  	return false
+ }
+ 
++func isBoringCipherSuiteTLS13(id uint16) bool {
++	switch id {
++	case TLS_AES_128_GCM_SHA256,
++		TLS_AES_256_GCM_SHA384:
++		return true
++	}
++	return false
++}
++
+ func isBoringCurve(id CurveID) bool {
+ 	switch id {
+ 	case CurveP256, CurveP384, CurveP521:
+@@ -136,7 +145,7 @@ func TestBoringServerCipherSuites(t *testing.T) {
+ 				fipstls.Force()
+ 				defer fipstls.Abandon()
+ 				msg := ""
+-				if !isBoringCipherSuite(id) {
++				if !isBoringCipherSuiteTLS12(id) {
+ 					msg = "no cipher suite supported by both client and server"
+ 				}
+ 				testClientHelloFailure(t, serverConfig, clientHello, msg)
+@@ -287,7 +296,7 @@ func TestBoringClientHello(t *testing.T) {
+ 		}
+ 	}
+ 	for _, id := range hello.cipherSuites {
+-		if !isBoringCipherSuite(id) {
++		if !isBoringCipherSuiteTLS12(id) || !isBoringCipherSuiteTLS13(id) {
+ 			t.Errorf("client offered disallowed suite %#x", id)
+ 		}
+ 	}
 diff --git a/src/crypto/tls/cipher_suites.go b/src/crypto/tls/cipher_suites.go
 index 0a6d665ee3096d..b328f06773be5b 100644
 --- a/src/crypto/tls/cipher_suites.go
