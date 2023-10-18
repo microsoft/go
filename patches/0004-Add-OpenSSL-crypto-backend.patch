@@ -14,7 +14,7 @@ Subject: [PATCH] Add OpenSSL crypto backend
  src/crypto/ecdsa/notboring.go                 |   2 +-
  src/crypto/internal/backend/bbig/big.go       |   2 +-
  .../internal/backend/bbig/big_openssl.go      |  12 +
- src/crypto/internal/backend/openssl_linux.go  | 287 ++++++++++++++++++
+ src/crypto/internal/backend/openssl_linux.go  | 316 ++++++++++++++++++
  src/crypto/internal/boring/fipstls/stub.s     |   2 +-
  src/crypto/internal/boring/fipstls/tls.go     |   2 +-
  src/crypto/rsa/boring.go                      |   2 +-
@@ -37,7 +37,7 @@ Subject: [PATCH] Add OpenSSL crypto backend
  .../goexperiment/exp_opensslcrypto_on.go      |   9 +
  src/internal/goexperiment/flags.go            |   1 +
  src/os/exec/exec_test.go                      |   9 +
- 33 files changed, 369 insertions(+), 23 deletions(-)
+ 33 files changed, 398 insertions(+), 23 deletions(-)
  create mode 100644 src/crypto/internal/backend/bbig/big_openssl.go
  create mode 100644 src/crypto/internal/backend/openssl_linux.go
  create mode 100644 src/internal/goexperiment/exp_opensslcrypto_off.go
@@ -190,10 +190,10 @@ index 00000000000000..e6695dd66b1d02
 +var Dec = bbig.Dec
 diff --git a/src/crypto/internal/backend/openssl_linux.go b/src/crypto/internal/backend/openssl_linux.go
 new file mode 100644
-index 00000000000000..ff02e561452aa3
+index 00000000000000..2ff516a44638ac
 --- /dev/null
 +++ b/src/crypto/internal/backend/openssl_linux.go
-@@ -0,0 +1,287 @@
+@@ -0,0 +1,316 @@
 +// Copyright 2017 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -481,6 +481,35 @@ index 00000000000000..ff02e561452aa3
 +type RC4Cipher = openssl.RC4Cipher
 +
 +func NewRC4Cipher(key []byte) (*RC4Cipher, error) { return openssl.NewRC4Cipher(key) }
++
++func SupportsEd25519() bool { return openssl.SupportsEd25519() }
++
++type PublicKeyEd25519 = openssl.PublicKeyEd25519
++type PrivateKeyEd25519 = openssl.PrivateKeyEd25519
++
++func GenerateKeyEd25519() (*PrivateKeyEd25519, error) {
++	return openssl.GenerateKeyEd25519()
++}
++
++func NewPrivateKeyEd25119(priv []byte) (*PrivateKeyEd25519, error) {
++	return openssl.NewPrivateKeyEd25119(priv)
++}
++
++func NewPublicKeyEd25119(pub []byte) (*PublicKeyEd25519, error) {
++	return openssl.NewPublicKeyEd25119(pub)
++}
++
++func NewPrivateKeyEd25519FromSeed(seed []byte) (*PrivateKeyEd25519, error) {
++	return openssl.NewPrivateKeyEd25519FromSeed(seed)
++}
++
++func SignEd25519(priv *PrivateKeyEd25519, message []byte) ([]byte, error) {
++	return openssl.SignEd25519(priv, message)
++}
++
++func VerifyEd25519(pub *PublicKeyEd25519, message, sig []byte) error {
++	return openssl.VerifyEd25519(pub, message, sig)
++}
 diff --git a/src/crypto/internal/boring/fipstls/stub.s b/src/crypto/internal/boring/fipstls/stub.s
 index f2e5a503eaacb6..1dc7116efdff2e 100644
 --- a/src/crypto/internal/boring/fipstls/stub.s
@@ -677,24 +706,24 @@ index c83a7272c9f01f..a0548a7f9179c5 100644
  package x509
  
 diff --git a/src/go.mod b/src/go.mod
-index 8f7dd5c0b69932..0a9f28adb67211 100644
+index 8f7dd5c0b69932..d437d420a0ff10 100644
 --- a/src/go.mod
 +++ b/src/go.mod
 @@ -3,6 +3,7 @@ module std
  go 1.22
  
  require (
-+	github.com/golang-fips/openssl/v2 v2.0.0-rc.3.0.20231013091736-92d3f16e56cd
++	github.com/golang-fips/openssl/v2 v2.0.0-rc.3.0.20231017103527-08f07a7a41c3
  	golang.org/x/crypto v0.14.0
  	golang.org/x/net v0.17.0
  )
 diff --git a/src/go.sum b/src/go.sum
-index 22511da608a07b..afa147f35171de 100644
+index 22511da608a07b..a8a68395888272 100644
 --- a/src/go.sum
 +++ b/src/go.sum
 @@ -1,3 +1,5 @@
-+github.com/golang-fips/openssl/v2 v2.0.0-rc.3.0.20231013091736-92d3f16e56cd h1:+SvJEqhqQ8d/wzyk+xmTgBpHDOYQtnS/F8283hznEAc=
-+github.com/golang-fips/openssl/v2 v2.0.0-rc.3.0.20231013091736-92d3f16e56cd/go.mod h1:7tuBqX2Zov8Yq5mJ2yzlKhpnxOnWyEzi38AzeWRuQdg=
++github.com/golang-fips/openssl/v2 v2.0.0-rc.3.0.20231017103527-08f07a7a41c3 h1:EUdE8vQSqj5vTtLHwomurgliWNAO5A7GpCfUa0S1AtU=
++github.com/golang-fips/openssl/v2 v2.0.0-rc.3.0.20231017103527-08f07a7a41c3/go.mod h1:7tuBqX2Zov8Yq5mJ2yzlKhpnxOnWyEzi38AzeWRuQdg=
  golang.org/x/crypto v0.14.0 h1:wBqGXzWJW6m1XrIKlAH0Hs1JJ7+9KBwnIO8v66Q9cHc=
  golang.org/x/crypto v0.14.0/go.mod h1:MVFd36DqK4CsrnJYDkBA3VC4m2GkXAM0PvzMCn4JQf4=
  golang.org/x/net v0.17.0 h1:pVaXccu2ozPjCXewfr1S7xza/zcXTity9cCdXQYSjIM=

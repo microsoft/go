@@ -652,7 +652,127 @@ The message is signed using [BCryptSignHash].
 
 ### [crypto/ed25519](https://pkg.go.dev/crypto/ed25519)
 
-Not implemented by any backend.
+Package ed25519 implements the Ed25519 signature algorithm. See https://ed25519.cr.yp.to/.
+
+**Requirements**
+
+The CNG backend and some old OpenSSL distributions don't support ED25519.
+In those cases, the code will fall back to standard Go crypto.
+
+#### func [GenerateKey](https://pkg.go.dev/crypto/ed25519#GenerateKey)
+
+```go
+func GenerateKey(rand io.Reader) (pub ed25519.PublicKey, priv ed25519.PrivateKey, error)
+```
+
+GenerateKey generates a public/private key pair using entropy from rand. If rand is nil, crypto/rand.Reader will be used.
+
+**Requirements**
+
+- `rand` must be boring.RandReader or nil, else GenerateKey will panic. `crypto/rand.Reader` normally meets this invariant as it is assigned to boring.RandReader in the crypto/rand init function.
+
+**Implementation**
+
+<details><summary>OpenSSL (click for details)</summary>
+
+`pub` and `priv` are generated using [EVP_PKEY_keygen] with the `EVP_PKEY_ED25519` algorithm.
+
+</details>
+
+#### func [Sign](https://pkg.go.dev/crypto/ed25519#Sign)
+
+```go
+func Sign(privateKey ed25519.PrivateKey, message []byte) []byte
+```
+
+Sign signs the message with privateKey and returns a signature. It will panic if len(privateKey) is not PrivateKeySize.
+
+**Implementation**
+
+<details><summary>OpenSSL (click for details)</summary>
+
+`message` is signed using [EVP_MD_CTX_new], [EVP_DigestSignInit] and [EVP_DigestSign].
+
+</details>
+
+#### func [Verify](https://pkg.go.dev/crypto/ed25519#Verify)
+
+```go
+func Verify(publicKey ed25519.PublicKey, message, sig []byte) bool
+```
+
+Verify reports whether sig is a valid signature of message by publicKey. It will panic if len(publicKey) is not PublicKeySize.
+
+**Requirements**
+
+- OpenSSL version must be 1.1.1b or higher. Otherwise, falls back to standard Go crypto.
+
+**Implementation**
+
+<details><summary>OpenSSL (click for details)</summary>
+
+`message` is verified against `sig` using [EVP_MD_CTX_new], [EVP_DigestVerifyInit] and [EVP_DigestVerify].
+
+
+</details>
+
+#### func [VerifyWithOptions](https://pkg.go.dev/crypto/ed25519#VerifyWithOptions)
+
+```go
+func VerifyWithOptions(publicKey PublicKey, message, sig []byte, opts *Options) error
+```
+
+VerifyWithOptions reports whether sig is a valid signature of message by publicKey. A valid signature is indicated by returning a nil error. It will panic if len(publicKey) is not PublicKeySize.
+
+**Requirements**
+
+- Only `opts.Hash == nil && opts.Context == ""` is implemented using the OpenSSL backend. Other combinations fall back to standard Go code.
+
+**Implementation**
+
+<details><summary>OpenSSL (click for details)</summary>
+
+`message` is verified against `sig` using [EVP_MD_CTX_new], [EVP_DigestVerifyInit] and [EVP_DigestVerify].
+
+
+</details>
+
+#### func [NewKeyFromSeed](https://pkg.go.dev/crypto/ed25519#NewKeyFromSeed)
+
+```go
+func NewKeyFromSeed(seed []byte) (priv ed25519.PrivateKey)
+```
+
+NewKeyFromSeed calculates a private key from a seed. It will panic if len(seed) is not SeedSize.
+
+**Implementation**
+
+<details><summary>OpenSSL (click for details)</summary>
+
+`priv` is generated using [EVP_PKEY_new_raw_private_key] with the `EVP_PKEY_ED25519` algorithm.
+
+
+</details>
+
+#### func [PrivateKey.Sign](https://pkg.go.dev/crypto/ed25519#PrivateKey.Sign)
+
+```go
+func (priv ed25519.PrivateKey) Sign(rand io.Reader, message []byte, opts crypto.SignerOpts) (signature []byte, err error)
+```
+
+Sign signs the given message with `priv`. `rand` is ignored and can be nil.
+
+**Requirements**
+
+- Only `opts.Hash == nil && opts.Context == ""` is implemented using the OpenSSL backend. Other combinations fall back to standard Go code.
+
+**Implementation**
+
+<details><summary>OpenSSL (click for details)</summary>
+
+`message` is signed using [EVP_MD_CTX_new], [EVP_DigestSignInit] and [EVP_DigestSign].
+
+</details>
 
 ### [crypto/elliptic](https://pkg.go.dev/crypto/elliptic)
 
@@ -1454,6 +1574,7 @@ When using TLS in FIPS-only mode the TLS handshake has the following restriction
 [RAND_bytes]: https://www.openssl.org/docs/man3.0/man3/RAND_bytes.html
 [EVP_PKEY]: https://www.openssl.org/docs/man3.0/man3/EVP_PKEY.html
 [EVP_PKEY_new]: https://www.openssl.org/docs/man3.0/man3/EVP_PKEY_new.html
+[EVP_PKEY_new_raw_private_key]: https://www.openssl.org/docs/man3.0/man3/EVP_PKEY_new_raw_private_key.html
 [EVP_PKEY_keygen]: https://www.openssl.org/docs/man3.0/man3/EVP_PKEY_keygen.html
 [EVP_PKEY_sign]: https://www.openssl.org/docs/man3.0/man3/EVP_PKEY_sign.html
 [EVP_PKEY_verify]: https://www.openssl.org/docs/man3.0/man3/EVP_PKEY_verify.html
@@ -1465,6 +1586,11 @@ When using TLS in FIPS-only mode the TLS handshake has the following restriction
 [EVP_DigestFinal]: https://www.openssl.org/docs/man3.0/man3/EVP_DigestFinal.html
 [EVP_DigestInit]: https://www.openssl.org/docs/man3.0/man3/EVP_DigestInit.html
 [EVP_DigestInit_ex]: https://www.openssl.org/docs/man3.0/man3/EVP_DigestInit_ex.html
+[EVP_DigestSign]: https://www.openssl.org/docs/man3.0/man3/EVP_DigestSign.html
+[EVP_DigestVerify]: https://www.openssl.org/docs/man3.0/man3/EVP_DigestVerify.html
+[EVP_DigestSign]: https://www.openssl.org/docs/man3.0/man3/EVP_DigestSign.html
+[EVP_DigestSignInit]: https://www.openssl.org/docs/man3.0/man3/EVP_DigestSignInit.html
+[EVP_DigestVerifyInit]: https://www.openssl.org/docs/man3.0/man3/EVP_DigestVerifyInit.html
 [EVP_EncryptFinal_ex]: https://www.openssl.org/docs/man3.0/man3/EVP_EncryptFinal_ex.html
 [EVP_DecryptFinal_ex]: https://www.openssl.org/docs/man3.0/man3/EVP_DecryptFinal_ex.html
 [EVP_CIPHER_CTX_set_padding]: https://www.openssl.org/docs/man3.0/man3/EVP_CIPHER_CTX_set_padding.html
