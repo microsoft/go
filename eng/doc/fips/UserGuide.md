@@ -48,6 +48,7 @@ The Go crypto documentation is available online at https://pkg.go.dev/crypto.
       - [func Prime](#func-prime)
       - [func Read](#func-read)
     - [crypto/rc4](#cryptorc4)
+      - [func NewCipher](#func-newcipher-1)
     - [crypto/sha1](#cryptosha1)
       - [func New](#func-new-1)
       - [func Sum](#func-sum)
@@ -806,7 +807,44 @@ Read is a helper function that calls rand.Reader.Read using io.ReadFull.
 
 ### [crypto/rc4](https://pkg.go.dev/crypto/rc4)
 
-Not implemented by any backend.
+Package rc4 implements RC4 encryption, as defined in Bruce Schneier's Applied Cryptography.
+
+#### func [NewCipher](https://pkg.go.dev/crypto/rc4#NewCipher)
+
+```go
+func rc4.NewCipher() rc4.Cipher
+```
+
+NewCipher creates and returns a new Cipher. The key argument should be the RC4 key, at least 1 byte and at most 256 bytes.
+
+**Requirements**
+
+Some OpenSSL distributions don't implement RC4, e.g., OpenSSL 1.x compiled with `-DOPENSSL_NO_RC4` and OpenSSL 3.x that can't load the legacy provider.
+In those cases, `rc4.NewCipher()` will fall back to standard Go crypto.
+
+**Implementation**
+
+<details><summary>OpenSSL (click for details)</summary>
+
+The cipher is generated using [EVP_CIPHER_CTX_new] and [EVP_CipherInit_ex] with the cipher type [EVP_rc4].
+
+The rc4.Cipher methods are implemented as follows:
+
+- `Reset` using [EVP_CIPHER_CTX_free].
+- `XORKeyStream` using [EVP_EncryptUpdate].
+
+</details>
+
+<details><summary>CNG (click for details)</summary>
+
+The cipher is generated using [BCryptGenerateSymmetricKey] using the `BCRYPT_RC4_ALGORITHM` mode.
+
+The rc4.Cipher methods are implemented as follows:
+
+- `Reset` using [BCryptDestroyKey].
+- `XORKeyStream` using [BCryptEncrypt].
+
+</details>
 
 ### [crypto/sha1](https://pkg.go.dev/crypto/sha1)
 
@@ -1442,6 +1480,7 @@ When using TLS in FIPS-only mode the TLS handshake has the following restriction
 [EVP_aes_128_cbc]: https://www.openssl.org/docs/man3.0/man3/EVP_aes_128_cbc.html
 [EVP_aes_192_cbc]: https://www.openssl.org/docs/man3.0/man3/EVP_aes_192_cbc.html
 [EVP_aes_256_cbc]: https://www.openssl.org/docs/man3.0/man3/EVP_aes_256_cbc.html
+[EVP_rc4]: https://www.openssl.org/docs/man3.0/man3/EVP_rc4.html
 [EVP_sha1]: https://www.openssl.org/docs/man3.0/man3/EVP_sha1.html
 [EVP_sha224]: https://www.openssl.org/docs/man3.0/man3/EVP_sha224.html
 [EVP_sha256]: https://www.openssl.org/docs/man3.0/man3/EVP_sha256.html
@@ -1455,6 +1494,9 @@ When using TLS in FIPS-only mode the TLS handshake has the following restriction
 [EVP_MAC_init]: https://www.openssl.org/docs/man3.0/man3/EVP_MAC_init.html
 [EVP_MAC_update]: https://www.openssl.org/docs/man3.0/man3/EVP_MAC_update.html
 [EVP_MAC_final]: https://www.openssl.org/docs/man3.0/man3/EVP_MAC_final.html
+[EVP_CIPHER_CTX_new]: https://www.openssl.org/docs/man3.0/man3/EVP_CIPHER_CTX_new.html
+[EVP_CipherInit_ex]: https://www.openssl.org/docs/man3.0/man3/EVP_CipherInit_ex.html
+[EVP_CIPHER_CTX_free]: https://www.openssl.org/docs/man3.0/man3/EVP_CIPHER_CTX_free.html
 
 [algorithm identifier]: https://docs.microsoft.com/en-us/windows/win32/seccng/cng-algorithm-identifiers
 [named elliptic curve]: https://docs.microsoft.com/en-us/windows/win32/seccng/cng-named-elliptic-curves
@@ -1475,3 +1517,4 @@ When using TLS in FIPS-only mode the TLS handshake has the following restriction
 [BCRYPT_PKCS1_PADDING_INFO]: https://docs.microsoft.com/en-us/windows/win32/api/Bcrypt/ns-bcrypt-bcrypt_pkcs1_padding_info
 [BCRYPT_PSS_PADDING_INFO]: https://docs.microsoft.com/en-us/windows/win32/api/Bcrypt/ns-bcrypt-bcrypt_pss_padding_info
 [BCryptDeriveKey]: https://docs.microsoft.com/en-us/windows/win32/api/bcrypt/nf-bcrypt-bcryptderivekey
+[BCryptDestroyKey]: https://docs.microsoft.com/en-us/windows/win32/api/bcrypt/nf-bcrypt-bcryptdestroykey

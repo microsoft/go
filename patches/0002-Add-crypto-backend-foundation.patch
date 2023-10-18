@@ -17,15 +17,16 @@ Subject: [PATCH] Add crypto backend foundation
  src/crypto/hmac/hmac.go                      |   2 +-
  src/crypto/hmac/hmac_test.go                 |   2 +-
  src/crypto/internal/backend/backend_test.go  |  30 ++++
- src/crypto/internal/backend/bbig/big.go      |  17 +++
+ src/crypto/internal/backend/bbig/big.go      |  17 ++
  src/crypto/internal/backend/common.go        |  78 ++++++++++
  src/crypto/internal/backend/isrequirefips.go |   9 ++
- src/crypto/internal/backend/nobackend.go     | 145 +++++++++++++++++++
+ src/crypto/internal/backend/nobackend.go     | 154 +++++++++++++++++++
  src/crypto/internal/backend/norequirefips.go |   9 ++
  src/crypto/internal/backend/stub.s           |  10 ++
  src/crypto/md5/md5.go                        |   7 +
  src/crypto/md5/md5_test.go                   |   4 +
  src/crypto/rand/rand_unix.go                 |   2 +-
+ src/crypto/rc4/rc4.go                        |  18 +++
  src/crypto/rsa/boring.go                     |   4 +-
  src/crypto/rsa/notboring.go                  |   2 +-
  src/crypto/rsa/pkcs1v15.go                   |   2 +-
@@ -39,14 +40,14 @@ Subject: [PATCH] Add crypto backend foundation
  src/crypto/sha512/sha512.go                  |   2 +-
  src/crypto/sha512/sha512_test.go             |   2 +-
  src/crypto/tls/cipher_suites.go              |   2 +-
- src/crypto/tls/handshake_client.go           |  25 +++-
- src/crypto/tls/handshake_server.go           |  25 +++-
+ src/crypto/tls/handshake_client.go           |  25 ++-
+ src/crypto/tls/handshake_server.go           |  25 ++-
  src/crypto/tls/key_schedule.go               |  18 ++-
  src/crypto/tls/prf.go                        |  77 +++++++---
  src/crypto/tls/prf_test.go                   |  12 +-
  src/go/build/deps_test.go                    |   2 +
  src/runtime/runtime_boring.go                |   5 +
- 42 files changed, 473 insertions(+), 65 deletions(-)
+ 43 files changed, 500 insertions(+), 65 deletions(-)
  create mode 100644 src/crypto/internal/backend/backend_test.go
  create mode 100644 src/crypto/internal/backend/bbig/big.go
  create mode 100644 src/crypto/internal/backend/common.go
@@ -395,10 +396,10 @@ index 00000000000000..e5d7570d6d4363
 +const isRequireFIPS = true
 diff --git a/src/crypto/internal/backend/nobackend.go b/src/crypto/internal/backend/nobackend.go
 new file mode 100644
-index 00000000000000..275a6078f90514
+index 00000000000000..f45f2fe76d54f1
 --- /dev/null
 +++ b/src/crypto/internal/backend/nobackend.go
-@@ -0,0 +1,145 @@
+@@ -0,0 +1,154 @@
 +// Copyright 2017 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -544,6 +545,15 @@ index 00000000000000..275a6078f90514
 +func NewDESCipher(key []byte) (cipher.Block, error) { panic("cryptobackend: not available") }
 +
 +func NewTripleDESCipher(key []byte) (cipher.Block, error) { panic("cryptobackend: not available") }
++
++func SupportsRC4() bool { panic("cryptobackend: not available") }
++
++type RC4Cipher struct{}
++
++func (c *RC4Cipher) Reset()                       { panic("cryptobackend: not available") }
++func (c *RC4Cipher) XORKeyStream(dst, src []byte) { panic("cryptobackend: not available") }
++
++func NewRC4Cipher(key []byte) (*RC4Cipher, error) { panic("cryptobackend: not available") }
 diff --git a/src/crypto/internal/backend/norequirefips.go b/src/crypto/internal/backend/norequirefips.go
 new file mode 100644
 index 00000000000000..26bfb5f6a643f3
@@ -642,6 +652,63 @@ index 40fce36314adfa..1d6231ae91d5ae 100644
  	"errors"
  	"io"
  	"os"
+diff --git a/src/crypto/rc4/rc4.go b/src/crypto/rc4/rc4.go
+index f08da0e469cd07..b3e7db0413ed72 100644
+--- a/src/crypto/rc4/rc4.go
++++ b/src/crypto/rc4/rc4.go
+@@ -11,6 +11,7 @@ package rc4
+ 
+ import (
+ 	"crypto/internal/alias"
++	boring "crypto/internal/backend"
+ 	"strconv"
+ )
+ 
+@@ -18,6 +19,8 @@ import (
+ type Cipher struct {
+ 	s    [256]uint32
+ 	i, j uint8
++
++	boring *boring.RC4Cipher
+ }
+ 
+ type KeySizeError int
+@@ -33,6 +36,13 @@ func NewCipher(key []byte) (*Cipher, error) {
+ 	if k < 1 || k > 256 {
+ 		return nil, KeySizeError(k)
+ 	}
++	if boring.Enabled && boring.SupportsRC4() {
++		c, err := boring.NewRC4Cipher(key)
++		if err != nil {
++			return nil, err
++		}
++		return &Cipher{boring: c}, nil
++	}
+ 	var c Cipher
+ 	for i := 0; i < 256; i++ {
+ 		c.s[i] = uint32(i)
+@@ -50,6 +60,10 @@ func NewCipher(key []byte) (*Cipher, error) {
+ // Deprecated: Reset can't guarantee that the key will be entirely removed from
+ // the process's memory.
+ func (c *Cipher) Reset() {
++	if boring.Enabled && boring.SupportsRC4() {
++		c.boring.Reset()
++		return
++	}
+ 	for i := range c.s {
+ 		c.s[i] = 0
+ 	}
+@@ -59,6 +73,10 @@ func (c *Cipher) Reset() {
+ // XORKeyStream sets dst to the result of XORing src with the key stream.
+ // Dst and src must overlap entirely or not at all.
+ func (c *Cipher) XORKeyStream(dst, src []byte) {
++	if boring.Enabled && boring.SupportsRC4() {
++		c.boring.XORKeyStream(dst, src)
++		return
++	}
+ 	if len(src) == 0 {
+ 		return
+ 	}
 diff --git a/src/crypto/rsa/boring.go b/src/crypto/rsa/boring.go
 index b9f9d3154f2589..ecb43aaf264743 100644
 --- a/src/crypto/rsa/boring.go
