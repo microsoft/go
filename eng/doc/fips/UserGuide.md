@@ -91,7 +91,7 @@ As a general rule, crypto APIs will delegate low-level operations to the crypto 
 - The operation is supported by the crypto backend.
 - The set of input parameters are supported by the crypto backend.
 
-If any of the previous rules are not met, the operation will fall back to standard Go crypto unless otherwise specified. Standard Go crypto will behave as expected but is not FIPS compliant.
+If any of the previous rules are not met, the operation will fall back to standard Go crypto unless otherwise specified. Standard Go crypto will behave as expected but is not FIPS compliant. There is not yet any way to configure the crypto APIs to panic instead of falling back to standard Go crypto. See [microsoft/go#428](https://github.com/microsoft/go/issues/428).
 
 When reading the requirements section, the key word "must" is to be interpreted as a necessary condition to use the given API in a FIPS compliant manner.
 
