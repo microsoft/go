@@ -12,7 +12,7 @@ Subject: [PATCH] Add CNG crypto backend
  src/crypto/internal/backend/backend_test.go   |   4 +-
  src/crypto/internal/backend/bbig/big.go       |   2 +-
  src/crypto/internal/backend/bbig/big_cng.go   |  12 +
- src/crypto/internal/backend/cng_windows.go    | 205 ++++++++++++++++++
+ src/crypto/internal/backend/cng_windows.go    | 209 ++++++++++++++++++
  src/crypto/internal/backend/common.go         |  38 +++-
  src/crypto/internal/backend/nobackend.go      |   2 +-
  src/crypto/internal/boring/fipstls/stub.s     |   2 +-
@@ -49,7 +49,7 @@ Subject: [PATCH] Add CNG crypto backend
  .../goexperiment/exp_cngcrypto_off.go         |   9 +
  src/internal/goexperiment/exp_cngcrypto_on.go |   9 +
  src/internal/goexperiment/flags.go            |   1 +
- 45 files changed, 405 insertions(+), 47 deletions(-)
+ 45 files changed, 409 insertions(+), 47 deletions(-)
  create mode 100644 src/crypto/internal/backend/bbig/big_cng.go
  create mode 100644 src/crypto/internal/backend/cng_windows.go
  create mode 100644 src/internal/goexperiment/exp_cngcrypto_off.go
@@ -168,10 +168,10 @@ index 00000000000000..92623031fd87d0
 +var Dec = bbig.Dec
 diff --git a/src/crypto/internal/backend/cng_windows.go b/src/crypto/internal/backend/cng_windows.go
 new file mode 100644
-index 00000000000000..9d1bbf010c0fb6
+index 00000000000000..80cc3651c0f225
 --- /dev/null
 +++ b/src/crypto/internal/backend/cng_windows.go
-@@ -0,0 +1,205 @@
+@@ -0,0 +1,209 @@
 +// Copyright 2017 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -257,6 +257,10 @@ index 00000000000000..9d1bbf010c0fb6
 +
 +func NewGCMTLS(c cipher.Block) (cipher.AEAD, error) {
 +	return cng.NewGCMTLS(c)
++}
++
++func NewGCMTLS13(c cipher.Block) (cipher.AEAD, error) {
++	return cng.NewGCMTLS13(c)
 +}
 +
 +type PublicKeyECDSA = cng.PublicKeyECDSA
@@ -446,7 +450,7 @@ index 007d8070538247..114f72c3d10ee4 100644
 +	return !goexperiment.CNGCrypto
 +}
 diff --git a/src/crypto/internal/backend/nobackend.go b/src/crypto/internal/backend/nobackend.go
-index fcdea7f8ab5a9d..503e49212f972c 100644
+index 649867fe4414a4..48c4bcbbe5b2e5 100644
 --- a/src/crypto/internal/backend/nobackend.go
 +++ b/src/crypto/internal/backend/nobackend.go
 @@ -2,7 +2,7 @@
@@ -916,7 +920,7 @@ index 2fef7ddae07480..979e4c69ab710c 100644
  
  		h := New()
 diff --git a/src/crypto/tls/boring.go b/src/crypto/tls/boring.go
-index 70baa62d63754a..ecd0f5a7b3e9ed 100644
+index 9ee834e5a5952b..5444d9b0fc0942 100644
 --- a/src/crypto/tls/boring.go
 +++ b/src/crypto/tls/boring.go
 @@ -2,7 +2,7 @@
@@ -929,7 +933,7 @@ index 70baa62d63754a..ecd0f5a7b3e9ed 100644
  package tls
  
 diff --git a/src/crypto/tls/boring_test.go b/src/crypto/tls/boring_test.go
-index 929111d8679cc2..3e63ba6a053c42 100644
+index e2543f53d77990..b2b4a57ea1d195 100644
 --- a/src/crypto/tls/boring_test.go
 +++ b/src/crypto/tls/boring_test.go
 @@ -2,7 +2,7 @@
@@ -968,7 +972,7 @@ index 9c1d3d279c472f..0ca7a863b73690 100644
  package fipsonly
  
 diff --git a/src/crypto/tls/handshake_server_tls13.go b/src/crypto/tls/handshake_server_tls13.go
-index b7b568cd84ac80..d1c5780533bf6a 100644
+index bf592f22c74862..2980ff58e65d31 100644
 --- a/src/crypto/tls/handshake_server_tls13.go
 +++ b/src/crypto/tls/handshake_server_tls13.go
 @@ -13,6 +13,7 @@ import (
@@ -979,7 +983,7 @@ index b7b568cd84ac80..d1c5780533bf6a 100644
  	"io"
  	"time"
  )
-@@ -343,6 +344,15 @@ func cloneHash(in hash.Hash, h crypto.Hash) hash.Hash {
+@@ -342,6 +343,15 @@ func cloneHash(in hash.Hash, h crypto.Hash) hash.Hash {
  	}
  	marshaler, ok := in.(binaryMarshaler)
  	if !ok {
@@ -996,7 +1000,7 @@ index b7b568cd84ac80..d1c5780533bf6a 100644
  	}
  	state, err := marshaler.MarshalBinary()
 diff --git a/src/crypto/tls/notboring.go b/src/crypto/tls/notboring.go
-index 1aaabd5ef486aa..5a133c9b2f94c7 100644
+index cae24d19c9f444..7625ccb867dd92 100644
 --- a/src/crypto/tls/notboring.go
 +++ b/src/crypto/tls/notboring.go
 @@ -2,7 +2,7 @@
@@ -1009,7 +1013,7 @@ index 1aaabd5ef486aa..5a133c9b2f94c7 100644
  package tls
  
 diff --git a/src/crypto/x509/boring.go b/src/crypto/x509/boring.go
-index 9aec21dbcd3bff..05324f731bedc4 100644
+index e4086bd90feb83..674990c63c0539 100644
 --- a/src/crypto/x509/boring.go
 +++ b/src/crypto/x509/boring.go
 @@ -2,7 +2,7 @@
@@ -1048,26 +1052,26 @@ index a0548a7f9179c5..ae6117a1554b7f 100644
  package x509
  
 diff --git a/src/go.mod b/src/go.mod
-index a6aa641e8ca024..e267b55d07af47 100644
+index ea439ef9245f35..73288becb9d706 100644
 --- a/src/go.mod
 +++ b/src/go.mod
 @@ -4,6 +4,7 @@ go 1.20
  
  require (
- 	github.com/microsoft/go-crypto-openssl v0.2.8
-+	github.com/microsoft/go-crypto-winnative v0.0.0-20230125071228-ef6c7cb780c6
+ 	github.com/microsoft/go-crypto-openssl v0.2.9-0.20240110181346-cf2e349f6f4f
++	github.com/microsoft/go-crypto-winnative v0.0.0-20240109184443-a968e40d3103
  	golang.org/x/crypto v0.3.1-0.20221117191849-2c476679df9a
  	golang.org/x/net v0.4.1-0.20231027154331-b8c2abfc1559
  )
 diff --git a/src/go.sum b/src/go.sum
-index 9f22fa9f954901..e6dffe246212cc 100644
+index 3d29523d5345ac..9cf3b6d28b1671 100644
 --- a/src/go.sum
 +++ b/src/go.sum
 @@ -1,5 +1,7 @@
- github.com/microsoft/go-crypto-openssl v0.2.8 h1:16B6DVeBCimOAG0B92PSySOnVDq6Qr/siI3TyyMHXoI=
- github.com/microsoft/go-crypto-openssl v0.2.8/go.mod h1:xOSmQnWz4xvNB2+KQN2g2UUwMG9vqDHBk9nk/NdmyRw=
-+github.com/microsoft/go-crypto-winnative v0.0.0-20230125071228-ef6c7cb780c6 h1:6DT0+Xkuu2MOaGrK41ATNUB4AhqUVq1/wWcOsCTAkck=
-+github.com/microsoft/go-crypto-winnative v0.0.0-20230125071228-ef6c7cb780c6/go.mod h1:fveERXKbeK+XLmOyU24caKnIT/S5nniAX9XCRHfnrM4=
+ github.com/microsoft/go-crypto-openssl v0.2.9-0.20240110181346-cf2e349f6f4f h1:HRNz2SIk2d4O4KVVzzrLNvwefELKnlAeKMgS5RMPZ9A=
+ github.com/microsoft/go-crypto-openssl v0.2.9-0.20240110181346-cf2e349f6f4f/go.mod h1:xOSmQnWz4xvNB2+KQN2g2UUwMG9vqDHBk9nk/NdmyRw=
++github.com/microsoft/go-crypto-winnative v0.0.0-20240109184443-a968e40d3103 h1:KQsPPal3pKvKzAPTaR7sEriaqrHmRWw0dWG/7E5FNNk=
++github.com/microsoft/go-crypto-winnative v0.0.0-20240109184443-a968e40d3103/go.mod h1:fveERXKbeK+XLmOyU24caKnIT/S5nniAX9XCRHfnrM4=
  golang.org/x/crypto v0.3.1-0.20221117191849-2c476679df9a h1:diz9pEYuTIuLMJLs3rGDkeaTsNyRs6duYdFyPAxzE/U=
  golang.org/x/crypto v0.3.1-0.20221117191849-2c476679df9a/go.mod h1:hebNnKkNXi2UzZN1eVRvBB7co0a+JxK6XbPiWVs/3J4=
  golang.org/x/net v0.4.1-0.20231027154331-b8c2abfc1559 h1:ZYA0bvgfxBB+JecyQpRCT/HUR/bSwdk6OJUhJ3CNLxg=

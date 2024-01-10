@@ -16,7 +16,7 @@ Subject: [PATCH] Add OpenSSL crypto backend
  src/crypto/internal/backend/bbig/big.go       |   2 +-
  .../internal/backend/bbig/big_openssl.go      |  12 ++
  src/crypto/internal/backend/nobackend.go      |   2 +-
- src/crypto/internal/backend/openssl_linux.go  | 203 ++++++++++++++++++
+ src/crypto/internal/backend/openssl_linux.go  | 204 ++++++++++++++++++
  src/crypto/internal/boring/fipstls/stub.s     |   2 +-
  src/crypto/internal/boring/fipstls/tls.go     |   2 +-
  src/crypto/rsa/boring.go                      |   2 +-
@@ -38,7 +38,7 @@ Subject: [PATCH] Add OpenSSL crypto backend
  .../goexperiment/exp_opensslcrypto_on.go      |   9 +
  src/internal/goexperiment/flags.go            |   1 +
  src/os/exec/exec_test.go                      |   9 +
- 34 files changed, 296 insertions(+), 25 deletions(-)
+ 34 files changed, 297 insertions(+), 25 deletions(-)
  create mode 100644 src/crypto/internal/backend/bbig/big_openssl.go
  create mode 100644 src/crypto/internal/backend/openssl_linux.go
  create mode 100644 src/internal/goexperiment/exp_opensslcrypto_off.go
@@ -222,7 +222,7 @@ index 00000000000000..61ef3fdd90b607
 +var Enc = bbig.Enc
 +var Dec = bbig.Dec
 diff --git a/src/crypto/internal/backend/nobackend.go b/src/crypto/internal/backend/nobackend.go
-index 5cbd86907a135b..fcdea7f8ab5a9d 100644
+index 6a6b9dad8ea47e..649867fe4414a4 100644
 --- a/src/crypto/internal/backend/nobackend.go
 +++ b/src/crypto/internal/backend/nobackend.go
 @@ -2,7 +2,7 @@
@@ -236,10 +236,10 @@ index 5cbd86907a135b..fcdea7f8ab5a9d 100644
  
 diff --git a/src/crypto/internal/backend/openssl_linux.go b/src/crypto/internal/backend/openssl_linux.go
 new file mode 100644
-index 00000000000000..68ea43ea892e1d
+index 00000000000000..f6378d6b9977d3
 --- /dev/null
 +++ b/src/crypto/internal/backend/openssl_linux.go
-@@ -0,0 +1,203 @@
+@@ -0,0 +1,204 @@
 +// Copyright 2017 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -346,6 +346,7 @@ index 00000000000000..68ea43ea892e1d
 +
 +func NewAESCipher(key []byte) (cipher.Block, error) { return openssl.NewAESCipher(key) }
 +func NewGCMTLS(c cipher.Block) (cipher.AEAD, error) { return openssl.NewGCMTLS(c) }
++func NewGCMTLS13(c cipher.Block) (cipher.AEAD, error) { return openssl.NewGCMTLS13(c) }
 +
 +type PublicKeyECDSA = openssl.PublicKeyECDSA
 +type PrivateKeyECDSA = openssl.PrivateKeyECDSA
@@ -523,7 +524,7 @@ index 95f4b8e98d2fb0..3bb307e7bddc48 100644
  
  	msg := []byte{0xed, 0x36, 0x90, 0x8d, 0xbe, 0xfc, 0x35, 0x40, 0x70, 0x4f, 0xf5, 0x9d, 0x6e, 0xc2, 0xeb, 0xf5, 0x27, 0xae, 0x65, 0xb0, 0x59, 0x29, 0x45, 0x25, 0x8c, 0xc1, 0x91, 0x22}
 diff --git a/src/crypto/tls/boring.go b/src/crypto/tls/boring.go
-index 1827f764589b58..70baa62d63754a 100644
+index aad96b1c747784..9ee834e5a5952b 100644
 --- a/src/crypto/tls/boring.go
 +++ b/src/crypto/tls/boring.go
 @@ -2,7 +2,7 @@
@@ -536,7 +537,7 @@ index 1827f764589b58..70baa62d63754a 100644
  package tls
  
 diff --git a/src/crypto/tls/boring_test.go b/src/crypto/tls/boring_test.go
-index ba68f355eb037c..929111d8679cc2 100644
+index 96dfc93e286f4c..e2543f53d77990 100644
 --- a/src/crypto/tls/boring_test.go
 +++ b/src/crypto/tls/boring_test.go
 @@ -2,7 +2,7 @@
@@ -575,7 +576,7 @@ index f8485dc3ca1c29..9c1d3d279c472f 100644
  package fipsonly
  
 diff --git a/src/crypto/tls/notboring.go b/src/crypto/tls/notboring.go
-index 7d85b39c59319e..1aaabd5ef486aa 100644
+index edccb44d87a553..cae24d19c9f444 100644
 --- a/src/crypto/tls/notboring.go
 +++ b/src/crypto/tls/notboring.go
 @@ -2,7 +2,7 @@
@@ -588,7 +589,7 @@ index 7d85b39c59319e..1aaabd5ef486aa 100644
  package tls
  
 diff --git a/src/crypto/x509/boring.go b/src/crypto/x509/boring.go
-index 095b58c31590d4..9aec21dbcd3bff 100644
+index e6237e96bb3b17..e4086bd90feb83 100644
 --- a/src/crypto/x509/boring.go
 +++ b/src/crypto/x509/boring.go
 @@ -2,7 +2,7 @@
@@ -627,24 +628,24 @@ index c83a7272c9f01f..a0548a7f9179c5 100644
  package x509
  
 diff --git a/src/go.mod b/src/go.mod
-index 7a15940c8896b0..a6aa641e8ca024 100644
+index 7a15940c8896b0..ea439ef9245f35 100644
 --- a/src/go.mod
 +++ b/src/go.mod
 @@ -3,6 +3,7 @@ module std
  go 1.20
  
  require (
-+	github.com/microsoft/go-crypto-openssl v0.2.8
++	github.com/microsoft/go-crypto-openssl v0.2.9-0.20240110181346-cf2e349f6f4f
  	golang.org/x/crypto v0.3.1-0.20221117191849-2c476679df9a
  	golang.org/x/net v0.4.1-0.20231027154331-b8c2abfc1559
  )
 diff --git a/src/go.sum b/src/go.sum
-index 3ab018e39e5512..9f22fa9f954901 100644
+index 3ab018e39e5512..3d29523d5345ac 100644
 --- a/src/go.sum
 +++ b/src/go.sum
 @@ -1,3 +1,5 @@
-+github.com/microsoft/go-crypto-openssl v0.2.8 h1:16B6DVeBCimOAG0B92PSySOnVDq6Qr/siI3TyyMHXoI=
-+github.com/microsoft/go-crypto-openssl v0.2.8/go.mod h1:xOSmQnWz4xvNB2+KQN2g2UUwMG9vqDHBk9nk/NdmyRw=
++github.com/microsoft/go-crypto-openssl v0.2.9-0.20240110181346-cf2e349f6f4f h1:HRNz2SIk2d4O4KVVzzrLNvwefELKnlAeKMgS5RMPZ9A=
++github.com/microsoft/go-crypto-openssl v0.2.9-0.20240110181346-cf2e349f6f4f/go.mod h1:xOSmQnWz4xvNB2+KQN2g2UUwMG9vqDHBk9nk/NdmyRw=
  golang.org/x/crypto v0.3.1-0.20221117191849-2c476679df9a h1:diz9pEYuTIuLMJLs3rGDkeaTsNyRs6duYdFyPAxzE/U=
  golang.org/x/crypto v0.3.1-0.20221117191849-2c476679df9a/go.mod h1:hebNnKkNXi2UzZN1eVRvBB7co0a+JxK6XbPiWVs/3J4=
  golang.org/x/net v0.4.1-0.20231027154331-b8c2abfc1559 h1:ZYA0bvgfxBB+JecyQpRCT/HUR/bSwdk6OJUhJ3CNLxg=

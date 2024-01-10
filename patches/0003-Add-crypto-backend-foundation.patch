@@ -15,11 +15,11 @@ Subject: [PATCH] Add crypto backend foundation
  src/crypto/ed25519/ed25519_test.go          |   2 +-
  src/crypto/hmac/hmac.go                     |   2 +-
  src/crypto/hmac/hmac_test.go                |   2 +-
- src/crypto/internal/backend/backend_test.go |  30 ++++++
+ src/crypto/internal/backend/backend_test.go |  30 +++++
  src/crypto/internal/backend/bbig/big.go     |  17 +++
  src/crypto/internal/backend/common.go       |  65 +++++++++++
  src/crypto/internal/backend/iscgo.go        |  10 ++
- src/crypto/internal/backend/nobackend.go    | 114 ++++++++++++++++++++
+ src/crypto/internal/backend/nobackend.go    | 115 ++++++++++++++++++++
  src/crypto/internal/backend/nocgo.go        |  10 ++
  src/crypto/internal/backend/stub.s          |  10 ++
  src/crypto/rand/rand_unix.go                |   2 +-
@@ -38,7 +38,7 @@ Subject: [PATCH] Add crypto backend foundation
  src/crypto/tls/cipher_suites.go             |   2 +-
  src/go/build/deps_test.go                   |   2 +
  src/runtime/runtime_boring.go               |   5 +
- 34 files changed, 292 insertions(+), 29 deletions(-)
+ 34 files changed, 293 insertions(+), 29 deletions(-)
  create mode 100644 src/crypto/internal/backend/backend_test.go
  create mode 100644 src/crypto/internal/backend/bbig/big.go
  create mode 100644 src/crypto/internal/backend/common.go
@@ -128,7 +128,7 @@ index 275c60b4de49eb..61e70f981db4eb 100644
  	"math/big"
  )
 diff --git a/src/crypto/ecdsa/ecdsa.go b/src/crypto/ecdsa/ecdsa.go
-index 68272af41fc137..a4ed9c19f4f78d 100644
+index 03a9a72ddd8cf8..166fe0b7bde07d 100644
 --- a/src/crypto/ecdsa/ecdsa.go
 +++ b/src/crypto/ecdsa/ecdsa.go
 @@ -26,9 +26,9 @@ import (
@@ -343,10 +343,10 @@ index 00000000000000..1e0d3cf8c18b55
 +const iscgo = true
 diff --git a/src/crypto/internal/backend/nobackend.go b/src/crypto/internal/backend/nobackend.go
 new file mode 100644
-index 00000000000000..5cbd86907a135b
+index 00000000000000..6a6b9dad8ea47e
 --- /dev/null
 +++ b/src/crypto/internal/backend/nobackend.go
-@@ -0,0 +1,114 @@
+@@ -0,0 +1,115 @@
 +// Copyright 2017 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -387,6 +387,7 @@ index 00000000000000..5cbd86907a135b
 +
 +func NewAESCipher(key []byte) (cipher.Block, error) { panic("cryptobackend: not available") }
 +func NewGCMTLS(c cipher.Block) (cipher.AEAD, error) { panic("cryptobackend: not available") }
++func NewGCMTLS13(c cipher.Block) (cipher.AEAD, error) { panic("cryptobackend: not available") }
 +
 +type PublicKeyECDSA struct{ _ int }
 +type PrivateKeyECDSA struct{ _ int }
@@ -561,7 +562,7 @@ index f7d23b55ef811a..f2f2a64ed35e23 100644
  	"hash"
  	"io"
 diff --git a/src/crypto/rsa/rsa.go b/src/crypto/rsa/rsa.go
-index 11f87e8e4973e3..512e4a4d6616e5 100644
+index 63bc8dad1aa964..a4de095f38417b 100644
 --- a/src/crypto/rsa/rsa.go
 +++ b/src/crypto/rsa/rsa.go
 @@ -27,9 +27,9 @@ package rsa
@@ -668,7 +669,7 @@ index 921cdbb7bbd477..2fef7ddae07480 100644
  	"encoding"
  	"encoding/hex"
 diff --git a/src/crypto/tls/cipher_suites.go b/src/crypto/tls/cipher_suites.go
-index 04e6dfe0189b47..68598961fda6e4 100644
+index 197930dc5c0751..2c8e8f63f53c1a 100644
 --- a/src/crypto/tls/cipher_suites.go
 +++ b/src/crypto/tls/cipher_suites.go
 @@ -10,7 +10,7 @@ import (
@@ -681,7 +682,7 @@ index 04e6dfe0189b47..68598961fda6e4 100644
  	"crypto/sha1"
  	"crypto/sha256"
 diff --git a/src/go/build/deps_test.go b/src/go/build/deps_test.go
-index 08452c7b1d27f4..40f53b1ea43d02 100644
+index 1ec6ee7c27a4a1..c7255cba9a5bc5 100644
 --- a/src/go/build/deps_test.go
 +++ b/src/go/build/deps_test.go
 @@ -399,6 +399,7 @@ var depsRules = `
