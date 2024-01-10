@@ -14,7 +14,7 @@ Subject: [PATCH] Add crypto backend foundation
  src/crypto/ecdsa/ecdsa.go                    |   4 +-
  src/crypto/ecdsa/notboring.go                |   2 +-
  src/crypto/ed25519/boring.go                 |  71 +++++++
- src/crypto/ed25519/ed25519.go                |  75 +++++++-
+ src/crypto/ed25519/ed25519.go                |  75 ++++++-
  src/crypto/ed25519/ed25519_test.go           |   2 +-
  src/crypto/ed25519/notboring.go              |  16 ++
  src/crypto/hmac/hmac.go                      |   2 +-
@@ -23,7 +23,7 @@ Subject: [PATCH] Add crypto backend foundation
  src/crypto/internal/backend/bbig/big.go      |  17 ++
  src/crypto/internal/backend/common.go        |  78 ++++++++
  src/crypto/internal/backend/isrequirefips.go |   9 +
- src/crypto/internal/backend/nobackend.go     | 192 +++++++++++++++++++
+ src/crypto/internal/backend/nobackend.go     | 193 +++++++++++++++++++
  src/crypto/internal/backend/norequirefips.go |   9 +
  src/crypto/internal/backend/stub.s           |  10 +
  src/crypto/md5/md5.go                        |   7 +
@@ -50,7 +50,7 @@ Subject: [PATCH] Add crypto backend foundation
  src/crypto/tls/prf_test.go                   |  12 +-
  src/go/build/deps_test.go                    |   2 +
  src/runtime/runtime_boring.go                |   5 +
- 46 files changed, 699 insertions(+), 66 deletions(-)
+ 46 files changed, 700 insertions(+), 66 deletions(-)
  create mode 100644 src/crypto/ed25519/boring.go
  create mode 100644 src/crypto/ed25519/notboring.go
  create mode 100644 src/crypto/internal/backend/backend_test.go
@@ -631,10 +631,10 @@ index 00000000000000..e5d7570d6d4363
 +const isRequireFIPS = true
 diff --git a/src/crypto/internal/backend/nobackend.go b/src/crypto/internal/backend/nobackend.go
 new file mode 100644
-index 00000000000000..db9ec456db705e
+index 00000000000000..08600a2c833ac7
 --- /dev/null
 +++ b/src/crypto/internal/backend/nobackend.go
-@@ -0,0 +1,192 @@
+@@ -0,0 +1,193 @@
 +// Copyright 2017 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -682,6 +682,7 @@ index 00000000000000..db9ec456db705e
 +
 +func NewAESCipher(key []byte) (cipher.Block, error) { panic("cryptobackend: not available") }
 +func NewGCMTLS(c cipher.Block) (cipher.AEAD, error) { panic("cryptobackend: not available") }
++func NewGCMTLS13(c cipher.Block) (cipher.AEAD, error) { panic("cryptobackend: not available") }
 +
 +type PublicKeyECDSA struct{ _ int }
 +type PrivateKeyECDSA struct{ _ int }
@@ -926,7 +927,7 @@ index 40fce36314adfa..1d6231ae91d5ae 100644
  	"io"
  	"os"
 diff --git a/src/crypto/rc4/rc4.go b/src/crypto/rc4/rc4.go
-index f08da0e469cd07..b3e7db0413ed72 100644
+index 67452ec39f0fd4..47726d0ebe38d9 100644
 --- a/src/crypto/rc4/rc4.go
 +++ b/src/crypto/rc4/rc4.go
 @@ -11,6 +11,7 @@ package rc4
@@ -1144,7 +1145,7 @@ index 921cdbb7bbd477..2fef7ddae07480 100644
  	"encoding"
  	"encoding/hex"
 diff --git a/src/crypto/tls/cipher_suites.go b/src/crypto/tls/cipher_suites.go
-index 3f976c9c58b7f3..ed47943e9c6e8d 100644
+index 636689beb4dcef..7c732805725cd8 100644
 --- a/src/crypto/tls/cipher_suites.go
 +++ b/src/crypto/tls/cipher_suites.go
 @@ -10,7 +10,7 @@ import (
@@ -1157,10 +1158,10 @@ index 3f976c9c58b7f3..ed47943e9c6e8d 100644
  	"crypto/sha1"
  	"crypto/sha256"
 diff --git a/src/crypto/tls/handshake_client.go b/src/crypto/tls/handshake_client.go
-index 4649f36dea6773..f96b2b28862234 100644
+index 89004c28989627..eafbb221c07a33 100644
 --- a/src/crypto/tls/handshake_client.go
 +++ b/src/crypto/tls/handshake_client.go
-@@ -653,12 +653,16 @@ func (hs *clientHandshakeState) doFullHandshake() error {
+@@ -659,12 +659,16 @@ func (hs *clientHandshakeState) doFullHandshake() error {
  
  	if hs.serverHello.extendedMasterSecret {
  		c.extMasterSecret = true
@@ -1179,7 +1180,7 @@ index 4649f36dea6773..f96b2b28862234 100644
  	if err := c.config.writeKeyLog(keyLogLabelTLS12, hs.hello.random, hs.masterSecret); err != nil {
  		c.sendAlert(alertInternalError)
  		return errors.New("tls: failed to write to key log: " + err.Error())
-@@ -719,8 +723,12 @@ func (hs *clientHandshakeState) doFullHandshake() error {
+@@ -725,8 +729,12 @@ func (hs *clientHandshakeState) doFullHandshake() error {
  func (hs *clientHandshakeState) establishKeys() error {
  	c := hs.c
  
@@ -1193,7 +1194,7 @@ index 4649f36dea6773..f96b2b28862234 100644
  	var clientCipher, serverCipher any
  	var clientHash, serverHash hash.Hash
  	if hs.suite.cipher != nil {
-@@ -860,7 +868,11 @@ func (hs *clientHandshakeState) readFinished(out []byte) error {
+@@ -866,7 +874,11 @@ func (hs *clientHandshakeState) readFinished(out []byte) error {
  		return unexpectedMessageError(serverFinished, msg)
  	}
  
@@ -1206,7 +1207,7 @@ index 4649f36dea6773..f96b2b28862234 100644
  	if len(verify) != len(serverFinished.verifyData) ||
  		subtle.ConstantTimeCompare(verify, serverFinished.verifyData) != 1 {
  		c.sendAlert(alertHandshakeFailure)
-@@ -930,7 +942,10 @@ func (hs *clientHandshakeState) sendFinished(out []byte) error {
+@@ -936,7 +948,10 @@ func (hs *clientHandshakeState) sendFinished(out []byte) error {
  	}
  
  	finished := new(finishedMsg)
@@ -1219,10 +1220,10 @@ index 4649f36dea6773..f96b2b28862234 100644
  		return err
  	}
 diff --git a/src/crypto/tls/handshake_server.go b/src/crypto/tls/handshake_server.go
-index 996b23b1f52341..0c645ead0adba3 100644
+index 8129e9c6164af9..816d316a7d5329 100644
 --- a/src/crypto/tls/handshake_server.go
 +++ b/src/crypto/tls/handshake_server.go
-@@ -668,12 +668,16 @@ func (hs *serverHandshakeState) doFullHandshake() error {
+@@ -676,12 +676,16 @@ func (hs *serverHandshakeState) doFullHandshake() error {
  	}
  	if hs.hello.extendedMasterSecret {
  		c.extMasterSecret = true
@@ -1241,7 +1242,7 @@ index 996b23b1f52341..0c645ead0adba3 100644
  	if err := c.config.writeKeyLog(keyLogLabelTLS12, hs.clientHello.random, hs.masterSecret); err != nil {
  		c.sendAlert(alertInternalError)
  		return err
-@@ -737,8 +741,12 @@ func (hs *serverHandshakeState) doFullHandshake() error {
+@@ -745,8 +749,12 @@ func (hs *serverHandshakeState) doFullHandshake() error {
  func (hs *serverHandshakeState) establishKeys() error {
  	c := hs.c
  
@@ -1255,7 +1256,7 @@ index 996b23b1f52341..0c645ead0adba3 100644
  
  	var clientCipher, serverCipher any
  	var clientHash, serverHash hash.Hash
-@@ -779,7 +787,11 @@ func (hs *serverHandshakeState) readFinished(out []byte) error {
+@@ -787,7 +795,11 @@ func (hs *serverHandshakeState) readFinished(out []byte) error {
  		return unexpectedMessageError(clientFinished, msg)
  	}
  
@@ -1268,7 +1269,7 @@ index 996b23b1f52341..0c645ead0adba3 100644
  	if len(verify) != len(clientFinished.verifyData) ||
  		subtle.ConstantTimeCompare(verify, clientFinished.verifyData) != 1 {
  		c.sendAlert(alertHandshakeFailure)
-@@ -843,7 +855,10 @@ func (hs *serverHandshakeState) sendFinished(out []byte) error {
+@@ -851,7 +863,10 @@ func (hs *serverHandshakeState) sendFinished(out []byte) error {
  	}
  
  	finished := new(finishedMsg)
@@ -1317,7 +1318,7 @@ index d7f082c9ee1e04..14a85fbf1bd465 100644
  }
  
 diff --git a/src/crypto/tls/prf.go b/src/crypto/tls/prf.go
-index 20bac96e86703b..c47391f684dc6f 100644
+index a7fa3370e66c82..3470372b567eba 100644
 --- a/src/crypto/tls/prf.go
 +++ b/src/crypto/tls/prf.go
 @@ -7,6 +7,7 @@ package tls
@@ -1485,7 +1486,7 @@ index 20bac96e86703b..c47391f684dc6f 100644
  }
  
  // hashForClientCertificate returns the handshake messages so far, pre-hashed if
-@@ -286,7 +313,11 @@ func ekmFromMasterSecret(version uint16, suite *cipherSuite, masterSecret, clien
+@@ -293,7 +320,11 @@ func ekmFromMasterSecret(version uint16, suite *cipherSuite, masterSecret, clien
  		}
  
  		keyMaterial := make([]byte, length)
@@ -1527,10 +1528,10 @@ index 8233985a62bd22..f46d4636557714 100644
  		serverMACString := hex.EncodeToString(serverMAC)
  		clientKeyString := hex.EncodeToString(clientKey)
 diff --git a/src/go/build/deps_test.go b/src/go/build/deps_test.go
-index fcd5e939980f52..f10ecff5168acc 100644
+index 7ce8d346b406ae..3dd2595b34b07b 100644
 --- a/src/go/build/deps_test.go
 +++ b/src/go/build/deps_test.go
-@@ -428,6 +428,7 @@ var depsRules = `
+@@ -439,6 +439,7 @@ var depsRules = `
  	crypto/cipher,
  	crypto/internal/boring/bcache
  	< crypto/internal/boring
@@ -1538,7 +1539,7 @@ index fcd5e939980f52..f10ecff5168acc 100644
  	< crypto/boring;
  
  	crypto/internal/alias
-@@ -461,6 +462,7 @@ var depsRules = `
+@@ -472,6 +473,7 @@ var depsRules = `
  	# CRYPTO-MATH is core bignum-based crypto - no cgo, net; fmt now ok.
  	CRYPTO, FMT, math/big
  	< crypto/internal/boring/bbig

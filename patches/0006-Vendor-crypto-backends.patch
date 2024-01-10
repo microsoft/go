@@ -8,10 +8,10 @@ To reproduce, run 'go mod vendor' in 'go/src'.
  .../golang-fips/openssl/v2/.gitleaks.toml     |   9 +
  .../github.com/golang-fips/openssl/v2/LICENSE |  20 +
  .../golang-fips/openssl/v2/README.md          |  66 ++
- .../github.com/golang-fips/openssl/v2/aes.go  |  90 ++
+ .../github.com/golang-fips/openssl/v2/aes.go  | 100 +++
  .../golang-fips/openssl/v2/bbig/big.go        |  37 +
  .../github.com/golang-fips/openssl/v2/big.go  |  11 +
- .../golang-fips/openssl/v2/cipher.go          | 534 ++++++++++++
+ .../golang-fips/openssl/v2/cipher.go          | 582 +++++++++++++
  .../github.com/golang-fips/openssl/v2/des.go  | 113 +++
  .../github.com/golang-fips/openssl/v2/ec.go   |  59 ++
  .../github.com/golang-fips/openssl/v2/ecdh.go | 323 +++++++
@@ -37,7 +37,7 @@ To reproduce, run 'go mod vendor' in 'go/src'.
  .../openssl/v2/thread_setup_windows.c         |  33 +
  .../golang-fips/openssl/v2/tls1prf.go         | 104 +++
  .../microsoft/go-crypto-winnative/LICENSE     |  21 +
- .../microsoft/go-crypto-winnative/cng/aes.go  | 331 ++++++++
+ .../microsoft/go-crypto-winnative/cng/aes.go  | 389 +++++++++
  .../go-crypto-winnative/cng/bbig/big.go       |  31 +
  .../microsoft/go-crypto-winnative/cng/big.go  |  30 +
  .../go-crypto-winnative/cng/cipher.go         |  56 ++
@@ -59,7 +59,7 @@ To reproduce, run 'go mod vendor' in 'go/src'.
  .../internal/subtle/aliasing.go               |  32 +
  .../internal/sysdll/sys_windows.go            |  55 ++
  src/vendor/modules.txt                        |  11 +
- 54 files changed, 8796 insertions(+)
+ 54 files changed, 8912 insertions(+)
  create mode 100644 src/vendor/github.com/golang-fips/openssl/v2/.gitleaks.toml
  create mode 100644 src/vendor/github.com/golang-fips/openssl/v2/LICENSE
  create mode 100644 src/vendor/github.com/golang-fips/openssl/v2/README.md
@@ -230,10 +230,10 @@ index 00000000000000..ba6289ecff86d0
 +This project adopts the Go code of conduct: https://go.dev/conduct.
 diff --git a/src/vendor/github.com/golang-fips/openssl/v2/aes.go b/src/vendor/github.com/golang-fips/openssl/v2/aes.go
 new file mode 100644
-index 00000000000000..1fc11f00cdd704
+index 00000000000000..231b75e2adbc39
 --- /dev/null
 +++ b/src/vendor/github.com/golang-fips/openssl/v2/aes.go
-@@ -0,0 +1,90 @@
+@@ -0,0 +1,100 @@
 +//go:build !cmd_go_bootstrap
 +
 +package openssl
@@ -283,6 +283,12 @@ index 00000000000000..1fc11f00cdd704
 +	return c.(*aesCipher).NewGCMTLS()
 +}
 +
++// NewGCMTLS13 returns a GCM cipher specific to TLS 1.3 and should not be used
++// for non-TLS purposes.
++func NewGCMTLS13(c cipher.Block) (cipher.AEAD, error) {
++	return c.(*aesCipher).NewGCMTLS13()
++}
++
 +type aesCipher struct {
 +	*evpCipher
 +}
@@ -322,7 +328,11 @@ index 00000000000000..1fc11f00cdd704
 +}
 +
 +func (c *aesCipher) NewGCMTLS() (cipher.AEAD, error) {
-+	return c.newGCM(true)
++	return c.newGCM(cipherGCMTLS12)
++}
++
++func (c *aesCipher) NewGCMTLS13() (cipher.AEAD, error) {
++	return c.newGCM(cipherGCMTLS13)
 +}
 diff --git a/src/vendor/github.com/golang-fips/openssl/v2/bbig/big.go b/src/vendor/github.com/golang-fips/openssl/v2/bbig/big.go
 new file mode 100644
@@ -386,10 +396,10 @@ index 00000000000000..6461f241f863fc
 +type BigInt []uint
 diff --git a/src/vendor/github.com/golang-fips/openssl/v2/cipher.go b/src/vendor/github.com/golang-fips/openssl/v2/cipher.go
 new file mode 100644
-index 00000000000000..b56de6a74e51fc
+index 00000000000000..ddaadfa8897c25
 --- /dev/null
 +++ b/src/vendor/github.com/golang-fips/openssl/v2/cipher.go
-@@ -0,0 +1,534 @@
+@@ -0,0 +1,582 @@
 +//go:build !cmd_go_bootstrap
 +
 +package openssl
@@ -704,17 +714,39 @@ index 00000000000000..b56de6a74e51fc
 +	C.go_openssl_EVP_CIPHER_CTX_free(c.ctx)
 +}
 +
++type cipherGCMTLS uint8
++
++const (
++	cipherGCMTLSNone cipherGCMTLS = iota
++	cipherGCMTLS12
++	cipherGCMTLS13
++)
++
 +type cipherGCM struct {
-+	ctx          C.GO_EVP_CIPHER_CTX_PTR
-+	tls          bool
++	ctx C.GO_EVP_CIPHER_CTX_PTR
++	tls cipherGCMTLS
++	// minNextNonce is the minimum value that the next nonce can be, enforced by
++	// all TLS modes.
 +	minNextNonce uint64
-+	blockSize    int
++	// mask is the nonce mask used in TLS 1.3 mode.
++	mask uint64
++	// maskInitialized is true if mask has been initialized. This happens during
++	// the first Seal. The initialized mask may be 0. Used by TLS 1.3 mode.
++	maskInitialized bool
++	blockSize       int
 +}
 +
 +const (
 +	gcmTagSize           = 16
 +	gcmStandardNonceSize = 12
-+	gcmTlsAddSize        = 13
++	// TLS 1.2 additional data is constructed as:
++	//
++	//     additional_data = seq_num(8) + TLSCompressed.type(1) + TLSCompressed.version(2) + TLSCompressed.length(2);
++	gcmTls12AddSize = 13
++	// TLS 1.3 additional data is constructed as:
++	//
++	//     additional_data = TLSCiphertext.opaque_type(1) || TLSCiphertext.legacy_record_version(2) || TLSCiphertext.length(2)
++	gcmTls13AddSize      = 5
 +	gcmTlsFixedNonceSize = 4
 +)
 +
@@ -745,10 +777,10 @@ index 00000000000000..b56de6a74e51fc
 +	if tagSize != gcmTagSize {
 +		return cipher.NewGCMWithTagSize(&noGCM{c}, tagSize)
 +	}
-+	return c.newGCM(false)
++	return c.newGCM(cipherGCMTLSNone)
 +}
 +
-+func (c *evpCipher) newGCM(tls bool) (cipher.AEAD, error) {
++func (c *evpCipher) newGCM(tls cipherGCMTLS) (cipher.AEAD, error) {
 +	ctx, err := newCipherCtx(c.kind, cipherModeGCM, cipherOpNone, c.key, nil)
 +	if err != nil {
 +		return nil, err
@@ -780,15 +812,41 @@ index 00000000000000..b56de6a74e51fc
 +	if len(dst)+len(plaintext)+gcmTagSize < len(dst) {
 +		panic("cipher: message too large for buffer")
 +	}
-+	if g.tls {
-+		if len(additionalData) != gcmTlsAddSize {
-+			panic("cipher: incorrect additional data length given to GCM TLS")
++	if g.tls != cipherGCMTLSNone {
++		if g.tls == cipherGCMTLS12 && len(additionalData) != gcmTls12AddSize {
++			panic("cipher: incorrect additional data length given to GCM TLS 1.2")
++		} else if g.tls == cipherGCMTLS13 && len(additionalData) != gcmTls13AddSize {
++			panic("cipher: incorrect additional data length given to GCM TLS 1.3")
++		}
++		counter := binary.BigEndian.Uint64(nonce[gcmTlsFixedNonceSize:])
++		if g.tls == cipherGCMTLS13 {
++			// In TLS 1.3, the counter in the nonce has a mask and requires
++			// further decoding.
++			if !g.maskInitialized {
++				// According to TLS 1.3 nonce construction details at
++				// https://tools.ietf.org/html/rfc8446#section-5.3:
++				//
++				//   the first record transmitted under a particular traffic
++				//   key MUST use sequence number 0.
++				//
++				//   The padded sequence number is XORed with [a mask].
++				//
++				//   The resulting quantity (of length iv_length) is used as
++				//   the per-record nonce.
++				//
++				// We need to convert from the given nonce to sequence numbers
++				// to keep track of minNextNonce and enforce the counter
++				// maximum. On the first call, we know counter^mask is 0^mask,
++				// so we can simply store it as the mask.
++				g.mask = counter
++				g.maskInitialized = true
++			}
++			counter ^= g.mask
 +		}
 +		// BoringCrypto enforces strictly monotonically increasing explicit nonces
 +		// and to fail after 2^64 - 1 keys as per FIPS 140-2 IG A.5,
 +		// but OpenSSL does not perform this check, so it is implemented here.
 +		const maxUint64 = 1<<64 - 1
-+		counter := binary.BigEndian.Uint64(nonce[gcmTlsFixedNonceSize:])
 +		if counter == maxUint64 {
 +			panic("cipher: nonce counter must be less than 2^64 - 1")
 +		}
@@ -5874,10 +5932,10 @@ index 00000000000000..9e841e7a26e4eb
 +    SOFTWARE
 diff --git a/src/vendor/github.com/microsoft/go-crypto-winnative/cng/aes.go b/src/vendor/github.com/microsoft/go-crypto-winnative/cng/aes.go
 new file mode 100644
-index 00000000000000..bf68ece6a306e1
+index 00000000000000..7fda49a773097a
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go-crypto-winnative/cng/aes.go
-@@ -0,0 +1,331 @@
+@@ -0,0 +1,389 @@
 +// Copyright (c) Microsoft Corporation.
 +// Licensed under the MIT License.
 +
@@ -5986,7 +6044,7 @@ index 00000000000000..bf68ece6a306e1
 +	if tagSize != gcmTagSize {
 +		return cipher.NewGCMWithTagSize(&noGCM{c}, tagSize)
 +	}
-+	return newGCM(c.key, false)
++	return newGCM(c.key, cipherGCMTLSNone)
 +}
 +
 +// NewGCMTLS returns a GCM cipher specific to TLS
@@ -5996,7 +6054,17 @@ index 00000000000000..bf68ece6a306e1
 +}
 +
 +func (c *aesCipher) NewGCMTLS() (cipher.AEAD, error) {
-+	return newGCM(c.key, true)
++	return newGCM(c.key, cipherGCMTLS12)
++}
++
++// NewGCMTLS13 returns a GCM cipher specific to TLS 1.3 and should not be used
++// for non-TLS purposes.
++func NewGCMTLS13(c cipher.Block) (cipher.AEAD, error) {
++	return c.(*aesCipher).NewGCMTLS13()
++}
++
++func (c *aesCipher) NewGCMTLS13() (cipher.AEAD, error) {
++	return newGCM(c.key, cipherGCMTLS13)
 +}
 +
 +type cbcCipher struct {
@@ -6073,21 +6141,43 @@ index 00000000000000..bf68ece6a306e1
 +const (
 +	gcmTagSize           = 16
 +	gcmStandardNonceSize = 12
-+	gcmTlsAddSize        = 13
++	// TLS 1.2 additional data is constructed as:
++	//
++	//     additional_data = seq_num(8) + TLSCompressed.type(1) + TLSCompressed.version(2) + TLSCompressed.length(2);
++	gcmTls12AddSize = 13
++	// TLS 1.3 additional data is constructed as:
++	//
++	//     additional_data = TLSCiphertext.opaque_type(1) || TLSCiphertext.legacy_record_version(2) || TLSCiphertext.length(2)
++	gcmTls13AddSize      = 5
 +	gcmTlsFixedNonceSize = 4
 +)
 +
++type cipherGCMTLS uint8
++
++const (
++	cipherGCMTLSNone cipherGCMTLS = iota
++	cipherGCMTLS12
++	cipherGCMTLS13
++)
++
 +type aesGCM struct {
-+	kh           bcrypt.KEY_HANDLE
-+	tls          bool
++	kh  bcrypt.KEY_HANDLE
++	tls cipherGCMTLS
++	// minNextNonce is the minimum value that the next nonce can be, enforced by
++	// all TLS modes.
 +	minNextNonce uint64
++	// mask is the nonce mask used in TLS 1.3 mode.
++	mask uint64
++	// maskInitialized is true if mask has been initialized. This happens during
++	// the first Seal. The initialized mask may be 0. Used by TLS 1.3 mode.
++	maskInitialized bool
 +}
 +
 +func (g *aesGCM) finalize() {
 +	bcrypt.DestroyKey(g.kh)
 +}
 +
-+func newGCM(key []byte, tls bool) (*aesGCM, error) {
++func newGCM(key []byte, tls cipherGCMTLS) (*aesGCM, error) {
 +	kh, err := newCipherHandle(bcrypt.AES_ALGORITHM, bcrypt.CHAIN_MODE_GCM, key)
 +	if err != nil {
 +		return nil, err
@@ -6115,15 +6205,41 @@ index 00000000000000..bf68ece6a306e1
 +	if len(dst)+len(plaintext)+gcmTagSize < len(dst) {
 +		panic("cipher: message too large for buffer")
 +	}
-+	if g.tls {
-+		if len(additionalData) != gcmTlsAddSize {
-+			panic("cipher: incorrect additional data length given to GCM TLS")
++	if g.tls != cipherGCMTLSNone {
++		if g.tls == cipherGCMTLS12 && len(additionalData) != gcmTls12AddSize {
++			panic("cipher: incorrect additional data length given to GCM TLS 1.2")
++		} else if g.tls == cipherGCMTLS13 && len(additionalData) != gcmTls13AddSize {
++			panic("cipher: incorrect additional data length given to GCM TLS 1.3")
++		}
++		counter := bigUint64(nonce[gcmTlsFixedNonceSize:])
++		if g.tls == cipherGCMTLS13 {
++			// In TLS 1.3, the counter in the nonce has a mask and requires
++			// further decoding.
++			if !g.maskInitialized {
++				// According to TLS 1.3 nonce construction details at
++				// https://tools.ietf.org/html/rfc8446#section-5.3:
++				//
++				//   the first record transmitted under a particular traffic
++				//   key MUST use sequence number 0.
++				//
++				//   The padded sequence number is XORed with [a mask].
++				//
++				//   The resulting quantity (of length iv_length) is used as
++				//   the per-record nonce.
++				//
++				// We need to convert from the given nonce to sequence numbers
++				// to keep track of minNextNonce and enforce the counter
++				// maximum. On the first call, we know counter^mask is 0^mask,
++				// so we can simply store it as the mask.
++				g.mask = counter
++				g.maskInitialized = true
++			}
++			counter ^= g.mask
 +		}
 +		// BoringCrypto enforces strictly monotonically increasing explicit nonces
 +		// and to fail after 2^64 - 1 keys as per FIPS 140-2 IG A.5,
 +		// but BCrypt does not perform this check, so it is implemented here.
 +		const maxUint64 = 1<<64 - 1
-+		counter := bigUint64(nonce[gcmTlsFixedNonceSize:])
 +		if counter == maxUint64 {
 +			panic("cipher: nonce counter must be less than 2^64 - 1")
 +		}
@@ -9220,15 +9336,15 @@ index 00000000000000..1722410e5af193
 +	return getSystemDirectory() + "\\" + dll
 +}
 diff --git a/src/vendor/modules.txt b/src/vendor/modules.txt
-index 338c496bf95ad7..e24146c6f0dab3 100644
+index 338c496bf95ad7..69b3ecdd2947c9 100644
 --- a/src/vendor/modules.txt
 +++ b/src/vendor/modules.txt
 @@ -1,3 +1,14 @@
-+# github.com/golang-fips/openssl/v2 v2.0.0-rc.3.0.20231108174110-41b6eb24da28
++# github.com/golang-fips/openssl/v2 v2.0.0-rc.3.0.20240109234540-66bdd798d334
 +## explicit; go 1.20
 +github.com/golang-fips/openssl/v2
 +github.com/golang-fips/openssl/v2/bbig
-+# github.com/microsoft/go-crypto-winnative v0.0.0-20231013074141-ebaf9de20b54
++# github.com/microsoft/go-crypto-winnative v0.0.0-20240109184443-a968e40d3103
 +## explicit; go 1.17
 +github.com/microsoft/go-crypto-winnative/cng
 +github.com/microsoft/go-crypto-winnative/cng/bbig
