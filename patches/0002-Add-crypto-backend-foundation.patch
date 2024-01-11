@@ -19,7 +19,7 @@ Subject: [PATCH] Add crypto backend foundation
  src/crypto/internal/backend/bbig/big.go      |  17 +++
  src/crypto/internal/backend/common.go        |  78 +++++++++++++
  src/crypto/internal/backend/isrequirefips.go |   9 ++
- src/crypto/internal/backend/nobackend.go     | 116 +++++++++++++++++++
+ src/crypto/internal/backend/nobackend.go     | 117 +++++++++++++++++++
  src/crypto/internal/backend/norequirefips.go |   9 ++
  src/crypto/internal/backend/stub.s           |  10 ++
  src/crypto/rand/rand_unix.go                 |   2 +-
@@ -38,7 +38,7 @@ Subject: [PATCH] Add crypto backend foundation
  src/crypto/tls/cipher_suites.go              |   2 +-
  src/go/build/deps_test.go                    |   2 +
  src/runtime/runtime_boring.go                |   5 +
- 34 files changed, 305 insertions(+), 29 deletions(-)
+ 34 files changed, 306 insertions(+), 29 deletions(-)
  create mode 100644 src/crypto/internal/backend/backend_test.go
  create mode 100644 src/crypto/internal/backend/bbig/big.go
  create mode 100644 src/crypto/internal/backend/common.go
@@ -87,7 +87,7 @@ index 097c37e343fdb8..1cf43edba40359 100644
  // Enabled reports whether BoringCrypto handles supported crypto operations.
  func Enabled() bool {
 diff --git a/src/crypto/ecdh/ecdh.go b/src/crypto/ecdh/ecdh.go
-index 74420559b5892f..bfe1309011fe2b 100644
+index b86f5217878251..a48043a044f309 100644
 --- a/src/crypto/ecdh/ecdh.go
 +++ b/src/crypto/ecdh/ecdh.go
 @@ -8,7 +8,7 @@ package ecdh
@@ -128,7 +128,7 @@ index 275c60b4de49eb..61e70f981db4eb 100644
  	"math/big"
  )
 diff --git a/src/crypto/ecdsa/ecdsa.go b/src/crypto/ecdsa/ecdsa.go
-index 1c93cefdbf247e..5a2118de2f16e9 100644
+index e1503779ae421c..e8f8b85fdac62e 100644
 --- a/src/crypto/ecdsa/ecdsa.go
 +++ b/src/crypto/ecdsa/ecdsa.go
 @@ -26,9 +26,9 @@ import (
@@ -355,10 +355,10 @@ index 00000000000000..e5d7570d6d4363
 +const isRequireFIPS = true
 diff --git a/src/crypto/internal/backend/nobackend.go b/src/crypto/internal/backend/nobackend.go
 new file mode 100644
-index 00000000000000..ad6081552af15d
+index 00000000000000..2f0f2d986f752f
 --- /dev/null
 +++ b/src/crypto/internal/backend/nobackend.go
-@@ -0,0 +1,116 @@
+@@ -0,0 +1,117 @@
 +// Copyright 2017 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -401,6 +401,7 @@ index 00000000000000..ad6081552af15d
 +
 +func NewAESCipher(key []byte) (cipher.Block, error) { panic("cryptobackend: not available") }
 +func NewGCMTLS(c cipher.Block) (cipher.AEAD, error) { panic("cryptobackend: not available") }
++func NewGCMTLS13(c cipher.Block) (cipher.AEAD, error) { panic("cryptobackend: not available") }
 +
 +type PublicKeyECDSA struct{ _ int }
 +type PrivateKeyECDSA struct{ _ int }
@@ -548,7 +549,7 @@ index 2abc0436405f8a..34c22c8fbba7da 100644
  func boringPublicKey(*PublicKey) (*boring.PublicKeyRSA, error) {
  	panic("boringcrypto: not available")
 diff --git a/src/crypto/rsa/pkcs1v15.go b/src/crypto/rsa/pkcs1v15.go
-index 489555358d0600..81c319d200a27a 100644
+index 55fea1ab93d29a..05357064930a92 100644
 --- a/src/crypto/rsa/pkcs1v15.go
 +++ b/src/crypto/rsa/pkcs1v15.go
 @@ -6,7 +6,7 @@ package rsa
@@ -561,7 +562,7 @@ index 489555358d0600..81c319d200a27a 100644
  	"crypto/subtle"
  	"errors"
 diff --git a/src/crypto/rsa/pss.go b/src/crypto/rsa/pss.go
-index f7d23b55ef811a..f2f2a64ed35e23 100644
+index 3a377cc9dbbddb..1096f5fbbb8846 100644
 --- a/src/crypto/rsa/pss.go
 +++ b/src/crypto/rsa/pss.go
 @@ -9,7 +9,7 @@ package rsa
@@ -574,7 +575,7 @@ index f7d23b55ef811a..f2f2a64ed35e23 100644
  	"hash"
  	"io"
 diff --git a/src/crypto/rsa/rsa.go b/src/crypto/rsa/rsa.go
-index 88e44508cdf222..1124c6d09fbe18 100644
+index f0aef1f542bec9..7f44522c7fe8c0 100644
 --- a/src/crypto/rsa/rsa.go
 +++ b/src/crypto/rsa/rsa.go
 @@ -27,9 +27,9 @@ package rsa
@@ -681,7 +682,7 @@ index 921cdbb7bbd477..2fef7ddae07480 100644
  	"encoding"
  	"encoding/hex"
 diff --git a/src/crypto/tls/cipher_suites.go b/src/crypto/tls/cipher_suites.go
-index 589e8b6fafbba3..0a6d665ee3096d 100644
+index fd538da0f78d60..b385c54b2f4017 100644
 --- a/src/crypto/tls/cipher_suites.go
 +++ b/src/crypto/tls/cipher_suites.go
 @@ -10,7 +10,7 @@ import (
@@ -694,7 +695,7 @@ index 589e8b6fafbba3..0a6d665ee3096d 100644
  	"crypto/sha1"
  	"crypto/sha256"
 diff --git a/src/go/build/deps_test.go b/src/go/build/deps_test.go
-index be8ac30f9daf9f..3356154c7d1082 100644
+index 592f2fd72ad47b..63751beca3892b 100644
 --- a/src/go/build/deps_test.go
 +++ b/src/go/build/deps_test.go
 @@ -426,6 +426,7 @@ var depsRules = `
