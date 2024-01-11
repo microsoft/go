@@ -6,7 +6,7 @@ Subject: [PATCH] Vendor crypto backends
 To reproduce, run 'go mod vendor' in 'go/src'.
 ---
  .../microsoft/go-crypto-openssl/LICENSE       |  21 +
- .../go-crypto-openssl/openssl/aes.go          | 476 ++++++++++++++
+ .../go-crypto-openssl/openssl/aes.go          | 534 ++++++++++++++++
  .../go-crypto-openssl/openssl/bbig/big.go     |  38 ++
  .../go-crypto-openssl/openssl/big.go          |  13 +
  .../go-crypto-openssl/openssl/ecdh.go         | 223 +++++++
@@ -23,23 +23,29 @@ To reproduce, run 'go mod vendor' in 'go/src'.
  .../go-crypto-openssl/openssl/rsa.go          | 337 ++++++++++
  .../go-crypto-openssl/openssl/sha.go          | 604 ++++++++++++++++++
  .../microsoft/go-crypto-winnative/LICENSE     |  21 +
- .../microsoft/go-crypto-winnative/cng/aes.go  | 359 +++++++++++
+ .../microsoft/go-crypto-winnative/cng/aes.go  | 389 +++++++++++
  .../go-crypto-winnative/cng/bbig/big.go       |  31 +
  .../microsoft/go-crypto-winnative/cng/big.go  |  30 +
+ .../go-crypto-winnative/cng/cipher.go         |  56 ++
  .../microsoft/go-crypto-winnative/cng/cng.go  | 130 ++++
+ .../microsoft/go-crypto-winnative/cng/des.go  | 107 ++++
  .../microsoft/go-crypto-winnative/cng/ecdh.go | 260 ++++++++
  .../go-crypto-winnative/cng/ecdsa.go          | 175 +++++
- .../microsoft/go-crypto-winnative/cng/hmac.go |  55 ++
- .../microsoft/go-crypto-winnative/cng/keys.go | 161 +++++
+ .../microsoft/go-crypto-winnative/cng/hash.go | 320 ++++++++++
+ .../microsoft/go-crypto-winnative/cng/hkdf.go | 179 ++++++
+ .../microsoft/go-crypto-winnative/cng/hmac.go |  35 +
+ .../microsoft/go-crypto-winnative/cng/keys.go | 178 ++++++
+ .../go-crypto-winnative/cng/pbkdf2.go         |  74 +++
  .../microsoft/go-crypto-winnative/cng/rand.go |  28 +
+ .../microsoft/go-crypto-winnative/cng/rc4.go  |  61 ++
  .../microsoft/go-crypto-winnative/cng/rsa.go  | 374 +++++++++++
- .../microsoft/go-crypto-winnative/cng/sha.go  | 199 ++++++
- .../internal/bcrypt/bcrypt_windows.go         | 221 +++++++
- .../internal/bcrypt/zsyscall_windows.go       | 372 +++++++++++
+ .../go-crypto-winnative/cng/tls1prf.go        |  92 +++
+ .../internal/bcrypt/bcrypt_windows.go         | 284 ++++++++
+ .../internal/bcrypt/zsyscall_windows.go       | 389 +++++++++++
  .../internal/subtle/aliasing.go               |  32 +
  .../internal/sysdll/sys_windows.go            |  55 ++
  src/vendor/modules.txt                        |  12 +
- 34 files changed, 6013 insertions(+)
+ 40 files changed, 6868 insertions(+)
  create mode 100644 src/vendor/github.com/microsoft/go-crypto-openssl/LICENSE
  create mode 100644 src/vendor/github.com/microsoft/go-crypto-openssl/openssl/aes.go
  create mode 100644 src/vendor/github.com/microsoft/go-crypto-openssl/openssl/bbig/big.go
@@ -61,14 +67,20 @@ To reproduce, run 'go mod vendor' in 'go/src'.
  create mode 100644 src/vendor/github.com/microsoft/go-crypto-winnative/cng/aes.go
  create mode 100644 src/vendor/github.com/microsoft/go-crypto-winnative/cng/bbig/big.go
  create mode 100644 src/vendor/github.com/microsoft/go-crypto-winnative/cng/big.go
+ create mode 100644 src/vendor/github.com/microsoft/go-crypto-winnative/cng/cipher.go
  create mode 100644 src/vendor/github.com/microsoft/go-crypto-winnative/cng/cng.go
+ create mode 100644 src/vendor/github.com/microsoft/go-crypto-winnative/cng/des.go
  create mode 100644 src/vendor/github.com/microsoft/go-crypto-winnative/cng/ecdh.go
  create mode 100644 src/vendor/github.com/microsoft/go-crypto-winnative/cng/ecdsa.go
+ create mode 100644 src/vendor/github.com/microsoft/go-crypto-winnative/cng/hash.go
+ create mode 100644 src/vendor/github.com/microsoft/go-crypto-winnative/cng/hkdf.go
  create mode 100644 src/vendor/github.com/microsoft/go-crypto-winnative/cng/hmac.go
  create mode 100644 src/vendor/github.com/microsoft/go-crypto-winnative/cng/keys.go
+ create mode 100644 src/vendor/github.com/microsoft/go-crypto-winnative/cng/pbkdf2.go
  create mode 100644 src/vendor/github.com/microsoft/go-crypto-winnative/cng/rand.go
+ create mode 100644 src/vendor/github.com/microsoft/go-crypto-winnative/cng/rc4.go
  create mode 100644 src/vendor/github.com/microsoft/go-crypto-winnative/cng/rsa.go
- create mode 100644 src/vendor/github.com/microsoft/go-crypto-winnative/cng/sha.go
+ create mode 100644 src/vendor/github.com/microsoft/go-crypto-winnative/cng/tls1prf.go
  create mode 100644 src/vendor/github.com/microsoft/go-crypto-winnative/internal/bcrypt/bcrypt_windows.go
  create mode 100644 src/vendor/github.com/microsoft/go-crypto-winnative/internal/bcrypt/zsyscall_windows.go
  create mode 100644 src/vendor/github.com/microsoft/go-crypto-winnative/internal/subtle/aliasing.go
@@ -103,10 +115,10 @@ index 00000000000000..9e841e7a26e4eb
 +    SOFTWARE
 diff --git a/src/vendor/github.com/microsoft/go-crypto-openssl/openssl/aes.go b/src/vendor/github.com/microsoft/go-crypto-openssl/openssl/aes.go
 new file mode 100644
-index 00000000000000..46d70bf26402f3
+index 00000000000000..3ee1b2b4d2b6f8
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go-crypto-openssl/openssl/aes.go
-@@ -0,0 +1,476 @@
+@@ -0,0 +1,534 @@
 +// Copyright (c) Microsoft Corporation.
 +// Licensed under the MIT License.
 +
@@ -372,16 +384,38 @@ index 00000000000000..46d70bf26402f3
 +	C.go_openssl_EVP_CIPHER_CTX_free(c.ctx)
 +}
 +
++type cipherGCMTLS uint8
++
++const (
++	cipherGCMTLSNone cipherGCMTLS = iota
++	cipherGCMTLS12
++	cipherGCMTLS13
++)
++
 +type aesGCM struct {
-+	ctx          C.GO_EVP_CIPHER_CTX_PTR
-+	tls          bool
++	ctx C.GO_EVP_CIPHER_CTX_PTR
++	tls cipherGCMTLS
++	// minNextNonce is the minimum value that the next nonce can be, enforced by
++	// all TLS modes.
 +	minNextNonce uint64
++	// mask is the nonce mask used in TLS 1.3 mode.
++	mask uint64
++	// maskInitialized is true if mask has been initialized. This happens during
++	// the first Seal. The initialized mask may be 0. Used by TLS 1.3 mode.
++	maskInitialized bool
 +}
 +
 +const (
 +	gcmTagSize           = 16
 +	gcmStandardNonceSize = 12
-+	gcmTlsAddSize        = 13
++	// TLS 1.2 additional data is constructed as:
++	//
++	//     additional_data = seq_num(8) + TLSCompressed.type(1) + TLSCompressed.version(2) + TLSCompressed.length(2);
++	gcmTls12AddSize = 13
++	// TLS 1.3 additional data is constructed as:
++	//
++	//     additional_data = TLSCiphertext.opaque_type(1) || TLSCiphertext.legacy_record_version(2) || TLSCiphertext.length(2)
++	gcmTls13AddSize      = 5
 +	gcmTlsFixedNonceSize = 4
 +)
 +
@@ -406,7 +440,7 @@ index 00000000000000..46d70bf26402f3
 +	if tagSize != gcmTagSize {
 +		return cipher.NewGCMWithTagSize(&noGCM{c}, tagSize)
 +	}
-+	return c.newGCM(false)
++	return c.newGCM(cipherGCMTLSNone)
 +}
 +
 +// NewGCMTLS returns a GCM cipher specific to TLS
@@ -416,10 +450,20 @@ index 00000000000000..46d70bf26402f3
 +}
 +
 +func (c *aesCipher) NewGCMTLS() (cipher.AEAD, error) {
-+	return c.newGCM(true)
++	return c.newGCM(cipherGCMTLS12)
 +}
 +
-+func (c *aesCipher) newGCM(tls bool) (cipher.AEAD, error) {
++// NewGCMTLS13 returns a GCM cipher specific to TLS 1.3 and should not be used
++// for non-TLS purposes.
++func NewGCMTLS13(c cipher.Block) (cipher.AEAD, error) {
++	return c.(*aesCipher).NewGCMTLS13()
++}
++
++func (c *aesCipher) NewGCMTLS13() (cipher.AEAD, error) {
++	return c.newGCM(cipherGCMTLS13)
++}
++
++func (c *aesCipher) newGCM(tls cipherGCMTLS) (cipher.AEAD, error) {
 +	var cipher C.GO_EVP_CIPHER_PTR
 +	switch len(c.key) * 8 {
 +	case 128:
@@ -471,15 +515,41 @@ index 00000000000000..46d70bf26402f3
 +	if len(dst)+len(plaintext)+gcmTagSize < len(dst) {
 +		panic("cipher: message too large for buffer")
 +	}
-+	if g.tls {
-+		if len(additionalData) != gcmTlsAddSize {
-+			panic("cipher: incorrect additional data length given to GCM TLS")
++	if g.tls != cipherGCMTLSNone {
++		if g.tls == cipherGCMTLS12 && len(additionalData) != gcmTls12AddSize {
++			panic("cipher: incorrect additional data length given to GCM TLS 1.2")
++		} else if g.tls == cipherGCMTLS13 && len(additionalData) != gcmTls13AddSize {
++			panic("cipher: incorrect additional data length given to GCM TLS 1.3")
++		}
++		counter := bigUint64(nonce[gcmTlsFixedNonceSize:])
++		if g.tls == cipherGCMTLS13 {
++			// In TLS 1.3, the counter in the nonce has a mask and requires
++			// further decoding.
++			if !g.maskInitialized {
++				// According to TLS 1.3 nonce construction details at
++				// https://tools.ietf.org/html/rfc8446#section-5.3:
++				//
++				//   the first record transmitted under a particular traffic
++				//   key MUST use sequence number 0.
++				//
++				//   The padded sequence number is XORed with [a mask].
++				//
++				//   The resulting quantity (of length iv_length) is used as
++				//   the per-record nonce.
++				//
++				// We need to convert from the given nonce to sequence numbers
++				// to keep track of minNextNonce and enforce the counter
++				// maximum. On the first call, we know counter^mask is 0^mask,
++				// so we can simply store it as the mask.
++				g.mask = counter
++				g.maskInitialized = true
++			}
++			counter ^= g.mask
 +		}
 +		// BoringCrypto enforces strictly monotonically increasing explicit nonces
 +		// and to fail after 2^64 - 1 keys as per FIPS 140-2 IG A.5,
 +		// but OpenSSL does not perform this check, so it is implemented here.
 +		const maxUint64 = 1<<64 - 1
-+		counter := bigUint64(nonce[gcmTlsFixedNonceSize:])
 +		if counter == maxUint64 {
 +			panic("cipher: nonce counter must be less than 2^64 - 1")
 +		}
@@ -3704,10 +3774,10 @@ index 00000000000000..9e841e7a26e4eb
 +    SOFTWARE
 diff --git a/src/vendor/github.com/microsoft/go-crypto-winnative/cng/aes.go b/src/vendor/github.com/microsoft/go-crypto-winnative/cng/aes.go
 new file mode 100644
-index 00000000000000..e3b865ab7823d1
+index 00000000000000..7fda49a773097a
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go-crypto-winnative/cng/aes.go
-@@ -0,0 +1,359 @@
+@@ -0,0 +1,389 @@
 +// Copyright (c) Microsoft Corporation.
 +// Licensed under the MIT License.
 +
@@ -3728,50 +3798,18 @@ index 00000000000000..e3b865ab7823d1
 +
 +const aesBlockSize = 16
 +
-+type aesAlgorithm struct {
-+	handle            bcrypt.ALG_HANDLE
-+	allowedKeyLengths bcrypt.KEY_LENGTHS_STRUCT
-+}
-+
-+func loadAes(mode string) (aesAlgorithm, error) {
-+	v, err := loadOrStoreAlg(bcrypt.AES_ALGORITHM, bcrypt.ALG_NONE_FLAG, mode, func(h bcrypt.ALG_HANDLE) (interface{}, error) {
-+		// Windows 8 added support to set the CipherMode value on a key,
-+		// but Windows 7 requires that it be set on the algorithm before key creation.
-+		err := setString(bcrypt.HANDLE(h), bcrypt.CHAINING_MODE, mode)
-+		if err != nil {
-+			return nil, err
-+		}
-+		lengths, err := getKeyLengths(bcrypt.HANDLE(h))
-+		if err != nil {
-+			return nil, err
-+		}
-+		return aesAlgorithm{h, lengths}, nil
-+	})
-+	if err != nil {
-+		return aesAlgorithm{}, nil
-+	}
-+	return v.(aesAlgorithm), nil
-+}
-+
 +type aesCipher struct {
 +	kh  bcrypt.KEY_HANDLE
 +	key []byte
 +}
 +
 +func NewAESCipher(key []byte) (cipher.Block, error) {
-+	h, err := loadAes(bcrypt.CHAIN_MODE_ECB)
++	kh, err := newCipherHandle(bcrypt.AES_ALGORITHM, bcrypt.CHAIN_MODE_ECB, key)
 +	if err != nil {
 +		return nil, err
 +	}
-+	if !keyIsAllowed(h.allowedKeyLengths, uint32(len(key)*8)) {
-+		return nil, errors.New("crypto/cipher: invalid key size")
-+	}
-+	c := &aesCipher{key: make([]byte, len(key))}
++	c := &aesCipher{kh: kh, key: make([]byte, len(key))}
 +	copy(c.key, key)
-+	err = bcrypt.GenerateSymmetricKey(h.handle, &c.kh, nil, c.key, 0)
-+	if err != nil {
-+		return nil, err
-+	}
 +	runtime.SetFinalizer(c, (*aesCipher).finalize)
 +	return c, nil
 +}
@@ -3826,11 +3864,11 @@ index 00000000000000..e3b865ab7823d1
 +}
 +
 +func (c *aesCipher) NewCBCEncrypter(iv []byte) cipher.BlockMode {
-+	return newCBC(true, c.key, iv)
++	return newCBC(true, bcrypt.AES_ALGORITHM, c.key, iv)
 +}
 +
 +func (c *aesCipher) NewCBCDecrypter(iv []byte) cipher.BlockMode {
-+	return newCBC(false, c.key, iv)
++	return newCBC(false, bcrypt.AES_ALGORITHM, c.key, iv)
 +}
 +
 +type noGCM struct {
@@ -3848,7 +3886,7 @@ index 00000000000000..e3b865ab7823d1
 +	if tagSize != gcmTagSize {
 +		return cipher.NewGCMWithTagSize(&noGCM{c}, tagSize)
 +	}
-+	return newGCM(c.key, false)
++	return newGCM(c.key, cipherGCMTLSNone)
 +}
 +
 +// NewGCMTLS returns a GCM cipher specific to TLS
@@ -3858,41 +3896,59 @@ index 00000000000000..e3b865ab7823d1
 +}
 +
 +func (c *aesCipher) NewGCMTLS() (cipher.AEAD, error) {
-+	return newGCM(c.key, true)
++	return newGCM(c.key, cipherGCMTLS12)
 +}
 +
-+type aesCBC struct {
-+	kh      bcrypt.KEY_HANDLE
-+	iv      [aesBlockSize]byte
-+	encrypt bool
++// NewGCMTLS13 returns a GCM cipher specific to TLS 1.3 and should not be used
++// for non-TLS purposes.
++func NewGCMTLS13(c cipher.Block) (cipher.AEAD, error) {
++	return c.(*aesCipher).NewGCMTLS13()
 +}
 +
-+func newCBC(encrypt bool, key, iv []byte) *aesCBC {
-+	h, err := loadAes(bcrypt.CHAIN_MODE_CBC)
++func (c *aesCipher) NewGCMTLS13() (cipher.AEAD, error) {
++	return newGCM(c.key, cipherGCMTLS13)
++}
++
++type cbcCipher struct {
++	kh bcrypt.KEY_HANDLE
++	// Use aesBlockSize, the max of all supported cipher block sizes.
++	// The array avoids allocations (vs. a slice).
++	iv        [aesBlockSize]byte
++	blockSize int
++	encrypt   bool
++}
++
++func newCBC(encrypt bool, alg string, key, iv []byte) *cbcCipher {
++	var blockSize int
++	switch alg {
++	case bcrypt.AES_ALGORITHM:
++		blockSize = aesBlockSize
++	case bcrypt.DES_ALGORITHM, bcrypt.DES3_ALGORITHM:
++		blockSize = desBlockSize
++	default:
++		panic("invalid algorithm: " + alg)
++	}
++	kh, err := newCipherHandle(alg, bcrypt.CHAIN_MODE_CBC, key)
 +	if err != nil {
 +		panic(err)
 +	}
-+	x := &aesCBC{encrypt: encrypt}
++	x := &cbcCipher{kh: kh, encrypt: encrypt, blockSize: blockSize}
++	runtime.SetFinalizer(x, (*cbcCipher).finalize)
 +	x.SetIV(iv)
-+	err = bcrypt.GenerateSymmetricKey(h.handle, &x.kh, nil, key, 0)
-+	if err != nil {
-+		panic(err)
-+	}
-+	runtime.SetFinalizer(x, (*aesCBC).finalize)
 +	return x
 +}
 +
-+func (x *aesCBC) finalize() {
++func (x *cbcCipher) finalize() {
 +	bcrypt.DestroyKey(x.kh)
 +}
 +
-+func (x *aesCBC) BlockSize() int { return aesBlockSize }
++func (x *cbcCipher) BlockSize() int { return x.blockSize }
 +
-+func (x *aesCBC) CryptBlocks(dst, src []byte) {
++func (x *cbcCipher) CryptBlocks(dst, src []byte) {
 +	if subtle.InexactOverlap(dst, src) {
 +		panic("crypto/cipher: invalid buffer overlap")
 +	}
-+	if len(src)%aesBlockSize != 0 {
++	if len(src)%x.blockSize != 0 {
 +		panic("crypto/cipher: input not full blocks")
 +	}
 +	if len(dst) < len(src) {
@@ -3904,9 +3960,9 @@ index 00000000000000..e3b865ab7823d1
 +	var ret uint32
 +	var err error
 +	if x.encrypt {
-+		err = bcrypt.Encrypt(x.kh, src, nil, x.iv[:], dst, &ret, 0)
++		err = bcrypt.Encrypt(x.kh, src, nil, x.iv[:x.blockSize], dst, &ret, 0)
 +	} else {
-+		err = bcrypt.Decrypt(x.kh, src, nil, x.iv[:], dst, &ret, 0)
++		err = bcrypt.Decrypt(x.kh, src, nil, x.iv[:x.blockSize], dst, &ret, 0)
 +	}
 +	if err != nil {
 +		panic(err)
@@ -3917,8 +3973,8 @@ index 00000000000000..e3b865ab7823d1
 +	runtime.KeepAlive(x)
 +}
 +
-+func (x *aesCBC) SetIV(iv []byte) {
-+	if len(iv) != aesBlockSize {
++func (x *cbcCipher) SetIV(iv []byte) {
++	if len(iv) != x.blockSize {
 +		panic("cipher: incorrect length IV")
 +	}
 +	copy(x.iv[:], iv)
@@ -3927,30 +3983,48 @@ index 00000000000000..e3b865ab7823d1
 +const (
 +	gcmTagSize           = 16
 +	gcmStandardNonceSize = 12
-+	gcmTlsAddSize        = 13
++	// TLS 1.2 additional data is constructed as:
++	//
++	//     additional_data = seq_num(8) + TLSCompressed.type(1) + TLSCompressed.version(2) + TLSCompressed.length(2);
++	gcmTls12AddSize = 13
++	// TLS 1.3 additional data is constructed as:
++	//
++	//     additional_data = TLSCiphertext.opaque_type(1) || TLSCiphertext.legacy_record_version(2) || TLSCiphertext.length(2)
++	gcmTls13AddSize      = 5
 +	gcmTlsFixedNonceSize = 4
 +)
 +
++type cipherGCMTLS uint8
++
++const (
++	cipherGCMTLSNone cipherGCMTLS = iota
++	cipherGCMTLS12
++	cipherGCMTLS13
++)
++
 +type aesGCM struct {
-+	kh           bcrypt.KEY_HANDLE
-+	tls          bool
++	kh  bcrypt.KEY_HANDLE
++	tls cipherGCMTLS
++	// minNextNonce is the minimum value that the next nonce can be, enforced by
++	// all TLS modes.
 +	minNextNonce uint64
++	// mask is the nonce mask used in TLS 1.3 mode.
++	mask uint64
++	// maskInitialized is true if mask has been initialized. This happens during
++	// the first Seal. The initialized mask may be 0. Used by TLS 1.3 mode.
++	maskInitialized bool
 +}
 +
 +func (g *aesGCM) finalize() {
 +	bcrypt.DestroyKey(g.kh)
 +}
 +
-+func newGCM(key []byte, tls bool) (*aesGCM, error) {
-+	h, err := loadAes(bcrypt.CHAIN_MODE_GCM)
++func newGCM(key []byte, tls cipherGCMTLS) (*aesGCM, error) {
++	kh, err := newCipherHandle(bcrypt.AES_ALGORITHM, bcrypt.CHAIN_MODE_GCM, key)
 +	if err != nil {
 +		return nil, err
 +	}
-+	g := &aesGCM{tls: tls}
-+	err = bcrypt.GenerateSymmetricKey(h.handle, &g.kh, nil, key, 0)
-+	if err != nil {
-+		return nil, err
-+	}
++	g := &aesGCM{kh: kh, tls: tls}
 +	runtime.SetFinalizer(g, (*aesGCM).finalize)
 +	return g, nil
 +}
@@ -3973,15 +4047,41 @@ index 00000000000000..e3b865ab7823d1
 +	if len(dst)+len(plaintext)+gcmTagSize < len(dst) {
 +		panic("cipher: message too large for buffer")
 +	}
-+	if g.tls {
-+		if len(additionalData) != gcmTlsAddSize {
-+			panic("cipher: incorrect additional data length given to GCM TLS")
++	if g.tls != cipherGCMTLSNone {
++		if g.tls == cipherGCMTLS12 && len(additionalData) != gcmTls12AddSize {
++			panic("cipher: incorrect additional data length given to GCM TLS 1.2")
++		} else if g.tls == cipherGCMTLS13 && len(additionalData) != gcmTls13AddSize {
++			panic("cipher: incorrect additional data length given to GCM TLS 1.3")
++		}
++		counter := bigUint64(nonce[gcmTlsFixedNonceSize:])
++		if g.tls == cipherGCMTLS13 {
++			// In TLS 1.3, the counter in the nonce has a mask and requires
++			// further decoding.
++			if !g.maskInitialized {
++				// According to TLS 1.3 nonce construction details at
++				// https://tools.ietf.org/html/rfc8446#section-5.3:
++				//
++				//   the first record transmitted under a particular traffic
++				//   key MUST use sequence number 0.
++				//
++				//   The padded sequence number is XORed with [a mask].
++				//
++				//   The resulting quantity (of length iv_length) is used as
++				//   the per-record nonce.
++				//
++				// We need to convert from the given nonce to sequence numbers
++				// to keep track of minNextNonce and enforce the counter
++				// maximum. On the first call, we know counter^mask is 0^mask,
++				// so we can simply store it as the mask.
++				g.mask = counter
++				g.maskInitialized = true
++			}
++			counter ^= g.mask
 +		}
 +		// BoringCrypto enforces strictly monotonically increasing explicit nonces
 +		// and to fail after 2^64 - 1 keys as per FIPS 140-2 IG A.5,
 +		// but BCrypt does not perform this check, so it is implemented here.
 +		const maxUint64 = 1<<64 - 1
-+		counter := bigUint64(nonce[gcmTlsFixedNonceSize:])
 +		if counter == maxUint64 {
 +			panic("cipher: nonce counter must be less than 2^64 - 1")
 +		}
@@ -4140,6 +4240,68 @@ index 00000000000000..36f0e0c6e278bc
 +	// plus the minimum number of bits to represent the first byte.
 +	return (len(x)-1)*_S + bits.Len(uint(x[0]))
 +}
+diff --git a/src/vendor/github.com/microsoft/go-crypto-winnative/cng/cipher.go b/src/vendor/github.com/microsoft/go-crypto-winnative/cng/cipher.go
+new file mode 100644
+index 00000000000000..61f5dc878d6c56
+--- /dev/null
++++ b/src/vendor/github.com/microsoft/go-crypto-winnative/cng/cipher.go
+@@ -0,0 +1,56 @@
++// Copyright (c) Microsoft Corporation.
++// Licensed under the MIT License.
++
++//go:build windows
++// +build windows
++
++package cng
++
++import (
++	"errors"
++
++	"github.com/microsoft/go-crypto-winnative/internal/bcrypt"
++)
++
++type cipherAlgorithm struct {
++	handle            bcrypt.ALG_HANDLE
++	allowedKeyLengths bcrypt.KEY_LENGTHS_STRUCT
++}
++
++func loadCipher(id, mode string) (cipherAlgorithm, error) {
++	v, err := loadOrStoreAlg(id, bcrypt.ALG_NONE_FLAG, mode, func(h bcrypt.ALG_HANDLE) (interface{}, error) {
++		if mode != "" {
++			// Windows 8 added support to set the CipherMode value on a key,
++			// but Windows 7 requires that it be set on the algorithm before key creation.
++			err := setString(bcrypt.HANDLE(h), bcrypt.CHAINING_MODE, mode)
++			if err != nil {
++				return nil, err
++			}
++		}
++		lengths, err := getKeyLengths(bcrypt.HANDLE(h))
++		if err != nil {
++			return nil, err
++		}
++		return cipherAlgorithm{h, lengths}, nil
++	})
++	if err != nil {
++		return cipherAlgorithm{}, nil
++	}
++	return v.(cipherAlgorithm), nil
++}
++
++func newCipherHandle(id, mode string, key []byte) (bcrypt.KEY_HANDLE, error) {
++	h, err := loadCipher(id, mode)
++	if err != nil {
++		return 0, err
++	}
++	if !keyIsAllowed(h.allowedKeyLengths, uint32(len(key)*8)) {
++		return 0, errors.New("crypto/cipher: invalid key size")
++	}
++	var kh bcrypt.KEY_HANDLE
++	err = bcrypt.GenerateSymmetricKey(h.handle, &kh, nil, key, 0)
++	if err != nil {
++		return 0, err
++	}
++	return kh, nil
++}
 diff --git a/src/vendor/github.com/microsoft/go-crypto-winnative/cng/cng.go b/src/vendor/github.com/microsoft/go-crypto-winnative/cng/cng.go
 new file mode 100644
 index 00000000000000..844c087287cabe
@@ -4275,6 +4437,119 @@ index 00000000000000..844c087287cabe
 +		return bits == lengths.MinLength
 +	}
 +	return (bits-lengths.MinLength)%lengths.Increment == 0
++}
+diff --git a/src/vendor/github.com/microsoft/go-crypto-winnative/cng/des.go b/src/vendor/github.com/microsoft/go-crypto-winnative/cng/des.go
+new file mode 100644
+index 00000000000000..2172f03e860418
+--- /dev/null
++++ b/src/vendor/github.com/microsoft/go-crypto-winnative/cng/des.go
+@@ -0,0 +1,107 @@
++// Copyright (c) Microsoft Corporation.
++// Licensed under the MIT License.
++
++//go:build windows
++// +build windows
++
++package cng
++
++import (
++	"crypto/cipher"
++	"runtime"
++
++	"github.com/microsoft/go-crypto-winnative/internal/bcrypt"
++	"github.com/microsoft/go-crypto-winnative/internal/subtle"
++)
++
++const desBlockSize = 8
++
++type desCipher struct {
++	kh  bcrypt.KEY_HANDLE
++	alg string
++	key []byte
++}
++
++func NewDESCipher(key []byte) (cipher.Block, error) {
++	kh, err := newCipherHandle(bcrypt.DES_ALGORITHM, "", key)
++	if err != nil {
++		return nil, err
++	}
++	c := &desCipher{kh: kh, alg: bcrypt.DES_ALGORITHM, key: make([]byte, len(key))}
++	copy(c.key, key)
++	runtime.SetFinalizer(c, (*desCipher).finalize)
++	return c, nil
++}
++
++func NewTripleDESCipher(key []byte) (cipher.Block, error) {
++	kh, err := newCipherHandle(bcrypt.DES3_ALGORITHM, "", key)
++	if err != nil {
++		return nil, err
++	}
++	c := &desCipher{kh: kh, alg: bcrypt.DES3_ALGORITHM, key: make([]byte, len(key))}
++	copy(c.key, key)
++	runtime.SetFinalizer(c, (*desCipher).finalize)
++	return c, nil
++}
++
++func (c *desCipher) finalize() {
++	bcrypt.DestroyKey(c.kh)
++}
++
++func (c *desCipher) BlockSize() int { return desBlockSize }
++
++func (c *desCipher) Encrypt(dst, src []byte) {
++	if len(src) < desBlockSize {
++		panic("crypto/des: input not full block")
++	}
++	if len(dst) < desBlockSize {
++		panic("crypto/des: output not full block")
++	}
++	// cypher.Block.Encrypt() is documented to encrypt one full block
++	// at a time, so we truncate the input and output to the block size.
++	dst, src = dst[:desBlockSize], src[:desBlockSize]
++	if subtle.InexactOverlap(dst, src) {
++		panic("crypto/des: invalid buffer overlap")
++	}
++	var ret uint32
++	err := bcrypt.Encrypt(c.kh, src, nil, nil, dst, &ret, 0)
++	if err != nil {
++		panic(err)
++	}
++	if int(ret) != len(src) {
++		panic("crypto/des: plaintext not fully encrypted")
++	}
++	runtime.KeepAlive(c)
++}
++
++func (c *desCipher) Decrypt(dst, src []byte) {
++	if len(src) < desBlockSize {
++		panic("crypto/des: input not full block")
++	}
++	if len(dst) < desBlockSize {
++		panic("crypto/des: output not full block")
++	}
++	// cypher.Block.Decrypt() is documented to decrypt one full block
++	// at a time, so we truncate the input and output to the block size.
++	dst, src = dst[:desBlockSize], src[:desBlockSize]
++	if subtle.InexactOverlap(dst, src) {
++		panic("crypto/des: invalid buffer overlap")
++	}
++	var ret uint32
++	err := bcrypt.Decrypt(c.kh, src, nil, nil, dst, &ret, 0)
++	if err != nil {
++		panic(err)
++	}
++	if int(ret) != len(src) {
++		panic("crypto/des: plaintext not fully decrypted")
++	}
++	runtime.KeepAlive(c)
++}
++
++func (c *desCipher) NewCBCEncrypter(iv []byte) cipher.BlockMode {
++	return newCBC(true, c.alg, c.key, iv)
++}
++
++func (c *desCipher) NewCBCDecrypter(iv []byte) cipher.BlockMode {
++	return newCBC(false, c.alg, c.key, iv)
 +}
 diff --git a/src/vendor/github.com/microsoft/go-crypto-winnative/cng/ecdh.go b/src/vendor/github.com/microsoft/go-crypto-winnative/cng/ecdh.go
 new file mode 100644
@@ -4723,12 +4998,523 @@ index 00000000000000..a77ff97bb8f521
 +	sig = append(sig, s...)
 +	return keyVerify(pub.hkey, nil, hash, sig, bcrypt.PAD_UNDEFINED) == nil
 +}
+diff --git a/src/vendor/github.com/microsoft/go-crypto-winnative/cng/hash.go b/src/vendor/github.com/microsoft/go-crypto-winnative/cng/hash.go
+new file mode 100644
+index 00000000000000..bebbc999337efb
+--- /dev/null
++++ b/src/vendor/github.com/microsoft/go-crypto-winnative/cng/hash.go
+@@ -0,0 +1,320 @@
++// Copyright (c) Microsoft Corporation.
++// Licensed under the MIT License.
++
++//go:build windows
++// +build windows
++
++package cng
++
++import (
++	"crypto"
++	"hash"
++	"runtime"
++	"unsafe"
++
++	"github.com/microsoft/go-crypto-winnative/internal/bcrypt"
++)
++
++// SupportsHash returns true if a hash.Hash implementation is supported for h.
++func SupportsHash(h crypto.Hash) bool {
++	switch h {
++	case crypto.MD4, crypto.MD5, crypto.SHA1, crypto.SHA256, crypto.SHA384, crypto.SHA512:
++		return true
++	case crypto.SHA3_256:
++		_, err := loadHash(bcrypt.SHA3_256_ALGORITHM, bcrypt.ALG_NONE_FLAG)
++		return err == nil
++	case crypto.SHA3_384:
++		_, err := loadHash(bcrypt.SHA3_384_ALGORITHM, bcrypt.ALG_NONE_FLAG)
++		return err == nil
++	case crypto.SHA3_512:
++		_, err := loadHash(bcrypt.SHA3_512_ALGORITHM, bcrypt.ALG_NONE_FLAG)
++		return err == nil
++	}
++	return false
++}
++
++func hashOneShot(id string, p, sum []byte) error {
++	h, err := loadHash(id, 0)
++	if err != nil {
++		return err
++	}
++	return bcrypt.Hash(h.handle, nil, p, sum)
++}
++
++func MD4(p []byte) (sum [16]byte) {
++	if err := hashOneShot(bcrypt.MD4_ALGORITHM, p, sum[:]); err != nil {
++		panic("bcrypt: MD4 failed")
++	}
++	return
++}
++
++func MD5(p []byte) (sum [16]byte) {
++	if err := hashOneShot(bcrypt.MD5_ALGORITHM, p, sum[:]); err != nil {
++		panic("bcrypt: MD5 failed")
++	}
++	return
++}
++
++func SHA1(p []byte) (sum [20]byte) {
++	if err := hashOneShot(bcrypt.SHA1_ALGORITHM, p, sum[:]); err != nil {
++		panic("bcrypt: SHA1 failed")
++	}
++	return
++}
++
++func SHA256(p []byte) (sum [32]byte) {
++	if err := hashOneShot(bcrypt.SHA256_ALGORITHM, p, sum[:]); err != nil {
++		panic("bcrypt: SHA256 failed")
++	}
++	return
++}
++
++func SHA384(p []byte) (sum [48]byte) {
++	if err := hashOneShot(bcrypt.SHA384_ALGORITHM, p, sum[:]); err != nil {
++		panic("bcrypt: SHA384 failed")
++	}
++	return
++}
++
++func SHA512(p []byte) (sum [64]byte) {
++	if err := hashOneShot(bcrypt.SHA512_ALGORITHM, p, sum[:]); err != nil {
++		panic("bcrypt: SHA512 failed")
++	}
++	return
++}
++
++func SHA3_256(p []byte) (sum [32]byte) {
++	if err := hashOneShot(bcrypt.SHA3_256_ALGORITHM, p, sum[:]); err != nil {
++		panic("bcrypt: SHA3_256 failed")
++	}
++	return
++}
++
++func SHA3_384(p []byte) (sum [48]byte) {
++	if err := hashOneShot(bcrypt.SHA3_384_ALGORITHM, p, sum[:]); err != nil {
++		panic("bcrypt: SHA3_384 failed")
++	}
++	return
++}
++
++func SHA3_512(p []byte) (sum [64]byte) {
++	if err := hashOneShot(bcrypt.SHA3_512_ALGORITHM, p, sum[:]); err != nil {
++		panic("bcrypt: SHA3_512 failed")
++	}
++	return
++}
++
++// NewMD4 returns a new MD4 hash.
++func NewMD4() hash.Hash {
++	return newHashX(bcrypt.MD4_ALGORITHM, bcrypt.ALG_NONE_FLAG, nil)
++}
++
++// NewMD5 returns a new MD5 hash.
++func NewMD5() hash.Hash {
++	return newHashX(bcrypt.MD5_ALGORITHM, bcrypt.ALG_NONE_FLAG, nil)
++}
++
++// NewSHA1 returns a new SHA1 hash.
++func NewSHA1() hash.Hash {
++	return newHashX(bcrypt.SHA1_ALGORITHM, bcrypt.ALG_NONE_FLAG, nil)
++}
++
++// NewSHA256 returns a new SHA256 hash.
++func NewSHA256() hash.Hash {
++	return newHashX(bcrypt.SHA256_ALGORITHM, bcrypt.ALG_NONE_FLAG, nil)
++}
++
++// NewSHA384 returns a new SHA384 hash.
++func NewSHA384() hash.Hash {
++	return newHashX(bcrypt.SHA384_ALGORITHM, bcrypt.ALG_NONE_FLAG, nil)
++}
++
++// NewSHA512 returns a new SHA512 hash.
++func NewSHA512() hash.Hash {
++	return newHashX(bcrypt.SHA512_ALGORITHM, bcrypt.ALG_NONE_FLAG, nil)
++}
++
++// NewSHA3_256 returns a new SHA256 hash.
++func NewSHA3_256() hash.Hash {
++	return newHashX(bcrypt.SHA3_256_ALGORITHM, bcrypt.ALG_NONE_FLAG, nil)
++}
++
++// NewSHA3_384 returns a new SHA384 hash.
++func NewSHA3_384() hash.Hash {
++	return newHashX(bcrypt.SHA3_384_ALGORITHM, bcrypt.ALG_NONE_FLAG, nil)
++}
++
++// NewSHA3_512 returns a new SHA512 hash.
++func NewSHA3_512() hash.Hash {
++	return newHashX(bcrypt.SHA3_512_ALGORITHM, bcrypt.ALG_NONE_FLAG, nil)
++}
++
++type hashAlgorithm struct {
++	handle    bcrypt.ALG_HANDLE
++	id        string
++	size      uint32
++	blockSize uint32
++}
++
++func loadHash(id string, flags bcrypt.AlgorithmProviderFlags) (*hashAlgorithm, error) {
++	v, err := loadOrStoreAlg(id, flags, "", func(h bcrypt.ALG_HANDLE) (interface{}, error) {
++		size, err := getUint32(bcrypt.HANDLE(h), bcrypt.HASH_LENGTH)
++		if err != nil {
++			return nil, err
++		}
++		blockSize, err := getUint32(bcrypt.HANDLE(h), bcrypt.HASH_BLOCK_LENGTH)
++		if err != nil {
++			return nil, err
++		}
++		return &hashAlgorithm{h, id, size, blockSize}, nil
++	})
++	if err != nil {
++		return nil, err
++	}
++	return v.(*hashAlgorithm), nil
++}
++
++// hashToID converts a hash.Hash implementation from this package
++// to a CNG hash ID
++func hashToID(h hash.Hash) string {
++	hx, ok := h.(*hashX)
++	if !ok {
++		return ""
++	}
++	return hx.alg.id
++}
++
++type hashX struct {
++	alg  *hashAlgorithm
++	_ctx bcrypt.HASH_HANDLE // access it using withCtx
++
++	buf []byte
++	key []byte
++}
++
++// newHashX returns a new hash.Hash using the specified algorithm.
++func newHashX(id string, flag bcrypt.AlgorithmProviderFlags, key []byte) *hashX {
++	alg, err := loadHash(id, flag)
++	if err != nil {
++		panic(err)
++	}
++	h := new(hashX)
++	h.alg = alg
++	if len(key) > 0 {
++		h.key = make([]byte, len(key))
++		copy(h.key, key)
++	}
++	// Don't allocate hx.buf nor call bcrypt.CreateHash yet,
++	// which would be wasteful if the caller only wants to know
++	// the hash type. This is a common pattern in this package,
++	// as some functions accept a `func() hash.Hash` parameter
++	// and call it just to know the hash type.
++	runtime.SetFinalizer(h, (*hashX).finalize)
++	return h
++}
++
++func (h *hashX) finalize() {
++	if h._ctx != 0 {
++		bcrypt.DestroyHash(h._ctx)
++	}
++}
++
++func (h *hashX) withCtx(fn func(ctx bcrypt.HASH_HANDLE) error) error {
++	defer runtime.KeepAlive(h)
++	if h._ctx == 0 {
++		err := bcrypt.CreateHash(h.alg.handle, &h._ctx, nil, h.key, 0)
++		if err != nil {
++			panic(err)
++		}
++	}
++	return fn(h._ctx)
++}
++
++func (h *hashX) Clone() (hash.Hash, error) {
++	h2 := &hashX{
++		alg: h.alg,
++	}
++	if h.key != nil {
++		h2.key = make([]byte, len(h.key))
++		copy(h2.key, h.key)
++	}
++	err := h.withCtx(func(ctx bcrypt.HASH_HANDLE) error {
++		return bcrypt.DuplicateHash(ctx, &h2._ctx, nil, 0)
++	})
++	if err != nil {
++		return nil, err
++	}
++	runtime.SetFinalizer(h2, (*hashX).finalize)
++	return h2, nil
++}
++
++func (h *hashX) Reset() {
++	if h._ctx != 0 {
++		bcrypt.DestroyHash(h._ctx)
++		h._ctx = 0
++	}
++}
++
++func (h *hashX) Write(p []byte) (n int, err error) {
++	err = h.withCtx(func(ctx bcrypt.HASH_HANDLE) error {
++		for n < len(p) && err == nil {
++			nn := len32(p[n:])
++			err = bcrypt.HashData(h._ctx, p[n:n+nn], 0)
++			n += nn
++		}
++		return err
++	})
++	if err != nil {
++		// hash.Hash interface mandates Write should never return an error.
++		panic(err)
++	}
++	return len(p), nil
++}
++
++func (h *hashX) WriteString(s string) (int, error) {
++	// TODO: use unsafe.StringData once we drop support
++	// for go1.19 and earlier.
++	hdr := (*struct {
++		Data *byte
++		Len  int
++	})(unsafe.Pointer(&s))
++	return h.Write(unsafe.Slice(hdr.Data, len(s)))
++}
++
++func (h *hashX) WriteByte(c byte) error {
++	err := h.withCtx(func(ctx bcrypt.HASH_HANDLE) error {
++		return bcrypt.HashDataRaw(h._ctx, &c, 1, 0)
++	})
++	if err != nil {
++		// hash.Hash interface mandates Write should never return an error.
++		panic(err)
++	}
++	return nil
++}
++
++func (h *hashX) Size() int {
++	return int(h.alg.size)
++}
++
++func (h *hashX) BlockSize() int {
++	return int(h.alg.blockSize)
++}
++
++func (h *hashX) Sum(in []byte) []byte {
++	var ctx2 bcrypt.HASH_HANDLE
++	err := h.withCtx(func(ctx bcrypt.HASH_HANDLE) error {
++		return bcrypt.DuplicateHash(ctx, &ctx2, nil, 0)
++	})
++	if err != nil {
++		panic(err)
++	}
++	defer bcrypt.DestroyHash(ctx2)
++	if h.buf == nil {
++		h.buf = make([]byte, h.alg.size)
++	}
++	err = bcrypt.FinishHash(ctx2, h.buf, 0)
++	if err != nil {
++		panic(err)
++	}
++	return append(in, h.buf...)
++}
+diff --git a/src/vendor/github.com/microsoft/go-crypto-winnative/cng/hkdf.go b/src/vendor/github.com/microsoft/go-crypto-winnative/cng/hkdf.go
+new file mode 100644
+index 00000000000000..6f164ced8a9656
+--- /dev/null
++++ b/src/vendor/github.com/microsoft/go-crypto-winnative/cng/hkdf.go
+@@ -0,0 +1,179 @@
++// Copyright (c) Microsoft Corporation.
++// Licensed under the MIT License.
++
++//go:build windows
++// +build windows
++
++package cng
++
++import (
++	"encoding/binary"
++	"errors"
++	"hash"
++	"io"
++	"runtime"
++	"unsafe"
++
++	"github.com/microsoft/go-crypto-winnative/internal/bcrypt"
++)
++
++func SupportsHKDF() bool {
++	_, err := loadHKDF()
++	return err == nil
++}
++
++func loadHKDF() (bcrypt.ALG_HANDLE, error) {
++	h, err := loadOrStoreAlg(bcrypt.HKDF_ALGORITHM, 0, "", func(h bcrypt.ALG_HANDLE) (interface{}, error) {
++		return h, nil
++	})
++	if err != nil {
++		return 0, err
++	}
++	return h.(bcrypt.ALG_HANDLE), nil
++}
++
++type hkdf struct {
++	hkey bcrypt.KEY_HANDLE
++	info []byte
++
++	hashLen int
++	n       int // count of bytes requested from Read
++	// buf contains the derived data.
++	// len(buf) can be larger than n, as Read may derive
++	// more data than requested and cache it in buf.
++	buf []byte
++}
++
++func (c *hkdf) finalize() {
++	bcrypt.DestroyKey(c.hkey)
++}
++
++func hkdfDerive(hkey bcrypt.KEY_HANDLE, info, out []byte) (int, error) {
++	var params *bcrypt.BufferDesc
++	if len(info) > 0 {
++		params = &bcrypt.BufferDesc{
++			Count: 1,
++			Buffers: &bcrypt.Buffer{
++				Length: uint32(len(info)),
++				Type:   bcrypt.KDF_HKDF_INFO,
++				Data:   uintptr(unsafe.Pointer(&info[0])),
++			},
++		}
++		defer runtime.KeepAlive(params)
++	}
++	var n uint32
++	err := bcrypt.KeyDerivation(hkey, params, out, &n, 0)
++	return int(n), err
++}
++
++func (c *hkdf) Read(p []byte) (int, error) {
++	// KeyDerivation doesn't support incremental output, each call
++	// derives the key from scratch and returns the requested bytes.
++	// To implement io.Reader, we need to ask for len(c.buf) + len(p)
++	// bytes and copy the last derived len(p) bytes to p.
++	maxDerived := 255 * c.hashLen
++	totalDerived := c.n + len(p)
++	// Check whether enough data can be derived.
++	if totalDerived > maxDerived {
++		return 0, errors.New("hkdf: entropy limit reached")
++	}
++	// Check whether c.buf already contains enough derived data,
++	// otherwise derive more data.
++	if bytesNeeded := totalDerived - len(c.buf); bytesNeeded > 0 {
++		// It is common to derive multiple equally sized keys from the same HKDF instance.
++		// Optimize this case by allocating a buffer large enough to hold
++		// at least 3 of such keys each time there is not enough data.
++		// Round up to the next multiple of hashLen.
++		blocks := (bytesNeeded-1)/c.hashLen + 1
++		const minBlocks = 3
++		if blocks < minBlocks {
++			blocks = minBlocks
++		}
++		alloc := blocks * c.hashLen
++		if len(c.buf)+alloc > maxDerived {
++			// The buffer can't grow beyond maxDerived.
++			alloc = maxDerived - len(c.buf)
++		}
++		c.buf = append(c.buf, make([]byte, alloc)...)
++		n, err := hkdfDerive(c.hkey, c.info, c.buf)
++		if err != nil {
++			c.buf = c.buf[:c.n]
++			return 0, err
++		}
++		// Adjust totalDerived to the actual number of bytes derived.
++		totalDerived = n
++	}
++	n := copy(p, c.buf[c.n:totalDerived])
++	c.n += n
++	return n, nil
++}
++
++func newHKDF(h func() hash.Hash, secret, salt []byte, info []byte) (*hkdf, error) {
++	ch := h()
++	hashID := hashToID(ch)
++	if hashID == "" {
++		return nil, errors.New("cng: unsupported hash function")
++	}
++	alg, err := loadHKDF()
++	if err != nil {
++		return nil, err
++	}
++	var kh bcrypt.KEY_HANDLE
++	if err := bcrypt.GenerateSymmetricKey(alg, &kh, nil, secret, 0); err != nil {
++		return nil, err
++	}
++	if err := setString(bcrypt.HANDLE(kh), bcrypt.HKDF_HASH_ALGORITHM, hashID); err != nil {
++		bcrypt.DestroyKey(kh)
++		return nil, err
++	}
++	if salt != nil {
++		// Used for Extract.
++		err = bcrypt.SetProperty(bcrypt.HANDLE(kh), utf16PtrFromString(bcrypt.HKDF_SALT_AND_FINALIZE), salt, 0)
++	} else {
++		// Used for Expand.
++		err = bcrypt.SetProperty(bcrypt.HANDLE(kh), utf16PtrFromString(bcrypt.HKDF_PRK_AND_FINALIZE), nil, 0)
++	}
++	if err != nil {
++		bcrypt.DestroyKey(kh)
++		return nil, err
++	}
++	k := &hkdf{kh, info, ch.Size(), 0, nil}
++	runtime.SetFinalizer(k, (*hkdf).finalize)
++	return k, nil
++}
++
++func ExtractHKDF(h func() hash.Hash, secret, salt []byte) ([]byte, error) {
++	if salt == nil {
++		// Replicate x/crypto/hkdf behavior.
++		salt = make([]byte, h().Size())
++	}
++	kh, err := newHKDF(h, secret, salt, nil)
++	if err != nil {
++		return nil, err
++	}
++	hdr, blob, err := exportKeyData(kh.hkey)
++	if err != nil {
++		return nil, err
++	}
++	runtime.KeepAlive(kh)
++	if hdr.Version != bcrypt.KEY_DATA_BLOB_VERSION1 {
++		return nil, errors.New("cng: unknown key data blob version")
++	}
++	// KEY_DATA_BLOB_VERSION1 format is:
++	// cbHash uint32 // Big-endian
++	// hashName [cbHash]byte
++	// key []byte // Rest of the blob
++	if len(blob) < 4 {
++		return nil, errors.New("cng: exported key is corrupted")
++	}
++	hashLength := binary.BigEndian.Uint32(blob[:])
++	return blob[4+hashLength:], nil
++}
++
++func ExpandHKDF(h func() hash.Hash, pseudorandomKey, info []byte) (io.Reader, error) {
++	kh, err := newHKDF(h, pseudorandomKey, nil, info)
++	if err != nil {
++		return nil, err
++	}
++	return kh, nil
++}
 diff --git a/src/vendor/github.com/microsoft/go-crypto-winnative/cng/hmac.go b/src/vendor/github.com/microsoft/go-crypto-winnative/cng/hmac.go
 new file mode 100644
-index 00000000000000..736472d5b4e700
+index 00000000000000..2d9fd36ce7252e
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go-crypto-winnative/cng/hmac.go
-@@ -0,0 +1,55 @@
+@@ -0,0 +1,35 @@
 +// Copyright (c) Microsoft Corporation.
 +// Licensed under the MIT License.
 +
@@ -4742,26 +5528,6 @@ index 00000000000000..736472d5b4e700
 +
 +	"github.com/microsoft/go-crypto-winnative/internal/bcrypt"
 +)
-+
-+// hashToID converts a hash.Hash implementation from this package
-+// to a CNG hash ID
-+func hashToID(h hash.Hash) string {
-+	if _, ok := h.(*shaXHash); !ok {
-+		return ""
-+	}
-+	var id string
-+	switch h.Size() {
-+	case 20:
-+		id = bcrypt.SHA1_ALGORITHM
-+	case 256 / 8:
-+		id = bcrypt.SHA256_ALGORITHM
-+	case 384 / 8:
-+		id = bcrypt.SHA384_ALGORITHM
-+	case 512 / 8:
-+		id = bcrypt.SHA512_ALGORITHM
-+	}
-+	return id
-+}
 +
 +// NewHMAC returns a new HMAC using BCrypt.
 +// The function h must return a hash implemented by
@@ -4782,14 +5548,14 @@ index 00000000000000..736472d5b4e700
 +		ch.Write(key)
 +		key = ch.Sum(nil)
 +	}
-+	return newSHAX(id, bcrypt.ALG_HANDLE_HMAC_FLAG, key)
++	return newHashX(id, bcrypt.ALG_HANDLE_HMAC_FLAG, key)
 +}
 diff --git a/src/vendor/github.com/microsoft/go-crypto-winnative/cng/keys.go b/src/vendor/github.com/microsoft/go-crypto-winnative/cng/keys.go
 new file mode 100644
-index 00000000000000..766768e9d46b41
+index 00000000000000..95c3bcdc5e788d
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go-crypto-winnative/cng/keys.go
-@@ -0,0 +1,161 @@
+@@ -0,0 +1,178 @@
 +// Copyright (c) Microsoft Corporation.
 +// Licensed under the MIT License.
 +
@@ -4806,8 +5572,9 @@ index 00000000000000..766768e9d46b41
 +)
 +
 +const (
-+	sizeOfECCBlobHeader = uint32(unsafe.Sizeof(bcrypt.ECCKEY_BLOB{}))
-+	sizeOfRSABlobHeader = uint32(unsafe.Sizeof(bcrypt.RSAKEY_BLOB{}))
++	sizeOfECCBlobHeader     = uint32(unsafe.Sizeof(bcrypt.ECCKEY_BLOB{}))
++	sizeOfRSABlobHeader     = uint32(unsafe.Sizeof(bcrypt.RSAKEY_BLOB{}))
++	sizeOfKeyDataBlobHeader = uint32(unsafe.Sizeof(bcrypt.KEY_DATA_BLOB_HEADER{}))
 +)
 +
 +// exportRSAKey exports hkey into a bcrypt.ECCKEY_BLOB header and data.
@@ -4846,6 +5613,22 @@ index 00000000000000..766768e9d46b41
 +	}
 +	hdr := (*(*bcrypt.RSAKEY_BLOB)(unsafe.Pointer(&blob[0])))
 +	return hdr, blob[sizeOfRSABlobHeader:], nil
++}
++
++// exportKeyData exports hkey into a bcrypt.KEY_DATA_BLOB_HEADER header and data.
++func exportKeyData(hkey bcrypt.KEY_HANDLE) (bcrypt.KEY_DATA_BLOB_HEADER, []byte, error) {
++	blob, err := exportKey(hkey, bcrypt.KEY_DATA_BLOB)
++	if err != nil {
++		return bcrypt.KEY_DATA_BLOB_HEADER{}, nil, err
++	}
++	if len(blob) < int(sizeOfKeyDataBlobHeader) {
++		return bcrypt.KEY_DATA_BLOB_HEADER{}, nil, errors.New("cng: exported key is corrupted")
++	}
++	hdr := (*(*bcrypt.KEY_DATA_BLOB_HEADER)(unsafe.Pointer(&blob[0])))
++	if hdr.Magic != bcrypt.KEY_DATA_BLOB_MAGIC {
++		return bcrypt.KEY_DATA_BLOB_HEADER{}, nil, errors.New("cng: unknown key format")
++	}
++	return hdr, blob[sizeOfKeyDataBlobHeader : sizeOfKeyDataBlobHeader+hdr.Length], nil
 +}
 +
 +// exportKey exports hkey to a memory blob.
@@ -4951,6 +5734,86 @@ index 00000000000000..766768e9d46b41
 +	}
 +	return nil
 +}
+diff --git a/src/vendor/github.com/microsoft/go-crypto-winnative/cng/pbkdf2.go b/src/vendor/github.com/microsoft/go-crypto-winnative/cng/pbkdf2.go
+new file mode 100644
+index 00000000000000..42614c9c748f80
+--- /dev/null
++++ b/src/vendor/github.com/microsoft/go-crypto-winnative/cng/pbkdf2.go
+@@ -0,0 +1,74 @@
++// Copyright (c) Microsoft Corporation.
++// Licensed under the MIT License.
++
++//go:build windows
++// +build windows
++
++package cng
++
++import (
++	"errors"
++	"hash"
++	"unsafe"
++
++	"github.com/microsoft/go-crypto-winnative/internal/bcrypt"
++)
++
++func loadPBKDF2() (bcrypt.ALG_HANDLE, error) {
++	h, err := loadOrStoreAlg(bcrypt.PBKDF2_ALGORITHM, 0, "", func(h bcrypt.ALG_HANDLE) (interface{}, error) {
++		return h, nil
++	})
++	if err != nil {
++		return 0, err
++	}
++	return h.(bcrypt.ALG_HANDLE), nil
++}
++
++func PBKDF2(password, salt []byte, iter, keyLen int, h func() hash.Hash) ([]byte, error) {
++	ch := h()
++	hashID := hashToID(ch)
++	if hashID == "" {
++		return nil, errors.New("cng: unsupported hash function")
++	}
++	alg, err := loadPBKDF2()
++	if err != nil {
++		return nil, err
++	}
++	var kh bcrypt.KEY_HANDLE
++	if err := bcrypt.GenerateSymmetricKey(alg, &kh, nil, password, 0); err != nil {
++		return nil, err
++	}
++	defer bcrypt.DestroyKey(kh)
++	u16HashID := utf16FromString(hashID)
++	buffers := make([]bcrypt.Buffer, 0, 3)
++	buffers = append(buffers,
++		bcrypt.Buffer{
++			Type:   bcrypt.KDF_ITERATION_COUNT,
++			Data:   uintptr(unsafe.Pointer(&iter)),
++			Length: 8,
++		},
++		bcrypt.Buffer{
++			Type:   bcrypt.KDF_HASH_ALGORITHM,
++			Data:   uintptr(unsafe.Pointer(&u16HashID[0])),
++			Length: uint32(len(u16HashID) * 2),
++		})
++	if len(salt) > 0 {
++		// The salt is optional.
++		buffers = append(buffers, bcrypt.Buffer{
++			Type:   bcrypt.KDF_SALT,
++			Data:   uintptr(unsafe.Pointer(&salt[0])),
++			Length: uint32(len(salt)),
++		})
++	}
++	params := &bcrypt.BufferDesc{
++		Count:   uint32(len(buffers)),
++		Buffers: &buffers[0],
++	}
++	out := make([]byte, keyLen)
++	var size uint32
++	err = bcrypt.KeyDerivation(kh, params, out, &size, 0)
++	if err != nil {
++		return nil, err
++	}
++	return out[:size], nil
++}
 diff --git a/src/vendor/github.com/microsoft/go-crypto-winnative/cng/rand.go b/src/vendor/github.com/microsoft/go-crypto-winnative/cng/rand.go
 new file mode 100644
 index 00000000000000..cdd845ab5bea98
@@ -4985,6 +5848,73 @@ index 00000000000000..cdd845ab5bea98
 +}
 +
 +const RandReader = randReader(0)
+diff --git a/src/vendor/github.com/microsoft/go-crypto-winnative/cng/rc4.go b/src/vendor/github.com/microsoft/go-crypto-winnative/cng/rc4.go
+new file mode 100644
+index 00000000000000..e0d45070f26723
+--- /dev/null
++++ b/src/vendor/github.com/microsoft/go-crypto-winnative/cng/rc4.go
+@@ -0,0 +1,61 @@
++// Copyright (c) Microsoft Corporation.
++// Licensed under the MIT License.
++
++//go:build windows
++// +build windows
++
++package cng
++
++import (
++	"runtime"
++
++	"github.com/microsoft/go-crypto-winnative/internal/bcrypt"
++	"github.com/microsoft/go-crypto-winnative/internal/subtle"
++)
++
++// A RC4Cipher is an instance of RC4 using a particular key.
++type RC4Cipher struct {
++	kh bcrypt.KEY_HANDLE
++}
++
++// NewRC4Cipher creates and returns a new Cipher.
++func NewRC4Cipher(key []byte) (*RC4Cipher, error) {
++	kh, err := newCipherHandle(bcrypt.RC4_ALGORITHM, "", key)
++	if err != nil {
++		return nil, err
++	}
++	c := &RC4Cipher{kh: kh}
++	runtime.SetFinalizer(c, (*RC4Cipher).finalize)
++	return c, nil
++}
++
++func (c *RC4Cipher) finalize() {
++	if c.kh != 0 {
++		bcrypt.DestroyKey(c.kh)
++	}
++}
++
++// Reset zeros the key data and makes the Cipher unusable.
++func (c *RC4Cipher) Reset() {
++	bcrypt.DestroyKey(c.kh)
++	c.kh = 0
++}
++
++// XORKeyStream sets dst to the result of XORing src with the key stream.
++// Dst and src must overlap entirely or not at all.
++func (c *RC4Cipher) XORKeyStream(dst, src []byte) {
++	if c.kh == 0 || len(src) == 0 {
++		return
++	}
++	if subtle.InexactOverlap(dst[:len(src)], src) {
++		panic("crypto/rc4: invalid buffer overlap")
++	}
++	var outLen uint32
++	if err := bcrypt.Encrypt(c.kh, src, nil, nil, dst, &outLen, 0); err != nil {
++		panic("crypto/rc4: encryption failed: " + err.Error())
++	}
++	if int(outLen) != len(src) {
++		panic("crypto/rc4: src not fully XORed")
++	}
++	runtime.KeepAlive(c)
++}
 diff --git a/src/vendor/github.com/microsoft/go-crypto-winnative/cng/rsa.go b/src/vendor/github.com/microsoft/go-crypto-winnative/cng/rsa.go
 new file mode 100644
 index 00000000000000..7e3f7abe3487cb
@@ -5365,12 +6295,12 @@ index 00000000000000..7e3f7abe3487cb
 +	}
 +	return ""
 +}
-diff --git a/src/vendor/github.com/microsoft/go-crypto-winnative/cng/sha.go b/src/vendor/github.com/microsoft/go-crypto-winnative/cng/sha.go
+diff --git a/src/vendor/github.com/microsoft/go-crypto-winnative/cng/tls1prf.go b/src/vendor/github.com/microsoft/go-crypto-winnative/cng/tls1prf.go
 new file mode 100644
-index 00000000000000..0ab3c9e9ce06fb
+index 00000000000000..30ef2242bc3cf3
 --- /dev/null
-+++ b/src/vendor/github.com/microsoft/go-crypto-winnative/cng/sha.go
-@@ -0,0 +1,199 @@
++++ b/src/vendor/github.com/microsoft/go-crypto-winnative/cng/tls1prf.go
+@@ -0,0 +1,92 @@
 +// Copyright (c) Microsoft Corporation.
 +// Licensed under the MIT License.
 +
@@ -5380,202 +6310,95 @@ index 00000000000000..0ab3c9e9ce06fb
 +package cng
 +
 +import (
++	"errors"
 +	"hash"
-+	"runtime"
++	"unsafe"
 +
 +	"github.com/microsoft/go-crypto-winnative/internal/bcrypt"
 +)
 +
-+func shaOneShot(id string, p, sum []byte) error {
-+	h, err := loadSha(id, 0)
++func loadTLS1PRF(id string) (bcrypt.ALG_HANDLE, error) {
++	h, err := loadOrStoreAlg(id, 0, "", func(h bcrypt.ALG_HANDLE) (interface{}, error) {
++		return h, nil
++	})
++	if err != nil {
++		return 0, err
++	}
++	return h.(bcrypt.ALG_HANDLE), nil
++}
++
++// TLS1PRF implements the TLS 1.0/1.1 pseudo-random function if h is nil,
++// else it implements the TLS 1.2 pseudo-random function.
++// The pseudo-random number will be written to result and will be of length len(result).
++func TLS1PRF(result, secret, label, seed []byte, h func() hash.Hash) error {
++	// TLS 1.0/1.1 PRF uses MD5SHA1.
++	algID := bcrypt.TLS1_1_KDF_ALGORITHM
++	var hashID string
++	if h != nil {
++		// If h is specified, assume the caller wants to use TLS 1.2 PRF.
++		// TLS 1.0/1.1 PRF doesn't allow specifying the hash function.
++		if hashID = hashToID(h()); hashID == "" {
++			return errors.New("cng: unsupported hash function")
++		}
++		algID = bcrypt.TLS1_2_KDF_ALGORITHM
++	}
++
++	alg, err := loadTLS1PRF(algID)
 +	if err != nil {
 +		return err
 +	}
-+	return bcrypt.Hash(h.handle, nil, p, sum)
-+}
-+
-+func SHA1(p []byte) (sum [20]byte) {
-+	if err := shaOneShot(bcrypt.SHA1_ALGORITHM, p, sum[:]); err != nil {
-+		panic("bcrypt: SHA1 failed")
++	var kh bcrypt.KEY_HANDLE
++	if err := bcrypt.GenerateSymmetricKey(alg, &kh, nil, secret, 0); err != nil {
++		return err
 +	}
-+	return
-+}
 +
-+func SHA256(p []byte) (sum [32]byte) {
-+	if err := shaOneShot(bcrypt.SHA256_ALGORITHM, p, sum[:]); err != nil {
-+		panic("bcrypt: SHA256 failed")
++	buffers := make([]bcrypt.Buffer, 0, 3)
++	if len(label) > 0 {
++		buffers = append(buffers, bcrypt.Buffer{
++			Type:   bcrypt.KDF_TLS_PRF_LABEL,
++			Data:   uintptr(unsafe.Pointer(&label[0])),
++			Length: uint32(len(label)),
++		})
 +	}
-+	return
-+}
-+
-+func SHA384(p []byte) (sum [48]byte) {
-+	if err := shaOneShot(bcrypt.SHA384_ALGORITHM, p, sum[:]); err != nil {
-+		panic("bcrypt: SHA384 failed")
++	if len(seed) > 0 {
++		buffers = append(buffers, bcrypt.Buffer{
++			Type:   bcrypt.KDF_TLS_PRF_SEED,
++			Data:   uintptr(unsafe.Pointer(&seed[0])),
++			Length: uint32(len(seed)),
++		})
 +	}
-+	return
-+}
-+
-+func SHA512(p []byte) (sum [64]byte) {
-+	if err := shaOneShot(bcrypt.SHA512_ALGORITHM, p, sum[:]); err != nil {
-+		panic("bcrypt: SHA512 failed")
++	if algID == bcrypt.TLS1_2_KDF_ALGORITHM {
++		u16HashID := utf16FromString(hashID)
++		buffers = append(buffers, bcrypt.Buffer{
++			Type:   bcrypt.KDF_HASH_ALGORITHM,
++			Data:   uintptr(unsafe.Pointer(&u16HashID[0])),
++			Length: uint32(len(u16HashID) * 2),
++		})
 +	}
-+	return
-+}
-+
-+// NewSHA1 returns a new SHA1 hash.
-+func NewSHA1() hash.Hash {
-+	return newSHAX(bcrypt.SHA1_ALGORITHM, bcrypt.ALG_NONE_FLAG, nil)
-+}
-+
-+// NewSHA256 returns a new SHA256 hash.
-+func NewSHA256() hash.Hash {
-+	return newSHAX(bcrypt.SHA256_ALGORITHM, bcrypt.ALG_NONE_FLAG, nil)
-+}
-+
-+// NewSHA384 returns a new SHA384 hash.
-+func NewSHA384() hash.Hash {
-+	return newSHAX(bcrypt.SHA384_ALGORITHM, bcrypt.ALG_NONE_FLAG, nil)
-+}
-+
-+// NewSHA512 returns a new SHA512 hash.
-+func NewSHA512() hash.Hash {
-+	return newSHAX(bcrypt.SHA512_ALGORITHM, bcrypt.ALG_NONE_FLAG, nil)
-+}
-+
-+type shaAlgorithm struct {
-+	handle    bcrypt.ALG_HANDLE
-+	size      uint32
-+	blockSize uint32
-+}
-+
-+func loadSha(id string, flags bcrypt.AlgorithmProviderFlags) (shaAlgorithm, error) {
-+	v, err := loadOrStoreAlg(id, flags, "", func(h bcrypt.ALG_HANDLE) (interface{}, error) {
-+		size, err := getUint32(bcrypt.HANDLE(h), bcrypt.HASH_LENGTH)
-+		if err != nil {
-+			return nil, err
-+		}
-+		blockSize, err := getUint32(bcrypt.HANDLE(h), bcrypt.HASH_BLOCK_LENGTH)
-+		if err != nil {
-+			return nil, err
-+		}
-+		return shaAlgorithm{h, size, blockSize}, nil
-+	})
++	params := &bcrypt.BufferDesc{
++		Count:   uint32(len(buffers)),
++		Buffers: &buffers[0],
++	}
++	var size uint32
++	err = bcrypt.KeyDerivation(kh, params, result, &size, 0)
 +	if err != nil {
-+		return shaAlgorithm{}, err
++		return err
 +	}
-+	return v.(shaAlgorithm), nil
-+}
-+
-+type shaXHash struct {
-+	h         bcrypt.ALG_HANDLE
-+	ctx       bcrypt.HASH_HANDLE
-+	size      int
-+	blockSize int
-+	buf       []byte
-+	key       []byte
-+}
-+
-+func newSHAX(id string, flag bcrypt.AlgorithmProviderFlags, key []byte) *shaXHash {
-+	h, err := loadSha(id, flag)
-+	if err != nil {
-+		panic(err)
++	// The Go standard library expects TLS1PRF to return the requested number of bytes,
++	// fail if it doesn't. While there is no known situation where this will happen,
++	// BCryptKeyDerivation handles multiple algorithms and there could be a subtle mismatch
++	// after more code changes in the future.
++	if size != uint32(len(result)) {
++		return errors.New("tls1-prf: derived less bytes than requested")
 +	}
-+	sha := new(shaXHash)
-+	sha.h = h.handle
-+	sha.size = int(h.size)
-+	sha.blockSize = int(h.blockSize)
-+	sha.buf = make([]byte, sha.size)
-+	if len(key) > 0 {
-+		sha.key = make([]byte, len(key))
-+		copy(sha.key, key)
-+	}
-+	sha.Reset()
-+	runtime.SetFinalizer(sha, (*shaXHash).finalize)
-+	return sha
-+}
-+
-+func (h *shaXHash) finalize() {
-+	if h.ctx != 0 {
-+		bcrypt.DestroyHash(h.ctx)
-+	}
-+}
-+
-+func (h *shaXHash) Clone() (hash.Hash, error) {
-+	h2 := &shaXHash{
-+		h:         h.h,
-+		size:      h.size,
-+		blockSize: h.blockSize,
-+		buf:       make([]byte, len(h.buf)),
-+		key:       make([]byte, len(h.key)),
-+	}
-+	copy(h2.key, h.key)
-+	err := bcrypt.DuplicateHash(h.ctx, &h2.ctx, nil, 0)
-+	if err != nil {
-+		return nil, err
-+	}
-+	runtime.SetFinalizer(h2, (*shaXHash).finalize)
-+	runtime.KeepAlive(h)
-+	return h2, nil
-+}
-+
-+func (h *shaXHash) Reset() {
-+	if h.ctx != 0 {
-+		bcrypt.DestroyHash(h.ctx)
-+		h.ctx = 0
-+	}
-+	err := bcrypt.CreateHash(h.h, &h.ctx, nil, h.key, 0)
-+	if err != nil {
-+		panic(err)
-+	}
-+	runtime.KeepAlive(h)
-+}
-+
-+func (h *shaXHash) Write(p []byte) (n int, err error) {
-+	for n < len(p) && err == nil {
-+		nn := len32(p[n:])
-+		err = bcrypt.HashData(h.ctx, p[n:n+nn], 0)
-+		n += nn
-+	}
-+	if err != nil {
-+		// hash.Hash interface mandates Write should never return an error.
-+		panic(err)
-+	}
-+	runtime.KeepAlive(h)
-+	return len(p), nil
-+}
-+
-+func (h *shaXHash) Size() int {
-+	return h.size
-+}
-+
-+func (h *shaXHash) BlockSize() int {
-+	return h.blockSize
-+}
-+
-+func (h *shaXHash) Sum(in []byte) []byte {
-+	h.sum(h.buf)
-+	return append(in, h.buf...)
-+}
-+
-+func (h *shaXHash) sum(out []byte) {
-+	var ctx2 bcrypt.HASH_HANDLE
-+	err := bcrypt.DuplicateHash(h.ctx, &ctx2, nil, 0)
-+	if err != nil {
-+		panic(err)
-+	}
-+	defer bcrypt.DestroyHash(ctx2)
-+	err = bcrypt.FinishHash(ctx2, out, 0)
-+	if err != nil {
-+		panic(err)
-+	}
-+	runtime.KeepAlive(h)
++	return nil
 +}
 diff --git a/src/vendor/github.com/microsoft/go-crypto-winnative/internal/bcrypt/bcrypt_windows.go b/src/vendor/github.com/microsoft/go-crypto-winnative/internal/bcrypt/bcrypt_windows.go
 new file mode 100644
-index 00000000000000..f3100669d53d3f
+index 00000000000000..37c64ba6a7fa96
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go-crypto-winnative/internal/bcrypt/bcrypt_windows.go
-@@ -0,0 +1,221 @@
+@@ -0,0 +1,284 @@
 +// Copyright (c) Microsoft Corporation.
 +// Licensed under the MIT License.
 +
@@ -5589,15 +6412,26 @@ index 00000000000000..f3100669d53d3f
 +)
 +
 +const (
-+	SHA1_ALGORITHM   = "SHA1"
-+	SHA256_ALGORITHM = "SHA256"
-+	SHA384_ALGORITHM = "SHA384"
-+	SHA512_ALGORITHM = "SHA512"
-+	AES_ALGORITHM    = "AES"
-+	RSA_ALGORITHM    = "RSA"
-+	MD5_ALGORITHM    = "MD5"
-+	ECDSA_ALGORITHM  = "ECDSA"
-+	ECDH_ALGORITHM   = "ECDH"
++	SHA1_ALGORITHM       = "SHA1"
++	SHA256_ALGORITHM     = "SHA256"
++	SHA384_ALGORITHM     = "SHA384"
++	SHA512_ALGORITHM     = "SHA512"
++	SHA3_256_ALGORITHM   = "SHA3-256"
++	SHA3_384_ALGORITHM   = "SHA3-384"
++	SHA3_512_ALGORITHM   = "SHA3-512"
++	AES_ALGORITHM        = "AES"
++	RC4_ALGORITHM        = "RC4"
++	RSA_ALGORITHM        = "RSA"
++	MD4_ALGORITHM        = "MD4"
++	MD5_ALGORITHM        = "MD5"
++	ECDSA_ALGORITHM      = "ECDSA"
++	ECDH_ALGORITHM       = "ECDH"
++	HKDF_ALGORITHM       = "HKDF"
++	PBKDF2_ALGORITHM     = "PBKDF2"
++	DES_ALGORITHM        = "DES"
++	DES3_ALGORITHM       = "3DES" // 3DES_ALGORITHM
++	TLS1_1_KDF_ALGORITHM = "TLS1_1_KDF"
++	TLS1_2_KDF_ALGORITHM = "TLS1_2_KDF"
 +)
 +
 +const (
@@ -5627,6 +6461,46 @@ index 00000000000000..f3100669d53d3f
 +	ECCPUBLIC_BLOB      = "ECCPUBLICBLOB"
 +	ECCPRIVATE_BLOB     = "ECCPRIVATEBLOB"
 +)
++
++const (
++	KDF_HKDF_INFO          = 0x14
++	HKDF_HASH_ALGORITHM    = "HkdfHashAlgorithm"
++	HKDF_SALT_AND_FINALIZE = "HkdfSaltAndFinalize"
++	HKDF_PRK_AND_FINALIZE  = "HkdfPrkAndFinalize"
++)
++
++const (
++	KDF_HASH_ALGORITHM   = 0x0
++	KDF_TLS_PRF_LABEL    = 0x4
++	KDF_TLS_PRF_SEED     = 0x5
++	KDF_TLS_PRF_PROTOCOL = 0x6
++	KDF_ITERATION_COUNT  = 0x10
++	KDF_SALT             = 0xF
++)
++
++const (
++	KEY_DATA_BLOB          = "KeyDataBlob"
++	KEY_DATA_BLOB_MAGIC    = 0x4d42444b
++	KEY_DATA_BLOB_VERSION1 = 1
++)
++
++type KEY_DATA_BLOB_HEADER struct {
++	Magic   uint32
++	Version uint32
++	Length  uint32
++}
++
++type Buffer struct {
++	Length uint32
++	Type   uint32
++	Data   uintptr
++}
++
++type BufferDesc struct {
++	Version uint32
++	Count   uint32 // number of buffers
++	Buffers *Buffer
++}
 +
 +const (
 +	USE_SYSTEM_PREFERRED_RNG = 0x00000002
@@ -5775,6 +6649,7 @@ index 00000000000000..f3100669d53d3f
 +//sys	CreateHash(hAlgorithm ALG_HANDLE, phHash *HASH_HANDLE, pbHashObject []byte, pbSecret []byte, dwFlags uint32) (s error) = bcrypt.BCryptCreateHash
 +//sys	DestroyHash(hHash HASH_HANDLE) (s error) = bcrypt.BCryptDestroyHash
 +//sys   HashData(hHash HASH_HANDLE, pbInput []byte, dwFlags uint32) (s error) = bcrypt.BCryptHashData
++//sys   HashDataRaw(hHash HASH_HANDLE, pbInput *byte, cbInput uint32, dwFlags uint32) (s error) = bcrypt.BCryptHashData
 +//sys   DuplicateHash(hHash HASH_HANDLE,  phNewHash *HASH_HANDLE, pbHashObject []byte, dwFlags uint32) (s error) = bcrypt.BCryptDuplicateHash
 +//sys   FinishHash(hHash HASH_HANDLE, pbOutput []byte, dwFlags uint32) (s error) = bcrypt.BCryptFinishHash
 +
@@ -5784,7 +6659,7 @@ index 00000000000000..f3100669d53d3f
 +
 +// Keys
 +
-+//sys   GenerateSymmetricKey(hAlgorithm ALG_HANDLE, phKey *KEY_HANDLE, pbKeyObject []byte, pbSecret []byte, dwFlags uint32) (s error) = bcrypt.BCryptGenerateSymmetricKey
++//sys   generateSymmetricKey(hAlgorithm ALG_HANDLE, phKey *KEY_HANDLE, pbKeyObject []byte, pbSecret *byte, cbSecret uint32, dwFlags uint32) (s error) = bcrypt.BCryptGenerateSymmetricKey
 +//sys   GenerateKeyPair(hAlgorithm ALG_HANDLE, phKey *KEY_HANDLE, dwLength uint32, dwFlags uint32) (s error) = bcrypt.BCryptGenerateKeyPair
 +//sys   FinalizeKeyPair(hKey KEY_HANDLE, dwFlags uint32) (s error) = bcrypt.BCryptFinalizeKeyPair
 +//sys   ImportKeyPair (hAlgorithm ALG_HANDLE, hImportKey KEY_HANDLE, pszBlobType *uint16, phKey *KEY_HANDLE, pbInput []byte, dwFlags uint32) (s error) = bcrypt.BCryptImportKeyPair
@@ -5795,14 +6670,25 @@ index 00000000000000..f3100669d53d3f
 +//sys   SignHash (hKey KEY_HANDLE, pPaddingInfo unsafe.Pointer, pbInput []byte, pbOutput []byte, pcbResult *uint32, dwFlags PadMode) (s error) = bcrypt.BCryptSignHash
 +//sys   VerifySignature(hKey KEY_HANDLE, pPaddingInfo unsafe.Pointer, pbHash []byte, pbSignature []byte, dwFlags PadMode) (s error) = bcrypt.BCryptVerifySignature
 +//sys   SecretAgreement(hPrivKey KEY_HANDLE, hPubKey KEY_HANDLE, phAgreedSecret *SECRET_HANDLE, dwFlags uint32) (s error) = bcrypt.BCryptSecretAgreement
-+//sys   DeriveKey(hSharedSecret SECRET_HANDLE, pwszKDF *uint16, pParameterList *byte, pbDerivedKey []byte, pcbResult *uint32, dwFlags uint32) (s error) = bcrypt.BCryptDeriveKey
++//sys   DeriveKey(hSharedSecret SECRET_HANDLE, pwszKDF *uint16, pParameterList *BufferDesc, pbDerivedKey []byte, pcbResult *uint32, dwFlags uint32) (s error) = bcrypt.BCryptDeriveKey
++//sys   KeyDerivation(hKey KEY_HANDLE, pParameterList *BufferDesc, pbDerivedKey []byte, pcbResult *uint32, dwFlags uint32) (s error) = bcrypt.BCryptKeyDerivation
 +//sys   DestroySecret(hSecret SECRET_HANDLE) (s error) = bcrypt.BCryptDestroySecret
++
++func GenerateSymmetricKey(hAlgorithm ALG_HANDLE, phKey *KEY_HANDLE, pbKeyObject []byte, pbSecret []byte, dwFlags uint32) error {
++	cbLen := uint32(len(pbSecret))
++	if cbLen == 0 {
++		// BCryptGenerateSymmetricKey does not support nil pbSecret,
++		// stack-allocate a zero byte here just to make CNG happy.
++		pbSecret = make([]byte, 1)
++	}
++	return generateSymmetricKey(hAlgorithm, phKey, pbKeyObject, &pbSecret[0], cbLen, dwFlags)
++}
 diff --git a/src/vendor/github.com/microsoft/go-crypto-winnative/internal/bcrypt/zsyscall_windows.go b/src/vendor/github.com/microsoft/go-crypto-winnative/internal/bcrypt/zsyscall_windows.go
 new file mode 100644
-index 00000000000000..09053bb5a4738b
+index 00000000000000..3c6a5764eb92ec
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go-crypto-winnative/internal/bcrypt/zsyscall_windows.go
-@@ -0,0 +1,372 @@
+@@ -0,0 +1,389 @@
 +// Code generated by 'go generate'; DO NOT EDIT.
 +
 +package bcrypt
@@ -5864,6 +6750,7 @@ index 00000000000000..09053bb5a4738b
 +	procBCryptHash                   = modbcrypt.NewProc("BCryptHash")
 +	procBCryptHashData               = modbcrypt.NewProc("BCryptHashData")
 +	procBCryptImportKeyPair          = modbcrypt.NewProc("BCryptImportKeyPair")
++	procBCryptKeyDerivation          = modbcrypt.NewProc("BCryptKeyDerivation")
 +	procBCryptOpenAlgorithmProvider  = modbcrypt.NewProc("BCryptOpenAlgorithmProvider")
 +	procBCryptSecretAgreement        = modbcrypt.NewProc("BCryptSecretAgreement")
 +	procBCryptSetProperty            = modbcrypt.NewProc("BCryptSetProperty")
@@ -5915,7 +6802,7 @@ index 00000000000000..09053bb5a4738b
 +	return
 +}
 +
-+func DeriveKey(hSharedSecret SECRET_HANDLE, pwszKDF *uint16, pParameterList *byte, pbDerivedKey []byte, pcbResult *uint32, dwFlags uint32) (s error) {
++func DeriveKey(hSharedSecret SECRET_HANDLE, pwszKDF *uint16, pParameterList *BufferDesc, pbDerivedKey []byte, pcbResult *uint32, dwFlags uint32) (s error) {
 +	var _p0 *byte
 +	if len(pbDerivedKey) > 0 {
 +		_p0 = &pbDerivedKey[0]
@@ -6031,16 +6918,12 @@ index 00000000000000..09053bb5a4738b
 +	return
 +}
 +
-+func GenerateSymmetricKey(hAlgorithm ALG_HANDLE, phKey *KEY_HANDLE, pbKeyObject []byte, pbSecret []byte, dwFlags uint32) (s error) {
++func generateSymmetricKey(hAlgorithm ALG_HANDLE, phKey *KEY_HANDLE, pbKeyObject []byte, pbSecret *byte, cbSecret uint32, dwFlags uint32) (s error) {
 +	var _p0 *byte
 +	if len(pbKeyObject) > 0 {
 +		_p0 = &pbKeyObject[0]
 +	}
-+	var _p1 *byte
-+	if len(pbSecret) > 0 {
-+		_p1 = &pbSecret[0]
-+	}
-+	r0, _, _ := syscall.Syscall9(procBCryptGenerateSymmetricKey.Addr(), 7, uintptr(hAlgorithm), uintptr(unsafe.Pointer(phKey)), uintptr(unsafe.Pointer(_p0)), uintptr(len(pbKeyObject)), uintptr(unsafe.Pointer(_p1)), uintptr(len(pbSecret)), uintptr(dwFlags), 0, 0)
++	r0, _, _ := syscall.Syscall9(procBCryptGenerateSymmetricKey.Addr(), 7, uintptr(hAlgorithm), uintptr(unsafe.Pointer(phKey)), uintptr(unsafe.Pointer(_p0)), uintptr(len(pbKeyObject)), uintptr(unsafe.Pointer(pbSecret)), uintptr(cbSecret), uintptr(dwFlags), 0, 0)
 +	if r0 != 0 {
 +		s = syscall.Errno(r0)
 +	}
@@ -6092,6 +6975,14 @@ index 00000000000000..09053bb5a4738b
 +	return
 +}
 +
++func HashDataRaw(hHash HASH_HANDLE, pbInput *byte, cbInput uint32, dwFlags uint32) (s error) {
++	r0, _, _ := syscall.Syscall6(procBCryptHashData.Addr(), 4, uintptr(hHash), uintptr(unsafe.Pointer(pbInput)), uintptr(cbInput), uintptr(dwFlags), 0, 0)
++	if r0 != 0 {
++		s = syscall.Errno(r0)
++	}
++	return
++}
++
 +func HashData(hHash HASH_HANDLE, pbInput []byte, dwFlags uint32) (s error) {
 +	var _p0 *byte
 +	if len(pbInput) > 0 {
@@ -6110,6 +7001,18 @@ index 00000000000000..09053bb5a4738b
 +		_p0 = &pbInput[0]
 +	}
 +	r0, _, _ := syscall.Syscall9(procBCryptImportKeyPair.Addr(), 7, uintptr(hAlgorithm), uintptr(hImportKey), uintptr(unsafe.Pointer(pszBlobType)), uintptr(unsafe.Pointer(phKey)), uintptr(unsafe.Pointer(_p0)), uintptr(len(pbInput)), uintptr(dwFlags), 0, 0)
++	if r0 != 0 {
++		s = syscall.Errno(r0)
++	}
++	return
++}
++
++func KeyDerivation(hKey KEY_HANDLE, pParameterList *BufferDesc, pbDerivedKey []byte, pcbResult *uint32, dwFlags uint32) (s error) {
++	var _p0 *byte
++	if len(pbDerivedKey) > 0 {
++		_p0 = &pbDerivedKey[0]
++	}
++	r0, _, _ := syscall.Syscall6(procBCryptKeyDerivation.Addr(), 6, uintptr(hKey), uintptr(unsafe.Pointer(pParameterList)), uintptr(unsafe.Pointer(_p0)), uintptr(len(pbDerivedKey)), uintptr(unsafe.Pointer(pcbResult)), uintptr(dwFlags))
 +	if r0 != 0 {
 +		s = syscall.Errno(r0)
 +	}
@@ -6275,16 +7178,16 @@ index 00000000000000..1722410e5af193
 +	return getSystemDirectory() + "\\" + dll
 +}
 diff --git a/src/vendor/modules.txt b/src/vendor/modules.txt
-index 3e4bb5b90bc672..f9c4400403fb09 100644
+index 7563827b227a12..4391c7cdeca89a 100644
 --- a/src/vendor/modules.txt
 +++ b/src/vendor/modules.txt
 @@ -1,3 +1,15 @@
-+# github.com/microsoft/go-crypto-openssl v0.2.8
++# github.com/microsoft/go-crypto-openssl v0.2.9-0.20240110181346-cf2e349f6f4f
 +## explicit; go 1.17
 +github.com/microsoft/go-crypto-openssl/openssl
 +github.com/microsoft/go-crypto-openssl/openssl/bbig
 +github.com/microsoft/go-crypto-openssl/openssl/internal/subtle
-+# github.com/microsoft/go-crypto-winnative v0.0.0-20230125071228-ef6c7cb780c6
++# github.com/microsoft/go-crypto-winnative v0.0.0-20240109184443-a968e40d3103
 +## explicit; go 1.17
 +github.com/microsoft/go-crypto-winnative/cng
 +github.com/microsoft/go-crypto-winnative/cng/bbig
