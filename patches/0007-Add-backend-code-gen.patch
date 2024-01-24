@@ -8,6 +8,7 @@ to add extra features and tie up loose ends in an easily maintained way.
 
 Backend conflict error generator: creates files that generate
 informative build errors when the backends aren't configured correctly.
+Also checks that when "ms.tlsfipsonly" is set, a backend is enabled.
 
 "nobackend" build constraint generator: gathers the build constraints
 for all the backends to create the "nobackend" constraint.
@@ -26,22 +27,24 @@ Use "go/bin/go generate crypto/internal/backend" after recently building
 the repository to run the generators.
 ---
  src/crypto/internal/backend/backendgen.go     |  20 ++
- .../internal/backend/backendgen_test.go       | 284 ++++++++++++++++++
+ .../internal/backend/backendgen_test.go       | 308 ++++++++++++++++++
  src/crypto/internal/backend/nobackend.go      |   2 +-
+ ...ckenderr_gen_tlsfipsonly_nosystemcrypto.go |  17 +
  .../exp_allowcryptofallback_off.go            |   9 +
  .../exp_allowcryptofallback_on.go             |   9 +
  src/internal/goexperiment/flags.go            |   8 +
- .../backenderr_gen_conflict_boring_cng.go     |  17 ++
- .../backenderr_gen_conflict_boring_openssl.go |  17 ++
- .../backenderr_gen_conflict_cng_openssl.go    |  17 ++
+ .../backenderr_gen_conflict_boring_cng.go     |  17 +
+ .../backenderr_gen_conflict_boring_openssl.go |  17 +
+ .../backenderr_gen_conflict_cng_openssl.go    |  17 +
  .../backenderr_gen_nofallback_boring.go       |  24 ++
  src/runtime/backenderr_gen_nofallback_cng.go  |  24 ++
  .../backenderr_gen_nofallback_openssl.go      |  24 ++
- ...ckenderr_gen_requirefips_nosystemcrypto.go |  17 ++
+ ...ckenderr_gen_requirefips_nosystemcrypto.go |  17 +
  .../backenderr_gen_systemcrypto_nobackend.go  |  16 +
- 14 files changed, 487 insertions(+), 1 deletion(-)
+ 15 files changed, 528 insertions(+), 1 deletion(-)
  create mode 100644 src/crypto/internal/backend/backendgen.go
  create mode 100644 src/crypto/internal/backend/backendgen_test.go
+ create mode 100644 src/crypto/tls/backenderr_gen_tlsfipsonly_nosystemcrypto.go
  create mode 100644 src/internal/goexperiment/exp_allowcryptofallback_off.go
  create mode 100644 src/internal/goexperiment/exp_allowcryptofallback_on.go
  create mode 100644 src/runtime/backenderr_gen_conflict_boring_cng.go
@@ -81,10 +84,10 @@ index 00000000000000..acf0113bbefb6c
 +//go:generate go test -run TestGenerated -fix
 diff --git a/src/crypto/internal/backend/backendgen_test.go b/src/crypto/internal/backend/backendgen_test.go
 new file mode 100644
-index 00000000000000..1ba948c8f207e5
+index 00000000000000..6bb9f860195a40
 --- /dev/null
 +++ b/src/crypto/internal/backend/backendgen_test.go
-@@ -0,0 +1,284 @@
+@@ -0,0 +1,308 @@
 +// Copyright 2023 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -107,6 +110,7 @@ index 00000000000000..1ba948c8f207e5
 +var fix = flag.Bool("fix", false, "if true, update the generated files to the wanted value")
 +
 +const runtimePackageDir = "../../../runtime"
++const tlsPackageDir = "../../../crypto/tls"
 +
 +// backendErrPrefix is the prefix of the generated backend error files. Any file
 +// in the runtime package with this prefix will be considered a backend error
@@ -221,6 +225,8 @@ index 00000000000000..1ba948c8f207e5
 +	delete(existingFiles, f)
 +	f = testRequireFIPSWithoutBackend(t)
 +	delete(existingFiles, f)
++	f = testTLSFIPSOnlyWithoutBackend(t)
++	delete(existingFiles, f)
 +
 +	for f := range existingFiles {
 +		if *fix {
@@ -239,9 +245,9 @@ index 00000000000000..1ba948c8f207e5
 +// testConflict checks/generates a file that fails if two backends are enabled
 +// at the same time.
 +func testConflict(t *testing.T, a, b string) string {
-+	return testErrorFile(
++	return testErrorFileRuntime(
 +		t,
-+		filepath.Join(runtimePackageDir, backendErrPrefix+"conflict_"+a+"_"+b+".go"),
++		"conflict_"+a+"_"+b+".go",
 +		"//go:build goexperiment."+a+"crypto && goexperiment."+b+"crypto",
 +		"The "+a+" and "+b+" backends are both enabled, but they are mutually exclusive.",
 +		"Please make sure only one crypto backend experiment is enabled by GOEXPERIMENT or '-tags'.")
@@ -257,9 +263,9 @@ index 00000000000000..1ba948c8f207e5
 +		},
 +		Y: &constraint.NotExpr{X: optOutTag},
 +	}
-+	return testErrorFile(
++	return testErrorFileRuntime(
 +		t,
-+		filepath.Join(runtimePackageDir, backendErrPrefix+"nofallback_"+backend.name+".go"),
++		"nofallback_"+backend.name+".go",
 +		"//go:build "+c.String(),
 +		"The "+expTag.String()+" tag is specified, but other tags required to enable that backend were not met.",
 +		"Required build tags:",
@@ -279,32 +285,42 @@ index 00000000000000..1ba948c8f207e5
 +	for _, b := range backends {
 +		constraint += ` && !goexperiment.` + b.name + "crypto"
 +	}
-+	return testErrorFile(
++	return testErrorFileRuntime(
 +		t,
-+		filepath.Join(runtimePackageDir, backendErrPrefix+"systemcrypto_nobackend.go"),
++		"systemcrypto_nobackend.go",
 +		constraint,
 +		"The systemcrypto feature is enabled, but it was unable to enable an appropriate crypto backend for the target GOOS.")
 +}
 +
 +func testRequireFIPSWithoutBackend(t *testing.T) string {
-+	return testErrorFile(
++	return testErrorFileRuntime(
 +		t,
-+		filepath.Join(runtimePackageDir, backendErrPrefix+"requirefips_nosystemcrypto.go"),
++		"requirefips_nosystemcrypto.go",
 +		"//go:build requirefips && !goexperiment.systemcrypto",
 +		"The requirefips tag is enabled, but no crypto backend is enabled.",
 +		"A crypto backend is required to enable FIPS mode.")
 +}
 +
-+// testErrorFile checks/generates a Go file with a given build constraint that
++func testTLSFIPSOnlyWithoutBackend(t *testing.T) string {
++	return testErrorFile(
++		t,
++		filepath.Join(tlsPackageDir, backendErrPrefix+"tlsfipsonly_nosystemcrypto.go"),
++		"tls",
++		"//go:build ms.tlsfipsonly && !goexperiment.systemcrypto",
++		"The ms.tlsfipsonly tag is enabled, but no crypto backend is enabled.",
++		"A crypto backend is required to enable TLS FIPS-only mode.")
++}
++
++// testErrorFilePackage checks/generates a Go file with a given build constraint that
 +// fails to compile. The file uses an unused string to convey an error message
 +// to the dev on the "go build" command line.
-+func testErrorFile(t *testing.T, file, constraint string, message ...string) string {
++func testErrorFile(t *testing.T, file, pkg, constraint string, message ...string) string {
 +	const header = `// Copyright 2023 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
 +
 +// This file is generated by crypto/internal/backend. DO NOT EDIT. DO NOT manually create files with the prefix "` + backendErrPrefix + `".`
-+	c := header + "\n\n" + constraint + "\n\npackage runtime\n\nfunc init() {\n\t`\n"
++	c := header + "\n\n" + constraint + "\n\npackage " + pkg + "\n\nfunc init() {\n\t`\n"
 +	for _, m := range message {
 +		c += "\t" + m + "\n"
 +	}
@@ -326,6 +342,17 @@ index 00000000000000..1ba948c8f207e5
 +		}
 +	}
 +	return file
++}
++
++// testErrorFileRuntime calls testErrorFile to make an error file with a given
++// name for the runtime package. This function handles the file name prefix.
++func testErrorFileRuntime(t *testing.T, name, constraint string, message ...string) string {
++	return testErrorFile(
++		t,
++		filepath.Join(runtimePackageDir, backendErrPrefix+name),
++		"runtime",
++		constraint,
++		message...)
 +}
 +
 +type backend struct {
@@ -370,7 +397,7 @@ index 00000000000000..1ba948c8f207e5
 +	return bs
 +}
 diff --git a/src/crypto/internal/backend/nobackend.go b/src/crypto/internal/backend/nobackend.go
-index ad6081552af15d..d5948dbc5f8a2a 100644
+index 08600a2c833ac7..eddfb35aca54e9 100644
 --- a/src/crypto/internal/backend/nobackend.go
 +++ b/src/crypto/internal/backend/nobackend.go
 @@ -4,7 +4,7 @@
@@ -382,6 +409,29 @@ index ad6081552af15d..d5948dbc5f8a2a 100644
  
  package backend
  
+diff --git a/src/crypto/tls/backenderr_gen_tlsfipsonly_nosystemcrypto.go b/src/crypto/tls/backenderr_gen_tlsfipsonly_nosystemcrypto.go
+new file mode 100644
+index 00000000000000..aa0e7c807ba42c
+--- /dev/null
++++ b/src/crypto/tls/backenderr_gen_tlsfipsonly_nosystemcrypto.go
+@@ -0,0 +1,17 @@
++// Copyright 2023 The Go Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style
++// license that can be found in the LICENSE file.
++
++// This file is generated by crypto/internal/backend. DO NOT EDIT. DO NOT manually create files with the prefix "backenderr_gen_".
++
++//go:build ms.tlsfipsonly && !goexperiment.systemcrypto
++
++package tls
++
++func init() {
++	`
++	The ms.tlsfipsonly tag is enabled, but no crypto backend is enabled.
++	A crypto backend is required to enable TLS FIPS-only mode.
++	For more information, visit https://github.com/microsoft/go/tree/microsoft/main/eng/doc/fips
++	`
++}
 diff --git a/src/internal/goexperiment/exp_allowcryptofallback_off.go b/src/internal/goexperiment/exp_allowcryptofallback_off.go
 new file mode 100644
 index 00000000000000..dfce36d834c46e
@@ -413,7 +463,7 @@ index 00000000000000..8d0c3fde9ab5e8
 +const AllowCryptoFallback = true
 +const AllowCryptoFallbackInt = 1
 diff --git a/src/internal/goexperiment/flags.go b/src/internal/goexperiment/flags.go
-index c2f69930e2240e..c8e10ebc1696c4 100644
+index eb7871b0769055..bbd9463111ea2b 100644
 --- a/src/internal/goexperiment/flags.go
 +++ b/src/internal/goexperiment/flags.go
 @@ -77,6 +77,14 @@ type Flags struct {
@@ -562,7 +612,7 @@ index 00000000000000..ae7f798ea41225
 +}
 diff --git a/src/runtime/backenderr_gen_nofallback_openssl.go b/src/runtime/backenderr_gen_nofallback_openssl.go
 new file mode 100644
-index 00000000000000..351be70262084b
+index 00000000000000..7e1679dfc37a23
 --- /dev/null
 +++ b/src/runtime/backenderr_gen_nofallback_openssl.go
 @@ -0,0 +1,24 @@

@@ -43,6 +43,7 @@ Subject: [PATCH] Add crypto backend foundation
  src/crypto/sha512/sha512.go                  |   2 +-
  src/crypto/sha512/sha512_test.go             |   2 +-
  src/crypto/tls/cipher_suites.go              |   2 +-
+ src/crypto/tls/fipsonly_tagimport.go         |  19 ++
  src/crypto/tls/handshake_client.go           |  25 ++-
  src/crypto/tls/handshake_server.go           |  25 ++-
  src/crypto/tls/key_schedule.go               |  18 +-
@@ -50,7 +51,7 @@ Subject: [PATCH] Add crypto backend foundation
  src/crypto/tls/prf_test.go                   |  12 +-
  src/go/build/deps_test.go                    |   2 +
  src/runtime/runtime_boring.go                |   5 +
- 46 files changed, 700 insertions(+), 66 deletions(-)
+ 47 files changed, 719 insertions(+), 66 deletions(-)
  create mode 100644 src/crypto/ed25519/boring.go
  create mode 100644 src/crypto/ed25519/notboring.go
  create mode 100644 src/crypto/internal/backend/backend_test.go
@@ -60,6 +61,7 @@ Subject: [PATCH] Add crypto backend foundation
  create mode 100644 src/crypto/internal/backend/nobackend.go
  create mode 100644 src/crypto/internal/backend/norequirefips.go
  create mode 100644 src/crypto/internal/backend/stub.s
+ create mode 100644 src/crypto/tls/fipsonly_tagimport.go
 
 diff --git a/src/crypto/aes/cipher.go b/src/crypto/aes/cipher.go
 index a9e6208696dae8..9dd2f28861dd66 100644
@@ -1038,7 +1040,7 @@ index b63b6eb01db637..27241df1867cb5 100644
  	"hash"
  	"io"
 diff --git a/src/crypto/rsa/rsa.go b/src/crypto/rsa/rsa.go
-index 0715421187d8b1..90d05432ed102b 100644
+index 9342930dc1236f..72c31368f1cc2e 100644
 --- a/src/crypto/rsa/rsa.go
 +++ b/src/crypto/rsa/rsa.go
 @@ -27,9 +27,9 @@ package rsa
@@ -1054,7 +1056,7 @@ index 0715421187d8b1..90d05432ed102b 100644
  	"crypto/rand"
  	"crypto/subtle"
 diff --git a/src/crypto/rsa/rsa_test.go b/src/crypto/rsa/rsa_test.go
-index 3278a7ff305766..95f4b8e98d2fb0 100644
+index 2afa045a3a0bd2..86466e67e87eeb 100644
 --- a/src/crypto/rsa/rsa_test.go
 +++ b/src/crypto/rsa/rsa_test.go
 @@ -8,7 +8,7 @@ import (
@@ -1157,6 +1159,31 @@ index 636689beb4dcef..7c732805725cd8 100644
  	"crypto/rc4"
  	"crypto/sha1"
  	"crypto/sha256"
+diff --git a/src/crypto/tls/fipsonly_tagimport.go b/src/crypto/tls/fipsonly_tagimport.go
+new file mode 100644
+index 00000000000000..c42fb25c1200b0
+--- /dev/null
++++ b/src/crypto/tls/fipsonly_tagimport.go
+@@ -0,0 +1,19 @@
++// Copyright 2024 The Go Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style
++// license that can be found in the LICENSE file.
++
++// This file imports "crypto/tls/fipsonly" if the Microsoft Go fork's
++// "ms.tlsfipsonly" tag is specified. This can be used to add the import to
++// a program without modifying its source code.
++//
++// It is safe to use "-tags ms.tlsfipsonly" even if Go TLS is not being
++// used. In that case, the tag will have no effect on the built program.
++//
++// The "ms.tlsfipsonly" tag requires a crypto backend to be enabled.
++// Otherwise, the build will intentionally fail.
++
++//go:build ms.tlsfipsonly && goexperiment.systemcrypto
++
++package tls
++
++import _ "crypto/tls/fipsonly"
 diff --git a/src/crypto/tls/handshake_client.go b/src/crypto/tls/handshake_client.go
 index 89004c28989627..eafbb221c07a33 100644
 --- a/src/crypto/tls/handshake_client.go
