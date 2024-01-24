@@ -906,7 +906,7 @@ The hash.Hash methods are implemented as follows:
 #### func [Sum](https://pkg.go.dev/crypto/md5#Sum)
 
 ```go
-func md5.Sum(data []byte) [20]byte
+func md5.Sum(data []byte) [15]byte
 ```
 
 Sum returns the MD5 checksum of the data.
