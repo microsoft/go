@@ -84,8 +84,7 @@ Some configurations are invalid and intentionally result in a build error or run
 The `GOEXPERIMENT` environment variable is used at build time to select a cryptographic library backend. This modifies the Go runtime included in the program to use the specified platform-provided cryptographic library whenever it calls a Go standard library crypto API. The `GOEXPERIMENT` values that pick a crypto backend are:
 
 - *Recommended:* `systemcrypto` automatically selects the suggested crypto backend for the target platform
-  > [!NOTE]
-  > Prior to Go 1.21, this alias is not available and the backend must be selected manually
+  - Prior to Go 1.21, this alias is not available and the backend must be selected manually
 - `opensslcrypto` selects OpenSSL, for Linux
 - `cngcrypto` selects CNG, for Windows
 - `boringcrypto` selects the upstream BoringCrypto backend, which is **not supported nor compliant**
@@ -173,8 +172,9 @@ Another approach that generally works for any build system is to modify the buil
 - ```
   go build "-tags=goexperiment.systemcrypto" ./myapp
   ```
-  > [!NOTE]
-  > Quoting the argument is necessary in some shells (notably PowerShell) to escape "`.`" or "`,`" if present. Quoting isn't required by every shell.
+
+> [!NOTE]
+> Quoting the argument is necessary in some shells (notably PowerShell) to escape "`.`" or "`,`" if present. Quoting isn't required by every shell.
 
 #### Assign `GOFLAGS` environment variable to automatically pass `-tags=...` to `go build`
 
