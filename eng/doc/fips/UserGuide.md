@@ -869,6 +869,8 @@ The hash.Hash methods are implemented as follows:
 
 Package md5 implements the MD5 hash algorithm as defined in RFC 1321.
 
+MD5 is cryptographically broken and should not be used for secure applications.
+
 #### func [New](https://pkg.go.dev/crypto/md5#New)
 
 ```go
