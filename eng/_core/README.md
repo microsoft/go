@@ -18,10 +18,13 @@ The high-level execution flow looks roughly like this when running in CI:
 
 * `eng/pipeline/jobs/run-stage.yml`  
   runs:
-* `eng/run.ps1 run-builder -builder linux-amd64-test -junitfile [...]`  
+* `eng/run.ps1 run-builder -test -builder linux-amd64-test -junitfile [...]`  
   which runs the Go function:
 * `gotestsum.Run(... eng/run.ps1 build -test -json ...)`  
   which runs and captures the output of:
 * `eng/run.ps1 build -test -json`  
   which runs [`cmd/build/build.go`](cmd/build/build.go) in this module.
 
+This is not currently used in our CI because this process seems to cut off
+some test output:
+[microsoft/go#1114](https://github.com/microsoft/go/issues/1114).
