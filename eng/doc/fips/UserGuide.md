@@ -37,11 +37,19 @@ The Go crypto documentation is available online at https://pkg.go.dev/crypto.
       - [func GenerateKey](#func-generatekey)
       - [func PrivateKey.Sign](#func-privatekeysign)
     - [crypto/ed25519](#cryptoed25519)
+      - [func GenerateKey](#func-generatekey-1)
+      - [func Sign](#func-sign-1)
+      - [func Verify](#func-verify-1)
+      - [func VerifyWithOptions](#func-verifywithoptions)
+      - [func NewKeyFromSeed](#func-newkeyfromseed)
+      - [func PrivateKey.Sign](#func-privatekeysign-1)
     - [crypto/elliptic](#cryptoelliptic)
     - [crypto/hmac](#cryptohmac)
       - [func Equal](#func-equal)
       - [func New](#func-new)
     - [crypto/md5](#cryptomd5)
+      - [func New](#func-new-1)
+      - [func Sum](#func-sum)
     - [crypto/rand](#cryptorand)
       - [var Reader](#var-reader)
       - [func Int](#func-int)
@@ -50,15 +58,15 @@ The Go crypto documentation is available online at https://pkg.go.dev/crypto.
     - [crypto/rc4](#cryptorc4)
       - [func NewCipher](#func-newcipher-1)
     - [crypto/sha1](#cryptosha1)
-      - [func New](#func-new-1)
-      - [func Sum](#func-sum)
-    - [crypto/sha256](#cryptosha256)
       - [func New](#func-new-2)
+      - [func Sum](#func-sum-1)
+    - [crypto/sha256](#cryptosha256)
+      - [func New](#func-new-3)
       - [func New224](#func-new224)
       - [func Sum224](#func-sum224)
       - [func Sum256](#func-sum256)
     - [crypto/sha512](#cryptosha512)
-      - [func New](#func-new-3)
+      - [func New](#func-new-4)
       - [func New384](#func-new384)
       - [func New512\_224](#func-new512_224)
       - [func New512\_256](#func-new512_256)
@@ -75,10 +83,10 @@ The Go crypto documentation is available online at https://pkg.go.dev/crypto.
       - [func SignPSS](#func-signpss)
       - [func VerifyPKCS1v15](#func-verifypkcs1v15)
       - [func VerifyPSS](#func-verifypss)
-      - [func GenerateKey](#func-generatekey-1)
+      - [func GenerateKey](#func-generatekey-2)
       - [func GenerateMultiPrimeKey](#func-generatemultiprimekey)
       - [func PrivateKey.Decrypt](#func-privatekeydecrypt)
-      - [func PrivateKey.Sign](#func-privatekeysign-1)
+      - [func PrivateKey.Sign](#func-privatekeysign-2)
     - [crypto/subtle](#cryptosubtle)
     - [crypto/tls](#cryptotls)
 
@@ -859,7 +867,52 @@ The hash.Hash methods are implemented as follows:
 
 ### [crypto/md5](https://pkg.go.dev/crypto/md5)
 
-Not implemented by any backend.
+Package md5 implements the MD5 hash algorithm as defined in RFC 1321.
+
+MD5 is cryptographically broken and should not be used for secure applications.
+
+#### func [New](https://pkg.go.dev/crypto/md5#New)
+
+```go
+func md5.New() hash.Hash
+```
+
+New returns a new hash.Hash computing the MD5 checksum.
+
+**Implementation**
+
+<details><summary>OpenSSL (click for details)</summary>
+
+The hash is generated using [EVP_MD_CTX_new] and [EVP_DigestInit_ex] with the algorithm [EVP_md5].
+
+The hash.Hash methods are implemented as follows:
+
+- `Write` using [EVP_DigestUpdate].
+- `Sum` using [EVP_DigestFinal].
+- `Reset` using [EVP_DigestInit].
+
+</details>
+
+<details><summary>CNG (click for details)</summary>
+
+The hash is generated using [BCryptCreateHash] with the [algorithm identifier] `BCRYPT_MD5_ALGORITHM`.
+
+The hash.Hash methods are implemented as follows:
+
+- `Write` using [BCryptHashData].
+- `Sum` using [BCryptFinishHash].
+- `Reset` using [BCryptDestroyHash] and [BCryptCreateHash].
+
+</details>
+
+#### func [Sum](https://pkg.go.dev/crypto/md5#Sum)
+
+```go
+func md5.Sum(data []byte) [15]byte
+```
+
+Sum returns the MD5 checksum of the data.
+It internally uses md5.New() to compute the checksum.
 
 ### [crypto/rand](https://pkg.go.dev/crypto/rand)
 
@@ -1607,6 +1660,7 @@ When using TLS in FIPS-only mode the TLS handshake has the following restriction
 [EVP_aes_192_cbc]: https://www.openssl.org/docs/man3.0/man3/EVP_aes_192_cbc.html
 [EVP_aes_256_cbc]: https://www.openssl.org/docs/man3.0/man3/EVP_aes_256_cbc.html
 [EVP_rc4]: https://www.openssl.org/docs/man3.0/man3/EVP_rc4.html
+[EVP_md5]: https://www.openssl.org/docs/man3.0/man3/EVP_md5.html
 [EVP_sha1]: https://www.openssl.org/docs/man3.0/man3/EVP_sha1.html
 [EVP_sha224]: https://www.openssl.org/docs/man3.0/man3/EVP_sha224.html
 [EVP_sha256]: https://www.openssl.org/docs/man3.0/man3/EVP_sha256.html
