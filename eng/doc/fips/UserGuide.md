@@ -1603,8 +1603,6 @@ When using TLS in FIPS-only mode the TLS handshake has the following restriction
   - `tls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384`
   - `tls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256`
   - `tls.TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384`
-  - `tls.TLS_RSA_WITH_AES_128_GCM_SHA256`
-  - `tls.TLS_RSA_WITH_AES_256_GCM_SHA384`
 - Cipher suites for TLS 1.3:
   - `tls.TLS_AES_128_GCM_SHA256`
   - `tls.TLS_AES_256_GCM_SHA384`
