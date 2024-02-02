@@ -4,18 +4,18 @@ Date: Fri, 2 Feb 2024 09:25:38 +0100
 Subject: [PATCH] Support TLS 1.3 in fipstls mode
 
 ---
- src/crypto/tls/boring.go                 | 12 +++--
- src/crypto/tls/boring_test.go            | 56 +++++++++++++++++++-----
- src/crypto/tls/cipher_suites.go          | 13 +++++-
+ src/crypto/tls/boring.go                 | 14 ++++--
+ src/crypto/tls/boring_test.go            | 64 ++++++++++++++++++------
+ src/crypto/tls/cipher_suites.go          | 13 ++++-
  src/crypto/tls/handshake_client.go       |  4 +-
  src/crypto/tls/handshake_client_tls13.go |  4 --
- src/crypto/tls/handshake_server_test.go  | 28 ++++++++----
+ src/crypto/tls/handshake_server_test.go  | 28 +++++++----
  src/crypto/tls/handshake_server_tls13.go |  7 ++-
  src/crypto/tls/notboring.go              |  2 +
- 8 files changed, 93 insertions(+), 33 deletions(-)
+ 8 files changed, 97 insertions(+), 39 deletions(-)
 
 diff --git a/src/crypto/tls/boring.go b/src/crypto/tls/boring.go
-index ecd0f5a7b3e9ed..35808a3acd5403 100644
+index ecd0f5a7b3e9ed..07f15ab91eefd3 100644
 --- a/src/crypto/tls/boring.go
 +++ b/src/crypto/tls/boring.go
 @@ -17,14 +17,14 @@ func needFIPS() bool {
@@ -36,7 +36,16 @@ index ecd0f5a7b3e9ed..35808a3acd5403 100644
  }
  
  // default defaultFIPSCurvePreferences is the FIPS-allowed curves,
-@@ -75,6 +75,12 @@ func fipsCipherSuites(c *Config) []uint16 {
+@@ -54,8 +54,6 @@ var defaultCipherSuitesFIPS = []uint16{
+ 	TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
+ 	TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
+ 	TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
+-	TLS_RSA_WITH_AES_128_GCM_SHA256,
+-	TLS_RSA_WITH_AES_256_GCM_SHA384,
+ }
+ 
+ // fipsCipherSuites replaces c.cipherSuites in FIPS-only mode.
+@@ -75,6 +73,12 @@ func fipsCipherSuites(c *Config) []uint16 {
  	return list
  }
  
@@ -50,7 +59,7 @@ index ecd0f5a7b3e9ed..35808a3acd5403 100644
  // defaultSupportedSignatureAlgorithms without Ed25519 and SHA-1.
  var fipsSupportedSignatureAlgorithms = []SignatureScheme{
 diff --git a/src/crypto/tls/boring_test.go b/src/crypto/tls/boring_test.go
-index 3e63ba6a053c42..e278f8ad1a8118 100644
+index 3e63ba6a053c42..265dde1d6d9863 100644
 --- a/src/crypto/tls/boring_test.go
 +++ b/src/crypto/tls/boring_test.go
 @@ -25,6 +25,31 @@ import (
@@ -98,7 +107,7 @@ index 3e63ba6a053c42..e278f8ad1a8118 100644
  				supportedVersions:  []uint16{v},
  			}
  			testClientHelloFailure(t, serverConfig, clientHello, msg)
-@@ -48,15 +76,15 @@ func TestBoringServerProtocolVersion(t *testing.T) {
+@@ -48,25 +76,25 @@ func TestBoringServerProtocolVersion(t *testing.T) {
  
  	fipstls.Force()
  	defer fipstls.Abandon()
@@ -120,6 +129,20 @@ index 3e63ba6a053c42..e278f8ad1a8118 100644
  }
  
  func isBoringCipherSuite(id uint16) bool {
+ 	switch id {
+-	case TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
++	case TLS_AES_128_GCM_SHA256,
++		TLS_AES_256_GCM_SHA384,
++		TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
+ 		TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
+ 		TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
+-		TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
+-		TLS_RSA_WITH_AES_128_GCM_SHA256,
+-		TLS_RSA_WITH_AES_256_GCM_SHA384:
++		TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384:
+ 		return true
+ 	}
+ 	return false
 @@ -86,7 +114,7 @@ func isECDSA(id uint16) bool {
  			return suite.flags&suiteECSign == suiteECSign
  		}
