@@ -53,12 +53,12 @@ The Go crypto documentation is available online at https://pkg.go.dev/crypto.
     - [crypto/sha512](#cryptosha512)
       - [func New](#func-new-3)
       - [func New384](#func-new384)
-      - [func New512_224](#func-new512_224)
-      - [func New512_256](#func-new512_256)
+      - [func New512\_224](#func-new512_224)
+      - [func New512\_256](#func-new512_256)
       - [func Sum384](#func-sum384)
       - [func Sum512](#func-sum512)
-      - [func Sum512_224](#func-sum512_224)
-      - [func Sum512_256](#func-sum512_256)
+      - [func Sum512\_224](#func-sum512_224)
+      - [func Sum512\_256](#func-sum512_256)
     - [crypto/rsa](#cryptorsa)
       - [func DecryptOAEP](#func-decryptoaep)
       - [func DecryptPKCS1v15](#func-decryptpkcs1v15)
@@ -1235,18 +1235,22 @@ Package tls will automatically use FIPS compliant primitives implemented in othe
 
 When using TLS in FIPS-only mode the TLS handshake has the following restrictions:
 
-- TLS versions: `tls.VersionTLS12`
+- TLS versions:
+  - `tls.VersionTLS12`
+  - `tls.VersionTLS13`
 - ECDSA elliptic curves:
   - `tls.CurveP256`
   - `tls.CurveP384`
   - `tls.CurveP521`
 - Cipher suites:
-  - `tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256`
-  - `tls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384`
-  - `tls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256`
-  - `tls.TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384`
-  - `tls.TLS_RSA_WITH_AES_128_GCM_SHA256`
-  - `tls.TLS_RSA_WITH_AES_256_GCM_SHA384`
+  - TLS 1.2:
+    - `tls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256`
+    - `tls.TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384`
+    - `tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256`
+    - `tls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384`
+  - TLS 1.3:
+    - `tls.TLS_AES_128_GCM_SHA256`
+    - `tls.TLS_AES_256_GCM_SHA384`
 - x509 certificate public key:
   - `rsa.PublicKey` with a bit length of 2048 or 3072. Bit length of 4096 is still not supported, see [this issue](https://github.com/golang/go/issues/41147) for more info.
   - `ecdsa.PublicKey`  with a supported elliptic curve.
