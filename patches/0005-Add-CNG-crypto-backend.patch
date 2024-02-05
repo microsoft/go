@@ -12,7 +12,7 @@ Subject: [PATCH] Add CNG crypto backend
  src/crypto/internal/backend/backend_test.go   |   4 +-
  src/crypto/internal/backend/bbig/big.go       |   2 +-
  src/crypto/internal/backend/bbig/big_cng.go   |  12 +
- src/crypto/internal/backend/cng_windows.go    | 274 ++++++++++++++++++
+ src/crypto/internal/backend/cng_windows.go    | 280 ++++++++++++++++++
  src/crypto/internal/backend/common.go         |  33 ++-
  src/crypto/internal/boring/fipstls/stub.s     |   2 +-
  src/crypto/internal/boring/fipstls/tls.go     |   2 +-
@@ -47,7 +47,7 @@ Subject: [PATCH] Add CNG crypto backend
  .../goexperiment/exp_cngcrypto_off.go         |   9 +
  src/internal/goexperiment/exp_cngcrypto_on.go |   9 +
  src/internal/goexperiment/flags.go            |   1 +
- 43 files changed, 471 insertions(+), 40 deletions(-)
+ 43 files changed, 477 insertions(+), 40 deletions(-)
  create mode 100644 src/crypto/internal/backend/bbig/big_cng.go
  create mode 100644 src/crypto/internal/backend/cng_windows.go
  create mode 100644 src/internal/goexperiment/exp_cngcrypto_off.go
@@ -166,10 +166,10 @@ index 00000000000000..92623031fd87d0
 +var Dec = bbig.Dec
 diff --git a/src/crypto/internal/backend/cng_windows.go b/src/crypto/internal/backend/cng_windows.go
 new file mode 100644
-index 00000000000000..3d05fa70409666
+index 00000000000000..3d3d13709de5ac
 --- /dev/null
 +++ b/src/crypto/internal/backend/cng_windows.go
-@@ -0,0 +1,274 @@
+@@ -0,0 +1,280 @@
 +// Copyright 2017 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -184,6 +184,7 @@ index 00000000000000..3d05fa70409666
 +import (
 +	"crypto"
 +	"crypto/cipher"
++	"crypto/internal/boring/fipstls"
 +	"crypto/internal/boring/sig"
 +	"hash"
 +	"io"
@@ -206,6 +207,11 @@ index 00000000000000..3d05fa70409666
 +		if !enabled {
 +			panic("cngcrypto: not in FIPS mode")
 +		}
++	}
++	if enabled, _ := cng.FIPS(); enabled {
++		// FIPS mode is enabled,
++		// so force FIPS mode for crypto/tls and crypto/x509.
++		fipstls.Force()
 +	}
 +	sig.BoringCrypto()
 +}
@@ -1065,7 +1071,7 @@ index 9aec21dbcd3bff..05324f731bedc4 100644
  package x509
  
 diff --git a/src/crypto/x509/boring_test.go b/src/crypto/x509/boring_test.go
-index e8fce393d29b00..9818c9b7d6b6b8 100644
+index b3227dc2560ff8..49639cd1ebaa8a 100644
 --- a/src/crypto/x509/boring_test.go
 +++ b/src/crypto/x509/boring_test.go
 @@ -2,7 +2,7 @@
@@ -1091,10 +1097,10 @@ index a0548a7f9179c5..ae6117a1554b7f 100644
  package x509
  
 diff --git a/src/go.mod b/src/go.mod
-index eea762d89ae327..0ebd229e72b1ef 100644
+index 4ac30a14a69b37..d70da97418df23 100644
 --- a/src/go.mod
 +++ b/src/go.mod
-@@ -4,6 +4,7 @@ go 1.22
+@@ -4,6 +4,7 @@ go 1.23
  
  require (
  	github.com/golang-fips/openssl/v2 v2.0.0-rc.3.0.20240109234540-66bdd798d334
@@ -1103,7 +1109,7 @@ index eea762d89ae327..0ebd229e72b1ef 100644
  	golang.org/x/net v0.19.0
  )
 diff --git a/src/go.sum b/src/go.sum
-index a271094177aaee..1df18639209201 100644
+index 771683f602d365..7c3816ad12846f 100644
 --- a/src/go.sum
 +++ b/src/go.sum
 @@ -1,5 +1,7 @@
@@ -1115,10 +1121,10 @@ index a271094177aaee..1df18639209201 100644
  golang.org/x/crypto v0.16.1-0.20231129163542-152cdb1503eb/go.mod h1:gCAAfMLgwOJRpTjQ2zCCt2OcSfYMTeZVSRtQlPC7Nq4=
  golang.org/x/net v0.19.0 h1:zTwKpTd2XuCqf8huc7Fo2iSy+4RHPd10s4KzeTnVr1c=
 diff --git a/src/go/build/deps_test.go b/src/go/build/deps_test.go
-index f126cad1f5c460..c437493faaaad1 100644
+index 6d9bccdaddede6..40cadb74389d2c 100644
 --- a/src/go/build/deps_test.go
 +++ b/src/go/build/deps_test.go
-@@ -438,6 +438,10 @@ var depsRules = `
+@@ -439,6 +439,10 @@ var depsRules = `
  
  	crypto/cipher,
  	crypto/internal/boring/bcache
@@ -1129,7 +1135,7 @@ index f126cad1f5c460..c437493faaaad1 100644
  	< github.com/golang-fips/openssl/v2/internal/subtle
  	< github.com/golang-fips/openssl/v2
  	< crypto/internal/boring
-@@ -474,6 +478,7 @@ var depsRules = `
+@@ -475,6 +479,7 @@ var depsRules = `
  
  	# CRYPTO-MATH is core bignum-based crypto - no cgo, net; fmt now ok.
  	CRYPTO, FMT, math/big
