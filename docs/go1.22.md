@@ -19,7 +19,7 @@ Additional packages are now supported by the OpenSSL and CNG crypto backends:
 * crypto/md5
 * crypto/rc4
 
-The TLS PRF and HKDF algorithms are also now implemented by the crypto backends.
+The TLS PRF and HKDF algorithms internally used in `crypto/tls` are also now implemented by the crypto backends.
 
 Not every algorithm implemented by a crypto backend is necessarily allowed in a FIPS-compliant program.
 For more details about each algorithm, see the [FIPS User guide](https://github.com/microsoft/go/blob/microsoft/main/eng/doc/fips/UserGuide.md).
