@@ -23,7 +23,7 @@ This command updates the table in ` + docPath + ` and data in ` + jsonPath + `.
 
 var supported = []version{
 	{
-		Number:       "1.21",
+		Number:       "1.22",
 		LatestStable: true,
 		Platforms: map[string]struct{}{
 			"linux-amd64":   {},
@@ -35,7 +35,7 @@ var supported = []version{
 		},
 	},
 	{
-		Number:         "1.20",
+		Number:         "1.21",
 		PreviousStable: true,
 		Platforms: map[string]struct{}{
 			"linux-amd64":   {},
