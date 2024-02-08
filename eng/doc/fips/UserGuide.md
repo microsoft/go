@@ -22,6 +22,8 @@ The Go crypto documentation is available online at https://pkg.go.dev/crypto.
       - [func StreamWriter.Write](#func-streamwriterwrite)
       - [func StreamWriter.Close](#func-streamwriterclose)
     - [crypto/des](#cryptodes)
+      - [func NewCipher](#func-newcipher-1)
+      - [func NewTripleDESCipher](#func-newtripledescipher)
     - [crypto/dsa](#cryptodsa)
     - [crypto/ecdh](#cryptoecdh)
       - [func P256](#func-p256)
@@ -56,7 +58,7 @@ The Go crypto documentation is available online at https://pkg.go.dev/crypto.
       - [func Prime](#func-prime)
       - [func Read](#func-read)
     - [crypto/rc4](#cryptorc4)
-      - [func NewCipher](#func-newcipher-1)
+      - [func NewCipher](#func-newcipher-2)
     - [crypto/sha1](#cryptosha1)
       - [func New](#func-new-2)
       - [func Sum](#func-sum-1)
@@ -390,7 +392,25 @@ Does not contain crypto algorithms, out of FIPS scope.
 
 ### [crypto/des](https://pkg.go.dev/crypto/des)
 
-Not implemented by any backend.
+Package des implements the Data Encryption Standard (DES) and the Triple Data Encryption Algorithm (TDEA) as defined in U.S. Federal Information Processing Standards Publication 46-3.
+
+DES is cryptographically broken and should not be used for secure applications.
+
+#### func [NewCipher](https://pkg.go.dev/crypto/des#NewCipher)
+
+```go
+func des.NewCipher(key []byte) (cipher.Block, error)
+```
+
+NewCipher creates and returns a new cipher.Block.
+
+#### func [NewTripleDESCipher](https://pkg.go.dev/crypto/des#NewTripleDESCipher)
+
+```go
+NewTripleDESCipher(key []byte) (cipher.Block, error)
+```
+
+NewTripleDESCipher creates and returns a new cipher.Block.
 
 ### [crypto/dsa](https://pkg.go.dev/crypto/dsa)
 
