@@ -248,7 +248,7 @@ NewCBCDecrypter returns a BlockMode which decrypts in cipher block chaining mode
 
 **Requirements**
 
-- `block` must be an object created by [aes.NewCipher](#func-newcipher). 
+- `block` must be an object created by [aes.NewCipher](#func-newcipher), [des.NewCipher](#func-newcipher-1), or [des.NewTripleDESCipher](#func-newtripledescipher).
 
 **Implementation**
 
@@ -256,26 +256,29 @@ NewCBCDecrypter returns a BlockMode which decrypts in cipher block chaining mode
 
 `cbc` implements the cipher.BlockMode interface using a cipher that depends on the `block` key length:
 
-- If `len(key) == 16` then the cipher used is [EVP_aes_128_cbc].
-- If `len(key) == 24` then the cipher used is [EVP_aes_192_cbc].
-- If `len(key) == 32` then the cipher used is [EVP_aes_256_cbc].
+- For `aes.NewCipher`:
+  - If `len(key) == 16` then the cipher used is [EVP_aes_128_cbc].
+  - If `len(key) == 24` then the cipher used is [EVP_aes_192_cbc].
+  - If `len(key) == 32` then the cipher used is [EVP_aes_256_cbc].
+- For `des.NewCipher`, the cipher used is [EVP_des_cbc].
+- For `des.NewTripleDESCipher`, the cipher used is [EVP_des_ede3_cbc].
 
 In all cases the cipher will have the padding disabled using [EVP_CIPHER_CTX_set_padding].
 
 The cipher.BlockMode methods are implemented as follows:
 
-- `BlockSize` always returns `16`.
+- `BlockSize` always returns the underlying cipher block size.
 - `CryptBlocks` uses [EVP_DecryptUpdate].
 
 </details>
 
 <details><summary>CNG (click for details)</summary>
 
-`cipher` implements the cipher.Block interface using the [algorithm identifier] `BCRYPT_AES_ALGORITHM` with `BCRYPT_CHAIN_MODE_CBC` mode, generated using [BCryptGenerateSymmetricKey].
+`cipher` implements the cipher.Block interface using the underlying cipher [algorithm identifier]  with `BCRYPT_CHAIN_MODE_CBC` mode, generated using [BCryptGenerateSymmetricKey].
 
 The cipher.Block methods are implemented as follows:
 
-- `BlockSize` always returns `16`.
+- `BlockSize` always returns the underlying cipher block size.
 - `CryptBlocks` uses [BCryptDecrypt].
 
 </details>
@@ -290,7 +293,7 @@ NewCBCEncrypter returns a BlockMode which encrypts in cipher block chaining mode
 
 **Requirements**
 
-- `block` must be an object created by [aes.NewCipher](#func-newcipher). 
+- `block` must be an object created by [aes.NewCipher](#func-newcipher), [des.NewCipher](#func-newcipher-1), or [des.NewTripleDESCipher](#func-newtripledescipher).
 
 **Implementation**
 
@@ -298,24 +301,27 @@ NewCBCEncrypter returns a BlockMode which encrypts in cipher block chaining mode
 
 `cbc` implements the cipher.BlockMode interface using a cipher that depends on the `block` key length:
 
-- If `len(key) == 16` then the cipher used is [EVP_aes_128_cbc].
-- If `len(key) == 24` then the cipher used is [EVP_aes_192_cbc].
-- If `len(key) == 32` then the cipher used is [EVP_aes_256_cbc].
+- For `aes.NewCipher`:
+  - If `len(key) == 16` then the cipher used is [EVP_aes_128_cbc].
+  - If `len(key) == 24` then the cipher used is [EVP_aes_192_cbc].
+  - If `len(key) == 32` then the cipher used is [EVP_aes_256_cbc].
+- For `des.NewCipher`, the cipher used is [EVP_des_cbc].
+- For `des.NewTripleDESCipher`, the cipher used is [EVP_des_ede3_cbc].
 
 The cipher.BlockMode methods are implemented as follows:
 
-- `BlockSize` always returns `16`.
+- `BlockSize` always returns the underlying cipher block size.
 - `CryptBlocks` uses [EVP_EncryptUpdate].
 
 </details>
 
 <details><summary>CNG (click for details)</summary>
 
-`cipher` implements the cipher.Block interface using the [algorithm identifier] `BCRYPT_AES_ALGORITHM` with `BCRYPT_CHAIN_MODE_CBC` mode, generated using [BCryptGenerateSymmetricKey].
+`cipher` implements the cipher.Block interface using the underlying cipher [algorithm identifier]  with `BCRYPT_CHAIN_MODE_CBC` mode, generated using [BCryptGenerateSymmetricKey].
 
 The cipher.Block methods are implemented as follows:
 
-- `BlockSize` always returns `16`.
+- `BlockSize` always returns the underlying cipher block size.
 - `CryptBlocks` uses [BCryptEncrypt].
 
 </details>
@@ -404,6 +410,37 @@ func des.NewCipher(key []byte) (cipher.Block, error)
 
 NewCipher creates and returns a new cipher.Block.
 
+**Requirements**
+
+- `key` length must be 8 bytes.
+- OpenSSL does not provide a DES implementation in FIPS mode. In that case, the code will fall back to standard Go crypto.
+
+**Implementation**
+
+<details><summary>OpenSSL (click for details)</summary>
+
+`cipher` implements the cipher.Block interface using the [EVP_des_128_ecb] cipher function.
+
+The cipher.Block methods are implemented as follows:
+
+- `BlockSize` always returns `8`.
+- `Encrypt` uses [EVP_EncryptUpdate].
+- `Decrypt` uses [EVP_DecryptUpdate].
+
+</details>
+
+<details><summary>CNG (click for details)</summary>
+
+`cipher` implements the cipher.Block interface using the [algorithm identifier] `BCRYPT_DES_ALGORITHM` with `BCRYPT_CHAIN_MODE_ECB` mode, generated using [BCryptGenerateSymmetricKey].
+
+The cipher.Block methods are implemented as follows:
+
+- `BlockSize` always returns `8`.
+- `Encrypt` uses [BCryptEncrypt].
+- `Decrypt` uses [BCryptDecrypt].
+
+</details>
+
 #### func [NewTripleDESCipher](https://pkg.go.dev/crypto/des#NewTripleDESCipher)
 
 ```go
@@ -411,6 +448,36 @@ NewTripleDESCipher(key []byte) (cipher.Block, error)
 ```
 
 NewTripleDESCipher creates and returns a new cipher.Block.
+
+**Requirements**
+
+- `key` length must be 24 bytes.
+
+**Implementation**
+
+<details><summary>OpenSSL (click for details)</summary>
+
+`cipher` implements the cipher.Block interface using the [EVP_des_ede3_ecb] cipher function.
+
+The cipher.Block methods are implemented as follows:
+
+- `BlockSize` always returns `8`.
+- `Encrypt` uses [EVP_EncryptUpdate].
+- `Decrypt` uses [EVP_DecryptUpdate].
+
+</details>
+
+<details><summary>CNG (click for details)</summary>
+
+`cipher` implements the cipher.Block interface using the [algorithm identifier] `BCRYPT_DES3_ALGORITHM` with `BCRYPT_CHAIN_MODE_ECB` mode, generated using [BCryptGenerateSymmetricKey].
+
+The cipher.Block methods are implemented as follows:
+
+- `BlockSize` always returns `8`.
+- `Encrypt` uses [BCryptEncrypt].
+- `Decrypt` uses [BCryptDecrypt].
+
+</details>
 
 ### [crypto/dsa](https://pkg.go.dev/crypto/dsa)
 
@@ -1679,6 +1746,10 @@ When using TLS in FIPS-only mode the TLS handshake has the following restriction
 [EVP_aes_256_ctr]: https://www.openssl.org/docs/man3.0/man3/EVP_aes_256_ctr.html
 [EVP_aes_128_cbc]: https://www.openssl.org/docs/man3.0/man3/EVP_aes_128_cbc.html
 [EVP_aes_192_cbc]: https://www.openssl.org/docs/man3.0/man3/EVP_aes_192_cbc.html
+[EVP_des_ecb]: https://www.openssl.org/docs/man3.0/man3/EVP_des_ecb.html
+[EVP_des_cbc]: https://www.openssl.org/docs/man3.0/man3/EVP_des_cbc.html
+[EVP_des_ede3_ecb]: https://www.openssl.org/docs/man3.0/man3/EVP_des_ede3_ecb.html
+[EVP_des_ede3_cbc]: https://www.openssl.org/docs/man3.0/man3/EVP_des_ede3_cbc.html
 [EVP_aes_256_cbc]: https://www.openssl.org/docs/man3.0/man3/EVP_aes_256_cbc.html
 [EVP_rc4]: https://www.openssl.org/docs/man3.0/man3/EVP_rc4.html
 [EVP_md5]: https://www.openssl.org/docs/man3.0/man3/EVP_md5.html
