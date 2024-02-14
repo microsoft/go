@@ -133,7 +133,7 @@ func main() {
 		}
 
 		if *fipsMode {
-			env("GOFIPS", "true")
+			env("GOFIPS", "1")
 			// Enable system-wide FIPS if supported by the host platform.
 			restore, err := enableSystemWideFIPS()
 			if err != nil {
