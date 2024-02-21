@@ -1,0 +1,72 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: qmuntal <qmuntaldiaz@microsoft.com>
+Date: Wed, 14 Feb 2024 11:03:01 +0100
+Subject: [PATCH] unset GOFIPS when running the Go toolchain
+
+---
+ src/cmd/go/internal/gofips/gofips.go | 32 ++++++++++++++++++++++++++++
+ src/cmd/go/main.go                   |  5 +++++
+ 2 files changed, 37 insertions(+)
+ create mode 100644 src/cmd/go/internal/gofips/gofips.go
+
+diff --git a/src/cmd/go/internal/gofips/gofips.go b/src/cmd/go/internal/gofips/gofips.go
+new file mode 100644
+index 00000000000000..009eece5b6c080
+--- /dev/null
++++ b/src/cmd/go/internal/gofips/gofips.go
+@@ -0,0 +1,32 @@
++// gofips is a package that, when imported, unsets the GOFIPS environment variable
++// and stores it for later use.
++//
++// This is useful to support running commands like `GOFIPS=1 go test ./...` and
++// `GOFIPS=1 go run .` with a Go toolchain not built with a FIPS-enabled crypto backend.
++// In such cases, the user intends to pass the GOFIPS environment variable to the
++// test or run sub-processes, not to the go command itself.
++//
++// This package needs to have a minimal dependency graph so that it is initialized
++// before crypto/internal/backend, else it will have no effect.
++package gofips
++
++import "syscall"
++
++var gofips string
++var gofipsSet bool
++
++const gofipsName = "GOFIPS"
++
++func init() {
++	if v, found := syscall.Getenv(gofipsName); found {
++		gofips = gofipsName + "=" + v
++		gofipsSet = true
++		syscall.Unsetenv(gofipsName)
++	}
++}
++
++// GOFIPS returns the GOFIPS environment variable at the time
++// init was called, and whether it was set.
++func GOFIPS() (string, bool) {
++	return gofips, gofipsSet
++}
+diff --git a/src/cmd/go/main.go b/src/cmd/go/main.go
+index d380aae489436f..fe619a8aadd2ae 100644
+--- a/src/cmd/go/main.go
++++ b/src/cmd/go/main.go
+@@ -29,6 +29,7 @@ import (
+ 	"cmd/go/internal/fix"
+ 	"cmd/go/internal/fmtcmd"
+ 	"cmd/go/internal/generate"
++	"cmd/go/internal/gofips"
+ 	"cmd/go/internal/help"
+ 	"cmd/go/internal/list"
+ 	"cmd/go/internal/modcmd"
+@@ -223,6 +224,10 @@ func invoke(cmd *base.Command, args []string) {
+ 	// but in practice there might be skew
+ 	// This makes sure we all agree.
+ 	cfg.OrigEnv = toolchain.FilterEnv(os.Environ())
++	if v, found := gofips.GOFIPS(); found {
++		// Pass GOFIPS to user binaries.
++		cfg.OrigEnv = append(cfg.OrigEnv, v)
++	}
+ 	cfg.CmdEnv = envcmd.MkEnv()
+ 	for _, env := range cfg.CmdEnv {
+ 		if os.Getenv(env.Name) != env.Value {
