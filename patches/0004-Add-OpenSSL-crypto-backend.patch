@@ -33,11 +33,12 @@ Subject: [PATCH] Add OpenSSL crypto backend
  src/go.mod                                    |   1 +
  src/go.sum                                    |   2 +
  src/go/build/deps_test.go                     |   7 +-
+ src/go/build/vendor_test.go                   |   1 +
  .../goexperiment/exp_opensslcrypto_off.go     |   9 +
  .../goexperiment/exp_opensslcrypto_on.go      |   9 +
  src/internal/goexperiment/flags.go            |   1 +
  src/os/exec/exec_test.go                      |   9 +
- 33 files changed, 405 insertions(+), 23 deletions(-)
+ 34 files changed, 406 insertions(+), 23 deletions(-)
  create mode 100644 src/crypto/internal/backend/bbig/big_openssl.go
  create mode 100644 src/crypto/internal/backend/openssl_linux.go
  create mode 100644 src/internal/goexperiment/exp_opensslcrypto_off.go
@@ -57,10 +58,10 @@ index f0e3575637c62a..0e9aceeb832d3b 100644
  package main
  
 diff --git a/src/cmd/dist/test.go b/src/cmd/dist/test.go
-index fa6a0dd84d41e9..8ebfa08b6ed5be 100644
+index 80a134becdf879..04968a635113fe 100644
 --- a/src/cmd/dist/test.go
 +++ b/src/cmd/dist/test.go
-@@ -1225,12 +1225,11 @@ func (t *tester) registerCgoTests(heading string) {
+@@ -1227,12 +1227,11 @@ func (t *tester) registerCgoTests(heading string) {
  			// a C linker warning on Linux.
  			// in function `bio_ip_and_port_to_socket_and_addr':
  			// warning: Using 'getaddrinfo' in statically linked applications requires at runtime the shared libraries from the glibc version used for linking
@@ -107,7 +108,7 @@ index 4aaf46b5d0f0dc..6fe798cf4a94e9 100644
  
  go list -f '{{.Dir}}' vendor/golang.org/x/net/http2/hpack
 diff --git a/src/cmd/link/internal/ld/lib.go b/src/cmd/link/internal/ld/lib.go
-index df83896100872f..5d9c1ecbd5eb54 100644
+index 97f3ed37e3aa9b..9fbed3dab26d9c 100644
 --- a/src/cmd/link/internal/ld/lib.go
 +++ b/src/cmd/link/internal/ld/lib.go
 @@ -1158,6 +1158,7 @@ var hostobj []Hostobj
@@ -713,7 +714,7 @@ index c83a7272c9f01f..a0548a7f9179c5 100644
  package x509
  
 diff --git a/src/go.mod b/src/go.mod
-index 6b0e3c58ee013f..4ac30a14a69b37 100644
+index cde7f6998bf6d5..aacc07c8493219 100644
 --- a/src/go.mod
 +++ b/src/go.mod
 @@ -3,6 +3,7 @@ module std
@@ -725,7 +726,7 @@ index 6b0e3c58ee013f..4ac30a14a69b37 100644
  	golang.org/x/net v0.20.1-0.20240110153537-07e05fd6e95a
  )
 diff --git a/src/go.sum b/src/go.sum
-index c59bf5956bf6c5..771683f602d365 100644
+index 0031e514699c36..8065ff4a3f39c3 100644
 --- a/src/go.sum
 +++ b/src/go.sum
 @@ -1,3 +1,5 @@
@@ -735,10 +736,10 @@ index c59bf5956bf6c5..771683f602d365 100644
  golang.org/x/crypto v0.18.0/go.mod h1:R0j02AL6hcrfOiy9T4ZYp/rcWeMxM3L6QYxlOuEG1mg=
  golang.org/x/net v0.20.1-0.20240110153537-07e05fd6e95a h1:VHlux4LIHGkrTO1cETOIekMY3h7UnpTakEdoxS/+o28=
 diff --git a/src/go/build/deps_test.go b/src/go/build/deps_test.go
-index 05b15b6dc022ef..6d9bccdaddede6 100644
+index a5d0e807d6eaa1..0bd1f08901a442 100644
 --- a/src/go/build/deps_test.go
 +++ b/src/go/build/deps_test.go
-@@ -439,6 +439,8 @@ var depsRules = `
+@@ -441,6 +441,8 @@ var depsRules = `
  
  	crypto/cipher,
  	crypto/internal/boring/bcache
@@ -747,7 +748,7 @@ index 05b15b6dc022ef..6d9bccdaddede6 100644
  	< crypto/internal/boring
  	< crypto/internal/backend
  	< crypto/boring;
-@@ -473,6 +475,7 @@ var depsRules = `
+@@ -475,6 +477,7 @@ var depsRules = `
  
  	# CRYPTO-MATH is core bignum-based crypto - no cgo, net; fmt now ok.
  	CRYPTO, FMT, math/big
@@ -755,7 +756,7 @@ index 05b15b6dc022ef..6d9bccdaddede6 100644
  	< crypto/internal/boring/bbig
  	< crypto/internal/backend/bbig
  	< crypto/rand
-@@ -763,7 +766,7 @@ var buildIgnore = []byte("\n//go:build ignore")
+@@ -765,7 +768,7 @@ var buildIgnore = []byte("\n//go:build ignore")
  
  func findImports(pkg string) ([]string, error) {
  	vpkg := pkg
@@ -764,7 +765,7 @@ index 05b15b6dc022ef..6d9bccdaddede6 100644
  		vpkg = "vendor/" + pkg
  	}
  	dir := filepath.Join(Default.GOROOT, "src", vpkg)
-@@ -773,7 +776,7 @@ func findImports(pkg string) ([]string, error) {
+@@ -775,7 +778,7 @@ func findImports(pkg string) ([]string, error) {
  	}
  	var imports []string
  	var haveImport = map[string]bool{}
@@ -773,6 +774,18 @@ index 05b15b6dc022ef..6d9bccdaddede6 100644
  		haveImport["C"] = true // kludge: prevent C from appearing in crypto/internal/boring imports
  	}
  	fset := token.NewFileSet()
+diff --git a/src/go/build/vendor_test.go b/src/go/build/vendor_test.go
+index 7f6237ffd59c11..7c821ae4bc5727 100644
+--- a/src/go/build/vendor_test.go
++++ b/src/go/build/vendor_test.go
+@@ -22,6 +22,7 @@ var allowedPackagePrefixes = []string{
+ 	"github.com/google/pprof",
+ 	"github.com/ianlancetaylor/demangle",
+ 	"rsc.io/markdown",
++	"github.com/golang-fips/openssl",
+ }
+ 
+ // Verify that the vendor directories contain only packages matching the list above.
 diff --git a/src/internal/goexperiment/exp_opensslcrypto_off.go b/src/internal/goexperiment/exp_opensslcrypto_off.go
 new file mode 100644
 index 00000000000000..62033547c6143a
@@ -816,7 +829,7 @@ index 2f423aefd14076..e58baf9fa0ef4e 100644
  	// SystemCrypto enables the OpenSSL or CNG crypto experiment depending on
  	// which one is appropriate on the target GOOS.
 diff --git a/src/os/exec/exec_test.go b/src/os/exec/exec_test.go
-index 71a00494ad3bbe..3255ed72385a4a 100644
+index c4b89e019924d2..db4e015fe61b05 100644
 --- a/src/os/exec/exec_test.go
 +++ b/src/os/exec/exec_test.go
 @@ -14,6 +14,7 @@ import (
