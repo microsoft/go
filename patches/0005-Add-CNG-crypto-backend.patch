@@ -42,12 +42,13 @@ Subject: [PATCH] Add CNG crypto backend
  src/go.mod                                    |   1 +
  src/go.sum                                    |   2 +
  src/go/build/deps_test.go                     |   5 +
+ src/go/build/vendor_test.go                   |   1 +
  src/hash/example_test.go                      |   2 +
  src/hash/marshal_test.go                      |   4 +
  .../goexperiment/exp_cngcrypto_off.go         |   9 +
  src/internal/goexperiment/exp_cngcrypto_on.go |   9 +
  src/internal/goexperiment/flags.go            |   1 +
- 43 files changed, 477 insertions(+), 40 deletions(-)
+ 44 files changed, 478 insertions(+), 40 deletions(-)
  create mode 100644 src/crypto/internal/backend/bbig/big_cng.go
  create mode 100644 src/crypto/internal/backend/cng_windows.go
  create mode 100644 src/internal/goexperiment/exp_cngcrypto_off.go
@@ -1097,7 +1098,7 @@ index a0548a7f9179c5..ae6117a1554b7f 100644
  package x509
  
 diff --git a/src/go.mod b/src/go.mod
-index 4ac30a14a69b37..d70da97418df23 100644
+index aacc07c8493219..3e7dd388f9d230 100644
 --- a/src/go.mod
 +++ b/src/go.mod
 @@ -4,6 +4,7 @@ go 1.23
@@ -1109,7 +1110,7 @@ index 4ac30a14a69b37..d70da97418df23 100644
  	golang.org/x/net v0.20.1-0.20240110153537-07e05fd6e95a
  )
 diff --git a/src/go.sum b/src/go.sum
-index 771683f602d365..7c3816ad12846f 100644
+index 8065ff4a3f39c3..dad01bb1f6ff18 100644
 --- a/src/go.sum
 +++ b/src/go.sum
 @@ -1,5 +1,7 @@
@@ -1121,10 +1122,10 @@ index 771683f602d365..7c3816ad12846f 100644
  golang.org/x/crypto v0.18.0/go.mod h1:R0j02AL6hcrfOiy9T4ZYp/rcWeMxM3L6QYxlOuEG1mg=
  golang.org/x/net v0.20.1-0.20240110153537-07e05fd6e95a h1:VHlux4LIHGkrTO1cETOIekMY3h7UnpTakEdoxS/+o28=
 diff --git a/src/go/build/deps_test.go b/src/go/build/deps_test.go
-index 6d9bccdaddede6..40cadb74389d2c 100644
+index 0bd1f08901a442..3a6b0a2ff19418 100644
 --- a/src/go/build/deps_test.go
 +++ b/src/go/build/deps_test.go
-@@ -439,6 +439,10 @@ var depsRules = `
+@@ -441,6 +441,10 @@ var depsRules = `
  
  	crypto/cipher,
  	crypto/internal/boring/bcache
@@ -1135,7 +1136,7 @@ index 6d9bccdaddede6..40cadb74389d2c 100644
  	< github.com/golang-fips/openssl/v2/internal/subtle
  	< github.com/golang-fips/openssl/v2
  	< crypto/internal/boring
-@@ -475,6 +479,7 @@ var depsRules = `
+@@ -477,6 +481,7 @@ var depsRules = `
  
  	# CRYPTO-MATH is core bignum-based crypto - no cgo, net; fmt now ok.
  	CRYPTO, FMT, math/big
@@ -1143,6 +1144,18 @@ index 6d9bccdaddede6..40cadb74389d2c 100644
  	< github.com/golang-fips/openssl/v2/bbig
  	< crypto/internal/boring/bbig
  	< crypto/internal/backend/bbig
+diff --git a/src/go/build/vendor_test.go b/src/go/build/vendor_test.go
+index 7c821ae4bc5727..1d0b9b20e9b1d4 100644
+--- a/src/go/build/vendor_test.go
++++ b/src/go/build/vendor_test.go
+@@ -23,6 +23,7 @@ var allowedPackagePrefixes = []string{
+ 	"github.com/ianlancetaylor/demangle",
+ 	"rsc.io/markdown",
+ 	"github.com/golang-fips/openssl",
++	"github.com/microsoft/go-crypto-winnative",
+ }
+ 
+ // Verify that the vendor directories contain only packages matching the list above.
 diff --git a/src/hash/example_test.go b/src/hash/example_test.go
 index f07b9aaa2c4898..2ff6c4827391c0 100644
 --- a/src/hash/example_test.go
