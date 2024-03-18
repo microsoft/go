@@ -5,10 +5,16 @@ Go. This directory serves a similar purpose to https://github.com/golang/build,
 which stores the build infrastructure for the upstream Go repo,
 https://go.googlesource.com/go.
 
-The directory name, "eng", is short for "engineering". We use this name because
-the [dotnet/arcade](https://github.com/dotnet/arcade) auto-update process
-specifically looks for `eng/Version.Details.xml` and `eng/common/` absolute
-paths.
+The directory name, "eng", is short for "engineering".
+
+> [!NOTE]
+> We use this name for historical reasons: the
+> [dotnet/arcade](https://github.com/dotnet/arcade) auto-update process
+> specifically looked for `eng/Version.Details.xml` and `eng/common/` absolute
+> paths. This caused us to decide to put various other infrastructure in `eng`,
+> too. The `eng/pipeline` directory now locks us in: we would need to
+> reconfigure every pipeline and move the yml files in every active branch in
+> order to move them.
 
 The [microsoft/go-infra](https://github.com/microsoft/go-infra) repository also
 implements part of the infrastructure used to build Go, and more tools for
