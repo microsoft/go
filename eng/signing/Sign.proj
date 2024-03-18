@@ -1,45 +1,45 @@
 <!-- Copyright (c) Microsoft Corporation. Use of this source code is governed by a BSD-style license that can be found in the LICENSE file. -->
 <Project Sdk="Microsoft.NET.Sdk">
 
-  <Import Project="Sign.props" />
-
+  <!-- Minimal stubs for '.proj' to work. -->
   <PropertyGroup>
-    <TargetFramework>net5.0</TargetFramework>
-
-    <MicrosoftDotNetSignToolVersion>5.0.0-beta.21112.3</MicrosoftDotNetSignToolVersion>
-    <VSWhereVersion>2.8.4</VSWhereVersion>
-    <MicroBuildCoreVersion>0.3.0</MicroBuildCoreVersion>
+    <TargetFramework>net7.0</TargetFramework>
   </PropertyGroup>
+  <Target Name="CreateManifestResourceNames" />
+  <Target Name="CoreCompile" />
 
+  <!-- https://dev.azure.com/devdiv/DevDiv/_wiki/wikis/DevDiv.wiki/650/MicroBuild-Signing -->
   <ItemGroup>
-    <PackageReference Include="Microsoft.DotNet.SignTool" Version="$(MicrosoftDotNetSignToolVersion)" />
-    <PackageReference Include="vswhere" Version="$(VSWhereVersion)" />
-    <PackageReference Include="MicroBuild.Core" Version="$(MicroBuildCoreVersion)" />
+    <PackageReference Include="Microsoft.VisualStudioEng.MicroBuild.Core" Version="1.0.0" />
   </ItemGroup>
 
-  <Target Name="SignGoFiles">
-    <Error Condition="'$(SigningType)' != 'real' AND '$(SigningType)' != 'test'" Text="Unexpected SigningType '$(SigningType)'" />
+  <Target Name="PrepSign" BeforeTargets="AfterBuild">
+    <Error Condition="'$(SignType)' != 'real' AND '$(SignType)' != 'test'" Text="Unexpected SignType '$(SignType)'" />
     <PropertyGroup>
       <IsTestSign>true</IsTestSign>
-      <IsTestSign Condition="'$(SigningType)' == 'real'">false</IsTestSign>
+      <IsTestSign Condition="'$(SignType)' == 'real'">false</IsTestSign>
+    </PropertyGroup>
+
+    <PropertyGroup>
+      <OutDir>$([MSBuild]::NormalizeDirectory('$(SignFilesDir)'))</OutDir>
     </PropertyGroup>
 
     <Error Condition="'$(SignFilesDir)' == ''" Text="'SignFilesDir' required." />
     <Message Text="Signing files in $(SignFilesDir)." Importance="high" />
 
     <ItemGroup>
-      <LinuxGoFile Include="$([MSBuild]::NormalizeDirectory('$(SignFilesDir)'))**/go.*.tar.gz" />
+      <LinuxGoFile Include="$([MSBuild]::NormalizeDirectory('$(SignFilesDir)'))**/go.*.tar.gz">
+        <Authenticode>LinuxSignManagedLanguageCompiler</Authenticode>
+      </LinuxGoFile>
 
       <LinuxGoSigFile Include="@(LinuxGoFile -> '%(Identity).sig')" />
-      <ItemsToSign Include="@(LinuxGoSigFile)" />
+      <FilesToSign Include="@(LinuxGoSigFile)" />
 
       <GoZipFile Include="$([MSBuild]::NormalizeDirectory('$(SignFilesDir)'))**/go.*.zip" />
       <GoZipFile ExtractedDir="$([MSBuild]::NormalizeDirectory('%(Identity).extracted'))" />
 
       <FileExtensionSignInfo Include=".sig" CertificateName="LinuxSignManagedLanguageCompiler" />
     </ItemGroup>
-
-    <Error Condition="'@(ItemsToSign)' == ''" Text="No files found to be signed." />
 
     <!-- Prepare files that we want to sign. -->
 
@@ -58,35 +58,19 @@
       SourceFiles="%(GoZipFile.Identity)"
       DestinationFolder="%(GoZipFile.ExtractedDir)" />
     <ItemGroup>
-      <ItemsToSign Include="%(GoZipFile.ExtractedDir)**" />
+      <FilesToSign Include="%(GoZipFile.ExtractedDir)**\*.exe">
+        <Authenticode>Microsoft400</Authenticode>
+      </FilesToSign>
       <!--
         Remove test data: some files (especially zip files) are set up in very particular ways that
         SignTool doesn't reconstruct properly after recursing into the container. This causes "go
         tool dist test" to fail when run on a signed build.
       -->
-      <ItemsToSign Remove="%(GoZipFile.ExtractedDir)**\testdata\**" />
+      <FilesToSign Remove="%(GoZipFile.ExtractedDir)**\testdata\**" />
     </ItemGroup>
+  </Target>
 
-    <!-- Find .NET Framework MSBuild. -->
-    <Exec
-      Command='"$(NuGetPackageRoot)vswhere\$(VSWhereVersion)\tools\vswhere.exe" -latest -prerelease -property installationPath -requires Microsoft.Component.MSBuild'
-      ConsoleToMsBuild="true"
-      StandardErrorImportance="high">
-      <Output TaskParameter="ConsoleOutput" PropertyName="_VSInstallDir" />
-    </Exec>
-
-    <Microsoft.DotNet.SignTool.SignToolTask
-      DryRun="false"
-      TestSign="$(IsTestSign)"
-      DoStrongNameCheck="false"
-      TempDir="$(MSBuildProjectDirectory)\signing-temp"
-      LogDir="$(MSBuildProjectDirectory)\signing-log"
-      ItemsToSign="@(ItemsToSign)"
-      MSBuildPath="$(_VSInstallDir)\MSBuild\Current\Bin\msbuild.exe"
-      FileSignInfo="@(FileSignInfo)"
-      FileExtensionSignInfo="@(FileExtensionSignInfo)"
-      MicroBuildCorePath="$(NuGetPackageRoot)microbuild.core\$(MicroBuildCoreVersion)"/>
-    
+  <Target Name="AfterSign" AfterTargets="SignFiles">
     <!--
       Now that the contents are signed (in place), re-pack the zip file. Use our "pack" command
       (rather than MSBuild's ZipDirectory task) so we also generate a new checksum file
@@ -95,6 +79,10 @@
     <Exec Command="pwsh ..\run.ps1 pack -source %(GoZipFile.ExtractedDir)go -o %(GoZipFile.Identity)" />
     <!-- Remove the large extracted dir so the build job doesn't upload it. -->
     <RemoveDir Directories="@(GoZipFile -> '%(ExtractedDir)')" />
+  </Target>
+
+  <Target Name="SignFiles" BeforeTargets="PrepSign">
+    <Error Text="Assertion failed: this target should not exist! Is the signing plugin installed? When its target file is loaded, it should overwrite this SignFiles target." />
   </Target>
 
 </Project>

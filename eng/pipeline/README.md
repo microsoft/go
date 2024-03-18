@@ -9,12 +9,12 @@ Pipeline definitions currently using each YAML file are:
 * [`pr-outerloop-pipeline.yml`](pr-outerloop-pipeline.yml) - Optional PR check. Runs outerloop.
   * (Public) [microsoft-go-outerloop](https://dev.azure.com/dnceng/public/_build/index?definitionId=1100)
     * Comment `/azp run microsoft-go-outerloop` on a PR to run.
-* [`rolling-pipeline.yml`](rolling-pipeline.yml) - Triggers on merge, runs innerloop + outerloop.
+* [`rolling-innerloop-pipeline.yml`](rolling-pipeline.yml) - Triggers on merge, runs innerloop.
+  * (Internal) [microsoft-go-innerloop](https://dev.azure.com/dnceng/internal/_build?definitionId=1342)
+* [`rolling-pipeline.yml`](rolling-pipeline.yml) - Triggers on merge, runs outerloop.
   * (Internal) [microsoft-go-rolling](https://dev.azure.com/dnceng/internal/_build?definitionId=987)
-* [`rolling-internal-pipeline.yml`](rolling-internal-pipeline.yml) - Triggers on merge. Builds, signs, and publishes. Runs innerloop, and won't publish if innerloop fails.
+* [`rolling-internal-pipeline.yml`](rolling-internal-pipeline.yml) - Triggers on merge. Builds, signs, and publishes. Does not run tests.
   * (Internal) [microsoft-go](https://dev.azure.com/dnceng/internal/_build?definitionId=958)
-* [`rolling-internal-validation-pipeline.yml`](rolling-internal-validation-pipeline.yml) - Runs validation checks on internal build output.
-  * (Internal) [microsoft-go-validation](https://dev.azure.com/dnceng/internal/_build?definitionId=1166)
 
 The pipeline filenames are (mostly) based on the trigger scenario, not what they
 do. This means we can change their content later without worrying about
