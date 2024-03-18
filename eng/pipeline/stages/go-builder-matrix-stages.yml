@@ -2,27 +2,58 @@
 # Use of this source code is governed by a BSD-style
 # license that can be found in the LICENSE file.
 
-# This template defines the build/test matrix: based on the given flags, it determines which
-# builders should run and creates a job for each.
+# This template defines the build/test matrix of jobs/stages based on the given flags.
 
 parameters:
-  innerloop: false
-  outerloop: false
-  sign: false
-  createSourceArchive: false
-  releaseVersion: ''
+  # buildandpack builders build the tar.gz/zips of our distribution.
+  # Minimal dependencies, and runnable in the official pipeline.
+  - name: buildandpack
+    type: boolean
+    default: false
+  # innerloop builders are intended to be reliable and indicate ship-stoppers.
+  - name: innerloop
+    type: boolean
+    default: false
+  # outerloop builders may be flaky and take significantly longer.
+  - name: outerloop
+    type: boolean
+    default: false
+  # includeArm64Host builders use a dedicated pool, which might cause resource
+  # contention, and aren't compatible with official 1ES PT as of writing.
+  - name: includeArm64Host
+    type: boolean
+    default: false
+
+  # Passthrough to the build job.
+  - name: official
+    type: boolean
+    default: false
+  - name: createSourceArchive
+    type: boolean
+    default: false
+  - name: releaseVersion
+    type: string
+    default: 'nil'
 
 stages:
   - template: shorthand-builders-to-builders.yml
     parameters:
       jobsTemplate: builders-to-stages.yml
       jobsParameters:
-        sign: ${{ parameters.sign }}
+        official: ${{ parameters.official }}
         createSourceArchive: ${{ parameters.createSourceArchive }}
         releaseVersion: ${{ parameters.releaseVersion }}
       shorthandBuilders:
-        - ${{ if eq(parameters.innerloop, true) }}:
+        # Individually enable buildandpack.
+        # Could be determined based on inputs (if more are added) but the caller can just tell us.
+        - ${{ if parameters.buildandpack }}:
           - { os: linux, arch: amd64, config: buildandpack }
+          - { os: windows, arch: amd64, config: buildandpack }
+          - { os: linux, arch: arm, hostArch: amd64, config: buildandpack }
+          - { os: linux, arch: arm64, hostArch: amd64, config: buildandpack }
+          - ${{ if parameters.includeArm64Host }}:
+            - { os: linux, arch: arm64, config: buildandpack }
+        - ${{ if parameters.innerloop }}:
           - { os: linux, arch: amd64, config: devscript }
           - { os: linux, arch: amd64, config: test }
           - { os: linux, arch: amd64, config: test, distro: ubuntu }
@@ -31,19 +62,13 @@ stages:
           - { experiment: opensslcrypto, os: linux, arch: amd64, config: test, distro: ubuntu }
           - { experiment: boringcrypto, os: linux, arch: amd64, config: test }
           - { experiment: boringcrypto, os: linux, arch: amd64, config: test, distro: ubuntu }
-          - { os: windows, arch: amd64, config: buildandpack }
           - { os: windows, arch: amd64, config: devscript }
           - { os: windows, arch: amd64, config: test }
           - { experiment: cngcrypto, os: windows, arch: amd64, config: test }
           - { experiment: cngcrypto, os: windows, arch: amd64, config: test, fips: true }
-          - { os: linux, arch: arm, hostArch: amd64, config: buildandpack }
-          # Only build arm64 if we're running a signed (internal, rolling) build. Avoid contention
-          # with other projects' builds that use the same limited-capacity pool of arm64 agents.
-          - ${{ if eq(parameters.sign, true) }}:
-            - { os: linux, arch: arm64, config: buildandpack }
-          - ${{ else }}:
-            - { os: windows, hostArch: amd64, arch: 386, config: buildandpack }
-        - ${{ if eq(parameters.outerloop, true) }}:
+          # Test that buildandpack works on Windows x86-32, but don't release it.
+          - { os: windows, hostArch: amd64, arch: 386, config: buildandpack }
+        - ${{ if parameters.outerloop }}:
           # Upstream builders.
           # - { os: linux, arch: amd64, config: clang } https://github.com/microsoft/go/issues/342
           - { os: linux, arch: amd64, config: longtest }
