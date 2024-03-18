@@ -28,6 +28,7 @@ Subject: [PATCH] Add crypto backend foundation
  src/crypto/internal/backend/stub.s           |  10 +
  src/crypto/md5/md5.go                        |   7 +
  src/crypto/md5/md5_test.go                   |   4 +
+ src/crypto/purego_test.go                    |   2 +-
  src/crypto/rand/rand_unix.go                 |   2 +-
  src/crypto/rc4/rc4.go                        |  18 ++
  src/crypto/rsa/boring.go                     |   4 +-
@@ -54,7 +55,7 @@ Subject: [PATCH] Add crypto backend foundation
  src/net/http/client_test.go                  |   6 +-
  src/net/smtp/smtp_test.go                    |  72 ++++---
  src/runtime/runtime_boring.go                |   5 +
- 50 files changed, 761 insertions(+), 94 deletions(-)
+ 51 files changed, 762 insertions(+), 95 deletions(-)
  create mode 100644 src/crypto/ed25519/boring.go
  create mode 100644 src/crypto/ed25519/notboring.go
  create mode 100644 src/crypto/internal/backend/backend_test.go
@@ -79,7 +80,7 @@ index a9e6208696dae8..9dd2f28861dd66 100644
  )
  
 diff --git a/src/crypto/aes/cipher_asm.go b/src/crypto/aes/cipher_asm.go
-index 90031c5e2c58e6..e80e82c82bd2a1 100644
+index 5451fa60d38677..440f5a2946cfd2 100644
 --- a/src/crypto/aes/cipher_asm.go
 +++ b/src/crypto/aes/cipher_asm.go
 @@ -9,7 +9,7 @@ package aes
@@ -917,6 +918,19 @@ index 851e7fb10d42f5..f9d1037c9b82b9 100644
  	gen, asm := New().(*digest), New().(*digest)
  	buf := make([]byte, BlockSize*20) // arbitrary factor
  	rand.Read(buf)
+diff --git a/src/crypto/purego_test.go b/src/crypto/purego_test.go
+index 62be347e0c6822..50d8b67d152ab2 100644
+--- a/src/crypto/purego_test.go
++++ b/src/crypto/purego_test.go
+@@ -41,7 +41,7 @@ func TestPureGoTag(t *testing.T) {
+ 	}
+ 
+ 	for _, pkgName := range pkgs {
+-		if strings.Contains(pkgName, "/boring") {
++		if strings.Contains(pkgName, "/boring") || strings.Contains(pkgName, "/internal/backend") || strings.Contains(pkgName, "tls/fipsonly") {
+ 			continue
+ 		}
+ 
 diff --git a/src/crypto/rand/rand_unix.go b/src/crypto/rand/rand_unix.go
 index 40fce36314adfa..1d6231ae91d5ae 100644
 --- a/src/crypto/rand/rand_unix.go
@@ -1564,10 +1578,10 @@ index 33fd0ed52b1ff6..ffc3eeca9dbf95 100644
  	k, err := rsa.GenerateKey(rand.Reader, size)
  	if err != nil {
 diff --git a/src/go/build/deps_test.go b/src/go/build/deps_test.go
-index 47a0f3a0b409d4..05b15b6dc022ef 100644
+index 26e6e8a77de6a3..7e01a8498940e1 100644
 --- a/src/go/build/deps_test.go
 +++ b/src/go/build/deps_test.go
-@@ -427,6 +427,7 @@ var depsRules = `
+@@ -429,6 +429,7 @@ var depsRules = `
  	# CRYPTO is core crypto algorithms - no cgo, fmt, net.
  	# Unfortunately, stuck with reflect via encoding/binary.
  	crypto/internal/boring/sig,
@@ -1575,7 +1589,7 @@ index 47a0f3a0b409d4..05b15b6dc022ef 100644
  	crypto/internal/boring/syso,
  	encoding/binary,
  	golang.org/x/sys/cpu,
-@@ -439,6 +440,7 @@ var depsRules = `
+@@ -441,6 +442,7 @@ var depsRules = `
  	crypto/cipher,
  	crypto/internal/boring/bcache
  	< crypto/internal/boring
@@ -1583,7 +1597,7 @@ index 47a0f3a0b409d4..05b15b6dc022ef 100644
  	< crypto/boring;
  
  	crypto/internal/alias
-@@ -472,6 +474,7 @@ var depsRules = `
+@@ -474,6 +476,7 @@ var depsRules = `
  	# CRYPTO-MATH is core bignum-based crypto - no cgo, net; fmt now ok.
  	CRYPTO, FMT, math/big
  	< crypto/internal/boring/bbig
@@ -1592,7 +1606,7 @@ index 47a0f3a0b409d4..05b15b6dc022ef 100644
  	< crypto/ed25519
  	< encoding/asn1
 diff --git a/src/net/http/client_test.go b/src/net/http/client_test.go
-index 7459b9cb6ed1df..e0ca4f7cedad8a 100644
+index 569b58ca6225c9..8e692fd60a095b 100644
 --- a/src/net/http/client_test.go
 +++ b/src/net/http/client_test.go
 @@ -946,7 +946,9 @@ func testResponseSetsTLSConnectionState(t *testing.T, mode testMode) {
