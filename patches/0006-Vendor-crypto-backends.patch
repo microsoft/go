@@ -19,7 +19,7 @@ To reproduce, run 'go mod vendor' in 'go/src'.
  .../golang-fips/openssl/v2/ed25519.go         | 218 +++++
  .../github.com/golang-fips/openssl/v2/evp.go  | 471 +++++++++++
  .../golang-fips/openssl/v2/goopenssl.c        | 218 +++++
- .../golang-fips/openssl/v2/goopenssl.h        | 201 +++++
+ .../golang-fips/openssl/v2/goopenssl.h        | 255 ++++++
  .../github.com/golang-fips/openssl/v2/hash.go | 793 ++++++++++++++++++
  .../github.com/golang-fips/openssl/v2/hkdf.go | 174 ++++
  .../github.com/golang-fips/openssl/v2/hmac.go | 238 ++++++
@@ -31,10 +31,12 @@ To reproduce, run 'go mod vendor' in 'go/src'.
  .../openssl/v2/port_evp_md5_sha1.c            | 126 +++
  .../github.com/golang-fips/openssl/v2/rand.go |  20 +
  .../github.com/golang-fips/openssl/v2/rc4.go  |  66 ++
- .../github.com/golang-fips/openssl/v2/rsa.go  | 419 +++++++++
- .../github.com/golang-fips/openssl/v2/shims.h | 370 ++++++++
- .../openssl/v2/thread_setup_unix.c            |  35 +
- .../openssl/v2/thread_setup_windows.c         |  33 +
+ .../github.com/golang-fips/openssl/v2/rsa.go  | 435 ++++++++++
+ .../github.com/golang-fips/openssl/v2/shims.h | 371 ++++++++
+ .../golang-fips/openssl/v2/thread_setup.go    |  14 +
+ .../golang-fips/openssl/v2/thread_setup.h     |   4 +
+ .../openssl/v2/thread_setup_unix.c            |  61 ++
+ .../openssl/v2/thread_setup_windows.c         |  64 ++
  .../golang-fips/openssl/v2/tls1prf.go         | 104 +++
  .../microsoft/go-crypto-winnative/LICENSE     |  21 +
  .../microsoft/go-crypto-winnative/cng/aes.go  | 389 +++++++++
@@ -59,7 +61,7 @@ To reproduce, run 'go mod vendor' in 'go/src'.
  .../internal/subtle/aliasing.go               |  32 +
  .../internal/sysdll/sys_windows.go            |  55 ++
  src/vendor/modules.txt                        |  11 +
- 54 files changed, 8912 insertions(+)
+ 56 files changed, 9058 insertions(+)
  create mode 100644 src/vendor/github.com/golang-fips/openssl/v2/.gitleaks.toml
  create mode 100644 src/vendor/github.com/golang-fips/openssl/v2/LICENSE
  create mode 100644 src/vendor/github.com/golang-fips/openssl/v2/README.md
@@ -88,6 +90,8 @@ To reproduce, run 'go mod vendor' in 'go/src'.
  create mode 100644 src/vendor/github.com/golang-fips/openssl/v2/rc4.go
  create mode 100644 src/vendor/github.com/golang-fips/openssl/v2/rsa.go
  create mode 100644 src/vendor/github.com/golang-fips/openssl/v2/shims.h
+ create mode 100644 src/vendor/github.com/golang-fips/openssl/v2/thread_setup.go
+ create mode 100644 src/vendor/github.com/golang-fips/openssl/v2/thread_setup.h
  create mode 100644 src/vendor/github.com/golang-fips/openssl/v2/thread_setup_unix.c
  create mode 100644 src/vendor/github.com/golang-fips/openssl/v2/thread_setup_windows.c
  create mode 100644 src/vendor/github.com/golang-fips/openssl/v2/tls1prf.go
@@ -396,7 +400,7 @@ index 00000000000000..6461f241f863fc
 +type BigInt []uint
 diff --git a/src/vendor/github.com/golang-fips/openssl/v2/cipher.go b/src/vendor/github.com/golang-fips/openssl/v2/cipher.go
 new file mode 100644
-index 00000000000000..ddaadfa8897c25
+index 00000000000000..2b983c5411fc72
 --- /dev/null
 +++ b/src/vendor/github.com/golang-fips/openssl/v2/cipher.go
 @@ -0,0 +1,582 @@
@@ -935,12 +939,12 @@ index 00000000000000..ddaadfa8897c25
 +	return
 +}
 +
-+func newCipherCtx(kind cipherKind, mode cipherMode, encrypt cipherOp, key, iv []byte) (ctx C.GO_EVP_CIPHER_CTX_PTR, err error) {
++func newCipherCtx(kind cipherKind, mode cipherMode, encrypt cipherOp, key, iv []byte) (_ C.GO_EVP_CIPHER_CTX_PTR, err error) {
 +	cipher := loadCipher(kind, mode)
 +	if cipher == nil {
 +		panic("crypto/cipher: unsupported cipher: " + kind.String())
 +	}
-+	ctx = C.go_openssl_EVP_CIPHER_CTX_new()
++	ctx := C.go_openssl_EVP_CIPHER_CTX_new()
 +	if ctx == nil {
 +		return nil, fail("unable to create EVP cipher ctx")
 +	}
@@ -1168,7 +1172,7 @@ index 00000000000000..eac2f8bbee303c
 +}
 diff --git a/src/vendor/github.com/golang-fips/openssl/v2/ecdh.go b/src/vendor/github.com/golang-fips/openssl/v2/ecdh.go
 new file mode 100644
-index 00000000000000..62e23333cedae2
+index 00000000000000..a1e627eff44699
 --- /dev/null
 +++ b/src/vendor/github.com/golang-fips/openssl/v2/ecdh.go
 @@ -0,0 +1,323 @@
@@ -1443,12 +1447,12 @@ index 00000000000000..62e23333cedae2
 +	if C.go_openssl_EVP_PKEY_derive_set_peer(ctx, pub._pkey) != 1 {
 +		return nil, newOpenSSLError("EVP_PKEY_derive_set_peer")
 +	}
-+	var outLen C.size_t
-+	if C.go_openssl_EVP_PKEY_derive(ctx, nil, &outLen) != 1 {
++	r := C.go_openssl_EVP_PKEY_derive_wrapper(ctx, nil, 0)
++	if r.result != 1 {
 +		return nil, newOpenSSLError("EVP_PKEY_derive_init")
 +	}
-+	out := make([]byte, outLen)
-+	if C.go_openssl_EVP_PKEY_derive(ctx, base(out), &outLen) != 1 {
++	out := make([]byte, r.keylen)
++	if C.go_openssl_EVP_PKEY_derive_wrapper(ctx, base(out), r.keylen).result != 1 {
 +		return nil, newOpenSSLError("EVP_PKEY_derive_init")
 +	}
 +	return out, nil
@@ -1720,7 +1724,7 @@ index 00000000000000..46b16abf483e65
 +}
 diff --git a/src/vendor/github.com/golang-fips/openssl/v2/ed25519.go b/src/vendor/github.com/golang-fips/openssl/v2/ed25519.go
 new file mode 100644
-index 00000000000000..f66a2a1deb3ce6
+index 00000000000000..f74bd8f8d7a993
 --- /dev/null
 +++ b/src/vendor/github.com/golang-fips/openssl/v2/ed25519.go
 @@ -0,0 +1,218 @@
@@ -1871,12 +1875,12 @@ index 00000000000000..f66a2a1deb3ce6
 +}
 +
 +func extractPKEYPubEd25519(pkey C.GO_EVP_PKEY_PTR, pub []byte) error {
-+	pubSize := C.size_t(publicKeySizeEd25519)
-+	if C.go_openssl_EVP_PKEY_get_raw_public_key(pkey, base(pub), &pubSize) != 1 {
++	r := C.go_openssl_EVP_PKEY_get_raw_public_key_wrapper(pkey, base(pub), C.size_t(publicKeySizeEd25519))
++	if r.result != 1 {
 +		return newOpenSSLError("EVP_PKEY_get_raw_public_key")
 +	}
-+	if pubSize != publicKeySizeEd25519 {
-+		return errors.New("ed25519: bad public key length: " + strconv.Itoa(int(pubSize)))
++	if r.len != publicKeySizeEd25519 {
++		return errors.New("ed25519: bad public key length: " + strconv.Itoa(int(r.len)))
 +	}
 +	return nil
 +}
@@ -1885,12 +1889,12 @@ index 00000000000000..f66a2a1deb3ce6
 +	if err := extractPKEYPubEd25519(pkey, priv[seedSizeEd25519:]); err != nil {
 +		return err
 +	}
-+	privSize := C.size_t(seedSizeEd25519)
-+	if C.go_openssl_EVP_PKEY_get_raw_private_key(pkey, base(priv), &privSize) != 1 {
++	r := C.go_openssl_EVP_PKEY_get_raw_private_key_wrapper(pkey, base(priv), C.size_t(seedSizeEd25519))
++	if r.result != 1 {
 +		return newOpenSSLError("EVP_PKEY_get_raw_private_key")
 +	}
-+	if privSize != seedSizeEd25519 {
-+		return errors.New("ed25519: bad private key length: " + strconv.Itoa(int(privSize)))
++	if r.len != seedSizeEd25519 {
++		return errors.New("ed25519: bad private key length: " + strconv.Itoa(int(r.len)))
 +	}
 +	return nil
 +}
@@ -1916,12 +1920,12 @@ index 00000000000000..f66a2a1deb3ce6
 +	if C.go_openssl_EVP_DigestSignInit(ctx, nil, nil, nil, priv._pkey) != 1 {
 +		return newOpenSSLError("EVP_DigestSignInit")
 +	}
-+	siglen := C.size_t(signatureSizeEd25519)
-+	if C.go_openssl_EVP_DigestSign(ctx, base(sig), &siglen, base(message), C.size_t(len(message))) != 1 {
++	r := C.go_openssl_EVP_DigestSign_wrapper(ctx, base(sig), C.size_t(signatureSizeEd25519), base(message), C.size_t(len(message)))
++	if r.result != 1 {
 +		return newOpenSSLError("EVP_DigestSign")
 +	}
-+	if siglen != signatureSizeEd25519 {
-+		return errors.New("ed25519: bad signature length: " + strconv.Itoa(int(siglen)))
++	if r.siglen != signatureSizeEd25519 {
++		return errors.New("ed25519: bad signature length: " + strconv.Itoa(int(r.siglen)))
 +	}
 +	return nil
 +}
@@ -1944,7 +1948,7 @@ index 00000000000000..f66a2a1deb3ce6
 +}
 diff --git a/src/vendor/github.com/golang-fips/openssl/v2/evp.go b/src/vendor/github.com/golang-fips/openssl/v2/evp.go
 new file mode 100644
-index 00000000000000..b2886e6906b660
+index 00000000000000..a9237a6a0ce9aa
 --- /dev/null
 +++ b/src/vendor/github.com/golang-fips/openssl/v2/evp.go
 @@ -0,0 +1,471 @@
@@ -2099,7 +2103,15 @@ index 00000000000000..b2886e6906b660
 +
 +func setupEVP(withKey withKeyFunc, padding C.int,
 +	h, mgfHash hash.Hash, label []byte, saltLen C.int, ch crypto.Hash,
-+	init initFunc) (ctx C.GO_EVP_PKEY_CTX_PTR, err error) {
++	init initFunc) (_ C.GO_EVP_PKEY_CTX_PTR, err error) {
++	var ctx C.GO_EVP_PKEY_CTX_PTR
++	withKey(func(pkey C.GO_EVP_PKEY_PTR) C.int {
++		ctx = C.go_openssl_EVP_PKEY_CTX_new(pkey, nil)
++		return 1
++	})
++	if ctx == nil {
++		return nil, newOpenSSLError("EVP_PKEY_CTX_new failed")
++	}
 +	defer func() {
 +		if err != nil {
 +			if ctx != nil {
@@ -2108,14 +2120,6 @@ index 00000000000000..b2886e6906b660
 +			}
 +		}
 +	}()
-+
-+	withKey(func(pkey C.GO_EVP_PKEY_PTR) C.int {
-+		ctx = C.go_openssl_EVP_PKEY_CTX_new(pkey, nil)
-+		return 1
-+	})
-+	if ctx == nil {
-+		return nil, newOpenSSLError("EVP_PKEY_CTX_new failed")
-+	}
 +	if err := init(ctx); err != nil {
 +		return nil, err
 +	}
@@ -2645,16 +2649,18 @@ index 00000000000000..1e428d5269f997
 +}
 diff --git a/src/vendor/github.com/golang-fips/openssl/v2/goopenssl.h b/src/vendor/github.com/golang-fips/openssl/v2/goopenssl.h
 new file mode 100644
-index 00000000000000..a0e2b623a57502
+index 00000000000000..e488bf20142010
 --- /dev/null
 +++ b/src/vendor/github.com/golang-fips/openssl/v2/goopenssl.h
-@@ -0,0 +1,201 @@
+@@ -0,0 +1,255 @@
 +// This header file describes the OpenSSL ABI as built for use in Go.
 +
 +#include <stdlib.h> // size_t
 +
 +#include "shims.h"
 +
++// Suppress warnings about unused parameters.
++#define UNUSED(x) (void)(x)
 +
 +static inline void
 +go_openssl_do_leak_check(void)
@@ -2756,6 +2762,58 @@ index 00000000000000..a0e2b623a57502
 +    return go_openssl_EVP_CipherUpdate(ctx, out, &len, in, in_len);
 +}
 +
++// These wrappers also allocate length variables on the C stack to avoid escape to the heap, but do return the result.
++// A struct is returned that contains multiple return values instead of OpenSSL's approach of using pointers.
++
++typedef struct
++{
++    int result;
++    size_t keylen;
++} go_openssl_EVP_PKEY_derive_wrapper_out;
++
++static inline go_openssl_EVP_PKEY_derive_wrapper_out
++go_openssl_EVP_PKEY_derive_wrapper(GO_EVP_PKEY_CTX_PTR ctx, unsigned char *key, size_t keylen)
++{
++    go_openssl_EVP_PKEY_derive_wrapper_out r = {0, keylen};
++    r.result = go_openssl_EVP_PKEY_derive(ctx, key, &r.keylen);
++    return r;
++}
++
++typedef struct
++{
++    int result;
++    size_t len;
++} go_openssl_EVP_PKEY_get_raw_key_out;
++
++static inline go_openssl_EVP_PKEY_get_raw_key_out
++go_openssl_EVP_PKEY_get_raw_public_key_wrapper(const GO_EVP_PKEY_PTR pkey, unsigned char *pub, size_t len)
++{
++    go_openssl_EVP_PKEY_get_raw_key_out r = {0, len};
++    r.result = go_openssl_EVP_PKEY_get_raw_public_key(pkey, pub, &r.len);
++    return r;
++}
++
++static inline go_openssl_EVP_PKEY_get_raw_key_out
++go_openssl_EVP_PKEY_get_raw_private_key_wrapper(const GO_EVP_PKEY_PTR pkey, unsigned char *priv, size_t len)
++{
++    go_openssl_EVP_PKEY_get_raw_key_out r = {0, len};
++    r.result = go_openssl_EVP_PKEY_get_raw_private_key(pkey, priv, &r.len);
++    return r;
++}
++
++typedef struct
++{
++    int result;
++    size_t siglen;
++} go_openssl_EVP_DigestSign_wrapper_out;
++
++static inline go_openssl_EVP_DigestSign_wrapper_out
++go_openssl_EVP_DigestSign_wrapper(GO_EVP_MD_CTX_PTR ctx, unsigned char *sigret, size_t siglen, const unsigned char *tbs, size_t tbslen)
++{
++    go_openssl_EVP_DigestSign_wrapper_out r = {0, siglen};
++    r.result = go_openssl_EVP_DigestSign(ctx, sigret, &r.siglen, tbs, tbslen);
++    return r;
++}
 +
 +// These wrappers allocate out_len on the C stack, and check that it matches the expected
 +// value, to avoid having to pass a pointer from Go, which would escape to the heap.
@@ -3652,7 +3710,7 @@ index 00000000000000..646b4ce295896c
 +}
 diff --git a/src/vendor/github.com/golang-fips/openssl/v2/hkdf.go b/src/vendor/github.com/golang-fips/openssl/v2/hkdf.go
 new file mode 100644
-index 00000000000000..ac3fbba0c247c0
+index 00000000000000..61cf483fed2cf4
 --- /dev/null
 +++ b/src/vendor/github.com/golang-fips/openssl/v2/hkdf.go
 @@ -0,0 +1,174 @@
@@ -3756,7 +3814,7 @@ index 00000000000000..ac3fbba0c247c0
 +	}
 +	c.buf = append(c.buf, make([]byte, needLen)...)
 +	outLen := C.size_t(prevLen + needLen)
-+	if C.go_openssl_EVP_PKEY_derive(c.ctx, base(c.buf), &outLen) != 1 {
++	if C.go_openssl_EVP_PKEY_derive_wrapper(c.ctx, base(c.buf), outLen).result != 1 {
 +		return 0, newOpenSSLError("EVP_PKEY_derive")
 +	}
 +	n := copy(p, c.buf[prevLen:outLen])
@@ -3790,15 +3848,15 @@ index 00000000000000..ac3fbba0c247c0
 +			return nil, newOpenSSLError("EVP_PKEY_CTX_set1_hkdf_salt")
 +		}
 +	}
-+	var outLen C.size_t
-+	if C.go_openssl_EVP_PKEY_derive(c.ctx, nil, &outLen) != 1 {
++	r := C.go_openssl_EVP_PKEY_derive_wrapper(c.ctx, nil, 0)
++	if r.result != 1 {
 +		return nil, newOpenSSLError("EVP_PKEY_derive_init")
 +	}
-+	out := make([]byte, outLen)
-+	if C.go_openssl_EVP_PKEY_derive(c.ctx, base(out), &outLen) != 1 {
++	out := make([]byte, r.keylen)
++	if C.go_openssl_EVP_PKEY_derive_wrapper(c.ctx, base(out), r.keylen).result != 1 {
 +		return nil, newOpenSSLError("EVP_PKEY_derive")
 +	}
-+	return out[:outLen], nil
++	return out[:r.keylen], nil
 +}
 +
 +func ExpandHKDF(h func() hash.Hash, pseudorandomKey, info []byte) (io.Reader, error) {
@@ -4914,10 +4972,10 @@ index 00000000000000..f88150591eceb6
 +}
 diff --git a/src/vendor/github.com/golang-fips/openssl/v2/rsa.go b/src/vendor/github.com/golang-fips/openssl/v2/rsa.go
 new file mode 100644
-index 00000000000000..5aef65b84f6781
+index 00000000000000..f28d323adcbb3a
 --- /dev/null
 +++ b/src/vendor/github.com/golang-fips/openssl/v2/rsa.go
-@@ -0,0 +1,419 @@
+@@ -0,0 +1,435 @@
 +//go:build !cmd_go_bootstrap
 +
 +package openssl
@@ -5304,14 +5362,30 @@ index 00000000000000..5aef65b84f6781
 +		return nil, newOpenSSLError("OSSL_PARAM_BLD_new")
 +	}
 +	defer C.go_openssl_OSSL_PARAM_BLD_free(bld)
-+	var comps = [...]struct {
++
++	type bigIntParam struct{
 +		name *C.char
 +		num  BigInt
-+	}{
-+		{paramRSA_N, N}, {paramRSA_E, E}, {paramRSA_D, D},
-+		{paramRSA_P, P}, {paramRSA_Q, Q},
-+		{paramRSA_Dp, Dp}, {paramRSA_Dq, Dq}, {paramRSA_Qinv, Qinv},
 +	}
++
++	comps := make([]bigIntParam, 0, 8)
++
++	required := [...]bigIntParam{
++		{paramRSA_N, N}, {paramRSA_E, E}, {paramRSA_D, D},
++	}
++	comps = append(comps, required[:]...)
++
++	// OpenSSL 3.0 and 3.1 required all the precomputed values if
++	// P and Q are present. See:
++	// https://github.com/openssl/openssl/pull/22334
++	if P != nil && Q != nil && Dp != nil && Dq != nil && Qinv != nil {
++		precomputed := [...]bigIntParam{
++			{paramRSA_P, P}, {paramRSA_Q, Q},
++			{paramRSA_Dp, Dp}, {paramRSA_Dq, Dq}, {paramRSA_Qinv, Qinv},
++		}
++		comps = append(comps, precomputed[:]...)
++	}
++
 +	for _, comp := range comps {
 +		if comp.num == nil {
 +			continue
@@ -5339,10 +5413,10 @@ index 00000000000000..5aef65b84f6781
 +}
 diff --git a/src/vendor/github.com/golang-fips/openssl/v2/shims.h b/src/vendor/github.com/golang-fips/openssl/v2/shims.h
 new file mode 100644
-index 00000000000000..4457a3e491c806
+index 00000000000000..99656f0cf20a36
 --- /dev/null
 +++ b/src/vendor/github.com/golang-fips/openssl/v2/shims.h
-@@ -0,0 +1,370 @@
+@@ -0,0 +1,371 @@
 +#include <stdlib.h> // size_t
 +#include <stdint.h> // uint64_t
 +
@@ -5517,6 +5591,7 @@ index 00000000000000..4457a3e491c806
 +DEFINEFUNC_RENAMED_1_1(const char *, OpenSSL_version, SSLeay_version, (int type), (type)) \
 +DEFINEFUNC(void, OPENSSL_init, (void), ()) \
 +DEFINEFUNC_LEGACY_1_0(void, ERR_load_crypto_strings, (void), ()) \
++DEFINEFUNC_LEGACY_1_0(void, ERR_remove_thread_state, (const GO_CRYPTO_THREADID_PTR tid), (tid)) \
 +DEFINEFUNC_LEGACY_1_0(int, CRYPTO_num_locks, (void), ()) \
 +DEFINEFUNC_LEGACY_1_0(int, CRYPTO_THREADID_set_callback, (void (*threadid_func) (GO_CRYPTO_THREADID_PTR)), (threadid_func)) \
 +DEFINEFUNC_LEGACY_1_0(void, CRYPTO_THREADID_set_numeric, (GO_CRYPTO_THREADID_PTR id, unsigned long val), (id, val)) \
@@ -5713,22 +5788,56 @@ index 00000000000000..4457a3e491c806
 +DEFINEFUNC_3_0(GO_EVP_SIGNATURE_PTR, EVP_SIGNATURE_fetch, (GO_OSSL_LIB_CTX_PTR ctx, const char *algorithm, const char *properties), (ctx, algorithm, properties)) \
 +DEFINEFUNC_3_0(void, EVP_SIGNATURE_free, (GO_EVP_SIGNATURE_PTR signature), (signature)) \
 +
+diff --git a/src/vendor/github.com/golang-fips/openssl/v2/thread_setup.go b/src/vendor/github.com/golang-fips/openssl/v2/thread_setup.go
+new file mode 100644
+index 00000000000000..5e0da7e362cd04
+--- /dev/null
++++ b/src/vendor/github.com/golang-fips/openssl/v2/thread_setup.go
+@@ -0,0 +1,14 @@
++//go:build !cmd_go_bootstrap
++
++package openssl
++
++// Go wrappers for testing the thread setup code as _test.go files cannot import "C".
++
++// #include "thread_setup.h"
++import "C"
++
++// opensslThreadsCleanedUp returns the number of times the thread-local OpenSSL
++// state has been cleaned up since the process started.
++func opensslThreadsCleanedUp() uint {
++	return uint(C.go_openssl_threads_cleaned_up)
++}
+diff --git a/src/vendor/github.com/golang-fips/openssl/v2/thread_setup.h b/src/vendor/github.com/golang-fips/openssl/v2/thread_setup.h
+new file mode 100644
+index 00000000000000..98d12f82a27c37
+--- /dev/null
++++ b/src/vendor/github.com/golang-fips/openssl/v2/thread_setup.h
+@@ -0,0 +1,4 @@
++#define CRYPTO_LOCK 0x01
++
++/* Used by unit tests. */
++extern volatile unsigned int go_openssl_threads_cleaned_up;
 diff --git a/src/vendor/github.com/golang-fips/openssl/v2/thread_setup_unix.c b/src/vendor/github.com/golang-fips/openssl/v2/thread_setup_unix.c
 new file mode 100644
-index 00000000000000..dc2df609b01b59
+index 00000000000000..53ea9d03d7d54c
 --- /dev/null
 +++ b/src/vendor/github.com/golang-fips/openssl/v2/thread_setup_unix.c
-@@ -0,0 +1,35 @@
+@@ -0,0 +1,61 @@
 +//go:build unix
 +
 +#include "goopenssl.h"
++#include "thread_setup.h"
 +#include <pthread.h>
-+ 
-+#define CRYPTO_LOCK 0x01
 +
 +/* This array will store all of the mutexes available to OpenSSL. */ 
 +static pthread_mutex_t *mutex_buf = NULL;
-+ 
++
++static pthread_key_t destructor_key;
++
++/* Used by unit tests. */
++volatile unsigned int go_openssl_threads_cleaned_up = 0;
++
 +static void locking_function(int mode, int n, const char *file, int line)
 +{
 +    if (mode & CRYPTO_LOCK)
@@ -5740,10 +5849,32 @@ index 00000000000000..dc2df609b01b59
 +static void thread_id(GO_CRYPTO_THREADID_PTR tid)
 +{
 +    go_openssl_CRYPTO_THREADID_set_numeric(tid, (unsigned long)pthread_self());
++
++    // OpenSSL fetches the current thread ID whenever it does anything with the
++    // per-thread error state, so this function is guaranteed to be executed at
++    // least once on any thread with associated error state. The thread-local
++    // variable needs to be set to a non-NULL value so that the destructor will
++    // be called when the thread exits. The actual value does not matter.
++    (void) pthread_setspecific(destructor_key, (void*)1);
++}
++
++static void cleanup_thread_state(void *ignored)
++{
++    UNUSED(ignored);
++    go_openssl_ERR_remove_thread_state(NULL);
++    // ERR_remove_thread_state(NULL) in turn calls our registered thread_id
++    // callback via CRYPTO_THREADID_current(), which sets the thread-local
++    // variable associated with this destructor to a non-NULL value. We have to
++    // clear the variable ourselves to prevent pthreads from calling the
++    // destructor again for the same thread.
++    (void) pthread_setspecific(destructor_key, NULL);
++    go_openssl_threads_cleaned_up++;
 +}
 +
 +int go_openssl_thread_setup(void)
 +{
++    if (pthread_key_create(&destructor_key, cleanup_thread_state) != 0)
++        return 0;
 +    mutex_buf = malloc(go_openssl_CRYPTO_num_locks()*sizeof(pthread_mutex_t));
 +    if (!mutex_buf)
 +        return 0;
@@ -5756,21 +5887,25 @@ index 00000000000000..dc2df609b01b59
 +}
 diff --git a/src/vendor/github.com/golang-fips/openssl/v2/thread_setup_windows.c b/src/vendor/github.com/golang-fips/openssl/v2/thread_setup_windows.c
 new file mode 100644
-index 00000000000000..7bc66d80145794
+index 00000000000000..93281d6cffc352
 --- /dev/null
 +++ b/src/vendor/github.com/golang-fips/openssl/v2/thread_setup_windows.c
-@@ -0,0 +1,33 @@
+@@ -0,0 +1,64 @@
 +//go:build windows
 +
 +#include "goopenssl.h"
++#include "thread_setup.h"
 +
 +#include <stdlib.h>
 +#include <windows.h>
 +
-+#define CRYPTO_LOCK      0x01
-+
 +/* This array will store all of the mutexes available to OpenSSL. */
 +static HANDLE *mutex_buf = NULL;
++
++static DWORD fls_index = FLS_OUT_OF_INDEXES;
++
++/* Used by unit tests. */
++volatile unsigned int go_openssl_threads_cleaned_up = 0;
 +
 +static void locking_function(int mode, int n, const char *file, int line)
 +{
@@ -5780,8 +5915,33 @@ index 00000000000000..7bc66d80145794
 +        ReleaseMutex(mutex_buf[n]);
 +}
 +
++static void thread_id(GO_CRYPTO_THREADID_PTR tid)
++{
++    go_openssl_CRYPTO_THREADID_set_numeric(tid, (unsigned long)GetCurrentThreadId());
++
++    // OpenSSL fetches the current thread ID whenever it does anything with the
++    // per-thread error state, so this function is guaranteed to be executed at
++    // least once on any thread with associated error state. As the Win32 API
++    // reference documentation is unclear on whether the fiber-local storage
++    // slot needs to be set to trigger the destructor on thread exit, set it to
++    // a non-NULL value just in case.
++    (void) FlsSetValue(fls_index, (void*)1);
++    go_openssl_threads_cleaned_up++;
++}
++
++static void cleanup_thread_state(void *ignored)
++{
++    UNUSED(ignored);
++    go_openssl_ERR_remove_thread_state(NULL);
++}
++
 +int go_openssl_thread_setup(void)
 +{
++    // Use the fiber-local storage API to hook a callback on thread exit.
++    // https://devblogs.microsoft.com/oldnewthing/20191011-00/?p=102989
++    fls_index = FlsAlloc(cleanup_thread_state);
++    if (fls_index == FLS_OUT_OF_INDEXES)
++        return 0;
 +    mutex_buf = malloc(go_openssl_CRYPTO_num_locks()*sizeof(HANDLE));
 +    if (!mutex_buf)
 +        return 0;
@@ -5789,13 +5949,15 @@ index 00000000000000..7bc66d80145794
 +    for (i = 0; i < go_openssl_CRYPTO_num_locks(); i++)
 +        mutex_buf[i] = CreateMutex(NULL, FALSE, NULL);
 +    go_openssl_CRYPTO_set_locking_callback(locking_function);
-+    // go_openssl_CRYPTO_set_id_callback is not needed on Windows
++    // go_openssl_CRYPTO_set_id_callback is not strictly needed on Windows
 +    // as OpenSSL uses GetCurrentThreadId() by default.
++    // But we need to piggyback off the callback for our own purposes.
++    go_openssl_CRYPTO_THREADID_set_callback(thread_id);
 +    return 1;
 +}
 diff --git a/src/vendor/github.com/golang-fips/openssl/v2/tls1prf.go b/src/vendor/github.com/golang-fips/openssl/v2/tls1prf.go
 new file mode 100644
-index 00000000000000..3153fc81ec0279
+index 00000000000000..5de62f95a7a4ec
 --- /dev/null
 +++ b/src/vendor/github.com/golang-fips/openssl/v2/tls1prf.go
 @@ -0,0 +1,104 @@
@@ -5891,7 +6053,7 @@ index 00000000000000..3153fc81ec0279
 +		}
 +	}
 +	outLen := C.size_t(len(result))
-+	if C.go_openssl_EVP_PKEY_derive(ctx, base(result), &outLen) != 1 {
++	if C.go_openssl_EVP_PKEY_derive_wrapper(ctx, base(result), outLen).result != 1 {
 +		return newOpenSSLError("EVP_PKEY_derive")
 +	}
 +	// The Go standard library expects TLS1PRF to return the requested number of bytes,
@@ -9336,11 +9498,11 @@ index 00000000000000..1722410e5af193
 +	return getSystemDirectory() + "\\" + dll
 +}
 diff --git a/src/vendor/modules.txt b/src/vendor/modules.txt
-index 338c496bf95ad7..69b3ecdd2947c9 100644
+index 9c2019873b258a..e2e1ef2d795635 100644
 --- a/src/vendor/modules.txt
 +++ b/src/vendor/modules.txt
 @@ -1,3 +1,14 @@
-+# github.com/golang-fips/openssl/v2 v2.0.0-rc.3.0.20240109234540-66bdd798d334
++# github.com/golang-fips/openssl/v2 v2.0.1
 +## explicit; go 1.20
 +github.com/golang-fips/openssl/v2
 +github.com/golang-fips/openssl/v2/bbig
