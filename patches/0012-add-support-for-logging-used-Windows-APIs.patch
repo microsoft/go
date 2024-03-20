@@ -7,10 +7,10 @@ Subject: [PATCH] add support for logging used Windows APIs
  src/runtime/os_windows.go                    |   1 +
  src/runtime/syscall_windows.go               |   1 +
  src/runtime/syscalltrace_generate_windows.go |  46 +++++++
- src/runtime/syscalltrace_windows.go          | 124 +++++++++++++++++++
- src/runtime/syscalltrace_windows_test.go     |  77 ++++++++++++
+ src/runtime/syscalltrace_windows.go          | 127 +++++++++++++++++++
+ src/runtime/syscalltrace_windows_test.go     |  77 +++++++++++
  src/runtime/zsyscalltrace_windows.go         |  59 +++++++++
- 6 files changed, 308 insertions(+)
+ 6 files changed, 311 insertions(+)
  create mode 100644 src/runtime/syscalltrace_generate_windows.go
  create mode 100644 src/runtime/syscalltrace_windows.go
  create mode 100644 src/runtime/syscalltrace_windows_test.go
@@ -94,10 +94,10 @@ index 00000000000000..e3bbe376f43ce9
 +}
 diff --git a/src/runtime/syscalltrace_windows.go b/src/runtime/syscalltrace_windows.go
 new file mode 100644
-index 00000000000000..d27e1ffeb9bffe
+index 00000000000000..15245e4414c0b8
 --- /dev/null
 +++ b/src/runtime/syscalltrace_windows.go
-@@ -0,0 +1,124 @@
+@@ -0,0 +1,127 @@
 +//go:generate go run syscalltrace_generate_windows.go -output zsyscalltrace_windows.go os_windows syscalltrace_windows
 +
 +package runtime
@@ -116,8 +116,8 @@ index 00000000000000..d27e1ffeb9bffe
 +)
 +
 +var (
-+	syscallTraceHandler uintptr
-+	currentProcessName  [_MAX_PATH]byte
++	syscallTraceFileHandle uintptr
++	currentProcessName     [_MAX_PATH]byte
 +)
 +
 +// syscallTrace logs a syscall trace.
@@ -125,11 +125,12 @@ index 00000000000000..d27e1ffeb9bffe
 +// module name, procedure name, and a newline character.
 +// If the underlying file supports atomic writes, the trace is guaranteed
 +// to be written atomically.
++// procName should be a pointer to a null-terminated string.
 +func syscallTrace(modHandle uintptr, procName *byte) {
-+	if syscallTraceHandler == _INVALID_HANDLE_VALUE {
++	if syscallTraceFileHandle == _INVALID_HANDLE_VALUE {
 +		return
 +	}
-+	if syscallTraceHandler == 0 {
++	if syscallTraceFileHandle == 0 {
 +		// It is safe to call initSyscallTrace without locking
 +		// because the first time syscallTrace is called is during
 +		// runtime initialization, when there is only one goroutine.
@@ -139,7 +140,9 @@ index 00000000000000..d27e1ffeb9bffe
 +	}
 +	// We can't allocate memory here, as syscallTrace might be called
 +	// before the memory allocator is initialized. Instead, we use a
-+	// fixed-size buffer on the stack.
++	// fixed-size buffer on the stack. The buffer is large enough to
++	// hold two commas, one end of line character, and MAX_PATH
++	// characters for each of line entry.
 +	buf := make([]byte, _MAX_PATH*3+3)
 +	n := findnull(&currentProcessName[0])
 +	copy(buf, currentProcessName[:n])
@@ -167,7 +170,7 @@ index 00000000000000..d27e1ffeb9bffe
 +	n += procNameLength
 +	buf[n] = '\n'
 +	n += 1
-+	write(syscallTraceHandler, unsafe.Pointer(&buf[0]), int32(n))
++	write(syscallTraceFileHandle, unsafe.Pointer(&buf[0]), int32(n))
 +}
 +
 +// initSyscallTrace initializes syscall tracing.
@@ -184,7 +187,7 @@ index 00000000000000..d27e1ffeb9bffe
 +	var file [_MAX_PATH + 1]uint16
 +	if stdcall3(_GetEnvironmentVariableW, uintptr(unsafe.Pointer(&envName[0])), uintptr(unsafe.Pointer(&file[0])), uintptr(len(file))) == 0 {
 +		// Disable syscall tracing.
-+		syscallTraceHandler = _INVALID_HANDLE_VALUE
++		syscallTraceFileHandle = _INVALID_HANDLE_VALUE
 +		return false
 +	}
 +	const (
@@ -197,8 +200,8 @@ index 00000000000000..d27e1ffeb9bffe
 +	)
 +	// Create the file with FILE_APPEND_DATA access to ensure that
 +	// writes are atomic.
-+	syscallTraceHandler = stdcall7(_CreateFileW, uintptr(unsafe.Pointer(&file[0])), FILE_APPEND_DATA, FILE_SHARE_READ|FILE_SHARE_WRITE|FILE_SHARE_DELETE, 0, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, 0)
-+	if syscallTraceHandler == _INVALID_HANDLE_VALUE {
++	syscallTraceFileHandle = stdcall7(_CreateFileW, uintptr(unsafe.Pointer(&file[0])), FILE_APPEND_DATA, FILE_SHARE_READ|FILE_SHARE_WRITE|FILE_SHARE_DELETE, 0, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, 0)
++	if syscallTraceFileHandle == _INVALID_HANDLE_VALUE {
 +		println("runtime: CreateFileA failed; errno=", getlasterror())
 +		throw("failed to create syscall trace file")
 +	}
