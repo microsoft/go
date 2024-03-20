@@ -396,7 +396,7 @@ index 00000000000000..6461f241f863fc
 +type BigInt []uint
 diff --git a/src/vendor/github.com/golang-fips/openssl/v2/cipher.go b/src/vendor/github.com/golang-fips/openssl/v2/cipher.go
 new file mode 100644
-index 00000000000000..ddaadfa8897c25
+index 00000000000000..2b983c5411fc72
 --- /dev/null
 +++ b/src/vendor/github.com/golang-fips/openssl/v2/cipher.go
 @@ -0,0 +1,582 @@
@@ -935,12 +935,12 @@ index 00000000000000..ddaadfa8897c25
 +	return
 +}
 +
-+func newCipherCtx(kind cipherKind, mode cipherMode, encrypt cipherOp, key, iv []byte) (ctx C.GO_EVP_CIPHER_CTX_PTR, err error) {
++func newCipherCtx(kind cipherKind, mode cipherMode, encrypt cipherOp, key, iv []byte) (_ C.GO_EVP_CIPHER_CTX_PTR, err error) {
 +	cipher := loadCipher(kind, mode)
 +	if cipher == nil {
 +		panic("crypto/cipher: unsupported cipher: " + kind.String())
 +	}
-+	ctx = C.go_openssl_EVP_CIPHER_CTX_new()
++	ctx := C.go_openssl_EVP_CIPHER_CTX_new()
 +	if ctx == nil {
 +		return nil, fail("unable to create EVP cipher ctx")
 +	}
@@ -1944,7 +1944,7 @@ index 00000000000000..f66a2a1deb3ce6
 +}
 diff --git a/src/vendor/github.com/golang-fips/openssl/v2/evp.go b/src/vendor/github.com/golang-fips/openssl/v2/evp.go
 new file mode 100644
-index 00000000000000..b2886e6906b660
+index 00000000000000..a9237a6a0ce9aa
 --- /dev/null
 +++ b/src/vendor/github.com/golang-fips/openssl/v2/evp.go
 @@ -0,0 +1,471 @@
@@ -2099,7 +2099,15 @@ index 00000000000000..b2886e6906b660
 +
 +func setupEVP(withKey withKeyFunc, padding C.int,
 +	h, mgfHash hash.Hash, label []byte, saltLen C.int, ch crypto.Hash,
-+	init initFunc) (ctx C.GO_EVP_PKEY_CTX_PTR, err error) {
++	init initFunc) (_ C.GO_EVP_PKEY_CTX_PTR, err error) {
++	var ctx C.GO_EVP_PKEY_CTX_PTR
++	withKey(func(pkey C.GO_EVP_PKEY_PTR) C.int {
++		ctx = C.go_openssl_EVP_PKEY_CTX_new(pkey, nil)
++		return 1
++	})
++	if ctx == nil {
++		return nil, newOpenSSLError("EVP_PKEY_CTX_new failed")
++	}
 +	defer func() {
 +		if err != nil {
 +			if ctx != nil {
@@ -2108,14 +2116,6 @@ index 00000000000000..b2886e6906b660
 +			}
 +		}
 +	}()
-+
-+	withKey(func(pkey C.GO_EVP_PKEY_PTR) C.int {
-+		ctx = C.go_openssl_EVP_PKEY_CTX_new(pkey, nil)
-+		return 1
-+	})
-+	if ctx == nil {
-+		return nil, newOpenSSLError("EVP_PKEY_CTX_new failed")
-+	}
 +	if err := init(ctx); err != nil {
 +		return nil, err
 +	}
@@ -9336,11 +9336,11 @@ index 00000000000000..1722410e5af193
 +	return getSystemDirectory() + "\\" + dll
 +}
 diff --git a/src/vendor/modules.txt b/src/vendor/modules.txt
-index 338c496bf95ad7..69b3ecdd2947c9 100644
+index 338c496bf95ad7..4eea9772658fad 100644
 --- a/src/vendor/modules.txt
 +++ b/src/vendor/modules.txt
 @@ -1,3 +1,14 @@
-+# github.com/golang-fips/openssl/v2 v2.0.0-rc.3.0.20240109234540-66bdd798d334
++# github.com/golang-fips/openssl/v2 v2.0.0-rc.3.0.20240320212310-fde4397fc4ac
 +## explicit; go 1.20
 +github.com/golang-fips/openssl/v2
 +github.com/golang-fips/openssl/v2/bbig
