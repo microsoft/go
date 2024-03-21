@@ -39,12 +39,6 @@ func MaxMakeRetryAttemptsOrExit() int {
 	return maxAttemptsOrExit("GO_MAKE_MAX_RETRY_ATTEMPTS")
 }
 
-// MaxTestRetryAttemptsOrExit returns the max test retry attempts according to an env var. Shared
-// between the build command and run-builder command.
-func MaxTestRetryAttemptsOrExit() int {
-	return maxAttemptsOrExit("GO_TEST_MAX_RETRY_ATTEMPTS")
-}
-
 func maxAttemptsOrExit(varName string) int {
 	attempts, err := getEnvIntOrDefault(varName, 1)
 	if err != nil {
