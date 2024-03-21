@@ -7,8 +7,15 @@
 parameters:
   - name: public
     type: boolean
-  - name: dncengPool
+
+  - name: pool
     type: object
+
+  # Unused. Declared so pool selection doesn't fail when trying to pass them.
+  - name: builder
+    type: object
+  - name: official
+    type: boolean
 
 stages:
   - stage: Publish${{ parameters.public }}
@@ -19,9 +26,7 @@ stages:
     dependsOn: Sign
     jobs:
       - job: Publish
-        pool:
-          name: ${{ parameters.dncengPool.name }}
-          demands: ${{ parameters.dncengPool.demands.linux }}
+        pool: ${{ parameters.pool }}
 
         variables:
           - ${{ if parameters.public }}:
@@ -42,6 +47,19 @@ stages:
 
         workspace:
           clean: all
+
+        templateContext:
+          outputs:
+            # https://eng.ms/docs/cloud-ai-platform/devdiv/one-engineering-system-1es/1es-docs/1es-pipeline-templates/features/outputs
+            - output: pipelineArtifact
+              path: $(Pipeline.Workspace)/Binaries Signed/assets.json
+              # Single file publish requires folder to be specified.
+              # https://eng.ms/docs/cloud-ai-platform/devdiv/one-engineering-system-1es/1es-docs/1es-pipeline-templates/features/sbom#specifying-sbom-build-drop-path-build-component-path-package-name-and-package-version-per-1es-pt-output
+              sbomBuildDropPath: $(Pipeline.Workspace)/Binaries Signed
+              ${{ if parameters.public }}:
+                artifact: BuildAssets
+              ${{ else }}:
+                artifact: BuildAssetsInternal
 
         steps:
           - template: ../steps/checkout-unix-task.yml
@@ -73,6 +91,8 @@ stages:
 
           - download: current
             artifact: Binaries Signed
+            # Filter out manifests added by 1ES pipeline template.
+            patterns: '!_manifest/**'
             displayName: 'Download: Binaries Signed'
 
           - pwsh: |
@@ -83,13 +103,6 @@ stages:
                 -branch '$(PublishBranchAlias)' `
                 -o '$(Pipeline.Workspace)/Binaries Signed/assets.json'
             displayName: 'Create build asset JSON'
-
-          - publish: $(Pipeline.Workspace)/Binaries Signed/assets.json
-            displayName: Publish build asset JSON to pipeline
-            ${{ if parameters.public }}:
-              artifact: BuildAssets
-            ${{ else }}:
-              artifact: BuildAssetsInternal
 
           - task: AzureCLI@2
             displayName: Upload to blob storage

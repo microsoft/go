@@ -19,26 +19,65 @@ parameters:
     displayName: '[Release automation input] The version being built. Leave "nil" for non-release builds.'
     type: string
     default: nil
+  - name: enableCodeQLOnNonDefaultBranches
+    displayName: '[Debug input] Enable CodeQL even on non-main branches. Use to try modifications in dev branches.'
+    type: boolean
+    default: false
 
-stages:
-  - template: stages/go-builder-matrix-stages.yml
-    parameters:
-      innerloop: true
-      sign: true
-      createSourceArchive: true
-      releaseVersion: ${{ parameters.releaseVersion }}
+variables:
+  - template: variables/pool-providers.yml
+  # MicroBuild configuration.
+  - name: TeamName
+    value: golang
 
-  - ${{ if not(startsWith(variables['Build.SourceBranch'], 'refs/heads/internal/')) }}:
-    - template: stages/pool.yml
-      parameters:
-        inner:
-          template: publish-stage.yml
-          parameters:
-            public: true
+resources:
+  repositories:
+    - repository: MicroBuildTemplate
+      type: git
+      name: 1ESPipelineTemplates/MicroBuildTemplate
+      ref: refs/tags/release
 
-  - template: stages/pool.yml
-    parameters:
-      inner:
-        template: publish-stage.yml
+extends:
+  template: azure-pipelines/MicroBuild.1ES.Official.yml@MicroBuildTemplate
+  parameters:
+    pool:
+      # Default, used for SDL analysis.
+      name: $(DncEngInternalBuildPool)
+      image: 1es-windows-2022
+      os: windows
+    sdl:
+      codeql:
+        enabledOnNonDefaultBranches: ${{ parameters.enableCodeQLOnNonDefaultBranches }}
+      suppression:
+        suppressionFile: $(Build.SourcesDirectory)/eng/compliance/.gdnsuppress
+      tsa:
+        enabled: true
+        configFile: $(Build.SourcesDirectory)/eng/compliance/tsaoptions.json
+
+    stages:
+      - template: stages/go-builder-matrix-stages.yml
         parameters:
-          public: false
+          buildandpack: true
+          official: true
+          createSourceArchive: true
+          releaseVersion: ${{ parameters.releaseVersion }}
+
+      - ${{ if not(startsWith(variables['Build.SourceBranch'], 'refs/heads/internal/')) }}:
+        - template: stages/pool.yml
+          parameters:
+            inner:
+              template: publish-stage.yml
+              parameters:
+                # This is not a builder, but provide partial builder info for agent selection.
+                builder: { os: linux, arch: amd64 }
+                official: true
+                public: true
+
+      - template: stages/pool.yml
+        parameters:
+          inner:
+            template: publish-stage.yml
+            parameters:
+              builder: { os: linux, arch: amd64 }
+              official: true
+              public: false

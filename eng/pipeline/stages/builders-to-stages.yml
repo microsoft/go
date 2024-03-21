@@ -7,12 +7,12 @@
 parameters:
   # [] of { id, os, arch, hostarch, config, distro?, experiment? }
   builders: []
-  # If true, include a signing job that depends on all 'buildandpack' builder jobs finishing. This
-  # lets us start the lengthy tasks of signing and testing in parallel.
-  sign: false
-  # If true, generate source archive tarballs, and sign them if signing is enabled.
+  # If true, include a signing stage+job that depends on all 'buildandpack' builder jobs finishing.
+  # 'official' is passed through into run-stage.yml, where it has other effects.
+  official: false
+  # If true, generate source archive tarballs.
   createSourceArchive: false
-  releaseVersion: ''
+  releaseVersion: 'nil'
 
 stages:
   - ${{ each builder in parameters.builders }}:
@@ -24,13 +24,22 @@ stages:
             builder: ${{ builder }}
             createSourceArchive: ${{ parameters.createSourceArchive }}
             releaseVersion: ${{ parameters.releaseVersion }}
+            official: ${{ parameters.official }}
+            # Attempt to retry the build on Windows to mitigate flakiness:
+            # "Access Denied" during EXE copying and general flakiness during tests.
+            ${{ if eq(builder.os, 'windows') }}:
+              retryAttempts: [1, 2, 3, 4, "FINAL"]
 
-  - ${{ if eq(parameters.sign, true) }}:
+  - ${{ if eq(parameters.official, true) }}:
     - template: pool.yml
       parameters:
         inner:
           template: sign-stage.yml
           parameters:
+            # This is not a builder, but provide partial builder info for agent selection.
+            builder: { os: windows, arch: amd64 }
+            official: ${{ parameters.official }}
+            # The list of builders to depend on and grab artifacts from.
             builders:
               - ${{ each builder in parameters.builders }}:
                 - ${{ if eq(builder.config, 'buildandpack') }}:
