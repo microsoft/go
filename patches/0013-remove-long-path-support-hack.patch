@@ -1,0 +1,66 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: qmuntal <qmuntaldiaz@microsoft.com>
+Date: Thu, 21 Mar 2024 11:36:42 +0100
+Subject: [PATCH] remove long path support hack
+
+Upstream Go tricks Windows into enabling long path support by setting an
+undocumented flag in the PEB. The Microsoft Go fork can't use undocumented
+APIs, so this commit removes the hack.
+
+There is no documented way to enable long path support from within the
+process, so this this is a breaking change for the Microsoft Go fork.
+Note that the Go standard library makes a best effort to support long
+paths by using the `\\?\` prefix when possible, so this change should
+only affect long relative paths, which can't be used with the `\\?\`.
+
+---
+ src/runtime/os_windows.go | 22 +---------------------
+ 1 file changed, 1 insertion(+), 21 deletions(-)
+
+diff --git a/src/runtime/os_windows.go b/src/runtime/os_windows.go
+index 6273b9dba5d47e..04adfefe2f34c6 100644
+--- a/src/runtime/os_windows.go
++++ b/src/runtime/os_windows.go
+@@ -134,7 +134,6 @@ var (
+ 	_NtCreateWaitCompletionPacket    stdFunction
+ 	_NtAssociateWaitCompletionPacket stdFunction
+ 	_NtCancelWaitCompletionPacket    stdFunction
+-	_RtlGetCurrentPeb                stdFunction
+ 	_RtlGetNtVersionNumbers          stdFunction
+ 
+ 	// These are from non-kernel32.dll, so we prefer to LoadLibraryEx them.
+@@ -268,7 +267,6 @@ func loadOptionalSyscalls() {
+ 			throw("NtCreateWaitCompletionPacket exists but NtCancelWaitCompletionPacket does not")
+ 		}
+ 	}
+-	_RtlGetCurrentPeb = windowsFindfunc(n32, []byte("RtlGetCurrentPeb\000"))
+ 	_RtlGetNtVersionNumbers = windowsFindfunc(n32, []byte("RtlGetNtVersionNumbers\000"))
+ }
+ 
+@@ -432,25 +430,7 @@ var canUseLongPaths bool
+ 
+ // initLongPathSupport enables long path support.
+ func initLongPathSupport() {
+-	const (
+-		IsLongPathAwareProcess = 0x80
+-		PebBitFieldOffset      = 3
+-	)
+-
+-	// Check that we're ≥ 10.0.15063.
+-	var maj, min, build uint32
+-	stdcall3(_RtlGetNtVersionNumbers, uintptr(unsafe.Pointer(&maj)), uintptr(unsafe.Pointer(&min)), uintptr(unsafe.Pointer(&build)))
+-	if maj < 10 || (maj == 10 && min == 0 && build&0xffff < 15063) {
+-		return
+-	}
+-
+-	// Set the IsLongPathAwareProcess flag of the PEB's bit field.
+-	// This flag is not documented, but it's known to be used
+-	// by Windows to enable long path support.
+-	bitField := (*byte)(unsafe.Pointer(stdcall0(_RtlGetCurrentPeb) + PebBitFieldOffset))
+-	*bitField |= IsLongPathAwareProcess
+-
+-	canUseLongPaths = true
++	canUseLongPaths = false
+ }
+ 
+ func osinit() {
