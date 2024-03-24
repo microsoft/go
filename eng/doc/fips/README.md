@@ -54,7 +54,7 @@ There are typically two goals that lead to this document. Creating a FIPS compli
 > [!NOTE]
 > This section assumes the use of Microsoft Go 1.21 or later.
 >
-> 1.21 introduces `systemcrypto`, `requirefips`, and a build-time compatibility check for the selected crypto backend. The Usage sections go into more detail about the differences between 1.19/1.20 and 1.21 in context. See also [the Go 1.21 changelog](#go-121).
+> 1.21 introduces `systemcrypto`, `requirefips`, and a build-time compatibility check for the selected crypto backend. The Usage sections go into more detail about the differences between 1.19/1.20 and 1.21 in context. See also [the Go 1.21 changelog](#go-121-aug-2023).
 
 | Build-time config | Runtime config | Internal Microsoft crypto policy | FIPS behavior |
 | --- | --- | --- | --- |
@@ -386,7 +386,7 @@ A program running in FIPS mode can claim it is using a FIPS-certified cryptograp
 
 This list of major changes is intended for quick reference and for access to historical information about versions that are no longer supported. The behavior of all in-support versions are documented in the sections above with notes for version-specific differences where necessary.
 
-### Go 1.22 (Feb 2023)
+### Go 1.22 (Feb 2024)
 
 - Automatically enforce that `crypto/tls` and `crypto/x509` only use FIPS-approved settings when running in FIPS mode.
 
