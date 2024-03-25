@@ -1,6 +1,6 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: qmuntal <qmuntaldiaz@microsoft.com>
-Date: Thu, 21 Mar 2024 11:36:42 +0100
+Date: Mon, 25 Mar 2024 12:14:00 +0100
 Subject: [PATCH] remove long path support hack
 
 Upstream Go tricks Windows into enabling long path support by setting an
@@ -14,11 +14,11 @@ paths by using the `\\?\` prefix when possible, so this change should
 only affect long relative paths, which can't be used with the `\\?\`.
 
 ---
- src/runtime/os_windows.go | 22 +---------------------
- 1 file changed, 1 insertion(+), 21 deletions(-)
+ src/runtime/os_windows.go | 23 +----------------------
+ 1 file changed, 1 insertion(+), 22 deletions(-)
 
 diff --git a/src/runtime/os_windows.go b/src/runtime/os_windows.go
-index 6273b9dba5d47e..04adfefe2f34c6 100644
+index 1267afc003cc36..a6440484137bf3 100644
 --- a/src/runtime/os_windows.go
 +++ b/src/runtime/os_windows.go
 @@ -134,7 +134,6 @@ var (
@@ -26,7 +26,7 @@ index 6273b9dba5d47e..04adfefe2f34c6 100644
  	_NtAssociateWaitCompletionPacket stdFunction
  	_NtCancelWaitCompletionPacket    stdFunction
 -	_RtlGetCurrentPeb                stdFunction
- 	_RtlGetNtVersionNumbers          stdFunction
+ 	_RtlGetVersion                   stdFunction
  
  	// These are from non-kernel32.dll, so we prefer to LoadLibraryEx them.
 @@ -268,7 +267,6 @@ func loadOptionalSyscalls() {
@@ -34,10 +34,10 @@ index 6273b9dba5d47e..04adfefe2f34c6 100644
  		}
  	}
 -	_RtlGetCurrentPeb = windowsFindfunc(n32, []byte("RtlGetCurrentPeb\000"))
- 	_RtlGetNtVersionNumbers = windowsFindfunc(n32, []byte("RtlGetNtVersionNumbers\000"))
+ 	_RtlGetVersion = windowsFindfunc(n32, []byte("RtlGetVersion\000"))
  }
  
-@@ -432,25 +430,7 @@ var canUseLongPaths bool
+@@ -432,26 +430,7 @@ var canUseLongPaths bool
  
  // initLongPathSupport enables long path support.
  func initLongPathSupport() {
@@ -47,9 +47,10 @@ index 6273b9dba5d47e..04adfefe2f34c6 100644
 -	)
 -
 -	// Check that we're ≥ 10.0.15063.
--	var maj, min, build uint32
--	stdcall3(_RtlGetNtVersionNumbers, uintptr(unsafe.Pointer(&maj)), uintptr(unsafe.Pointer(&min)), uintptr(unsafe.Pointer(&build)))
--	if maj < 10 || (maj == 10 && min == 0 && build&0xffff < 15063) {
+-	info := _OSVERSIONINFOW{}
+-	info.osVersionInfoSize = uint32(unsafe.Sizeof(info))
+-	stdcall1(_RtlGetVersion, uintptr(unsafe.Pointer(&info)))
+-	if info.majorVersion < 10 || (info.majorVersion == 10 && info.minorVersion == 0 && info.buildNumber < 15063) {
 -		return
 -	}
 -
