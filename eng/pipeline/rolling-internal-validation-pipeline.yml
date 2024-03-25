@@ -1,0 +1,82 @@
+# Copyright (c) Microsoft Corporation.
+# Use of this source code is governed by a BSD-style
+# license that can be found in the LICENSE file.
+
+# This pipeline runs rolling validation, like CodeQL.
+
+trigger: none
+pr: none
+
+# For info about runtime parameters, see https://github.com/microsoft/go-infra/blob/main/docs/pipeline-yml-style.md#runtime-parameters
+parameters:
+  - name: enableCodeQL
+    displayName: '[Debug input] Enable CodeQL, ignoring cadence. Use to try modifications in dev branches.'
+    type: boolean
+    default: false
+  - name: disableTSA
+    displayName: '[Debug input] Disable TSA reporting. Use to try modifications in dev branches.'
+    type: boolean
+    default: false
+
+variables:
+  - template: variables/pool-providers.yml
+  - name: Codeql.PublishDatabase
+    value: true
+  - name: Codeql.PublishDatabaseLog
+    value: true
+  - name: Codeql.PublishDatabaseLog
+    value: true
+  - ${{ if parameters.enableCodeQL }}:
+    # The default cadence is ok for official branches. The cadence is per-branch.
+    # For a dev build, the cadence would prevent dev iteration.
+    # https://eng.ms/docs/cloud-ai-platform/devdiv/one-engineering-system-1es/1es-docs/codeql/codeql-general-faq#how-do-i-check-if-my-project-is-onboarded
+    - name: Codeql.Cadence
+      value: 0
+
+resources:
+  pipelines:
+    - pipeline: build
+      # The rolling pipeline and this validation pipeline share the same source repository. AzDO
+      # sees this and makes this pipeline's "checkout" steps download the same source code that was
+      # built by the microsoft-go pipeline:
+      # https://docs.microsoft.com/en-us/azure/devops/pipelines/process/resources?view=azure-devops&tabs=schema#define-a-pipelines-resource
+      #
+      # This means we can have SDL scan the currently-checked-out source code as the way to scan the
+      # source code of the internal rolling build.
+      source: microsoft-go
+      trigger:
+        branches:
+          include:
+            - microsoft/main
+            - microsoft/release-branch.*
+  repositories:
+    - repository: 1ESPipelineTemplates
+      type: git
+      name: 1ESPipelineTemplates/1ESPipelineTemplates
+      ref: refs/tags/release
+
+extends:
+  template: v1/1ES.Official.PipelineTemplate.yml@1ESPipelineTemplates
+  parameters:
+    pool:
+      name: $(DncEngInternalBuildPool)
+      image: 1es-windows-2022
+      os: windows
+    sdl:
+      codeql:
+        enabledOnNonDefaultBranches: ${{ parameters.enableCodeQL }}
+        language: go,cpp,powershell
+      suppression:
+        suppressionFile: $(Build.SourcesDirectory)/eng/compliance/.gdnsuppress
+      tsa:
+        enabled: ${{ not(parameters.disableTSA) }}
+        configFile: $(Build.SourcesDirectory)/eng/compliance/tsaoptions.json
+
+    stages:
+      - template: /eng/pipeline/stages/shorthand-builders-to-builders.yml@self
+        parameters:
+          jobsTemplate: builders-to-stages.yml
+          jobsParameters:
+            official: true
+          shorthandBuilders:
+            - { os: linux, arch: amd64, config: codeql }
