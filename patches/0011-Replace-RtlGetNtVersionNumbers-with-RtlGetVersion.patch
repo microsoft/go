@@ -3,24 +3,12 @@ From: qmuntal <quimmuntal@gmail.com>
 Date: Tue, 12 Mar 2024 14:20:33 +0100
 Subject: [PATCH] Replace RtlGetNtVersionNumbers with RtlGetVersion
 
-This is a cherry-pick of CL 571015 (commit cff7267e0d77f02d582c613c272b6f8ebf1c0412),
-as upstream won't backport it to Go 1.21.
+This is a cherry-pick of CL 571015 (commit cff7267e0d77f02d582c613c272b6f8ebf1c0412)
+and CL 531235 (commit 48042aa09c2f878c4faa576948b07fe625c4707a),
+as upstream won't backport them to Go 1.21.
 
-The cherry-pick is not completely clean, it needed some manual conflict
-resolution.
-
-Original CL description:
-
-The RtlGetNtVersionNumbers function is not documented by Microsoft.
-Use RtlGetVersion instead, which is documented and available on all
-supported versions of Windows.
-
-Cq-Include-Trybots: luci.golang.try:gotip-windows-amd64-longtest,gotip-windows-arm64
-Change-Id: Ibaf0e2c28e673951476c5d863a829fd166705aea
-Reviewed-on: https://go-review.googlesource.com/c/go/+/571015
-LUCI-TryBot-Result: Go LUCI <golang-scoped@luci-project-accounts.iam.gserviceaccount.com>
-Reviewed-by: David Chase <drchase@google.com>
-Reviewed-by: Than McIntosh <thanm@google.com>
+The cherry-picks are not completely clean, they needed some manual
+conflict resolution.
 ---
  src/cmd/internal/osinfo/os_windows.go         |  4 +-
  src/internal/syscall/windows/mksyscall.go     |  2 +-
@@ -29,9 +17,10 @@ Reviewed-by: Than McIntosh <thanm@google.com>
  .../syscall/windows/zsyscall_windows.go       |  7 ++++
  src/runtime/defs_windows.go                   | 10 +++++
  src/runtime/os_windows.go                     | 15 +++----
+ src/syscall/exec_windows.go                   | 29 +-------------
  src/syscall/syscall_windows.go                |  1 -
  src/syscall/zsyscall_windows.go               |  7 ----
- 9 files changed, 68 insertions(+), 29 deletions(-)
+ 10 files changed, 69 insertions(+), 57 deletions(-)
  create mode 100644 src/internal/syscall/windows/version_windows.go
 
 diff --git a/src/cmd/internal/osinfo/os_windows.go b/src/cmd/internal/osinfo/os_windows.go
@@ -130,7 +119,7 @@ index 00000000000000..c9965f4addc45d
 +	return major >= 10 && build >= 16299
 +})
 diff --git a/src/internal/syscall/windows/zsyscall_windows.go b/src/internal/syscall/windows/zsyscall_windows.go
-index 26ec290e026c1a..1d703b4ca04ab0 100644
+index 6be7aa470b656c..fa3c682a3639e9 100644
 --- a/src/internal/syscall/windows/zsyscall_windows.go
 +++ b/src/internal/syscall/windows/zsyscall_windows.go
 @@ -42,6 +42,7 @@ var (
@@ -219,6 +208,60 @@ index 735a905b6161ac..766b087c18dd02 100644
  		return
  	}
  
+diff --git a/src/syscall/exec_windows.go b/src/syscall/exec_windows.go
+index 0a93bc0a80d4ed..60fb1640f277db 100644
+--- a/src/syscall/exec_windows.go
++++ b/src/syscall/exec_windows.go
+@@ -318,17 +318,6 @@ func StartProcess(argv0 string, argv []string, attr *ProcAttr) (pid int, handle
+ 		}
+ 	}
+ 
+-	var maj, min, build uint32
+-	rtlGetNtVersionNumbers(&maj, &min, &build)
+-	isWin7 := maj < 6 || (maj == 6 && min <= 1)
+-	// NT kernel handles are divisible by 4, with the bottom 3 bits left as
+-	// a tag. The fully set tag correlates with the types of handles we're
+-	// concerned about here.  Except, the kernel will interpret some
+-	// special handle values, like -1, -2, and so forth, so kernelbase.dll
+-	// checks to see that those bottom three bits are checked, but that top
+-	// bit is not checked.
+-	isLegacyWin7ConsoleHandle := func(handle Handle) bool { return isWin7 && handle&0x10000003 == 3 }
+-
+ 	p, _ := GetCurrentProcess()
+ 	parentProcess := p
+ 	if sys.ParentProcess != 0 {
+@@ -337,15 +326,7 @@ func StartProcess(argv0 string, argv []string, attr *ProcAttr) (pid int, handle
+ 	fd := make([]Handle, len(attr.Files))
+ 	for i := range attr.Files {
+ 		if attr.Files[i] > 0 {
+-			destinationProcessHandle := parentProcess
+-
+-			// On Windows 7, console handles aren't real handles, and can only be duplicated
+-			// into the current process, not a parent one, which amounts to the same thing.
+-			if parentProcess != p && isLegacyWin7ConsoleHandle(Handle(attr.Files[i])) {
+-				destinationProcessHandle = p
+-			}
+-
+-			err := DuplicateHandle(p, Handle(attr.Files[i]), destinationProcessHandle, &fd[i], 0, true, DUPLICATE_SAME_ACCESS)
++			err := DuplicateHandle(p, Handle(attr.Files[i]), parentProcess, &fd[i], 0, true, DUPLICATE_SAME_ACCESS)
+ 			if err != nil {
+ 				return 0, 0, err
+ 			}
+@@ -376,14 +357,6 @@ func StartProcess(argv0 string, argv []string, attr *ProcAttr) (pid int, handle
+ 
+ 	fd = append(fd, sys.AdditionalInheritedHandles...)
+ 
+-	// On Windows 7, console handles aren't real handles, so don't pass them
+-	// through to PROC_THREAD_ATTRIBUTE_HANDLE_LIST.
+-	for i := range fd {
+-		if isLegacyWin7ConsoleHandle(fd[i]) {
+-			fd[i] = 0
+-		}
+-	}
+-
+ 	// The presence of a NULL handle in the list is enough to cause PROC_THREAD_ATTRIBUTE_HANDLE_LIST
+ 	// to treat the entire list as empty, so remove NULL handles.
+ 	j := 0
 diff --git a/src/syscall/syscall_windows.go b/src/syscall/syscall_windows.go
 index e348905abfe3c1..4a43f314d60410 100644
 --- a/src/syscall/syscall_windows.go
