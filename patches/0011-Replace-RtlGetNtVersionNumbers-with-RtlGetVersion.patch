@@ -1,0 +1,265 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: qmuntal <quimmuntal@gmail.com>
+Date: Tue, 12 Mar 2024 14:20:33 +0100
+Subject: [PATCH] Replace RtlGetNtVersionNumbers with RtlGetVersion
+
+This is a cherry-pick of CL 571015 (commit cff7267e0d77f02d582c613c272b6f8ebf1c0412),
+as upstream won't backport it to Go 1.21.
+
+The cherry-pick is not completely clean, it needed some manual conflict
+resolution.
+
+Original CL description:
+
+The RtlGetNtVersionNumbers function is not documented by Microsoft.
+Use RtlGetVersion instead, which is documented and available on all
+supported versions of Windows.
+
+Cq-Include-Trybots: luci.golang.try:gotip-windows-amd64-longtest,gotip-windows-arm64
+Change-Id: Ibaf0e2c28e673951476c5d863a829fd166705aea
+Reviewed-on: https://go-review.googlesource.com/c/go/+/571015
+LUCI-TryBot-Result: Go LUCI <golang-scoped@luci-project-accounts.iam.gserviceaccount.com>
+Reviewed-by: David Chase <drchase@google.com>
+Reviewed-by: Than McIntosh <thanm@google.com>
+---
+ src/cmd/internal/osinfo/os_windows.go         |  4 +-
+ src/internal/syscall/windows/mksyscall.go     |  2 +-
+ src/internal/syscall/windows/net_windows.go   | 11 -----
+ .../syscall/windows/version_windows.go        | 40 +++++++++++++++++++
+ .../syscall/windows/zsyscall_windows.go       |  7 ++++
+ src/runtime/defs_windows.go                   | 10 +++++
+ src/runtime/os_windows.go                     | 15 +++----
+ src/syscall/syscall_windows.go                |  1 -
+ src/syscall/zsyscall_windows.go               |  7 ----
+ 9 files changed, 68 insertions(+), 29 deletions(-)
+ create mode 100644 src/internal/syscall/windows/version_windows.go
+
+diff --git a/src/cmd/internal/osinfo/os_windows.go b/src/cmd/internal/osinfo/os_windows.go
+index 8ffe4f3f6d8697..228369ea22dad2 100644
+--- a/src/cmd/internal/osinfo/os_windows.go
++++ b/src/cmd/internal/osinfo/os_windows.go
+@@ -14,6 +14,6 @@ import (
+ 
+ // Version returns the OS version name/number.
+ func Version() (string, error) {
+-	major, minor, patch := windows.RtlGetNtVersionNumbers()
+-	return fmt.Sprintf("%d.%d.%d", major, minor, patch), nil
++	info := windows.RtlGetVersion()
++	return fmt.Sprintf("%d.%d.%d", info.MajorVersion, info.MinorVersion, info.BuildNumber), nil
+ }
+diff --git a/src/internal/syscall/windows/mksyscall.go b/src/internal/syscall/windows/mksyscall.go
+index 81f08c627e6496..f97ab526f8150c 100644
+--- a/src/internal/syscall/windows/mksyscall.go
++++ b/src/internal/syscall/windows/mksyscall.go
+@@ -6,4 +6,4 @@
+ 
+ package windows
+ 
+-//go:generate go run ../../../syscall/mksyscall_windows.go -output zsyscall_windows.go syscall_windows.go security_windows.go psapi_windows.go symlink_windows.go
++//go:generate go run ../../../syscall/mksyscall_windows.go -output zsyscall_windows.go syscall_windows.go security_windows.go psapi_windows.go symlink_windows.go version_windows.go
+diff --git a/src/internal/syscall/windows/net_windows.go b/src/internal/syscall/windows/net_windows.go
+index 42c600c1447df6..9fa5ecf8408321 100644
+--- a/src/internal/syscall/windows/net_windows.go
++++ b/src/internal/syscall/windows/net_windows.go
+@@ -5,7 +5,6 @@
+ package windows
+ 
+ import (
+-	"sync"
+ 	"syscall"
+ 	_ "unsafe"
+ )
+@@ -28,13 +27,3 @@ type TCP_INITIAL_RTO_PARAMETERS struct {
+ 	Rtt                   uint16
+ 	MaxSynRetransmissions uint8
+ }
+-
+-var Support_TCP_INITIAL_RTO_NO_SYN_RETRANSMISSIONS = sync.OnceValue(func() bool {
+-	var maj, min, build uint32
+-	rtlGetNtVersionNumbers(&maj, &min, &build)
+-	return maj >= 10 && build&0xffff >= 16299
+-})
+-
+-//go:linkname rtlGetNtVersionNumbers syscall.rtlGetNtVersionNumbers
+-//go:noescape
+-func rtlGetNtVersionNumbers(majorVersion *uint32, minorVersion *uint32, buildNumber *uint32)
+diff --git a/src/internal/syscall/windows/version_windows.go b/src/internal/syscall/windows/version_windows.go
+new file mode 100644
+index 00000000000000..c9965f4addc45d
+--- /dev/null
++++ b/src/internal/syscall/windows/version_windows.go
+@@ -0,0 +1,40 @@
++// Copyright 2024 The Go Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style
++// license that can be found in the LICENSE file.
++
++package windows
++
++import (
++	"sync"
++	"unsafe"
++)
++
++// https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/wdm/ns-wdm-_osversioninfow
++type _OSVERSIONINFOW struct {
++	osVersionInfoSize uint32
++	majorVersion      uint32
++	minorVersion      uint32
++	buildNumber       uint32
++	platformId        uint32
++	csdVersion        [128]uint16
++}
++
++// According to documentation, RtlGetVersion function always succeeds.
++//sys	rtlGetVersion(info *_OSVERSIONINFOW) = ntdll.RtlGetVersion
++
++// version retrieves the major, minor, and build version numbers
++// of the current Windows OS from the RtlGetVersion API.
++func version() (major, minor, build uint32) {
++	info := _OSVERSIONINFOW{}
++	info.osVersionInfoSize = uint32(unsafe.Sizeof(info))
++	rtlGetVersion(&info)
++	return info.majorVersion, info.minorVersion, info.buildNumber
++}
++
++// Support_TCP_INITIAL_RTO_NO_SYN_RETRANSMISSIONS indicates whether the current
++// Windows version supports the TCP_INITIAL_RTO_NO_SYN_RETRANSMISSIONS.
++// The minimal requirement is Windows 10.0.16299.
++var Support_TCP_INITIAL_RTO_NO_SYN_RETRANSMISSIONS = sync.OnceValue(func() bool {
++	major, _, build := version()
++	return major >= 10 && build >= 16299
++})
+diff --git a/src/internal/syscall/windows/zsyscall_windows.go b/src/internal/syscall/windows/zsyscall_windows.go
+index 26ec290e026c1a..1d703b4ca04ab0 100644
+--- a/src/internal/syscall/windows/zsyscall_windows.go
++++ b/src/internal/syscall/windows/zsyscall_windows.go
+@@ -42,6 +42,7 @@ var (
+ 	modiphlpapi         = syscall.NewLazyDLL(sysdll.Add("iphlpapi.dll"))
+ 	modkernel32         = syscall.NewLazyDLL(sysdll.Add("kernel32.dll"))
+ 	modnetapi32         = syscall.NewLazyDLL(sysdll.Add("netapi32.dll"))
++	modntdll            = syscall.NewLazyDLL(sysdll.Add("ntdll.dll"))
+ 	modpsapi            = syscall.NewLazyDLL(sysdll.Add("psapi.dll"))
+ 	moduserenv          = syscall.NewLazyDLL(sysdll.Add("userenv.dll"))
+ 	modws2_32           = syscall.NewLazyDLL(sysdll.Add("ws2_32.dll"))
+@@ -77,6 +78,7 @@ var (
+ 	procNetShareAdd                  = modnetapi32.NewProc("NetShareAdd")
+ 	procNetShareDel                  = modnetapi32.NewProc("NetShareDel")
+ 	procNetUserGetLocalGroups        = modnetapi32.NewProc("NetUserGetLocalGroups")
++	procRtlGetVersion                = modntdll.NewProc("RtlGetVersion")
+ 	procGetProcessMemoryInfo         = modpsapi.NewProc("GetProcessMemoryInfo")
+ 	procCreateEnvironmentBlock       = moduserenv.NewProc("CreateEnvironmentBlock")
+ 	procDestroyEnvironmentBlock      = moduserenv.NewProc("DestroyEnvironmentBlock")
+@@ -343,6 +345,11 @@ func NetUserGetLocalGroups(serverName *uint16, userName *uint16, level uint32, f
+ 	return
+ }
+ 
++func rtlGetVersion(info *_OSVERSIONINFOW) {
++	syscall.Syscall(procRtlGetVersion.Addr(), 1, uintptr(unsafe.Pointer(info)), 0, 0)
++	return
++}
++
+ func GetProcessMemoryInfo(handle syscall.Handle, memCounters *PROCESS_MEMORY_COUNTERS, cb uint32) (err error) {
+ 	r1, _, e1 := syscall.Syscall(procGetProcessMemoryInfo.Addr(), 3, uintptr(handle), uintptr(unsafe.Pointer(memCounters)), uintptr(cb))
+ 	if r1 == 0 {
+diff --git a/src/runtime/defs_windows.go b/src/runtime/defs_windows.go
+index 56698fa56c4366..8336b6aa721409 100644
+--- a/src/runtime/defs_windows.go
++++ b/src/runtime/defs_windows.go
+@@ -88,3 +88,13 @@ type memoryBasicInformation struct {
+ 	protect           uint32
+ 	type_             uint32
+ }
++
++// https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/wdm/ns-wdm-_osversioninfow
++type _OSVERSIONINFOW struct {
++	osVersionInfoSize uint32
++	majorVersion      uint32
++	minorVersion      uint32
++	buildNumber       uint32
++	platformId        uint32
++	csdVersion        [128]uint16
++}
+diff --git a/src/runtime/os_windows.go b/src/runtime/os_windows.go
+index 735a905b6161ac..766b087c18dd02 100644
+--- a/src/runtime/os_windows.go
++++ b/src/runtime/os_windows.go
+@@ -133,9 +133,9 @@ var (
+ 	// Load ntdll.dll manually during startup, otherwise Mingw
+ 	// links wrong printf function to cgo executable (see issue
+ 	// 12030 for details).
+-	_NtWaitForSingleObject  stdFunction
+-	_RtlGetCurrentPeb       stdFunction
+-	_RtlGetNtVersionNumbers stdFunction
++	_NtWaitForSingleObject stdFunction
++	_RtlGetCurrentPeb      stdFunction
++	_RtlGetVersion         stdFunction
+ 
+ 	// These are from non-kernel32.dll, so we prefer to LoadLibraryEx them.
+ 	_timeBeginPeriod,
+@@ -261,7 +261,7 @@ func loadOptionalSyscalls() {
+ 	}
+ 	_NtWaitForSingleObject = windowsFindfunc(n32, []byte("NtWaitForSingleObject\000"))
+ 	_RtlGetCurrentPeb = windowsFindfunc(n32, []byte("RtlGetCurrentPeb\000"))
+-	_RtlGetNtVersionNumbers = windowsFindfunc(n32, []byte("RtlGetNtVersionNumbers\000"))
++	_RtlGetVersion = windowsFindfunc(n32, []byte("RtlGetVersion\000"))
+ 
+ 	if !haveCputicksAsm {
+ 		_QueryPerformanceCounter = windowsFindfunc(k32, []byte("QueryPerformanceCounter\000"))
+@@ -468,9 +468,10 @@ func initLongPathSupport() {
+ 	)
+ 
+ 	// Check that we're ≥ 10.0.15063.
+-	var maj, min, build uint32
+-	stdcall3(_RtlGetNtVersionNumbers, uintptr(unsafe.Pointer(&maj)), uintptr(unsafe.Pointer(&min)), uintptr(unsafe.Pointer(&build)))
+-	if maj < 10 || (maj == 10 && min == 0 && build&0xffff < 15063) {
++	info := _OSVERSIONINFOW{}
++	info.osVersionInfoSize = uint32(unsafe.Sizeof(info))
++	stdcall1(_RtlGetVersion, uintptr(unsafe.Pointer(&info)))
++	if info.majorVersion < 10 || (info.majorVersion == 10 && info.minorVersion == 0 && info.buildNumber < 15063) {
+ 		return
+ 	}
+ 
+diff --git a/src/syscall/syscall_windows.go b/src/syscall/syscall_windows.go
+index e348905abfe3c1..4a43f314d60410 100644
+--- a/src/syscall/syscall_windows.go
++++ b/src/syscall/syscall_windows.go
+@@ -231,7 +231,6 @@ func NewCallbackCDecl(fn any) uintptr {
+ //sys	FreeLibrary(handle Handle) (err error)
+ //sys	GetProcAddress(module Handle, procname string) (proc uintptr, err error)
+ //sys	GetVersion() (ver uint32, err error)
+-//sys	rtlGetNtVersionNumbers(majorVersion *uint32, minorVersion *uint32, buildNumber *uint32) = ntdll.RtlGetNtVersionNumbers
+ //sys	formatMessage(flags uint32, msgsrc uintptr, msgid uint32, langid uint32, buf []uint16, args *byte) (n uint32, err error) = FormatMessageW
+ //sys	ExitProcess(exitcode uint32)
+ //sys	CreateFile(name *uint16, access uint32, mode uint32, sa *SecurityAttributes, createmode uint32, attrs uint32, templatefile int32) (handle Handle, err error) [failretval==InvalidHandle] = CreateFileW
+diff --git a/src/syscall/zsyscall_windows.go b/src/syscall/zsyscall_windows.go
+index 68c29d809e949e..d18da85bb061fe 100644
+--- a/src/syscall/zsyscall_windows.go
++++ b/src/syscall/zsyscall_windows.go
+@@ -43,7 +43,6 @@ var (
+ 	modkernel32 = NewLazyDLL(sysdll.Add("kernel32.dll"))
+ 	modmswsock  = NewLazyDLL(sysdll.Add("mswsock.dll"))
+ 	modnetapi32 = NewLazyDLL(sysdll.Add("netapi32.dll"))
+-	modntdll    = NewLazyDLL(sysdll.Add("ntdll.dll"))
+ 	modsecur32  = NewLazyDLL(sysdll.Add("secur32.dll"))
+ 	modshell32  = NewLazyDLL(sysdll.Add("shell32.dll"))
+ 	moduserenv  = NewLazyDLL(sysdll.Add("userenv.dll"))
+@@ -168,7 +167,6 @@ var (
+ 	procNetApiBufferFree                   = modnetapi32.NewProc("NetApiBufferFree")
+ 	procNetGetJoinInformation              = modnetapi32.NewProc("NetGetJoinInformation")
+ 	procNetUserGetInfo                     = modnetapi32.NewProc("NetUserGetInfo")
+-	procRtlGetNtVersionNumbers             = modntdll.NewProc("RtlGetNtVersionNumbers")
+ 	procGetUserNameExW                     = modsecur32.NewProc("GetUserNameExW")
+ 	procTranslateNameW                     = modsecur32.NewProc("TranslateNameW")
+ 	procCommandLineToArgvW                 = modshell32.NewProc("CommandLineToArgvW")
+@@ -1215,11 +1213,6 @@ func NetUserGetInfo(serverName *uint16, userName *uint16, level uint32, buf **by
+ 	return
+ }
+ 
+-func rtlGetNtVersionNumbers(majorVersion *uint32, minorVersion *uint32, buildNumber *uint32) {
+-	Syscall(procRtlGetNtVersionNumbers.Addr(), 3, uintptr(unsafe.Pointer(majorVersion)), uintptr(unsafe.Pointer(minorVersion)), uintptr(unsafe.Pointer(buildNumber)))
+-	return
+-}
+-
+ func GetUserNameEx(nameFormat uint32, nameBuffre *uint16, nSize *uint32) (err error) {
+ 	r1, _, e1 := Syscall(procGetUserNameExW.Addr(), 3, uintptr(nameFormat), uintptr(unsafe.Pointer(nameBuffre)), uintptr(unsafe.Pointer(nSize)))
+ 	if r1&0xff == 0 {
