@@ -1,0 +1,280 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: qmuntal <quimmuntal@gmail.com>
+Date: Tue, 12 Mar 2024 12:26:53 +0100
+Subject: [PATCH] remove long path support hack
+
+This commit backports https://github.com/microsoft/go/pull/1171 and
+https://go-review.googlesource.com/c/go/+/570995 to the Go 1.22
+release branch. It is necessary for APIScan compliance.
+---
+ src/os/path_windows.go      | 78 ++++++++++++++++---------------------
+ src/os/path_windows_test.go | 29 ++++++++++----
+ src/runtime/os_windows.go   | 61 +----------------------------
+ 3 files changed, 57 insertions(+), 111 deletions(-)
+
+diff --git a/src/os/path_windows.go b/src/os/path_windows.go
+index 052202514825ec..59ea273fecfe3b 100644
+--- a/src/os/path_windows.go
++++ b/src/os/path_windows.go
+@@ -4,6 +4,8 @@
+ 
+ package os
+ 
++import "syscall"
++
+ const (
+ 	PathSeparator     = '\\' // OS-specific path separator
+ 	PathListSeparator = ';'  // OS-specific path list separator
+@@ -134,10 +136,8 @@ var canUseLongPaths bool
+ 
+ // fixLongPath returns the extended-length (\\?\-prefixed) form of
+ // path when needed, in order to avoid the default 260 character file
+-// path limit imposed by Windows. If path is not easily converted to
+-// the extended-length form (for example, if path is a relative path
+-// or contains .. elements), or is short enough, fixLongPath returns
+-// path unmodified.
++// path limit imposed by Windows. If the path is short enough or is relative,
++// fixLongPath returns path unmodified.
+ //
+ // See https://learn.microsoft.com/en-us/windows/win32/fileio/naming-a-file#maximum-path-length-limitation
+ func fixLongPath(path string) string {
+@@ -161,19 +161,8 @@ func fixLongPath(path string) string {
+ 		return path
+ 	}
+ 
+-	// The extended form begins with \\?\, as in
+-	// \\?\c:\windows\foo.txt or \\?\UNC\server\share\foo.txt.
+-	// The extended form disables evaluation of . and .. path
+-	// elements and disables the interpretation of / as equivalent
+-	// to \. The conversion here rewrites / to \ and elides
+-	// . elements as well as trailing or duplicate separators. For
+-	// simplicity it avoids the conversion entirely for relative
+-	// paths or paths containing .. elements. For now,
+-	// \\server\share paths are not converted to
+-	// \\?\UNC\server\share paths because the rules for doing so
+-	// are less well-specified.
+-	if len(path) >= 2 && path[:2] == `\\` {
+-		// Don't canonicalize UNC paths.
++	if prefix := path[:4]; prefix == `\\.\` || prefix == `\\?\` || prefix == `\??\` {
++		// Don't fix. Device path or extended path form.
+ 		return path
+ 	}
+ 	if !isAbs(path) {
+@@ -181,36 +170,37 @@ func fixLongPath(path string) string {
+ 		return path
+ 	}
+ 
+-	const prefix = `\\?`
++	var prefix []uint16
++	var isUNC bool
++	if path[:2] == `\\` {
++		// UNC path, prepend the \\?\UNC\ prefix.
++		prefix = []uint16{'\\', '\\', '?', '\\', 'U', 'N', 'C', '\\'}
++		isUNC = true
++	} else {
++		prefix = []uint16{'\\', '\\', '?', '\\'}
++	}
+ 
+-	pathbuf := make([]byte, len(prefix)+len(path)+len(`\`))
+-	copy(pathbuf, prefix)
+-	n := len(path)
+-	r, w := 0, len(prefix)
+-	for r < n {
+-		switch {
+-		case IsPathSeparator(path[r]):
+-			// empty block
+-			r++
+-		case path[r] == '.' && (r+1 == n || IsPathSeparator(path[r+1])):
+-			// /./
+-			r++
+-		case r+1 < n && path[r] == '.' && path[r+1] == '.' && (r+2 == n || IsPathSeparator(path[r+2])):
+-			// /../ is currently unhandled
++	p, err := syscall.UTF16FromString(path)
++	if err != nil {
++		return path
++	}
++	n := uint32(len(p))
++	var buf []uint16
++	for {
++		buf = make([]uint16, n+uint32(len(prefix)))
++		n, err = syscall.GetFullPathName(&p[0], n, &buf[len(prefix)], nil)
++		if err != nil {
+ 			return path
+-		default:
+-			pathbuf[w] = '\\'
+-			w++
+-			for ; r < n && !IsPathSeparator(path[r]); r++ {
+-				pathbuf[w] = path[r]
+-				w++
+-			}
++		}
++		if n <= uint32(len(buf)-len(prefix)) {
++			buf = buf[:n+uint32(len(prefix))]
++			break
+ 		}
+ 	}
+-	// A drive's root directory needs a trailing \
+-	if w == len(`\\?\c:`) {
+-		pathbuf[w] = '\\'
+-		w++
++	if isUNC {
++		// Remove leading \\.
++		buf = buf[2:]
+ 	}
+-	return string(pathbuf[:w])
++	copy(buf, prefix)
++	return syscall.UTF16ToString(buf)
+ }
+diff --git a/src/os/path_windows_test.go b/src/os/path_windows_test.go
+index 4e5e501d1f124c..1a18a53cae0212 100644
+--- a/src/os/path_windows_test.go
++++ b/src/os/path_windows_test.go
+@@ -16,10 +16,14 @@ import (
+ )
+ 
+ func TestFixLongPath(t *testing.T) {
+-	if os.CanUseLongPaths {
+-		return
+-	}
+-	t.Parallel()
++	// Test fixLongPath even if long path are supported by the system,
++	// else the function might not be tested at all when the test builders
++	// support long paths.
++	old := os.CanUseLongPaths
++	os.CanUseLongPaths = false
++	t.Cleanup(func() {
++		os.CanUseLongPaths = old
++	})
+ 
+ 	// 248 is long enough to trigger the longer-than-248 checks in
+ 	// fixLongPath, but short enough not to make a path component
+@@ -38,19 +42,20 @@ func TestFixLongPath(t *testing.T) {
+ 		// cases below where it doesn't.
+ 		{`C:\long\foo.txt`, `\\?\C:\long\foo.txt`},
+ 		{`C:/long/foo.txt`, `\\?\C:\long\foo.txt`},
+-		{`C:\long\foo\\bar\.\baz\\`, `\\?\C:\long\foo\bar\baz`},
+-		{`\\unc\path`, `\\unc\path`},
++		{`C:\long\foo\\bar\.\baz\\`, `\\?\C:\long\foo\bar\baz\`},
++		{`\\server\path\long`, `\\?\UNC\server\path\long`},
+ 		{`long.txt`, `long.txt`},
+ 		{`C:long.txt`, `C:long.txt`},
+-		{`c:\long\..\bar\baz`, `c:\long\..\bar\baz`},
++		{`c:\long\..\bar\baz`, `\\?\c:\bar\baz`},
+ 		{`\\?\c:\long\foo.txt`, `\\?\c:\long\foo.txt`},
+ 		{`\\?\c:\long/foo.txt`, `\\?\c:\long/foo.txt`},
++		{`\??\c:\long/foo.txt`, `\??\c:\long/foo.txt`},
+ 	} {
+ 		in := strings.ReplaceAll(test.in, "long", veryLong)
+ 		want := strings.ReplaceAll(test.want, "long", veryLong)
+ 		if got := os.FixLongPath(in); got != want {
+ 			got = strings.ReplaceAll(got, veryLong, "long")
+-			t.Errorf("fixLongPath(%q) = %q; want %q", test.in, got, test.want)
++			t.Errorf("fixLongPath(%#q) = %#q; want %#q", test.in, got, test.want)
+ 		}
+ 	}
+ }
+@@ -155,3 +160,11 @@ func TestMkdirAllVolumeNameAtRoot(t *testing.T) {
+ 	volName := syscall.UTF16ToString(buf[:])
+ 	testMkdirAllAtRoot(t, volName)
+ }
++
++func BenchmarkLongPath(b *testing.B) {
++	veryLong := `C:\l` + strings.Repeat("o", 248) + "ng"
++	b.ReportAllocs()
++	for i := 0; i < b.N; i++ {
++		os.FixLongPath(veryLong)
++	}
++}
+diff --git a/src/runtime/os_windows.go b/src/runtime/os_windows.go
+index 55a86986446d52..2c6aaa0ca12eb8 100644
+--- a/src/runtime/os_windows.go
++++ b/src/runtime/os_windows.go
+@@ -133,8 +133,7 @@ var (
+ 	// Load ntdll.dll manually during startup, otherwise Mingw
+ 	// links wrong printf function to cgo executable (see issue
+ 	// 12030 for details).
+-	_RtlGetCurrentPeb stdFunction
+-	_RtlGetVersion    stdFunction
++	_RtlGetVersion stdFunction
+ 
+ 	// These are from non-kernel32.dll, so we prefer to LoadLibraryEx them.
+ 	_timeBeginPeriod,
+@@ -254,7 +253,6 @@ func loadOptionalSyscalls() {
+ 	if n32 == 0 {
+ 		throw("ntdll.dll not found")
+ 	}
+-	_RtlGetCurrentPeb = windowsFindfunc(n32, []byte("RtlGetCurrentPeb\000"))
+ 	_RtlGetVersion = windowsFindfunc(n32, []byte("RtlGetVersion\000"))
+ 
+ 	m32 := windowsLoadSystemLib(winmmdll[:])
+@@ -427,10 +425,6 @@ func initHighResTimer() {
+ //go:linkname canUseLongPaths os.canUseLongPaths
+ var canUseLongPaths bool
+ 
+-// We want this to be large enough to hold the contents of sysDirectory, *plus*
+-// a slash and another component that itself is greater than MAX_PATH.
+-var longFileName [(_MAX_PATH+1)*2 + 1]byte
+-
+ // initLongPathSupport initializes the canUseLongPaths variable, which is
+ // linked into os.canUseLongPaths for determining whether or not long paths
+ // need to be fixed up. In the best case, this function is running on newer
+@@ -442,58 +436,7 @@ var longFileName [(_MAX_PATH+1)*2 + 1]byte
+ // canUseLongPaths is set to true, and later when called, os.fixLongPath
+ // returns early without doing work.
+ func initLongPathSupport() {
+-	const (
+-		IsLongPathAwareProcess = 0x80
+-		PebBitFieldOffset      = 3
+-		OPEN_EXISTING          = 3
+-		ERROR_PATH_NOT_FOUND   = 3
+-	)
+-
+-	// Check that we're ≥ 10.0.15063.
+-	info := _OSVERSIONINFOW{}
+-	info.osVersionInfoSize = uint32(unsafe.Sizeof(info))
+-	stdcall1(_RtlGetVersion, uintptr(unsafe.Pointer(&info)))
+-	if info.majorVersion < 10 || (info.majorVersion == 10 && info.minorVersion == 0 && info.buildNumber < 15063) {
+-		return
+-	}
+-
+-	// Set the IsLongPathAwareProcess flag of the PEB's bit field.
+-	bitField := (*byte)(unsafe.Pointer(stdcall0(_RtlGetCurrentPeb) + PebBitFieldOffset))
+-	originalBitField := *bitField
+-	*bitField |= IsLongPathAwareProcess
+-
+-	// Check that this actually has an effect, by constructing a large file
+-	// path and seeing whether we get ERROR_PATH_NOT_FOUND, rather than
+-	// some other error, which would indicate the path is too long, and
+-	// hence long path support is not successful. This whole section is NOT
+-	// strictly necessary, but is a nice validity check for the near to
+-	// medium term, when this functionality is still relatively new in
+-	// Windows.
+-	targ := longFileName[len(longFileName)-33 : len(longFileName)-1]
+-	if readRandom(targ) != len(targ) {
+-		readTimeRandom(targ)
+-	}
+-	start := copy(longFileName[:], sysDirectory[:sysDirectoryLen])
+-	const dig = "0123456789abcdef"
+-	for i := 0; i < 32; i++ {
+-		longFileName[start+i*2] = dig[longFileName[len(longFileName)-33+i]>>4]
+-		longFileName[start+i*2+1] = dig[longFileName[len(longFileName)-33+i]&0xf]
+-	}
+-	start += 64
+-	for i := start; i < len(longFileName)-1; i++ {
+-		longFileName[i] = 'A'
+-	}
+-	stdcall7(_CreateFileA, uintptr(unsafe.Pointer(&longFileName[0])), 0, 0, 0, OPEN_EXISTING, 0, 0)
+-	// The ERROR_PATH_NOT_FOUND error value is distinct from
+-	// ERROR_FILE_NOT_FOUND or ERROR_INVALID_NAME, the latter of which we
+-	// expect here due to the final component being too long.
+-	if getlasterror() == ERROR_PATH_NOT_FOUND {
+-		*bitField = originalBitField
+-		println("runtime: warning: IsLongPathAwareProcess failed to enable long paths; proceeding in fixup mode")
+-		return
+-	}
+-
+-	canUseLongPaths = true
++	canUseLongPaths = false
+ }
+ 
+ func osinit() {
