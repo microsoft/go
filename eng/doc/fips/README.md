@@ -342,7 +342,8 @@ Not all OpenSSL versions are supported. OpenSSL does not maintain ABI compatibil
 
 Versions not listed above are not supported at all.
 
-Note that one can enable or disable certain [OpenSSL features] when building it, diverging from the default configuration. The Go runtime does not support all possible configurations, and some may cause the Go runtime to panic during initialization or not work as expected. The Go runtime is tested with the default configuration of the supported versions and with the OpenSSL configuration shipped in [Azure Linux]. 
+> [!NOTE]
+> Note that one can enable or disable certain [OpenSSL features] when building it, diverging from the default configuration. The Go runtime does not support all possible configurations, and some may cause the Go runtime to panic during initialization or not work as expected. The Go runtime is tested with the default configuration of the supported versions and with the OpenSSL configuration shipped in [Azure Linux]. 
 
 ### Dynamic linking
 
