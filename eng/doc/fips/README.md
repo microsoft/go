@@ -342,6 +342,9 @@ Not all OpenSSL versions are supported. OpenSSL does not maintain ABI compatibil
 
 Versions not listed above are not supported at all.
 
+> [!NOTE]
+> Note that one can enable or disable certain [OpenSSL features] when building it, diverging from the default configuration. The Go runtime does not support all possible configurations, and some may cause the Go runtime to panic during initialization or not work as expected. The Go runtime is tested with the default configuration of the supported versions and with the OpenSSL configuration shipped in [Azure Linux]. 
+
 ### Dynamic linking
 
 Dynamic linking (as opposed to static linking) is a requirement for an app to be considered FIPS compliant in Microsoft. The approach the modified Go runtime takes meets that requirement.
@@ -426,3 +429,5 @@ This list of major changes is intended for quick reference and for access to his
 [dlopen]: https://man7.org/linux/man-pages/man3/dlopen.3.html
 [microsoft-go-download]: https://github.com/microsoft/go#binary-distribution
 [microsoft-go-images]: https://github.com/microsoft/go-images
+[OpenSSL features]: https://github.com/openssl/openssl/blob/4114964865435edc475c9ba49a7fa2b78956ab76/INSTALL.md#enable-and-disable-features
+[Azure Linux]: https://github.com/microsoft/azurelinux
