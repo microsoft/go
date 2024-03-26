@@ -8,7 +8,7 @@ parameters:
   # { id, os, arch, hostArch, config, distro?, experiment?, fips? }
   - name: builder
     type: object
-  
+
   - name: createSourceArchive
     type: boolean
     default: false
@@ -49,6 +49,9 @@ stages:
           # we should also give the tests a shorter timeout to make sure this doesn't balloon too far:
           # https://github.com/microsoft/go/issues/568
           timeoutInMinutes: 180
+        ${{ if eq(parameters.builder.config, 'codeql') }}:
+          # Allow CodeQL to take a while. https://eng.ms/docs/cloud-ai-platform/devdiv/one-engineering-system-1es/1es-docs/codeql/configuring-codeql3000-ado-pipelines#other-issues
+          timeoutInMinutes: 360
 
         pool: ${{ parameters.pool }}
 
@@ -140,6 +143,13 @@ stages:
               - pwsh: |
                   pwsh eng/run.ps1 write-checksum eng/artifacts/bin/*
                 displayName: Write checksum
+
+          # CodeQL plugs into the compiler to find the code. Just build.
+          - ${{ elseif eq(parameters.builder.config, 'codeql' ) }}:
+            - pwsh: |
+                eng/run.ps1 cmdscan -envprefix GO_CMDSCAN_RULE_ -- `
+                  pwsh eng/run.ps1 build
+              displayName: Build
 
           # Use run-builder for any configuration that includes tests. run-builder uses the "gotestsum"
           # module to convert test results to a JUnit file that Azure DevOps can understand.
