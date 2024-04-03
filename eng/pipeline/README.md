@@ -4,17 +4,22 @@ This directory contains Azure DevOps (AzDO) YAML pipelines for CI.
 
 Pipeline definitions currently using each YAML file are:
 
+### dnceng-public
+
 * [`pr-pipeline.yml`](pr-pipeline.yml) - Required PR check.
-  * (Public) [microsoft-go](https://dev.azure.com/dnceng/public/_build?definitionId=1099)
+  * [microsoft-go](https://dev.azure.com/dnceng/public/_build?definitionId=1099)
 * [`pr-outerloop-pipeline.yml`](pr-outerloop-pipeline.yml) - Optional PR check. Runs outerloop.
-  * (Public) [microsoft-go-outerloop](https://dev.azure.com/dnceng/public/_build/index?definitionId=1100)
+  * [microsoft-go-outerloop](https://dev.azure.com/dnceng/public/_build/index?definitionId=1100)
     * Comment `/azp run microsoft-go-outerloop` on a PR to run.
-* [`rolling-innerloop-pipeline.yml`](rolling-pipeline.yml) - Triggers on merge, runs innerloop.
-  * (Internal) [microsoft-go-innerloop](https://dev.azure.com/dnceng/internal/_build?definitionId=1342)
+
+### dnceng (internal)
+
+* [`rolling-innerloop-pipeline.yml`](rolling-innerloop-pipeline.yml) - Triggers on merge, runs innerloop.
+  * [microsoft-go-innerloop](https://dev.azure.com/dnceng/internal/_build?definitionId=1342)
 * [`rolling-pipeline.yml`](rolling-pipeline.yml) - Triggers on merge, runs outerloop.
-  * (Internal) [microsoft-go-rolling](https://dev.azure.com/dnceng/internal/_build?definitionId=987)
+  * [microsoft-go-rolling](https://dev.azure.com/dnceng/internal/_build?definitionId=987)
 * [`rolling-internal-pipeline.yml`](rolling-internal-pipeline.yml) - Triggers on merge. Builds, signs, and publishes. Does not run tests.
-  * (Internal) [microsoft-go](https://dev.azure.com/dnceng/internal/_build?definitionId=958)
+  * [microsoft-go](https://dev.azure.com/dnceng/internal/_build?definitionId=958)
 
 The pipeline filenames are (mostly) based on the trigger scenario, not what they
 do. This means we can change their content later without worrying about
