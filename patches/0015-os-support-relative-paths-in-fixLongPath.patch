@@ -1,0 +1,423 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: qmuntal <qmuntaldiaz@microsoft.com>
+Date: Wed, 27 Mar 2024 14:24:10 +0100
+Subject: [PATCH] os: support relative paths in fixLongPath
+
+(This CL takes the tests and some ideas from the abandoned CL 263538).
+
+fixLongPath is used on Windows to process all path names
+before syscalls to switch them to extended-length format
+(with prefix \\?\) to workaround a historical limit
+of 260-ish characters.
+
+This CL updates fixLongPath to convert relative paths to absolute
+paths if the working directory plus the relative path exceeds
+MAX_PATH. This is necessary because the Windows API does not
+support extended-length paths for relative paths.
+
+This CL also adds support for fixing device paths (\\.\-prefixed),
+which were not previously normalized.
+
+Fixes #41734
+Fixes #21782
+Fixes #36375
+
+Cq-Include-Trybots: luci.golang.try:gotip-windows-amd64-longtest,gotip-windows-amd64-race,gotip-windows-arm64
+Co-authored-by: Giovanni Bajo <rasky@develer.com>
+Change-Id: I63cfb79f3ae6b9d42e07deac435b730d97a6f492
+Reviewed-on: https://go-review.googlesource.com/c/go/+/574695
+LUCI-TryBot-Result: Go LUCI <golang-scoped@luci-project-accounts.iam.gserviceaccount.com>
+Reviewed-by: Damien Neil <dneil@google.com>
+TryBot-Result: Gopher Robot <gobot@golang.org>
+Reviewed-by: Than McIntosh <thanm@google.com>
+(cherry picked from commit 7c89ad6a80020e3654129183c528054921899650)
+---
+ src/os/export_windows_test.go |   3 +-
+ src/os/file.go                |   5 +
+ src/os/file_windows.go        |  13 ++-
+ src/os/path_windows.go        |  74 +++++++++++---
+ src/os/path_windows_test.go   | 178 +++++++++++++++++++++++++++-------
+ 5 files changed, 221 insertions(+), 52 deletions(-)
+
+diff --git a/src/os/export_windows_test.go b/src/os/export_windows_test.go
+index 6e1188816bf1b2..aefbe4033e3738 100644
+--- a/src/os/export_windows_test.go
++++ b/src/os/export_windows_test.go
+@@ -7,8 +7,7 @@ package os
+ // Export for testing.
+ 
+ var (
+-	FixLongPath        = fixLongPath
+-	CanUseLongPaths    = canUseLongPaths
++	AddExtendedPrefix  = addExtendedPrefix
+ 	NewConsoleFile     = newConsoleFile
+ 	CommandLineToArgv  = commandLineToArgv
+ 	AllowReadDirFileID = &allowReadDirFileID
+diff --git a/src/os/file.go b/src/os/file.go
+index 090ffba4dc738c..784adafe56a10b 100644
+--- a/src/os/file.go
++++ b/src/os/file.go
+@@ -337,6 +337,11 @@ func Chdir(dir string) error {
+ 		testlog.Open(dir) // observe likely non-existent directory
+ 		return &PathError{Op: "chdir", Path: dir, Err: e}
+ 	}
++	if runtime.GOOS == "windows" {
++		getwdCache.Lock()
++		getwdCache.dir = dir
++		getwdCache.Unlock()
++	}
+ 	if log := testlog.Logger(); log != nil {
+ 		wd, err := Getwd()
+ 		if err == nil {
+diff --git a/src/os/file_windows.go b/src/os/file_windows.go
+index 8b04ed6e47e39a..8fc287f89c0f5b 100644
+--- a/src/os/file_windows.go
++++ b/src/os/file_windows.go
+@@ -312,7 +312,18 @@ func Symlink(oldname, newname string) error {
+ 	if err != nil {
+ 		return &LinkError{"symlink", oldname, newname, err}
+ 	}
+-	o, err := syscall.UTF16PtrFromString(fixLongPath(oldname))
++	var o *uint16
++	if isAbs(oldname) {
++		o, err = syscall.UTF16PtrFromString(fixLongPath(oldname))
++	} else {
++		// Do not use fixLongPath on oldname for relative symlinks,
++		// as it would turn the name into an absolute path thus making
++		// an absolute symlink instead.
++		// Notice that CreateSymbolicLinkW does not fail for relative
++		// symlinks beyond MAX_PATH, so this does not prevent the
++		// creation of an arbitrary long path name.
++		o, err = syscall.UTF16PtrFromString(oldname)
++	}
+ 	if err != nil {
+ 		return &LinkError{"symlink", oldname, newname, err}
+ 	}
+diff --git a/src/os/path_windows.go b/src/os/path_windows.go
+index de654f1df9e4be..81954524d327c9 100644
+--- a/src/os/path_windows.go
++++ b/src/os/path_windows.go
+@@ -138,14 +138,33 @@ var canUseLongPaths bool
+ 
+ // fixLongPath returns the extended-length (\\?\-prefixed) form of
+ // path when needed, in order to avoid the default 260 character file
+-// path limit imposed by Windows. If the path is short enough or is relative,
+-// fixLongPath returns path unmodified.
++// path limit imposed by Windows. If the path is short enough or already
++// has the extended-length prefix, fixLongPath returns path unmodified.
++// If the path is relative and joining it with the current working
++// directory results in a path that is too long, fixLongPath returns
++// the absolute path with the extended-length prefix.
+ //
+ // See https://learn.microsoft.com/en-us/windows/win32/fileio/naming-a-file#maximum-path-length-limitation
+ func fixLongPath(path string) string {
+ 	if canUseLongPaths {
+ 		return path
+ 	}
++	return addExtendedPrefix(path)
++}
++
++// addExtendedPrefix adds the extended path prefix (\\?\) to path.
++func addExtendedPrefix(path string) string {
++	if len(path) >= 4 {
++		if path[:4] == `\??\` {
++			// Already extended with \??\
++			return path
++		}
++		if IsPathSeparator(path[0]) && IsPathSeparator(path[1]) && path[2] == '?' && IsPathSeparator(path[3]) {
++			// Already extended with \\?\ or any combination of directory separators.
++			return path
++		}
++	}
++
+ 	// Do nothing (and don't allocate) if the path is "short".
+ 	// Empirically (at least on the Windows Server 2013 builder),
+ 	// the kernel is arbitrarily okay with < 248 bytes. That
+@@ -157,27 +176,47 @@ func fixLongPath(path string) string {
+ 	//
+ 	// The MSDN docs appear to say that a normal path that is 248 bytes long
+ 	// will work; empirically the path must be less then 248 bytes long.
+-	if len(path) < 248 {
++	pathLength := len(path)
++	if !isAbs(path) {
++		// If the path is relative, we need to prepend the working directory
++		// plus a separator to the path before we can determine if it's too long.
++		// We don't want to call syscall.Getwd here, as that call is expensive to do
++		// every time fixLongPath is called with a relative path, so we use a cache.
++		// Note that getwdCache might be outdated if the working directory has been
++		// changed without using os.Chdir, i.e. using syscall.Chdir directly or cgo.
++		// This is fine, as the worst that can happen is that we fail to fix the path.
++		getwdCache.Lock()
++		if getwdCache.dir == "" {
++			// Init the working directory cache.
++			getwdCache.dir, _ = syscall.Getwd()
++		}
++		pathLength += len(getwdCache.dir) + 1
++		getwdCache.Unlock()
++	}
++
++	if pathLength < 248 {
+ 		// Don't fix. (This is how Go 1.7 and earlier worked,
+ 		// not automatically generating the \\?\ form)
+ 		return path
+ 	}
+ 
+-	if prefix := path[:4]; prefix == `\\.\` || prefix == `\\?\` || prefix == `\??\` {
+-		// Don't fix. Device path or extended path form.
+-		return path
+-	}
+-	if !isAbs(path) {
+-		// Relative path
+-		return path
++	var isUNC, isDevice bool
++	if len(path) >= 2 && IsPathSeparator(path[0]) && IsPathSeparator(path[1]) {
++		if len(path) >= 4 && path[2] == '.' && IsPathSeparator(path[3]) {
++			// Starts with //./
++			isDevice = true
++		} else {
++			// Starts with //
++			isUNC = true
++		}
+ 	}
+-
+ 	var prefix []uint16
+-	var isUNC bool
+-	if path[:2] == `\\` {
++	if isUNC {
+ 		// UNC path, prepend the \\?\UNC\ prefix.
+ 		prefix = []uint16{'\\', '\\', '?', '\\', 'U', 'N', 'C', '\\'}
+-		isUNC = true
++	} else if isDevice {
++		// Don't add the extended prefix to device paths, as it would
++		// change its meaning.
+ 	} else {
+ 		prefix = []uint16{'\\', '\\', '?', '\\'}
+ 	}
+@@ -186,7 +225,10 @@ func fixLongPath(path string) string {
+ 	if err != nil {
+ 		return path
+ 	}
+-	n := uint32(len(p))
++	// Estimate the required buffer size using the path length plus the null terminator.
++	// pathLength includes the working directory. This should be accurate unless
++	// the working directory has changed without using os.Chdir.
++	n := uint32(pathLength) + 1
+ 	var buf []uint16
+ 	for {
+ 		buf = make([]uint16, n+uint32(len(prefix)))
+@@ -197,6 +239,8 @@ func fixLongPath(path string) string {
+ 		if n <= uint32(len(buf)-len(prefix)) {
+ 			buf = buf[:n+uint32(len(prefix))]
+ 			break
++		} else {
++			continue
+ 		}
+ 	}
+ 	if isUNC {
+diff --git a/src/os/path_windows_test.go b/src/os/path_windows_test.go
+index 1a18a53cae0212..b37cae52b366ce 100644
+--- a/src/os/path_windows_test.go
++++ b/src/os/path_windows_test.go
+@@ -15,47 +15,106 @@ import (
+ 	"testing"
+ )
+ 
+-func TestFixLongPath(t *testing.T) {
+-	// Test fixLongPath even if long path are supported by the system,
+-	// else the function might not be tested at all when the test builders
+-	// support long paths.
+-	old := os.CanUseLongPaths
+-	os.CanUseLongPaths = false
+-	t.Cleanup(func() {
+-		os.CanUseLongPaths = old
+-	})
+-
+-	// 248 is long enough to trigger the longer-than-248 checks in
+-	// fixLongPath, but short enough not to make a path component
+-	// longer than 255, which is illegal on Windows. (which
+-	// doesn't really matter anyway, since this is purely a string
+-	// function we're testing, and it's not actually being used to
+-	// do a system call)
+-	veryLong := "l" + strings.Repeat("o", 248) + "ng"
++func TestAddExtendedPrefix(t *testing.T) {
++	// Test addExtendedPrefix instead of fixLongPath so the path manipulation code
++	// is exercised even if long path are supported by the system, else the
++	// function might not be tested at all if/when all test builders support long paths.
++	cwd, err := os.Getwd()
++	if err != nil {
++		t.Fatal("cannot get cwd")
++	}
++	drive := strings.ToLower(filepath.VolumeName(cwd))
++	cwd = strings.ToLower(cwd[len(drive)+1:])
++	// Build a very long pathname. Paths in Go are supposed to be arbitrarily long,
++	// so let's make a long path which is comfortably bigger than MAX_PATH on Windows
++	// (256) and thus requires fixLongPath to be correctly interpreted in I/O syscalls.
++	veryLong := "l" + strings.Repeat("o", 500) + "ng"
+ 	for _, test := range []struct{ in, want string }{
+-		// Short; unchanged:
++		// Testcases use word subsitutions:
++		//   * "long" is replaced with a very long pathname
++		//   * "c:" or "C:" are replaced with the drive of the current directory (preserving case)
++		//   * "cwd" is replaced with the current directory
++
++		// Drive Absolute
++		{`C:\long\foo.txt`, `\\?\C:\long\foo.txt`},
++		{`C:/long/foo.txt`, `\\?\C:\long\foo.txt`},
++		{`C:\\\long///foo.txt`, `\\?\C:\long\foo.txt`},
++		{`C:\long\.\foo.txt`, `\\?\C:\long\foo.txt`},
++		{`C:\long\..\foo.txt`, `\\?\C:\foo.txt`},
++		{`C:\long\..\..\foo.txt`, `\\?\C:\foo.txt`},
++
++		// Drive Relative
++		{`C:long\foo.txt`, `\\?\C:\cwd\long\foo.txt`},
++		{`C:long/foo.txt`, `\\?\C:\cwd\long\foo.txt`},
++		{`C:long///foo.txt`, `\\?\C:\cwd\long\foo.txt`},
++		{`C:long\.\foo.txt`, `\\?\C:\cwd\long\foo.txt`},
++		{`C:long\..\foo.txt`, `\\?\C:\cwd\foo.txt`},
++
++		// Rooted
++		{`\long\foo.txt`, `\\?\C:\long\foo.txt`},
++		{`/long/foo.txt`, `\\?\C:\long\foo.txt`},
++		{`\long///foo.txt`, `\\?\C:\long\foo.txt`},
++		{`\long\.\foo.txt`, `\\?\C:\long\foo.txt`},
++		{`\long\..\foo.txt`, `\\?\C:\foo.txt`},
++
++		// Relative
++		{`long\foo.txt`, `\\?\C:\cwd\long\foo.txt`},
++		{`long/foo.txt`, `\\?\C:\cwd\long\foo.txt`},
++		{`long///foo.txt`, `\\?\C:\cwd\long\foo.txt`},
++		{`long\.\foo.txt`, `\\?\C:\cwd\long\foo.txt`},
++		{`long\..\foo.txt`, `\\?\C:\cwd\foo.txt`},
++		{`.\long\foo.txt`, `\\?\C:\cwd\long\foo.txt`},
++
++		// UNC Absolute
++		{`\\srv\share\long`, `\\?\UNC\srv\share\long`},
++		{`//srv/share/long`, `\\?\UNC\srv\share\long`},
++		{`/\srv/share/long`, `\\?\UNC\srv\share\long`},
++		{`\\srv\share\long\`, `\\?\UNC\srv\share\long\`},
++		{`\\srv\share\bar\.\long`, `\\?\UNC\srv\share\bar\long`},
++		{`\\srv\share\bar\..\long`, `\\?\UNC\srv\share\long`},
++		{`\\srv\share\bar\..\..\long`, `\\?\UNC\srv\share\long`}, // share name is not removed by ".."
++
++		// Local Device
++		{`\\.\C:\long\foo.txt`, `\\.\C:\long\foo.txt`},
++		{`//./C:/long/foo.txt`, `\\.\C:\long\foo.txt`},
++		{`/\./C:/long/foo.txt`, `\\.\C:\long\foo.txt`},
++		{`\\.\C:\long///foo.txt`, `\\.\C:\long\foo.txt`},
++		{`\\.\C:\long\.\foo.txt`, `\\.\C:\long\foo.txt`},
++		{`\\.\C:\long\..\foo.txt`, `\\.\C:\foo.txt`},
++
++		// Misc tests
+ 		{`C:\short.txt`, `C:\short.txt`},
+ 		{`C:\`, `C:\`},
+ 		{`C:`, `C:`},
+-		// The "long" substring is replaced by a looooooong
+-		// string which triggers the rewriting. Except in the
+-		// cases below where it doesn't.
+-		{`C:\long\foo.txt`, `\\?\C:\long\foo.txt`},
+-		{`C:/long/foo.txt`, `\\?\C:\long\foo.txt`},
++		{`\\srv\path`, `\\srv\path`},
++		{`long.txt`, `\\?\C:\cwd\long.txt`},
++		{`C:long.txt`, `\\?\C:\cwd\long.txt`},
++		{`C:\long\.\bar\baz`, `\\?\C:\long\bar\baz`},
++		{`C:long\.\bar\baz`, `\\?\C:\cwd\long\bar\baz`},
++		{`C:\long\..\bar\baz`, `\\?\C:\bar\baz`},
++		{`C:long\..\bar\baz`, `\\?\C:\cwd\bar\baz`},
+ 		{`C:\long\foo\\bar\.\baz\\`, `\\?\C:\long\foo\bar\baz\`},
+-		{`\\server\path\long`, `\\?\UNC\server\path\long`},
+-		{`long.txt`, `long.txt`},
+-		{`C:long.txt`, `C:long.txt`},
+-		{`c:\long\..\bar\baz`, `\\?\c:\bar\baz`},
+-		{`\\?\c:\long\foo.txt`, `\\?\c:\long\foo.txt`},
+-		{`\\?\c:\long/foo.txt`, `\\?\c:\long/foo.txt`},
+-		{`\??\c:\long/foo.txt`, `\??\c:\long/foo.txt`},
++		{`C:\long\..`, `\\?\C:\`},
++		{`C:\.\long\..\.`, `\\?\C:\`},
++		{`\\?\C:\long\foo.txt`, `\\?\C:\long\foo.txt`},
++		{`\\?\C:\long/foo.txt`, `\\?\C:\long/foo.txt`},
+ 	} {
+ 		in := strings.ReplaceAll(test.in, "long", veryLong)
++		in = strings.ToLower(in)
++		in = strings.ReplaceAll(in, "c:", drive)
++
+ 		want := strings.ReplaceAll(test.want, "long", veryLong)
+-		if got := os.FixLongPath(in); got != want {
++		want = strings.ToLower(want)
++		want = strings.ReplaceAll(want, "c:", drive)
++		want = strings.ReplaceAll(want, "cwd", cwd)
++
++		got := os.AddExtendedPrefix(in)
++		got = strings.ToLower(got)
++		if got != want {
++			in = strings.ReplaceAll(in, veryLong, "long")
+ 			got = strings.ReplaceAll(got, veryLong, "long")
+-			t.Errorf("fixLongPath(%#q) = %#q; want %#q", test.in, got, test.want)
++			want = strings.ReplaceAll(want, veryLong, "long")
++			t.Errorf("addExtendedPrefix(%#q) = %#q; want %#q", in, got, want)
+ 		}
+ 	}
+ }
+@@ -161,10 +220,61 @@ func TestMkdirAllVolumeNameAtRoot(t *testing.T) {
+ 	testMkdirAllAtRoot(t, volName)
+ }
+ 
+-func BenchmarkLongPath(b *testing.B) {
++func TestRemoveAllLongPathRelative(t *testing.T) {
++	// Test that RemoveAll doesn't hang with long relative paths.
++	// See go.dev/issue/36375.
++	tmp := t.TempDir()
++	chdir(t, tmp)
++	dir := filepath.Join(tmp, "foo", "bar", strings.Repeat("a", 150), strings.Repeat("b", 150))
++	err := os.MkdirAll(dir, 0755)
++	if err != nil {
++		t.Fatal(err)
++	}
++	err = os.RemoveAll("foo")
++	if err != nil {
++		t.Fatal(err)
++	}
++}
++
++func testLongPathAbs(t *testing.T, target string) {
++	t.Helper()
++	testWalkFn := func(path string, info os.FileInfo, err error) error {
++		if err != nil {
++			t.Error(err)
++		}
++		return err
++	}
++	if err := os.MkdirAll(target, 0777); err != nil {
++		t.Fatal(err)
++	}
++	// Test that Walk doesn't fail with long paths.
++	// See go.dev/issue/21782.
++	filepath.Walk(target, testWalkFn)
++	// Test that RemoveAll doesn't hang with long paths.
++	// See go.dev/issue/36375.
++	if err := os.RemoveAll(target); err != nil {
++		t.Error(err)
++	}
++}
++
++func TestLongPathAbs(t *testing.T) {
++	t.Parallel()
++
++	target := t.TempDir() + "\\" + strings.Repeat("a\\", 300)
++	testLongPathAbs(t, target)
++}
++
++func TestLongPathRel(t *testing.T) {
++	chdir(t, t.TempDir())
++
++	target := strings.Repeat("b\\", 300)
++	testLongPathAbs(t, target)
++}
++
++func BenchmarkAddExtendedPrefix(b *testing.B) {
+ 	veryLong := `C:\l` + strings.Repeat("o", 248) + "ng"
+ 	b.ReportAllocs()
+ 	for i := 0; i < b.N; i++ {
+-		os.FixLongPath(veryLong)
++		os.AddExtendedPrefix(veryLong)
+ 	}
+ }

@@ -1,0 +1,222 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: qmuntal <qmuntaldiaz@microsoft.com>
+Date: Tue, 12 Mar 2024 12:26:53 +0100
+Subject: [PATCH] os: support UNC paths and .. segments in fixLongPath
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+This CL reimplements fixLongPath using syscall.GetFullPathName instead
+of a custom implementation that was not handling UNC paths and ..
+segments correctly. It also fixes a bug here multiple trailing \
+were removed instead of replaced by a single one.
+
+The new implementation is slower than the previous one, as it does a
+syscall and needs to convert UTF-8 to UTF-16 (and back), but it is
+correct and should be fast enough for most use cases.
+
+goos: windows
+goarch: amd64
+pkg: os
+cpu: Intel(R) Core(TM) i7-10850H CPU @ 2.70GHz
+            │   old.txt    │                new.txt                 │
+            │    sec/op    │    sec/op      vs base                 │
+LongPath-12   1.007µ ± 53%   4.093µ ± 109%  +306.41% (p=0.000 n=10)
+
+            │  old.txt   │               new.txt                │
+            │    B/op    │    B/op      vs base                 │
+LongPath-12   576.0 ± 0%   1376.0 ± 0%  +138.89% (p=0.000 n=10)
+
+            │  old.txt   │              new.txt               │
+            │ allocs/op  │ allocs/op   vs base                │
+LongPath-12   2.000 ± 0%   3.000 ± 0%  +50.00% (p=0.000 n=10)
+
+Fixes #41734.
+
+Change-Id: Iced5cf47f56f6ab0ca74a6e2374c31a75100902d
+Reviewed-on: https://go-review.googlesource.com/c/go/+/570995
+Reviewed-by: Damien Neil <dneil@google.com>
+TryBot-Result: Gopher Robot <gobot@golang.org>
+Reviewed-by: David Chase <drchase@google.com>
+LUCI-TryBot-Result: Go LUCI <golang-scoped@luci-project-accounts.iam.gserviceaccount.com>
+(cherry picked from commit 2e8d84f148c69404b8eec86d9149785a3f4e3e92)
+---
+ src/os/path_windows.go      | 80 +++++++++++++++++--------------------
+ src/os/path_windows_test.go | 29 ++++++++++----
+ 2 files changed, 57 insertions(+), 52 deletions(-)
+
+diff --git a/src/os/path_windows.go b/src/os/path_windows.go
+index 052202514825ec..de654f1df9e4be 100644
+--- a/src/os/path_windows.go
++++ b/src/os/path_windows.go
+@@ -4,6 +4,10 @@
+ 
+ package os
+ 
++import (
++	"syscall"
++)
++
+ const (
+ 	PathSeparator     = '\\' // OS-specific path separator
+ 	PathListSeparator = ';'  // OS-specific path list separator
+@@ -134,10 +138,8 @@ var canUseLongPaths bool
+ 
+ // fixLongPath returns the extended-length (\\?\-prefixed) form of
+ // path when needed, in order to avoid the default 260 character file
+-// path limit imposed by Windows. If path is not easily converted to
+-// the extended-length form (for example, if path is a relative path
+-// or contains .. elements), or is short enough, fixLongPath returns
+-// path unmodified.
++// path limit imposed by Windows. If the path is short enough or is relative,
++// fixLongPath returns path unmodified.
+ //
+ // See https://learn.microsoft.com/en-us/windows/win32/fileio/naming-a-file#maximum-path-length-limitation
+ func fixLongPath(path string) string {
+@@ -161,19 +163,8 @@ func fixLongPath(path string) string {
+ 		return path
+ 	}
+ 
+-	// The extended form begins with \\?\, as in
+-	// \\?\c:\windows\foo.txt or \\?\UNC\server\share\foo.txt.
+-	// The extended form disables evaluation of . and .. path
+-	// elements and disables the interpretation of / as equivalent
+-	// to \. The conversion here rewrites / to \ and elides
+-	// . elements as well as trailing or duplicate separators. For
+-	// simplicity it avoids the conversion entirely for relative
+-	// paths or paths containing .. elements. For now,
+-	// \\server\share paths are not converted to
+-	// \\?\UNC\server\share paths because the rules for doing so
+-	// are less well-specified.
+-	if len(path) >= 2 && path[:2] == `\\` {
+-		// Don't canonicalize UNC paths.
++	if prefix := path[:4]; prefix == `\\.\` || prefix == `\\?\` || prefix == `\??\` {
++		// Don't fix. Device path or extended path form.
+ 		return path
+ 	}
+ 	if !isAbs(path) {
+@@ -181,36 +172,37 @@ func fixLongPath(path string) string {
+ 		return path
+ 	}
+ 
+-	const prefix = `\\?`
++	var prefix []uint16
++	var isUNC bool
++	if path[:2] == `\\` {
++		// UNC path, prepend the \\?\UNC\ prefix.
++		prefix = []uint16{'\\', '\\', '?', '\\', 'U', 'N', 'C', '\\'}
++		isUNC = true
++	} else {
++		prefix = []uint16{'\\', '\\', '?', '\\'}
++	}
+ 
+-	pathbuf := make([]byte, len(prefix)+len(path)+len(`\`))
+-	copy(pathbuf, prefix)
+-	n := len(path)
+-	r, w := 0, len(prefix)
+-	for r < n {
+-		switch {
+-		case IsPathSeparator(path[r]):
+-			// empty block
+-			r++
+-		case path[r] == '.' && (r+1 == n || IsPathSeparator(path[r+1])):
+-			// /./
+-			r++
+-		case r+1 < n && path[r] == '.' && path[r+1] == '.' && (r+2 == n || IsPathSeparator(path[r+2])):
+-			// /../ is currently unhandled
++	p, err := syscall.UTF16FromString(path)
++	if err != nil {
++		return path
++	}
++	n := uint32(len(p))
++	var buf []uint16
++	for {
++		buf = make([]uint16, n+uint32(len(prefix)))
++		n, err = syscall.GetFullPathName(&p[0], n, &buf[len(prefix)], nil)
++		if err != nil {
+ 			return path
+-		default:
+-			pathbuf[w] = '\\'
+-			w++
+-			for ; r < n && !IsPathSeparator(path[r]); r++ {
+-				pathbuf[w] = path[r]
+-				w++
+-			}
++		}
++		if n <= uint32(len(buf)-len(prefix)) {
++			buf = buf[:n+uint32(len(prefix))]
++			break
+ 		}
+ 	}
+-	// A drive's root directory needs a trailing \
+-	if w == len(`\\?\c:`) {
+-		pathbuf[w] = '\\'
+-		w++
++	if isUNC {
++		// Remove leading \\.
++		buf = buf[2:]
+ 	}
+-	return string(pathbuf[:w])
++	copy(buf, prefix)
++	return syscall.UTF16ToString(buf)
+ }
+diff --git a/src/os/path_windows_test.go b/src/os/path_windows_test.go
+index 4e5e501d1f124c..1a18a53cae0212 100644
+--- a/src/os/path_windows_test.go
++++ b/src/os/path_windows_test.go
+@@ -16,10 +16,14 @@ import (
+ )
+ 
+ func TestFixLongPath(t *testing.T) {
+-	if os.CanUseLongPaths {
+-		return
+-	}
+-	t.Parallel()
++	// Test fixLongPath even if long path are supported by the system,
++	// else the function might not be tested at all when the test builders
++	// support long paths.
++	old := os.CanUseLongPaths
++	os.CanUseLongPaths = false
++	t.Cleanup(func() {
++		os.CanUseLongPaths = old
++	})
+ 
+ 	// 248 is long enough to trigger the longer-than-248 checks in
+ 	// fixLongPath, but short enough not to make a path component
+@@ -38,19 +42,20 @@ func TestFixLongPath(t *testing.T) {
+ 		// cases below where it doesn't.
+ 		{`C:\long\foo.txt`, `\\?\C:\long\foo.txt`},
+ 		{`C:/long/foo.txt`, `\\?\C:\long\foo.txt`},
+-		{`C:\long\foo\\bar\.\baz\\`, `\\?\C:\long\foo\bar\baz`},
+-		{`\\unc\path`, `\\unc\path`},
++		{`C:\long\foo\\bar\.\baz\\`, `\\?\C:\long\foo\bar\baz\`},
++		{`\\server\path\long`, `\\?\UNC\server\path\long`},
+ 		{`long.txt`, `long.txt`},
+ 		{`C:long.txt`, `C:long.txt`},
+-		{`c:\long\..\bar\baz`, `c:\long\..\bar\baz`},
++		{`c:\long\..\bar\baz`, `\\?\c:\bar\baz`},
+ 		{`\\?\c:\long\foo.txt`, `\\?\c:\long\foo.txt`},
+ 		{`\\?\c:\long/foo.txt`, `\\?\c:\long/foo.txt`},
++		{`\??\c:\long/foo.txt`, `\??\c:\long/foo.txt`},
+ 	} {
+ 		in := strings.ReplaceAll(test.in, "long", veryLong)
+ 		want := strings.ReplaceAll(test.want, "long", veryLong)
+ 		if got := os.FixLongPath(in); got != want {
+ 			got = strings.ReplaceAll(got, veryLong, "long")
+-			t.Errorf("fixLongPath(%q) = %q; want %q", test.in, got, test.want)
++			t.Errorf("fixLongPath(%#q) = %#q; want %#q", test.in, got, test.want)
+ 		}
+ 	}
+ }
+@@ -155,3 +160,11 @@ func TestMkdirAllVolumeNameAtRoot(t *testing.T) {
+ 	volName := syscall.UTF16ToString(buf[:])
+ 	testMkdirAllAtRoot(t, volName)
+ }
++
++func BenchmarkLongPath(b *testing.B) {
++	veryLong := `C:\l` + strings.Repeat("o", 248) + "ng"
++	b.ReportAllocs()
++	for i := 0; i < b.N; i++ {
++		os.FixLongPath(veryLong)
++	}
++}
