@@ -1,0 +1,111 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: qmuntal <qmuntaldiaz@microsoft.com>
+Date: Wed, 3 Apr 2024 12:38:51 +0200
+Subject: [PATCH] remove long path support hack
+
+Upstream Go tricks Windows into enabling long path support by setting an
+undocumented flag in the PEB. The Microsoft Go fork can't use undocumented
+APIs, so this commit removes the hack.
+
+There is no documented way to enable long path support from within the
+process, so this this is a breaking change for the Microsoft Go fork.
+Note that the Go standard library makes a best effort to support long
+paths by using the `\\?\` prefix when possible, so this change should
+only affect long relative paths, which can't be used with the `\\?\`.
+---
+ src/runtime/os_windows.go | 61 ++-------------------------------------
+ 1 file changed, 2 insertions(+), 59 deletions(-)
+
+diff --git a/src/runtime/os_windows.go b/src/runtime/os_windows.go
+index 55a86986446d52..2c6aaa0ca12eb8 100644
+--- a/src/runtime/os_windows.go
++++ b/src/runtime/os_windows.go
+@@ -133,8 +133,7 @@ var (
+ 	// Load ntdll.dll manually during startup, otherwise Mingw
+ 	// links wrong printf function to cgo executable (see issue
+ 	// 12030 for details).
+-	_RtlGetCurrentPeb stdFunction
+-	_RtlGetVersion    stdFunction
++	_RtlGetVersion stdFunction
+ 
+ 	// These are from non-kernel32.dll, so we prefer to LoadLibraryEx them.
+ 	_timeBeginPeriod,
+@@ -254,7 +253,6 @@ func loadOptionalSyscalls() {
+ 	if n32 == 0 {
+ 		throw("ntdll.dll not found")
+ 	}
+-	_RtlGetCurrentPeb = windowsFindfunc(n32, []byte("RtlGetCurrentPeb\000"))
+ 	_RtlGetVersion = windowsFindfunc(n32, []byte("RtlGetVersion\000"))
+ 
+ 	m32 := windowsLoadSystemLib(winmmdll[:])
+@@ -427,10 +425,6 @@ func initHighResTimer() {
+ //go:linkname canUseLongPaths os.canUseLongPaths
+ var canUseLongPaths bool
+ 
+-// We want this to be large enough to hold the contents of sysDirectory, *plus*
+-// a slash and another component that itself is greater than MAX_PATH.
+-var longFileName [(_MAX_PATH+1)*2 + 1]byte
+-
+ // initLongPathSupport initializes the canUseLongPaths variable, which is
+ // linked into os.canUseLongPaths for determining whether or not long paths
+ // need to be fixed up. In the best case, this function is running on newer
+@@ -442,58 +436,7 @@ var longFileName [(_MAX_PATH+1)*2 + 1]byte
+ // canUseLongPaths is set to true, and later when called, os.fixLongPath
+ // returns early without doing work.
+ func initLongPathSupport() {
+-	const (
+-		IsLongPathAwareProcess = 0x80
+-		PebBitFieldOffset      = 3
+-		OPEN_EXISTING          = 3
+-		ERROR_PATH_NOT_FOUND   = 3
+-	)
+-
+-	// Check that we're ≥ 10.0.15063.
+-	info := _OSVERSIONINFOW{}
+-	info.osVersionInfoSize = uint32(unsafe.Sizeof(info))
+-	stdcall1(_RtlGetVersion, uintptr(unsafe.Pointer(&info)))
+-	if info.majorVersion < 10 || (info.majorVersion == 10 && info.minorVersion == 0 && info.buildNumber < 15063) {
+-		return
+-	}
+-
+-	// Set the IsLongPathAwareProcess flag of the PEB's bit field.
+-	bitField := (*byte)(unsafe.Pointer(stdcall0(_RtlGetCurrentPeb) + PebBitFieldOffset))
+-	originalBitField := *bitField
+-	*bitField |= IsLongPathAwareProcess
+-
+-	// Check that this actually has an effect, by constructing a large file
+-	// path and seeing whether we get ERROR_PATH_NOT_FOUND, rather than
+-	// some other error, which would indicate the path is too long, and
+-	// hence long path support is not successful. This whole section is NOT
+-	// strictly necessary, but is a nice validity check for the near to
+-	// medium term, when this functionality is still relatively new in
+-	// Windows.
+-	targ := longFileName[len(longFileName)-33 : len(longFileName)-1]
+-	if readRandom(targ) != len(targ) {
+-		readTimeRandom(targ)
+-	}
+-	start := copy(longFileName[:], sysDirectory[:sysDirectoryLen])
+-	const dig = "0123456789abcdef"
+-	for i := 0; i < 32; i++ {
+-		longFileName[start+i*2] = dig[longFileName[len(longFileName)-33+i]>>4]
+-		longFileName[start+i*2+1] = dig[longFileName[len(longFileName)-33+i]&0xf]
+-	}
+-	start += 64
+-	for i := start; i < len(longFileName)-1; i++ {
+-		longFileName[i] = 'A'
+-	}
+-	stdcall7(_CreateFileA, uintptr(unsafe.Pointer(&longFileName[0])), 0, 0, 0, OPEN_EXISTING, 0, 0)
+-	// The ERROR_PATH_NOT_FOUND error value is distinct from
+-	// ERROR_FILE_NOT_FOUND or ERROR_INVALID_NAME, the latter of which we
+-	// expect here due to the final component being too long.
+-	if getlasterror() == ERROR_PATH_NOT_FOUND {
+-		*bitField = originalBitField
+-		println("runtime: warning: IsLongPathAwareProcess failed to enable long paths; proceeding in fixup mode")
+-		return
+-	}
+-
+-	canUseLongPaths = true
++	canUseLongPaths = false
+ }
+ 
+ func osinit() {
