@@ -90,7 +90,7 @@ func main() {
 	case "regabi":
 		buildutil.AppendExperimentEnv("regabi")
 	case "ssacheck":
-		env("GO_GCFLAGS", "-d=ssa/check/on,dclstack")
+		env("GO_GCFLAGS", "-d=ssa/check/on")
 	case "staticlockranking":
 		buildutil.AppendExperimentEnv("staticlockranking")
 	}
