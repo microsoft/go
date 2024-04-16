@@ -34,6 +34,7 @@ Subject: [PATCH] Add crypto backend foundation
  src/crypto/rsa/boring.go                     |   4 +-
  src/crypto/rsa/notboring.go                  |   2 +-
  src/crypto/rsa/pkcs1v15.go                   |   2 +-
+ src/crypto/rsa/pkcs1v15_test.go              |   5 +
  src/crypto/rsa/pss.go                        |   2 +-
  src/crypto/rsa/rsa.go                        |   4 +-
  src/crypto/rsa/rsa_test.go                   |   2 +-
@@ -55,7 +56,7 @@ Subject: [PATCH] Add crypto backend foundation
  src/net/http/client_test.go                  |   6 +-
  src/net/smtp/smtp_test.go                    |  72 ++++---
  src/runtime/runtime_boring.go                |   5 +
- 51 files changed, 762 insertions(+), 95 deletions(-)
+ 52 files changed, 767 insertions(+), 95 deletions(-)
  create mode 100644 src/crypto/ed25519/boring.go
  create mode 100644 src/crypto/ed25519/notboring.go
  create mode 100644 src/crypto/internal/backend/backend_test.go
@@ -67,7 +68,7 @@ Subject: [PATCH] Add crypto backend foundation
  create mode 100644 src/crypto/internal/backend/stub.s
 
 diff --git a/src/crypto/aes/cipher.go b/src/crypto/aes/cipher.go
-index a9e6208696dae8..9dd2f28861dd66 100644
+index cde2e45d2ca559..cf47a4fc57d8e2 100644
 --- a/src/crypto/aes/cipher.go
 +++ b/src/crypto/aes/cipher.go
 @@ -7,7 +7,7 @@ package aes
@@ -80,7 +81,7 @@ index a9e6208696dae8..9dd2f28861dd66 100644
  )
  
 diff --git a/src/crypto/aes/cipher_asm.go b/src/crypto/aes/cipher_asm.go
-index 5451fa60d38677..440f5a2946cfd2 100644
+index 3e5f589c2cdd0b..e9d3c0be11ef61 100644
 --- a/src/crypto/aes/cipher_asm.go
 +++ b/src/crypto/aes/cipher_asm.go
 @@ -9,7 +9,7 @@ package aes
@@ -179,7 +180,7 @@ index 275c60b4de49eb..61e70f981db4eb 100644
  	"math/big"
  )
 diff --git a/src/crypto/ecdsa/ecdsa.go b/src/crypto/ecdsa/ecdsa.go
-index 3ed15a888a7540..c516a4964c8708 100644
+index f0b68225103935..5386926b8e79e2 100644
 --- a/src/crypto/ecdsa/ecdsa.go
 +++ b/src/crypto/ecdsa/ecdsa.go
 @@ -26,9 +26,9 @@ import (
@@ -416,7 +417,7 @@ index 1dda9e5e9a5ab3..a1f9a7b963654f 100644
  		}
  		return nil
 diff --git a/src/crypto/ed25519/ed25519_test.go b/src/crypto/ed25519/ed25519_test.go
-index 47c8698e2a5945..02eff207ae365a 100644
+index 64901328a5e8c5..51cd6d0c8bc682 100644
 --- a/src/crypto/ed25519/ed25519_test.go
 +++ b/src/crypto/ed25519/ed25519_test.go
 @@ -9,7 +9,7 @@ import (
@@ -919,7 +920,7 @@ index 851e7fb10d42f5..f9d1037c9b82b9 100644
  	buf := make([]byte, BlockSize*20) // arbitrary factor
  	rand.Read(buf)
 diff --git a/src/crypto/purego_test.go b/src/crypto/purego_test.go
-index 62be347e0c6822..50d8b67d152ab2 100644
+index 62be347e0c6822..d284b5cf7814a6 100644
 --- a/src/crypto/purego_test.go
 +++ b/src/crypto/purego_test.go
 @@ -41,7 +41,7 @@ func TestPureGoTag(t *testing.T) {
@@ -1042,6 +1043,29 @@ index 2705036fddf4c1..fc1cba42579f1e 100644
  	"crypto/internal/randutil"
  	"crypto/subtle"
  	"errors"
+diff --git a/src/crypto/rsa/pkcs1v15_test.go b/src/crypto/rsa/pkcs1v15_test.go
+index dfa1eddc886ff3..849dafacf93d0f 100644
+--- a/src/crypto/rsa/pkcs1v15_test.go
++++ b/src/crypto/rsa/pkcs1v15_test.go
+@@ -7,6 +7,7 @@ package rsa_test
+ import (
+ 	"bytes"
+ 	"crypto"
++	boring "crypto/internal/backend"
+ 	"crypto/rand"
+ 	. "crypto/rsa"
+ 	"crypto/sha1"
+@@ -229,6 +230,10 @@ func TestVerifyPKCS1v15(t *testing.T) {
+ }
+ 
+ func TestOverlongMessagePKCS1v15(t *testing.T) {
++	if boring.Enabled {
++		// See for example https://github.com/golang-fips/openssl/pull/142.
++		t.Skip("Some backends do not return an error for overlong messages.")
++	}
+ 	ciphertext := decodeBase64("fjOVdirUzFoLlukv80dBllMLjXythIf22feqPrNo0YoIjzyzyoMFiLjAc/Y4krkeZ11XFThIrEvw\nkRiZcCq5ng==")
+ 	_, err := DecryptPKCS1v15(nil, rsaPrivateKey, ciphertext)
+ 	if err == nil {
 diff --git a/src/crypto/rsa/pss.go b/src/crypto/rsa/pss.go
 index b63b6eb01db637..27241df1867cb5 100644
 --- a/src/crypto/rsa/pss.go
@@ -1192,7 +1216,7 @@ index 6f5bc37197a4f4..9079b5a2e3d50d 100644
  	"crypto/sha1"
  	"crypto/sha256"
 diff --git a/src/crypto/tls/handshake_client.go b/src/crypto/tls/handshake_client.go
-index f016e01b4b5182..e685339c29780a 100644
+index 0b35deefa145e6..718975817cd6c9 100644
 --- a/src/crypto/tls/handshake_client.go
 +++ b/src/crypto/tls/handshake_client.go
 @@ -657,12 +657,16 @@ func (hs *clientHandshakeState) doFullHandshake() error {
@@ -1241,7 +1265,7 @@ index f016e01b4b5182..e685339c29780a 100644
  	if len(verify) != len(serverFinished.verifyData) ||
  		subtle.ConstantTimeCompare(verify, serverFinished.verifyData) != 1 {
  		c.sendAlert(alertHandshakeFailure)
-@@ -934,7 +946,10 @@ func (hs *clientHandshakeState) sendFinished(out []byte) error {
+@@ -931,7 +943,10 @@ func (hs *clientHandshakeState) sendFinished(out []byte) error {
  	}
  
  	finished := new(finishedMsg)
@@ -1254,7 +1278,7 @@ index f016e01b4b5182..e685339c29780a 100644
  		return err
  	}
 diff --git a/src/crypto/tls/handshake_server.go b/src/crypto/tls/handshake_server.go
-index 8129e9c6164af9..816d316a7d5329 100644
+index eb87ee038c72d0..c8202a18153ea2 100644
 --- a/src/crypto/tls/handshake_server.go
 +++ b/src/crypto/tls/handshake_server.go
 @@ -676,12 +676,16 @@ func (hs *serverHandshakeState) doFullHandshake() error {
@@ -1303,7 +1327,7 @@ index 8129e9c6164af9..816d316a7d5329 100644
  	if len(verify) != len(clientFinished.verifyData) ||
  		subtle.ConstantTimeCompare(verify, clientFinished.verifyData) != 1 {
  		c.sendAlert(alertHandshakeFailure)
-@@ -851,7 +863,10 @@ func (hs *serverHandshakeState) sendFinished(out []byte) error {
+@@ -849,7 +861,10 @@ func (hs *serverHandshakeState) sendFinished(out []byte) error {
  	}
  
  	finished := new(finishedMsg)
@@ -1578,10 +1602,10 @@ index 33fd0ed52b1ff6..ffc3eeca9dbf95 100644
  	k, err := rsa.GenerateKey(rand.Reader, size)
  	if err != nil {
 diff --git a/src/go/build/deps_test.go b/src/go/build/deps_test.go
-index 26e6e8a77de6a3..7e01a8498940e1 100644
+index 59c0fdde558387..78a6e35e47383c 100644
 --- a/src/go/build/deps_test.go
 +++ b/src/go/build/deps_test.go
-@@ -429,6 +429,7 @@ var depsRules = `
+@@ -430,6 +430,7 @@ var depsRules = `
  	# CRYPTO is core crypto algorithms - no cgo, fmt, net.
  	# Unfortunately, stuck with reflect via encoding/binary.
  	crypto/internal/boring/sig,
@@ -1589,7 +1613,7 @@ index 26e6e8a77de6a3..7e01a8498940e1 100644
  	crypto/internal/boring/syso,
  	encoding/binary,
  	golang.org/x/sys/cpu,
-@@ -441,6 +442,7 @@ var depsRules = `
+@@ -442,6 +443,7 @@ var depsRules = `
  	crypto/cipher,
  	crypto/internal/boring/bcache
  	< crypto/internal/boring
@@ -1597,7 +1621,7 @@ index 26e6e8a77de6a3..7e01a8498940e1 100644
  	< crypto/boring;
  
  	crypto/internal/alias
-@@ -474,6 +476,7 @@ var depsRules = `
+@@ -475,6 +477,7 @@ var depsRules = `
  	# CRYPTO-MATH is core bignum-based crypto - no cgo, net; fmt now ok.
  	CRYPTO, FMT, math/big
  	< crypto/internal/boring/bbig
