@@ -9,7 +9,7 @@ go 1.21
 require (
 	github.com/microsoft/go-infra v0.0.0-20231219225928-f2e20f366e2d
 	github.com/microsoft/go/_core v0.0.0
-	golang.org/x/sys v0.13.0
+	golang.org/x/sys v0.15.0
 	gotest.tools/gotestsum v1.6.5-0.20210515201937-ecb7c6956f6d
 )
 
@@ -24,8 +24,9 @@ require (
 	github.com/mattn/go-isatty v0.0.12 // indirect
 	github.com/microsoft/azure-devops-go-api/azuredevops v1.0.0-b5 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
-	golang.org/x/crypto v0.0.0-20200622213623-75b288015ac9 // indirect
+	golang.org/x/crypto v0.17.0 // indirect
 	golang.org/x/sync v0.0.0-20201020160332-67f06af15bc9 // indirect
+	golang.org/x/term v0.15.0 // indirect
 )
 
 replace github.com/microsoft/go/_core => ../_core
