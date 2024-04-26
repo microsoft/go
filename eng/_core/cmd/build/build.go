@@ -45,6 +45,7 @@ func main() {
 	flag.BoolVar(&o.JSON, "json", false, "Runs tests with -json flag to emit verbose results in JSON format. For use in CI.")
 	flag.BoolVar(&o.PackBuild, "packbuild", false, "Enable creating an archive of this build using upstream 'distpack' and placing it in eng/artifacts/bin.")
 	flag.BoolVar(&o.PackSource, "packsource", false, "Enable creating a source archive using upstream 'distpack' and placing it in eng/artifacts/bin.")
+	flag.BoolVar(&o.CreatePDB, "pdb", false, "Create PDB files for all the binaries in the bin and tool directories and place them in eng/artifacts/symbols.")
 
 	flag.BoolVar(
 		&o.Refresh, "refresh", false,
@@ -82,6 +83,7 @@ type options struct {
 	JSON       bool
 	PackBuild  bool
 	PackSource bool
+	CreatePDB  bool
 	Refresh    bool
 	Experiment string
 
@@ -237,8 +239,55 @@ func build(o *options) error {
 		}
 	}
 
+	goRootDir := filepath.Join(rootDir, "go")
+	if o.CreatePDB {
+		if _, err := exec.LookPath("gopdb"); err != nil {
+			return fmt.Errorf("gopdb not found in PATH: %v", err)
+		}
+		// Print the version of gopdb to the console.
+		cmd := exec.Command("gopdb", "-version")
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		if err := runCmd(cmd); err != nil {
+			return fmt.Errorf("gopdb failed: %v", err)
+		}
+
+		// Traverse the bin and tool directories to find all the binaries to generate PDBs for.
+		binDir := filepath.Join(goRootDir, "bin")
+		toolsDir := filepath.Join(goRootDir, "pkg", "tool", targetOS+"_"+targetArch)
+		artifactsPDBDir := filepath.Join(rootDir, "eng", "artifacts", "symbols")
+
+		if err := os.MkdirAll(artifactsPDBDir, os.ModePerm); err != nil {
+			return err
+		}
+
+		var bins []string
+		for _, dir := range []string{binDir, toolsDir} {
+			entries, err := os.ReadDir(dir)
+			if err != nil {
+				return err
+			}
+			for _, entry := range entries {
+				if !entry.Type().IsRegular() {
+					continue
+				}
+				bins = append(bins, filepath.Join(dir, entry.Name()))
+			}
+		}
+
+		// Generate PDBs for all the binaries.
+		for _, bin := range bins {
+			out := filepath.Join(artifactsPDBDir, filepath.Base(bin)+"."+targetOS+"-"+targetArch+".pdb")
+			cmd := exec.Command("gopdb", "-o", out, bin)
+			cmd.Stdout = os.Stdout
+			cmd.Stderr = os.Stderr
+			if err := runCmd(cmd); err != nil {
+				return fmt.Errorf("gopdb failed: %v", err)
+			}
+		}
+	}
+
 	if o.PackBuild || o.PackSource {
-		goRootDir := filepath.Join(rootDir, "go")
 		// Find the host version of distpack. (Not the target version, which might not run.)
 		toolsDir := filepath.Join(goRootDir, "pkg", "tool", runtime.GOOS+"_"+runtime.GOARCH)
 		// distpack needs a VERSION file to run. If we're on the main branch, we don't have one, so

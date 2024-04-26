@@ -16,6 +16,12 @@ parameters:
     type: object
   - name: official
     type: boolean
+  - name: builders
+    type: object
+    default: []
+  - name: publishSymbols
+    type: boolean
+    default: false
 
 stages:
   - stage: Publish${{ parameters.public }}
@@ -60,6 +66,13 @@ stages:
                 artifact: BuildAssets
               ${{ else }}:
                 artifact: BuildAssetsInternal
+            - ${{ if eq(parameters.publishSymbols, true) }}:
+              - output: pipelineArtifact
+                path: $(Pipeline.Workspace)/Symbols
+                ${{ if parameters.public }}:
+                  artifact: Symbols
+                ${{ else }}:
+                  artifact: SymbolsInternal
 
         steps:
           - template: ../steps/checkout-unix-task.yml
@@ -124,3 +137,35 @@ stages:
               done
             displayName: Show uploaded URLs
             workingDirectory: '$(Pipeline.Workspace)/Binaries Signed/'
+
+          - ${{ if eq(parameters.publishSymbols, true) }}:
+            - ${{ each builder in parameters.builders }}:
+              - download: current
+                artifact: Symbols ${{ builder.id }}
+                # Filter out manifests added by 1ES pipeline template.
+                patterns: '!_manifest/**'
+                displayName: 'Download: Symbols ${{ builder.id }}'
+
+              - powershell: |
+                  $flatDir = "$(Pipeline.Workspace)/Symbols"
+                  New-Item $flatDir -ItemType Directory -ErrorAction Ignore
+
+                  Get-ChildItem -Recurse -File -Path @(
+                    'Symbols ${{ builder.id }}'
+                  ) | %{
+                    if (Test-Path "$flatDir\$($_.Name)") {
+                      throw "Duplicate filename, unable to flatten: $($_.FullName)"
+                    }
+                    Copy-Item $_.FullName $flatDir
+                  }
+                displayName: 'Copy to flat dir: ${{ builder.id }}'
+                workingDirectory: '$(Pipeline.Workspace)'
+            - task: PublishSymbols@2
+              inputs:
+                SymbolsFolder: $(Pipeline.Workspace)/Symbols
+                SearchPattern: '*.pdb'
+                SymbolServerType: TeamServices
+                # Source indexing doesn't work for us. It needs the source files to be available
+                # in the AzDO repo, but we pull them at build time using a git submodule.
+                IndexSources: false
+              displayName: Publish symbols
