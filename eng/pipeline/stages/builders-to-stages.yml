@@ -9,10 +9,14 @@ parameters:
   builders: []
   # If true, include a signing stage+job that depends on all 'buildandpack' builder jobs finishing.
   sign: false
+  # If true, publish build artifacts to blob storage.
+  publish: false
   # If true, the stage will run in 1ES PT Official template compatibility mode.
   official: false
   # If true, generate source archive tarballs.
   createSourceArchive: false
+  # If true, generate and publish symbols (aka PDBs).
+  createSymbols: false
   releaseVersion: 'nil'
 
 stages:
@@ -26,6 +30,7 @@ stages:
             createSourceArchive: ${{ parameters.createSourceArchive }}
             releaseVersion: ${{ parameters.releaseVersion }}
             official: ${{ parameters.official }}
+            createSymbols: ${{ parameters.createSymbols }}
             # Attempt to retry the build on Windows to mitigate flakiness:
             # "Access Denied" during EXE copying and general flakiness during tests.
             ${{ if eq(builder.os, 'windows') }}:
@@ -45,3 +50,29 @@ stages:
               - ${{ each builder in parameters.builders }}:
                 - ${{ if eq(builder.config, 'buildandpack') }}:
                   - ${{ builder }}
+
+  - ${{ if eq(parameters.publish, true) }}:
+    - ${{ if not(startsWith(variables['Build.SourceBranch'], 'refs/heads/internal/')) }}:
+      - template: pool.yml
+        parameters:
+          inner:
+            template: publish-stage.yml
+            parameters:
+              # This is not a builder, but provide partial builder info for agent selection.
+              builder: { os: linux, arch: amd64 }
+              official: true
+              public: true
+
+    - template: pool.yml
+      parameters:
+        inner:
+          template: publish-stage.yml
+          parameters:
+            builder: { os: linux, arch: amd64 }
+            official: true
+            public: false
+            builders:
+              - ${{ each builder in parameters.builders }}:
+                - ${{ if eq(builder.config, 'buildandpack') }}:
+                  - ${{ builder }}
+            publishSymbols: ${{ parameters.createSymbols }}
