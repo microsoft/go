@@ -1,0 +1,36 @@
+# Copyright (c) Microsoft Corporation.
+# Use of this source code is governed by a BSD-style
+# license that can be found in the LICENSE file.
+
+# go-pdb is experimental and not available publicly.
+
+parameters:
+  - name: version
+    type: string
+    default: 0.2.1
+
+steps:
+  - pwsh: |
+      $pdbPath = "$(System.ArtifactsDirectory)/gopdb"
+      New-Item $pdbPath -ItemType Directory -ErrorAction Ignore
+      Write-Host "##vso[task.setvariable variable=pdbPath;]$pdbPath"
+      Write-Host "##vso[task.prependpath]$pdbPath"
+    displayName: Set up gopdb path
+
+  # Clone the go-pdb repo from the AzDO mirror, the bot doesn't have access to the GitHub repo.
+  # Use "git clone" instead of "go install", the later doesn't work because the module name points to GitHub, not AzDO.
+  - pwsh: |
+      git -c http.extraheader="AUTHORIZATION: bearer $(System.AccessToken)" `
+        clone --depth 1 --branch v${{ parameters.version }} https://dev.azure.com/dnceng/internal/_git/microsoft-go-pdb go-pdb
+    displayName: Clone gopdb
+
+  - pwsh: |
+      . eng/utilities.ps1
+      $gobin = Get-Stage0GoRoot # Make sure we have a Go toolchain available
+      cd go-pdb
+      & $gobin/bin/go.exe build -o $(pdbPath)/gopdb.exe ./cmd/gopdb
+    displayName: Install gopdb
+
+  - pwsh: |
+      Remove-Item -Path go-pdb -Force -Recurse
+    displayName: Cleanup gopdb
