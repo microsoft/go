@@ -45,7 +45,7 @@ func main() {
 	flag.BoolVar(&o.JSON, "json", false, "Runs tests with -json flag to emit verbose results in JSON format. For use in CI.")
 	flag.BoolVar(&o.PackBuild, "packbuild", false, "Enable creating an archive of this build using upstream 'distpack' and placing it in eng/artifacts/bin.")
 	flag.BoolVar(&o.PackSource, "packsource", false, "Enable creating a source archive using upstream 'distpack' and placing it in eng/artifacts/bin.")
-	flag.BoolVar(&o.CreatePDB, "pdb", false, "Create PDB files for all the binaries in the bin and tool directories and place them in eng/artifacts/symbols.")
+	flag.BoolVar(&o.CreatePDB, "pdb", false, "Create PDB files for all the PE binaries in the bin and tool directories. The PE files are modified in place and PDBs are placed in eng/artifacts/symbols.")
 
 	flag.BoolVar(
 		&o.Refresh, "refresh", false,
