@@ -48,12 +48,17 @@ stages:
         workspace:
           clean: all
 
+        # Validation for complex inputs.
+        ${{ if startsWith(parameters.builder.config, 'codeql') }}:
+          ${{ if not(or(eq(parameters.builder.config, 'codeql_inner'), eq(parameters.builder.config, 'codeql_outer'))) }}:
+            'The CodeQL configuration must include "_inner" or "_outer" suffix': error
+
         ${{ if eq(parameters.builder.config, 'longtest') }}:
           # longtest has been seen to succeed after 53 minutes. Give around 3x headroom. In the future,
           # we should also give the tests a shorter timeout to make sure this doesn't balloon too far:
           # https://github.com/microsoft/go/issues/568
           timeoutInMinutes: 180
-        ${{ if eq(parameters.builder.config, 'codeql') }}:
+        ${{ if startsWith(parameters.builder.config, 'codeql') }}:
           # Allow CodeQL to take a while. https://eng.ms/docs/cloud-ai-platform/devdiv/one-engineering-system-1es/1es-docs/codeql/configuring-codeql3000-ado-pipelines#other-issues
           timeoutInMinutes: 360
 
@@ -73,6 +78,15 @@ stages:
           - group: go-cmdscan-rules
           - name: createPDB
             value: ${{ and(eq(parameters.createSymbols, true), eq(parameters.builder.config, 'buildandpack'), eq(parameters.builder.os, 'windows')) }} # Only create PDBs on Windows
+
+          - ${{ if eq(parameters.builder.config, 'codeql_inner') }}:
+            # Manually specify the repository being scanned by this job because
+            # CodeQL can't detect the inner repository (the submodule)
+            # automatically. See https://stackoverflow.microsoft.com/a/368419
+            - name: Codeql.ADO.Build.Repository.Provider
+              value: override
+            - name: Codeql.ADO.Build.Repository.Uri
+              value: https://dev.azure.com/dnceng/internal/_git/microsoft-go-mirror
 
         ${{ if and(parameters.official, eq(parameters.builder.config, 'buildandpack')) }}:
           templateContext:
@@ -100,7 +114,7 @@ stages:
 
             - template: ../steps/checkout-unix-task.yml
             - template: ../steps/init-pwsh-task.yml
-          
+
           - pwsh: |
               New-Item eng/artifacts/bin -ItemType Directory -ErrorAction Ignore
               New-Item eng/artifacts/symbols -ItemType Directory -ErrorAction Ignore
@@ -164,7 +178,7 @@ stages:
                 displayName: Write checksum
 
           # CodeQL plugs into the compiler to find the code. Just build.
-          - ${{ elseif eq(parameters.builder.config, 'codeql' ) }}:
+          - ${{ elseif startsWith(parameters.builder.config, 'codeql' ) }}:
             - pwsh: |
                 eng/run.ps1 cmdscan -envprefix GO_CMDSCAN_RULE_ -- `
                   pwsh eng/run.ps1 build
