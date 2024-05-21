@@ -7,6 +7,7 @@ Subject: [PATCH] Add CNG crypto backend
  src/cmd/api/boring_test.go                    |   2 +-
  src/cmd/go/go_boring_test.go                  |   2 +-
  src/crypto/boring/boring.go                   |   2 +-
+ src/crypto/ecdsa/badlinkname.go               |  17 ++
  src/crypto/ecdsa/boring.go                    |   2 +-
  src/crypto/ecdsa/notboring.go                 |   2 +-
  src/crypto/internal/backend/backend_test.go   |   4 +-
@@ -48,7 +49,8 @@ Subject: [PATCH] Add CNG crypto backend
  .../goexperiment/exp_cngcrypto_off.go         |   9 +
  src/internal/goexperiment/exp_cngcrypto_on.go |   9 +
  src/internal/goexperiment/flags.go            |   1 +
- 44 files changed, 478 insertions(+), 40 deletions(-)
+ 45 files changed, 495 insertions(+), 40 deletions(-)
+ create mode 100644 src/crypto/ecdsa/badlinkname.go
  create mode 100644 src/crypto/internal/backend/bbig/big_cng.go
  create mode 100644 src/crypto/internal/backend/cng_windows.go
  create mode 100644 src/internal/goexperiment/exp_cngcrypto_off.go
@@ -93,6 +95,29 @@ index 7b04f14ebdd618..8bdafb72f2c51a 100644
  
  // Package boring exposes functions that are only available when building with
  // Go+BoringCrypto. This package is available on all targets as long as the
+diff --git a/src/crypto/ecdsa/badlinkname.go b/src/crypto/ecdsa/badlinkname.go
+new file mode 100644
+index 00000000000000..0d00b7bb3a7fc8
+--- /dev/null
++++ b/src/crypto/ecdsa/badlinkname.go
+@@ -0,0 +1,17 @@
++// Copyright 2024 The Go Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style
++// license that can be found in the LICENSE file.
++
++package ecdsa
++
++import _ "unsafe"
++
++// The symbols below are pulled by the CNG backend in the Microsoft Go compiler.
++// We provide a push linkname here, to keep them accessible with pull linknames.
++
++//go:linkname encodeSignature
++//go:linkname parseSignature
++
++// This supplements other linknames that are already added by
++// https://github.com/golang/go/commit/41aab30bd260297ad8ddad47e98fdf8390a9a67e
++// See that commit for more information.
 diff --git a/src/crypto/ecdsa/boring.go b/src/crypto/ecdsa/boring.go
 index 602cb894e20d39..bf9e77e06599f0 100644
 --- a/src/crypto/ecdsa/boring.go
@@ -1122,10 +1147,10 @@ index 354008e0265c80..cecd373aab5a04 100644
  golang.org/x/crypto v0.22.1-0.20240415215343-5defcc193aab/go.mod h1:vr6Su+7cTlO45qkww3VDJlzDn0ctJvRgYbC2NvXHt+M=
  golang.org/x/net v0.24.1-0.20240405221309-ec05fdcd7114 h1:0+DQSN4OXt0ivfKIOXFQ+8vsRb1pNvvdl7DZ6AR07OQ=
 diff --git a/src/go/build/deps_test.go b/src/go/build/deps_test.go
-index 7dae95ff2e5857..130ab718486f71 100644
+index 4ac04657461a9a..6d36946619144e 100644
 --- a/src/go/build/deps_test.go
 +++ b/src/go/build/deps_test.go
-@@ -442,6 +442,10 @@ var depsRules = `
+@@ -443,6 +443,10 @@ var depsRules = `
  
  	crypto/cipher,
  	crypto/internal/boring/bcache
@@ -1136,7 +1161,7 @@ index 7dae95ff2e5857..130ab718486f71 100644
  	< github.com/golang-fips/openssl/v2/internal/subtle
  	< github.com/golang-fips/openssl/v2
  	< crypto/internal/boring
-@@ -482,6 +486,7 @@ var depsRules = `
+@@ -483,6 +487,7 @@ var depsRules = `
  
  	# CRYPTO-MATH is core bignum-based crypto - no cgo, net; fmt now ok.
  	CRYPTO, FMT, math/big
