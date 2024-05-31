@@ -4,15 +4,15 @@ Date: Tue, 30 Jan 2024 11:40:31 +0100
 Subject: [PATCH] Support TLS 1.3 in fipstls mode
 
 ---
- src/crypto/tls/boring.go                 | 14 +++--
- src/crypto/tls/boring_test.go            | 66 ++++++++++++++++++------
- src/crypto/tls/cipher_suites.go          | 15 ++++--
- src/crypto/tls/handshake_client.go       |  4 +-
+ src/crypto/tls/boring.go                 | 14 +++---
+ src/crypto/tls/boring_test.go            | 54 +++++++++++++++++++-----
+ src/crypto/tls/cipher_suites.go          | 15 +++++--
+ src/crypto/tls/handshake_client.go       | 13 +++++-
  src/crypto/tls/handshake_client_tls13.go |  4 --
- src/crypto/tls/handshake_server_test.go  | 28 ++++++----
+ src/crypto/tls/handshake_server_test.go  |  3 ++
  src/crypto/tls/handshake_server_tls13.go |  7 ++-
  src/crypto/tls/notboring.go              |  2 +
- 8 files changed, 98 insertions(+), 42 deletions(-)
+ 8 files changed, 83 insertions(+), 29 deletions(-)
 
 diff --git a/src/crypto/tls/boring.go b/src/crypto/tls/boring.go
 index ecd0f5a7b3e9ed..07f15ab91eefd3 100644
@@ -59,7 +59,7 @@ index ecd0f5a7b3e9ed..07f15ab91eefd3 100644
  // defaultSupportedSignatureAlgorithms without Ed25519 and SHA-1.
  var fipsSupportedSignatureAlgorithms = []SignatureScheme{
 diff --git a/src/crypto/tls/boring_test.go b/src/crypto/tls/boring_test.go
-index f452aa95b2eb08..a892fb03487392 100644
+index c28aa8f1bfbe8c..4c7b827f1288bf 100644
 --- a/src/crypto/tls/boring_test.go
 +++ b/src/crypto/tls/boring_test.go
 @@ -30,6 +30,31 @@ func init() {
@@ -92,35 +92,15 @@ index f452aa95b2eb08..a892fb03487392 100644
 +}
 +
  func TestBoringServerProtocolVersion(t *testing.T) {
- 	test := func(name string, v uint16, msg string) {
+ 	test := func(t *testing.T, name string, v uint16, msg string) {
  		t.Run(name, func(t *testing.T) {
-@@ -38,8 +63,11 @@ func TestBoringServerProtocolVersion(t *testing.T) {
- 			clientHello := &clientHelloMsg{
- 				vers:               v,
- 				random:             make([]byte, 32),
--				cipherSuites:       allCipherSuites(),
-+				cipherSuites:       allCipherSuitesIncludingTLS13(),
- 				compressionMethods: []uint8{compressionNone},
-+				supportedCurves:    defaultCurvePreferences,
-+				keyShares:          []keyShare{generateKeyShare(CurveP256)},
-+				supportedPoints:    []uint8{pointFormatUncompressed},
- 				supportedVersions:  []uint16{v},
- 			}
- 			testClientHelloFailure(t, serverConfig, clientHello, msg)
-@@ -53,25 +81,25 @@ func TestBoringServerProtocolVersion(t *testing.T) {
- 
- 	fipstls.Force()
- 	defer fipstls.Abandon()
--	test("VersionSSL30", VersionSSL30, "client offered only unsupported versions")
--	test("VersionTLS10", VersionTLS10, "client offered only unsupported versions")
--	test("VersionTLS11", VersionTLS11, "client offered only unsupported versions")
--	test("VersionTLS12", VersionTLS12, "")
--	test("VersionTLS13", VersionTLS13, "client offered only unsupported versions")
-+	test("VersionSSL30/fipstls", VersionSSL30, "client offered only unsupported versions")
-+	test("VersionTLS10/fipstls", VersionTLS10, "client offered only unsupported versions")
-+	test("VersionTLS11/fipstls", VersionTLS11, "client offered only unsupported versions")
-+	test("VersionTLS12/fipstls", VersionTLS12, "")
-+	test("VersionTLS13/fipstls", VersionTLS13, "")
+@@ -65,22 +90,22 @@ func TestBoringServerProtocolVersion(t *testing.T) {
+ 		test(t, "VersionTLS10", VersionTLS10, "supported versions")
+ 		test(t, "VersionTLS11", VersionTLS11, "supported versions")
+ 		test(t, "VersionTLS12", VersionTLS12, "")
+-		test(t, "VersionTLS13", VersionTLS13, "supported versions")
++		test(t, "VersionTLS13", VersionTLS13, "")
+ 	})
  }
  
  func isBoringVersion(v uint16) bool {
@@ -143,7 +123,7 @@ index f452aa95b2eb08..a892fb03487392 100644
  		return true
  	}
  	return false
-@@ -91,7 +119,7 @@ func isECDSA(id uint16) bool {
+@@ -100,7 +125,7 @@ func isECDSA(id uint16) bool {
  			return suite.flags&suiteECSign == suiteECSign
  		}
  	}
@@ -152,7 +132,7 @@ index f452aa95b2eb08..a892fb03487392 100644
  }
  
  func isBoringSignatureScheme(alg SignatureScheme) bool {
-@@ -114,10 +142,9 @@ func isBoringSignatureScheme(alg SignatureScheme) bool {
+@@ -123,10 +148,9 @@ func isBoringSignatureScheme(alg SignatureScheme) bool {
  
  func TestBoringServerCipherSuites(t *testing.T) {
  	serverConfig := testConfig.Clone()
@@ -164,7 +144,7 @@ index f452aa95b2eb08..a892fb03487392 100644
  		if isECDSA(id) {
  			serverConfig.Certificates[0].Certificate = [][]byte{testECDSACertificate}
  			serverConfig.Certificates[0].PrivateKey = testECDSAPrivateKey
-@@ -126,14 +153,19 @@ func TestBoringServerCipherSuites(t *testing.T) {
+@@ -135,14 +159,22 @@ func TestBoringServerCipherSuites(t *testing.T) {
  			serverConfig.Certificates[0].PrivateKey = testRSAPrivateKey
  		}
  		serverConfig.BuildNameToCertificate()
@@ -180,22 +160,15 @@ index f452aa95b2eb08..a892fb03487392 100644
  				supportedPoints:    []uint8{pointFormatUncompressed},
 +				supportedVersions:  []uint16{VersionTLS12},
 +			}
++			// This test runs for both TLS 1.2 and 1.3. For TLS 1.3, we need to
++			// specify more about the supported versions/algorithms.
 +			if isTLS13CipherSuite(id) {
 +				clientHello.supportedVersions = []uint16{VersionTLS13}
++				clientHello.supportedSignatureAlgorithms = supportedSignatureAlgorithms()
  			}
  
  			testClientHello(t, serverConfig, clientHello)
-@@ -165,7 +197,9 @@ func TestBoringServerCurves(t *testing.T) {
- 				cipherSuites:       []uint16{TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256},
- 				compressionMethods: []uint8{compressionNone},
- 				supportedCurves:    []CurveID{curveid},
-+				keyShares:          []keyShare{generateKeyShare(curveid)},
- 				supportedPoints:    []uint8{pointFormatUncompressed},
-+				supportedVersions:  []uint16{VersionTLS12},
- 			}
- 
- 			testClientHello(t, serverConfig, clientHello)
-@@ -284,7 +318,7 @@ func TestBoringClientHello(t *testing.T) {
+@@ -289,7 +321,7 @@ func TestBoringClientHello(t *testing.T) {
  	}
  
  	if !isBoringVersion(hello.vers) {
@@ -238,10 +211,10 @@ index 9079b5a2e3d50d..bda80e81cd5396 100644
  
  	ret := &xorNonceAEAD{aead: aead}
 diff --git a/src/crypto/tls/handshake_client.go b/src/crypto/tls/handshake_client.go
-index e685339c29780a..eafbb221c07a33 100644
+index 4215d99122e585..1258a591ce1f3a 100644
 --- a/src/crypto/tls/handshake_client.go
 +++ b/src/crypto/tls/handshake_client.go
-@@ -139,7 +139,9 @@ func (c *Conn) makeClientHello() (*clientHelloMsg, *ecdh.PrivateKey, error) {
+@@ -139,13 +139,22 @@ func (c *Conn) makeClientHello() (*clientHelloMsg, *ecdh.PrivateKey, error) {
  		if len(hello.supportedVersions) == 1 {
  			hello.cipherSuites = nil
  		}
@@ -252,8 +225,22 @@ index e685339c29780a..eafbb221c07a33 100644
  			hello.cipherSuites = append(hello.cipherSuites, defaultCipherSuitesTLS13...)
  		} else {
  			hello.cipherSuites = append(hello.cipherSuites, defaultCipherSuitesTLS13NoAES...)
+ 		}
+ 
+-		curveID := config.curvePreferences()[0]
++		curveIDs := config.curvePreferences()
++		if len(curveIDs) == 0 {
++			// If TLS 1.3 FIPS restrictions are enabled, the filter applied by
++			// curvePreferences() may exclude all curves specified by config.
++			// In this case, there are certainly no supported curves.
++			return nil, nil, errors.New("tls: CurvePreferences includes no supported curves")
++		}
++		curveID := curveIDs[0]
+ 		if _, ok := curveForCurveID(curveID); !ok {
+ 			return nil, nil, errors.New("tls: CurvePreferences includes unsupported curve")
+ 		}
 diff --git a/src/crypto/tls/handshake_client_tls13.go b/src/crypto/tls/handshake_client_tls13.go
-index 2f59f6888c5d81..a84cede1b0b518 100644
+index 88ec383bf8351f..db06b0f4dad2bc 100644
 --- a/src/crypto/tls/handshake_client_tls13.go
 +++ b/src/crypto/tls/handshake_client_tls13.go
 @@ -41,10 +41,6 @@ type clientHandshakeStateTLS13 struct {
@@ -268,7 +255,7 @@ index 2f59f6888c5d81..a84cede1b0b518 100644
  	// sections 4.1.2 and 4.1.3.
  	if c.handshakes > 0 {
 diff --git a/src/crypto/tls/handshake_server_test.go b/src/crypto/tls/handshake_server_test.go
-index 15db760716c3df..c0a86a49841d61 100644
+index 813495d7b99497..f891fd0c318d17 100644
 --- a/src/crypto/tls/handshake_server_test.go
 +++ b/src/crypto/tls/handshake_server_test.go
 @@ -27,6 +27,7 @@ import (
@@ -279,37 +266,7 @@ index 15db760716c3df..c0a86a49841d61 100644
  	testClientHelloFailure(t, serverConfig, m, "")
  }
  
-@@ -52,23 +53,32 @@ func testClientHelloFailure(t *testing.T, serverConfig *Config, m handshakeMessa
- 	ctx := context.Background()
- 	conn := Server(s, serverConfig)
- 	ch, err := conn.readClientHello(ctx)
--	hs := serverHandshakeState{
--		c:           conn,
--		ctx:         ctx,
--		clientHello: ch,
--	}
--	if err == nil {
-+	if err == nil && conn.vers == VersionTLS13 {
-+		hs := serverHandshakeStateTLS13{
-+			c:           conn,
-+			ctx:         ctx,
-+			clientHello: ch,
-+		}
- 		err = hs.processClientHello()
--	}
--	if err == nil {
--		err = hs.pickCipherSuite()
-+	} else if err == nil {
-+		hs := serverHandshakeState{
-+			c:           conn,
-+			ctx:         ctx,
-+			clientHello: ch,
-+		}
-+		err = hs.processClientHello()
-+		if err == nil {
-+			err = hs.pickCipherSuite()
-+		}
- 	}
+@@ -83,9 +84,11 @@ func testClientHelloFailure(t *testing.T, serverConfig *Config, m handshakeMessa
  	s.Close()
  	if len(expectedSubStr) == 0 {
  		if err != nil && err != io.EOF {
@@ -322,10 +279,10 @@ index 15db760716c3df..c0a86a49841d61 100644
  	}
  }
 diff --git a/src/crypto/tls/handshake_server_tls13.go b/src/crypto/tls/handshake_server_tls13.go
-index 6c65da0ab04f9f..8234985d1f627a 100644
+index ab030568430ff7..c47237dd0cbc4a 100644
 --- a/src/crypto/tls/handshake_server_tls13.go
 +++ b/src/crypto/tls/handshake_server_tls13.go
-@@ -46,10 +46,6 @@ type serverHandshakeStateTLS13 struct {
+@@ -47,10 +47,6 @@ type serverHandshakeStateTLS13 struct {
  func (hs *serverHandshakeStateTLS13) handshake() error {
  	c := hs.c
  
@@ -336,7 +293,7 @@ index 6c65da0ab04f9f..8234985d1f627a 100644
  	// For an overview of the TLS 1.3 handshake, see RFC 8446, Section 2.
  	if err := hs.processClientHello(); err != nil {
  		return err
-@@ -164,6 +160,9 @@ func (hs *serverHandshakeStateTLS13) processClientHello() error {
+@@ -165,6 +161,9 @@ func (hs *serverHandshakeStateTLS13) processClientHello() error {
  	if !hasAESGCMHardwareSupport || !aesgcmPreferred(hs.clientHello.cipherSuites) {
  		preferenceList = defaultCipherSuitesTLS13NoAES
  	}
