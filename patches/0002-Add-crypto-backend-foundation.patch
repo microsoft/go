@@ -53,10 +53,9 @@ Subject: [PATCH] Add crypto backend foundation
  src/crypto/tls/prf_test.go                   |  12 +-
  src/crypto/x509/boring_test.go               |   5 +
  src/go/build/deps_test.go                    |   4 +
- src/net/http/client_test.go                  |   6 +-
  src/net/smtp/smtp_test.go                    |  72 ++++---
  src/runtime/runtime_boring.go                |   5 +
- 52 files changed, 768 insertions(+), 95 deletions(-)
+ 51 files changed, 764 insertions(+), 93 deletions(-)
  create mode 100644 src/crypto/ed25519/boring.go
  create mode 100644 src/crypto/ed25519/notboring.go
  create mode 100644 src/crypto/internal/backend/backend_test.go
@@ -180,10 +179,10 @@ index 275c60b4de49eb..61e70f981db4eb 100644
  	"math/big"
  )
 diff --git a/src/crypto/ecdsa/ecdsa.go b/src/crypto/ecdsa/ecdsa.go
-index f0b68225103935..5386926b8e79e2 100644
+index 2179b01e8e3db5..9eb763cecfe687 100644
 --- a/src/crypto/ecdsa/ecdsa.go
 +++ b/src/crypto/ecdsa/ecdsa.go
-@@ -26,9 +26,9 @@ import (
+@@ -30,9 +30,9 @@ import (
  	"crypto/cipher"
  	"crypto/ecdh"
  	"crypto/elliptic"
@@ -286,10 +285,10 @@ index 00000000000000..3a7d7b76c8d8d7
 +	return key, nil
 +}
 diff --git a/src/crypto/ed25519/ed25519.go b/src/crypto/ed25519/ed25519.go
-index 1dda9e5e9a5ab3..a1f9a7b963654f 100644
+index b75c5a6458a218..303ea08c4b747f 100644
 --- a/src/crypto/ed25519/ed25519.go
 +++ b/src/crypto/ed25519/ed25519.go
-@@ -15,6 +15,7 @@ package ed25519
+@@ -18,6 +18,7 @@ package ed25519
  import (
  	"bytes"
  	"crypto"
@@ -297,7 +296,7 @@ index 1dda9e5e9a5ab3..a1f9a7b963654f 100644
  	"crypto/internal/edwards25519"
  	cryptorand "crypto/rand"
  	"crypto/sha512"
-@@ -22,6 +23,7 @@ import (
+@@ -25,6 +26,7 @@ import (
  	"errors"
  	"io"
  	"strconv"
@@ -305,7 +304,7 @@ index 1dda9e5e9a5ab3..a1f9a7b963654f 100644
  )
  
  const (
-@@ -139,6 +141,22 @@ func GenerateKey(rand io.Reader) (PublicKey, PrivateKey, error) {
+@@ -142,6 +144,22 @@ func GenerateKey(rand io.Reader) (PublicKey, PrivateKey, error) {
  	if rand == nil {
  		rand = cryptorand.Reader
  	}
@@ -328,7 +327,7 @@ index 1dda9e5e9a5ab3..a1f9a7b963654f 100644
  
  	seed := make([]byte, SeedSize)
  	if _, err := io.ReadFull(rand, seed); err != nil {
-@@ -157,6 +175,17 @@ func GenerateKey(rand io.Reader) (PublicKey, PrivateKey, error) {
+@@ -160,6 +178,17 @@ func GenerateKey(rand io.Reader) (PublicKey, PrivateKey, error) {
  // with RFC 8032. RFC 8032's private keys correspond to seeds in this
  // package.
  func NewKeyFromSeed(seed []byte) PrivateKey {
@@ -346,7 +345,7 @@ index 1dda9e5e9a5ab3..a1f9a7b963654f 100644
  	// Outline the function body so that the returned key can be stack-allocated.
  	privateKey := make([]byte, PrivateKeySize)
  	newKeyFromSeed(privateKey, seed)
-@@ -184,6 +213,17 @@ func newKeyFromSeed(privateKey, seed []byte) {
+@@ -187,6 +216,17 @@ func newKeyFromSeed(privateKey, seed []byte) {
  // Sign signs the message with privateKey and returns a signature. It will
  // panic if len(privateKey) is not [PrivateKeySize].
  func Sign(privateKey PrivateKey, message []byte) []byte {
@@ -364,9 +363,9 @@ index 1dda9e5e9a5ab3..a1f9a7b963654f 100644
  	// Outline the function body so that the returned signature can be
  	// stack-allocated.
  	signature := make([]byte, SignatureSize)
-@@ -259,9 +299,42 @@ func sign(signature, privateKey, message []byte, domPrefix, context string) {
- // Verify reports whether sig is a valid signature of message by publicKey. It
- // will panic if len(publicKey) is not [PublicKeySize].
+@@ -265,9 +305,42 @@ func sign(signature, privateKey, message []byte, domPrefix, context string) {
+ // The inputs are not considered confidential, and may leak through timing side
+ // channels, or if an attacker has control of part of the inputs.
  func Verify(publicKey PublicKey, message, sig []byte) bool {
 +	if boring.Enabled && boring.SupportsEd25519() && testMalleability() {
 +		pub, err := boringPublicKey(publicKey)
@@ -407,7 +406,7 @@ index 1dda9e5e9a5ab3..a1f9a7b963654f 100644
  // VerifyWithOptions reports whether sig is a valid signature of message by
  // publicKey. A valid signature is indicated by returning a nil error. It will
  // panic if len(publicKey) is not [PublicKeySize].
-@@ -292,7 +365,7 @@ func VerifyWithOptions(publicKey PublicKey, message, sig []byte, opts *Options)
+@@ -301,7 +374,7 @@ func VerifyWithOptions(publicKey PublicKey, message, sig []byte, opts *Options)
  		}
  		return nil
  	case opts.Hash == crypto.Hash(0): // Ed25519
@@ -1031,12 +1030,12 @@ index 2abc0436405f8a..34c22c8fbba7da 100644
  func boringPublicKey(*PublicKey) (*boring.PublicKeyRSA, error) {
  	panic("boringcrypto: not available")
 diff --git a/src/crypto/rsa/pkcs1v15.go b/src/crypto/rsa/pkcs1v15.go
-index 2705036fddf4c1..fc1cba42579f1e 100644
+index 2f958022f98584..9e243dcd6b4af8 100644
 --- a/src/crypto/rsa/pkcs1v15.go
 +++ b/src/crypto/rsa/pkcs1v15.go
-@@ -6,7 +6,7 @@ package rsa
- 
+@@ -7,7 +7,7 @@ package rsa
  import (
+ 	"bytes"
  	"crypto"
 -	"crypto/internal/boring"
 +	boring "crypto/internal/backend"
@@ -1067,7 +1066,7 @@ index dfa1eddc886ff3..849dafacf93d0f 100644
  	_, err := DecryptPKCS1v15(nil, rsaPrivateKey, ciphertext)
  	if err == nil {
 diff --git a/src/crypto/rsa/pss.go b/src/crypto/rsa/pss.go
-index b63b6eb01db637..27241df1867cb5 100644
+index e996e7aaa36b9c..89c5afd83de88a 100644
 --- a/src/crypto/rsa/pss.go
 +++ b/src/crypto/rsa/pss.go
 @@ -9,7 +9,7 @@ package rsa
@@ -1080,10 +1079,10 @@ index b63b6eb01db637..27241df1867cb5 100644
  	"hash"
  	"io"
 diff --git a/src/crypto/rsa/rsa.go b/src/crypto/rsa/rsa.go
-index 9342930dc1236f..72c31368f1cc2e 100644
+index 4d78d1eaaa6be0..614e63324c2b46 100644
 --- a/src/crypto/rsa/rsa.go
 +++ b/src/crypto/rsa/rsa.go
-@@ -27,9 +27,9 @@ package rsa
+@@ -26,9 +26,9 @@ package rsa
  
  import (
  	"crypto"
@@ -1187,7 +1186,7 @@ index 921cdbb7bbd477..2fef7ddae07480 100644
  	"encoding"
  	"encoding/hex"
 diff --git a/src/crypto/tls/boring_test.go b/src/crypto/tls/boring_test.go
-index 77374abe341c2f..f4a2210b517308 100644
+index be10b71bd2269b..d879139773d1d7 100644
 --- a/src/crypto/tls/boring_test.go
 +++ b/src/crypto/tls/boring_test.go
 @@ -25,6 +25,11 @@ import (
@@ -1203,7 +1202,7 @@ index 77374abe341c2f..f4a2210b517308 100644
  	test := func(t *testing.T, name string, v uint16, msg string) {
  		t.Run(name, func(t *testing.T) {
 diff --git a/src/crypto/tls/cipher_suites.go b/src/crypto/tls/cipher_suites.go
-index 6f5bc37197a4f4..9079b5a2e3d50d 100644
+index eebc66880d631f..42a26005ff31f2 100644
 --- a/src/crypto/tls/cipher_suites.go
 +++ b/src/crypto/tls/cipher_suites.go
 @@ -10,7 +10,7 @@ import (
@@ -1216,10 +1215,10 @@ index 6f5bc37197a4f4..9079b5a2e3d50d 100644
  	"crypto/sha1"
  	"crypto/sha256"
 diff --git a/src/crypto/tls/handshake_client.go b/src/crypto/tls/handshake_client.go
-index d046c86679ea51..4215d99122e585 100644
+index 553d2dde01de2d..6873e8daf631a7 100644
 --- a/src/crypto/tls/handshake_client.go
 +++ b/src/crypto/tls/handshake_client.go
-@@ -657,12 +657,16 @@ func (hs *clientHandshakeState) doFullHandshake() error {
+@@ -763,12 +763,16 @@ func (hs *clientHandshakeState) doFullHandshake() error {
  
  	if hs.serverHello.extendedMasterSecret {
  		c.extMasterSecret = true
@@ -1238,7 +1237,7 @@ index d046c86679ea51..4215d99122e585 100644
  	if err := c.config.writeKeyLog(keyLogLabelTLS12, hs.hello.random, hs.masterSecret); err != nil {
  		c.sendAlert(alertInternalError)
  		return errors.New("tls: failed to write to key log: " + err.Error())
-@@ -723,8 +727,12 @@ func (hs *clientHandshakeState) doFullHandshake() error {
+@@ -829,8 +833,12 @@ func (hs *clientHandshakeState) doFullHandshake() error {
  func (hs *clientHandshakeState) establishKeys() error {
  	c := hs.c
  
@@ -1252,7 +1251,7 @@ index d046c86679ea51..4215d99122e585 100644
  	var clientCipher, serverCipher any
  	var clientHash, serverHash hash.Hash
  	if hs.suite.cipher != nil {
-@@ -864,7 +872,11 @@ func (hs *clientHandshakeState) readFinished(out []byte) error {
+@@ -970,7 +978,11 @@ func (hs *clientHandshakeState) readFinished(out []byte) error {
  		return unexpectedMessageError(serverFinished, msg)
  	}
  
@@ -1265,7 +1264,7 @@ index d046c86679ea51..4215d99122e585 100644
  	if len(verify) != len(serverFinished.verifyData) ||
  		subtle.ConstantTimeCompare(verify, serverFinished.verifyData) != 1 {
  		c.sendAlert(alertHandshakeFailure)
-@@ -931,7 +943,10 @@ func (hs *clientHandshakeState) sendFinished(out []byte) error {
+@@ -1038,7 +1050,10 @@ func (hs *clientHandshakeState) sendFinished(out []byte) error {
  	}
  
  	finished := new(finishedMsg)
@@ -1278,10 +1277,10 @@ index d046c86679ea51..4215d99122e585 100644
  		return err
  	}
 diff --git a/src/crypto/tls/handshake_server.go b/src/crypto/tls/handshake_server.go
-index d5f8cc843ed6da..815d80fc9b6ab0 100644
+index ac3d915d1746d7..631db82b9ab3ae 100644
 --- a/src/crypto/tls/handshake_server.go
 +++ b/src/crypto/tls/handshake_server.go
-@@ -676,12 +676,16 @@ func (hs *serverHandshakeState) doFullHandshake() error {
+@@ -686,12 +686,16 @@ func (hs *serverHandshakeState) doFullHandshake() error {
  	}
  	if hs.hello.extendedMasterSecret {
  		c.extMasterSecret = true
@@ -1300,7 +1299,7 @@ index d5f8cc843ed6da..815d80fc9b6ab0 100644
  	if err := c.config.writeKeyLog(keyLogLabelTLS12, hs.clientHello.random, hs.masterSecret); err != nil {
  		c.sendAlert(alertInternalError)
  		return err
-@@ -745,8 +749,12 @@ func (hs *serverHandshakeState) doFullHandshake() error {
+@@ -755,8 +759,12 @@ func (hs *serverHandshakeState) doFullHandshake() error {
  func (hs *serverHandshakeState) establishKeys() error {
  	c := hs.c
  
@@ -1314,7 +1313,7 @@ index d5f8cc843ed6da..815d80fc9b6ab0 100644
  
  	var clientCipher, serverCipher any
  	var clientHash, serverHash hash.Hash
-@@ -787,7 +795,11 @@ func (hs *serverHandshakeState) readFinished(out []byte) error {
+@@ -797,7 +805,11 @@ func (hs *serverHandshakeState) readFinished(out []byte) error {
  		return unexpectedMessageError(clientFinished, msg)
  	}
  
@@ -1327,7 +1326,7 @@ index d5f8cc843ed6da..815d80fc9b6ab0 100644
  	if len(verify) != len(clientFinished.verifyData) ||
  		subtle.ConstantTimeCompare(verify, clientFinished.verifyData) != 1 {
  		c.sendAlert(alertHandshakeFailure)
-@@ -849,7 +861,10 @@ func (hs *serverHandshakeState) sendFinished(out []byte) error {
+@@ -859,7 +871,10 @@ func (hs *serverHandshakeState) sendFinished(out []byte) error {
  	}
  
  	finished := new(finishedMsg)
@@ -1340,10 +1339,10 @@ index d5f8cc843ed6da..815d80fc9b6ab0 100644
  		return err
  	}
 diff --git a/src/crypto/tls/key_schedule.go b/src/crypto/tls/key_schedule.go
-index d7f082c9ee1e04..14a85fbf1bd465 100644
+index 1636baf79e7288..c9a5877d3d504f 100644
 --- a/src/crypto/tls/key_schedule.go
 +++ b/src/crypto/tls/key_schedule.go
-@@ -59,7 +59,16 @@ func (c *cipherSuiteTLS13) expandLabel(secret []byte, label string, context []by
+@@ -61,7 +61,16 @@ func (c *cipherSuiteTLS13) expandLabel(secret []byte, label string, context []by
  		panic(fmt.Errorf("failed to construct HKDF label: %s", err))
  	}
  	out := make([]byte, length)
@@ -1361,7 +1360,7 @@ index d7f082c9ee1e04..14a85fbf1bd465 100644
  	if err != nil || n != length {
  		panic("tls: HKDF-Expand-Label invocation failed unexpectedly")
  	}
-@@ -79,6 +88,13 @@ func (c *cipherSuiteTLS13) extract(newSecret, currentSecret []byte) []byte {
+@@ -81,6 +90,13 @@ func (c *cipherSuiteTLS13) extract(newSecret, currentSecret []byte) []byte {
  	if newSecret == nil {
  		newSecret = make([]byte, c.hash.Size())
  	}
@@ -1602,10 +1601,10 @@ index 33fd0ed52b1ff6..ffc3eeca9dbf95 100644
  	k, err := rsa.GenerateKey(rand.Reader, size)
  	if err != nil {
 diff --git a/src/go/build/deps_test.go b/src/go/build/deps_test.go
-index f7015ff33b7dd2..f2db98cfd10762 100644
+index 84b0096c770f44..68d3b0578d18b1 100644
 --- a/src/go/build/deps_test.go
 +++ b/src/go/build/deps_test.go
-@@ -442,7 +442,9 @@ var depsRules = `
+@@ -447,7 +447,9 @@ var depsRules = `
  
  	# CRYPTO is core crypto algorithms - no cgo, fmt, net.
  	crypto/internal/boring/sig,
@@ -1615,7 +1614,7 @@ index f7015ff33b7dd2..f2db98cfd10762 100644
  	golang.org/x/sys/cpu,
  	hash, embed
  	< crypto
-@@ -453,6 +455,7 @@ var depsRules = `
+@@ -458,6 +460,7 @@ var depsRules = `
  	crypto/cipher,
  	crypto/internal/boring/bcache
  	< crypto/internal/boring
@@ -1623,7 +1622,7 @@ index f7015ff33b7dd2..f2db98cfd10762 100644
  	< crypto/boring;
  
  	crypto/internal/alias
-@@ -490,6 +493,7 @@ var depsRules = `
+@@ -495,6 +498,7 @@ var depsRules = `
  	# CRYPTO-MATH is core bignum-based crypto - no cgo, net; fmt now ok.
  	CRYPTO, FMT, math/big
  	< crypto/internal/boring/bbig
@@ -1631,32 +1630,8 @@ index f7015ff33b7dd2..f2db98cfd10762 100644
  	< crypto/rand
  	< crypto/internal/mlkem768
  	< crypto/ed25519
-diff --git a/src/net/http/client_test.go b/src/net/http/client_test.go
-index 33e69467c6a3f4..7b186b39c2bb4f 100644
---- a/src/net/http/client_test.go
-+++ b/src/net/http/client_test.go
-@@ -946,7 +946,9 @@ func testResponseSetsTLSConnectionState(t *testing.T, mode testMode) {
- 
- 	c := ts.Client()
- 	tr := c.Transport.(*Transport)
--	tr.TLSClientConfig.CipherSuites = []uint16{tls.TLS_ECDHE_RSA_WITH_3DES_EDE_CBC_SHA}
-+	// The cipher suite doesn't really matter, but we need a FIPS-compliant one
-+	// in case fipstls.Required() is true.
-+	tr.TLSClientConfig.CipherSuites = []uint16{tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256}
- 	tr.TLSClientConfig.MaxVersion = tls.VersionTLS12 // to get to pick the cipher suite
- 	tr.Dial = func(netw, addr string) (net.Conn, error) {
- 		return net.Dial(netw, ts.Listener.Addr().String())
-@@ -959,7 +961,7 @@ func testResponseSetsTLSConnectionState(t *testing.T, mode testMode) {
- 	if res.TLS == nil {
- 		t.Fatal("Response didn't set TLS Connection State.")
- 	}
--	if got, want := res.TLS.CipherSuite, tls.TLS_ECDHE_RSA_WITH_3DES_EDE_CBC_SHA; got != want {
-+	if got, want := res.TLS.CipherSuite, tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256; got != want {
- 		t.Errorf("TLS Cipher Suite = %d; want %d", got, want)
- 	}
- }
 diff --git a/src/net/smtp/smtp_test.go b/src/net/smtp/smtp_test.go
-index 259b10b93d9e36..0d48576b358644 100644
+index c91c99b1f53111..7d273ae17cb83f 100644
 --- a/src/net/smtp/smtp_test.go
 +++ b/src/net/smtp/smtp_test.go
 @@ -1105,40 +1105,60 @@ func sendMail(hostPort string) error {

@@ -4,62 +4,17 @@ Date: Tue, 30 Jan 2024 11:40:31 +0100
 Subject: [PATCH] Support TLS 1.3 in fipstls mode
 
 ---
- src/crypto/tls/boring.go                 | 14 +++---
  src/crypto/tls/boring_test.go            | 54 +++++++++++++++++++-----
  src/crypto/tls/cipher_suites.go          | 15 +++++--
+ src/crypto/tls/defaults.go               |  3 +-
  src/crypto/tls/handshake_client.go       | 13 +++++-
  src/crypto/tls/handshake_client_tls13.go |  4 --
  src/crypto/tls/handshake_server_test.go  |  3 ++
  src/crypto/tls/handshake_server_tls13.go |  7 ++-
- src/crypto/tls/notboring.go              |  2 +
- 8 files changed, 83 insertions(+), 29 deletions(-)
+ 7 files changed, 73 insertions(+), 26 deletions(-)
 
-diff --git a/src/crypto/tls/boring.go b/src/crypto/tls/boring.go
-index ecd0f5a7b3e9ed..07f15ab91eefd3 100644
---- a/src/crypto/tls/boring.go
-+++ b/src/crypto/tls/boring.go
-@@ -17,14 +17,14 @@ func needFIPS() bool {
- 
- // fipsMinVersion replaces c.minVersion in FIPS-only mode.
- func fipsMinVersion(c *Config) uint16 {
--	// FIPS requires TLS 1.2.
-+	// FIPS requires TLS 1.2 or TLS 1.3.
- 	return VersionTLS12
- }
- 
- // fipsMaxVersion replaces c.maxVersion in FIPS-only mode.
- func fipsMaxVersion(c *Config) uint16 {
--	// FIPS requires TLS 1.2.
--	return VersionTLS12
-+	// FIPS requires TLS 1.2 or TLS 1.3.
-+	return VersionTLS13
- }
- 
- // default defaultFIPSCurvePreferences is the FIPS-allowed curves,
-@@ -54,8 +54,6 @@ var defaultCipherSuitesFIPS = []uint16{
- 	TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
- 	TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
- 	TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
--	TLS_RSA_WITH_AES_128_GCM_SHA256,
--	TLS_RSA_WITH_AES_256_GCM_SHA384,
- }
- 
- // fipsCipherSuites replaces c.cipherSuites in FIPS-only mode.
-@@ -75,6 +73,12 @@ func fipsCipherSuites(c *Config) []uint16 {
- 	return list
- }
- 
-+// defaultCipherSuitesTLS13FIPS are the FIPS-allowed cipher suites for TLS 1.3.
-+var defaultCipherSuitesTLS13FIPS = []uint16{
-+	TLS_AES_128_GCM_SHA256,
-+	TLS_AES_256_GCM_SHA384,
-+}
-+
- // fipsSupportedSignatureAlgorithms currently are a subset of
- // defaultSupportedSignatureAlgorithms without Ed25519 and SHA-1.
- var fipsSupportedSignatureAlgorithms = []SignatureScheme{
 diff --git a/src/crypto/tls/boring_test.go b/src/crypto/tls/boring_test.go
-index c28aa8f1bfbe8c..4c7b827f1288bf 100644
+index 1b47fc8bffdf1d..eda147261bbc96 100644
 --- a/src/crypto/tls/boring_test.go
 +++ b/src/crypto/tls/boring_test.go
 @@ -30,6 +30,31 @@ func init() {
@@ -155,7 +110,7 @@ index c28aa8f1bfbe8c..4c7b827f1288bf 100644
  				random:             make([]byte, 32),
  				cipherSuites:       []uint16{id},
  				compressionMethods: []uint8{compressionNone},
- 				supportedCurves:    defaultCurvePreferences,
+ 				supportedCurves:    defaultCurvePreferences(),
 +				keyShares:          []keyShare{generateKeyShare(CurveP256)},
  				supportedPoints:    []uint8{pointFormatUncompressed},
 +				supportedVersions:  []uint16{VersionTLS12},
@@ -168,7 +123,7 @@ index c28aa8f1bfbe8c..4c7b827f1288bf 100644
  			}
  
  			testClientHello(t, serverConfig, clientHello)
-@@ -289,7 +321,7 @@ func TestBoringClientHello(t *testing.T) {
+@@ -293,7 +325,7 @@ func TestBoringClientHello(t *testing.T) {
  	}
  
  	if !isBoringVersion(hello.vers) {
@@ -178,7 +133,7 @@ index c28aa8f1bfbe8c..4c7b827f1288bf 100644
  	for _, v := range hello.supportedVersions {
  		if !isBoringVersion(v) {
 diff --git a/src/crypto/tls/cipher_suites.go b/src/crypto/tls/cipher_suites.go
-index 9079b5a2e3d50d..bda80e81cd5396 100644
+index 42a26005ff31f2..0c16bd8a884e14 100644
 --- a/src/crypto/tls/cipher_suites.go
 +++ b/src/crypto/tls/cipher_suites.go
 @@ -17,6 +17,7 @@ import (
@@ -187,9 +142,9 @@ index 9079b5a2e3d50d..bda80e81cd5396 100644
  	"internal/cpu"
 +	"internal/goexperiment"
  	"runtime"
+ 	_ "unsafe" // for linkname
  
- 	"golang.org/x/crypto/chacha20poly1305"
-@@ -556,9 +557,17 @@ func aeadAESGCMTLS13(key, nonceMask []byte) aead {
+@@ -552,9 +553,17 @@ func aeadAESGCMTLS13(key, nonceMask []byte) aead {
  	if err != nil {
  		panic(err)
  	}
@@ -210,11 +165,32 @@ index 9079b5a2e3d50d..bda80e81cd5396 100644
  	}
  
  	ret := &xorNonceAEAD{aead: aead}
+diff --git a/src/crypto/tls/defaults.go b/src/crypto/tls/defaults.go
+index 9b28acdc2d866a..3e780f447b522b 100644
+--- a/src/crypto/tls/defaults.go
++++ b/src/crypto/tls/defaults.go
+@@ -92,6 +92,7 @@ var defaultCipherSuitesTLS13NoAES = []uint16{
+ 
+ var defaultSupportedVersionsFIPS = []uint16{
+ 	VersionTLS12,
++	VersionTLS13,
+ }
+ 
+ // defaultCurvePreferencesFIPS are the FIPS-allowed curves,
+@@ -118,8 +119,6 @@ var defaultCipherSuitesFIPS = []uint16{
+ 	TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
+ 	TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
+ 	TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
+-	TLS_RSA_WITH_AES_128_GCM_SHA256,
+-	TLS_RSA_WITH_AES_256_GCM_SHA384,
+ }
+ 
+ // defaultCipherSuitesTLS13FIPS are the FIPS-allowed cipher suites for TLS 1.3.
 diff --git a/src/crypto/tls/handshake_client.go b/src/crypto/tls/handshake_client.go
-index 4215d99122e585..1258a591ce1f3a 100644
+index 6873e8daf631a7..585640d4b1a4d5 100644
 --- a/src/crypto/tls/handshake_client.go
 +++ b/src/crypto/tls/handshake_client.go
-@@ -139,13 +139,22 @@ func (c *Conn) makeClientHello() (*clientHelloMsg, *ecdh.PrivateKey, error) {
+@@ -141,13 +141,22 @@ func (c *Conn) makeClientHello() (*clientHelloMsg, *keySharePrivateKeys, *echCon
  		if len(hello.supportedVersions) == 1 {
  			hello.cipherSuites = nil
  		}
@@ -227,23 +203,23 @@ index 4215d99122e585..1258a591ce1f3a 100644
  			hello.cipherSuites = append(hello.cipherSuites, defaultCipherSuitesTLS13NoAES...)
  		}
  
--		curveID := config.curvePreferences()[0]
-+		curveIDs := config.curvePreferences()
+-		curveID := config.curvePreferences(maxVersion)[0]
++		curveIDs := config.curvePreferences(maxVersion)
 +		if len(curveIDs) == 0 {
 +			// If TLS 1.3 FIPS restrictions are enabled, the filter applied by
 +			// curvePreferences() may exclude all curves specified by config.
 +			// In this case, there are certainly no supported curves.
-+			return nil, nil, errors.New("tls: CurvePreferences includes no supported curves")
++			return nil, nil, nil, errors.New("tls: CurvePreferences includes no supported curves")
 +		}
 +		curveID := curveIDs[0]
- 		if _, ok := curveForCurveID(curveID); !ok {
- 			return nil, nil, errors.New("tls: CurvePreferences includes unsupported curve")
- 		}
+ 		keyShareKeys = &keySharePrivateKeys{curveID: curveID}
+ 		if curveID == x25519Kyber768Draft00 {
+ 			keyShareKeys.ecdhe, err = generateECDHEKey(config.rand(), X25519)
 diff --git a/src/crypto/tls/handshake_client_tls13.go b/src/crypto/tls/handshake_client_tls13.go
-index 88ec383bf8351f..db06b0f4dad2bc 100644
+index 6744e713c9ffa8..5b4c4568555d3d 100644
 --- a/src/crypto/tls/handshake_client_tls13.go
 +++ b/src/crypto/tls/handshake_client_tls13.go
-@@ -41,10 +41,6 @@ type clientHandshakeStateTLS13 struct {
+@@ -45,10 +45,6 @@ type clientHandshakeStateTLS13 struct {
  func (hs *clientHandshakeStateTLS13) handshake() error {
  	c := hs.c
  
@@ -255,7 +231,7 @@ index 88ec383bf8351f..db06b0f4dad2bc 100644
  	// sections 4.1.2 and 4.1.3.
  	if c.handshakes > 0 {
 diff --git a/src/crypto/tls/handshake_server_test.go b/src/crypto/tls/handshake_server_test.go
-index 813495d7b99497..f891fd0c318d17 100644
+index bc45a289c1ed70..47e2ce17bb9e8e 100644
 --- a/src/crypto/tls/handshake_server_test.go
 +++ b/src/crypto/tls/handshake_server_test.go
 @@ -27,6 +27,7 @@ import (
@@ -266,8 +242,8 @@ index 813495d7b99497..f891fd0c318d17 100644
  	testClientHelloFailure(t, serverConfig, m, "")
  }
  
-@@ -83,9 +84,11 @@ func testClientHelloFailure(t *testing.T, serverConfig *Config, m handshakeMessa
- 	s.Close()
+@@ -84,9 +85,11 @@ func testClientHelloFailure(t *testing.T, serverConfig *Config, m handshakeMessa
+ 	t.Helper()
  	if len(expectedSubStr) == 0 {
  		if err != nil && err != io.EOF {
 +			t.Helper()
@@ -279,10 +255,10 @@ index 813495d7b99497..f891fd0c318d17 100644
  	}
  }
 diff --git a/src/crypto/tls/handshake_server_tls13.go b/src/crypto/tls/handshake_server_tls13.go
-index ab030568430ff7..c47237dd0cbc4a 100644
+index f88fcad4e78f0d..b95299a44c8fc1 100644
 --- a/src/crypto/tls/handshake_server_tls13.go
 +++ b/src/crypto/tls/handshake_server_tls13.go
-@@ -47,10 +47,6 @@ type serverHandshakeStateTLS13 struct {
+@@ -48,10 +48,6 @@ type serverHandshakeStateTLS13 struct {
  func (hs *serverHandshakeStateTLS13) handshake() error {
  	c := hs.c
  
@@ -293,7 +269,7 @@ index ab030568430ff7..c47237dd0cbc4a 100644
  	// For an overview of the TLS 1.3 handshake, see RFC 8446, Section 2.
  	if err := hs.processClientHello(); err != nil {
  		return err
-@@ -165,6 +161,9 @@ func (hs *serverHandshakeStateTLS13) processClientHello() error {
+@@ -166,6 +162,9 @@ func (hs *serverHandshakeStateTLS13) processClientHello() error {
  	if !hasAESGCMHardwareSupport || !aesgcmPreferred(hs.clientHello.cipherSuites) {
  		preferenceList = defaultCipherSuitesTLS13NoAES
  	}
@@ -303,13 +279,3 @@ index ab030568430ff7..c47237dd0cbc4a 100644
  	for _, suiteID := range preferenceList {
  		hs.suite = mutualCipherSuiteTLS13(hs.clientHello.cipherSuites, suiteID)
  		if hs.suite != nil {
-diff --git a/src/crypto/tls/notboring.go b/src/crypto/tls/notboring.go
-index 5a133c9b2f94c7..7625ccb867dd92 100644
---- a/src/crypto/tls/notboring.go
-+++ b/src/crypto/tls/notboring.go
-@@ -18,3 +18,5 @@ func fipsCurvePreferences(c *Config) []CurveID { panic("fipsCurvePreferences") }
- func fipsCipherSuites(c *Config) []uint16      { panic("fipsCipherSuites") }
- 
- var fipsSupportedSignatureAlgorithms []SignatureScheme
-+
-+var defaultCipherSuitesTLS13FIPS []uint16
