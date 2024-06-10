@@ -42,6 +42,7 @@ func main() {
 	flag.BoolVar(&o.Test, "test", false, "Enable running tests.")
 	flag.BoolVar(&o.JSON, "json", false, "Runs tests with -json flag to emit verbose results in JSON format. For use in CI.")
 	flag.BoolVar(&o.Pack, "pack", false, "Enable creating an archive file similar to the official Go binary release.")
+	flag.BoolVar(&o.CreatePDB, "pdb", false, "Create PDB files for all the PE binaries in the bin and tool directories. The PE files are modified in place and PDBs are placed in eng/artifacts/symbols.")
 
 	flag.BoolVar(
 		&o.Refresh, "refresh", false,
@@ -78,6 +79,7 @@ type options struct {
 	Test       bool
 	JSON       bool
 	Pack       bool
+	CreatePDB  bool
 	Refresh    bool
 	Experiment string
 
@@ -230,8 +232,55 @@ func build(o *options) error {
 		}
 	}
 
+	goRootDir := filepath.Join(rootDir, "go")
+	if o.CreatePDB {
+		if _, err := exec.LookPath("gopdb"); err != nil {
+			return fmt.Errorf("gopdb not found in PATH: %v", err)
+		}
+		// Print the version of gopdb to the console.
+		cmd := exec.Command("gopdb", "-version")
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		if err := runCmd(cmd); err != nil {
+			return fmt.Errorf("gopdb failed: %v", err)
+		}
+
+		// Traverse the bin and tool directories to find all the binaries to generate PDBs for.
+		binDir := filepath.Join(goRootDir, "bin")
+		toolsDir := filepath.Join(goRootDir, "pkg", "tool", targetOS+"_"+targetArch)
+		artifactsPDBDir := filepath.Join(rootDir, "eng", "artifacts", "symbols")
+
+		if err := os.MkdirAll(artifactsPDBDir, os.ModePerm); err != nil {
+			return err
+		}
+
+		var bins []string
+		for _, dir := range []string{binDir, toolsDir} {
+			entries, err := os.ReadDir(dir)
+			if err != nil {
+				return err
+			}
+			for _, entry := range entries {
+				if !entry.Type().IsRegular() {
+					continue
+				}
+				bins = append(bins, filepath.Join(dir, entry.Name()))
+			}
+		}
+
+		// Generate PDBs for all the binaries.
+		for _, bin := range bins {
+			out := filepath.Join(artifactsPDBDir, filepath.Base(bin)+"."+targetOS+"-"+targetArch+".pdb")
+			cmd := exec.Command("gopdb", "-o", out, bin)
+			cmd.Stdout = os.Stdout
+			cmd.Stderr = os.Stderr
+			if err := runCmd(cmd); err != nil {
+				return fmt.Errorf("gopdb failed: %v", err)
+			}
+		}
+	}
+
 	if o.Pack {
-		goRootDir := filepath.Join(rootDir, "go")
 		output := archive.DefaultBuildOutputPath(goRootDir, targetOS, targetArch)
 		if err := archive.CreateFromBuild(goRootDir, output); err != nil {
 			return err

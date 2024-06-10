@@ -11,11 +11,21 @@ parameters:
   - name: pool
     type: object
 
+  - name: publishExistingRunID
+    type: string
+    default: 'nil'
+
   # Unused. Declared so pool selection doesn't fail when trying to pass them.
   - name: builder
     type: object
   - name: official
     type: boolean
+  - name: builders
+    type: object
+    default: []
+  - name: publishSymbols
+    type: boolean
+    default: false
 
 stages:
   - stage: Publish${{ parameters.public }}
@@ -23,25 +33,25 @@ stages:
       displayName: Publish Public
     ${{ else }}:
       displayName: Publish Internal
-    dependsOn: Sign
+    ${{ if eq(parameters.publishExistingRunID, 'nil') }}:
+      dependsOn: Sign
+    ${{ else }}:
+      dependsOn: []
     jobs:
       - job: Publish
         pool: ${{ parameters.pool }}
 
         variables:
-          - ${{ if parameters.public }}:
-            - name: blobContainer
+          - name: blobContainer
+            ${{ if parameters.public }}:
               value: 'https://dotnetbuildoutput.blob.core.windows.net/golang/microsoft'
-            - name: blobSASArg
-              value: --sas-token '$(dotnetbuildoutput-golang-write-sas-query)'
-          - ${{ else }}:
-            - name: blobContainer
+            ${{ else }}:
               value: 'https://golangartifacts.blob.core.windows.net/microsoft'
-            - name: blobSASArg
-              value: '' # golangartifacts is set up with service connection auth.
 
+          - name: blobPrefix
+            value: '$(PublishBranchAlias)/$(Build.BuildNumber)'
           - name: blobDestinationUrl
-            value: '$(blobContainer)/$(PublishBranchAlias)/$(Build.BuildNumber)'
+            value: '$(blobContainer)/$(blobPrefix)'
 
           - group: go-storage
 
@@ -60,10 +70,16 @@ stages:
                 artifact: BuildAssets
               ${{ else }}:
                 artifact: BuildAssetsInternal
+            - ${{ if parameters.publishSymbols }}:
+              - output: pipelineArtifact
+                path: $(Pipeline.Workspace)/Symbols
+                ${{ if parameters.public }}:
+                  artifact: Symbols
+                ${{ else }}:
+                  artifact: SymbolsInternal
 
         steps:
-          - template: ../steps/checkout-unix-task.yml
-          - template: ../steps/init-pwsh-task.yml
+          - template: ../steps/checkout-windows-task.yml
           - template: ../steps/init-submodule-task.yml
 
           - pwsh: |
@@ -89,11 +105,25 @@ stages:
               Write-Host "##vso[task.setvariable variable=PublishBranchAlias;]$branch"
             displayName: Find publish branch alias
 
-          - download: current
-            artifact: Binaries Signed
-            # Filter out manifests added by 1ES pipeline template.
-            patterns: '!_manifest/**'
-            displayName: 'Download: Binaries Signed'
+          - ${{ if eq(parameters.publishExistingRunID, 'nil') }}:
+            - download: current
+              artifact: Binaries Signed
+              # Filter out manifests added by 1ES pipeline template.
+              patterns: '!_manifest/**'
+              displayName: 'Download: Binaries Signed'
+          - ${{ else }}:
+            - task: DownloadPipelineArtifact@2
+              displayName: 'Download: Binaries Signed (Specific)'
+              inputs:
+                buildType: specific
+                project: $(System.TeamProject)
+                definition: $(System.DefinitionId)
+                runVersion: 'specific'
+                runId: ${{ parameters.publishExistingRunID }}
+                artifact: Binaries Signed
+                # Filter out manifests added by 1ES pipeline template.
+                patterns: '!_manifest/**'
+                targetPath: '$(Pipeline.Workspace)/Binaries Signed'
 
           - pwsh: |
               eng/run.ps1 createbuildassetjson `
@@ -104,23 +134,81 @@ stages:
                 -o '$(Pipeline.Workspace)/Binaries Signed/assets.json'
             displayName: 'Create build asset JSON'
 
-          - task: AzureCLI@2
-            displayName: Upload to blob storage
-            inputs:
-              azureSubscription: GoLang
-              scriptType: bash
-              scriptLocation: inlineScript
-              # Send literal '*' to az: it handles the wildcard itself. Az copy only accepts one
-              # "from" argument, so we can't use the shell's wildcard expansion.
-              inlineScript: |
-                az storage copy -s '*' -d '$(blobDestinationUrl)' $(blobSASArg)
-              workingDirectory: '$(Pipeline.Workspace)/Binaries Signed/'
+          - ${{ if parameters.public }}:
+            - task: AzureCLI@2
+              displayName: Upload to blob storage
+              inputs:
+                azureSubscription: GoLang
+                scriptType: bash
+                scriptLocation: inlineScript
+                # Send literal '*' to az: it handles the wildcard itself. Az copy only accepts one
+                # "from" argument, so we can't use the shell's wildcard expansion.
+                inlineScript: |
+                  az storage copy -s '*' -d '$(blobDestinationUrl)' --sas-token '$(dotnetbuildoutput-golang-write-sas-query)'
+                workingDirectory: '$(Pipeline.Workspace)/Binaries Signed/'
+          - ${{ else }}:
+            - task: AzureFileCopy@6
+              displayName: Upload to blob storage
+              inputs:
+                Destination: AzureBlob
+                azureSubscription: golang-pme-storage
+                storage: golangartifactsbackup
+                ContainerName: microsoft
+                SourcePath: '$(Pipeline.Workspace)/Binaries Signed/*'
+                BlobPrefix: $(blobPrefix)
 
-          - script: |
-              echo 'Generated links to artifacts in blob storage:'
-              echo ''
-              for f in *; do
-                echo "$(blobDestinationUrl)/$f"
-              done
-            displayName: Show uploaded URLs
+          - pwsh: |
+              Write-Host 'Generated links to artifacts in blob storage:'
+              Write-Host ''
+              Get-ChildItem -File -Path '.' | %{
+                Write-Host "$(blobDestinationUrl)/$($_.Name)"
+              }
+            displayName: Show expected uploaded URLs
             workingDirectory: '$(Pipeline.Workspace)/Binaries Signed/'
+
+          - ${{ if eq(parameters.publishSymbols, true) }}:
+            - ${{ each builder in parameters.builders }}:
+              - ${{ if eq(parameters.publishExistingRunID, 'nil') }}:
+                - download: current
+                  artifact: Symbols ${{ builder.id }}
+                  # Filter out manifests added by 1ES pipeline template.
+                  patterns: '!_manifest/**'
+                  displayName: 'Download: Symbols ${{ builder.id }}'
+              - ${{ else }}:
+                - task: DownloadPipelineArtifact@2
+                  displayName: 'Download: Symbols ${{ builder.id }} (Specific)'
+                  inputs:
+                    buildType: specific
+                    project: $(System.TeamProject)
+                    definition: $(System.DefinitionId)
+                    runVersion: 'specific'
+                    runId: ${{ parameters.publishExistingRunID }}
+                    artifact: Symbols ${{ builder.id }}
+                    # Filter out manifests added by 1ES pipeline template.
+                    patterns: '!_manifest/**'
+                    targetPath: '$(Pipeline.Workspace)/Symbols ${{ builder.id }}'
+
+              - pwsh: |
+                  $flatDir = "$(Pipeline.Workspace)/Symbols"
+                  New-Item $flatDir -ItemType Directory -ErrorAction Ignore
+
+                  Get-ChildItem -Recurse -File -Path @(
+                    'Symbols ${{ builder.id }}'
+                  ) | %{
+                    if (Test-Path "$flatDir\$($_.Name)") {
+                      throw "Duplicate filename, unable to flatten: $($_.FullName)"
+                    }
+                    Copy-Item $_.FullName $flatDir
+                  }
+                displayName: 'Flatten: Symbols ${{ builder.id }}'
+                workingDirectory: '$(Pipeline.Workspace)'
+            - task: PublishSymbols@2
+              inputs:
+                SymbolsFolder: $(Pipeline.Workspace)/Symbols
+                SearchPattern: '*.pdb'
+                SymbolServerType: TeamServices
+                # Source indexing doesn't work for us. It needs the source files to be available
+                # in the AzDO repo, but we pull them at build time using a git submodule.
+                # See https://github.com/microsoft/go-lab/issues/67.
+                IndexSources: false
+              displayName: Publish symbols

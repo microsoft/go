@@ -13,6 +13,10 @@ parameters:
     type: boolean
     default: false
 
+  - name: createSymbols
+    type: boolean
+    default: false
+
   - name: releaseVersion
     type: string
     default: 'nil'
@@ -64,6 +68,8 @@ stages:
 
         variables:
           - group: go-cmdscan-rules
+          - name: createPDB
+            value: ${{ and(eq(parameters.createSymbols, true), eq(parameters.builder.config, 'buildandpack'), eq(parameters.builder.os, 'windows')) }} # Only create PDBs on Windows
 
         ${{ if and(parameters.official, eq(parameters.builder.config, 'buildandpack')) }}:
           templateContext:
@@ -72,6 +78,9 @@ stages:
               - output: pipelineArtifact
                 path: eng/artifacts/bin
                 artifact: Binaries ${{ parameters.builder.id }}
+              - output: pipelineArtifact
+                path: eng/artifacts/symbols
+                artifact: Symbols ${{ parameters.builder.id }}
 
         steps:
           - ${{ if eq(parameters.builder.os, 'linux') }}:
@@ -88,6 +97,11 @@ stages:
 
             - template: ../steps/checkout-unix-task.yml
             - template: ../steps/init-pwsh-task.yml
+          
+          - pwsh: |
+              New-Item eng/artifacts/bin -ItemType Directory -ErrorAction Ignore
+              New-Item eng/artifacts/symbols -ItemType Directory -ErrorAction Ignore
+            displayName: Create artifact directories
 
           - ${{ if eq(parameters.builder.os, 'windows') }}:
             - template: ../steps/checkout-windows-task.yml
@@ -130,12 +144,18 @@ stages:
               - pwsh: Write-Host "##vso[task.setvariable variable=GOARM]6"
                 displayName: Set GOARM for cross-compile
 
+          - ${{ if eq(variables.createPDB, true) }}:
+            - template: ../steps/install-gopdb.yml
+
           # Use build script directly for "buildandpack". If we used run-builder, we would need to
           # download its external module dependencies.
           - ${{ if eq(parameters.builder.config, 'buildandpack' ) }}:
             - pwsh: |
                 eng/run.ps1 cmdscan -envprefix GO_CMDSCAN_RULE_ -- `
-                  pwsh eng/run.ps1 build -pack
+                  pwsh eng/run.ps1 build -pack $env:CREATE_PDB_ARG
+              env:
+                ${{ if eq(variables.createPDB, true) }}:
+                  CREATE_PDB_ARG: '-pdb'
               displayName: Build and Pack
 
           # Use run-builder for any configuration that includes tests. run-builder uses the "gotestsum"
