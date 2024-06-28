@@ -1,8 +1,9 @@
 # Downloading a binary release of the Microsoft build of Go
 
-> ❗ This document is only actively maintained in the `microsoft/main` branch. If you're viewing this file in a release branch, it may be stale. [If you're not sure, click here to go to the maintained version of this document.](https://github.com/microsoft/go/blob/microsoft/main/eng/doc/Downloads.md)
+> [!IMPORTANT]
+> This document is only actively maintained in the `microsoft/main` branch. If you're viewing this file in a release branch, it may be stale. [If you're not sure, click here to go to the maintained version of this document.](https://github.com/microsoft/go/blob/microsoft/main/eng/doc/Downloads.md)
 
-This document contains a list of links to the binary releases of the Microsoft build of Go. This is only one way to get a build: for other download/install options, see [README.md#binary-distribution](/README.md#binary-distribution).
+This document contains a list of links to the binary releases of the Microsoft build of Go. This is only one way to get a build: for other download/install options, see [README.md#download-and-install](/README.md#download-and-install).
 
 ## Downloads
 

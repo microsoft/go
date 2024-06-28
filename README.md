@@ -53,40 +53,58 @@ This normally happens once a month. At any time, we may release a new revision
 Revision releases are uncommon.
 
 Each microsoft/go release is announced in
-[the internal Microsoft Go Toolset Announcements email distribution list 📧](https://idwebelements.microsoft.com/GroupManagement.aspx?Group=golang-announce&Operation=join).
+[a Microsoft-internal email distribution list 📧](https://idwebelements.microsoft.com/GroupManagement.aspx?Group=golang-announce&Operation=join) and the [Microsoft for Go Developers](https://devblogs.microsoft.com/go/) blog.
 
 ## Download and install
 
-This repository's infrastructure currently supports these OS/Arch combinations:
+We build the forked Go toolset with this list of OS/Arch combinations. To use a
+prebuilt copy of Go while targeting a platform not on this list,
+cross-compilation may be necessary.
 
 * `linux_amd64`
 * `linux_armv6l`
 * `linux_arm64`
 * `windows_amd64`
 
-See [eng/README.md](eng/README.md) for more details about the infrastructure.
+The following sections list the ways to get a build of the Microsoft fork of Go.
 
-### Binary distribution
+> [!NOTE]
+> Don't see an option that works for you? Let us know!  
+> File a GitHub issue, or comment on an existing issue in this tag:
+  [![](https://img.shields.io/github/labels/microsoft/go/Area-Acquisition)](https://github.com/microsoft/go/labels/Area-Acquisition)
 
-* **[microsoft/go-images](https://github.com/microsoft/go-images)** distributes
-  the binaries of this Go fork by producing Docker images that are published to
-  the Microsoft Container Registry. This is the recommended way to use the
-  Microsoft build of Go.
+### Docker Container Images
 
-* [**Binary archives**: visit the `microsoft/main` branch `eng/doc/Downloads.md`
-  file](https://github.com/microsoft/go/blob/microsoft/main/eng/doc/Downloads.md)
-  to download binaries and source tarballs built by supported release branches.
+**[microsoft/go-images](https://github.com/microsoft/go-images)** maintains and
+documents container images that are available on Microsoft Artifact Registry.
 
-* [**GitHub Releases**: the microsoft/go GitHub
-  releases](https://github.com/microsoft/go/releases) have source code archive
-  attachments and an `assets.json` file that can be used to locate the binaries
-  for that release.
+### Azure Linux
 
-Don't see an option that works for you? Let us know! File a GitHub issue, or
-comment on an existing issue in this tag:
-[![](https://img.shields.io/github/labels/microsoft/go/Area-Acquisition)](https://github.com/microsoft/go/labels/Area-Acquisition)
+The **[Azure Linux](https://github.com/microsoft/azurelinux)** distribution
+includes builds of this Go fork.
+
+* In Azure Linux 2.0, the package `msft-golang` installs this fork.
+* In Azure Linux 3.0, the `golang` package installs this fork.
+
+### Binary archive
+
+[Completed builds of Go](https://github.com/microsoft/go/blob/microsoft/main/eng/doc/Downloads.md)
+for several platforms are available as `zip` and `tar.gz` files.
 
 ### Build from source
+
+#### Pre-patched source tarball
+
+[The microsoft/go GitHub releases](https://github.com/microsoft/go/releases)
+include a source tarball file ending in `.src.tar.gz`. After downloading and
+extracting the tar.gz file, build it using the
+[upstream instructions](https://go.dev/doc/install/source).
+
+#### Clone and build
+
+This repository wraps the upstream Go repository and includes build scripts that
+automate some aspects of the build process. See [eng/README.md](eng/README.md)
+for more details about the infrastructure.
 
 Prerequisites:
 
@@ -95,18 +113,14 @@ Prerequisites:
   * Exception: this repository's build script automatically downloads a
     bootstrap version of Go.
 
-After cloning the repository, use the following build command. You can pass the
-`-help` flag to show more options:
+After cloning the repository and checking out the desired tag or commit, use the
+following build command:
 
 ```
 pwsh eng/run.ps1 build -refresh
 ```
 
 The resulting Go binary can then be found at `go/bin/go`.
-
-> If you download a source archive from a GitHub release, use the official Go
-> install from source instructions. These source archives only include the `go`
-> directory, not the microsoft/go build infrastructure.
 
 ## Contributing
 
