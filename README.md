@@ -58,7 +58,7 @@ Each microsoft/go release is announced in
 ## Download and install
 
 We build the forked Go toolset with this list of OS/Arch combinations. To use a
-prebuilt copy of Go while targeting a platform not on this list,
+prebuilt copy of Go while targeting a platform that is not on this list,
 cross-compilation may be necessary.
 
 * `linux_amd64`
