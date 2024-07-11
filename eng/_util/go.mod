@@ -7,7 +7,7 @@ module github.com/microsoft/go/_util
 go 1.21
 
 require (
-	github.com/microsoft/go-infra v0.0.1
+	github.com/microsoft/go-infra v0.0.2
 	github.com/microsoft/go/_core v0.0.0
 	golang.org/x/sys v0.21.0
 	gotest.tools/gotestsum v1.12.0
@@ -25,8 +25,7 @@ require (
 	github.com/microsoft/azure-devops-go-api/azuredevops v1.0.0-b5 // indirect
 	golang.org/x/sync v0.7.0 // indirect
 	golang.org/x/term v0.20.0 // indirect
-	golang.org/x/text v0.15.0 // indirect
-	golang.org/x/tools v0.21.0 // indirect
+	golang.org/x/text v0.16.0 // indirect
 )
 
 replace github.com/microsoft/go/_core => ../_core
