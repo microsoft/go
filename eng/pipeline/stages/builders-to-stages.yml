@@ -9,6 +9,8 @@ parameters:
   builders: []
   # If true, publish build artifacts to blob storage.
   publish: false
+  # If true, publish artifacts to the public using Release Studio integration.
+  publishReleaseStudio: false
   # If changed to specify an existing pipeline run, skip build/sign and publish the existing run.
   publishExistingRunID: 'nil'
   # If true, include a signing stage+job that depends on all 'buildandpack' builder jobs finishing.
@@ -54,18 +56,12 @@ stages:
                     - ${{ builder }}
 
   - ${{ if eq(parameters.publish, true) }}:
-    - ${{ if not(startsWith(variables['Build.SourceBranch'], 'refs/heads/internal/')) }}:
-      - template: pool.yml
+    - ${{ if and(not(startsWith(variables['Build.SourceBranch'], 'refs/heads/internal/')), eq(parameters.publishReleaseStudio, true)) }}:
+      - template: public-publish-stages.yml
         parameters:
-          inner:
-            template: publish-stage.yml
-            parameters:
-              # This is not a builder, but provide partial builder info for agent selection.
-              builder: { os: windows, arch: amd64 }
-              official: true
-              public: true
-              publishExistingRunID: ${{ parameters.publishExistingRunID }}
+          publishExistingRunID: ${{ parameters.publishExistingRunID }}
 
+    # Always publish the results to a private storage account and publish symbols to AzDO.
     - template: pool.yml
       parameters:
         inner:
