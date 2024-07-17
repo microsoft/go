@@ -83,49 +83,11 @@ stages:
         steps:
           - template: ../steps/checkout-windows-task.yml
           - template: ../steps/init-submodule-task.yml
+          - template: ../steps/find-PublishBranchAlias-task.yml
 
-          - pwsh: |
-              function TrimStart($s, $prefix) {
-                if ($s.StartsWith($prefix)) {
-                  return $s.Substring($prefix.Length)
-                }
-                return $s
-              }
-              $branch = "$(Build.SourceBranch)"
-              Write-Host "For Build.SourceBranch '$branch',"
-
-              # $(Build.SourceBranchName) only gives us "feature" for "refs/heads/dev/feature". We
-              # want to publish this as "dev/feature". So, use $(Build.SourceBranch) and figure it
-              # out ourselves.
-              $branch = TrimStart $branch "refs/heads/"
-
-              # Don't include "microsoft/" virtual directory prefix: we are already in the
-              # "microsoft" container, so this would result in "microsoft/microsoft/main".
-              $branch = TrimStart $branch "microsoft/"
-
-              Write-Host "PublishBranchAlias is: $branch"
-              Write-Host "##vso[task.setvariable variable=PublishBranchAlias;]$branch"
-            displayName: Find publish branch alias
-
-          - ${{ if eq(parameters.publishExistingRunID, 'nil') }}:
-            - download: current
-              artifact: Binaries Signed
-              # Filter out manifests added by 1ES pipeline template.
-              patterns: '!_manifest/**'
-              displayName: 'Download: Binaries Signed'
-          - ${{ else }}:
-            - task: DownloadPipelineArtifact@2
-              displayName: 'Download: Binaries Signed (Specific)'
-              inputs:
-                buildType: specific
-                project: $(System.TeamProject)
-                definition: $(System.DefinitionId)
-                runVersion: 'specific'
-                runId: ${{ parameters.publishExistingRunID }}
-                artifact: Binaries Signed
-                # Filter out manifests added by 1ES pipeline template.
-                patterns: '!_manifest/**'
-                targetPath: '$(Pipeline.Workspace)/Binaries Signed'
+          - template: ../steps/download-signed-binaries-task.yml
+            parameters:
+              runID: ${{ parameters.publishExistingRunID }}
 
           - pwsh: |
               eng/run.ps1 createbuildassetjson `
