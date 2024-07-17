@@ -1,0 +1,77 @@
+# Copyright (c) Microsoft Corporation.
+# Use of this source code is governed by a BSD-style
+# license that can be found in the LICENSE file.
+
+# This stage performs common setup for each of the several stages involved in
+# public publishing using Release Studio. It gets the utilities needed to
+# publish the build artifacts publicly, executes common logic needed by each
+# stage involved, and then executes some provided steps.
+
+parameters:
+  - name: id 
+    type: string
+
+  - name: dependsOn
+    type: object
+    default: []
+
+  - name: templateContext
+    type: object
+    default: {}
+
+  - name: variables
+    type: object
+    default: []
+
+  - name: steps
+    type: object
+
+stages:
+  - stage: ${{ parameters.id }}
+    dependsOn: ${{ parameters.dependsOn }}
+
+    jobs:
+      - job: ${{ parameters.id }}
+        pool:
+          name: DotNet-Publishing-1ES-MI
+        workspace:
+          clean: all
+        timeoutInMinutes: 240 # 4hr
+        ${{ if parameters.templateContext }}:
+          templateContext: ${{ parameters.templateContext }}
+        variables:
+          # Group includes these relevant variables:
+          # - MI_ClientId
+          # - ReleaseStudioPublishOwnerAliases
+          - group: go-release-config
+
+          - name: GoBinariesDir
+            value: $(Pipeline.Workspace)/Binaries Signed
+          - name: NetCorePublishingScripts
+            value: $(Build.SourcesDirectory)/eng/release-studio/bin/Debug/net7.0/MsGoPublishingScripts
+
+          # This is read directly by release studio scripts through env.
+          - name: RMExecutionEnvironment
+            value: Production
+
+          - ${{ each variable in parameters.variables }}:
+            - ${{ variable }}
+        steps:
+          - template: ../steps/checkout-windows-task.yml
+          - template: ../steps/find-PublishBranchAlias-task.yml
+
+          - task: NuGetAuthenticate@1
+            displayName: 'Authenticate to AzDO Feeds'
+
+          - task: DotNetCoreCLI@2
+            displayName: 'Acquire tools using csproj'
+            inputs:
+              command: custom
+              projects: '$(Build.SourcesDirectory)/eng/release-studio/ReleaseStudio.csproj'
+              custom: build
+              arguments: >-
+                /bl:eng/release-studio/Build.binlog
+                /v:n
+
+          - ${{ each step in parameters.steps }}:
+            - ${{ step }}
