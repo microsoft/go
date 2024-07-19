@@ -1,0 +1,189 @@
+# Copyright (c) Microsoft Corporation.
+# Use of this source code is governed by a BSD-style
+# license that can be found in the LICENSE file.
+
+# These stages publish a build's artifacts to the public location using Release
+# Studio integration.
+
+parameters:
+  - name: publishExistingRunID
+    type: string
+    default: 'nil'
+
+stages:
+  - template: public-publish-stage.yml
+    parameters:
+      id: PublishPublicBinaries
+
+      ${{ if eq(parameters.publishExistingRunID, 'nil') }}:
+        dependsOn: Sign
+      ${{ else }}:
+        dependsOn: []
+
+      steps:
+        - template: ../steps/download-signed-binaries-task.yml
+          parameters:
+            runID: ${{ parameters.publishExistingRunID }}
+
+        - task: PowerShell@2
+          displayName: ➡️ Send Publishing Request To Release Studio
+          inputs:
+            targetType: filePath
+            filePath: '$(NetCorePublishingScripts)/RM.MsGo.SendPublishRequest.ps1'
+            arguments:
+              -MIClientId "$(MI_ClientId)"
+              -PublishingFilesPath "$(GoBinariesDir)"
+              -BuildNumber "$(Build.BuildNumber)"
+              -BranchName "$(PublishBranchAlias)"
+              -OwnerAliases $(ReleaseStudioPublishOwnerAliases)
+              -ReleaseIdVariableName 'MsGoPublishRequestIdBinaries'
+
+        # The publish request script sets this variable, but doesn't mark it as an output.
+        - pwsh: echo '##vso[task.setvariable variable=MsGoPublishRequestIdBinaries;isOutput=true]$(MsGoPublishRequestIdBinaries)'
+          displayName: 'Set MsGoPublishRequestIdBinaries isOutput=true'
+          name: OutVariables
+
+  - template: public-publish-stage.yml
+    parameters:
+      id: WaitPublicBinaries
+      dependsOn: PublishPublicBinaries
+      variables:
+        - name: RequestID
+          value: $[ stageDependencies.PublishPublicBinaries.PublishPublicBinaries.outputs['OutVariables.MsGoPublishRequestIdBinaries'] ]
+        - name: ReleaseStudioBinariesManifestDir
+          value: '$(Pipeline.Workspace)/ReleaseStudioBinariesManifest'
+      templateContext:
+        outputs:
+          - output: pipelineArtifact
+            path: $(ReleaseStudioBinariesManifestDir)
+            artifact: Release Studio Binaries Manifest
+      steps:
+        - task: PowerShell@2
+          displayName: ⌚ Wait for Publishing Request Completion
+          inputs:
+            targetType: filePath
+            filePath: '$(NetCorePublishingScripts)/RM.MsGo.WaitForPublishingRequestToBeLive.ps1'
+            arguments:
+              -MIClientId "$(MI_ClientId)"
+              -RequestId "$(RequestID)"
+
+        - pwsh: New-Item "$(ReleaseStudioBinariesManifestDir)" -ItemType Directory -ErrorAction Ignore
+          displayName: 'Create Publish Manifest File Output Directory'
+
+        - task: PowerShell@2
+          displayName: 🗃️ Create Publish Manifest File
+          inputs:
+            targetType: filePath
+            filePath: '$(NetCorePublishingScripts)/RM.MsGo.CreateOutputManifestFile.ps1'
+            arguments:
+              -MIClientId "$(MI_ClientId)"
+              -OutputDirectory "$(ReleaseStudioBinariesManifestDir)"
+              -RequestId "$(RequestID)"
+
+  - template: public-publish-stage.yml
+    parameters:
+      id: PublishAssetManifest
+      dependsOn: WaitPublicBinaries
+      variables:
+        - name: BuildAssetsPrePublishDir
+          value: '$(Pipeline.Workspace)/BuildAssetsPrePublishDir'
+      templateContext:
+        outputs:
+          - output: pipelineArtifact
+            path: $(BuildAssetsPrePublishDir)
+            artifact: BuildAssetsPrePublish
+      steps:
+        - template: ../steps/download-signed-binaries-task.yml
+          parameters:
+            runID: ${{ parameters.publishExistingRunID }}
+
+        - download: current
+          artifact: Release Studio Binaries Manifest
+          # Filter out manifests added by 1ES pipeline template.
+          patterns: '!_manifest/**'
+          displayName: 'Download: Release Studio Binaries Manifest'
+
+        - pwsh: |
+            New-Item "$(BuildAssetsPrePublishDir)" -ItemType Directory -ErrorAction Ignore
+
+            eng/run.ps1 createbuildassetjson `
+              -artifacts-dir '$(GoBinariesDir)' `
+              -source-dir '$(Build.SourcesDirectory)' `
+              -destination-manifest-file '$(Pipeline.Workspace)/Release Studio Binaries Manifest/msGo.output.manifest.json' `
+              -branch '$(PublishBranchAlias)' `
+              -o '$(BuildAssetsPrePublishDir)/assets.json'
+          displayName: 🏗️ Create build asset JSON
+
+        - task: PowerShell@2
+          displayName: ➡️ Send Publishing Request To Release Studio
+          inputs:
+            targetType: filePath
+            filePath: '$(NetCorePublishingScripts)/RM.MsGo.SendPublishRequest.ps1'
+            arguments:
+              -MIClientId "$(MI_ClientId)"
+              -PublishingFilesPath "$(BuildAssetsPrePublishDir)"
+              -BuildNumber "$(Build.BuildNumber)"
+              -BranchName "$(PublishBranchAlias)"
+              -OwnerAliases $(ReleaseStudioPublishOwnerAliases)
+              -ReleaseIdVariableName 'MsGoPublishRequestIdManifest'
+
+        # The publish request script sets this variable, but doesn't mark it as an output.
+        - pwsh: echo '##vso[task.setvariable variable=MsGoPublishRequestIdManifest;isOutput=true]$(MsGoPublishRequestIdManifest)'
+          displayName: 'Set MsGoPublishRequestIdManifest isOutput=true'
+          name: OutVariables
+
+  - template: public-publish-stage.yml
+    parameters:
+      id: WaitAssetManifest
+      dependsOn: PublishAssetManifest
+      variables:
+        - name: RequestID
+          value: $[ stageDependencies.PublishAssetManifest.PublishAssetManifest.outputs['OutVariables.MsGoPublishRequestIdManifest'] ]
+        - name: ReleaseStudioMetaManifestDir
+          value: '$(Pipeline.Workspace)/ReleaseStudioMetaManifest'
+        - name: PublicBuildAssetsDir
+          value: '$(Pipeline.Workspace)/PublicBuildAssetsDir'
+      templateContext:
+        outputs:
+          - output: pipelineArtifact
+            path: $(PublicBuildAssetsDir)
+            artifact: BuildAssets
+          - output: pipelineArtifact
+            path: $(ReleaseStudioMetaManifestDir)
+            artifact: Release Studio Meta Manifest
+      steps:
+        - task: PowerShell@2
+          displayName: ⌚ Wait for Publishing Request Completion
+          inputs:
+            targetType: filePath
+            filePath: '$(NetCorePublishingScripts)/RM.MsGo.WaitForPublishingRequestToBeLive.ps1'
+            arguments:
+              -MIClientId "$(MI_ClientId)"
+              -RequestId "$(RequestID)"
+
+        - pwsh: New-Item "$(ReleaseStudioMetaManifestDir)" -ItemType Directory -ErrorAction Ignore
+          displayName: 'Create Meta Manifest File Output Directory'
+
+        - task: PowerShell@2
+          displayName: 🗃️ Create Meta Manifest File
+          inputs:
+            targetType: filePath
+            filePath: '$(NetCorePublishingScripts)/RM.MsGo.CreateOutputManifestFile.ps1'
+            arguments:
+              -MIClientId "$(MI_ClientId)"
+              -OutputDirectory "$(ReleaseStudioMetaManifestDir)"
+              -RequestId "$(RequestID)"
+
+        - download: current
+          artifact: BuildAssetsPrePublish
+          patterns: '!_manifest/**'
+          displayName: 'Download: BuildAssetsPrePublish'
+
+        # Assemble the final BuildAssets artifact. Include the publish manifest in the artifact so
+        # the release pipeline knows where to find its public URL.
+        - pwsh: |
+            New-Item "$(PublicBuildAssetsDir)" -ItemType Directory -ErrorAction Ignore
+            # Combine outputs. Put Release Studio output in its own directory.
+            Copy-Item -Path "$(Pipeline.Workspace)\BuildAssetsPrePublish\*" -Destination "$(PublicBuildAssetsDir)"
+            Copy-Item -Path "$(ReleaseStudioMetaManifestDir)" -Destination "$(PublicBuildAssetsDir)" -Recurse
+          displayName: 📦 Assemble BuildAssets artifact
