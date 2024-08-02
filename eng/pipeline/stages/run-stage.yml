@@ -79,6 +79,12 @@ stages:
           - name: createPDB
             value: ${{ and(eq(parameters.createSymbols, true), eq(parameters.builder.config, 'buildandpack'), eq(parameters.builder.os, 'windows')) }} # Only create PDBs on Windows
 
+          - ${{ if eq(parameters.builder.config, 'buildandpack') }}:
+            # Make sure a PR doesn't accidentally add a command that uses more than minimal
+            # dependencies to the buildandpack pipeline.
+            - name: MS_GO_UTIL_ALLOW_ONLY_MINIMAL_DEPS
+              value: '1'
+
           - ${{ if eq(parameters.builder.config, 'codeql_inner') }}:
             # Manually specify the repository being scanned by this job because
             # CodeQL can't detect the inner repository (the submodule)
@@ -139,6 +145,12 @@ stages:
           - ${{ if eq(parameters.builder.config, 'longtest') }}:
             # Set Git authorship info for 'cmd/go TestScript/build_buildvcs_auto'.
             - template: ../steps/set-bot-git-author-task.yml
+
+          # Run the _util tests during the devscript configuration.
+          # It generally shouldn't matter which config these run in, we just need to pick something.
+          - ${{ if eq(parameters.builder.config, 'devscript') }}:
+            - pwsh: eng/run.ps1 selftest
+              displayName: Run _util self-tests
 
           - pwsh: |
               # Apply the patches as staged changes, so the HEAD commit is the same as upstream.

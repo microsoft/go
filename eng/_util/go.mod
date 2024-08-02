@@ -8,7 +8,6 @@ go 1.21
 
 require (
 	github.com/microsoft/go-infra v0.0.3
-	github.com/microsoft/go/_core v0.0.0
 	golang.org/x/sys v0.22.0
 	gotest.tools/gotestsum v1.12.0
 )
@@ -27,5 +26,3 @@ require (
 	golang.org/x/term v0.20.0 // indirect
 	golang.org/x/text v0.16.0 // indirect
 )
-
-replace github.com/microsoft/go/_core => ../_core

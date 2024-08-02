@@ -14,7 +14,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/microsoft/go/_core/supportdata"
+	"github.com/microsoft/go/_util/supportdata"
 )
 
 var description = `

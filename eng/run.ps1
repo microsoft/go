@@ -4,7 +4,7 @@
 
 <#
 .DESCRIPTION
-This script builds and runs a tool defined in a module in 'eng'.
+This script builds and runs a tool defined in 'eng/_util'.
 
 To run a tool:
   run.ps1 <tool> [arguments...]
@@ -15,9 +15,9 @@ For example, to build the repository:
 To list all possible tools:
   run.ps1
 
-Builds 'eng/<module>/cmd/<tool>/<tool>.go' and runs it using the list of
+Builds 'eng/_util/cmd/<tool>/<tool>.go' and runs it using the list of
 arguments. If necessary, this command automatically installs Go and downloads
-the dependencies of the module.
+the dependencies of the tool.
 
 Every tool accepts a '-h' argument to show tool usage help.
 #>
@@ -39,24 +39,23 @@ if ($LASTEXITCODE) {
 
 function Write-ToolList() {
   Write-Host "Possible tools:"
-  foreach ($module in Get-ChildItem (Join-Path $PSScriptRoot "_*")) {
-    Write-Host "  Module $($module.Name):"
-    foreach ($tool in Get-ChildItem (Join-Path $module "cmd" "*")) {
-      Write-Host "    $($tool.Name)"
-    }
+  foreach ($tool in Get-ChildItem (Join-Path $PSScriptRoot "_util" "cmd" "*")) {
+    Write-Host "  $($tool.Name)"
   }
   Write-Host ""
 }
 
 if (-not $tool) {
   Write-Host "No tool specified. Showing help and listing available tools:"
-  (Get-Help $PSCommandPath).DESCRIPTION | Out-String | Write-Host
+  Write-Host ""
+  ((Get-Help $PSCommandPath).DESCRIPTION | Out-String).Trim() | Write-Host
+  Write-Host ""
   Write-ToolList
   exit 0
 }
 
 # Find tool script file based on the name given.
-$tool_search = Join-Path $PSScriptRoot "_*" "cmd" "$tool" "$tool.go"
+$tool_search = Join-Path $PSScriptRoot "_util" "cmd" "$tool" "$tool.go"
 # Find matches, and force the result to be an array.
 $tool_matches = @(Get-Item $tool_search)
 
@@ -111,7 +110,7 @@ try {
     }
   }
 
-  Write-Host "Building done."
+  Write-Host "Built '$tool'. Running from repo root..."
 } finally {
   Pop-Location
 }
