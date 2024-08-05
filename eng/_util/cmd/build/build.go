@@ -15,9 +15,9 @@ import (
 	"runtime"
 	"strings"
 
-	"github.com/microsoft/go/_core/buildutil"
-	"github.com/microsoft/go/_core/patch"
-	"github.com/microsoft/go/_core/submodule"
+	"github.com/microsoft/go-infra/patch"
+	"github.com/microsoft/go-infra/submodule"
+	"github.com/microsoft/go/_util/buildutil"
 )
 
 const description = `
@@ -112,10 +112,14 @@ func build(o *options) error {
 	}
 
 	if o.Refresh {
-		if err := submodule.Reset(rootDir); err != nil {
+		config, err := patch.FindAncestorConfig(rootDir)
+		if err != nil {
 			return err
 		}
-		if err := patch.Apply(rootDir, patch.ApplyModeIndex); err != nil {
+		if err := submodule.Reset(rootDir, filepath.Join(config.RootDir, config.SubmoduleDir), true); err != nil {
+			return err
+		}
+		if err := patch.Apply(config, patch.ApplyModeIndex); err != nil {
 			return err
 		}
 	}
@@ -224,7 +228,7 @@ func build(o *options) error {
 		// For example, if we're running in CI, gotestsum may be capturing our output to report in a
 		// JUnit file. If gotestsum detects output in stderr, it prints it in an error message. This
 		// error message stands out, and could mislead someone trying to diagnose a failed test run.
-		// Redirecting all stderr output avoids this scenario. (See /eng/_core/README.md for more
+		// Redirecting all stderr output avoids this scenario. (See /eng/_util/README.md for more
 		// info on why we may be wrapped by gotestsum.)
 		//
 		// An example of benign stderr output is when the tests check for machine capabilities. A

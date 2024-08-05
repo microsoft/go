@@ -8,9 +8,10 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"path/filepath"
 
-	"github.com/microsoft/go/_core/patch"
-	"github.com/microsoft/go/_core/submodule"
+	"github.com/microsoft/go-infra/patch"
+	"github.com/microsoft/go-infra/submodule"
 )
 
 const description = `
@@ -54,7 +55,12 @@ func refresh(rootDir string) error {
 		return err
 	}
 
-	if err := submodule.Reset(rootDir); err != nil {
+	config, err := patch.FindAncestorConfig(rootDir)
+	if err != nil {
+		return err
+	}
+
+	if err := submodule.Reset(rootDir, filepath.Join(config.RootDir, config.SubmoduleDir), true); err != nil {
 		return err
 	}
 
@@ -67,7 +73,7 @@ func refresh(rootDir string) error {
 		mode = patch.ApplyModeCommits
 	}
 
-	if err := patch.Apply(rootDir, mode); err != nil {
+	if err := patch.Apply(config, mode); err != nil {
 		return err
 	}
 	return nil

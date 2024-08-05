@@ -13,7 +13,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/microsoft/go/_core/buildutil"
+	"github.com/microsoft/go/_util/buildutil"
 	gotestsumcmd "gotest.tools/gotestsum/cmd"
 )
 
