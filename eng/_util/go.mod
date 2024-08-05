@@ -7,7 +7,7 @@ module github.com/microsoft/go/_util
 go 1.21
 
 require (
-	github.com/microsoft/go-infra v0.0.3
+	github.com/microsoft/go-infra v0.0.4
 	golang.org/x/sys v0.22.0
 	gotest.tools/gotestsum v1.12.0
 )
