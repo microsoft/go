@@ -15,11 +15,6 @@ of Go](https://go.dev/dl/).
 Unless otherwise noted, the Go source files are distributed under the
 BSD-style license found in the LICENSE file.
 
-If you are using this fork and have a Microsoft corporate account, consider
-[clicking here to instantly join the Microsoft Go Toolset Announcements email distribution list 📧](https://idwebelements.microsoft.com/GroupManagement.aspx?Group=golang-announce&Operation=join)
-and receive notifications about Microsoft releases of Go and breaking changes.
-We also maintain an [internal doc page](https://eng.ms/docs/more/languages-at-microsoft/go/articles/overview).
-
 ## Why does this fork exist?
 
 This repository produces a modified version of Go that can be used to build FIPS
@@ -52,8 +47,15 @@ This normally happens once a month. At any time, we may release a new revision
 (1.X.Y-Z) to fix an issue without waiting for the next upstream minor release.
 Revision releases are uncommon.
 
-Each microsoft/go release is announced in
-[a Microsoft-internal email distribution list 📧](https://idwebelements.microsoft.com/GroupManagement.aspx?Group=golang-announce&Operation=join) and the [Microsoft for Go Developers](https://devblogs.microsoft.com/go/) blog.
+Each microsoft/go release is announced at the
+[Microsoft for Go Developers](https://devblogs.microsoft.com/go/) blog.
+Check out the upstream [golang-announce mailing list](https://groups.google.com/g/golang-announce)
+for a summary of the changes in each Go version.
+
+There are a few additional support resources internal to Microsoft:
+* [Languages at Microsoft: Go](https://eng.ms/docs/more/languages-at-microsoft/go/articles/overview).
+* [A Microsoft-internal email distribution list 📧 (instant join link)](https://idwebelements.microsoft.com/GroupManagement.aspx?Group=golang-announce&Operation=join)
+  for release announcements.
 
 ## Download and install
 
@@ -88,7 +90,7 @@ includes builds of this Go fork.
 
 ### Binary archive
 
-[Completed builds of Go](https://github.com/microsoft/go/blob/microsoft/main/eng/doc/Downloads.md)
+[Signed builds of Go](https://github.com/microsoft/go/blob/microsoft/main/eng/doc/Downloads.md)
 for several platforms are available as `zip` and `tar.gz` files.
 
 ### Build from source
