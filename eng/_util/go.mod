@@ -8,7 +8,7 @@ go 1.21
 
 require (
 	github.com/microsoft/go-infra v0.0.4
-	golang.org/x/sys v0.23.0
+	golang.org/x/sys v0.24.0
 	gotest.tools/gotestsum v1.12.0
 )
 
