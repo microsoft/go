@@ -7,7 +7,7 @@ module github.com/microsoft/go/_util
 go 1.21
 
 require (
-	github.com/microsoft/go-infra v0.0.4
+	github.com/microsoft/go-infra v0.0.5
 	golang.org/x/sys v0.24.0
 	gotest.tools/gotestsum v1.12.0
 )
@@ -22,7 +22,7 @@ require (
 	github.com/mattn/go-colorable v0.1.13 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/microsoft/azure-devops-go-api/azuredevops v1.0.0-b5 // indirect
-	golang.org/x/sync v0.7.0 // indirect
+	golang.org/x/sync v0.8.0 // indirect
 	golang.org/x/term v0.20.0 // indirect
-	golang.org/x/text v0.16.0 // indirect
+	golang.org/x/text v0.17.0 // indirect
 )
