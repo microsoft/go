@@ -4,93 +4,25 @@ This document is a user guide for the Microsoft Go crypto package running on FIP
 
 The Go crypto documentation is available online at https://pkg.go.dev/crypto.
 
-- [FIPS 140-2 User Guide](#fips-140-2-user-guide)
-  - [Using Go crypto APIs](#using-go-crypto-apis)
-    - [crypto/aes](#cryptoaes)
-      - [func NewCipher](#func-newcipher)
-    - [crypto/cipher](#cryptocipher)
-      - [func NewGCM](#func-newgcm)
-      - [func NewGCMWithNonceSize](#func-newgcmwithnoncesize)
-      - [func NewGCMWithTagSize](#func-newgcmwithtagsize)
-      - [func NewCBCDecrypter](#func-newcbcdecrypter)
-      - [func NewCBCEncrypter](#func-newcbcencrypter)
-      - [func NewCFBDecrypter](#func-newcfbdecrypter)
-      - [func NewCFBEncrypter](#func-newcfbencrypter)
-      - [func NewCTR](#func-newctr)
-      - [func NewOFB](#func-newofb)
-      - [func StreamReader.Read](#func-streamreaderread)
-      - [func StreamWriter.Write](#func-streamwriterwrite)
-      - [func StreamWriter.Close](#func-streamwriterclose)
-    - [crypto/des](#cryptodes)
-      - [func NewCipher](#func-newcipher-1)
-      - [func NewTripleDESCipher](#func-newtripledescipher)
-    - [crypto/dsa](#cryptodsa)
-    - [crypto/ecdh](#cryptoecdh)
-      - [func P256](#func-p256)
-      - [func P384](#func-p384)
-      - [func P521](#func-p521)
-      - [func X25519](#func-x25519)
-      - [func PrivateKey.ECDH](#func-privatekeyecdh)
-    - [crypto/ecdsa](#cryptoecdsa)
-      - [func Sign](#func-sign)
-      - [func SignASN1](#func-signasn1)
-      - [func Verify](#func-verify)
-      - [func VerifyASN1](#func-verifyasn1)
-      - [func GenerateKey](#func-generatekey)
-      - [func PrivateKey.Sign](#func-privatekeysign)
-    - [crypto/ed25519](#cryptoed25519)
-      - [func GenerateKey](#func-generatekey-1)
-      - [func Sign](#func-sign-1)
-      - [func Verify](#func-verify-1)
-      - [func VerifyWithOptions](#func-verifywithoptions)
-      - [func NewKeyFromSeed](#func-newkeyfromseed)
-      - [func PrivateKey.Sign](#func-privatekeysign-1)
-    - [crypto/elliptic](#cryptoelliptic)
-    - [crypto/hmac](#cryptohmac)
-      - [func Equal](#func-equal)
-      - [func New](#func-new)
-    - [crypto/md5](#cryptomd5)
-      - [func New](#func-new-1)
-      - [func Sum](#func-sum)
-    - [crypto/rand](#cryptorand)
-      - [var Reader](#var-reader)
-      - [func Int](#func-int)
-      - [func Prime](#func-prime)
-      - [func Read](#func-read)
-    - [crypto/rc4](#cryptorc4)
-      - [func NewCipher](#func-newcipher-2)
-    - [crypto/sha1](#cryptosha1)
-      - [func New](#func-new-2)
-      - [func Sum](#func-sum-1)
-    - [crypto/sha256](#cryptosha256)
-      - [func New](#func-new-3)
-      - [func New224](#func-new224)
-      - [func Sum224](#func-sum224)
-      - [func Sum256](#func-sum256)
-    - [crypto/sha512](#cryptosha512)
-      - [func New](#func-new-4)
-      - [func New384](#func-new384)
-      - [func New512\_224](#func-new512_224)
-      - [func New512\_256](#func-new512_256)
-      - [func Sum384](#func-sum384)
-      - [func Sum512](#func-sum512)
-      - [func Sum512\_224](#func-sum512_224)
-      - [func Sum512\_256](#func-sum512_256)
-    - [crypto/rsa](#cryptorsa)
-      - [func DecryptOAEP](#func-decryptoaep)
-      - [func DecryptPKCS1v15](#func-decryptpkcs1v15)
-      - [func DecryptPKCS1v15SessionKey](#func-decryptpkcs1v15sessionkey)
-      - [func EncryptPKCS1v15](#func-encryptpkcs1v15)
-      - [func SignPKCS1v15](#func-signpkcs1v15)
-      - [func SignPSS](#func-signpss)
-      - [func VerifyPKCS1v15](#func-verifypkcs1v15)
-      - [func VerifyPSS](#func-verifypss)
-      - [func GenerateKey](#func-generatekey-2)
-      - [func GenerateMultiPrimeKey](#func-generatemultiprimekey)
-      - [func PrivateKey.Decrypt](#func-privatekeydecrypt)
-      - [func PrivateKey.Sign](#func-privatekeysign-2)
-    - [crypto/subtle](#cryptosubtle)
-    - [crypto/tls](#cryptotls)
+> [!NOTE]
+> To find a specific section of this document, use GitHub's Outline feature by pressing the "bulleted list" button at the top right of the document. The button is circled in the following image:
+>
+> ![](images/outline.png)
+
+## The Microsoft Go crypto backends
+
+The OpenSSL backend uses [golang-fips/openssl].
+The CNG backend uses [go-crypto-winnative].
+For more general information about the backends, such as how to enable them, see the [Microsoft Go FIPS README](./README.md).
+
+[golang-fips/openssl]: https://github.com/golang-fips/openssl
+[go-crypto-winnative]: https://github.com/microsoft/go-crypto-winnative
+
+> [!NOTE]
+> The CNG backend uses a module called "bcrypt" to interact with the Windows Cryptography API: Next Generation (CNG).
+> Some identifiers and functions in the CNG backend referred to later in this document are named after the bcrypt module, but they are not related to the bcrypt password hashing algorithm.
+>
+> For example, `BCryptGenRandom` is a bcrypt function that generates random numbers using the Windows CNG API.
 
 ## Using Go crypto APIs
 
