@@ -12,7 +12,7 @@ To reproduce, run 'go mod vendor' in 'go/src'.
  .../golang-fips/openssl/v2/bbig/big.go        |  37 +
  .../github.com/golang-fips/openssl/v2/big.go  |  11 +
  .../golang-fips/openssl/v2/cipher.go          | 569 +++++++++++++
- .../github.com/golang-fips/openssl/v2/des.go  | 113 +++
+ .../github.com/golang-fips/openssl/v2/des.go  | 114 +++
  .../github.com/golang-fips/openssl/v2/ec.go   |  59 ++
  .../github.com/golang-fips/openssl/v2/ecdh.go | 323 +++++++
  .../golang-fips/openssl/v2/ecdsa.go           | 217 +++++
@@ -59,7 +59,7 @@ To reproduce, run 'go mod vendor' in 'go/src'.
  .../internal/subtle/aliasing.go               |  32 +
  .../internal/sysdll/sys_windows.go            |  55 ++
  src/vendor/modules.txt                        |  11 +
- 54 files changed, 8899 insertions(+)
+ 54 files changed, 8900 insertions(+)
  create mode 100644 src/vendor/github.com/golang-fips/openssl/v2/.gitleaks.toml
  create mode 100644 src/vendor/github.com/golang-fips/openssl/v2/LICENSE
  create mode 100644 src/vendor/github.com/golang-fips/openssl/v2/README.md
@@ -971,10 +971,10 @@ index 00000000000000..72f7aebfc130e7
 +}
 diff --git a/src/vendor/github.com/golang-fips/openssl/v2/des.go b/src/vendor/github.com/golang-fips/openssl/v2/des.go
 new file mode 100644
-index 00000000000000..71b13333a28513
+index 00000000000000..c98a276ec33fb0
 --- /dev/null
 +++ b/src/vendor/github.com/golang-fips/openssl/v2/des.go
-@@ -0,0 +1,113 @@
+@@ -0,0 +1,114 @@
 +//go:build !cmd_go_bootstrap
 +
 +package openssl
@@ -1010,27 +1010,22 @@ index 00000000000000..71b13333a28513
 +	if len(key) != 8 {
 +		return nil, errors.New("crypto/des: invalid key size")
 +	}
-+	c, err := newEVPCipher(key, cipherDES)
-+	if err != nil {
-+		return nil, err
-+	}
-+	// Should always be true for stock OpenSSL.
-+	if loadCipher(cipherDES, cipherModeCBC) == nil {
-+		return &desCipherWithoutCBC{c}, nil
-+	}
-+	return &desCipher{c}, nil
++	return newDESCipher(key, cipherDES)
 +}
 +
 +func NewTripleDESCipher(key []byte) (cipher.Block, error) {
 +	if len(key) != 24 {
 +		return nil, errors.New("crypto/des: invalid key size")
 +	}
-+	c, err := newEVPCipher(key, cipherDES3)
++	return newDESCipher(key, cipherDES3)
++}
++
++func newDESCipher(key []byte, kind cipherKind) (cipher.Block, error) {
++	c, err := newEVPCipher(key, kind)
 +	if err != nil {
 +		return nil, err
 +	}
-+	// Should always be true for stock OpenSSL.
-+	if loadCipher(cipherDES, cipherModeCBC) != nil {
++	if loadCipher(kind, cipherModeCBC) == nil {
 +		return &desCipherWithoutCBC{c}, nil
 +	}
 +	return &desCipher{c}, nil
@@ -1082,11 +1077,17 @@ index 00000000000000..71b13333a28513
 +}
 +
 +func (c *desCipherWithoutCBC) Encrypt(dst, src []byte) {
-+	c.encrypt(dst, src)
++	if err := c.encrypt(dst, src); err != nil {
++		// crypto/des expects that the panic message starts with "crypto/des: ".
++		panic("crypto/des: " + err.Error())
++	}
 +}
 +
 +func (c *desCipherWithoutCBC) Decrypt(dst, src []byte) {
-+	c.decrypt(dst, src)
++	if err := c.decrypt(dst, src); err != nil {
++		// crypto/des expects that the panic message starts with "crypto/des: ".
++		panic("crypto/des: " + err.Error())
++	}
 +}
 diff --git a/src/vendor/github.com/golang-fips/openssl/v2/ec.go b/src/vendor/github.com/golang-fips/openssl/v2/ec.go
 new file mode 100644
@@ -9323,11 +9324,11 @@ index 00000000000000..1722410e5af193
 +	return getSystemDirectory() + "\\" + dll
 +}
 diff --git a/src/vendor/modules.txt b/src/vendor/modules.txt
-index 9a234e59b10c8c..68dd94319b5db5 100644
+index 9a234e59b10c8c..02d2c809a26f73 100644
 --- a/src/vendor/modules.txt
 +++ b/src/vendor/modules.txt
 @@ -1,3 +1,14 @@
-+# github.com/golang-fips/openssl/v2 v2.0.0-rc.3.0.20240903170240-db0a77fc6fcc
++# github.com/golang-fips/openssl/v2 v2.0.0-rc.3.0.20240909165543-889cd907e03c
 +## explicit; go 1.20
 +github.com/golang-fips/openssl/v2
 +github.com/golang-fips/openssl/v2/bbig
