@@ -105,10 +105,12 @@ For more general information about the backends, such as how to enable them, see
 [go-crypto-winnative]: https://github.com/microsoft/go-crypto-winnative
 
 > [!NOTE]
-> The CNG backend uses a module called "bcrypt" to interact with the Windows Cryptography API: Next Generation (CNG).
-> Some identifiers and functions in the CNG backend referred to later in this document are named after the bcrypt module, but they are not related to the bcrypt password hashing algorithm.
+> The CNG backend uses a module called "bcrypt" to interact with CNG.
+> Some identifiers and functions used by the CNG backend include a "bcrypt" prefix, referring to the "bcrypt" CNG module.
+> For example, `BCryptGenRandom` is a function that generates random numbers using CNG.
 >
-> For example, `BCryptGenRandom` is a bcrypt function that generates random numbers using the Windows CNG API.
+> There is also a password hashing algorithm called "bcrypt".
+> It is unrelated, and not in the scope of this document.
 
 ## Using Go crypto APIs
 
