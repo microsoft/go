@@ -4,7 +4,10 @@ This document is a user guide for the Microsoft Go crypto package running on FIP
 
 The Go crypto documentation is available online at https://pkg.go.dev/crypto.
 
+<!-- The following table of contents is maintained using https://marketplace.visualstudio.com/items?itemName=yzhang.markdown-all-in-one -->
+
 - [FIPS 140-2 User Guide](#fips-140-2-user-guide)
+  - [The Microsoft Go crypto backends](#the-microsoft-go-crypto-backends)
   - [Using Go crypto APIs](#using-go-crypto-apis)
     - [crypto/aes](#cryptoaes)
       - [func NewCipher](#func-newcipher)
@@ -91,6 +94,23 @@ The Go crypto documentation is available online at https://pkg.go.dev/crypto.
       - [func PrivateKey.Sign](#func-privatekeysign-2)
     - [crypto/subtle](#cryptosubtle)
     - [crypto/tls](#cryptotls)
+
+## The Microsoft Go crypto backends
+
+The OpenSSL backend uses [golang-fips/openssl].
+The CNG backend uses [go-crypto-winnative].
+For more general information about the backends, such as how to enable them, see the [Microsoft Go FIPS README](./README.md).
+
+[golang-fips/openssl]: https://github.com/golang-fips/openssl
+[go-crypto-winnative]: https://github.com/microsoft/go-crypto-winnative
+
+> [!NOTE]
+> The CNG backend uses a module called "bcrypt" to interact with CNG.
+> Some identifiers and functions used by the CNG backend include a "bcrypt" prefix, referring to the "bcrypt" CNG module.
+> For example, `BCryptGenRandom` is a function that generates random numbers using CNG.
+>
+> There is also a password hashing algorithm called "bcrypt".
+> It is unrelated, and not in the scope of this document.
 
 ## Using Go crypto APIs
 
