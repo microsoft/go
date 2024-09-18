@@ -36,7 +36,7 @@ Subject: [PATCH] Add crypto backend foundation
  src/crypto/rsa/pkcs1v15.go                   |   6 +-
  src/crypto/rsa/pkcs1v15_test.go              |   5 +
  src/crypto/rsa/pss.go                        |   6 +-
- src/crypto/rsa/rsa.go                        |   4 +-
+ src/crypto/rsa/rsa.go                        |  19 +-
  src/crypto/rsa/rsa_test.go                   |   2 +-
  src/crypto/sha1/sha1.go                      |   2 +-
  src/crypto/sha1/sha1_test.go                 |   2 +-
@@ -55,7 +55,7 @@ Subject: [PATCH] Add crypto backend foundation
  src/go/build/deps_test.go                    |   4 +
  src/net/smtp/smtp_test.go                    |  72 ++++---
  src/runtime/runtime_boring.go                |   5 +
- 51 files changed, 776 insertions(+), 101 deletions(-)
+ 51 files changed, 789 insertions(+), 103 deletions(-)
  create mode 100644 src/crypto/ed25519/boring.go
  create mode 100644 src/crypto/ed25519/notboring.go
  create mode 100644 src/crypto/internal/backend/backend_test.go
@@ -1115,10 +1115,10 @@ index e996e7aaa36b9c..55ca642491ec03 100644
  		if err != nil {
  			return err
 diff --git a/src/crypto/rsa/rsa.go b/src/crypto/rsa/rsa.go
-index 4d78d1eaaa6be0..614e63324c2b46 100644
+index 4d78d1eaaa6be0..e34efc550e3f90 100644
 --- a/src/crypto/rsa/rsa.go
 +++ b/src/crypto/rsa/rsa.go
-@@ -26,9 +26,9 @@ package rsa
+@@ -26,14 +26,15 @@ package rsa
  
  import (
  	"crypto"
@@ -1130,6 +1130,40 @@ index 4d78d1eaaa6be0..614e63324c2b46 100644
  	"crypto/internal/randutil"
  	"crypto/rand"
  	"crypto/subtle"
+ 	"errors"
+ 	"hash"
++	"internal/goexperiment"
+ 	"io"
+ 	"math"
+ 	"math/big"
+@@ -479,7 +480,13 @@ func mgf1XOR(out []byte, hash hash.Hash, seed []byte) {
+ var ErrMessageTooLong = errors.New("crypto/rsa: message too long for RSA key size")
+ 
+ func encrypt(pub *PublicKey, plaintext []byte) ([]byte, error) {
+-	boring.Unreachable()
++	if goexperiment.BoringCrypto {
++		// encrypt is reached when the hash function or the salt length
++		// are not supported by the crypto backend. BoringCrypto does
++		// support everything, so use it to check that we don't
++		// accidentally reach this code path.
++		boring.Unreachable()
++	}
+ 
+ 	N, err := bigmod.NewModulusFromBig(pub.N)
+ 	if err != nil {
+@@ -638,7 +645,11 @@ const noCheck = false
+ // m^e is calculated and compared with ciphertext, in order to defend against
+ // errors in the CRT computation.
+ func decrypt(priv *PrivateKey, ciphertext []byte, check bool) ([]byte, error) {
+-	if len(priv.Primes) <= 2 {
++	if goexperiment.BoringCrypto {
++		// decrypt is reached when the hash function or the number of primers
++		// are not supported by the crypto backend. BoringCrypto does
++		// support everything, so use it to check that we don't
++		// accidentally reach this code path.
+ 		boring.Unreachable()
+ 	}
+ 
 diff --git a/src/crypto/rsa/rsa_test.go b/src/crypto/rsa/rsa_test.go
 index 2afa045a3a0bd2..86466e67e87eeb 100644
 --- a/src/crypto/rsa/rsa_test.go

@@ -25,7 +25,7 @@ Subject: [PATCH] Add CNG crypto backend
  src/crypto/rsa/pkcs1v15.go                    |   6 +-
  src/crypto/rsa/pss.go                         |   8 +-
  src/crypto/rsa/pss_test.go                    |   2 +-
- src/crypto/rsa/rsa.go                         |  15 +-
+ src/crypto/rsa/rsa.go                         |   4 +-
  src/crypto/rsa/rsa_test.go                    |   8 +-
  src/crypto/sha1/sha1_test.go                  |   7 +
  src/crypto/sha256/sha256_test.go              |  10 +
@@ -48,7 +48,7 @@ Subject: [PATCH] Add CNG crypto backend
  .../goexperiment/exp_cngcrypto_off.go         |   9 +
  src/internal/goexperiment/exp_cngcrypto_on.go |   9 +
  src/internal/goexperiment/flags.go            |   1 +
- 44 files changed, 463 insertions(+), 35 deletions(-)
+ 44 files changed, 454 insertions(+), 33 deletions(-)
  create mode 100644 src/crypto/ecdsa/badlinkname.go
  create mode 100644 src/crypto/internal/backend/bbig/big_cng.go
  create mode 100644 src/crypto/internal/backend/cng_windows.go
@@ -716,42 +716,10 @@ index 7e908d4389d506..9a8311568c806e 100644
  		t.Fatal(err)
  	}
 diff --git a/src/crypto/rsa/rsa.go b/src/crypto/rsa/rsa.go
-index 614e63324c2b46..faa47afc515ff4 100644
+index e34efc550e3f90..e625afdde29279 100644
 --- a/src/crypto/rsa/rsa.go
 +++ b/src/crypto/rsa/rsa.go
-@@ -34,6 +34,7 @@ import (
- 	"crypto/subtle"
- 	"errors"
- 	"hash"
-+	"internal/goexperiment"
- 	"io"
- 	"math"
- 	"math/big"
-@@ -479,7 +480,11 @@ func mgf1XOR(out []byte, hash hash.Hash, seed []byte) {
- var ErrMessageTooLong = errors.New("crypto/rsa: message too long for RSA key size")
- 
- func encrypt(pub *PublicKey, plaintext []byte) ([]byte, error) {
--	boring.Unreachable()
-+	if !goexperiment.CNGCrypto {
-+		// CNGCrypto calls encrypt() when the salt length
-+		// or the hash function are not supported.
-+		boring.Unreachable()
-+	}
- 
- 	N, err := bigmod.NewModulusFromBig(pub.N)
- 	if err != nil {
-@@ -638,7 +643,9 @@ const noCheck = false
- // m^e is calculated and compared with ciphertext, in order to defend against
- // errors in the CRT computation.
- func decrypt(priv *PrivateKey, ciphertext []byte, check bool) ([]byte, error) {
--	if len(priv.Primes) <= 2 {
-+	if len(priv.Primes) <= 2 && !goexperiment.CNGCrypto {
-+		// CNGCrypto calls decrypt() when the salt length
-+		// or the hash function are not supported.
- 		boring.Unreachable()
- 	}
- 
-@@ -718,7 +725,9 @@ func decryptOAEP(hash, mgfHash hash.Hash, random io.Reader, priv *PrivateKey, ci
+@@ -729,7 +729,9 @@ func decryptOAEP(hash, mgfHash hash.Hash, random io.Reader, priv *PrivateKey, ci
  		return nil, ErrDecryption
  	}
  
