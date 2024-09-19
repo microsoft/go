@@ -1,0 +1,111 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Dimitri John Ledkov <dimitri.ledkov@chainguard.dev>
+Date: Thu, 19 Sep 2024 08:28:23 +0100
+Subject: [PATCH] crypto/internal: prevent cryptofallback in requirefips mode
+
+In many instances systemcrypto backend is tested for support of a
+particular algorithm. If it is supported, it is used, otherwise
+gocrypto fallback code path is used. This means effectively the
+toolchain allows to use MD5 DES TripleDES Ed25519 RC4 HKDF TLS1PF
+implemented with gocrypto, when FIPS module blocks these algorithms or
+doesn't even support them (i.e. when only base+fips providers are
+loaded).
+
+In some cases this might be due to incorrect check and/or incorrect
+runtime configuration of OpenSSL. It is very common to accidentaly
+activate "default" and "fips" providers in OpenSSL at the same time -
+which then exhibits odd properties. Specifically "default+fips"
+providers will list that RC4 and MD5 are supported without any
+property query strings. But fail at runtime when attempted to be used
+with property query string set to "fips=yes".
+
+If on the other hand "base" and "fips" providers loaded alone, RC4 and
+MD5 will not be listed as runtime available, and gocrypto fallback
+path may be taken by the toolchain.
+
+A similar issue is currently also present in cpython please see
+https://github.com/python/cpython/issues/118224.
+
+Note that recommended way to configure OpenSSL in fips only mode is
+with base+fips providers alone - see
+https://github.com/openssl/openssl/blob/master/README-PROVIDERS.md
+such that default & legacy providers algorithms are not exposed at
+runtime. And this is how OpenSSL is configured in FIPS mode on Ubuntu
+Pro FIPS and Chainguard FIPS Images, and recommended by upstream.
+
+Please note internally md5 is used by go coverage, meaning in
+requirefips case coverage may fail to generate unless some additional
+APIs are introduced to allow insecure usage of md5 (equivalent to
+python's usedforsecurity=True|False flag). Or coverage ported to use
+SHA256.
+
+Signed-off-by: Dimitri John Ledkov <dimitri.ledkov@chainguard.dev>
+---
+ src/crypto/internal/backend/openssl_linux.go | 14 +++++++-------
+ 1 file changed, 7 insertions(+), 7 deletions(-)
+
+diff --git a/src/crypto/internal/backend/openssl_linux.go b/src/crypto/internal/backend/openssl_linux.go
+index 69af0ffe2f..cb4a5ddfad 100644
+--- a/src/crypto/internal/backend/openssl_linux.go
++++ b/src/crypto/internal/backend/openssl_linux.go
+@@ -129,7 +129,7 @@ func systemFIPSMode() bool {
+ const RandReader = openssl.RandReader
+ 
+ func SupportsHash(h crypto.Hash) bool {
+-	return openssl.SupportsHash(h)
++	return isRequireFIPS || openssl.SupportsHash(h)
+ }
+ 
+ func NewMD5() hash.Hash    { return openssl.NewMD5() }
+@@ -250,7 +250,7 @@ func NewPublicKeyECDH(curve string, bytes []byte) (*openssl.PublicKeyECDH, error
+ }
+ 
+ func SupportsHKDF() bool {
+-	return openssl.SupportsHKDF()
++	return isRequireFIPS || openssl.SupportsHKDF()
+ }
+ 
+ func ExpandHKDF(h func() hash.Hash, pseudorandomKey, info []byte) (io.Reader, error) {
+@@ -262,7 +262,7 @@ func ExtractHKDF(h func() hash.Hash, secret, salt []byte) ([]byte, error) {
+ }
+ 
+ func SupportsTLS1PRF() bool {
+-	return openssl.SupportsTLS1PRF()
++	return isRequireFIPS || openssl.SupportsTLS1PRF()
+ }
+ 
+ func TLS1PRF(result, secret, label, seed []byte, h func() hash.Hash) error {
+@@ -270,11 +270,11 @@ func TLS1PRF(result, secret, label, seed []byte, h func() hash.Hash) error {
+ }
+ 
+ func SupportsDESCipher() bool {
+-	return openssl.SupportsDESCipher()
++	return isRequireFIPS || openssl.SupportsDESCipher()
+ }
+ 
+ func SupportsTripleDESCipher() bool {
+-	return openssl.SupportsTripleDESCipher()
++	return isRequireFIPS || openssl.SupportsTripleDESCipher()
+ }
+ 
+ func NewDESCipher(key []byte) (cipher.Block, error) {
+@@ -286,14 +286,14 @@ func NewTripleDESCipher(key []byte) (cipher.Block, error) {
+ }
+ 
+ func SupportsRC4() bool {
+-	return openssl.SupportsRC4()
++	return isRequireFIPS || openssl.SupportsRC4()
+ }
+ 
+ type RC4Cipher = openssl.RC4Cipher
+ 
+ func NewRC4Cipher(key []byte) (*RC4Cipher, error) { return openssl.NewRC4Cipher(key) }
+ 
+-func SupportsEd25519() bool { return openssl.SupportsEd25519() }
++func SupportsEd25519() bool { return isRequireFIPS || openssl.SupportsEd25519() }
+ 
+ type PublicKeyEd25519 = openssl.PublicKeyEd25519
+ type PrivateKeyEd25519 = openssl.PrivateKeyEd25519
+-- 
+2.43.0
+
