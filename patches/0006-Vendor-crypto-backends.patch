@@ -47,23 +47,24 @@ To reproduce, run 'go mod vendor' in 'go/src'.
  .../go-crypto-winnative/cng/cipher.go         |   56 +
  .../microsoft/go-crypto-winnative/cng/cng.go  |  130 ++
  .../microsoft/go-crypto-winnative/cng/des.go  |  107 ++
+ .../microsoft/go-crypto-winnative/cng/dsa.go  |  473 ++++++++
  .../microsoft/go-crypto-winnative/cng/ecdh.go |  260 ++++
  .../go-crypto-winnative/cng/ecdsa.go          |  175 +++
  .../microsoft/go-crypto-winnative/cng/hash.go |  320 +++++
  .../microsoft/go-crypto-winnative/cng/hkdf.go |  179 +++
  .../microsoft/go-crypto-winnative/cng/hmac.go |   35 +
- .../microsoft/go-crypto-winnative/cng/keys.go |  178 +++
+ .../microsoft/go-crypto-winnative/cng/keys.go |  220 ++++
  .../go-crypto-winnative/cng/pbkdf2.go         |   74 ++
  .../microsoft/go-crypto-winnative/cng/rand.go |   28 +
- .../microsoft/go-crypto-winnative/cng/rc4.go  |   61 +
+ .../microsoft/go-crypto-winnative/cng/rc4.go  |   65 +
  .../microsoft/go-crypto-winnative/cng/rsa.go  |  374 ++++++
  .../go-crypto-winnative/cng/tls1prf.go        |   92 ++
- .../internal/bcrypt/bcrypt_windows.go         |  284 +++++
+ .../internal/bcrypt/bcrypt_windows.go         |  359 ++++++
  .../internal/bcrypt/zsyscall_windows.go       |  389 ++++++
  .../internal/subtle/aliasing.go               |   32 +
  .../internal/sysdll/sys_windows.go            |   55 +
  src/vendor/modules.txt                        |   11 +
- 58 files changed, 9828 insertions(+)
+ 59 files changed, 10422 insertions(+)
  create mode 100644 src/vendor/github.com/golang-fips/openssl/v2/.gitleaks.toml
  create mode 100644 src/vendor/github.com/golang-fips/openssl/v2/LICENSE
  create mode 100644 src/vendor/github.com/golang-fips/openssl/v2/README.md
@@ -106,6 +107,7 @@ To reproduce, run 'go mod vendor' in 'go/src'.
  create mode 100644 src/vendor/github.com/microsoft/go-crypto-winnative/cng/cipher.go
  create mode 100644 src/vendor/github.com/microsoft/go-crypto-winnative/cng/cng.go
  create mode 100644 src/vendor/github.com/microsoft/go-crypto-winnative/cng/des.go
+ create mode 100644 src/vendor/github.com/microsoft/go-crypto-winnative/cng/dsa.go
  create mode 100644 src/vendor/github.com/microsoft/go-crypto-winnative/cng/ecdh.go
  create mode 100644 src/vendor/github.com/microsoft/go-crypto-winnative/cng/ecdsa.go
  create mode 100644 src/vendor/github.com/microsoft/go-crypto-winnative/cng/hash.go
@@ -7349,7 +7351,7 @@ index 00000000000000..36f0e0c6e278bc
 +}
 diff --git a/src/vendor/github.com/microsoft/go-crypto-winnative/cng/cipher.go b/src/vendor/github.com/microsoft/go-crypto-winnative/cng/cipher.go
 new file mode 100644
-index 00000000000000..61f5dc878d6c56
+index 00000000000000..b6f25a1a64794a
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go-crypto-winnative/cng/cipher.go
 @@ -0,0 +1,56 @@
@@ -7389,7 +7391,7 @@ index 00000000000000..61f5dc878d6c56
 +		return cipherAlgorithm{h, lengths}, nil
 +	})
 +	if err != nil {
-+		return cipherAlgorithm{}, nil
++		return cipherAlgorithm{}, err
 +	}
 +	return v.(cipherAlgorithm), nil
 +}
@@ -7547,7 +7549,7 @@ index 00000000000000..844c087287cabe
 +}
 diff --git a/src/vendor/github.com/microsoft/go-crypto-winnative/cng/des.go b/src/vendor/github.com/microsoft/go-crypto-winnative/cng/des.go
 new file mode 100644
-index 00000000000000..2172f03e860418
+index 00000000000000..b0784affba0aa4
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go-crypto-winnative/cng/des.go
 @@ -0,0 +1,107 @@
@@ -7576,7 +7578,7 @@ index 00000000000000..2172f03e860418
 +}
 +
 +func NewDESCipher(key []byte) (cipher.Block, error) {
-+	kh, err := newCipherHandle(bcrypt.DES_ALGORITHM, "", key)
++	kh, err := newCipherHandle(bcrypt.DES_ALGORITHM, bcrypt.CHAIN_MODE_ECB, key)
 +	if err != nil {
 +		return nil, err
 +	}
@@ -7587,7 +7589,7 @@ index 00000000000000..2172f03e860418
 +}
 +
 +func NewTripleDESCipher(key []byte) (cipher.Block, error) {
-+	kh, err := newCipherHandle(bcrypt.DES3_ALGORITHM, "", key)
++	kh, err := newCipherHandle(bcrypt.DES3_ALGORITHM, bcrypt.CHAIN_MODE_ECB, key)
 +	if err != nil {
 +		return nil, err
 +	}
@@ -7657,6 +7659,485 @@ index 00000000000000..2172f03e860418
 +
 +func (c *desCipher) NewCBCDecrypter(iv []byte) cipher.BlockMode {
 +	return newCBC(false, c.alg, c.key, iv)
++}
+diff --git a/src/vendor/github.com/microsoft/go-crypto-winnative/cng/dsa.go b/src/vendor/github.com/microsoft/go-crypto-winnative/cng/dsa.go
+new file mode 100644
+index 00000000000000..bd3e19dcf7f035
+--- /dev/null
++++ b/src/vendor/github.com/microsoft/go-crypto-winnative/cng/dsa.go
+@@ -0,0 +1,473 @@
++// Copyright (c) Microsoft Corporation.
++// Licensed under the MIT License.
++
++//go:build windows
++// +build windows
++
++package cng
++
++import (
++	"errors"
++	"runtime"
++	"strconv"
++	"unsafe"
++
++	"github.com/microsoft/go-crypto-winnative/internal/bcrypt"
++)
++
++// As of FIPS 186-4 the maximum Q size is 32 bytes.
++//
++// See also: cbGroupSize at
++// https://learn.microsoft.com/en-us/windows/win32/api/bcrypt/ns-bcrypt-bcrypt_dsa_key_blob_v2
++const maxGroupSize = 32
++
++// crypto/dsa doesn't support passing the seed around, but CNG expects it.
++// CNG will skip seed verification if the count and seed parameters is all 0xff bytes.
++var (
++	dsaCountNil = [4]byte{0xff, 0xff, 0xff, 0xff}
++	dsaSeedNil  = [maxGroupSize]byte{
++		0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
++		0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
++		0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
++		0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
++	}
++)
++
++type dsaAlgorithm struct {
++	handle            bcrypt.ALG_HANDLE
++	allowedKeyLengths bcrypt.KEY_LENGTHS_STRUCT
++}
++
++func loadDSA() (h dsaAlgorithm, err error) {
++	v, err := loadOrStoreAlg(bcrypt.DSA_ALGORITHM, bcrypt.ALG_NONE_FLAG, "", func(h bcrypt.ALG_HANDLE) (interface{}, error) {
++		lengths, err := getKeyLengths(bcrypt.HANDLE(h))
++		if err != nil {
++			return nil, err
++		}
++		return dsaAlgorithm{h, lengths}, nil
++	})
++	if err != nil {
++		return dsaAlgorithm{}, err
++	}
++	return v.(dsaAlgorithm), nil
++}
++
++// DSAParameters contains the DSA parameters.
++type DSAParameters struct {
++	P, Q, G BigInt
++}
++
++func (p DSAParameters) keySize() uint32 {
++	return uint32(len(p.P))
++}
++
++func (p DSAParameters) groupSize() uint32 {
++	return uint32(len(p.Q))
++}
++
++// GenerateDSAParameters generates a set of DSA parameters for a key of size L bytes.
++// If L is less than or equal to 1024, the parameters are generated according to FIPS 186-2.
++// If L is greater than 1024, the parameters are generated according to FIPS 186-3.
++// The returned parameters are suitable for use in GenerateKey.
++func GenerateDSAParameters(L int) (params DSAParameters, err error) {
++	h, err := loadDSA()
++	if err != nil {
++		return DSAParameters{}, err
++	}
++	if !keyIsAllowed(h.allowedKeyLengths, uint32(L)) {
++		return DSAParameters{}, errors.New("crypto/dsa: invalid key size")
++	}
++	// To generate the parameters, we need to generate a key pair and then export the public key.
++	// The public key contains the parameters. We then discard the key pair.
++	var hkey bcrypt.KEY_HANDLE
++	if err := bcrypt.GenerateKeyPair(h.handle, &hkey, uint32(L), 0); err != nil {
++		return DSAParameters{}, err
++	}
++	defer bcrypt.DestroyKey(hkey)
++
++	if err := bcrypt.FinalizeKeyPair(hkey, 0); err != nil {
++		return DSAParameters{}, err
++	}
++	params, _, _, err = decodeDSAKey(hkey, false)
++	return params, err
++}
++
++// PrivateKeyDSA represents a DSA private key.
++type PrivateKeyDSA struct {
++	DSAParameters
++	X, Y BigInt
++
++	hkey bcrypt.KEY_HANDLE
++}
++
++func (k *PrivateKeyDSA) finalize() {
++	bcrypt.DestroyKey(k.hkey)
++}
++
++// PublicKeyDSA represents a DSA public key.
++type PublicKeyDSA struct {
++	DSAParameters
++	Y BigInt
++
++	hkey bcrypt.KEY_HANDLE
++}
++
++func (k *PublicKeyDSA) finalize() {
++	bcrypt.DestroyKey(k.hkey)
++}
++
++// GenerateKeyDSA generates a new private DSA key using the given parameters.
++func GenerateKeyDSA(params DSAParameters) (*PrivateKeyDSA, error) {
++	h, err := loadDSA()
++	if err != nil {
++		return nil, err
++	}
++	keySize := params.keySize()
++	if !keyIsAllowed(h.allowedKeyLengths, keySize*8) {
++		return nil, errors.New("crypto/dsa: invalid key size")
++	}
++	var hkey bcrypt.KEY_HANDLE
++	if err := bcrypt.GenerateKeyPair(h.handle, &hkey, keySize*8, 0); err != nil {
++		return nil, err
++	}
++	if err := setDSAParameter(hkey, params); err != nil {
++		bcrypt.DestroyKey(hkey)
++		return nil, err
++	}
++	if err := bcrypt.FinalizeKeyPair(hkey, 0); err != nil {
++		bcrypt.DestroyKey(hkey)
++		return nil, err
++	}
++	_, x, y, err := decodeDSAKey(hkey, true)
++	if err != nil {
++		bcrypt.DestroyKey(hkey)
++		return nil, err
++	}
++	k := &PrivateKeyDSA{params, x, y, hkey}
++	runtime.SetFinalizer(k, (*PrivateKeyDSA).finalize)
++	return k, nil
++}
++
++// NewPrivateKeyDSA creates a new DSA private key from the given parameters.
++func NewPrivateKeyDSA(params DSAParameters, X, Y BigInt) (*PrivateKeyDSA, error) {
++	h, err := loadDSA()
++	if err != nil {
++		return nil, err
++	}
++	keySize := params.keySize()
++	if !keyIsAllowed(h.allowedKeyLengths, keySize*8) {
++		return nil, errors.New("crypto/dsa: invalid key size")
++	}
++	hkey, err := encodeDSAKey(h.handle, params, X, Y)
++	if err != nil {
++		return nil, err
++	}
++	k := &PrivateKeyDSA{params, X, Y, hkey}
++	runtime.SetFinalizer(k, (*PrivateKeyDSA).finalize)
++	return k, nil
++}
++
++// NewPublicKeyDSA creates a new DSA public key from the given parameters.
++func NewPublicKeyDSA(params DSAParameters, Y BigInt) (*PublicKeyDSA, error) {
++	h, err := loadDSA()
++	if err != nil {
++		return nil, err
++	}
++	keySize := params.keySize()
++	if !keyIsAllowed(h.allowedKeyLengths, keySize*8) {
++		return nil, errors.New("crypto/dsa: invalid key size")
++	}
++	hkey, err := encodeDSAKey(h.handle, params, nil, Y)
++	if err != nil {
++		return nil, err
++	}
++	k := &PublicKeyDSA{params, Y, hkey}
++	runtime.SetFinalizer(k, (*PublicKeyDSA).finalize)
++	return k, nil
++}
++
++// SignDSA signs a hash (which should be the result of hashing a larger message).
++func SignDSA(priv *PrivateKeyDSA, hashed []byte) (r, s BigInt, err error) {
++	defer runtime.KeepAlive(priv)
++	size, err := getUint32(bcrypt.HANDLE(priv.hkey), bcrypt.SIGNATURE_LENGTH)
++	if err != nil {
++		return nil, nil, err
++	}
++	var buf [maxGroupSize]byte
++	hashed, err = dsaAdjustHashSize(priv.hkey, hashed, buf[:])
++	if err != nil {
++		return nil, nil, err
++	}
++	sig := make([]byte, size)
++	err = bcrypt.SignHash(priv.hkey, nil, hashed, sig, &size, 0)
++	if err != nil {
++		return nil, nil, err
++	}
++	sig = sig[:size]
++	// BCRYPTSignHash generates DSA signatures in P1363 format,
++	// which is simply (r, s), each of them exactly half of the array.
++	if len(sig)%2 != 0 {
++		return nil, nil, errors.New("crypto/dsa: invalid signature size from bcrypt")
++	}
++	return sig[:len(sig)/2], sig[len(sig)/2:], nil
++}
++
++// VerifyDSA verifies the signature in r, s of hashed using the public key, pub.
++func VerifyDSA(pub *PublicKeyDSA, hashed []byte, r, s BigInt) bool {
++	defer runtime.KeepAlive(pub)
++	var buf [maxGroupSize]byte
++	hashed, err := dsaAdjustHashSize(pub.hkey, hashed, buf[:])
++	if err != nil {
++		return false
++	}
++	size, err := getUint32(bcrypt.HANDLE(pub.hkey), bcrypt.SIGNATURE_LENGTH)
++	if err != nil {
++		return false
++	}
++	// r and s might be shorter than size
++	// if the original big number contained leading zeros,
++	// but they must not be longer than the public key size.
++	if len(r) > int(size/2) || len(s) > int(size/2) {
++		return false
++	}
++	sig := make([]byte, 0, 2*maxGroupSize)
++	prependZeros := func(nonZeroBytes int) {
++		if zeros := int(size/2) - nonZeroBytes; zeros > 0 {
++			sig = append(sig, make([]byte, zeros)...)
++		}
++	}
++	prependZeros(len(r))
++	sig = append(sig, r...)
++	prependZeros(len(s))
++	sig = append(sig, s...)
++	return keyVerify(pub.hkey, nil, hashed, sig, 0) == nil
++}
++
++func encodeDSAKey(h bcrypt.ALG_HANDLE, params DSAParameters, X, Y BigInt) (bcrypt.KEY_HANDLE, error) {
++	keySize := params.keySize()
++	groupSize := params.groupSize()
++	private := X != nil
++	var blob []byte
++	if keySize*8 <= 1024 {
++		size := sizeOfDSABlobHeader + keySize*3
++		hdr := bcrypt.DSA_KEY_BLOB{
++			Magic:   bcrypt.DSA_PUBLIC_MAGIC,
++			KeySize: keySize,
++			Count:   dsaCountNil,
++		}
++		if private {
++			size += uint32(len(hdr.Q)) // private key is always 20 bytes
++			hdr.Magic = bcrypt.DSA_PRIVATE_MAGIC
++		}
++		copy(hdr.Seed[:], dsaSeedNil[:])
++		copy(hdr.Q[:], params.Q[:])
++		blob = make([]byte, size)
++		copy(blob, (*(*[sizeOfDSABlobHeader]byte)(unsafe.Pointer(&hdr)))[:])
++		data := blob[sizeOfDSABlobHeader:]
++		if err := encodeBigInt(data, []sizedBigInt{
++			{params.P, keySize},
++			{params.G, keySize},
++			{Y, keySize},
++			{X, groupSize},
++		}); err != nil {
++			return 0, err
++		}
++	} else {
++		size := sizeOfDSAV2BlobHeader + 3*keySize + 2*groupSize
++		hashAlg := hashAlgFromGroup(int(groupSize))
++		hdr := bcrypt.DSA_KEY_BLOB_V2{
++			Magic:           bcrypt.DSA_PUBLIC_MAGIC_V2,
++			KeySize:         keySize,
++			GroupSize:       groupSize,
++			HashAlgorithm:   hashAlg,
++			StandardVersion: bcrypt.DSA_FIPS186_3,
++			SeedLength:      groupSize, // crypto/dsa doesn't use the seed, but it must be equal to groupSize.
++			Count:           dsaCountNil,
++		}
++		if private {
++			size += groupSize
++			hdr.Magic = bcrypt.DSA_PRIVATE_MAGIC_V2
++		}
++		blob = make([]byte, size)
++		copy(blob, (*(*[sizeOfDSAV2BlobHeader]byte)(unsafe.Pointer(&hdr)))[:])
++		data := blob[sizeOfDSAV2BlobHeader:]
++		if err := encodeBigInt(data, []sizedBigInt{
++			{dsaSeedNil[:], groupSize},
++			{params.Q, groupSize},
++			{params.P, keySize},
++			{params.G, keySize},
++			{Y, keySize},
++			{X, groupSize},
++		}); err != nil {
++			return 0, err
++		}
++	}
++	kind := bcrypt.DSA_PUBLIC_BLOB
++	if private {
++		kind = bcrypt.DSA_PRIVATE_BLOB
++	}
++	var hkey bcrypt.KEY_HANDLE
++	err := bcrypt.ImportKeyPair(h, 0, utf16PtrFromString(kind), &hkey, blob, 0)
++	if err != nil {
++		return 0, err
++	}
++	return hkey, nil
++}
++
++// decodeDSAKey decodes a DSA key. If private is true, the private exponent, X, is also returned.
++func decodeDSAKey(hkey bcrypt.KEY_HANDLE, private bool) (params DSAParameters, X, Y BigInt, err error) {
++	var data []byte
++	consumeBigInt := func(size uint32) BigInt {
++		b := data[:size]
++		data = data[size:]
++		return b
++	}
++	var L uint32
++	L, err = getUint32(bcrypt.HANDLE(hkey), bcrypt.KEY_LENGTH)
++	if err != nil {
++		return
++	}
++	if L <= 1024 {
++		var hdr bcrypt.DSA_KEY_BLOB
++		hdr, data, err = exportDSAKey(hkey, private)
++		if err != nil {
++			return
++		}
++		magic := bcrypt.DSA_PUBLIC_MAGIC
++		if private {
++			magic = bcrypt.DSA_PRIVATE_MAGIC
++		}
++		if hdr.Magic != magic || hdr.KeySize*8 != uint32(L) {
++			err = errors.New("crypto/dsa: exported key is corrupted")
++			return
++		}
++		params = DSAParameters{
++			Q: hdr.Q[:],
++			P: consumeBigInt(hdr.KeySize),
++			G: consumeBigInt(hdr.KeySize),
++		}
++		Y = consumeBigInt(hdr.KeySize)
++		if private {
++			X = consumeBigInt(uint32(len(hdr.Q))) // private key is always 20 bytes
++		}
++	} else {
++		var hdr bcrypt.DSA_KEY_BLOB_V2
++		hdr, data, err = exporDSAV2Key(hkey, private)
++		if err != nil {
++			return
++		}
++		magic := bcrypt.DSA_PUBLIC_MAGIC_V2
++		if private {
++			magic = bcrypt.DSA_PRIVATE_MAGIC_V2
++		}
++		if hdr.Magic != magic || hdr.KeySize*8 != uint32(L) {
++			err = errors.New("crypto/dsa: exported key is corrupted")
++			return
++		}
++		// Discard the seed, crypto/dsa doesn't use it.
++		consumeBigInt(hdr.SeedLength)
++		params = DSAParameters{
++			Q: consumeBigInt(hdr.GroupSize),
++			P: consumeBigInt(hdr.KeySize),
++			G: consumeBigInt(hdr.KeySize),
++		}
++		Y = consumeBigInt(hdr.KeySize)
++		if private {
++			X = consumeBigInt(hdr.GroupSize)
++		}
++	}
++	return params, X, Y, nil
++}
++
++// setDSAParameter sets the DSA parameters for the given key.
++func setDSAParameter(hkey bcrypt.KEY_HANDLE, params DSAParameters) error {
++	keySize := params.keySize()
++	groupSize := params.groupSize()
++	var blob []byte
++	if keySize*8 <= 1024 {
++		blob = make([]byte, sizeOfDSAParamsHeader+keySize*2)
++		hdr := bcrypt.DSA_PARAMETER_HEADER{
++			Length:  uint32(len(blob)),
++			Magic:   bcrypt.DSA_PARAMETERS_MAGIC,
++			KeySize: keySize,
++			Count:   dsaCountNil,
++		}
++		copy(hdr.Seed[:], dsaSeedNil[:])
++		copy(hdr.Q[:], params.Q[:])
++		copy(blob, (*(*[sizeOfDSAParamsHeader]byte)(unsafe.Pointer(&hdr)))[:])
++		data := blob[sizeOfDSAParamsHeader:]
++		if err := encodeBigInt(data, []sizedBigInt{
++			{params.P, keySize},
++			{params.G, keySize},
++		}); err != nil {
++			return err
++		}
++	} else {
++		blob = make([]byte, sizeOfDSAParamsV2Header+2*keySize+2*groupSize)
++		hashAlg := hashAlgFromGroup(int(groupSize))
++		hdr := bcrypt.DSA_PARAMETER_HEADER_V2{
++			Length:          uint32(len(blob)),
++			Magic:           bcrypt.DSA_PARAMETERS_MAGIC_V2,
++			KeySize:         keySize,
++			GroupSize:       groupSize,
++			HashAlgorithm:   hashAlg,
++			StandardVersion: bcrypt.DSA_FIPS186_3,
++			SeedLength:      groupSize, // crypto/dsa doesn't use the seed, but CNG expects it to be groupSize.
++			Count:           dsaCountNil,
++		}
++		copy(blob, (*(*[sizeOfDSAParamsV2Header]byte)(unsafe.Pointer(&hdr)))[:])
++		data := blob[sizeOfDSAParamsV2Header:]
++		if err := encodeBigInt(data, []sizedBigInt{
++			{dsaSeedNil[:], groupSize},
++			{params.Q, groupSize},
++			{params.P, keySize},
++			{params.G, keySize},
++		}); err != nil {
++			return err
++		}
++
++	}
++	return bcrypt.SetProperty(bcrypt.HANDLE(hkey), utf16PtrFromString(bcrypt.DSA_PARAMETERS), blob, 0)
++}
++
++func dsaAdjustHashSize(hkey bcrypt.KEY_HANDLE, hashed []byte, buf []byte) ([]byte, error) {
++	// Windows CNG requires that the hash output and Q match sizes, but we can better
++	// interoperate with other FIPS 186-3 implementations if we perform truncation
++	// here, before sending it to CNG.
++	//
++	// If, on the other hand, Q is too big, we need to left-pad the hash with zeroes
++	// (since it gets treated as a big-endian number).
++	params, _, _, err := decodeDSAKey(hkey, false)
++	if err != nil {
++		return nil, err
++	}
++	groupSize := int(params.groupSize())
++	if groupSize > len(buf) {
++		panic("output buffer too small")
++	}
++	if groupSize == len(hashed) {
++		return hashed, nil
++	}
++	if groupSize < len(hashed) {
++		return hashed[:groupSize], nil
++	}
++	if err := encodeBigInt(buf, []sizedBigInt{
++		{hashed, uint32(groupSize)},
++	}); err != nil {
++		return nil, err
++	}
++	return buf[:groupSize], nil
++}
++
++func hashAlgFromGroup(groupSize int) bcrypt.HASHALGORITHM_ENUM {
++	switch groupSize {
++	case 20:
++		return bcrypt.DSA_HASH_ALGORITHM_SHA1
++	case 32:
++		return bcrypt.DSA_HASH_ALGORITHM_SHA256
++	case 64:
++		return bcrypt.DSA_HASH_ALGORITHM_SHA512
++	default:
++		panic("invalid group size: " + strconv.Itoa(groupSize))
++	}
 +}
 diff --git a/src/vendor/github.com/microsoft/go-crypto-winnative/cng/ecdh.go b/src/vendor/github.com/microsoft/go-crypto-winnative/cng/ecdh.go
 new file mode 100644
@@ -8659,10 +9140,10 @@ index 00000000000000..2d9fd36ce7252e
 +}
 diff --git a/src/vendor/github.com/microsoft/go-crypto-winnative/cng/keys.go b/src/vendor/github.com/microsoft/go-crypto-winnative/cng/keys.go
 new file mode 100644
-index 00000000000000..95c3bcdc5e788d
+index 00000000000000..bc150a7bd39272
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go-crypto-winnative/cng/keys.go
-@@ -0,0 +1,178 @@
+@@ -0,0 +1,220 @@
 +// Copyright (c) Microsoft Corporation.
 +// Licensed under the MIT License.
 +
@@ -8682,7 +9163,49 @@ index 00000000000000..95c3bcdc5e788d
 +	sizeOfECCBlobHeader     = uint32(unsafe.Sizeof(bcrypt.ECCKEY_BLOB{}))
 +	sizeOfRSABlobHeader     = uint32(unsafe.Sizeof(bcrypt.RSAKEY_BLOB{}))
 +	sizeOfKeyDataBlobHeader = uint32(unsafe.Sizeof(bcrypt.KEY_DATA_BLOB_HEADER{}))
++	sizeOfDSABlobHeader     = uint32(unsafe.Sizeof(bcrypt.DSA_KEY_BLOB{}))
++	sizeOfDSAV2BlobHeader   = uint32(unsafe.Sizeof(bcrypt.DSA_KEY_BLOB_V2{}))
++	sizeOfDSAParamsHeader   = uint32(unsafe.Sizeof(bcrypt.DSA_PARAMETER_HEADER{}))
++	sizeOfDSAParamsV2Header = uint32(unsafe.Sizeof(bcrypt.DSA_PARAMETER_HEADER_V2{}))
 +)
++
++// exportDSAKey exports hkey into a bcrypt.DSA_KEY_BLOB header and data.
++func exportDSAKey(hkey bcrypt.KEY_HANDLE, private bool) (bcrypt.DSA_KEY_BLOB, []byte, error) {
++	var magic string
++	if private {
++		magic = bcrypt.DSA_PRIVATE_BLOB
++	} else {
++		magic = bcrypt.DSA_PUBLIC_BLOB
++	}
++	blob, err := exportKey(hkey, magic)
++	if err != nil {
++		return bcrypt.DSA_KEY_BLOB{}, nil, err
++	}
++	if len(blob) < int(sizeOfDSABlobHeader) {
++		return bcrypt.DSA_KEY_BLOB{}, nil, errors.New("cng: exported key is corrupted")
++	}
++	hdr := (*(*bcrypt.DSA_KEY_BLOB)(unsafe.Pointer(&blob[0])))
++	return hdr, blob[sizeOfDSABlobHeader:], nil
++}
++
++// exporDSAV2Key exports hkey into a bcrypt.DSA_KEY_BLOB_V2 header and data.
++func exporDSAV2Key(hkey bcrypt.KEY_HANDLE, private bool) (bcrypt.DSA_KEY_BLOB_V2, []byte, error) {
++	var magic string
++	if private {
++		magic = bcrypt.DSA_PRIVATE_BLOB
++	} else {
++		magic = bcrypt.DSA_PUBLIC_BLOB
++	}
++	blob, err := exportKey(hkey, magic)
++	if err != nil {
++		return bcrypt.DSA_KEY_BLOB_V2{}, nil, err
++	}
++	if len(blob) < int(sizeOfDSAV2BlobHeader) {
++		return bcrypt.DSA_KEY_BLOB_V2{}, nil, errors.New("cng: exported key is corrupted")
++	}
++	hdr := (*(*bcrypt.DSA_KEY_BLOB_V2)(unsafe.Pointer(&blob[0])))
++	return hdr, blob[sizeOfDSAV2BlobHeader:], nil
++}
 +
 +// exportRSAKey exports hkey into a bcrypt.ECCKEY_BLOB header and data.
 +func exportECCKey(hkey bcrypt.KEY_HANDLE, private bool) (bcrypt.ECCKEY_BLOB, []byte, error) {
@@ -8957,10 +9480,10 @@ index 00000000000000..cdd845ab5bea98
 +const RandReader = randReader(0)
 diff --git a/src/vendor/github.com/microsoft/go-crypto-winnative/cng/rc4.go b/src/vendor/github.com/microsoft/go-crypto-winnative/cng/rc4.go
 new file mode 100644
-index 00000000000000..e0d45070f26723
+index 00000000000000..f484a3e2211e04
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go-crypto-winnative/cng/rc4.go
-@@ -0,0 +1,61 @@
+@@ -0,0 +1,65 @@
 +// Copyright (c) Microsoft Corporation.
 +// Licensed under the MIT License.
 +
@@ -9010,6 +9533,10 @@ index 00000000000000..e0d45070f26723
 +	if c.kh == 0 || len(src) == 0 {
 +		return
 +	}
++	// rc4.Cipher.XORKeyStream throws an out of bounds panic if
++	// dst is smaller than src. Replicate the same behavior here.
++	_ = dst[len(src)-1]
++
 +	if subtle.InexactOverlap(dst[:len(src)], src) {
 +		panic("crypto/rc4: invalid buffer overlap")
 +	}
@@ -9502,15 +10029,19 @@ index 00000000000000..30ef2242bc3cf3
 +}
 diff --git a/src/vendor/github.com/microsoft/go-crypto-winnative/internal/bcrypt/bcrypt_windows.go b/src/vendor/github.com/microsoft/go-crypto-winnative/internal/bcrypt/bcrypt_windows.go
 new file mode 100644
-index 00000000000000..37c64ba6a7fa96
+index 00000000000000..090c74a894e170
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go-crypto-winnative/internal/bcrypt/bcrypt_windows.go
-@@ -0,0 +1,284 @@
+@@ -0,0 +1,359 @@
 +// Copyright (c) Microsoft Corporation.
 +// Licensed under the MIT License.
 +
 +//go:generate go run github.com/microsoft/go-crypto-winnative/cmd/mksyscall -output zsyscall_windows.go bcrypt_windows.go
 +
++// Package bcrypt implements interop with bcrypt.dll, a component of Windows CNG.
++// See https://learn.microsoft.com/en-us/windows/win32/api/bcrypt/
++//
++// Note: this package is not related to the bcrypt password hashing algorithm.
 +package bcrypt
 +
 +import (
@@ -9539,6 +10070,7 @@ index 00000000000000..37c64ba6a7fa96
 +	DES3_ALGORITHM       = "3DES" // 3DES_ALGORITHM
 +	TLS1_1_KDF_ALGORITHM = "TLS1_1_KDF"
 +	TLS1_2_KDF_ALGORITHM = "TLS1_2_KDF"
++	DSA_ALGORITHM        = "DSA"
 +)
 +
 +const (
@@ -9558,6 +10090,7 @@ index 00000000000000..37c64ba6a7fa96
 +	CHAIN_MODE_GCM    = "ChainingModeGCM"
 +	KEY_LENGTH        = "KeyLength"
 +	KEY_LENGTHS       = "KeyLengths"
++	SIGNATURE_LENGTH  = "SignatureLength"
 +	BLOCK_LENGTH      = "BlockLength"
 +	ECC_CURVE_NAME    = "ECCCurveName"
 +)
@@ -9567,6 +10100,8 @@ index 00000000000000..37c64ba6a7fa96
 +	RSAFULLPRIVATE_BLOB = "RSAFULLPRIVATEBLOB"
 +	ECCPUBLIC_BLOB      = "ECCPUBLICBLOB"
 +	ECCPRIVATE_BLOB     = "ECCPRIVATEBLOB"
++	DSA_PUBLIC_BLOB     = "DSAPUBLICBLOB"
++	DSA_PRIVATE_BLOB    = "DSAPRIVATEBLOB"
 +)
 +
 +const (
@@ -9617,6 +10152,45 @@ index 00000000000000..37c64ba6a7fa96
 +	KDF_RAW_SECRET = "TRUNCATE"
 +)
 +
++const (
++	DSA_PARAMETERS = "DSAParameters"
++)
++
++type HASHALGORITHM_ENUM uint32
++
++const (
++	DSA_HASH_ALGORITHM_SHA1 HASHALGORITHM_ENUM = iota
++	DSA_HASH_ALGORITHM_SHA256
++	DSA_HASH_ALGORITHM_SHA512
++)
++
++type DSAFIPSVERSION_ENUM uint32
++
++const (
++	DSA_FIPS186_2 DSAFIPSVERSION_ENUM = iota
++	DSA_FIPS186_3
++)
++
++type DSA_PARAMETER_HEADER struct {
++	Length  uint32
++	Magic   KeyBlobMagicNumber
++	KeySize uint32
++	Count   [4]uint8
++	Seed    [20]uint8
++	Q       [20]uint8
++}
++
++type DSA_PARAMETER_HEADER_V2 struct {
++	Length          uint32
++	Magic           KeyBlobMagicNumber
++	KeySize         uint32
++	HashAlgorithm   HASHALGORITHM_ENUM
++	StandardVersion DSAFIPSVERSION_ENUM
++	SeedLength      uint32
++	GroupSize       uint32
++	Count           [4]uint8
++}
++
 +type PadMode uint32
 +
 +const (
@@ -9645,6 +10219,14 @@ index 00000000000000..37c64ba6a7fa96
 +
 +	ECDH_PUBLIC_GENERIC_MAGIC  KeyBlobMagicNumber = 0x504B4345
 +	ECDH_PRIVATE_GENERIC_MAGIC KeyBlobMagicNumber = 0x564B4345
++
++	DSA_PARAMETERS_MAGIC KeyBlobMagicNumber = 0x4d505344
++	DSA_PUBLIC_MAGIC     KeyBlobMagicNumber = 0x42505344
++	DSA_PRIVATE_MAGIC    KeyBlobMagicNumber = 0x56505344
++
++	DSA_PARAMETERS_MAGIC_V2 KeyBlobMagicNumber = 0x324d5044
++	DSA_PUBLIC_MAGIC_V2     KeyBlobMagicNumber = 0x32425044
++	DSA_PRIVATE_MAGIC_V2    KeyBlobMagicNumber = 0x32565044
 +)
 +
 +type (
@@ -9729,6 +10311,26 @@ index 00000000000000..37c64ba6a7fa96
 +type ECCKEY_BLOB struct {
 +	Magic   KeyBlobMagicNumber
 +	KeySize uint32
++}
++
++// https://learn.microsoft.com/en-us/windows/win32/api/bcrypt/ns-bcrypt-bcrypt_dsa_key_blob
++type DSA_KEY_BLOB struct {
++	Magic   KeyBlobMagicNumber
++	KeySize uint32
++	Count   [4]uint8
++	Seed    [20]uint8
++	Q       [20]uint8
++}
++
++// https://learn.microsoft.com/en-us/windows/win32/api/bcrypt/ns-bcrypt-bcrypt_dsa_key_blob_v2
++type DSA_KEY_BLOB_V2 struct {
++	Magic           KeyBlobMagicNumber
++	KeySize         uint32
++	HashAlgorithm   HASHALGORITHM_ENUM
++	StandardVersion DSAFIPSVERSION_ENUM
++	SeedLength      uint32
++	GroupSize       uint32
++	Count           [4]uint8
 +}
 +
 +func Encrypt(hKey KEY_HANDLE, plaintext []byte, pPaddingInfo unsafe.Pointer, pbIV []byte, pbOutput []byte, pcbResult *uint32, dwFlags PadMode) (s error) {
@@ -10285,7 +10887,7 @@ index 00000000000000..1722410e5af193
 +	return getSystemDirectory() + "\\" + dll
 +}
 diff --git a/src/vendor/modules.txt b/src/vendor/modules.txt
-index 7562f74b39ada6..6e996fecefb628 100644
+index 7562f74b39ada6..4a5212f108557c 100644
 --- a/src/vendor/modules.txt
 +++ b/src/vendor/modules.txt
 @@ -1,3 +1,14 @@
@@ -10293,8 +10895,8 @@ index 7562f74b39ada6..6e996fecefb628 100644
 +## explicit; go 1.22
 +github.com/golang-fips/openssl/v2
 +github.com/golang-fips/openssl/v2/bbig
-+# github.com/microsoft/go-crypto-winnative v0.0.0-20240109184443-a968e40d3103
-+## explicit; go 1.17
++# github.com/microsoft/go-crypto-winnative v0.0.0-20240927070024-fde854564ffb
++## explicit; go 1.22
 +github.com/microsoft/go-crypto-winnative/cng
 +github.com/microsoft/go-crypto-winnative/cng/bbig
 +github.com/microsoft/go-crypto-winnative/internal/bcrypt
