@@ -41,30 +41,30 @@ To reproduce, run 'go mod vendor' in 'go/src'.
  .../openssl/v2/thread_setup_windows.c         |   64 +
  .../golang-fips/openssl/v2/tls1prf.go         |  104 ++
  .../microsoft/go-crypto-winnative/LICENSE     |   21 +
- .../microsoft/go-crypto-winnative/cng/aes.go  |  389 ++++++
+ .../microsoft/go-crypto-winnative/cng/aes.go  |  393 +++++++
  .../go-crypto-winnative/cng/bbig/big.go       |   31 +
  .../microsoft/go-crypto-winnative/cng/big.go  |   30 +
- .../go-crypto-winnative/cng/cipher.go         |   56 +
- .../microsoft/go-crypto-winnative/cng/cng.go  |  130 ++
+ .../go-crypto-winnative/cng/cipher.go         |   52 +
+ .../microsoft/go-crypto-winnative/cng/cng.go  |  131 +++
  .../microsoft/go-crypto-winnative/cng/des.go  |  107 ++
- .../microsoft/go-crypto-winnative/cng/dsa.go  |  473 ++++++++
- .../microsoft/go-crypto-winnative/cng/ecdh.go |  260 ++++
- .../go-crypto-winnative/cng/ecdsa.go          |  175 +++
- .../microsoft/go-crypto-winnative/cng/hash.go |  320 +++++
- .../microsoft/go-crypto-winnative/cng/hkdf.go |  179 +++
+ .../microsoft/go-crypto-winnative/cng/dsa.go  |  469 ++++++++
+ .../microsoft/go-crypto-winnative/cng/ecdh.go |  255 ++++
+ .../go-crypto-winnative/cng/ecdsa.go          |  169 +++
+ .../microsoft/go-crypto-winnative/cng/hash.go |  316 +++++
+ .../microsoft/go-crypto-winnative/cng/hkdf.go |  175 +++
  .../microsoft/go-crypto-winnative/cng/hmac.go |   35 +
  .../microsoft/go-crypto-winnative/cng/keys.go |  220 ++++
- .../go-crypto-winnative/cng/pbkdf2.go         |   74 ++
+ .../go-crypto-winnative/cng/pbkdf2.go         |   70 ++
  .../microsoft/go-crypto-winnative/cng/rand.go |   28 +
  .../microsoft/go-crypto-winnative/cng/rc4.go  |   65 +
- .../microsoft/go-crypto-winnative/cng/rsa.go  |  374 ++++++
- .../go-crypto-winnative/cng/tls1prf.go        |   92 ++
+ .../microsoft/go-crypto-winnative/cng/rsa.go  |  370 ++++++
+ .../go-crypto-winnative/cng/tls1prf.go        |   88 ++
  .../internal/bcrypt/bcrypt_windows.go         |  359 ++++++
  .../internal/bcrypt/zsyscall_windows.go       |  389 ++++++
  .../internal/subtle/aliasing.go               |   32 +
  .../internal/sysdll/sys_windows.go            |   55 +
  src/vendor/modules.txt                        |   11 +
- 59 files changed, 10422 insertions(+)
+ 59 files changed, 10388 insertions(+)
  create mode 100644 src/vendor/github.com/golang-fips/openssl/v2/.gitleaks.toml
  create mode 100644 src/vendor/github.com/golang-fips/openssl/v2/LICENSE
  create mode 100644 src/vendor/github.com/golang-fips/openssl/v2/README.md
@@ -6883,10 +6883,10 @@ index 00000000000000..9e841e7a26e4eb
 +    SOFTWARE
 diff --git a/src/vendor/github.com/microsoft/go-crypto-winnative/cng/aes.go b/src/vendor/github.com/microsoft/go-crypto-winnative/cng/aes.go
 new file mode 100644
-index 00000000000000..7fda49a773097a
+index 00000000000000..caac632894556e
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go-crypto-winnative/cng/aes.go
-@@ -0,0 +1,389 @@
+@@ -0,0 +1,393 @@
 +// Copyright (c) Microsoft Corporation.
 +// Licensed under the MIT License.
 +
@@ -6929,16 +6929,28 @@ index 00000000000000..7fda49a773097a
 +
 +func (c *aesCipher) BlockSize() int { return aesBlockSize }
 +
-+func (c *aesCipher) Encrypt(dst, src []byte) {
-+	if subtle.InexactOverlap(dst, src) {
-+		panic("crypto/cipher: invalid buffer overlap")
-+	}
++// validateAndClipInputs checks that dst and src meet the [cipher.Block]
++// interface requirements and clips them to a single block.
++func (c *aesCipher) validateAndClipInputs(dst, src []byte) (d, s []byte) {
 +	if len(src) < aesBlockSize {
 +		panic("crypto/aes: input not full block")
 +	}
 +	if len(dst) < aesBlockSize {
 +		panic("crypto/aes: output not full block")
 +	}
++	// cypher.Block methods are documented to operate on
++	// one block at a time, so we truncate the input and output
++	// to the block size.
++	d, s = dst[:aesBlockSize], src[:aesBlockSize]
++	if subtle.InexactOverlap(d, s) {
++		panic("crypto/aes: invalid buffer overlap")
++	}
++	return d, s
++}
++
++func (c *aesCipher) Encrypt(dst, src []byte) {
++	dst, src = c.validateAndClipInputs(dst, src)
++
 +	var ret uint32
 +	err := bcrypt.Encrypt(c.kh, src, nil, nil, dst, &ret, 0)
 +	if err != nil {
@@ -6951,15 +6963,7 @@ index 00000000000000..7fda49a773097a
 +}
 +
 +func (c *aesCipher) Decrypt(dst, src []byte) {
-+	if subtle.InexactOverlap(dst, src) {
-+		panic("crypto/cipher: invalid buffer overlap")
-+	}
-+	if len(src) < aesBlockSize {
-+		panic("crypto/aes: input not full block")
-+	}
-+	if len(dst) < aesBlockSize {
-+		panic("crypto/aes: output not full block")
-+	}
++	dst, src = c.validateAndClipInputs(dst, src)
 +
 +	var ret uint32
 +	err := bcrypt.Decrypt(c.kh, src, nil, nil, dst, &ret, 0)
@@ -7351,10 +7355,10 @@ index 00000000000000..36f0e0c6e278bc
 +}
 diff --git a/src/vendor/github.com/microsoft/go-crypto-winnative/cng/cipher.go b/src/vendor/github.com/microsoft/go-crypto-winnative/cng/cipher.go
 new file mode 100644
-index 00000000000000..b6f25a1a64794a
+index 00000000000000..c1365f8d399d21
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go-crypto-winnative/cng/cipher.go
-@@ -0,0 +1,56 @@
+@@ -0,0 +1,52 @@
 +// Copyright (c) Microsoft Corporation.
 +// Licensed under the MIT License.
 +
@@ -7375,25 +7379,21 @@ index 00000000000000..b6f25a1a64794a
 +}
 +
 +func loadCipher(id, mode string) (cipherAlgorithm, error) {
-+	v, err := loadOrStoreAlg(id, bcrypt.ALG_NONE_FLAG, mode, func(h bcrypt.ALG_HANDLE) (interface{}, error) {
++	return loadOrStoreAlg(id, bcrypt.ALG_NONE_FLAG, mode, func(h bcrypt.ALG_HANDLE) (cipherAlgorithm, error) {
 +		if mode != "" {
 +			// Windows 8 added support to set the CipherMode value on a key,
 +			// but Windows 7 requires that it be set on the algorithm before key creation.
 +			err := setString(bcrypt.HANDLE(h), bcrypt.CHAINING_MODE, mode)
 +			if err != nil {
-+				return nil, err
++				return cipherAlgorithm{}, err
 +			}
 +		}
 +		lengths, err := getKeyLengths(bcrypt.HANDLE(h))
 +		if err != nil {
-+			return nil, err
++			return cipherAlgorithm{}, err
 +		}
 +		return cipherAlgorithm{h, lengths}, nil
 +	})
-+	if err != nil {
-+		return cipherAlgorithm{}, err
-+	}
-+	return v.(cipherAlgorithm), nil
 +}
 +
 +func newCipherHandle(id, mode string, key []byte) (bcrypt.KEY_HANDLE, error) {
@@ -7413,10 +7413,10 @@ index 00000000000000..b6f25a1a64794a
 +}
 diff --git a/src/vendor/github.com/microsoft/go-crypto-winnative/cng/cng.go b/src/vendor/github.com/microsoft/go-crypto-winnative/cng/cng.go
 new file mode 100644
-index 00000000000000..844c087287cabe
+index 00000000000000..d1916f94a0a76d
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go-crypto-winnative/cng/cng.go
-@@ -0,0 +1,130 @@
+@@ -0,0 +1,131 @@
 +// Copyright (c) Microsoft Corporation.
 +// Licensed under the MIT License.
 +
@@ -7455,9 +7455,10 @@ index 00000000000000..844c087287cabe
 +
 +var algCache sync.Map
 +
-+type newAlgEntryFn func(h bcrypt.ALG_HANDLE) (interface{}, error)
-+
-+func loadOrStoreAlg(id string, flags bcrypt.AlgorithmProviderFlags, mode string, fn newAlgEntryFn) (interface{}, error) {
++// loadOrStoreAlg loads an algorithm with the given id, flags, and mode from the cache.
++// If the algorithm is not in the cache, a new one is created and then initialized using fn.
++// The returned algorithm handle should not be closed by the caller.
++func loadOrStoreAlg[T any](id string, flags bcrypt.AlgorithmProviderFlags, mode string, fn func(h bcrypt.ALG_HANDLE) (T, error)) (T, error) {
 +	var entryKey = struct {
 +		id    string
 +		flags bcrypt.AlgorithmProviderFlags
@@ -7465,22 +7466,22 @@ index 00000000000000..844c087287cabe
 +	}{id, flags, mode}
 +
 +	if v, ok := algCache.Load(entryKey); ok {
-+		return v, nil
++		return v.(T), nil
 +	}
 +	var h bcrypt.ALG_HANDLE
 +	err := bcrypt.OpenAlgorithmProvider(&h, utf16PtrFromString(id), nil, flags)
 +	if err != nil {
-+		return nil, err
++		return *new(T), err
 +	}
 +	v, err := fn(h)
 +	if err != nil {
 +		bcrypt.CloseAlgorithmProvider(h, 0)
-+		return nil, err
++		return *new(T), err
 +	}
 +	if existing, loaded := algCache.LoadOrStore(entryKey, v); loaded {
 +		// We can safely use a provider that has already been cached in another concurrent goroutine.
 +		bcrypt.CloseAlgorithmProvider(h, 0)
-+		v = existing
++		v = existing.(T)
 +	}
 +	return v, nil
 +}
@@ -7662,10 +7663,10 @@ index 00000000000000..b0784affba0aa4
 +}
 diff --git a/src/vendor/github.com/microsoft/go-crypto-winnative/cng/dsa.go b/src/vendor/github.com/microsoft/go-crypto-winnative/cng/dsa.go
 new file mode 100644
-index 00000000000000..bd3e19dcf7f035
+index 00000000000000..5d4d3974d0c52c
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go-crypto-winnative/cng/dsa.go
-@@ -0,0 +1,473 @@
+@@ -0,0 +1,469 @@
 +// Copyright (c) Microsoft Corporation.
 +// Licensed under the MIT License.
 +
@@ -7707,17 +7708,13 @@ index 00000000000000..bd3e19dcf7f035
 +}
 +
 +func loadDSA() (h dsaAlgorithm, err error) {
-+	v, err := loadOrStoreAlg(bcrypt.DSA_ALGORITHM, bcrypt.ALG_NONE_FLAG, "", func(h bcrypt.ALG_HANDLE) (interface{}, error) {
++	return loadOrStoreAlg(bcrypt.DSA_ALGORITHM, bcrypt.ALG_NONE_FLAG, "", func(h bcrypt.ALG_HANDLE) (dsaAlgorithm, error) {
 +		lengths, err := getKeyLengths(bcrypt.HANDLE(h))
 +		if err != nil {
-+			return nil, err
++			return dsaAlgorithm{}, err
 +		}
 +		return dsaAlgorithm{h, lengths}, nil
 +	})
-+	if err != nil {
-+		return dsaAlgorithm{}, err
-+	}
-+	return v.(dsaAlgorithm), nil
 +}
 +
 +// DSAParameters contains the DSA parameters.
@@ -8141,10 +8138,10 @@ index 00000000000000..bd3e19dcf7f035
 +}
 diff --git a/src/vendor/github.com/microsoft/go-crypto-winnative/cng/ecdh.go b/src/vendor/github.com/microsoft/go-crypto-winnative/cng/ecdh.go
 new file mode 100644
-index 00000000000000..cd6e9a98f6f967
+index 00000000000000..2738728eb1b66f
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go-crypto-winnative/cng/ecdh.go
-@@ -0,0 +1,260 @@
+@@ -0,0 +1,255 @@
 +// Copyright (c) Microsoft Corporation.
 +// Licensed under the MIT License.
 +
@@ -8167,36 +8164,31 @@ index 00000000000000..cd6e9a98f6f967
 +
 +type ecdhAlgorithm struct {
 +	handle bcrypt.ALG_HANDLE
++	bits   uint32
 +}
 +
-+func loadECDH(curve string) (h ecdhAlgorithm, bits uint32, err error) {
-+	var id string
-+	switch curve {
-+	case "P-256":
-+		id, bits = bcrypt.ECC_CURVE_NISTP256, 256
-+	case "P-384":
-+		id, bits = bcrypt.ECC_CURVE_NISTP384, 384
-+	case "P-521":
-+		id, bits = bcrypt.ECC_CURVE_NISTP521, 521
-+	case "X25519":
-+		id, bits = bcrypt.ECC_CURVE_25519, 255
-+	default:
-+		err = errUnknownCurve
-+	}
-+	if err != nil {
-+		return
-+	}
-+	v, err := loadOrStoreAlg(bcrypt.ECDH_ALGORITHM, bcrypt.ALG_NONE_FLAG, id, func(h bcrypt.ALG_HANDLE) (interface{}, error) {
-+		err := setString(bcrypt.HANDLE(h), bcrypt.ECC_CURVE_NAME, id)
-+		if err != nil {
-+			return nil, err
++func loadECDH(curve string) (ecdhAlgorithm, error) {
++	return loadOrStoreAlg(bcrypt.ECDH_ALGORITHM, bcrypt.ALG_NONE_FLAG, curve, func(h bcrypt.ALG_HANDLE) (ecdhAlgorithm, error) {
++		var name string
++		var bits uint32
++		switch curve {
++		case "P-256":
++			name, bits = bcrypt.ECC_CURVE_NISTP256, 256
++		case "P-384":
++			name, bits = bcrypt.ECC_CURVE_NISTP384, 384
++		case "P-521":
++			name, bits = bcrypt.ECC_CURVE_NISTP521, 521
++		case "X25519":
++			name, bits = bcrypt.ECC_CURVE_25519, 255
++		default:
++			return ecdhAlgorithm{}, errUnknownCurve
 +		}
-+		return ecdhAlgorithm{h}, nil
++		err := setString(bcrypt.HANDLE(h), bcrypt.ECC_CURVE_NAME, name)
++		if err != nil {
++			return ecdhAlgorithm{}, err
++		}
++		return ecdhAlgorithm{h, bits}, nil
 +	})
-+	if err != nil {
-+		return ecdhAlgorithm{}, 0, err
-+	}
-+	return v.(ecdhAlgorithm), bits, nil
 +}
 +
 +type PublicKeyECDH struct {
@@ -8262,12 +8254,12 @@ index 00000000000000..cd6e9a98f6f967
 +}
 +
 +func GenerateKeyECDH(curve string) (*PrivateKeyECDH, []byte, error) {
-+	h, bits, err := loadECDH(curve)
++	h, err := loadECDH(curve)
 +	if err != nil {
 +		return nil, nil, err
 +	}
 +	var hkey bcrypt.KEY_HANDLE
-+	err = bcrypt.GenerateKeyPair(h.handle, &hkey, bits, 0)
++	err = bcrypt.GenerateKeyPair(h.handle, &hkey, h.bits, 0)
 +	if err != nil {
 +		return nil, nil, err
 +	}
@@ -8301,7 +8293,7 @@ index 00000000000000..cd6e9a98f6f967
 +	if len(bytes) == 0 || (nist && bytes[0] != ecdhUncompressedPrefix) {
 +		return nil, errInvalidPublicKey
 +	}
-+	h, bits, err := loadECDH(curve)
++	h, err := loadECDH(curve)
 +	if err != nil {
 +		return nil, err
 +	}
@@ -8316,11 +8308,11 @@ index 00000000000000..cd6e9a98f6f967
 +		ncomponents = 1
 +		keyWithoutEncoding = bytes
 +	}
-+	keySize := int(bits+7) / 8
++	keySize := int(h.bits+7) / 8
 +	if len(keyWithoutEncoding) != keySize*ncomponents {
 +		return nil, errInvalidPublicKey
 +	}
-+	hkey, err := importECCKey(h.handle, bcrypt.ECDH_ALGORITHM, bits, keyWithoutEncoding[:keySize], keyWithoutEncoding[keySize:], nil)
++	hkey, err := importECCKey(h.handle, bcrypt.ECDH_ALGORITHM, h.bits, keyWithoutEncoding[:keySize], keyWithoutEncoding[keySize:], nil)
 +	if err != nil {
 +		return nil, err
 +	}
@@ -8332,11 +8324,11 @@ index 00000000000000..cd6e9a98f6f967
 +func (k *PublicKeyECDH) Bytes() []byte { return k.bytes }
 +
 +func NewPrivateKeyECDH(curve string, key []byte) (*PrivateKeyECDH, error) {
-+	h, bits, err := loadECDH(curve)
++	h, err := loadECDH(curve)
 +	if err != nil {
 +		return nil, err
 +	}
-+	keySize := int(bits+7) / 8
++	keySize := int(h.bits+7) / 8
 +	if len(key) != keySize {
 +		return nil, errInvalidPrivateKey
 +	}
@@ -8349,7 +8341,7 @@ index 00000000000000..cd6e9a98f6f967
 +	// To trigger this behavior we pass a zeroed X/Y with keySize length.
 +	// zero is big enough to fit P-521 curves, the largest we handle, in the stack.
 +	var zero [(521 + 7) / 8]byte
-+	hkey, err := importECCKey(h.handle, bcrypt.ECDH_ALGORITHM, bits, zero[:keySize], zero[:keySize], key)
++	hkey, err := importECCKey(h.handle, bcrypt.ECDH_ALGORITHM, h.bits, zero[:keySize], zero[:keySize], key)
 +	if err != nil {
 +		return nil, err
 +	}
@@ -8407,10 +8399,10 @@ index 00000000000000..cd6e9a98f6f967
 +}
 diff --git a/src/vendor/github.com/microsoft/go-crypto-winnative/cng/ecdsa.go b/src/vendor/github.com/microsoft/go-crypto-winnative/cng/ecdsa.go
 new file mode 100644
-index 00000000000000..a77ff97bb8f521
+index 00000000000000..586e9ae2ebb0c9
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go-crypto-winnative/cng/ecdsa.go
-@@ -0,0 +1,175 @@
+@@ -0,0 +1,169 @@
 +// Copyright (c) Microsoft Corporation.
 +// Licensed under the MIT License.
 +
@@ -8430,47 +8422,41 @@ index 00000000000000..a77ff97bb8f521
 +
 +type ecdsaAlgorithm struct {
 +	handle bcrypt.ALG_HANDLE
++	bits   uint32
 +}
 +
-+func loadECDSA(curve string) (h ecdsaAlgorithm, bits uint32, err error) {
-+	var id string
-+	switch curve {
-+	case "P-224":
-+		id, bits = bcrypt.ECC_CURVE_NISTP224, 224
-+	case "P-256":
-+		id, bits = bcrypt.ECC_CURVE_NISTP256, 256
-+	case "P-384":
-+		id, bits = bcrypt.ECC_CURVE_NISTP384, 384
-+	case "P-521":
-+		id, bits = bcrypt.ECC_CURVE_NISTP521, 521
-+	default:
-+		err = errUnknownCurve
-+	}
-+	if err != nil {
-+		return
-+	}
-+	v, err := loadOrStoreAlg(bcrypt.ECDSA_ALGORITHM, bcrypt.ALG_NONE_FLAG, id, func(h bcrypt.ALG_HANDLE) (interface{}, error) {
-+		err := setString(bcrypt.HANDLE(h), bcrypt.ECC_CURVE_NAME, id)
-+		if err != nil {
-+			return nil, err
++func loadECDSA(curve string) (ecdsaAlgorithm, error) {
++	return loadOrStoreAlg(bcrypt.ECDSA_ALGORITHM, bcrypt.ALG_NONE_FLAG, curve, func(h bcrypt.ALG_HANDLE) (ecdsaAlgorithm, error) {
++		var name string
++		var bits uint32
++		switch curve {
++		case "P-224":
++			name, bits = bcrypt.ECC_CURVE_NISTP224, 224
++		case "P-256":
++			name, bits = bcrypt.ECC_CURVE_NISTP256, 256
++		case "P-384":
++			name, bits = bcrypt.ECC_CURVE_NISTP384, 384
++		case "P-521":
++			name, bits = bcrypt.ECC_CURVE_NISTP521, 521
++		default:
++			return ecdsaAlgorithm{}, errUnknownCurve
 +		}
-+		return ecdsaAlgorithm{h}, nil
++		err := setString(bcrypt.HANDLE(h), bcrypt.ECC_CURVE_NAME, name)
++		if err != nil {
++			return ecdsaAlgorithm{}, err
++		}
++		return ecdsaAlgorithm{h, bits}, nil
 +	})
-+	if err != nil {
-+		return ecdsaAlgorithm{}, 0, err
-+	}
-+	return v.(ecdsaAlgorithm), bits, nil
 +}
 +
 +func GenerateKeyECDSA(curve string) (X, Y, D BigInt, err error) {
 +	var h ecdsaAlgorithm
-+	var bits uint32
-+	h, bits, err = loadECDSA(curve)
++	h, err = loadECDSA(curve)
 +	if err != nil {
 +		return
 +	}
 +	var hkey bcrypt.KEY_HANDLE
-+	err = bcrypt.GenerateKeyPair(h.handle, &hkey, bits, 0)
++	err = bcrypt.GenerateKeyPair(h.handle, &hkey, h.bits, 0)
 +	if err != nil {
 +		return
 +	}
@@ -8500,11 +8486,11 @@ index 00000000000000..a77ff97bb8f521
 +}
 +
 +func NewPublicKeyECDSA(curve string, X, Y BigInt) (*PublicKeyECDSA, error) {
-+	h, bits, err := loadECDSA(curve)
++	h, err := loadECDSA(curve)
 +	if err != nil {
 +		return nil, err
 +	}
-+	hkey, err := importECCKey(h.handle, bcrypt.ECDSA_ALGORITHM, bits, X, Y, nil)
++	hkey, err := importECCKey(h.handle, bcrypt.ECDSA_ALGORITHM, h.bits, X, Y, nil)
 +	if err != nil {
 +		return nil, err
 +	}
@@ -8522,11 +8508,11 @@ index 00000000000000..a77ff97bb8f521
 +}
 +
 +func NewPrivateKeyECDSA(curve string, X, Y, D BigInt) (*PrivateKeyECDSA, error) {
-+	h, bits, err := loadECDSA(curve)
++	h, err := loadECDSA(curve)
 +	if err != nil {
 +		return nil, err
 +	}
-+	hkey, err := importECCKey(h.handle, bcrypt.ECDSA_ALGORITHM, bits, X, Y, D)
++	hkey, err := importECCKey(h.handle, bcrypt.ECDSA_ALGORITHM, h.bits, X, Y, D)
 +	if err != nil {
 +		return nil, err
 +	}
@@ -8588,10 +8574,10 @@ index 00000000000000..a77ff97bb8f521
 +}
 diff --git a/src/vendor/github.com/microsoft/go-crypto-winnative/cng/hash.go b/src/vendor/github.com/microsoft/go-crypto-winnative/cng/hash.go
 new file mode 100644
-index 00000000000000..bebbc999337efb
+index 00000000000000..c4f01e17dd4ca1
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go-crypto-winnative/cng/hash.go
-@@ -0,0 +1,320 @@
+@@ -0,0 +1,316 @@
 +// Copyright (c) Microsoft Corporation.
 +// Licensed under the MIT License.
 +
@@ -8751,7 +8737,7 @@ index 00000000000000..bebbc999337efb
 +}
 +
 +func loadHash(id string, flags bcrypt.AlgorithmProviderFlags) (*hashAlgorithm, error) {
-+	v, err := loadOrStoreAlg(id, flags, "", func(h bcrypt.ALG_HANDLE) (interface{}, error) {
++	return loadOrStoreAlg(id, flags, "", func(h bcrypt.ALG_HANDLE) (*hashAlgorithm, error) {
 +		size, err := getUint32(bcrypt.HANDLE(h), bcrypt.HASH_LENGTH)
 +		if err != nil {
 +			return nil, err
@@ -8762,10 +8748,6 @@ index 00000000000000..bebbc999337efb
 +		}
 +		return &hashAlgorithm{h, id, size, blockSize}, nil
 +	})
-+	if err != nil {
-+		return nil, err
-+	}
-+	return v.(*hashAlgorithm), nil
 +}
 +
 +// hashToID converts a hash.Hash implementation from this package
@@ -8914,10 +8896,10 @@ index 00000000000000..bebbc999337efb
 +}
 diff --git a/src/vendor/github.com/microsoft/go-crypto-winnative/cng/hkdf.go b/src/vendor/github.com/microsoft/go-crypto-winnative/cng/hkdf.go
 new file mode 100644
-index 00000000000000..6f164ced8a9656
+index 00000000000000..655926ef635224
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go-crypto-winnative/cng/hkdf.go
-@@ -0,0 +1,179 @@
+@@ -0,0 +1,175 @@
 +// Copyright (c) Microsoft Corporation.
 +// Licensed under the MIT License.
 +
@@ -8943,13 +8925,9 @@ index 00000000000000..6f164ced8a9656
 +}
 +
 +func loadHKDF() (bcrypt.ALG_HANDLE, error) {
-+	h, err := loadOrStoreAlg(bcrypt.HKDF_ALGORITHM, 0, "", func(h bcrypt.ALG_HANDLE) (interface{}, error) {
++	return loadOrStoreAlg(bcrypt.HKDF_ALGORITHM, bcrypt.ALG_NONE_FLAG, "", func(h bcrypt.ALG_HANDLE) (bcrypt.ALG_HANDLE, error) {
 +		return h, nil
 +	})
-+	if err != nil {
-+		return 0, err
-+	}
-+	return h.(bcrypt.ALG_HANDLE), nil
 +}
 +
 +type hkdf struct {
@@ -9366,10 +9344,10 @@ index 00000000000000..bc150a7bd39272
 +}
 diff --git a/src/vendor/github.com/microsoft/go-crypto-winnative/cng/pbkdf2.go b/src/vendor/github.com/microsoft/go-crypto-winnative/cng/pbkdf2.go
 new file mode 100644
-index 00000000000000..42614c9c748f80
+index 00000000000000..5466b180e60e5a
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go-crypto-winnative/cng/pbkdf2.go
-@@ -0,0 +1,74 @@
+@@ -0,0 +1,70 @@
 +// Copyright (c) Microsoft Corporation.
 +// Licensed under the MIT License.
 +
@@ -9387,13 +9365,9 @@ index 00000000000000..42614c9c748f80
 +)
 +
 +func loadPBKDF2() (bcrypt.ALG_HANDLE, error) {
-+	h, err := loadOrStoreAlg(bcrypt.PBKDF2_ALGORITHM, 0, "", func(h bcrypt.ALG_HANDLE) (interface{}, error) {
++	return loadOrStoreAlg(bcrypt.PBKDF2_ALGORITHM, bcrypt.ALG_NONE_FLAG, "", func(h bcrypt.ALG_HANDLE) (bcrypt.ALG_HANDLE, error) {
 +		return h, nil
 +	})
-+	if err != nil {
-+		return 0, err
-+	}
-+	return h.(bcrypt.ALG_HANDLE), nil
 +}
 +
 +func PBKDF2(password, salt []byte, iter, keyLen int, h func() hash.Hash) ([]byte, error) {
@@ -9551,10 +9525,10 @@ index 00000000000000..f484a3e2211e04
 +}
 diff --git a/src/vendor/github.com/microsoft/go-crypto-winnative/cng/rsa.go b/src/vendor/github.com/microsoft/go-crypto-winnative/cng/rsa.go
 new file mode 100644
-index 00000000000000..7e3f7abe3487cb
+index 00000000000000..e9e2a09083a05c
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go-crypto-winnative/cng/rsa.go
-@@ -0,0 +1,374 @@
+@@ -0,0 +1,370 @@
 +// Copyright (c) Microsoft Corporation.
 +// Licensed under the MIT License.
 +
@@ -9579,17 +9553,13 @@ index 00000000000000..7e3f7abe3487cb
 +}
 +
 +func loadRsa() (rsaAlgorithm, error) {
-+	v, err := loadOrStoreAlg(bcrypt.RSA_ALGORITHM, bcrypt.ALG_NONE_FLAG, "", func(h bcrypt.ALG_HANDLE) (interface{}, error) {
++	return loadOrStoreAlg(bcrypt.RSA_ALGORITHM, bcrypt.ALG_NONE_FLAG, "", func(h bcrypt.ALG_HANDLE) (rsaAlgorithm, error) {
 +		lengths, err := getKeyLengths(bcrypt.HANDLE(h))
 +		if err != nil {
-+			return nil, err
++			return rsaAlgorithm{}, err
 +		}
 +		return rsaAlgorithm{h, lengths}, nil
 +	})
-+	if err != nil {
-+		return rsaAlgorithm{}, err
-+	}
-+	return v.(rsaAlgorithm), nil
 +}
 +
 +func GenerateKeyRSA(bits int) (N, E, D, P, Q, Dp, Dq, Qinv BigInt, err error) {
@@ -9931,10 +9901,10 @@ index 00000000000000..7e3f7abe3487cb
 +}
 diff --git a/src/vendor/github.com/microsoft/go-crypto-winnative/cng/tls1prf.go b/src/vendor/github.com/microsoft/go-crypto-winnative/cng/tls1prf.go
 new file mode 100644
-index 00000000000000..30ef2242bc3cf3
+index 00000000000000..5a3fb01606ef95
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go-crypto-winnative/cng/tls1prf.go
-@@ -0,0 +1,92 @@
+@@ -0,0 +1,88 @@
 +// Copyright (c) Microsoft Corporation.
 +// Licensed under the MIT License.
 +
@@ -9952,13 +9922,9 @@ index 00000000000000..30ef2242bc3cf3
 +)
 +
 +func loadTLS1PRF(id string) (bcrypt.ALG_HANDLE, error) {
-+	h, err := loadOrStoreAlg(id, 0, "", func(h bcrypt.ALG_HANDLE) (interface{}, error) {
++	return loadOrStoreAlg(id, bcrypt.ALG_NONE_FLAG, "", func(h bcrypt.ALG_HANDLE) (bcrypt.ALG_HANDLE, error) {
 +		return h, nil
 +	})
-+	if err != nil {
-+		return 0, err
-+	}
-+	return h.(bcrypt.ALG_HANDLE), nil
 +}
 +
 +// TLS1PRF implements the TLS 1.0/1.1 pseudo-random function if h is nil,
@@ -10887,7 +10853,7 @@ index 00000000000000..1722410e5af193
 +	return getSystemDirectory() + "\\" + dll
 +}
 diff --git a/src/vendor/modules.txt b/src/vendor/modules.txt
-index 7562f74b39ada6..4a5212f108557c 100644
+index cf5c0b83c9eeef..499d0cde63f7c9 100644
 --- a/src/vendor/modules.txt
 +++ b/src/vendor/modules.txt
 @@ -1,3 +1,14 @@
@@ -10895,7 +10861,7 @@ index 7562f74b39ada6..4a5212f108557c 100644
 +## explicit; go 1.22
 +github.com/golang-fips/openssl/v2
 +github.com/golang-fips/openssl/v2/bbig
-+# github.com/microsoft/go-crypto-winnative v0.0.0-20240927070024-fde854564ffb
++# github.com/microsoft/go-crypto-winnative v0.0.0-20240929074641-3e2be6d20709
 +## explicit; go 1.22
 +github.com/microsoft/go-crypto-winnative/cng
 +github.com/microsoft/go-crypto-winnative/cng/bbig
