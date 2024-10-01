@@ -1,0 +1,2447 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Dimitri John Ledkov <dimitri.ledkov@surgut.co.uk>
+Date: Tue, 1 Oct 2024 18:55:51 +0100
+Subject: [PATCH] internal/coverage: vendor in md5
+
+coverage format specifies use of md5 which under systemcrypto might
+not be available at all times. Vendor in native md5 implementation and
+use it.
+
+Do not register such hash with crypto system, do not perform
+cryptotest, and update module dependencies.
+---
+ src/cmd/covdata/metamerge.go                  |   2 +-
+ src/cmd/dist/buildtool.go                     |   2 +
+ src/go/build/deps_test.go                     |  15 +-
+ src/internal/coverage/cfile/emit.go           |   2 +-
+ .../coverage/decodemeta/decodefile.go         |   2 +-
+ src/internal/coverage/encodemeta/encode.go    |   2 +-
+ .../coverage/encodemeta/encodefile.go         |   2 +-
+ src/internal/coverage/md5/example_test.go     |  42 +++
+ src/internal/coverage/md5/gen.go              | 259 +++++++++++++++
+ src/internal/coverage/md5/md5.go              | 178 +++++++++++
+ src/internal/coverage/md5/md5_test.go         | 301 ++++++++++++++++++
+ src/internal/coverage/md5/md5block.go         | 125 ++++++++
+ src/internal/coverage/md5/md5block_386.s      | 184 +++++++++++
+ src/internal/coverage/md5/md5block_amd64.s    | 197 ++++++++++++
+ src/internal/coverage/md5/md5block_arm.s      | 301 ++++++++++++++++++
+ src/internal/coverage/md5/md5block_arm64.s    | 169 ++++++++++
+ src/internal/coverage/md5/md5block_decl.go    |  12 +
+ src/internal/coverage/md5/md5block_generic.go |  13 +
+ src/internal/coverage/md5/md5block_ppc64x.s   | 212 ++++++++++++
+ src/internal/coverage/md5/md5block_s390x.s    | 177 ++++++++++
+ src/internal/coverage/pods/pods_test.go       |   2 +-
+ src/internal/pkgbits/encoder.go               |   2 +-
+ 22 files changed, 2188 insertions(+), 13 deletions(-)
+ create mode 100644 src/internal/coverage/md5/example_test.go
+ create mode 100644 src/internal/coverage/md5/gen.go
+ create mode 100644 src/internal/coverage/md5/md5.go
+ create mode 100644 src/internal/coverage/md5/md5_test.go
+ create mode 100644 src/internal/coverage/md5/md5block.go
+ create mode 100644 src/internal/coverage/md5/md5block_386.s
+ create mode 100644 src/internal/coverage/md5/md5block_amd64.s
+ create mode 100644 src/internal/coverage/md5/md5block_arm.s
+ create mode 100644 src/internal/coverage/md5/md5block_arm64.s
+ create mode 100644 src/internal/coverage/md5/md5block_decl.go
+ create mode 100644 src/internal/coverage/md5/md5block_generic.go
+ create mode 100644 src/internal/coverage/md5/md5block_ppc64x.s
+ create mode 100644 src/internal/coverage/md5/md5block_s390x.s
+
+diff --git a/src/cmd/covdata/metamerge.go b/src/cmd/covdata/metamerge.go
+index bf088b1136..3c76d61ec2 100644
+--- a/src/cmd/covdata/metamerge.go
++++ b/src/cmd/covdata/metamerge.go
+@@ -9,7 +9,6 @@ package main
+ // and "intersect" subcommands.
+ 
+ import (
+-	"crypto/md5"
+ 	"fmt"
+ 	"internal/coverage"
+ 	"internal/coverage/calloc"
+@@ -18,6 +17,7 @@ import (
+ 	"internal/coverage/decodemeta"
+ 	"internal/coverage/encodecounter"
+ 	"internal/coverage/encodemeta"
++	"internal/coverage/md5"
+ 	"internal/coverage/slicewriter"
+ 	"io"
+ 	"os"
+diff --git a/src/cmd/dist/buildtool.go b/src/cmd/dist/buildtool.go
+index 89a1c0ec8b..3df122212a 100644
+--- a/src/cmd/dist/buildtool.go
++++ b/src/cmd/dist/buildtool.go
+@@ -68,7 +68,9 @@ var bootstrapDirs = []string{
+ 	"go/constant",
+ 	"go/version",
+ 	"internal/abi",
++	"internal/byteorder",
+ 	"internal/coverage",
++	"internal/coverage/md5",
+ 	"cmd/internal/cov/covcmd",
+ 	"internal/bisect",
+ 	"internal/buildcfg",
+diff --git a/src/go/build/deps_test.go b/src/go/build/deps_test.go
+index af0d39d1a8..da3afe4fcd 100644
+--- a/src/go/build/deps_test.go
++++ b/src/go/build/deps_test.go
+@@ -538,11 +538,6 @@ var depsRules = `
+ 
+ 	# crypto-aware packages
+ 
+-	DEBUG, go/build, go/types, text/scanner, crypto/md5
+-	< internal/pkgbits
+-	< go/internal/gcimporter, go/internal/gccgoimporter, go/internal/srcimporter
+-	< go/importer;
+-
+ 	NET, crypto/rand, mime/quotedprintable
+ 	< mime/multipart;
+ 
+@@ -694,7 +689,15 @@ var depsRules = `
+ 	< internal/trace/traceviewer;
+ 
+ 	# Coverage.
+-	FMT, crypto/md5, encoding/binary, regexp, sort, text/tabwriter,
++        CRYPTO
++        < internal/coverage/md5;
++
++        DEBUG, go/build, go/types, text/scanner, internal/coverage/md5
++        < internal/pkgbits
++        < go/internal/gcimporter, go/internal/gccgoimporter, go/internal/srcimporter
++        < go/importer;
++
++	FMT, internal/coverage/md5, encoding/binary, regexp, sort, text/tabwriter,
+ 	internal/coverage, internal/coverage/uleb128
+ 	< internal/coverage/cmerge,
+ 	  internal/coverage/pods,
+diff --git a/src/internal/coverage/cfile/emit.go b/src/internal/coverage/cfile/emit.go
+index 3993e9cb42..2f1a245525 100644
+--- a/src/internal/coverage/cfile/emit.go
++++ b/src/internal/coverage/cfile/emit.go
+@@ -9,7 +9,7 @@
+ package cfile
+ 
+ import (
+-	"crypto/md5"
++	"internal/coverage/md5"
+ 	"fmt"
+ 	"internal/coverage"
+ 	"internal/coverage/encodecounter"
+diff --git a/src/internal/coverage/decodemeta/decodefile.go b/src/internal/coverage/decodemeta/decodefile.go
+index 96e076596f..0e2d51a41d 100644
+--- a/src/internal/coverage/decodemeta/decodefile.go
++++ b/src/internal/coverage/decodemeta/decodefile.go
+@@ -12,7 +12,7 @@ package decodemeta
+ 
+ import (
+ 	"bufio"
+-	"crypto/md5"
++	"internal/coverage/md5"
+ 	"encoding/binary"
+ 	"fmt"
+ 	"internal/coverage"
+diff --git a/src/internal/coverage/encodemeta/encode.go b/src/internal/coverage/encodemeta/encode.go
+index 549b3f55a8..d5f6e3bb7a 100644
+--- a/src/internal/coverage/encodemeta/encode.go
++++ b/src/internal/coverage/encodemeta/encode.go
+@@ -10,7 +10,7 @@ package encodemeta
+ 
+ import (
+ 	"bytes"
+-	"crypto/md5"
++	"internal/coverage/md5"
+ 	"encoding/binary"
+ 	"fmt"
+ 	"hash"
+diff --git a/src/internal/coverage/encodemeta/encodefile.go b/src/internal/coverage/encodemeta/encodefile.go
+index 38ae46e4f5..e717ca5fb4 100644
+--- a/src/internal/coverage/encodemeta/encodefile.go
++++ b/src/internal/coverage/encodemeta/encodefile.go
+@@ -6,7 +6,7 @@ package encodemeta
+ 
+ import (
+ 	"bufio"
+-	"crypto/md5"
++	"internal/coverage/md5"
+ 	"encoding/binary"
+ 	"fmt"
+ 	"internal/coverage"
+diff --git a/src/internal/coverage/md5/example_test.go b/src/internal/coverage/md5/example_test.go
+new file mode 100644
+index 0000000000..af8c1bfd65
+--- /dev/null
++++ b/src/internal/coverage/md5/example_test.go
+@@ -0,0 +1,42 @@
++// Copyright 2013 The Go Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style
++// license that can be found in the LICENSE file.
++
++package md5_test
++
++import (
++	"crypto/md5"
++	"fmt"
++	"io"
++	"log"
++	"os"
++)
++
++func ExampleNew() {
++	h := md5.New()
++	io.WriteString(h, "The fog is getting thicker!")
++	io.WriteString(h, "And Leon's getting laaarger!")
++	fmt.Printf("%x", h.Sum(nil))
++	// Output: e2c569be17396eca2a2e3c11578123ed
++}
++
++func ExampleSum() {
++	data := []byte("These pretzels are making me thirsty.")
++	fmt.Printf("%x", md5.Sum(data))
++	// Output: b0804ec967f48520697662a204f5fe72
++}
++
++func ExampleNew_file() {
++	f, err := os.Open("file.txt")
++	if err != nil {
++		log.Fatal(err)
++	}
++	defer f.Close()
++
++	h := md5.New()
++	if _, err := io.Copy(h, f); err != nil {
++		log.Fatal(err)
++	}
++
++	fmt.Printf("%x", h.Sum(nil))
++}
+diff --git a/src/internal/coverage/md5/gen.go b/src/internal/coverage/md5/gen.go
+new file mode 100644
+index 0000000000..5290c3627c
+--- /dev/null
++++ b/src/internal/coverage/md5/gen.go
+@@ -0,0 +1,259 @@
++// Copyright 2012 The Go Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style
++// license that can be found in the LICENSE file.
++
++//go:build ignore
++
++// This program generates md5block.go
++// Invoke as
++//
++//	go run gen.go -output md5block.go
++
++package main
++
++import (
++	"bytes"
++	"flag"
++	"go/format"
++	"log"
++	"os"
++	"strings"
++	"text/template"
++)
++
++var filename = flag.String("output", "md5block.go", "output file name")
++
++func main() {
++	flag.Parse()
++
++	var buf bytes.Buffer
++
++	t := template.Must(template.New("main").Funcs(funcs).Parse(program))
++	if err := t.Execute(&buf, data); err != nil {
++		log.Fatal(err)
++	}
++
++	data, err := format.Source(buf.Bytes())
++	if err != nil {
++		log.Fatal(err)
++	}
++	err = os.WriteFile(*filename, data, 0644)
++	if err != nil {
++		log.Fatal(err)
++	}
++}
++
++type Data struct {
++	a, b, c, d string
++	Shift1     []int
++	Shift2     []int
++	Shift3     []int
++	Shift4     []int
++	Table1     []uint32
++	Table2     []uint32
++	Table3     []uint32
++	Table4     []uint32
++}
++
++var funcs = template.FuncMap{
++	"dup":     dup,
++	"relabel": relabel,
++	"rotate":  rotate,
++	"idx":     idx,
++	"seq":     seq,
++}
++
++func dup(count int, x []int) []int {
++	var out []int
++	for i := 0; i < count; i++ {
++		out = append(out, x...)
++	}
++	return out
++}
++
++func relabel(s string) string {
++	return strings.NewReplacer("arg0", data.a, "arg1", data.b, "arg2", data.c, "arg3", data.d).Replace(s)
++}
++
++func rotate() string {
++	data.a, data.b, data.c, data.d = data.d, data.a, data.b, data.c
++	return "" // no output
++}
++
++func idx(round, index int) int {
++	v := 0
++	switch round {
++	case 1:
++		v = index
++	case 2:
++		v = (1 + 5*index) & 15
++	case 3:
++		v = (5 + 3*index) & 15
++	case 4:
++		v = (7 * index) & 15
++	}
++	return v
++}
++
++func seq(i int) []int {
++	s := make([]int, i)
++	for i := range s {
++		s[i] = i
++	}
++	return s
++}
++
++var data = Data{
++	a:      "a",
++	b:      "b",
++	c:      "c",
++	d:      "d",
++	Shift1: []int{7, 12, 17, 22},
++	Shift2: []int{5, 9, 14, 20},
++	Shift3: []int{4, 11, 16, 23},
++	Shift4: []int{6, 10, 15, 21},
++
++	// table[i] = int((1<<32) * abs(sin(i+1 radians))).
++	Table1: []uint32{
++		// round 1
++		0xd76aa478,
++		0xe8c7b756,
++		0x242070db,
++		0xc1bdceee,
++		0xf57c0faf,
++		0x4787c62a,
++		0xa8304613,
++		0xfd469501,
++		0x698098d8,
++		0x8b44f7af,
++		0xffff5bb1,
++		0x895cd7be,
++		0x6b901122,
++		0xfd987193,
++		0xa679438e,
++		0x49b40821,
++	},
++	Table2: []uint32{
++		// round 2
++		0xf61e2562,
++		0xc040b340,
++		0x265e5a51,
++		0xe9b6c7aa,
++		0xd62f105d,
++		0x2441453,
++		0xd8a1e681,
++		0xe7d3fbc8,
++		0x21e1cde6,
++		0xc33707d6,
++		0xf4d50d87,
++		0x455a14ed,
++		0xa9e3e905,
++		0xfcefa3f8,
++		0x676f02d9,
++		0x8d2a4c8a,
++	},
++	Table3: []uint32{
++		// round3
++		0xfffa3942,
++		0x8771f681,
++		0x6d9d6122,
++		0xfde5380c,
++		0xa4beea44,
++		0x4bdecfa9,
++		0xf6bb4b60,
++		0xbebfbc70,
++		0x289b7ec6,
++		0xeaa127fa,
++		0xd4ef3085,
++		0x4881d05,
++		0xd9d4d039,
++		0xe6db99e5,
++		0x1fa27cf8,
++		0xc4ac5665,
++	},
++	Table4: []uint32{
++		// round 4
++		0xf4292244,
++		0x432aff97,
++		0xab9423a7,
++		0xfc93a039,
++		0x655b59c3,
++		0x8f0ccc92,
++		0xffeff47d,
++		0x85845dd1,
++		0x6fa87e4f,
++		0xfe2ce6e0,
++		0xa3014314,
++		0x4e0811a1,
++		0xf7537e82,
++		0xbd3af235,
++		0x2ad7d2bb,
++		0xeb86d391,
++	},
++}
++
++var program = `// Copyright 2013 The Go Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style
++// license that can be found in the LICENSE file.
++
++// Code generated by go run gen.go -output md5block.go; DO NOT EDIT.
++
++package md5
++
++import (
++	"internal/byteorder"
++	"math/bits"
++)
++
++func blockGeneric(dig *digest, p []byte) {
++	// load state
++	a, b, c, d := dig.s[0], dig.s[1], dig.s[2], dig.s[3]
++
++	for i := 0; i <= len(p)-BlockSize; i += BlockSize {
++		// eliminate bounds checks on p
++		q := p[i:]
++		q = q[:BlockSize:BlockSize]
++
++		// save current state
++		aa, bb, cc, dd := a, b, c, d
++
++		// load input block
++		{{range $i := seq 16 -}}
++			{{printf "x%x := byteorder.LeUint32(q[4*%#x:])" $i $i}}
++		{{end}}
++
++		// round 1
++		{{range $i, $s := dup 4 .Shift1 -}}
++			{{printf "arg0 = arg1 + bits.RotateLeft32((((arg2^arg3)&arg1)^arg3)+arg0+x%x+%#08x, %d)" (idx 1 $i) (index $.Table1 $i) $s | relabel}}
++			{{rotate -}}
++		{{end}}
++
++		// round 2
++		{{range $i, $s := dup 4 .Shift2 -}}
++			{{printf "arg0 = arg1 + bits.RotateLeft32((((arg1^arg2)&arg3)^arg2)+arg0+x%x+%#08x, %d)" (idx 2 $i) (index $.Table2 $i) $s | relabel}}
++			{{rotate -}}
++		{{end}}
++
++		// round 3
++		{{range $i, $s := dup 4 .Shift3 -}}
++			{{printf "arg0 = arg1 + bits.RotateLeft32((arg1^arg2^arg3)+arg0+x%x+%#08x, %d)" (idx 3 $i) (index $.Table3 $i) $s | relabel}}
++			{{rotate -}}
++		{{end}}
++
++		// round 4
++		{{range $i, $s := dup 4 .Shift4 -}}
++			{{printf "arg0 = arg1 + bits.RotateLeft32((arg2^(arg1|^arg3))+arg0+x%x+%#08x, %d)" (idx 4 $i) (index $.Table4 $i) $s | relabel}}
++			{{rotate -}}
++		{{end}}
++
++		// add saved state
++		a += aa
++		b += bb
++		c += cc
++		d += dd
++	}
++
++	// save state
++	dig.s[0], dig.s[1], dig.s[2], dig.s[3] = a, b, c, d
++}
++`
+diff --git a/src/internal/coverage/md5/md5.go b/src/internal/coverage/md5/md5.go
+new file mode 100644
+index 0000000000..673119f033
+--- /dev/null
++++ b/src/internal/coverage/md5/md5.go
+@@ -0,0 +1,178 @@
++// Copyright 2009 The Go Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style
++// license that can be found in the LICENSE file.
++
++//go:generate go run gen.go -output md5block.go
++
++// Package md5 implements the MD5 hash algorithm as defined in RFC 1321.
++//
++// MD5 is cryptographically broken and should not be used for secure
++// applications.
++package md5
++
++import (
++	"errors"
++	"hash"
++	"internal/byteorder"
++)
++
++// The size of an MD5 checksum in bytes.
++const Size = 16
++
++// The blocksize of MD5 in bytes.
++const BlockSize = 64
++
++const (
++	init0 = 0x67452301
++	init1 = 0xEFCDAB89
++	init2 = 0x98BADCFE
++	init3 = 0x10325476
++)
++
++// digest represents the partial evaluation of a checksum.
++type digest struct {
++	s   [4]uint32
++	x   [BlockSize]byte
++	nx  int
++	len uint64
++}
++
++func (d *digest) Reset() {
++	d.s[0] = init0
++	d.s[1] = init1
++	d.s[2] = init2
++	d.s[3] = init3
++	d.nx = 0
++	d.len = 0
++}
++
++const (
++	magic         = "md5\x01"
++	marshaledSize = len(magic) + 4*4 + BlockSize + 8
++)
++
++func (d *digest) MarshalBinary() ([]byte, error) {
++	b := make([]byte, 0, marshaledSize)
++	b = append(b, magic...)
++	b = byteorder.BeAppendUint32(b, d.s[0])
++	b = byteorder.BeAppendUint32(b, d.s[1])
++	b = byteorder.BeAppendUint32(b, d.s[2])
++	b = byteorder.BeAppendUint32(b, d.s[3])
++	b = append(b, d.x[:d.nx]...)
++	b = b[:len(b)+len(d.x)-d.nx] // already zero
++	b = byteorder.BeAppendUint64(b, d.len)
++	return b, nil
++}
++
++func (d *digest) UnmarshalBinary(b []byte) error {
++	if len(b) < len(magic) || string(b[:len(magic)]) != magic {
++		return errors.New("crypto/md5: invalid hash state identifier")
++	}
++	if len(b) != marshaledSize {
++		return errors.New("crypto/md5: invalid hash state size")
++	}
++	b = b[len(magic):]
++	b, d.s[0] = consumeUint32(b)
++	b, d.s[1] = consumeUint32(b)
++	b, d.s[2] = consumeUint32(b)
++	b, d.s[3] = consumeUint32(b)
++	b = b[copy(d.x[:], b):]
++	b, d.len = consumeUint64(b)
++	d.nx = int(d.len % BlockSize)
++	return nil
++}
++
++func consumeUint64(b []byte) ([]byte, uint64) {
++	return b[8:], byteorder.BeUint64(b[0:8])
++}
++
++func consumeUint32(b []byte) ([]byte, uint32) {
++	return b[4:], byteorder.BeUint32(b[0:4])
++}
++
++// New returns a new hash.Hash computing the MD5 checksum. The Hash also
++// implements [encoding.BinaryMarshaler] and [encoding.BinaryUnmarshaler] to
++// marshal and unmarshal the internal state of the hash.
++func New() hash.Hash {
++	d := new(digest)
++	d.Reset()
++	return d
++}
++
++func (d *digest) Size() int { return Size }
++
++func (d *digest) BlockSize() int { return BlockSize }
++
++func (d *digest) Write(p []byte) (nn int, err error) {
++	// Note that we currently call block or blockGeneric
++	// directly (guarded using haveAsm) because this allows
++	// escape analysis to see that p and d don't escape.
++	nn = len(p)
++	d.len += uint64(nn)
++	if d.nx > 0 {
++		n := copy(d.x[d.nx:], p)
++		d.nx += n
++		if d.nx == BlockSize {
++			if haveAsm {
++				block(d, d.x[:])
++			} else {
++				blockGeneric(d, d.x[:])
++			}
++			d.nx = 0
++		}
++		p = p[n:]
++	}
++	if len(p) >= BlockSize {
++		n := len(p) &^ (BlockSize - 1)
++		if haveAsm {
++			block(d, p[:n])
++		} else {
++			blockGeneric(d, p[:n])
++		}
++		p = p[n:]
++	}
++	if len(p) > 0 {
++		d.nx = copy(d.x[:], p)
++	}
++	return
++}
++
++func (d *digest) Sum(in []byte) []byte {
++	// Make a copy of d so that caller can keep writing and summing.
++	d0 := *d
++	hash := d0.checkSum()
++	return append(in, hash[:]...)
++}
++
++func (d *digest) checkSum() [Size]byte {
++	// Append 0x80 to the end of the message and then append zeros
++	// until the length is a multiple of 56 bytes. Finally append
++	// 8 bytes representing the message length in bits.
++	//
++	// 1 byte end marker :: 0-63 padding bytes :: 8 byte length
++	tmp := [1 + 63 + 8]byte{0x80}
++	pad := (55 - d.len) % 64                     // calculate number of padding bytes
++	byteorder.LePutUint64(tmp[1+pad:], d.len<<3) // append length in bits
++	d.Write(tmp[:1+pad+8])
++
++	// The previous write ensures that a whole number of
++	// blocks (i.e. a multiple of 64 bytes) have been hashed.
++	if d.nx != 0 {
++		panic("d.nx != 0")
++	}
++
++	var digest [Size]byte
++	byteorder.LePutUint32(digest[0:], d.s[0])
++	byteorder.LePutUint32(digest[4:], d.s[1])
++	byteorder.LePutUint32(digest[8:], d.s[2])
++	byteorder.LePutUint32(digest[12:], d.s[3])
++	return digest
++}
++
++// Sum returns the MD5 checksum of the data.
++func Sum(data []byte) [Size]byte {
++	var d digest
++	d.Reset()
++	d.Write(data)
++	return d.checkSum()
++}
+diff --git a/src/internal/coverage/md5/md5_test.go b/src/internal/coverage/md5/md5_test.go
+new file mode 100644
+index 0000000000..fbd6fab677
+--- /dev/null
++++ b/src/internal/coverage/md5/md5_test.go
+@@ -0,0 +1,301 @@
++// Copyright 2009 The Go Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style
++// license that can be found in the LICENSE file.
++
++package md5
++
++import (
++	"bytes"
++	"crypto/rand"
++	"encoding"
++	"fmt"
++	"hash"
++	"internal/goexperiment"
++	"io"
++	"testing"
++	"unsafe"
++)
++
++type md5Test struct {
++	out       string
++	in        string
++	halfState string // marshaled hash state after first half of in written, used by TestGoldenMarshal
++}
++
++var golden = []md5Test{
++	{"d41d8cd98f00b204e9800998ecf8427e", "", "md5\x01gE#\x01\xefͫ\x89\x98\xba\xdc\xfe\x102Tv\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"},
++	{"0cc175b9c0f1b6a831c399e269772661", "a", "md5\x01gE#\x01\xefͫ\x89\x98\xba\xdc\xfe\x102Tv\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"},
++	{"187ef4436122d1cc2f40dc2b92f0eba0", "ab", "md5\x01gE#\x01\xefͫ\x89\x98\xba\xdc\xfe\x102Tva\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x01"},
++	{"900150983cd24fb0d6963f7d28e17f72", "abc", "md5\x01gE#\x01\xefͫ\x89\x98\xba\xdc\xfe\x102Tva\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x01"},
++	{"e2fc714c4727ee9395f324cd2e7f331f", "abcd", "md5\x01gE#\x01\xefͫ\x89\x98\xba\xdc\xfe\x102Tvab\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x02"},
++	{"ab56b4d92b40713acc5af89985d4b786", "abcde", "md5\x01gE#\x01\xefͫ\x89\x98\xba\xdc\xfe\x102Tvab\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x02"},
++	{"e80b5017098950fc58aad83c8c14978e", "abcdef", "md5\x01gE#\x01\xefͫ\x89\x98\xba\xdc\xfe\x102Tvabc\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x03"},
++	{"7ac66c0f148de9519b8bd264312c4d64", "abcdefg", "md5\x01gE#\x01\xefͫ\x89\x98\xba\xdc\xfe\x102Tvabc\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x03"},
++	{"e8dc4081b13434b45189a720b77b6818", "abcdefgh", "md5\x01gE#\x01\xefͫ\x89\x98\xba\xdc\xfe\x102Tvabcd\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x04"},
++	{"8aa99b1f439ff71293e95357bac6fd94", "abcdefghi", "md5\x01gE#\x01\xefͫ\x89\x98\xba\xdc\xfe\x102Tvabcd\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x04"},
++	{"a925576942e94b2ef57a066101b48876", "abcdefghij", "md5\x01gE#\x01\xefͫ\x89\x98\xba\xdc\xfe\x102Tvabcde\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x05"},
++	{"d747fc1719c7eacb84058196cfe56d57", "Discard medicine more than two years old.", "md5\x01gE#\x01\xefͫ\x89\x98\xba\xdc\xfe\x102TvDiscard medicine mor\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x14"},
++	{"bff2dcb37ef3a44ba43ab144768ca837", "He who has a shady past knows that nice guys finish last.", "md5\x01gE#\x01\xefͫ\x89\x98\xba\xdc\xfe\x102TvHe who has a shady past know\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x1c"},
++	{"0441015ecb54a7342d017ed1bcfdbea5", "I wouldn't marry him with a ten foot pole.", "md5\x01gE#\x01\xefͫ\x89\x98\xba\xdc\xfe\x102TvI wouldn't marry him \x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x15"},
++	{"9e3cac8e9e9757a60c3ea391130d3689", "Free! Free!/A trip/to Mars/for 900/empty jars/Burma Shave", "md5\x01gE#\x01\xefͫ\x89\x98\xba\xdc\xfe\x102TvFree! Free!/A trip/to Mars/f\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x1c"},
++	{"a0f04459b031f916a59a35cc482dc039", "The days of the digital watch are numbered.  -Tom Stoppard", "md5\x01gE#\x01\xefͫ\x89\x98\xba\xdc\xfe\x102TvThe days of the digital watch\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x1d"},
++	{"e7a48e0fe884faf31475d2a04b1362cc", "Nepal premier won't resign.", "md5\x01gE#\x01\xefͫ\x89\x98\xba\xdc\xfe\x102TvNepal premier\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\r"},
++	{"637d2fe925c07c113800509964fb0e06", "For every action there is an equal and opposite government program.", "md5\x01gE#\x01\xefͫ\x89\x98\xba\xdc\xfe\x102TvFor every action there is an equa\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00!"},
++	{"834a8d18d5c6562119cf4c7f5086cb71", "His money is twice tainted: 'taint yours and 'taint mine.", "md5\x01gE#\x01\xefͫ\x89\x98\xba\xdc\xfe\x102TvHis money is twice tainted: \x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x1c"},
++	{"de3a4d2fd6c73ec2db2abad23b444281", "There is no reason for any individual to have a computer in their home. -Ken Olsen, 1977", "md5\x01gE#\x01\xefͫ\x89\x98\xba\xdc\xfe\x102TvThere is no reason for any individual to hav\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00,"},
++	{"acf203f997e2cf74ea3aff86985aefaf", "It's a tiny change to the code and not completely disgusting. - Bob Manchek", "md5\x01gE#\x01\xefͫ\x89\x98\xba\xdc\xfe\x102TvIt's a tiny change to the code and no\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00%"},
++	{"e1c1384cb4d2221dfdd7c795a4222c9a", "size:  a.out:  bad magic", "md5\x01gE#\x01\xefͫ\x89\x98\xba\xdc\xfe\x102Tvsize:  a.out\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\f"},
++	{"c90f3ddecc54f34228c063d7525bf644", "The major problem is with sendmail.  -Mark Horton", "md5\x01gE#\x01\xefͫ\x89\x98\xba\xdc\xfe\x102TvThe major problem is wit\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x18"},
++	{"cdf7ab6c1fd49bd9933c43f3ea5af185", "Give me a rock, paper and scissors and I will move the world.  CCFestoon", "md5\x01gE#\x01\xefͫ\x89\x98\xba\xdc\xfe\x102TvGive me a rock, paper and scissors a\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00$"},
++	{"83bc85234942fc883c063cbd7f0ad5d0", "If the enemy is within range, then so are you.", "md5\x01gE#\x01\xefͫ\x89\x98\xba\xdc\xfe\x102TvIf the enemy is within \x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x17"},
++	{"277cbe255686b48dd7e8f389394d9299", "It's well we cannot hear the screams/That we create in others' dreams.", "md5\x01gE#\x01\xefͫ\x89\x98\xba\xdc\xfe\x102TvIt's well we cannot hear the scream\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00#"},
++	{"fd3fb0a7ffb8af16603f3d3af98f8e1f", "You remind me of a TV show, but that's all right: I watch it anyway.", "md5\x01gE#\x01\xefͫ\x89\x98\xba\xdc\xfe\x102TvYou remind me of a TV show, but th\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\""},
++	{"469b13a78ebf297ecda64d4723655154", "C is as portable as Stonehedge!!", "md5\x01gE#\x01\xefͫ\x89\x98\xba\xdc\xfe\x102TvC is as portable\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x10"},
++	{"63eb3a2f466410104731c4b037600110", "Even if I could be Shakespeare, I think I should still choose to be Faraday. - A. Huxley", "md5\x01gE#\x01\xefͫ\x89\x98\xba\xdc\xfe\x102TvEven if I could be Shakespeare, I think I sh\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00,"},
++	{"72c2ed7592debca1c90fc0100f931a2f", "The fugacity of a constituent in a mixture of gases at a given temperature is proportional to its mole fraction.  Lewis-Randall Rule", "md5\x01\xa7\xc9\x18\x9b\xc3E\x18\xf2\x82\xfd\xf3$\x9d_\v\nem\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00B"},
++	{"132f7619d33b523b1d9e5bd8e0928355", "How can you write a big system without C++?  -Paul Glick", "md5\x01gE#\x01\xefͫ\x89\x98\xba\xdc\xfe\x102TvHow can you write a big syst\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x1c"},
++}
++
++func TestGolden(t *testing.T) {
++	for i := 0; i < len(golden); i++ {
++		g := golden[i]
++		s := fmt.Sprintf("%x", Sum([]byte(g.in)))
++		if s != g.out {
++			t.Fatalf("Sum function: md5(%s) = %s want %s", g.in, s, g.out)
++		}
++		c := New()
++		buf := make([]byte, len(g.in)+4)
++		for j := 0; j < 3+4; j++ {
++			if j < 2 {
++				io.WriteString(c, g.in)
++			} else if j == 2 {
++				io.WriteString(c, g.in[0:len(g.in)/2])
++				c.Sum(nil)
++				io.WriteString(c, g.in[len(g.in)/2:])
++			} else if j > 2 {
++				// test unaligned write
++				buf = buf[1:]
++				copy(buf, g.in)
++				c.Write(buf[:len(g.in)])
++			}
++			s := fmt.Sprintf("%x", c.Sum(nil))
++			if s != g.out {
++				t.Fatalf("md5[%d](%s) = %s want %s", j, g.in, s, g.out)
++			}
++			c.Reset()
++		}
++	}
++}
++
++func TestGoldenMarshal(t *testing.T) {
++	if goexperiment.CNGCrypto {
++		t.Skip("CNGCrypto does not support hash marshalling")
++	}
++	for _, g := range golden {
++		h := New()
++		h2 := New()
++
++		io.WriteString(h, g.in[:len(g.in)/2])
++
++		state, err := h.(encoding.BinaryMarshaler).MarshalBinary()
++		if err != nil {
++			t.Errorf("could not marshal: %v", err)
++			continue
++		}
++
++		if string(state) != g.halfState {
++			t.Errorf("md5(%q) state = %q, want %q", g.in, state, g.halfState)
++			continue
++		}
++
++		if err := h2.(encoding.BinaryUnmarshaler).UnmarshalBinary(state); err != nil {
++			t.Errorf("could not unmarshal: %v", err)
++			continue
++		}
++
++		io.WriteString(h, g.in[len(g.in)/2:])
++		io.WriteString(h2, g.in[len(g.in)/2:])
++
++		if actual, actual2 := h.Sum(nil), h2.Sum(nil); !bytes.Equal(actual, actual2) {
++			t.Errorf("md5(%q) = 0x%x != marshaled 0x%x", g.in, actual, actual2)
++		}
++	}
++}
++
++func TestLarge(t *testing.T) {
++	const N = 10000
++	ok := "2bb571599a4180e1d542f76904adc3df" // md5sum of "0123456789" * 1000
++	block := make([]byte, 10004)
++	c := New()
++	for offset := 0; offset < 4; offset++ {
++		for i := 0; i < N; i++ {
++			block[offset+i] = '0' + byte(i%10)
++		}
++		for blockSize := 10; blockSize <= N; blockSize *= 10 {
++			blocks := N / blockSize
++			b := block[offset : offset+blockSize]
++			c.Reset()
++			for i := 0; i < blocks; i++ {
++				c.Write(b)
++			}
++			s := fmt.Sprintf("%x", c.Sum(nil))
++			if s != ok {
++				t.Fatalf("md5 TestLarge offset=%d, blockSize=%d = %s want %s", offset, blockSize, s, ok)
++			}
++		}
++	}
++}
++
++// Tests that blockGeneric (pure Go) and block (in assembly for amd64, 386, arm) match.
++func TestBlockGeneric(t *testing.T) {
++	gen, asm := New().(*digest), New().(*digest)
++	buf := make([]byte, BlockSize*20) // arbitrary factor
++	rand.Read(buf)
++	blockGeneric(gen, buf)
++	block(asm, buf)
++	if *gen != *asm {
++		t.Error("block and blockGeneric resulted in different states")
++	}
++}
++
++// Tests for unmarshaling hashes that have hashed a large amount of data
++// The initial hash generation is omitted from the test, because it takes a long time.
++// The test contains some already-generated states, and their expected sums
++// Tests a problem that is outlined in GitHub issue #29541
++// The problem is triggered when an amount of data has been hashed for which
++// the data length has a 1 in the 32nd bit. When casted to int, this changes
++// the sign of the value, and causes the modulus operation to return a
++// different result.
++type unmarshalTest struct {
++	state string
++	sum   string
++}
++
++var largeUnmarshalTests = []unmarshalTest{
++	// Data length: 7_102_415_735
++	{
++		state: "md5\x01\xa5\xf7\xf0=\xd6S\x85\xd9M\n}\xc3\u0601\x89\xe7@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuv\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x01\xa7VCw",
++		sum:   "cddefcf74ffec709a0b45a6a987564d5",
++	},
++	// Data length: 6_565_544_823
++	{
++		state: "md5\x01{\xda\x1a\xc7\xc9'?\x83EX\xe0\x88q\xfeG\x18@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuv\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x01\x87VCw",
++		sum:   "fd9f41874ab240698e7bc9c3ae70c8e4",
++	},
++}
++
++func safeSum(h hash.Hash) (sum []byte, err error) {
++	defer func() {
++		if r := recover(); r != nil {
++			err = fmt.Errorf("sum panic: %v", r)
++		}
++	}()
++
++	return h.Sum(nil), nil
++}
++
++func TestLargeHashes(t *testing.T) {
++	if goexperiment.CNGCrypto {
++		t.Skip("CNGCrypto does not support hash marshalling")
++	}
++	for i, test := range largeUnmarshalTests {
++
++		h := New()
++		if err := h.(encoding.BinaryUnmarshaler).UnmarshalBinary([]byte(test.state)); err != nil {
++			t.Errorf("test %d could not unmarshal: %v", i, err)
++			continue
++		}
++
++		sum, err := safeSum(h)
++		if err != nil {
++			t.Errorf("test %d could not sum: %v", i, err)
++			continue
++		}
++
++		if fmt.Sprintf("%x", sum) != test.sum {
++			t.Errorf("test %d sum mismatch: expect %s got %x", i, test.sum, sum)
++		}
++	}
++}
++
++func TestAllocations(t *testing.T) {
++	in := []byte("hello, world!")
++	out := make([]byte, 0, Size)
++	h := New()
++	n := int(testing.AllocsPerRun(10, func() {
++		h.Reset()
++		h.Write(in)
++		out = h.Sum(out[:0])
++	}))
++	if n > 0 {
++		t.Errorf("allocs = %d, want 0", n)
++	}
++}
++
++var bench = New()
++var buf = make([]byte, 1024*1024*8+1)
++var sum = make([]byte, bench.Size())
++
++func benchmarkSize(b *testing.B, size int, unaligned bool) {
++	b.SetBytes(int64(size))
++	buf := buf
++	if unaligned {
++		if uintptr(unsafe.Pointer(&buf[0]))&(unsafe.Alignof(uint32(0))-1) == 0 {
++			buf = buf[1:]
++		}
++	}
++	b.ResetTimer()
++	for i := 0; i < b.N; i++ {
++		bench.Reset()
++		bench.Write(buf[:size])
++		bench.Sum(sum[:0])
++	}
++}
++
++func BenchmarkHash8Bytes(b *testing.B) {
++	benchmarkSize(b, 8, false)
++}
++
++func BenchmarkHash64(b *testing.B) {
++	benchmarkSize(b, 64, false)
++}
++
++func BenchmarkHash128(b *testing.B) {
++	benchmarkSize(b, 128, false)
++}
++
++func BenchmarkHash256(b *testing.B) {
++	benchmarkSize(b, 256, false)
++}
++
++func BenchmarkHash512(b *testing.B) {
++	benchmarkSize(b, 512, false)
++}
++
++func BenchmarkHash1K(b *testing.B) {
++	benchmarkSize(b, 1024, false)
++}
++
++func BenchmarkHash8K(b *testing.B) {
++	benchmarkSize(b, 8192, false)
++}
++
++func BenchmarkHash1M(b *testing.B) {
++	benchmarkSize(b, 1024*1024, false)
++}
++
++func BenchmarkHash8M(b *testing.B) {
++	benchmarkSize(b, 8*1024*1024, false)
++}
++
++func BenchmarkHash8BytesUnaligned(b *testing.B) {
++	benchmarkSize(b, 8, true)
++}
++
++func BenchmarkHash1KUnaligned(b *testing.B) {
++	benchmarkSize(b, 1024, true)
++}
++
++func BenchmarkHash8KUnaligned(b *testing.B) {
++	benchmarkSize(b, 8192, true)
++}
+diff --git a/src/internal/coverage/md5/md5block.go b/src/internal/coverage/md5/md5block.go
+new file mode 100644
+index 0000000000..473496b8d0
+--- /dev/null
++++ b/src/internal/coverage/md5/md5block.go
+@@ -0,0 +1,125 @@
++// Copyright 2013 The Go Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style
++// license that can be found in the LICENSE file.
++
++// Code generated by go run gen.go -output md5block.go; DO NOT EDIT.
++
++package md5
++
++import (
++	"internal/byteorder"
++	"math/bits"
++)
++
++func blockGeneric(dig *digest, p []byte) {
++	// load state
++	a, b, c, d := dig.s[0], dig.s[1], dig.s[2], dig.s[3]
++
++	for i := 0; i <= len(p)-BlockSize; i += BlockSize {
++		// eliminate bounds checks on p
++		q := p[i:]
++		q = q[:BlockSize:BlockSize]
++
++		// save current state
++		aa, bb, cc, dd := a, b, c, d
++
++		// load input block
++		x0 := byteorder.LeUint32(q[4*0x0:])
++		x1 := byteorder.LeUint32(q[4*0x1:])
++		x2 := byteorder.LeUint32(q[4*0x2:])
++		x3 := byteorder.LeUint32(q[4*0x3:])
++		x4 := byteorder.LeUint32(q[4*0x4:])
++		x5 := byteorder.LeUint32(q[4*0x5:])
++		x6 := byteorder.LeUint32(q[4*0x6:])
++		x7 := byteorder.LeUint32(q[4*0x7:])
++		x8 := byteorder.LeUint32(q[4*0x8:])
++		x9 := byteorder.LeUint32(q[4*0x9:])
++		xa := byteorder.LeUint32(q[4*0xa:])
++		xb := byteorder.LeUint32(q[4*0xb:])
++		xc := byteorder.LeUint32(q[4*0xc:])
++		xd := byteorder.LeUint32(q[4*0xd:])
++		xe := byteorder.LeUint32(q[4*0xe:])
++		xf := byteorder.LeUint32(q[4*0xf:])
++
++		// round 1
++		a = b + bits.RotateLeft32((((c^d)&b)^d)+a+x0+0xd76aa478, 7)
++		d = a + bits.RotateLeft32((((b^c)&a)^c)+d+x1+0xe8c7b756, 12)
++		c = d + bits.RotateLeft32((((a^b)&d)^b)+c+x2+0x242070db, 17)
++		b = c + bits.RotateLeft32((((d^a)&c)^a)+b+x3+0xc1bdceee, 22)
++		a = b + bits.RotateLeft32((((c^d)&b)^d)+a+x4+0xf57c0faf, 7)
++		d = a + bits.RotateLeft32((((b^c)&a)^c)+d+x5+0x4787c62a, 12)
++		c = d + bits.RotateLeft32((((a^b)&d)^b)+c+x6+0xa8304613, 17)
++		b = c + bits.RotateLeft32((((d^a)&c)^a)+b+x7+0xfd469501, 22)
++		a = b + bits.RotateLeft32((((c^d)&b)^d)+a+x8+0x698098d8, 7)
++		d = a + bits.RotateLeft32((((b^c)&a)^c)+d+x9+0x8b44f7af, 12)
++		c = d + bits.RotateLeft32((((a^b)&d)^b)+c+xa+0xffff5bb1, 17)
++		b = c + bits.RotateLeft32((((d^a)&c)^a)+b+xb+0x895cd7be, 22)
++		a = b + bits.RotateLeft32((((c^d)&b)^d)+a+xc+0x6b901122, 7)
++		d = a + bits.RotateLeft32((((b^c)&a)^c)+d+xd+0xfd987193, 12)
++		c = d + bits.RotateLeft32((((a^b)&d)^b)+c+xe+0xa679438e, 17)
++		b = c + bits.RotateLeft32((((d^a)&c)^a)+b+xf+0x49b40821, 22)
++
++		// round 2
++		a = b + bits.RotateLeft32((((b^c)&d)^c)+a+x1+0xf61e2562, 5)
++		d = a + bits.RotateLeft32((((a^b)&c)^b)+d+x6+0xc040b340, 9)
++		c = d + bits.RotateLeft32((((d^a)&b)^a)+c+xb+0x265e5a51, 14)
++		b = c + bits.RotateLeft32((((c^d)&a)^d)+b+x0+0xe9b6c7aa, 20)
++		a = b + bits.RotateLeft32((((b^c)&d)^c)+a+x5+0xd62f105d, 5)
++		d = a + bits.RotateLeft32((((a^b)&c)^b)+d+xa+0x02441453, 9)
++		c = d + bits.RotateLeft32((((d^a)&b)^a)+c+xf+0xd8a1e681, 14)
++		b = c + bits.RotateLeft32((((c^d)&a)^d)+b+x4+0xe7d3fbc8, 20)
++		a = b + bits.RotateLeft32((((b^c)&d)^c)+a+x9+0x21e1cde6, 5)
++		d = a + bits.RotateLeft32((((a^b)&c)^b)+d+xe+0xc33707d6, 9)
++		c = d + bits.RotateLeft32((((d^a)&b)^a)+c+x3+0xf4d50d87, 14)
++		b = c + bits.RotateLeft32((((c^d)&a)^d)+b+x8+0x455a14ed, 20)
++		a = b + bits.RotateLeft32((((b^c)&d)^c)+a+xd+0xa9e3e905, 5)
++		d = a + bits.RotateLeft32((((a^b)&c)^b)+d+x2+0xfcefa3f8, 9)
++		c = d + bits.RotateLeft32((((d^a)&b)^a)+c+x7+0x676f02d9, 14)
++		b = c + bits.RotateLeft32((((c^d)&a)^d)+b+xc+0x8d2a4c8a, 20)
++
++		// round 3
++		a = b + bits.RotateLeft32((b^c^d)+a+x5+0xfffa3942, 4)
++		d = a + bits.RotateLeft32((a^b^c)+d+x8+0x8771f681, 11)
++		c = d + bits.RotateLeft32((d^a^b)+c+xb+0x6d9d6122, 16)
++		b = c + bits.RotateLeft32((c^d^a)+b+xe+0xfde5380c, 23)
++		a = b + bits.RotateLeft32((b^c^d)+a+x1+0xa4beea44, 4)
++		d = a + bits.RotateLeft32((a^b^c)+d+x4+0x4bdecfa9, 11)
++		c = d + bits.RotateLeft32((d^a^b)+c+x7+0xf6bb4b60, 16)
++		b = c + bits.RotateLeft32((c^d^a)+b+xa+0xbebfbc70, 23)
++		a = b + bits.RotateLeft32((b^c^d)+a+xd+0x289b7ec6, 4)
++		d = a + bits.RotateLeft32((a^b^c)+d+x0+0xeaa127fa, 11)
++		c = d + bits.RotateLeft32((d^a^b)+c+x3+0xd4ef3085, 16)
++		b = c + bits.RotateLeft32((c^d^a)+b+x6+0x04881d05, 23)
++		a = b + bits.RotateLeft32((b^c^d)+a+x9+0xd9d4d039, 4)
++		d = a + bits.RotateLeft32((a^b^c)+d+xc+0xe6db99e5, 11)
++		c = d + bits.RotateLeft32((d^a^b)+c+xf+0x1fa27cf8, 16)
++		b = c + bits.RotateLeft32((c^d^a)+b+x2+0xc4ac5665, 23)
++
++		// round 4
++		a = b + bits.RotateLeft32((c^(b|^d))+a+x0+0xf4292244, 6)
++		d = a + bits.RotateLeft32((b^(a|^c))+d+x7+0x432aff97, 10)
++		c = d + bits.RotateLeft32((a^(d|^b))+c+xe+0xab9423a7, 15)
++		b = c + bits.RotateLeft32((d^(c|^a))+b+x5+0xfc93a039, 21)
++		a = b + bits.RotateLeft32((c^(b|^d))+a+xc+0x655b59c3, 6)
++		d = a + bits.RotateLeft32((b^(a|^c))+d+x3+0x8f0ccc92, 10)
++		c = d + bits.RotateLeft32((a^(d|^b))+c+xa+0xffeff47d, 15)
++		b = c + bits.RotateLeft32((d^(c|^a))+b+x1+0x85845dd1, 21)
++		a = b + bits.RotateLeft32((c^(b|^d))+a+x8+0x6fa87e4f, 6)
++		d = a + bits.RotateLeft32((b^(a|^c))+d+xf+0xfe2ce6e0, 10)
++		c = d + bits.RotateLeft32((a^(d|^b))+c+x6+0xa3014314, 15)
++		b = c + bits.RotateLeft32((d^(c|^a))+b+xd+0x4e0811a1, 21)
++		a = b + bits.RotateLeft32((c^(b|^d))+a+x4+0xf7537e82, 6)
++		d = a + bits.RotateLeft32((b^(a|^c))+d+xb+0xbd3af235, 10)
++		c = d + bits.RotateLeft32((a^(d|^b))+c+x2+0x2ad7d2bb, 15)
++		b = c + bits.RotateLeft32((d^(c|^a))+b+x9+0xeb86d391, 21)
++
++		// add saved state
++		a += aa
++		b += bb
++		c += cc
++		d += dd
++	}
++
++	// save state
++	dig.s[0], dig.s[1], dig.s[2], dig.s[3] = a, b, c, d
++}
+diff --git a/src/internal/coverage/md5/md5block_386.s b/src/internal/coverage/md5/md5block_386.s
+new file mode 100644
+index 0000000000..b6c6509d3b
+--- /dev/null
++++ b/src/internal/coverage/md5/md5block_386.s
+@@ -0,0 +1,184 @@
++// Original source:
++//	http://www.zorinaq.com/papers/md5-amd64.html
++//	http://www.zorinaq.com/papers/md5-amd64.tar.bz2
++//
++// Translated from Perl generating GNU assembly into
++// #defines generating 8a assembly, and adjusted for 386,
++// by the Go Authors.
++
++//go:build !purego
++
++#include "textflag.h"
++
++// MD5 optimized for AMD64.
++//
++// Author: Marc Bevand <bevand_m (at) epita.fr>
++// Licence: I hereby disclaim the copyright on this code and place it
++// in the public domain.
++
++#define ROUND1(a, b, c, d, index, const, shift) \
++	XORL	c, BP; \
++	LEAL	const(a)(DI*1), a; \
++	ANDL	b, BP; \
++	XORL d, BP; \
++	MOVL (index*4)(SI), DI; \
++	ADDL BP, a; \
++	ROLL $shift, a; \
++	MOVL c, BP; \
++	ADDL b, a
++
++#define ROUND2(a, b, c, d, index, const, shift) \
++	LEAL	const(a)(DI*1),a; \
++	MOVL	d,		DI; \
++	ANDL	b,		DI; \
++	MOVL	d,		BP; \
++	NOTL	BP; \
++	ANDL	c,		BP; \
++	ORL	DI,		BP; \
++	MOVL	(index*4)(SI),DI; \
++	ADDL	BP,		a; \
++	ROLL	$shift,	a; \
++	ADDL	b,		a
++
++#define ROUND3(a, b, c, d, index, const, shift) \
++	LEAL	const(a)(DI*1),a; \
++	MOVL	(index*4)(SI),DI; \
++	XORL	d,		BP; \
++	XORL	b,		BP; \
++	ADDL	BP,		a; \
++	ROLL	$shift,		a; \
++	MOVL	b,		BP; \
++	ADDL	b,		a
++
++#define ROUND4(a, b, c, d, index, const, shift) \
++	LEAL	const(a)(DI*1),a; \
++	ORL	b,		BP; \
++	XORL	c,		BP; \
++	ADDL	BP,		a; \
++	MOVL	(index*4)(SI),DI; \
++	MOVL	$0xffffffff,	BP; \
++	ROLL	$shift,		a; \
++	XORL	c,		BP; \
++	ADDL	b,		a
++
++TEXT	·block(SB),NOSPLIT,$24-16
++	MOVL	dig+0(FP),	BP
++	MOVL	p+4(FP),	SI
++	MOVL	p_len+8(FP), DX
++	SHRL	$6,		DX
++	SHLL	$6,		DX
++
++	LEAL	(SI)(DX*1),	DI
++	MOVL	(0*4)(BP),	AX
++	MOVL	(1*4)(BP),	BX
++	MOVL	(2*4)(BP),	CX
++	MOVL	(3*4)(BP),	DX
++
++	CMPL	SI,		DI
++	JEQ	end
++
++	MOVL	DI,		16(SP)
++
++loop:
++	MOVL	AX,		0(SP)
++	MOVL	BX,		4(SP)
++	MOVL	CX,		8(SP)
++	MOVL	DX,		12(SP)
++
++	MOVL	(0*4)(SI),	DI
++	MOVL	DX,		BP
++
++	ROUND1(AX,BX,CX,DX, 1,0xd76aa478, 7);
++	ROUND1(DX,AX,BX,CX, 2,0xe8c7b756,12);
++	ROUND1(CX,DX,AX,BX, 3,0x242070db,17);
++	ROUND1(BX,CX,DX,AX, 4,0xc1bdceee,22);
++	ROUND1(AX,BX,CX,DX, 5,0xf57c0faf, 7);
++	ROUND1(DX,AX,BX,CX, 6,0x4787c62a,12);
++	ROUND1(CX,DX,AX,BX, 7,0xa8304613,17);
++	ROUND1(BX,CX,DX,AX, 8,0xfd469501,22);
++	ROUND1(AX,BX,CX,DX, 9,0x698098d8, 7);
++	ROUND1(DX,AX,BX,CX,10,0x8b44f7af,12);
++	ROUND1(CX,DX,AX,BX,11,0xffff5bb1,17);
++	ROUND1(BX,CX,DX,AX,12,0x895cd7be,22);
++	ROUND1(AX,BX,CX,DX,13,0x6b901122, 7);
++	ROUND1(DX,AX,BX,CX,14,0xfd987193,12);
++	ROUND1(CX,DX,AX,BX,15,0xa679438e,17);
++	ROUND1(BX,CX,DX,AX, 0,0x49b40821,22);
++
++	MOVL	(1*4)(SI),	DI
++	MOVL	DX,		BP
++
++	ROUND2(AX,BX,CX,DX, 6,0xf61e2562, 5);
++	ROUND2(DX,AX,BX,CX,11,0xc040b340, 9);
++	ROUND2(CX,DX,AX,BX, 0,0x265e5a51,14);
++	ROUND2(BX,CX,DX,AX, 5,0xe9b6c7aa,20);
++	ROUND2(AX,BX,CX,DX,10,0xd62f105d, 5);
++	ROUND2(DX,AX,BX,CX,15, 0x2441453, 9);
++	ROUND2(CX,DX,AX,BX, 4,0xd8a1e681,14);
++	ROUND2(BX,CX,DX,AX, 9,0xe7d3fbc8,20);
++	ROUND2(AX,BX,CX,DX,14,0x21e1cde6, 5);
++	ROUND2(DX,AX,BX,CX, 3,0xc33707d6, 9);
++	ROUND2(CX,DX,AX,BX, 8,0xf4d50d87,14);
++	ROUND2(BX,CX,DX,AX,13,0x455a14ed,20);
++	ROUND2(AX,BX,CX,DX, 2,0xa9e3e905, 5);
++	ROUND2(DX,AX,BX,CX, 7,0xfcefa3f8, 9);
++	ROUND2(CX,DX,AX,BX,12,0x676f02d9,14);
++	ROUND2(BX,CX,DX,AX, 0,0x8d2a4c8a,20);
++
++	MOVL	(5*4)(SI),	DI
++	MOVL	CX,		BP
++
++	ROUND3(AX,BX,CX,DX, 8,0xfffa3942, 4);
++	ROUND3(DX,AX,BX,CX,11,0x8771f681,11);
++	ROUND3(CX,DX,AX,BX,14,0x6d9d6122,16);
++	ROUND3(BX,CX,DX,AX, 1,0xfde5380c,23);
++	ROUND3(AX,BX,CX,DX, 4,0xa4beea44, 4);
++	ROUND3(DX,AX,BX,CX, 7,0x4bdecfa9,11);
++	ROUND3(CX,DX,AX,BX,10,0xf6bb4b60,16);
++	ROUND3(BX,CX,DX,AX,13,0xbebfbc70,23);
++	ROUND3(AX,BX,CX,DX, 0,0x289b7ec6, 4);
++	ROUND3(DX,AX,BX,CX, 3,0xeaa127fa,11);
++	ROUND3(CX,DX,AX,BX, 6,0xd4ef3085,16);
++	ROUND3(BX,CX,DX,AX, 9, 0x4881d05,23);
++	ROUND3(AX,BX,CX,DX,12,0xd9d4d039, 4);
++	ROUND3(DX,AX,BX,CX,15,0xe6db99e5,11);
++	ROUND3(CX,DX,AX,BX, 2,0x1fa27cf8,16);
++	ROUND3(BX,CX,DX,AX, 0,0xc4ac5665,23);
++
++	MOVL	(0*4)(SI),	DI
++	MOVL	$0xffffffff,	BP
++	XORL	DX,		BP
++
++	ROUND4(AX,BX,CX,DX, 7,0xf4292244, 6);
++	ROUND4(DX,AX,BX,CX,14,0x432aff97,10);
++	ROUND4(CX,DX,AX,BX, 5,0xab9423a7,15);
++	ROUND4(BX,CX,DX,AX,12,0xfc93a039,21);
++	ROUND4(AX,BX,CX,DX, 3,0x655b59c3, 6);
++	ROUND4(DX,AX,BX,CX,10,0x8f0ccc92,10);
++	ROUND4(CX,DX,AX,BX, 1,0xffeff47d,15);
++	ROUND4(BX,CX,DX,AX, 8,0x85845dd1,21);
++	ROUND4(AX,BX,CX,DX,15,0x6fa87e4f, 6);
++	ROUND4(DX,AX,BX,CX, 6,0xfe2ce6e0,10);
++	ROUND4(CX,DX,AX,BX,13,0xa3014314,15);
++	ROUND4(BX,CX,DX,AX, 4,0x4e0811a1,21);
++	ROUND4(AX,BX,CX,DX,11,0xf7537e82, 6);
++	ROUND4(DX,AX,BX,CX, 2,0xbd3af235,10);
++	ROUND4(CX,DX,AX,BX, 9,0x2ad7d2bb,15);
++	ROUND4(BX,CX,DX,AX, 0,0xeb86d391,21);
++
++	ADDL	0(SP),	AX
++	ADDL	4(SP),	BX
++	ADDL	8(SP),	CX
++	ADDL	12(SP),	DX
++
++	ADDL	$64,		SI
++	CMPL	SI,		16(SP)
++	JB	loop
++
++end:
++	MOVL	dig+0(FP),	BP
++	MOVL	AX,		(0*4)(BP)
++	MOVL	BX,		(1*4)(BP)
++	MOVL	CX,		(2*4)(BP)
++	MOVL	DX,		(3*4)(BP)
++	RET
+diff --git a/src/internal/coverage/md5/md5block_amd64.s b/src/internal/coverage/md5/md5block_amd64.s
+new file mode 100644
+index 0000000000..652506ae27
+--- /dev/null
++++ b/src/internal/coverage/md5/md5block_amd64.s
+@@ -0,0 +1,197 @@
++// Original source:
++//	http://www.zorinaq.com/papers/md5-amd64.html
++//	http://www.zorinaq.com/papers/md5-amd64.tar.bz2
++//
++// Translated from Perl generating GNU assembly into
++// #defines generating 6a assembly by the Go Authors.
++
++//go:build !purego
++
++#include "textflag.h"
++
++// MD5 optimized for AMD64.
++//
++// Author: Marc Bevand <bevand_m (at) epita.fr>
++// Licence: I hereby disclaim the copyright on this code and place it
++// in the public domain.
++
++TEXT	·block(SB),NOSPLIT,$8-32
++	MOVQ	dig+0(FP),	BP
++	MOVQ	p+8(FP),	SI
++	MOVQ	p_len+16(FP), DX
++	SHRQ	$6,		DX
++	SHLQ	$6,		DX
++
++	LEAQ	(SI)(DX*1),	DI
++	MOVL	(0*4)(BP),	AX
++	MOVL	(1*4)(BP),	BX
++	MOVL	(2*4)(BP),	CX
++	MOVL	(3*4)(BP),	DX
++	MOVL	$0xffffffff,	R11
++
++	CMPQ	SI,		DI
++	JEQ	end
++
++loop:
++	MOVL	AX,		R12
++	MOVL	BX,		R13
++	MOVL	CX,		R14
++	MOVL	DX,		R15
++
++	MOVL	(0*4)(SI),	R8
++	MOVL	DX,		R9
++
++#define ROUND1(a, b, c, d, index, const, shift) \
++	XORL	c, R9; \
++	ADDL	$const, a; \
++	ADDL	R8, a; \
++	ANDL	b, R9; \
++	XORL	d, R9; \
++	MOVL	(index*4)(SI), R8; \
++	ADDL	R9, a; \
++	ROLL	$shift, a; \
++	MOVL	c, R9; \
++	ADDL	b, a
++
++	ROUND1(AX,BX,CX,DX, 1,0xd76aa478, 7);
++	ROUND1(DX,AX,BX,CX, 2,0xe8c7b756,12);
++	ROUND1(CX,DX,AX,BX, 3,0x242070db,17);
++	ROUND1(BX,CX,DX,AX, 4,0xc1bdceee,22);
++	ROUND1(AX,BX,CX,DX, 5,0xf57c0faf, 7);
++	ROUND1(DX,AX,BX,CX, 6,0x4787c62a,12);
++	ROUND1(CX,DX,AX,BX, 7,0xa8304613,17);
++	ROUND1(BX,CX,DX,AX, 8,0xfd469501,22);
++	ROUND1(AX,BX,CX,DX, 9,0x698098d8, 7);
++	ROUND1(DX,AX,BX,CX,10,0x8b44f7af,12);
++	ROUND1(CX,DX,AX,BX,11,0xffff5bb1,17);
++	ROUND1(BX,CX,DX,AX,12,0x895cd7be,22);
++	ROUND1(AX,BX,CX,DX,13,0x6b901122, 7);
++	ROUND1(DX,AX,BX,CX,14,0xfd987193,12);
++	ROUND1(CX,DX,AX,BX,15,0xa679438e,17);
++	ROUND1(BX,CX,DX,AX, 1,0x49b40821,22);
++
++	MOVL	DX,		R9
++	MOVL	DX,		R10
++
++// Uses https://github.com/animetosho/md5-optimisation#dependency-shortcut-in-g-function
++
++#define ROUND2(a, b, c, d, index, const, shift) \
++	XORL	R11, R9; \
++	ADDL	$const,	a; \
++	ADDL	R8,	a; \
++	ANDL	b,		R10; \
++	ANDL	c,		R9; \
++	MOVL	(index*4)(SI),R8; \
++	ADDL	R9,	a; \
++	ADDL	R10,	a; \
++	MOVL	c,		R9; \
++	MOVL	c,		R10; \
++	ROLL	$shift,	a; \
++	ADDL	b,		a
++
++	ROUND2(AX,BX,CX,DX, 6,0xf61e2562, 5);
++	ROUND2(DX,AX,BX,CX,11,0xc040b340, 9);
++	ROUND2(CX,DX,AX,BX, 0,0x265e5a51,14);
++	ROUND2(BX,CX,DX,AX, 5,0xe9b6c7aa,20);
++	ROUND2(AX,BX,CX,DX,10,0xd62f105d, 5);
++	ROUND2(DX,AX,BX,CX,15, 0x2441453, 9);
++	ROUND2(CX,DX,AX,BX, 4,0xd8a1e681,14);
++	ROUND2(BX,CX,DX,AX, 9,0xe7d3fbc8,20);
++	ROUND2(AX,BX,CX,DX,14,0x21e1cde6, 5);
++	ROUND2(DX,AX,BX,CX, 3,0xc33707d6, 9);
++	ROUND2(CX,DX,AX,BX, 8,0xf4d50d87,14);
++	ROUND2(BX,CX,DX,AX,13,0x455a14ed,20);
++	ROUND2(AX,BX,CX,DX, 2,0xa9e3e905, 5);
++	ROUND2(DX,AX,BX,CX, 7,0xfcefa3f8, 9);
++	ROUND2(CX,DX,AX,BX,12,0x676f02d9,14);
++	ROUND2(BX,CX,DX,AX, 5,0x8d2a4c8a,20);
++
++	MOVL	CX,		R9
++
++// Uses https://github.com/animetosho/md5-optimisation#h-function-re-use
++
++#define ROUND3FIRST(a, b, c, d, index, const, shift) \
++	MOVL	d,		R9; \
++	XORL	c,		R9; \
++	XORL	b,		R9; \
++	ADDL	$const,	a; \
++	ADDL	R8,		a; \
++	MOVL	(index*4)(SI),R8; \
++	ADDL	R9,		a; \
++	ROLL	$shift,		a; \
++	ADDL	b,		a
++
++#define ROUND3(a, b, c, d, index, const, shift) \
++	XORL	a,		R9; \
++	XORL	b,		R9; \
++	ADDL	$const,	a; \
++	ADDL	R8,		a; \
++	MOVL	(index*4)(SI),R8; \
++	ADDL	R9,		a; \
++	ROLL	$shift,		a; \
++	ADDL	b,		a
++
++	ROUND3FIRST(AX,BX,CX,DX, 8,0xfffa3942, 4);
++	ROUND3(DX,AX,BX,CX,11,0x8771f681,11);
++	ROUND3(CX,DX,AX,BX,14,0x6d9d6122,16);
++	ROUND3(BX,CX,DX,AX, 1,0xfde5380c,23);
++	ROUND3(AX,BX,CX,DX, 4,0xa4beea44, 4);
++	ROUND3(DX,AX,BX,CX, 7,0x4bdecfa9,11);
++	ROUND3(CX,DX,AX,BX,10,0xf6bb4b60,16);
++	ROUND3(BX,CX,DX,AX,13,0xbebfbc70,23);
++	ROUND3(AX,BX,CX,DX, 0,0x289b7ec6, 4);
++	ROUND3(DX,AX,BX,CX, 3,0xeaa127fa,11);
++	ROUND3(CX,DX,AX,BX, 6,0xd4ef3085,16);
++	ROUND3(BX,CX,DX,AX, 9, 0x4881d05,23);
++	ROUND3(AX,BX,CX,DX,12,0xd9d4d039, 4);
++	ROUND3(DX,AX,BX,CX,15,0xe6db99e5,11);
++	ROUND3(CX,DX,AX,BX, 2,0x1fa27cf8,16);
++	ROUND3(BX,CX,DX,AX, 0,0xc4ac5665,23);
++
++	MOVL	R11,	R9
++	XORL	DX,		R9
++
++#define ROUND4(a, b, c, d, index, const, shift) \
++	ADDL	$const,	a; \
++	ADDL	R8,		a; \
++	ORL		b,		R9; \
++	XORL	c,		R9; \
++	ADDL	R9,		a; \
++	MOVL	(index*4)(SI),R8; \
++	MOVL	$0xffffffff,	R9; \
++	ROLL	$shift,		a; \
++	XORL	c,		R9; \
++	ADDL	b,		a
++
++	ROUND4(AX,BX,CX,DX, 7,0xf4292244, 6);
++	ROUND4(DX,AX,BX,CX,14,0x432aff97,10);
++	ROUND4(CX,DX,AX,BX, 5,0xab9423a7,15);
++	ROUND4(BX,CX,DX,AX,12,0xfc93a039,21);
++	ROUND4(AX,BX,CX,DX, 3,0x655b59c3, 6);
++	ROUND4(DX,AX,BX,CX,10,0x8f0ccc92,10);
++	ROUND4(CX,DX,AX,BX, 1,0xffeff47d,15);
++	ROUND4(BX,CX,DX,AX, 8,0x85845dd1,21);
++	ROUND4(AX,BX,CX,DX,15,0x6fa87e4f, 6);
++	ROUND4(DX,AX,BX,CX, 6,0xfe2ce6e0,10);
++	ROUND4(CX,DX,AX,BX,13,0xa3014314,15);
++	ROUND4(BX,CX,DX,AX, 4,0x4e0811a1,21);
++	ROUND4(AX,BX,CX,DX,11,0xf7537e82, 6);
++	ROUND4(DX,AX,BX,CX, 2,0xbd3af235,10);
++	ROUND4(CX,DX,AX,BX, 9,0x2ad7d2bb,15);
++	ROUND4(BX,CX,DX,AX, 0,0xeb86d391,21);
++
++	ADDL	R12,	AX
++	ADDL	R13,	BX
++	ADDL	R14,	CX
++	ADDL	R15,	DX
++
++	ADDQ	$64,		SI
++	CMPQ	SI,		DI
++	JB	loop
++
++end:
++	MOVL	AX,		(0*4)(BP)
++	MOVL	BX,		(1*4)(BP)
++	MOVL	CX,		(2*4)(BP)
++	MOVL	DX,		(3*4)(BP)
++	RET
+diff --git a/src/internal/coverage/md5/md5block_arm.s b/src/internal/coverage/md5/md5block_arm.s
+new file mode 100644
+index 0000000000..13fdc5c3be
+--- /dev/null
++++ b/src/internal/coverage/md5/md5block_arm.s
+@@ -0,0 +1,301 @@
++// Copyright 2013 The Go Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style
++// license that can be found in the LICENSE file.
++//
++// ARM version of md5block.go
++
++//go:build !purego
++
++#include "textflag.h"
++
++// Register definitions
++#define Rtable	R0	// Pointer to MD5 constants table
++#define Rdata	R1	// Pointer to data to hash
++#define Ra	R2	// MD5 accumulator
++#define Rb	R3	// MD5 accumulator
++#define Rc	R4	// MD5 accumulator
++#define Rd	R5	// MD5 accumulator
++#define Rc0	R6	// MD5 constant
++#define Rc1	R7	// MD5 constant
++#define Rc2	R8	// MD5 constant
++// r9, r10 are forbidden
++// r11 is OK provided you check the assembler that no synthetic instructions use it
++#define Rc3	R11	// MD5 constant
++#define Rt0	R12	// temporary
++#define Rt1	R14	// temporary
++
++// func block(dig *digest, p []byte)
++// 0(FP) is *digest
++// 4(FP) is p.array (struct Slice)
++// 8(FP) is p.len
++//12(FP) is p.cap
++//
++// Stack frame
++#define p_end	end-4(SP)	// pointer to the end of data
++#define p_data	data-8(SP)	// current data pointer
++#define buf	buffer-(8+4*16)(SP)	//16 words temporary buffer
++		// 3 words at 4..12(R13) for called routine parameters
++
++TEXT	·block(SB), NOSPLIT, $84-16
++	MOVW	p+4(FP), Rdata	// pointer to the data
++	MOVW	p_len+8(FP), Rt0	// number of bytes
++	ADD	Rdata, Rt0
++	MOVW	Rt0, p_end	// pointer to end of data
++
++loop:
++	MOVW	Rdata, p_data	// Save Rdata
++	AND.S	$3, Rdata, Rt0	// TST $3, Rdata not working see issue 5921
++	BEQ	aligned			// aligned detected - skip copy
++
++	// Copy the unaligned source data into the aligned temporary buffer
++	// memmove(to=4(R13), from=8(R13), n=12(R13)) - Corrupts all registers
++	MOVW	$buf, Rtable	// to
++	MOVW	$64, Rc0		// n
++	MOVM.IB	[Rtable,Rdata,Rc0], (R13)
++	BL	runtime·memmove(SB)
++
++	// Point to the local aligned copy of the data
++	MOVW	$buf, Rdata
++
++aligned:
++	// Point to the table of constants
++	// A PC relative add would be cheaper than this
++	MOVW	$·table(SB), Rtable
++
++	// Load up initial MD5 accumulator
++	MOVW	dig+0(FP), Rc0
++	MOVM.IA (Rc0), [Ra,Rb,Rc,Rd]
++
++// a += (((c^d)&b)^d) + X[index] + const
++// a = a<<shift | a>>(32-shift) + b
++#define ROUND1(Ra, Rb, Rc, Rd, index, shift, Rconst) \
++	EOR	Rc, Rd, Rt0		; \
++	AND	Rb, Rt0			; \
++	EOR	Rd, Rt0			; \
++	MOVW	(index<<2)(Rdata), Rt1	; \
++	ADD	Rt1, Rt0			; \
++	ADD	Rconst, Rt0			; \
++	ADD	Rt0, Ra			; \
++	ADD	Ra@>(32-shift), Rb, Ra	;
++
++	MOVM.IA.W (Rtable), [Rc0,Rc1,Rc2,Rc3]
++	ROUND1(Ra, Rb, Rc, Rd,  0,	7, Rc0)
++	ROUND1(Rd, Ra, Rb, Rc,  1, 12, Rc1)
++	ROUND1(Rc, Rd, Ra, Rb,  2, 17, Rc2)
++	ROUND1(Rb, Rc, Rd, Ra,  3, 22, Rc3)
++
++	MOVM.IA.W (Rtable), [Rc0,Rc1,Rc2,Rc3]
++	ROUND1(Ra, Rb, Rc, Rd,  4,	7, Rc0)
++	ROUND1(Rd, Ra, Rb, Rc,  5, 12, Rc1)
++	ROUND1(Rc, Rd, Ra, Rb,  6, 17, Rc2)
++	ROUND1(Rb, Rc, Rd, Ra,  7, 22, Rc3)
++
++	MOVM.IA.W (Rtable), [Rc0,Rc1,Rc2,Rc3]
++	ROUND1(Ra, Rb, Rc, Rd,  8,	7, Rc0)
++	ROUND1(Rd, Ra, Rb, Rc,  9, 12, Rc1)
++	ROUND1(Rc, Rd, Ra, Rb, 10, 17, Rc2)
++	ROUND1(Rb, Rc, Rd, Ra, 11, 22, Rc3)
++
++	MOVM.IA.W (Rtable), [Rc0,Rc1,Rc2,Rc3]
++	ROUND1(Ra, Rb, Rc, Rd, 12,	7, Rc0)
++	ROUND1(Rd, Ra, Rb, Rc, 13, 12, Rc1)
++	ROUND1(Rc, Rd, Ra, Rb, 14, 17, Rc2)
++	ROUND1(Rb, Rc, Rd, Ra, 15, 22, Rc3)
++
++// a += (((b^c)&d)^c) + X[index] + const
++// a = a<<shift | a>>(32-shift) + b
++#define ROUND2(Ra, Rb, Rc, Rd, index, shift, Rconst) \
++	EOR	Rb, Rc, Rt0		; \
++	AND	Rd, Rt0			; \
++	EOR	Rc, Rt0			; \
++	MOVW	(index<<2)(Rdata), Rt1	; \
++	ADD	Rt1, Rt0			; \
++	ADD	Rconst, Rt0			; \
++	ADD	Rt0, Ra			; \
++	ADD	Ra@>(32-shift), Rb, Ra	;
++
++	MOVM.IA.W (Rtable), [Rc0,Rc1,Rc2,Rc3]
++	ROUND2(Ra, Rb, Rc, Rd,  1,	5, Rc0)
++	ROUND2(Rd, Ra, Rb, Rc,  6,	9, Rc1)
++	ROUND2(Rc, Rd, Ra, Rb, 11, 14, Rc2)
++	ROUND2(Rb, Rc, Rd, Ra,  0, 20, Rc3)
++
++	MOVM.IA.W (Rtable), [Rc0,Rc1,Rc2,Rc3]
++	ROUND2(Ra, Rb, Rc, Rd,  5,	5, Rc0)
++	ROUND2(Rd, Ra, Rb, Rc, 10,	9, Rc1)
++	ROUND2(Rc, Rd, Ra, Rb, 15, 14, Rc2)
++	ROUND2(Rb, Rc, Rd, Ra,  4, 20, Rc3)
++
++	MOVM.IA.W (Rtable), [Rc0,Rc1,Rc2,Rc3]
++	ROUND2(Ra, Rb, Rc, Rd,  9,	5, Rc0)
++	ROUND2(Rd, Ra, Rb, Rc, 14,	9, Rc1)
++	ROUND2(Rc, Rd, Ra, Rb,  3, 14, Rc2)
++	ROUND2(Rb, Rc, Rd, Ra,  8, 20, Rc3)
++
++	MOVM.IA.W (Rtable), [Rc0,Rc1,Rc2,Rc3]
++	ROUND2(Ra, Rb, Rc, Rd, 13,	5, Rc0)
++	ROUND2(Rd, Ra, Rb, Rc,  2,	9, Rc1)
++	ROUND2(Rc, Rd, Ra, Rb,  7, 14, Rc2)
++	ROUND2(Rb, Rc, Rd, Ra, 12, 20, Rc3)
++
++// a += (b^c^d) + X[index] + const
++// a = a<<shift | a>>(32-shift) + b
++#define ROUND3(Ra, Rb, Rc, Rd, index, shift, Rconst) \
++	EOR	Rb, Rc, Rt0		; \
++	EOR	Rd, Rt0			; \
++	MOVW	(index<<2)(Rdata), Rt1	; \
++	ADD	Rt1, Rt0			; \
++	ADD	Rconst, Rt0			; \
++	ADD	Rt0, Ra			; \
++	ADD	Ra@>(32-shift), Rb, Ra	;
++
++	MOVM.IA.W (Rtable), [Rc0,Rc1,Rc2,Rc3]
++	ROUND3(Ra, Rb, Rc, Rd,  5,	4, Rc0)
++	ROUND3(Rd, Ra, Rb, Rc,  8, 11, Rc1)
++	ROUND3(Rc, Rd, Ra, Rb, 11, 16, Rc2)
++	ROUND3(Rb, Rc, Rd, Ra, 14, 23, Rc3)
++
++	MOVM.IA.W (Rtable), [Rc0,Rc1,Rc2,Rc3]
++	ROUND3(Ra, Rb, Rc, Rd,  1,	4, Rc0)
++	ROUND3(Rd, Ra, Rb, Rc,  4, 11, Rc1)
++	ROUND3(Rc, Rd, Ra, Rb,  7, 16, Rc2)
++	ROUND3(Rb, Rc, Rd, Ra, 10, 23, Rc3)
++
++	MOVM.IA.W (Rtable), [Rc0,Rc1,Rc2,Rc3]
++	ROUND3(Ra, Rb, Rc, Rd, 13,	4, Rc0)
++	ROUND3(Rd, Ra, Rb, Rc,  0, 11, Rc1)
++	ROUND3(Rc, Rd, Ra, Rb,  3, 16, Rc2)
++	ROUND3(Rb, Rc, Rd, Ra,  6, 23, Rc3)
++
++	MOVM.IA.W (Rtable), [Rc0,Rc1,Rc2,Rc3]
++	ROUND3(Ra, Rb, Rc, Rd,  9,	4, Rc0)
++	ROUND3(Rd, Ra, Rb, Rc, 12, 11, Rc1)
++	ROUND3(Rc, Rd, Ra, Rb, 15, 16, Rc2)
++	ROUND3(Rb, Rc, Rd, Ra,  2, 23, Rc3)
++
++// a += (c^(b|^d)) + X[index] + const
++// a = a<<shift | a>>(32-shift) + b
++#define ROUND4(Ra, Rb, Rc, Rd, index, shift, Rconst) \
++	MVN	Rd, Rt0			; \
++	ORR	Rb, Rt0			; \
++	EOR	Rc, Rt0			; \
++	MOVW	(index<<2)(Rdata), Rt1	; \
++	ADD	Rt1, Rt0			; \
++	ADD	Rconst, Rt0			; \
++	ADD	Rt0, Ra			; \
++	ADD	Ra@>(32-shift), Rb, Ra	;
++
++	MOVM.IA.W (Rtable), [Rc0,Rc1,Rc2,Rc3]
++	ROUND4(Ra, Rb, Rc, Rd,  0,	6, Rc0)
++	ROUND4(Rd, Ra, Rb, Rc,  7, 10, Rc1)
++	ROUND4(Rc, Rd, Ra, Rb, 14, 15, Rc2)
++	ROUND4(Rb, Rc, Rd, Ra,  5, 21, Rc3)
++
++	MOVM.IA.W (Rtable), [Rc0,Rc1,Rc2,Rc3]
++	ROUND4(Ra, Rb, Rc, Rd, 12,	6, Rc0)
++	ROUND4(Rd, Ra, Rb, Rc,  3, 10, Rc1)
++	ROUND4(Rc, Rd, Ra, Rb, 10, 15, Rc2)
++	ROUND4(Rb, Rc, Rd, Ra,  1, 21, Rc3)
++
++	MOVM.IA.W (Rtable), [Rc0,Rc1,Rc2,Rc3]
++	ROUND4(Ra, Rb, Rc, Rd,  8,	6, Rc0)
++	ROUND4(Rd, Ra, Rb, Rc, 15, 10, Rc1)
++	ROUND4(Rc, Rd, Ra, Rb,  6, 15, Rc2)
++	ROUND4(Rb, Rc, Rd, Ra, 13, 21, Rc3)
++
++	MOVM.IA.W (Rtable), [Rc0,Rc1,Rc2,Rc3]
++	ROUND4(Ra, Rb, Rc, Rd,  4,	6, Rc0)
++	ROUND4(Rd, Ra, Rb, Rc, 11, 10, Rc1)
++	ROUND4(Rc, Rd, Ra, Rb,  2, 15, Rc2)
++	ROUND4(Rb, Rc, Rd, Ra,  9, 21, Rc3)
++
++	MOVW	dig+0(FP), Rt0
++	MOVM.IA (Rt0), [Rc0,Rc1,Rc2,Rc3]
++
++	ADD	Rc0, Ra
++	ADD	Rc1, Rb
++	ADD	Rc2, Rc
++	ADD	Rc3, Rd
++
++	MOVM.IA [Ra,Rb,Rc,Rd], (Rt0)
++
++	MOVW	p_data, Rdata
++	MOVW	p_end, Rt0
++	ADD	$64, Rdata
++	CMP	Rt0, Rdata
++	BLO	loop
++
++	RET
++
++// MD5 constants table
++
++	// Round 1
++	DATA	·table+0x00(SB)/4, $0xd76aa478
++	DATA	·table+0x04(SB)/4, $0xe8c7b756
++	DATA	·table+0x08(SB)/4, $0x242070db
++	DATA	·table+0x0c(SB)/4, $0xc1bdceee
++	DATA	·table+0x10(SB)/4, $0xf57c0faf
++	DATA	·table+0x14(SB)/4, $0x4787c62a
++	DATA	·table+0x18(SB)/4, $0xa8304613
++	DATA	·table+0x1c(SB)/4, $0xfd469501
++	DATA	·table+0x20(SB)/4, $0x698098d8
++	DATA	·table+0x24(SB)/4, $0x8b44f7af
++	DATA	·table+0x28(SB)/4, $0xffff5bb1
++	DATA	·table+0x2c(SB)/4, $0x895cd7be
++	DATA	·table+0x30(SB)/4, $0x6b901122
++	DATA	·table+0x34(SB)/4, $0xfd987193
++	DATA	·table+0x38(SB)/4, $0xa679438e
++	DATA	·table+0x3c(SB)/4, $0x49b40821
++	// Round 2
++	DATA	·table+0x40(SB)/4, $0xf61e2562
++	DATA	·table+0x44(SB)/4, $0xc040b340
++	DATA	·table+0x48(SB)/4, $0x265e5a51
++	DATA	·table+0x4c(SB)/4, $0xe9b6c7aa
++	DATA	·table+0x50(SB)/4, $0xd62f105d
++	DATA	·table+0x54(SB)/4, $0x02441453
++	DATA	·table+0x58(SB)/4, $0xd8a1e681
++	DATA	·table+0x5c(SB)/4, $0xe7d3fbc8
++	DATA	·table+0x60(SB)/4, $0x21e1cde6
++	DATA	·table+0x64(SB)/4, $0xc33707d6
++	DATA	·table+0x68(SB)/4, $0xf4d50d87
++	DATA	·table+0x6c(SB)/4, $0x455a14ed
++	DATA	·table+0x70(SB)/4, $0xa9e3e905
++	DATA	·table+0x74(SB)/4, $0xfcefa3f8
++	DATA	·table+0x78(SB)/4, $0x676f02d9
++	DATA	·table+0x7c(SB)/4, $0x8d2a4c8a
++	// Round 3
++	DATA	·table+0x80(SB)/4, $0xfffa3942
++	DATA	·table+0x84(SB)/4, $0x8771f681
++	DATA	·table+0x88(SB)/4, $0x6d9d6122
++	DATA	·table+0x8c(SB)/4, $0xfde5380c
++	DATA	·table+0x90(SB)/4, $0xa4beea44
++	DATA	·table+0x94(SB)/4, $0x4bdecfa9
++	DATA	·table+0x98(SB)/4, $0xf6bb4b60
++	DATA	·table+0x9c(SB)/4, $0xbebfbc70
++	DATA	·table+0xa0(SB)/4, $0x289b7ec6
++	DATA	·table+0xa4(SB)/4, $0xeaa127fa
++	DATA	·table+0xa8(SB)/4, $0xd4ef3085
++	DATA	·table+0xac(SB)/4, $0x04881d05
++	DATA	·table+0xb0(SB)/4, $0xd9d4d039
++	DATA	·table+0xb4(SB)/4, $0xe6db99e5
++	DATA	·table+0xb8(SB)/4, $0x1fa27cf8
++	DATA	·table+0xbc(SB)/4, $0xc4ac5665
++	// Round 4
++	DATA	·table+0xc0(SB)/4, $0xf4292244
++	DATA	·table+0xc4(SB)/4, $0x432aff97
++	DATA	·table+0xc8(SB)/4, $0xab9423a7
++	DATA	·table+0xcc(SB)/4, $0xfc93a039
++	DATA	·table+0xd0(SB)/4, $0x655b59c3
++	DATA	·table+0xd4(SB)/4, $0x8f0ccc92
++	DATA	·table+0xd8(SB)/4, $0xffeff47d
++	DATA	·table+0xdc(SB)/4, $0x85845dd1
++	DATA	·table+0xe0(SB)/4, $0x6fa87e4f
++	DATA	·table+0xe4(SB)/4, $0xfe2ce6e0
++	DATA	·table+0xe8(SB)/4, $0xa3014314
++	DATA	·table+0xec(SB)/4, $0x4e0811a1
++	DATA	·table+0xf0(SB)/4, $0xf7537e82
++	DATA	·table+0xf4(SB)/4, $0xbd3af235
++	DATA	·table+0xf8(SB)/4, $0x2ad7d2bb
++	DATA	·table+0xfc(SB)/4, $0xeb86d391
++	// Global definition
++	GLOBL	·table(SB),8,$256
+diff --git a/src/internal/coverage/md5/md5block_arm64.s b/src/internal/coverage/md5/md5block_arm64.s
+new file mode 100644
+index 0000000000..5942218f76
+--- /dev/null
++++ b/src/internal/coverage/md5/md5block_arm64.s
+@@ -0,0 +1,169 @@
++// Copyright 2018 The Go Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style
++// license that can be found in the LICENSE file.
++//
++// ARM64 version of md5block.go
++// derived from crypto/md5/md5block_amd64.s
++
++//go:build !purego
++
++#include "textflag.h"
++
++TEXT	·block(SB),NOSPLIT,$0-32
++	MOVD	dig+0(FP), R0
++	MOVD	p+8(FP), R1
++	MOVD	p_len+16(FP), R2
++	AND	$~63, R2
++	CBZ	R2, zero
++
++	ADD	R1, R2, R21
++	LDPW	(0*8)(R0), (R4, R5)
++	LDPW	(1*8)(R0), (R6, R7)
++
++loop:
++	MOVW	R4, R12
++	MOVW	R5, R13
++	MOVW	R6, R14
++	MOVW	R7, R15
++
++	MOVW	(0*4)(R1), R8
++	MOVW	R7, R9
++
++#define ROUND1(a, b, c, d, index, const, shift) \
++	ADDW	$const, a; \
++	ADDW	R8, a; \
++	MOVW	(index*4)(R1), R8; \
++	EORW	c, R9; \
++	ANDW	b, R9; \
++	EORW	d, R9; \
++	ADDW	R9, a; \
++	RORW	$(32-shift), a; \
++	MOVW	c, R9; \
++	ADDW	b, a
++
++	ROUND1(R4,R5,R6,R7, 1,0xd76aa478, 7);
++	ROUND1(R7,R4,R5,R6, 2,0xe8c7b756,12);
++	ROUND1(R6,R7,R4,R5, 3,0x242070db,17);
++	ROUND1(R5,R6,R7,R4, 4,0xc1bdceee,22);
++	ROUND1(R4,R5,R6,R7, 5,0xf57c0faf, 7);
++	ROUND1(R7,R4,R5,R6, 6,0x4787c62a,12);
++	ROUND1(R6,R7,R4,R5, 7,0xa8304613,17);
++	ROUND1(R5,R6,R7,R4, 8,0xfd469501,22);
++	ROUND1(R4,R5,R6,R7, 9,0x698098d8, 7);
++	ROUND1(R7,R4,R5,R6,10,0x8b44f7af,12);
++	ROUND1(R6,R7,R4,R5,11,0xffff5bb1,17);
++	ROUND1(R5,R6,R7,R4,12,0x895cd7be,22);
++	ROUND1(R4,R5,R6,R7,13,0x6b901122, 7);
++	ROUND1(R7,R4,R5,R6,14,0xfd987193,12);
++	ROUND1(R6,R7,R4,R5,15,0xa679438e,17);
++	ROUND1(R5,R6,R7,R4, 0,0x49b40821,22);
++
++	MOVW	(1*4)(R1), R8
++	MOVW	R7, R9
++	MOVW	R7, R10
++
++#define ROUND2(a, b, c, d, index, const, shift) \
++	ADDW	$const, a; \
++	ADDW	R8, a; \
++	MOVW	(index*4)(R1), R8; \
++	ANDW	b, R10; \
++	BICW	R9, c, R9; \
++	ORRW	R9, R10; \
++	MOVW	c, R9; \
++	ADDW	R10, a; \
++	MOVW	c, R10; \
++	RORW	$(32-shift), a; \
++	ADDW	b, a
++
++	ROUND2(R4,R5,R6,R7, 6,0xf61e2562, 5);
++	ROUND2(R7,R4,R5,R6,11,0xc040b340, 9);
++	ROUND2(R6,R7,R4,R5, 0,0x265e5a51,14);
++	ROUND2(R5,R6,R7,R4, 5,0xe9b6c7aa,20);
++	ROUND2(R4,R5,R6,R7,10,0xd62f105d, 5);
++	ROUND2(R7,R4,R5,R6,15, 0x2441453, 9);
++	ROUND2(R6,R7,R4,R5, 4,0xd8a1e681,14);
++	ROUND2(R5,R6,R7,R4, 9,0xe7d3fbc8,20);
++	ROUND2(R4,R5,R6,R7,14,0x21e1cde6, 5);
++	ROUND2(R7,R4,R5,R6, 3,0xc33707d6, 9);
++	ROUND2(R6,R7,R4,R5, 8,0xf4d50d87,14);
++	ROUND2(R5,R6,R7,R4,13,0x455a14ed,20);
++	ROUND2(R4,R5,R6,R7, 2,0xa9e3e905, 5);
++	ROUND2(R7,R4,R5,R6, 7,0xfcefa3f8, 9);
++	ROUND2(R6,R7,R4,R5,12,0x676f02d9,14);
++	ROUND2(R5,R6,R7,R4, 0,0x8d2a4c8a,20);
++
++	MOVW	(5*4)(R1), R8
++	MOVW	R6, R9
++
++#define ROUND3(a, b, c, d, index, const, shift) \
++	ADDW	$const, a; \
++	ADDW	R8, a; \
++	MOVW	(index*4)(R1), R8; \
++	EORW	d, R9; \
++	EORW	b, R9; \
++	ADDW	R9, a; \
++	RORW	$(32-shift), a; \
++	MOVW	b, R9; \
++	ADDW	b, a
++
++	ROUND3(R4,R5,R6,R7, 8,0xfffa3942, 4);
++	ROUND3(R7,R4,R5,R6,11,0x8771f681,11);
++	ROUND3(R6,R7,R4,R5,14,0x6d9d6122,16);
++	ROUND3(R5,R6,R7,R4, 1,0xfde5380c,23);
++	ROUND3(R4,R5,R6,R7, 4,0xa4beea44, 4);
++	ROUND3(R7,R4,R5,R6, 7,0x4bdecfa9,11);
++	ROUND3(R6,R7,R4,R5,10,0xf6bb4b60,16);
++	ROUND3(R5,R6,R7,R4,13,0xbebfbc70,23);
++	ROUND3(R4,R5,R6,R7, 0,0x289b7ec6, 4);
++	ROUND3(R7,R4,R5,R6, 3,0xeaa127fa,11);
++	ROUND3(R6,R7,R4,R5, 6,0xd4ef3085,16);
++	ROUND3(R5,R6,R7,R4, 9, 0x4881d05,23);
++	ROUND3(R4,R5,R6,R7,12,0xd9d4d039, 4);
++	ROUND3(R7,R4,R5,R6,15,0xe6db99e5,11);
++	ROUND3(R6,R7,R4,R5, 2,0x1fa27cf8,16);
++	ROUND3(R5,R6,R7,R4, 0,0xc4ac5665,23);
++
++	MOVW	(0*4)(R1), R8
++	MVNW	R7, R9
++
++#define ROUND4(a, b, c, d, index, const, shift) \
++	ADDW	$const, a; \
++	ADDW	R8, a; \
++	MOVW	(index*4)(R1), R8; \
++	ORRW	b, R9; \
++	EORW	c, R9; \
++	ADDW	R9, a; \
++	RORW	$(32-shift), a; \
++	MVNW	c, R9; \
++	ADDW	b, a
++
++	ROUND4(R4,R5,R6,R7, 7,0xf4292244, 6);
++	ROUND4(R7,R4,R5,R6,14,0x432aff97,10);
++	ROUND4(R6,R7,R4,R5, 5,0xab9423a7,15);
++	ROUND4(R5,R6,R7,R4,12,0xfc93a039,21);
++	ROUND4(R4,R5,R6,R7, 3,0x655b59c3, 6);
++	ROUND4(R7,R4,R5,R6,10,0x8f0ccc92,10);
++	ROUND4(R6,R7,R4,R5, 1,0xffeff47d,15);
++	ROUND4(R5,R6,R7,R4, 8,0x85845dd1,21);
++	ROUND4(R4,R5,R6,R7,15,0x6fa87e4f, 6);
++	ROUND4(R7,R4,R5,R6, 6,0xfe2ce6e0,10);
++	ROUND4(R6,R7,R4,R5,13,0xa3014314,15);
++	ROUND4(R5,R6,R7,R4, 4,0x4e0811a1,21);
++	ROUND4(R4,R5,R6,R7,11,0xf7537e82, 6);
++	ROUND4(R7,R4,R5,R6, 2,0xbd3af235,10);
++	ROUND4(R6,R7,R4,R5, 9,0x2ad7d2bb,15);
++	ROUND4(R5,R6,R7,R4, 0,0xeb86d391,21);
++
++	ADDW	R12, R4
++	ADDW	R13, R5
++	ADDW	R14, R6
++	ADDW	R15, R7
++
++	ADD	$64, R1
++	CMP	R1, R21
++	BNE	loop
++
++	STPW	(R4, R5), (0*8)(R0)
++	STPW	(R6, R7), (1*8)(R0)
++zero:
++	RET
+diff --git a/src/internal/coverage/md5/md5block_decl.go b/src/internal/coverage/md5/md5block_decl.go
+new file mode 100644
+index 0000000000..3664542fb9
+--- /dev/null
++++ b/src/internal/coverage/md5/md5block_decl.go
+@@ -0,0 +1,12 @@
++// Copyright 2013 The Go Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style
++// license that can be found in the LICENSE file.
++
++//go:build (amd64 || 386 || arm || ppc64le || ppc64 || s390x || arm64) && !purego
++
++package md5
++
++const haveAsm = true
++
++//go:noescape
++func block(dig *digest, p []byte)
+diff --git a/src/internal/coverage/md5/md5block_generic.go b/src/internal/coverage/md5/md5block_generic.go
+new file mode 100644
+index 0000000000..43cfebd38a
+--- /dev/null
++++ b/src/internal/coverage/md5/md5block_generic.go
+@@ -0,0 +1,13 @@
++// Copyright 2014 The Go Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style
++// license that can be found in the LICENSE file.
++
++//go:build (!amd64 && !386 && !arm && !ppc64le && !ppc64 && !s390x && !arm64) || purego
++
++package md5
++
++const haveAsm = false
++
++func block(dig *digest, p []byte) {
++	blockGeneric(dig, p)
++}
+diff --git a/src/internal/coverage/md5/md5block_ppc64x.s b/src/internal/coverage/md5/md5block_ppc64x.s
+new file mode 100644
+index 0000000000..49a369548e
+--- /dev/null
++++ b/src/internal/coverage/md5/md5block_ppc64x.s
+@@ -0,0 +1,212 @@
++// Original source:
++//	http://www.zorinaq.com/papers/md5-amd64.html
++//	http://www.zorinaq.com/papers/md5-amd64.tar.bz2
++//
++// MD5 optimized for ppc64le using Go's assembler for
++// ppc64le, based on md5block_amd64.s implementation by
++// the Go authors.
++//
++// Author: Marc Bevand <bevand_m (at) epita.fr>
++// Licence: I hereby disclaim the copyright on this code and place it
++// in the public domain.
++
++//go:build (ppc64 || ppc64le) && !purego
++
++#include "textflag.h"
++
++// ENDIAN_MOVE generates the appropriate
++// 4 byte load for big or little endian.
++// The 4 bytes at ptr+off is loaded into dst.
++// The idx reg is only needed for big endian
++// and is clobbered when used.
++#ifdef GOARCH_ppc64le
++#define ENDIAN_MOVE(off, ptr, dst, idx) \
++	MOVWZ	off(ptr),dst
++#else
++#define ENDIAN_MOVE(off, ptr, dst, idx) \
++	MOVD	$off,idx; \
++	MOVWBR	(idx)(ptr), dst
++#endif
++
++#define M00 R18
++#define M01 R19
++#define M02 R20
++#define M03 R24
++#define M04 R25
++#define M05 R26
++#define M06 R27
++#define M07 R28
++#define M08 R29
++#define M09 R21
++#define M10 R11
++#define M11 R8
++#define M12 R7
++#define M13 R12
++#define M14 R23
++#define M15 R10
++
++#define ROUND1(a, b, c, d, index, const, shift) \
++	ADD	$const, index, R9; \
++	ADD	R9, a; \
++	AND     b, c, R9; \
++	ANDN    b, d, R31; \
++	OR	R9, R31, R9; \
++	ADD	R9, a; \
++	ROTLW	$shift, a; \
++	ADD	b, a;
++
++#define ROUND2(a, b, c, d, index, const, shift) \
++	ADD	$const, index, R9; \
++	ADD	R9, a; \
++	AND	b, d, R31; \
++	ANDN	d, c, R9; \
++	OR	R9, R31; \
++	ADD	R31, a; \
++	ROTLW	$shift, a; \
++	ADD	b, a;
++
++#define ROUND3(a, b, c, d, index, const, shift) \
++	ADD	$const, index, R9; \
++	ADD	R9, a; \
++	XOR	d, c, R31; \
++	XOR	b, R31; \
++	ADD	R31, a; \
++	ROTLW	$shift, a; \
++	ADD	b, a;
++
++#define ROUND4(a, b, c, d, index, const, shift) \
++	ADD	$const, index, R9; \
++	ADD	R9, a; \
++	ORN     d, b, R31; \
++	XOR	c, R31; \
++	ADD	R31, a; \
++	ROTLW	$shift, a; \
++	ADD	b, a;
++
++
++TEXT ·block(SB),NOSPLIT,$0-32
++	MOVD	dig+0(FP), R10
++	MOVD	p+8(FP), R6
++	MOVD	p_len+16(FP), R5
++
++	// We assume p_len >= 64
++	SRD 	$6, R5
++	MOVD	R5, CTR
++
++	MOVWZ	0(R10), R22
++	MOVWZ	4(R10), R3
++	MOVWZ	8(R10), R4
++	MOVWZ	12(R10), R5
++
++loop:
++	MOVD	R22, R14
++	MOVD	R3, R15
++	MOVD	R4, R16
++	MOVD	R5, R17
++
++	ENDIAN_MOVE( 0,R6,M00,M15)
++	ENDIAN_MOVE( 4,R6,M01,M15)
++	ENDIAN_MOVE( 8,R6,M02,M15)
++	ENDIAN_MOVE(12,R6,M03,M15)
++
++	ROUND1(R22,R3,R4,R5,M00,0xd76aa478, 7);
++	ROUND1(R5,R22,R3,R4,M01,0xe8c7b756,12);
++	ROUND1(R4,R5,R22,R3,M02,0x242070db,17);
++	ROUND1(R3,R4,R5,R22,M03,0xc1bdceee,22);
++
++	ENDIAN_MOVE(16,R6,M04,M15)
++	ENDIAN_MOVE(20,R6,M05,M15)
++	ENDIAN_MOVE(24,R6,M06,M15)
++	ENDIAN_MOVE(28,R6,M07,M15)
++
++	ROUND1(R22,R3,R4,R5,M04,0xf57c0faf, 7);
++	ROUND1(R5,R22,R3,R4,M05,0x4787c62a,12);
++	ROUND1(R4,R5,R22,R3,M06,0xa8304613,17);
++	ROUND1(R3,R4,R5,R22,M07,0xfd469501,22);
++
++	ENDIAN_MOVE(32,R6,M08,M15)
++	ENDIAN_MOVE(36,R6,M09,M15)
++	ENDIAN_MOVE(40,R6,M10,M15)
++	ENDIAN_MOVE(44,R6,M11,M15)
++
++	ROUND1(R22,R3,R4,R5,M08,0x698098d8, 7);
++	ROUND1(R5,R22,R3,R4,M09,0x8b44f7af,12);
++	ROUND1(R4,R5,R22,R3,M10,0xffff5bb1,17);
++	ROUND1(R3,R4,R5,R22,M11,0x895cd7be,22);
++
++	ENDIAN_MOVE(48,R6,M12,M15)
++	ENDIAN_MOVE(52,R6,M13,M15)
++	ENDIAN_MOVE(56,R6,M14,M15)
++	ENDIAN_MOVE(60,R6,M15,M15)
++
++	ROUND1(R22,R3,R4,R5,M12,0x6b901122, 7);
++	ROUND1(R5,R22,R3,R4,M13,0xfd987193,12);
++	ROUND1(R4,R5,R22,R3,M14,0xa679438e,17);
++	ROUND1(R3,R4,R5,R22,M15,0x49b40821,22);
++
++	ROUND2(R22,R3,R4,R5,M01,0xf61e2562, 5);
++	ROUND2(R5,R22,R3,R4,M06,0xc040b340, 9);
++	ROUND2(R4,R5,R22,R3,M11,0x265e5a51,14);
++	ROUND2(R3,R4,R5,R22,M00,0xe9b6c7aa,20);
++	ROUND2(R22,R3,R4,R5,M05,0xd62f105d, 5);
++	ROUND2(R5,R22,R3,R4,M10, 0x2441453, 9);
++	ROUND2(R4,R5,R22,R3,M15,0xd8a1e681,14);
++	ROUND2(R3,R4,R5,R22,M04,0xe7d3fbc8,20);
++	ROUND2(R22,R3,R4,R5,M09,0x21e1cde6, 5);
++	ROUND2(R5,R22,R3,R4,M14,0xc33707d6, 9);
++	ROUND2(R4,R5,R22,R3,M03,0xf4d50d87,14);
++	ROUND2(R3,R4,R5,R22,M08,0x455a14ed,20);
++	ROUND2(R22,R3,R4,R5,M13,0xa9e3e905, 5);
++	ROUND2(R5,R22,R3,R4,M02,0xfcefa3f8, 9);
++	ROUND2(R4,R5,R22,R3,M07,0x676f02d9,14);
++	ROUND2(R3,R4,R5,R22,M12,0x8d2a4c8a,20);
++
++	ROUND3(R22,R3,R4,R5,M05,0xfffa3942, 4);
++	ROUND3(R5,R22,R3,R4,M08,0x8771f681,11);
++	ROUND3(R4,R5,R22,R3,M11,0x6d9d6122,16);
++	ROUND3(R3,R4,R5,R22,M14,0xfde5380c,23);
++	ROUND3(R22,R3,R4,R5,M01,0xa4beea44, 4);
++	ROUND3(R5,R22,R3,R4,M04,0x4bdecfa9,11);
++	ROUND3(R4,R5,R22,R3,M07,0xf6bb4b60,16);
++	ROUND3(R3,R4,R5,R22,M10,0xbebfbc70,23);
++	ROUND3(R22,R3,R4,R5,M13,0x289b7ec6, 4);
++	ROUND3(R5,R22,R3,R4,M00,0xeaa127fa,11);
++	ROUND3(R4,R5,R22,R3,M03,0xd4ef3085,16);
++	ROUND3(R3,R4,R5,R22,M06, 0x4881d05,23);
++	ROUND3(R22,R3,R4,R5,M09,0xd9d4d039, 4);
++	ROUND3(R5,R22,R3,R4,M12,0xe6db99e5,11);
++	ROUND3(R4,R5,R22,R3,M15,0x1fa27cf8,16);
++	ROUND3(R3,R4,R5,R22,M02,0xc4ac5665,23);
++
++	ROUND4(R22,R3,R4,R5,M00,0xf4292244, 6);
++	ROUND4(R5,R22,R3,R4,M07,0x432aff97,10);
++	ROUND4(R4,R5,R22,R3,M14,0xab9423a7,15);
++	ROUND4(R3,R4,R5,R22,M05,0xfc93a039,21);
++	ROUND4(R22,R3,R4,R5,M12,0x655b59c3, 6);
++	ROUND4(R5,R22,R3,R4,M03,0x8f0ccc92,10);
++	ROUND4(R4,R5,R22,R3,M10,0xffeff47d,15);
++	ROUND4(R3,R4,R5,R22,M01,0x85845dd1,21);
++	ROUND4(R22,R3,R4,R5,M08,0x6fa87e4f, 6);
++	ROUND4(R5,R22,R3,R4,M15,0xfe2ce6e0,10);
++	ROUND4(R4,R5,R22,R3,M06,0xa3014314,15);
++	ROUND4(R3,R4,R5,R22,M13,0x4e0811a1,21);
++	ROUND4(R22,R3,R4,R5,M04,0xf7537e82, 6);
++	ROUND4(R5,R22,R3,R4,M11,0xbd3af235,10);
++	ROUND4(R4,R5,R22,R3,M02,0x2ad7d2bb,15);
++	ROUND4(R3,R4,R5,R22,M09,0xeb86d391,21);
++
++	ADD	R14, R22
++	ADD	R15, R3
++	ADD	R16, R4
++	ADD	R17, R5
++	ADD	$64, R6
++	BDNZ	loop
++
++end:
++	MOVD	dig+0(FP), R10
++	MOVWZ	R22, 0(R10)
++	MOVWZ	R3, 4(R10)
++	MOVWZ	R4, 8(R10)
++	MOVWZ	R5, 12(R10)
++
++	RET
+diff --git a/src/internal/coverage/md5/md5block_s390x.s b/src/internal/coverage/md5/md5block_s390x.s
+new file mode 100644
+index 0000000000..2d18d28f25
+--- /dev/null
++++ b/src/internal/coverage/md5/md5block_s390x.s
+@@ -0,0 +1,177 @@
++// Original source:
++//	http://www.zorinaq.com/papers/md5-amd64.html
++//	http://www.zorinaq.com/papers/md5-amd64.tar.bz2
++//
++// MD5 adapted for s390x using Go's assembler for
++// s390x, based on md5block_amd64.s implementation by
++// the Go authors.
++//
++// Author: Marc Bevand <bevand_m (at) epita.fr>
++// Licence: I hereby disclaim the copyright on this code and place it
++// in the public domain.
++
++//go:build !purego
++
++#include "textflag.h"
++
++// func block(dig *digest, p []byte)
++TEXT ·block(SB),NOSPLIT,$16-32
++	MOVD	dig+0(FP), R1
++	MOVD	p+8(FP), R6
++	MOVD	p_len+16(FP), R5
++	AND	$-64, R5
++	LAY	(R6)(R5*1), R7
++
++	LMY	0(R1), R2, R5
++	CMPBEQ	R6, R7, end
++
++loop:
++	STMY	R2, R5, tmp-16(SP)
++
++	MOVWBR	0(R6), R8
++	MOVWZ	R5, R9
++
++#define ROUND1(a, b, c, d, index, const, shift) \
++	XOR	c, R9; \
++	ADD	$const, a; \
++	ADD	R8, a; \
++	MOVWBR	(index*4)(R6), R8; \
++	AND	b, R9; \
++	XOR	d, R9; \
++	ADD	R9, a; \
++	RLL	$shift, a; \
++	MOVWZ	c, R9; \
++	ADD	b, a
++
++	ROUND1(R2,R3,R4,R5, 1,0xd76aa478, 7);
++	ROUND1(R5,R2,R3,R4, 2,0xe8c7b756,12);
++	ROUND1(R4,R5,R2,R3, 3,0x242070db,17);
++	ROUND1(R3,R4,R5,R2, 4,0xc1bdceee,22);
++	ROUND1(R2,R3,R4,R5, 5,0xf57c0faf, 7);
++	ROUND1(R5,R2,R3,R4, 6,0x4787c62a,12);
++	ROUND1(R4,R5,R2,R3, 7,0xa8304613,17);
++	ROUND1(R3,R4,R5,R2, 8,0xfd469501,22);
++	ROUND1(R2,R3,R4,R5, 9,0x698098d8, 7);
++	ROUND1(R5,R2,R3,R4,10,0x8b44f7af,12);
++	ROUND1(R4,R5,R2,R3,11,0xffff5bb1,17);
++	ROUND1(R3,R4,R5,R2,12,0x895cd7be,22);
++	ROUND1(R2,R3,R4,R5,13,0x6b901122, 7);
++	ROUND1(R5,R2,R3,R4,14,0xfd987193,12);
++	ROUND1(R4,R5,R2,R3,15,0xa679438e,17);
++	ROUND1(R3,R4,R5,R2, 0,0x49b40821,22);
++
++	MOVWBR	(1*4)(R6), R8
++	MOVWZ	R5, R9
++	MOVWZ	R5, R1
++
++#define ROUND2(a, b, c, d, index, const, shift) \
++	XOR	$0xffffffff, R9; \ // NOTW R9
++	ADD	$const, a; \
++	ADD	R8, a; \
++	MOVWBR	(index*4)(R6), R8; \
++	AND	b, R1; \
++	AND	c, R9; \
++	OR	R9, R1; \
++	MOVWZ	c, R9; \
++	ADD	R1, a; \
++	MOVWZ	c, R1; \
++	RLL	$shift,	a; \
++	ADD	b, a
++
++	ROUND2(R2,R3,R4,R5, 6,0xf61e2562, 5);
++	ROUND2(R5,R2,R3,R4,11,0xc040b340, 9);
++	ROUND2(R4,R5,R2,R3, 0,0x265e5a51,14);
++	ROUND2(R3,R4,R5,R2, 5,0xe9b6c7aa,20);
++	ROUND2(R2,R3,R4,R5,10,0xd62f105d, 5);
++	ROUND2(R5,R2,R3,R4,15, 0x2441453, 9);
++	ROUND2(R4,R5,R2,R3, 4,0xd8a1e681,14);
++	ROUND2(R3,R4,R5,R2, 9,0xe7d3fbc8,20);
++	ROUND2(R2,R3,R4,R5,14,0x21e1cde6, 5);
++	ROUND2(R5,R2,R3,R4, 3,0xc33707d6, 9);
++	ROUND2(R4,R5,R2,R3, 8,0xf4d50d87,14);
++	ROUND2(R3,R4,R5,R2,13,0x455a14ed,20);
++	ROUND2(R2,R3,R4,R5, 2,0xa9e3e905, 5);
++	ROUND2(R5,R2,R3,R4, 7,0xfcefa3f8, 9);
++	ROUND2(R4,R5,R2,R3,12,0x676f02d9,14);
++	ROUND2(R3,R4,R5,R2, 0,0x8d2a4c8a,20);
++
++	MOVWBR	(5*4)(R6), R8
++	MOVWZ	R4, R9
++
++#define ROUND3(a, b, c, d, index, const, shift) \
++	ADD	$const, a; \
++	ADD	R8, a; \
++	MOVWBR	(index*4)(R6), R8; \
++	XOR	d, R9; \
++	XOR	b, R9; \
++	ADD	R9, a; \
++	RLL	$shift, a; \
++	MOVWZ	b, R9; \
++	ADD	b, a
++
++	ROUND3(R2,R3,R4,R5, 8,0xfffa3942, 4);
++	ROUND3(R5,R2,R3,R4,11,0x8771f681,11);
++	ROUND3(R4,R5,R2,R3,14,0x6d9d6122,16);
++	ROUND3(R3,R4,R5,R2, 1,0xfde5380c,23);
++	ROUND3(R2,R3,R4,R5, 4,0xa4beea44, 4);
++	ROUND3(R5,R2,R3,R4, 7,0x4bdecfa9,11);
++	ROUND3(R4,R5,R2,R3,10,0xf6bb4b60,16);
++	ROUND3(R3,R4,R5,R2,13,0xbebfbc70,23);
++	ROUND3(R2,R3,R4,R5, 0,0x289b7ec6, 4);
++	ROUND3(R5,R2,R3,R4, 3,0xeaa127fa,11);
++	ROUND3(R4,R5,R2,R3, 6,0xd4ef3085,16);
++	ROUND3(R3,R4,R5,R2, 9, 0x4881d05,23);
++	ROUND3(R2,R3,R4,R5,12,0xd9d4d039, 4);
++	ROUND3(R5,R2,R3,R4,15,0xe6db99e5,11);
++	ROUND3(R4,R5,R2,R3, 2,0x1fa27cf8,16);
++	ROUND3(R3,R4,R5,R2, 0,0xc4ac5665,23);
++
++	MOVWBR	(0*4)(R6), R8
++	MOVWZ	$0xffffffff, R9
++	XOR	R5, R9
++
++#define ROUND4(a, b, c, d, index, const, shift) \
++	ADD	$const, a; \
++	ADD	R8, a; \
++	MOVWBR	(index*4)(R6), R8; \
++	OR	b, R9; \
++	XOR	c, R9; \
++	ADD	R9, a; \
++	MOVWZ	$0xffffffff, R9; \
++	RLL	$shift,	a; \
++	XOR	c, R9; \
++	ADD	b, a
++
++	ROUND4(R2,R3,R4,R5, 7,0xf4292244, 6);
++	ROUND4(R5,R2,R3,R4,14,0x432aff97,10);
++	ROUND4(R4,R5,R2,R3, 5,0xab9423a7,15);
++	ROUND4(R3,R4,R5,R2,12,0xfc93a039,21);
++	ROUND4(R2,R3,R4,R5, 3,0x655b59c3, 6);
++	ROUND4(R5,R2,R3,R4,10,0x8f0ccc92,10);
++	ROUND4(R4,R5,R2,R3, 1,0xffeff47d,15);
++	ROUND4(R3,R4,R5,R2, 8,0x85845dd1,21);
++	ROUND4(R2,R3,R4,R5,15,0x6fa87e4f, 6);
++	ROUND4(R5,R2,R3,R4, 6,0xfe2ce6e0,10);
++	ROUND4(R4,R5,R2,R3,13,0xa3014314,15);
++	ROUND4(R3,R4,R5,R2, 4,0x4e0811a1,21);
++	ROUND4(R2,R3,R4,R5,11,0xf7537e82, 6);
++	ROUND4(R5,R2,R3,R4, 2,0xbd3af235,10);
++	ROUND4(R4,R5,R2,R3, 9,0x2ad7d2bb,15);
++	ROUND4(R3,R4,R5,R2, 0,0xeb86d391,21);
++
++	MOVWZ	tmp-16(SP), R1
++	ADD	R1, R2
++	MOVWZ	tmp-12(SP), R1
++	ADD	R1, R3
++	MOVWZ	tmp-8(SP), R1
++	ADD	R1, R4
++	MOVWZ	tmp-4(SP), R1
++	ADD	R1, R5
++
++	LA	64(R6), R6
++	CMPBLT	R6, R7, loop
++
++end:
++	MOVD	dig+0(FP), R1
++	STMY	R2, R5, 0(R1)
++	RET
+diff --git a/src/internal/coverage/pods/pods_test.go b/src/internal/coverage/pods/pods_test.go
+index 69c16e00eb..416b99ea01 100644
+--- a/src/internal/coverage/pods/pods_test.go
++++ b/src/internal/coverage/pods/pods_test.go
+@@ -5,7 +5,7 @@
+ package pods_test
+ 
+ import (
+-	"crypto/md5"
++	"internal/coverage/md5"
+ 	"fmt"
+ 	"internal/coverage"
+ 	"internal/coverage/pods"
+diff --git a/src/internal/pkgbits/encoder.go b/src/internal/pkgbits/encoder.go
+index c17a12399d..2ea0b57a58 100644
+--- a/src/internal/pkgbits/encoder.go
++++ b/src/internal/pkgbits/encoder.go
+@@ -6,9 +6,9 @@ package pkgbits
+ 
+ import (
+ 	"bytes"
+-	"crypto/md5"
+ 	"encoding/binary"
+ 	"go/constant"
++	"internal/coverage/md5"
+ 	"io"
+ 	"math/big"
+ 	"runtime"
+-- 
+2.43.0
+
