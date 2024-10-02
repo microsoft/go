@@ -1665,6 +1665,7 @@ The decrypt function depends on `opts`:
 
 - If `opts` is nil, it calls [rsa.DecryptPKCS1v15](#func-decryptpkcs1v15)`(rand, priv, ciphertext)`.
 - If `opts` type is `*rsa.OAEPOptions`, it calls [rsa.DecryptOAEP](#func-decryptoaep)`(opts.Hash.New(), rand, priv, ciphertext, opts.Label)`.
+- If `opts` type is `*rsa.OAEPOptions` and `ops.Hash` is different than `opts.MGFHash`, it falls back to standard Go crypto.
 - If `opts` type is `*rsa.PKCS1v15DecryptOptions` and `opts.SessionKeyLen > 0`, it calls [rsa.DecryptPKCS1v15SessionKey](#func-decryptpkcs1v15sessionkey)`(rand, priv, ciphertext, plaintext)` with a random `plaintext`.
 - If `opts` type is `*rsa.PKCS1v15DecryptOptions` and `opts.SessionKeyLen == 0`, it calls [rsa.DecryptPKCS1v15](#func-decryptpkcs1v15)`(rand, priv, ciphertext)`.
 - Else it returns an error.

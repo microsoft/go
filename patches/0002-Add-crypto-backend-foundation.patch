@@ -36,7 +36,7 @@ Subject: [PATCH] Add crypto backend foundation
  src/crypto/rsa/pkcs1v15.go                   |   6 +-
  src/crypto/rsa/pkcs1v15_test.go              |   5 +
  src/crypto/rsa/pss.go                        |   6 +-
- src/crypto/rsa/rsa.go                        |  19 +-
+ src/crypto/rsa/rsa.go                        |  21 +-
  src/crypto/rsa/rsa_test.go                   |   2 +-
  src/crypto/sha1/sha1.go                      |   2 +-
  src/crypto/sha1/sha1_test.go                 |   2 +-
@@ -55,7 +55,7 @@ Subject: [PATCH] Add crypto backend foundation
  src/go/build/deps_test.go                    |   4 +
  src/net/smtp/smtp_test.go                    |  72 ++++---
  src/runtime/runtime_boring.go                |   5 +
- 51 files changed, 789 insertions(+), 103 deletions(-)
+ 51 files changed, 790 insertions(+), 104 deletions(-)
  create mode 100644 src/crypto/ed25519/boring.go
  create mode 100644 src/crypto/ed25519/notboring.go
  create mode 100644 src/crypto/internal/backend/backend_test.go
@@ -865,7 +865,7 @@ index 00000000000000..5e4b436554d44d
 +// from complaining about the missing body
 +// (because the implementation might be here).
 diff --git a/src/crypto/md5/md5.go b/src/crypto/md5/md5.go
-index 843678702bf93f..28f4ae5621921d 100644
+index c984c3f4968598..229dd457f8d53c 100644
 --- a/src/crypto/md5/md5.go
 +++ b/src/crypto/md5/md5.go
 @@ -12,6 +12,7 @@ package md5
@@ -876,7 +876,7 @@ index 843678702bf93f..28f4ae5621921d 100644
  	"errors"
  	"hash"
  	"internal/byteorder"
-@@ -99,6 +100,9 @@ func consumeUint32(b []byte) ([]byte, uint32) {
+@@ -103,6 +104,9 @@ func consumeUint32(b []byte) ([]byte, uint32) {
  // [encoding.BinaryUnmarshaler] to marshal and unmarshal the internal
  // state of the hash.
  func New() hash.Hash {
@@ -886,7 +886,7 @@ index 843678702bf93f..28f4ae5621921d 100644
  	d := new(digest)
  	d.Reset()
  	return d
-@@ -176,6 +180,9 @@ func (d *digest) checkSum() [Size]byte {
+@@ -180,6 +184,9 @@ func (d *digest) checkSum() [Size]byte {
  
  // Sum returns the MD5 checksum of the data.
  func Sum(data []byte) [Size]byte {
@@ -897,7 +897,7 @@ index 843678702bf93f..28f4ae5621921d 100644
  	d.Reset()
  	d.Write(data)
 diff --git a/src/crypto/md5/md5_test.go b/src/crypto/md5/md5_test.go
-index a5b661126dd716..7031d0abdaa13b 100644
+index 6a8258a67e860c..3a973eebd284a4 100644
 --- a/src/crypto/md5/md5_test.go
 +++ b/src/crypto/md5/md5_test.go
 @@ -6,6 +6,7 @@ package md5
@@ -908,7 +908,7 @@ index a5b661126dd716..7031d0abdaa13b 100644
  	"crypto/internal/cryptotest"
  	"crypto/rand"
  	"encoding"
-@@ -145,6 +146,9 @@ func TestLarge(t *testing.T) {
+@@ -157,6 +158,9 @@ func TestLarge(t *testing.T) {
  
  // Tests that blockGeneric (pure Go) and block (in assembly for amd64, 386, arm) match.
  func TestBlockGeneric(t *testing.T) {
@@ -1084,7 +1084,7 @@ index dfa1eddc886ff3..849dafacf93d0f 100644
  	_, err := DecryptPKCS1v15(nil, rsaPrivateKey, ciphertext)
  	if err == nil {
 diff --git a/src/crypto/rsa/pss.go b/src/crypto/rsa/pss.go
-index e996e7aaa36b9c..55ca642491ec03 100644
+index 5716c464ca0a33..63f1100cabab64 100644
 --- a/src/crypto/rsa/pss.go
 +++ b/src/crypto/rsa/pss.go
 @@ -9,7 +9,7 @@ package rsa
@@ -1096,7 +1096,7 @@ index e996e7aaa36b9c..55ca642491ec03 100644
  	"errors"
  	"hash"
  	"io"
-@@ -296,7 +296,7 @@ func SignPSS(rand io.Reader, priv *PrivateKey, hash crypto.Hash, digest []byte,
+@@ -300,7 +300,7 @@ func SignPSS(rand io.Reader, priv *PrivateKey, hash crypto.Hash, digest []byte,
  		hash = opts.Hash
  	}
  
@@ -1115,7 +1115,7 @@ index e996e7aaa36b9c..55ca642491ec03 100644
  		if err != nil {
  			return err
 diff --git a/src/crypto/rsa/rsa.go b/src/crypto/rsa/rsa.go
-index 4d78d1eaaa6be0..c3753872872cce 100644
+index 4d78d1eaaa6be0..72a06ac902a252 100644
 --- a/src/crypto/rsa/rsa.go
 +++ b/src/crypto/rsa/rsa.go
 @@ -26,14 +26,15 @@ package rsa
@@ -1164,6 +1164,15 @@ index 4d78d1eaaa6be0..c3753872872cce 100644
  		boring.Unreachable()
  	}
  
+@@ -718,7 +729,7 @@ func decryptOAEP(hash, mgfHash hash.Hash, random io.Reader, priv *PrivateKey, ci
+ 		return nil, ErrDecryption
+ 	}
+ 
+-	if boring.Enabled {
++	if boring.Enabled && hash == mgfHash {
+ 		bkey, err := boringPrivateKey(priv)
+ 		if err != nil {
+ 			return nil, err
 diff --git a/src/crypto/rsa/rsa_test.go b/src/crypto/rsa/rsa_test.go
 index 2afa045a3a0bd2..86466e67e87eeb 100644
 --- a/src/crypto/rsa/rsa_test.go
@@ -1178,7 +1187,7 @@ index 2afa045a3a0bd2..86466e67e87eeb 100644
  	. "crypto/rsa"
  	"crypto/sha1"
 diff --git a/src/crypto/sha1/sha1.go b/src/crypto/sha1/sha1.go
-index c0742b9d83c527..3c89bd61e5ee2c 100644
+index 8189d1946d8ea5..8f5f7f27f26fea 100644
 --- a/src/crypto/sha1/sha1.go
 +++ b/src/crypto/sha1/sha1.go
 @@ -10,7 +10,7 @@ package sha1
@@ -1191,7 +1200,7 @@ index c0742b9d83c527..3c89bd61e5ee2c 100644
  	"hash"
  	"internal/byteorder"
 diff --git a/src/crypto/sha1/sha1_test.go b/src/crypto/sha1/sha1_test.go
-index 634ab9de1ba4cb..d0a9b1b46727fa 100644
+index d03892c57d4e61..d44f70b92661b4 100644
 --- a/src/crypto/sha1/sha1_test.go
 +++ b/src/crypto/sha1/sha1_test.go
 @@ -8,7 +8,7 @@ package sha1
@@ -1204,7 +1213,7 @@ index 634ab9de1ba4cb..d0a9b1b46727fa 100644
  	"crypto/rand"
  	"encoding"
 diff --git a/src/crypto/sha256/sha256.go b/src/crypto/sha256/sha256.go
-index 68244fd63b0c1e..2297c2aa71c288 100644
+index 7844f191e16b57..5c04e4bb83f2f2 100644
 --- a/src/crypto/sha256/sha256.go
 +++ b/src/crypto/sha256/sha256.go
 @@ -8,7 +8,7 @@ package sha256
@@ -1216,7 +1225,7 @@ index 68244fd63b0c1e..2297c2aa71c288 100644
  	"errors"
  	"hash"
  	"internal/byteorder"
-@@ -153,7 +153,7 @@ func New() hash.Hash {
+@@ -159,7 +159,7 @@ func New() hash.Hash {
  // [encoding.BinaryUnmarshaler] to marshal and unmarshal the internal
  // state of the hash.
  func New224() hash.Hash {
@@ -1225,7 +1234,7 @@ index 68244fd63b0c1e..2297c2aa71c288 100644
  		return boring.NewSHA224()
  	}
  	d := new(digest)
-@@ -172,7 +172,9 @@ func (d *digest) Size() int {
+@@ -178,7 +178,9 @@ func (d *digest) Size() int {
  func (d *digest) BlockSize() int { return BlockSize }
  
  func (d *digest) Write(p []byte) (nn int, err error) {
@@ -1236,7 +1245,7 @@ index 68244fd63b0c1e..2297c2aa71c288 100644
  	nn = len(p)
  	d.len += uint64(nn)
  	if d.nx > 0 {
-@@ -196,7 +198,9 @@ func (d *digest) Write(p []byte) (nn int, err error) {
+@@ -202,7 +204,9 @@ func (d *digest) Write(p []byte) (nn int, err error) {
  }
  
  func (d *digest) Sum(in []byte) []byte {
@@ -1247,7 +1256,7 @@ index 68244fd63b0c1e..2297c2aa71c288 100644
  	// Make a copy of d so that caller can keep writing and summing.
  	d0 := *d
  	hash := d0.checkSum()
-@@ -257,7 +261,7 @@ func Sum256(data []byte) [Size]byte {
+@@ -263,7 +267,7 @@ func Sum256(data []byte) [Size]byte {
  
  // Sum224 returns the SHA224 checksum of the data.
  func Sum224(data []byte) [Size224]byte {
@@ -1257,7 +1266,7 @@ index 68244fd63b0c1e..2297c2aa71c288 100644
  	}
  	var d digest
 diff --git a/src/crypto/sha256/sha256_test.go b/src/crypto/sha256/sha256_test.go
-index d91f01e9ba3a5f..755ed4d238ee5a 100644
+index 3237c6a73e6a1e..5a8f4901451018 100644
 --- a/src/crypto/sha256/sha256_test.go
 +++ b/src/crypto/sha256/sha256_test.go
 @@ -8,7 +8,7 @@ package sha256
@@ -1270,7 +1279,7 @@ index d91f01e9ba3a5f..755ed4d238ee5a 100644
  	"crypto/rand"
  	"encoding"
 diff --git a/src/crypto/sha512/sha512.go b/src/crypto/sha512/sha512.go
-index dde83625f7b852..d2fed3c2bb4533 100644
+index 0e2a34a1e347cf..132b9495e38644 100644
 --- a/src/crypto/sha512/sha512.go
 +++ b/src/crypto/sha512/sha512.go
 @@ -12,7 +12,7 @@ package sha512
@@ -1283,7 +1292,7 @@ index dde83625f7b852..d2fed3c2bb4533 100644
  	"hash"
  	"internal/byteorder"
 diff --git a/src/crypto/sha512/sha512_test.go b/src/crypto/sha512/sha512_test.go
-index a1ff571383e542..b63e3af59f3829 100644
+index cfe6b571975b27..de28aa927044a6 100644
 --- a/src/crypto/sha512/sha512_test.go
 +++ b/src/crypto/sha512/sha512_test.go
 @@ -8,7 +8,7 @@ package sha512
@@ -1296,7 +1305,7 @@ index a1ff571383e542..b63e3af59f3829 100644
  	"crypto/rand"
  	"encoding"
 diff --git a/src/crypto/tls/boring_test.go b/src/crypto/tls/boring_test.go
-index be10b71bd2269b..d879139773d1d7 100644
+index 56050421985927..dcbd33167e4499 100644
 --- a/src/crypto/tls/boring_test.go
 +++ b/src/crypto/tls/boring_test.go
 @@ -25,6 +25,11 @@ import (
@@ -1312,7 +1321,7 @@ index be10b71bd2269b..d879139773d1d7 100644
  	s := allCipherSuites()
  	for _, suite := range cipherSuitesTLS13 {
 diff --git a/src/crypto/tls/cipher_suites.go b/src/crypto/tls/cipher_suites.go
-index eebc66880d631f..42a26005ff31f2 100644
+index 917a1eff42d34f..f6f57130b64f41 100644
 --- a/src/crypto/tls/cipher_suites.go
 +++ b/src/crypto/tls/cipher_suites.go
 @@ -10,7 +10,7 @@ import (
@@ -1325,10 +1334,10 @@ index eebc66880d631f..42a26005ff31f2 100644
  	"crypto/sha1"
  	"crypto/sha256"
 diff --git a/src/crypto/tls/handshake_client.go b/src/crypto/tls/handshake_client.go
-index 5025657590d32c..bdbdee94af1bab 100644
+index 760e827f467f15..99b44d259e1e02 100644
 --- a/src/crypto/tls/handshake_client.go
 +++ b/src/crypto/tls/handshake_client.go
-@@ -765,12 +765,16 @@ func (hs *clientHandshakeState) doFullHandshake() error {
+@@ -770,12 +770,16 @@ func (hs *clientHandshakeState) doFullHandshake() error {
  
  	if hs.serverHello.extendedMasterSecret {
  		c.extMasterSecret = true
@@ -1347,7 +1356,7 @@ index 5025657590d32c..bdbdee94af1bab 100644
  	if err := c.config.writeKeyLog(keyLogLabelTLS12, hs.hello.random, hs.masterSecret); err != nil {
  		c.sendAlert(alertInternalError)
  		return errors.New("tls: failed to write to key log: " + err.Error())
-@@ -831,8 +835,12 @@ func (hs *clientHandshakeState) doFullHandshake() error {
+@@ -836,8 +840,12 @@ func (hs *clientHandshakeState) doFullHandshake() error {
  func (hs *clientHandshakeState) establishKeys() error {
  	c := hs.c
  
@@ -1361,7 +1370,7 @@ index 5025657590d32c..bdbdee94af1bab 100644
  	var clientCipher, serverCipher any
  	var clientHash, serverHash hash.Hash
  	if hs.suite.cipher != nil {
-@@ -972,7 +980,11 @@ func (hs *clientHandshakeState) readFinished(out []byte) error {
+@@ -977,7 +985,11 @@ func (hs *clientHandshakeState) readFinished(out []byte) error {
  		return unexpectedMessageError(serverFinished, msg)
  	}
  
@@ -1374,7 +1383,7 @@ index 5025657590d32c..bdbdee94af1bab 100644
  	if len(verify) != len(serverFinished.verifyData) ||
  		subtle.ConstantTimeCompare(verify, serverFinished.verifyData) != 1 {
  		c.sendAlert(alertHandshakeFailure)
-@@ -1040,7 +1052,10 @@ func (hs *clientHandshakeState) sendFinished(out []byte) error {
+@@ -1045,7 +1057,10 @@ func (hs *clientHandshakeState) sendFinished(out []byte) error {
  	}
  
  	finished := new(finishedMsg)
@@ -1387,7 +1396,7 @@ index 5025657590d32c..bdbdee94af1bab 100644
  		return err
  	}
 diff --git a/src/crypto/tls/handshake_server.go b/src/crypto/tls/handshake_server.go
-index ac3d915d1746d7..631db82b9ab3ae 100644
+index bc4e51ba364cf1..8b4fc36e49fdf8 100644
 --- a/src/crypto/tls/handshake_server.go
 +++ b/src/crypto/tls/handshake_server.go
 @@ -686,12 +686,16 @@ func (hs *serverHandshakeState) doFullHandshake() error {
@@ -1695,7 +1704,7 @@ index 8233985a62bd22..f46d4636557714 100644
  		serverMACString := hex.EncodeToString(serverMAC)
  		clientKeyString := hex.EncodeToString(clientKey)
 diff --git a/src/crypto/x509/boring_test.go b/src/crypto/x509/boring_test.go
-index 33fd0ed52b1ff6..ffc3eeca9dbf95 100644
+index 319ac61f49c994..1b2454dbaab264 100644
 --- a/src/crypto/x509/boring_test.go
 +++ b/src/crypto/x509/boring_test.go
 @@ -26,6 +26,11 @@ const (
@@ -1711,10 +1720,10 @@ index 33fd0ed52b1ff6..ffc3eeca9dbf95 100644
  	t.Helper()
  	k, err := rsa.GenerateKey(rand.Reader, size)
 diff --git a/src/go/build/deps_test.go b/src/go/build/deps_test.go
-index 441cf8d051c934..ca6a512bf95c7e 100644
+index e233535f752dfc..6b023f055b24ea 100644
 --- a/src/go/build/deps_test.go
 +++ b/src/go/build/deps_test.go
-@@ -448,7 +448,9 @@ var depsRules = `
+@@ -447,7 +447,9 @@ var depsRules = `
  
  	# CRYPTO is core crypto algorithms - no cgo, fmt, net.
  	crypto/internal/boring/sig,
@@ -1724,7 +1733,7 @@ index 441cf8d051c934..ca6a512bf95c7e 100644
  	golang.org/x/sys/cpu,
  	hash, embed
  	< crypto
-@@ -459,6 +461,7 @@ var depsRules = `
+@@ -458,6 +460,7 @@ var depsRules = `
  	crypto/cipher,
  	crypto/internal/boring/bcache
  	< crypto/internal/boring
@@ -1732,7 +1741,7 @@ index 441cf8d051c934..ca6a512bf95c7e 100644
  	< crypto/boring;
  
  	crypto/internal/alias, math/rand/v2
-@@ -496,6 +499,7 @@ var depsRules = `
+@@ -495,6 +498,7 @@ var depsRules = `
  	# CRYPTO-MATH is core bignum-based crypto - no cgo, net; fmt now ok.
  	CRYPTO, FMT, math/big
  	< crypto/internal/boring/bbig
