@@ -14,7 +14,7 @@ Subject: [PATCH] Add CNG crypto backend
  src/crypto/internal/backend/bbig/big.go       |   2 +-
  src/crypto/internal/backend/bbig/big_cng.go   |  12 +
  src/crypto/internal/backend/cng_windows.go    | 280 ++++++++++++++++++
- src/crypto/internal/backend/common.go         |  21 +-
+ src/crypto/internal/backend/common.go         |  13 +-
  src/crypto/internal/boring/fipstls/stub.s     |   2 +-
  src/crypto/internal/boring/fipstls/tls.go     |   2 +-
  src/crypto/md5/md5_test.go                    |   7 +
@@ -22,10 +22,8 @@ Subject: [PATCH] Add CNG crypto backend
  src/crypto/rsa/boring.go                      |   2 +-
  src/crypto/rsa/boring_test.go                 |   2 +-
  src/crypto/rsa/notboring.go                   |   2 +-
- src/crypto/rsa/pkcs1v15.go                    |   6 +-
- src/crypto/rsa/pss.go                         |   8 +-
+ src/crypto/rsa/pss.go                         |   2 +-
  src/crypto/rsa/pss_test.go                    |   2 +-
- src/crypto/rsa/rsa.go                         |   2 +-
  src/crypto/rsa/rsa_test.go                    |   8 +-
  src/crypto/sha1/sha1_test.go                  |   7 +
  src/crypto/sha256/sha256_test.go              |  10 +
@@ -48,7 +46,7 @@ Subject: [PATCH] Add CNG crypto backend
  .../goexperiment/exp_cngcrypto_off.go         |   9 +
  src/internal/goexperiment/exp_cngcrypto_on.go |   9 +
  src/internal/goexperiment/flags.go            |   1 +
- 44 files changed, 452 insertions(+), 33 deletions(-)
+ 42 files changed, 436 insertions(+), 27 deletions(-)
  create mode 100644 src/crypto/ecdsa/badlinkname.go
  create mode 100644 src/crypto/internal/backend/bbig/big_cng.go
  create mode 100644 src/crypto/internal/backend/cng_windows.go
@@ -476,18 +474,10 @@ index 00000000000000..3d3d13709de5ac
 +	panic("cryptobackend: not available")
 +}
 diff --git a/src/crypto/internal/backend/common.go b/src/crypto/internal/backend/common.go
-index efdd080a1b7708..41e1e0cc69ec57 100644
+index f83ff4abacc1dc..b05374a9d62a97 100644
 --- a/src/crypto/internal/backend/common.go
 +++ b/src/crypto/internal/backend/common.go
-@@ -6,6 +6,7 @@ package backend
- 
- import (
- 	"crypto/internal/boring/sig"
-+	"internal/goexperiment"
- 	"runtime"
- 	"syscall"
- )
-@@ -67,7 +68,11 @@ func hasSuffix(s, t string) bool {
+@@ -68,7 +68,11 @@ func hasSuffix(s, t string) bool {
  // UnreachableExceptTests marks code that should be unreachable
  // when backend is in use. It panics.
  func UnreachableExceptTests() {
@@ -500,17 +490,10 @@ index efdd080a1b7708..41e1e0cc69ec57 100644
  		name := runtime_arg0()
  		// If ran on Windows we'd need to allow _test.exe and .test.exe as well.
  		if !hasSuffix(name, "_test") && !hasSuffix(name, ".test") {
-@@ -76,3 +81,17 @@ func UnreachableExceptTests() {
- 		}
- 	}
+@@ -90,3 +94,10 @@ func IsRSAKeySupported(primes int) bool {
+ 	// Given the above reasons, we only support 2-prime RSA keys.
+ 	return primes == 2
  }
-+
-+func IsRSAKeySupported(primes int) bool {
-+	if goexperiment.CNGCrypto {
-+		return primes == 2
-+	}
-+	return true
-+}
 +
 +func IsSaltSupported(salt int) bool {
 +	if goexperiment.CNGCrypto {
@@ -638,62 +621,11 @@ index 933ac569e034a8..0f152b210fdd84 100644
  
  package rsa
  
-diff --git a/src/crypto/rsa/pkcs1v15.go b/src/crypto/rsa/pkcs1v15.go
-index 552c6886813f46..7b3c9211992f6b 100644
---- a/src/crypto/rsa/pkcs1v15.go
-+++ b/src/crypto/rsa/pkcs1v15.go
-@@ -95,7 +95,7 @@ func DecryptPKCS1v15(random io.Reader, priv *PrivateKey, ciphertext []byte) ([]b
- 		return nil, err
- 	}
- 
--	if boring.Enabled {
-+	if boring.Enabled && boring.IsRSAKeySupported(len(priv.Primes)) {
- 		bkey, err := boringPrivateKey(priv)
- 		if err != nil {
- 			return nil, err
-@@ -189,7 +189,7 @@ func decryptPKCS1v15(priv *PrivateKey, ciphertext []byte) (valid int, em []byte,
- 		return
- 	}
- 
--	if boring.Enabled {
-+	if boring.Enabled && boring.IsRSAKeySupported(len(priv.Primes)) {
- 		var bkey *boring.PrivateKeyRSA
- 		bkey, err = boringPrivateKey(priv)
- 		if err != nil {
-@@ -293,7 +293,7 @@ func SignPKCS1v15(random io.Reader, priv *PrivateKey, hash crypto.Hash, hashed [
- 		return nil, err
- 	}
- 
--	if boring.Enabled && (hash == 0 || boring.SupportsHash(hash)) {
-+	if boring.Enabled && (hash == 0 || boring.SupportsHash(hash)) && boring.IsRSAKeySupported(len(priv.Primes)) {
- 		bkey, err := boringPrivateKey(priv)
- 		if err != nil {
- 			return nil, err
 diff --git a/src/crypto/rsa/pss.go b/src/crypto/rsa/pss.go
-index 63f1100cabab64..94fac3f1a1ce55 100644
+index 4aac87d7952081..010ee1467501c3 100644
 --- a/src/crypto/rsa/pss.go
 +++ b/src/crypto/rsa/pss.go
-@@ -214,7 +214,7 @@ func signPSSWithSalt(priv *PrivateKey, hash crypto.Hash, hashed, salt []byte) ([
- 		return nil, err
- 	}
- 
--	if boring.Enabled {
-+	if boring.Enabled && boring.IsRSAKeySupported(len(priv.Primes)) {
- 		bkey, err := boringPrivateKey(priv)
- 		if err != nil {
- 			return nil, err
-@@ -300,7 +300,9 @@ func SignPSS(rand io.Reader, priv *PrivateKey, hash crypto.Hash, digest []byte,
- 		hash = opts.Hash
- 	}
- 
--	if boring.Enabled && rand == boring.RandReader && boring.SupportsHash(hash) {
-+	if boring.Enabled && rand == boring.RandReader &&
-+		boring.SupportsHash(hash) && boring.IsRSAKeySupported(len(priv.Primes)) {
-+
- 		bkey, err := boringPrivateKey(priv)
- 		if err != nil {
- 			return nil, err
-@@ -342,7 +344,7 @@ func SignPSS(rand io.Reader, priv *PrivateKey, hash crypto.Hash, digest []byte,
+@@ -342,7 +342,7 @@ func SignPSS(rand io.Reader, priv *PrivateKey, hash crypto.Hash, digest []byte,
  // The inputs are not considered confidential, and may leak through timing side
  // channels, or if an attacker has control of part of the inputs.
  func VerifyPSS(pub *PublicKey, hash crypto.Hash, digest []byte, sig []byte, opts *PSSOptions) error {
@@ -715,19 +647,6 @@ index 637d07e18cff2e..21435b86b52dad 100644
  	if err != nil {
  		t.Fatal(err)
  	}
-diff --git a/src/crypto/rsa/rsa.go b/src/crypto/rsa/rsa.go
-index 72a06ac902a252..a016c4f8362cf5 100644
---- a/src/crypto/rsa/rsa.go
-+++ b/src/crypto/rsa/rsa.go
-@@ -729,7 +729,7 @@ func decryptOAEP(hash, mgfHash hash.Hash, random io.Reader, priv *PrivateKey, ci
- 		return nil, ErrDecryption
- 	}
- 
--	if boring.Enabled && hash == mgfHash {
-+	if boring.Enabled && hash == mgfHash && boring.IsRSAKeySupported(len(priv.Primes)) {
- 		bkey, err := boringPrivateKey(priv)
- 		if err != nil {
- 			return nil, err
 diff --git a/src/crypto/rsa/rsa_test.go b/src/crypto/rsa/rsa_test.go
 index dbcc1bec58bd46..b1e9d8e94c2c9e 100644
 --- a/src/crypto/rsa/rsa_test.go
