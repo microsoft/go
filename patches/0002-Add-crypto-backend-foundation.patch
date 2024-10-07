@@ -21,7 +21,7 @@ Subject: [PATCH] Add crypto backend foundation
  src/crypto/hmac/hmac_test.go                 |   2 +-
  src/crypto/internal/backend/backend_test.go  |  30 +++
  src/crypto/internal/backend/bbig/big.go      |  17 ++
- src/crypto/internal/backend/common.go        |  78 ++++++++
+ src/crypto/internal/backend/common.go        |  92 +++++++++
  src/crypto/internal/backend/isrequirefips.go |   9 +
  src/crypto/internal/backend/nobackend.go     | 193 +++++++++++++++++++
  src/crypto/internal/backend/norequirefips.go |   9 +
@@ -33,9 +33,9 @@ Subject: [PATCH] Add crypto backend foundation
  src/crypto/rc4/rc4.go                        |  18 ++
  src/crypto/rsa/boring.go                     |   4 +-
  src/crypto/rsa/notboring.go                  |   2 +-
- src/crypto/rsa/pkcs1v15.go                   |   6 +-
+ src/crypto/rsa/pkcs1v15.go                   |  10 +-
  src/crypto/rsa/pkcs1v15_test.go              |   5 +
- src/crypto/rsa/pss.go                        |   6 +-
+ src/crypto/rsa/pss.go                        |   8 +-
  src/crypto/rsa/rsa.go                        |  21 +-
  src/crypto/rsa/rsa_test.go                   |   2 +-
  src/crypto/sha1/sha1.go                      |   2 +-
@@ -55,7 +55,7 @@ Subject: [PATCH] Add crypto backend foundation
  src/go/build/deps_test.go                    |   4 +
  src/net/smtp/smtp_test.go                    |  72 ++++---
  src/runtime/runtime_boring.go                |   5 +
- 51 files changed, 790 insertions(+), 104 deletions(-)
+ 51 files changed, 807 insertions(+), 107 deletions(-)
  create mode 100644 src/crypto/ed25519/boring.go
  create mode 100644 src/crypto/ed25519/notboring.go
  create mode 100644 src/crypto/internal/backend/backend_test.go
@@ -537,10 +537,10 @@ index 00000000000000..85bd3ed083f5b2
 +}
 diff --git a/src/crypto/internal/backend/common.go b/src/crypto/internal/backend/common.go
 new file mode 100644
-index 00000000000000..efdd080a1b7708
+index 00000000000000..f83ff4abacc1dc
 --- /dev/null
 +++ b/src/crypto/internal/backend/common.go
-@@ -0,0 +1,78 @@
+@@ -0,0 +1,92 @@
 +// Copyright 2022 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -549,6 +549,7 @@ index 00000000000000..efdd080a1b7708
 +
 +import (
 +	"crypto/internal/boring/sig"
++	"internal/goexperiment"
 +	"runtime"
 +	"syscall"
 +)
@@ -618,6 +619,19 @@ index 00000000000000..efdd080a1b7708
 +			panic("cryptobackend: invalid code execution")
 +		}
 +	}
++}
++
++func IsRSAKeySupported(primes int) bool {
++	if goexperiment.BoringCrypto {
++		return true
++	}
++	// CNG only supports 2-prime RSA keys.
++	// The built-in OpenSSL 3 providers and OpenSSL 1 do support n-prime RSA keys,
++	// but the SymCrypt provider for OpenSSL only supports 2-prime RSA keys.
++	// Only 2-prime RSA keys are FIPS compliant, other n having compatibility
++	// and security issues. Even crypto/rsa deprecated rsa.GenerateMultiPrimeKey as of Go 1.21.
++	// Given the above reasons, we only support 2-prime RSA keys.
++	return primes == 2
 +}
 diff --git a/src/crypto/internal/backend/isrequirefips.go b/src/crypto/internal/backend/isrequirefips.go
 new file mode 100644
@@ -1030,7 +1044,7 @@ index 2abc0436405f8a..34c22c8fbba7da 100644
  func boringPublicKey(*PublicKey) (*boring.PublicKeyRSA, error) {
  	panic("boringcrypto: not available")
 diff --git a/src/crypto/rsa/pkcs1v15.go b/src/crypto/rsa/pkcs1v15.go
-index 2f958022f98584..552c6886813f46 100644
+index 2f958022f98584..790d9cef5d3563 100644
 --- a/src/crypto/rsa/pkcs1v15.go
 +++ b/src/crypto/rsa/pkcs1v15.go
 @@ -7,7 +7,7 @@ package rsa
@@ -1042,12 +1056,30 @@ index 2f958022f98584..552c6886813f46 100644
  	"crypto/internal/randutil"
  	"crypto/subtle"
  	"errors"
+@@ -95,7 +95,7 @@ func DecryptPKCS1v15(random io.Reader, priv *PrivateKey, ciphertext []byte) ([]b
+ 		return nil, err
+ 	}
+ 
+-	if boring.Enabled {
++	if boring.Enabled && boring.IsRSAKeySupported(len(priv.Primes)) {
+ 		bkey, err := boringPrivateKey(priv)
+ 		if err != nil {
+ 			return nil, err
+@@ -189,7 +189,7 @@ func decryptPKCS1v15(priv *PrivateKey, ciphertext []byte) (valid int, em []byte,
+ 		return
+ 	}
+ 
+-	if boring.Enabled {
++	if boring.Enabled && boring.IsRSAKeySupported(len(priv.Primes)) {
+ 		var bkey *boring.PrivateKeyRSA
+ 		bkey, err = boringPrivateKey(priv)
+ 		if err != nil {
 @@ -293,7 +293,7 @@ func SignPKCS1v15(random io.Reader, priv *PrivateKey, hash crypto.Hash, hashed [
  		return nil, err
  	}
  
 -	if boring.Enabled {
-+	if boring.Enabled && (hash == 0 || boring.SupportsHash(hash)) {
++	if boring.Enabled && boring.IsRSAKeySupported(len(priv.Primes)) && (hash == 0 || boring.SupportsHash(hash)) {
  		bkey, err := boringPrivateKey(priv)
  		if err != nil {
  			return nil, err
@@ -1084,7 +1116,7 @@ index dfa1eddc886ff3..849dafacf93d0f 100644
  	_, err := DecryptPKCS1v15(nil, rsaPrivateKey, ciphertext)
  	if err == nil {
 diff --git a/src/crypto/rsa/pss.go b/src/crypto/rsa/pss.go
-index 5716c464ca0a33..63f1100cabab64 100644
+index 5716c464ca0a33..4aac87d7952081 100644
 --- a/src/crypto/rsa/pss.go
 +++ b/src/crypto/rsa/pss.go
 @@ -9,7 +9,7 @@ package rsa
@@ -1096,12 +1128,21 @@ index 5716c464ca0a33..63f1100cabab64 100644
  	"errors"
  	"hash"
  	"io"
+@@ -214,7 +214,7 @@ func signPSSWithSalt(priv *PrivateKey, hash crypto.Hash, hashed, salt []byte) ([
+ 		return nil, err
+ 	}
+ 
+-	if boring.Enabled {
++	if boring.Enabled && boring.IsRSAKeySupported(len(priv.Primes)) {
+ 		bkey, err := boringPrivateKey(priv)
+ 		if err != nil {
+ 			return nil, err
 @@ -300,7 +300,7 @@ func SignPSS(rand io.Reader, priv *PrivateKey, hash crypto.Hash, digest []byte,
  		hash = opts.Hash
  	}
  
 -	if boring.Enabled && rand == boring.RandReader {
-+	if boring.Enabled && rand == boring.RandReader && boring.SupportsHash(hash) {
++	if boring.Enabled && rand == boring.RandReader && boring.IsRSAKeySupported(len(priv.Primes)) && boring.SupportsHash(hash) {
  		bkey, err := boringPrivateKey(priv)
  		if err != nil {
  			return nil, err
@@ -1115,7 +1156,7 @@ index 5716c464ca0a33..63f1100cabab64 100644
  		if err != nil {
  			return err
 diff --git a/src/crypto/rsa/rsa.go b/src/crypto/rsa/rsa.go
-index 4d78d1eaaa6be0..72a06ac902a252 100644
+index 4d78d1eaaa6be0..a016c4f8362cf5 100644
 --- a/src/crypto/rsa/rsa.go
 +++ b/src/crypto/rsa/rsa.go
 @@ -26,14 +26,15 @@ package rsa
@@ -1169,7 +1210,7 @@ index 4d78d1eaaa6be0..72a06ac902a252 100644
  	}
  
 -	if boring.Enabled {
-+	if boring.Enabled && hash == mgfHash {
++	if boring.Enabled && hash == mgfHash && boring.IsRSAKeySupported(len(priv.Primes)) {
  		bkey, err := boringPrivateKey(priv)
  		if err != nil {
  			return nil, err
