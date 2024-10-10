@@ -38,6 +38,9 @@
       <GoZipFile Include="$([MSBuild]::NormalizeDirectory('$(SignFilesDir)'))**/go*.zip" />
       <GoZipFile ExtractedDir="$([MSBuild]::NormalizeDirectory('%(Identity).extracted'))" />
 
+      <GoMacOSTarFile Include="$([MSBuild]::NormalizeDirectory('$(SignFilesDir)'))**/go*darwin*.tar.gz" />
+      <GoMacOSTarFile ExtractedDir="$([MSBuild]::NormalizeDirectory('%(Identity).extracted'))" />
+
       <FileExtensionSignInfo Include=".sig" CertificateName="LinuxSignManagedLanguageCompiler" />
     </ItemGroup>
 
@@ -68,6 +71,22 @@
       -->
       <FilesToSign Remove="%(GoZipFile.ExtractedDir)**\testdata\**" />
     </ItemGroup>
+    <!-- macOS codesign -->
+    <Exec Command="if not exist %(GoMacOSTarFile.ExtractedDir) mkdir %(GoMacOSTarFile.ExtractedDir)" />
+    <Exec Command="tar -xzf %(GoMacOSTarFile.Identity) -C %(GoMacOSTarFile.ExtractedDir)" />
+    <ItemGroup>
+      <FilesToSign Include="%(GoMacOSTarFile.ExtractedDir)go">
+        <Authenticode>MacDeveloperHarden</Authenticode>
+        <!-- macOS signing requires the binaries to be zipped up -->
+        <Zip>true</Zip>
+      </FilesToSign>
+      <!--
+        Remove test data: some files (especially zip files) are set up in very particular ways that
+        SignTool doesn't reconstruct properly after recursing into the container. This causes "go
+        tool dist test" to fail when run on a signed build.
+      -->
+      <FilesToSign Remove="%(GoMacOSTarFile.ExtractedDir)**\testdata\**" />
+    </ItemGroup>
   </Target>
 
   <Target Name="AfterSign" AfterTargets="SignFiles">
@@ -84,6 +103,21 @@
 
     <!-- Remove the large extracted dir so the build job doesn't upload it. -->
     <RemoveDir Directories="@(GoZipFile -> '%(ExtractedDir)')" />
+
+    <!-- Repack macOS tar.gz -->
+    <Exec Command="tar -czf %(GoMacOSTarFile.Identity) -C %(GoMacOSTarFile.ExtractedDir) ." />
+
+    <!-- Notarize macOS -->
+    <ItemGroup>
+      <FilesToSign Include="%(GoMacOSTarFile.Identity)">
+        <Authenticode>MacNotarize</Authenticode>
+      </FilesToSign>
+    </ItemGroup>
+
+    <Exec Command="pwsh ..\run.ps1 write-checksum @(GoMacOSTarFile, ' ')" />
+
+    <!-- Remove the large extracted dir so the build job doesn't upload it. -->
+    <RemoveDir Directories="@(GoMacOSTarFile -> '%(ExtractedDir)')" />
   </Target>
 
   <Target Name="SignFiles" BeforeTargets="PrepSign">
