@@ -1,0 +1,171 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Dimitri John Ledkov <dimitri.ledkov@surgut.co.uk>
+Date: Wed, 2 Oct 2024 01:52:34 +0100
+Subject: [PATCH] Prevent gocrypto fallback for historical algorithms in FIPS
+ mode
+
+Add a new boring.FIPS() API to query if the boring backend is or is
+not in FIPS mode.
+
+Note that currently some openssl FIPS modules return true for
+SupportedHash queries, for algorithms that will be blocked at
+runtime. Other modules choose to instead report such algorithms as not
+available at all, as they have become historical.
+
+Update boring backend logic for MD5, RC4, DES, 3DES to attempt to use
+boring backend when supported; but also when boring backend is in FIPS
+mode. This way FIPS module gets to decide how it is configured, and
+whether or not it will allow the operation.
+
+This ensures that binaries that use these algorithms, correctly fail
+at runtime against FIPS OpenSSL v3+ modules, like they already fail at
+runtime against FIPS OpenSSL 1.1.1 and earlier modules.
+
+No build/runtime behaviour changes for boringcrypto, nobackend,
+openssl/cng backends in non-FIPS modes.
+---
+ src/crypto/des/cipher.go                     | 4 ++--
+ src/crypto/internal/backend/boring_linux.go  | 3 +++
+ src/crypto/internal/backend/cng_windows.go   | 5 +++++
+ src/crypto/internal/backend/nobackend.go     | 2 ++
+ src/crypto/internal/backend/openssl_linux.go | 4 ++++
+ src/crypto/md5/md5.go                        | 4 ++--
+ src/crypto/rc4/rc4.go                        | 6 +++---
+ 7 files changed, 21 insertions(+), 7 deletions(-)
+
+diff --git a/src/crypto/des/cipher.go b/src/crypto/des/cipher.go
+index 0891652a45..ac8f11cd66 100644
+--- a/src/crypto/des/cipher.go
++++ b/src/crypto/des/cipher.go
+@@ -31,7 +31,7 @@ func NewCipher(key []byte) (cipher.Block, error) {
+ 	if len(key) != 8 {
+ 		return nil, KeySizeError(len(key))
+ 	}
+-	if boring.Enabled && boring.SupportsDESCipher() {
++	if boring.Enabled && (boring.FIPS() || boring.SupportsDESCipher()) {
+ 		return boring.NewDESCipher(key)
+ 	}
+ 
+@@ -78,7 +78,7 @@ func NewTripleDESCipher(key []byte) (cipher.Block, error) {
+ 	if len(key) != 24 {
+ 		return nil, KeySizeError(len(key))
+ 	}
+-	if boring.Enabled && boring.SupportsTripleDESCipher() {
++	if boring.Enabled && (boring.FIPS() || boring.SupportsTripleDESCipher()) {
+ 		return boring.NewTripleDESCipher(key)
+ 	}
+ 
+diff --git a/src/crypto/internal/backend/boring_linux.go b/src/crypto/internal/backend/boring_linux.go
+index 1c68615df6..0691108a66 100644
+--- a/src/crypto/internal/backend/boring_linux.go
++++ b/src/crypto/internal/backend/boring_linux.go
+@@ -21,6 +21,9 @@ const Enabled = true
+ 
+ const RandReader = boring.RandReader
+ 
++// crypto/internal/boring panics on Init if not in FIPS mode
++func FIPS() bool { return true }
++
+ func SupportsHash(h crypto.Hash) bool {
+ 	switch h {
+ 	case crypto.MD5SHA1, crypto.SHA1, crypto.SHA224, crypto.SHA256, crypto.SHA384, crypto.SHA512:
+diff --git a/src/crypto/internal/backend/cng_windows.go b/src/crypto/internal/backend/cng_windows.go
+index 3d3d13709d..23014c39d7 100644
+--- a/src/crypto/internal/backend/cng_windows.go
++++ b/src/crypto/internal/backend/cng_windows.go
+@@ -46,6 +46,11 @@ func init() {
+ 
+ const RandReader = cng.RandReader
+ 
++func FIPS() bool {
++	status, _ := cng.FIPS()
++	return status
++}
++
+ func SupportsHash(h crypto.Hash) bool {
+ 	return cng.SupportsHash(h)
+ }
+diff --git a/src/crypto/internal/backend/nobackend.go b/src/crypto/internal/backend/nobackend.go
+index eddfb35aca..897e6f5830 100644
+--- a/src/crypto/internal/backend/nobackend.go
++++ b/src/crypto/internal/backend/nobackend.go
+@@ -25,6 +25,8 @@ func (randReader) Read(b []byte) (int, error) { panic("cryptobackend: not availa
+ 
+ const RandReader = randReader(0)
+ 
++func FIPS() bool { panic("cryptobackend: not available") }
++
+ func SupportsHash(h crypto.Hash) bool { panic("cryptobackend: not available") }
+ 
+ func NewMD5() hash.Hash    { panic("cryptobackend: not available") }
+diff --git a/src/crypto/internal/backend/openssl_linux.go b/src/crypto/internal/backend/openssl_linux.go
+index 69af0ffe2f..965b9d9a85 100644
+--- a/src/crypto/internal/backend/openssl_linux.go
++++ b/src/crypto/internal/backend/openssl_linux.go
+@@ -128,6 +128,10 @@ func systemFIPSMode() bool {
+ 
+ const RandReader = openssl.RandReader
+ 
++func FIPS() bool {
++	return openssl.FIPS()
++}
++
+ func SupportsHash(h crypto.Hash) bool {
+ 	return openssl.SupportsHash(h)
+ }
+diff --git a/src/crypto/md5/md5.go b/src/crypto/md5/md5.go
+index 229dd457f8..bd1c2205dd 100644
+--- a/src/crypto/md5/md5.go
++++ b/src/crypto/md5/md5.go
+@@ -104,7 +104,7 @@ func consumeUint32(b []byte) ([]byte, uint32) {
+ // [encoding.BinaryUnmarshaler] to marshal and unmarshal the internal
+ // state of the hash.
+ func New() hash.Hash {
+-	if boring.Enabled && boring.SupportsHash(crypto.MD5) {
++	if boring.Enabled && (boring.FIPS() || boring.SupportsHash(crypto.MD5)) {
+ 		return boring.NewMD5()
+ 	}
+ 	d := new(digest)
+@@ -184,7 +184,7 @@ func (d *digest) checkSum() [Size]byte {
+ 
+ // Sum returns the MD5 checksum of the data.
+ func Sum(data []byte) [Size]byte {
+-	if boring.Enabled && boring.SupportsHash(crypto.MD5) {
++	if boring.Enabled && (boring.FIPS() || boring.SupportsHash(crypto.MD5)) {
+ 		return boring.MD5(data)
+ 	}
+ 	var d digest
+diff --git a/src/crypto/rc4/rc4.go b/src/crypto/rc4/rc4.go
+index 47726d0ebe..6f73422a8a 100644
+--- a/src/crypto/rc4/rc4.go
++++ b/src/crypto/rc4/rc4.go
+@@ -36,7 +36,7 @@ func NewCipher(key []byte) (*Cipher, error) {
+ 	if k < 1 || k > 256 {
+ 		return nil, KeySizeError(k)
+ 	}
+-	if boring.Enabled && boring.SupportsRC4() {
++	if boring.Enabled && (boring.FIPS() || boring.SupportsRC4()) {
+ 		c, err := boring.NewRC4Cipher(key)
+ 		if err != nil {
+ 			return nil, err
+@@ -60,7 +60,7 @@ func NewCipher(key []byte) (*Cipher, error) {
+ // Deprecated: Reset can't guarantee that the key will be entirely removed from
+ // the process's memory.
+ func (c *Cipher) Reset() {
+-	if boring.Enabled && boring.SupportsRC4() {
++	if boring.Enabled && (boring.FIPS() || boring.SupportsRC4()) {
+ 		c.boring.Reset()
+ 		return
+ 	}
+@@ -73,7 +73,7 @@ func (c *Cipher) Reset() {
+ // XORKeyStream sets dst to the result of XORing src with the key stream.
+ // Dst and src must overlap entirely or not at all.
+ func (c *Cipher) XORKeyStream(dst, src []byte) {
+-	if boring.Enabled && boring.SupportsRC4() {
++	if boring.Enabled && (boring.FIPS() || boring.SupportsRC4()) {
+ 		c.boring.XORKeyStream(dst, src)
+ 		return
+ 	}
+-- 
+2.43.0
+
