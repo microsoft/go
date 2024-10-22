@@ -23,6 +23,20 @@ This command updates the table in ` + docPath + ` and data in ` + jsonPath + `.
 
 var supported = []version{
 	{
+		Number:       "1.23",
+		LatestStable: true,
+		Platforms: map[string]struct{}{
+			"linux-amd64":   {},
+			"linux-arm64":   {},
+			"linux-armv6l":  {},
+			"windows-amd64": {},
+			"src":           {},
+			"assets":        {},
+			"darwin-amd64":  {},
+			"darwin-arm64":  {},
+		},
+	},
+	{
 		Number:       "1.22",
 		LatestStable: true,
 		Platforms: map[string]struct{}{
@@ -32,6 +46,8 @@ var supported = []version{
 			"windows-amd64": {},
 			"src":           {},
 			"assets":        {},
+			"darwin-amd64":  {},
+			"darwin-arm64":  {},
 		},
 	},
 	{
@@ -44,6 +60,8 @@ var supported = []version{
 			"windows-amd64": {},
 			"src":           {},
 			"assets":        {},
+			"darwin-amd64":  {},
+			"darwin-arm64":  {},
 		},
 	},
 }
@@ -76,6 +94,16 @@ var windowsFiles = []goFileType{
 		Name:     "Binaries (zip)",
 		Ext:      ".zip",
 		Checksum: true,
+	},
+}
+
+var darwinFiles = []goFileType{
+	{
+		Kind:      supportdata.Archive,
+		Name:      "Binaries (tar.gz)",
+		Ext:       ".tar.gz",
+		Checksum:  true,
+		Signature: true,
 	},
 }
 
@@ -290,6 +318,9 @@ func fileTypes(platform string) []goFileType {
 	}
 	if strings.HasPrefix(platform, "windows-") {
 		return windowsFiles
+	}
+	if strings.HasPrefix(platform, "darwin-") {
+		return darwinFiles
 	}
 	if platform == "src" {
 		return sourceFiles

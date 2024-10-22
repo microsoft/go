@@ -249,8 +249,10 @@ When building a Go program with a crypto backend, the build will check that the 
 # runtime
 ..\..\go\src\runtime\backenderr_gen_nofallback_openssl.go:12:2: `
         The goexperiment.opensslcrypto tag is specified, but other tags required to enable that backend were not met.
-        Required build tags:
-          goexperiment.opensslcrypto && linux && cgo
+        Required build tags on MacOS:
+          goexperiment.opensslcrypto && darwin && cgo
+        Required build tags on Linux:
+           goexperiment.opensslcrypto && linux && cgo
         Please check your build environment and build command for a reason one or more of these tags weren't specified.
 ```
 
