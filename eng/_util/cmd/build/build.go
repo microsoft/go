@@ -33,7 +33,7 @@ in 'src' such as 'src/run.bash' instead of this script.
 
 Example: Build Go, run tests, and produce an archive file:
 
-  eng/run.ps1 build -test -pack
+  eng/run.ps1 build -test -packbuild
 `
 
 func main() {
