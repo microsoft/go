@@ -51,6 +51,18 @@ function Get-Stage0GoRoot() {
       }
       Default { throw "Unable to match Linux '$proc_arch' to an architecture supported by the Microsoft scripts to build Go." }
     }
+  } elseif ($IsMacOS) {
+    switch ($proc_arch) {
+      'x64' {
+        $stage0_go_sha256 = '98a09c085b4c385abae7d35b9155195d5e584d14988347ac7f18e4cbe3b5ef3d'
+        $stage0_go_suffix = 'darwin-amd64.tar.gz'
+      }
+      'arm64' {
+        $stage0_go_sha256 = '1163be1998835a13f00dfc869a8e3cdebf86984ad41ff2fff43e35ac2a0d8344'
+        $stage0_go_suffix = 'darwin-arm64.tar.gz'
+      }
+      Default { throw "Unable to match macOS '$proc_arch' to an architecture supported by the Microsoft scripts to build Go." }
+    }
   } else {
     throw "Current OS/Platform is not supported by the Microsoft scripts to build Go."
   }
