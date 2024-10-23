@@ -33,8 +33,10 @@ pwsh eng/run.ps1 build -refresh
   patches) before the command builds the repository. Remove `-refresh` if you've
   made changes in the submodule (`go`) that you want to keep.
 * Add `-test` to run tests after the build completes.
-* Add `-pack` to create an archive file containing the Go build in
+* Add `-packbuild` to create an archive file containing the Go build in
   `eng/artifacts/bin`. (A `.tar.gz` or `.zip` file, depending on GOOS)
+* Add `-packsource` to create a `.tar.gz` file containing the Go sources in
+  `eng/artifacts/bin`.
 
 Run this command for more information:
 
