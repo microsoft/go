@@ -56,14 +56,31 @@ complete, to match the content of the official binary releases of Go.
 
 ## Patch files
 
-The Microsoft Go repository uses patch files to apply changes to the `go`
-submodule. The patch files are found in [`/patches`](/patches). The `-refresh`
-argument to the `build` tool applies patches. Or, try:
+The Microsoft Go repository uses patch files to store changes to the `go`
+submodule. The patch files are found in [`/patches`](/patches).
 
-```
-pwsh eng/run.ps1 submodule-refresh -h
-```
+We created [the `git-go-patch` tool][git-go-patch] to develop and maintain the
+patch files. We wrote this tool specifically for the Microsoft Go project. It's
+a Go program that can be invoked as `git go-patch` after it's installed. See
+[the `git-go-patch` readme][git-go-patch] for more information.
 
-These patch files contain all the changes made to the upstream Go source code.
-To explore them with Git, run `pwsh eng/run.ps1 submodule-refresh -commits` and
-look at Git history inside the `go` submodule.
+We also have some utilities in this repository to apply patches without
+installing `git-go-patch`:
+
+* `pwsh eng/run.ps1 submodule-refresh` updates the submodule and applies the
+  patches.
+  * Pass `-commits` to apply each patch as a separate commit.
+* `pwsh eng/run.ps1 build -refresh` refreshes the submodule and applies patches
+  and then goes on to build Microsoft Go.
+
+The patch files are ordinary Git patches and can also be applied manually
+without any custom tooling. Git commands like [`git
+am`](https://git-scm.com/docs/git-am) and [`git
+apply`](https://git-scm.com/docs/git-apply) work directly. [`git
+format-patch`](https://git-scm.com/docs/git-format-patch) produces the same
+patch format as `git-go-patch`.
+
+Editing the patch files by hand is not recommended. Use `git-go-patch` or manual
+`git` patching commands to let Git handle the formatting and fine details.
+
+[git-go-patch]: https://github.com/microsoft/go-infra/tree/main/cmd/git-go-patch
