@@ -35,8 +35,8 @@ pwsh eng/run.ps1 build -refresh
 * Add `-test` to run tests after the build completes.
 * Add `-packbuild` to create an archive file containing the Go build in
   `eng/artifacts/bin`. (A `.tar.gz` or `.zip` file, depending on GOOS)
-* Add `-packsource` to create an archive file containing the Go sources in
-  `eng/artifacts/bin`. (A `.tar.gz` or `.zip` file, depending on GOOS)
+* Add `-packsource` to create a `.tar.gz` file containing the Go sources in
+  `eng/artifacts/bin`.
 
 Run this command for more information:
 
