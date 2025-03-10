@@ -15,6 +15,7 @@ Subject: [PATCH] Use crypto backends
  src/cmd/link/internal/ld/lib.go               |   1 +
  src/cmd/link/internal/ld/main.go              |  12 +-
  src/crypto/aes/aes.go                         |   2 +-
+ src/crypto/aes/aes_test.go                    |   2 +-
  src/crypto/boring/boring.go                   |   4 +-
  src/crypto/cipher/ctr_aes_test.go             |   2 +-
  src/crypto/cipher/gcm_test.go                 |   2 +-
@@ -44,7 +45,7 @@ Subject: [PATCH] Use crypto backends
  src/crypto/internal/fips140test/check_test.go |  16 ++
  src/crypto/internal/fips140test/fips_test.go  |   2 +-
  src/crypto/md5/md5.go                         |  10 +
- src/crypto/md5/md5_test.go                    |  16 ++
+ src/crypto/md5/md5_test.go                    |  18 +-
  src/crypto/pbkdf2/pbkdf2.go                   |   7 +
  src/crypto/pbkdf2/pbkdf2_test.go              |   6 +-
  src/crypto/purego_test.go                     |   2 +-
@@ -61,11 +62,11 @@ Subject: [PATCH] Use crypto backends
  src/crypto/rsa/rsa.go                         |   4 +-
  src/crypto/rsa/rsa_test.go                    |  15 +-
  src/crypto/sha1/sha1.go                       |   8 +-
- src/crypto/sha1/sha1_test.go                  |   9 +-
+ src/crypto/sha1/sha1_test.go                  |  11 +-
  src/crypto/sha256/sha256.go                   |   6 +-
- src/crypto/sha256/sha256_test.go              |  16 ++
+ src/crypto/sha256/sha256_test.go              |  20 +-
  src/crypto/sha512/sha512.go                   |   2 +-
- src/crypto/sha512/sha512_test.go              |  16 ++
+ src/crypto/sha512/sha512_test.go              |  24 ++-
  src/crypto/tls/cipher_suites.go               |   2 +-
  src/crypto/tls/fipsonly/fipsonly.go           |   2 +-
  src/crypto/tls/fipsonly/fipsonly_test.go      |   2 +-
@@ -87,7 +88,7 @@ Subject: [PATCH] Use crypto backends
  src/net/smtp/smtp_test.go                     |  72 ++++---
  src/os/exec/exec_test.go                      |   9 +
  src/runtime/pprof/vminfo_darwin_test.go       |   6 +
- 83 files changed, 1154 insertions(+), 112 deletions(-)
+ 84 files changed, 1163 insertions(+), 121 deletions(-)
  create mode 100644 src/crypto/dsa/boring.go
  create mode 100644 src/crypto/dsa/notboring.go
  create mode 100644 src/crypto/ecdsa/badlinkname.go
@@ -137,7 +138,7 @@ index 4fcc508f8ed48e..eb5ef7df6eaca1 100644
  	// No need to enable PGO for toolchain2.
  	goInstall(toolenv(), goBootstrap, append([]string{"-pgo=off"}, toolchain...)...)
 diff --git a/src/cmd/dist/test.go b/src/cmd/dist/test.go
-index b137c7db7990bd..73c39e8f4e5eda 100644
+index 6199dbbb93cdcc..6592cf97e482dd 100644
 --- a/src/cmd/dist/test.go
 +++ b/src/cmd/dist/test.go
 @@ -710,7 +710,7 @@ func (t *tester) registerTests() {
@@ -328,6 +329,19 @@ index 22ea8819ed239a..1e2cba08c1c760 100644
  	"crypto/internal/fips140/aes"
  	"strconv"
  )
+diff --git a/src/crypto/aes/aes_test.go b/src/crypto/aes/aes_test.go
+index cfe75f4057a96b..19a5e7d757ca8c 100644
+--- a/src/crypto/aes/aes_test.go
++++ b/src/crypto/aes/aes_test.go
+@@ -5,7 +5,7 @@
+ package aes
+ 
+ import (
+-	"crypto/internal/boring"
++	boring "crypto/internal/backend"
+ 	"crypto/internal/cryptotest"
+ 	"fmt"
+ 	"testing"
 diff --git a/src/crypto/boring/boring.go b/src/crypto/boring/boring.go
 index 097c37e343fdb8..a5d603896d3890 100644
 --- a/src/crypto/boring/boring.go
@@ -364,7 +378,7 @@ index 33942467784ad3..0282ffa9fa23c8 100644
  	fipsaes "crypto/internal/fips140/aes"
  	"encoding/hex"
 diff --git a/src/crypto/cipher/gcm_test.go b/src/crypto/cipher/gcm_test.go
-index ea2b4e29e2b67f..f884b0d0fbefe7 100644
+index e574822c9aa6f8..cf121d9e5f654d 100644
 --- a/src/crypto/cipher/gcm_test.go
 +++ b/src/crypto/cipher/gcm_test.go
 @@ -8,7 +8,7 @@ import (
@@ -696,7 +710,7 @@ index 231f1ea04c1010..cfa113e2345816 100644
  	"crypto/subtle"
  	"errors"
 diff --git a/src/crypto/ecdh/ecdh_test.go b/src/crypto/ecdh/ecdh_test.go
-index 75d2480775669f..6a4d26fbafe090 100644
+index 8a3eb87061ad8c..a09a9fc8148039 100644
 --- a/src/crypto/ecdh/ecdh_test.go
 +++ b/src/crypto/ecdh/ecdh_test.go
 @@ -9,6 +9,7 @@ import (
@@ -1237,7 +1251,7 @@ index ddb234bab655e1..75cfc0440b8837 100644
  		bsslModule    = "boringssl.googlesource.com/boringssl.git"
  		bsslVersion   = "v0.0.0-20250207174145-0bb19f6126cb"
 diff --git a/src/crypto/internal/fips140test/check_test.go b/src/crypto/internal/fips140test/check_test.go
-index c014fff2a6d80d..be2df5988694ef 100644
+index c4f6a95e3ecbe5..4cca9bcfaf905a 100644
 --- a/src/crypto/internal/fips140test/check_test.go
 +++ b/src/crypto/internal/fips140test/check_test.go
 @@ -6,6 +6,8 @@ package fipstest
@@ -1265,7 +1279,7 @@ index c014fff2a6d80d..be2df5988694ef 100644
 +		t.Skipf("skipping: FIPS is not enabled")
 +	}
 +
- 	cmd := testenv.Command(t, os.Args[0], "-test.v", "-test.run=TestIntegrityCheck")
+ 	cmd := testenv.Command(t, testenv.Executable(t), "-test.v", "-test.run=^TestIntegrityCheck$")
  	cmd.Env = append(cmd.Environ(), "GODEBUG=fips140=on")
  	out, err := cmd.CombinedOutput()
 @@ -47,6 +57,9 @@ func TestIntegrityCheck(t *testing.T) {
@@ -1289,7 +1303,7 @@ index c014fff2a6d80d..be2df5988694ef 100644
  		t.Skipf("skipping: %v", err)
  	}
 diff --git a/src/crypto/internal/fips140test/fips_test.go b/src/crypto/internal/fips140test/fips_test.go
-index 81ccd0cf7fdd1d..34fdd6f5aed6cd 100644
+index 3ed6152ea380d0..510c41e0ee6d96 100644
 --- a/src/crypto/internal/fips140test/fips_test.go
 +++ b/src/crypto/internal/fips140test/fips_test.go
 @@ -15,7 +15,7 @@ package fipstest
@@ -1337,7 +1351,7 @@ index a0384e175f31bd..f7aa6da36f02de 100644
  	d.Reset()
  	d.Write(data)
 diff --git a/src/crypto/md5/md5_test.go b/src/crypto/md5/md5_test.go
-index 437d9b9d4c0e0d..50728df60ea7ec 100644
+index 2353ea85b54baf..f1d3668e6abff4 100644
 --- a/src/crypto/md5/md5_test.go
 +++ b/src/crypto/md5/md5_test.go
 @@ -6,12 +6,14 @@ package md5
@@ -1394,6 +1408,15 @@ index 437d9b9d4c0e0d..50728df60ea7ec 100644
  			t.Errorf("test %d could not unmarshal: %v", i, err)
  			continue
  		}
+@@ -245,7 +261,7 @@ func TestMD5Hash(t *testing.T) {
+ 
+ func TestExtraMethods(t *testing.T) {
+ 	h := New()
+-	cryptotest.NoExtraMethods(t, &h, "MarshalBinary", "UnmarshalBinary", "AppendBinary")
++	cryptotest.NoExtraMethods(t, &h, "MarshalBinary", "UnmarshalBinary", "AppendBinary", "WriteByte", "WriteString", "Clone")
+ }
+ 
+ var bench = New()
 diff --git a/src/crypto/pbkdf2/pbkdf2.go b/src/crypto/pbkdf2/pbkdf2.go
 index dd5fc33f2120c3..7ce0da53887a40 100644
 --- a/src/crypto/pbkdf2/pbkdf2.go
@@ -1861,7 +1884,7 @@ index 95bb4becd2ff8c..73991434dabaf1 100644
  	"crypto/internal/fips140/rsa"
  	"crypto/internal/fips140only"
 diff --git a/src/crypto/rsa/rsa_test.go b/src/crypto/rsa/rsa_test.go
-index 795439d1c13df0..cc497755a2de28 100644
+index 2f54deae689725..bb2077a60b69a7 100644
 --- a/src/crypto/rsa/rsa_test.go
 +++ b/src/crypto/rsa/rsa_test.go
 @@ -8,7 +8,7 @@ import (
@@ -1937,7 +1960,7 @@ index d2ffaac0aeb674..23d8ad44d0bd9a 100644
  	d.Reset()
  	d.Write(data)
 diff --git a/src/crypto/sha1/sha1_test.go b/src/crypto/sha1/sha1_test.go
-index 9d707b7cde5c2d..8e1f92ea7304a8 100644
+index f9243dbf506bb5..ed56e748b1f851 100644
 --- a/src/crypto/sha1/sha1_test.go
 +++ b/src/crypto/sha1/sha1_test.go
 @@ -8,13 +8,14 @@ package sha1
@@ -1976,6 +1999,15 @@ index 9d707b7cde5c2d..8e1f92ea7304a8 100644
  			t.Errorf("test %d could not unmarshal: %v", i, err)
  			continue
  		}
+@@ -252,7 +259,7 @@ func TestSHA1Hash(t *testing.T) {
+ func TestExtraMethods(t *testing.T) {
+ 	h := New()
+ 	cryptotest.NoExtraMethods(t, &h, "ConstantTimeSum",
+-		"MarshalBinary", "UnmarshalBinary", "AppendBinary")
++		"MarshalBinary", "UnmarshalBinary", "AppendBinary", "WriteByte", "WriteString", "Clone")
+ }
+ 
+ var bench = New()
 diff --git a/src/crypto/sha256/sha256.go b/src/crypto/sha256/sha256.go
 index 069938a22dbc5a..8d0e06b86f4359 100644
 --- a/src/crypto/sha256/sha256.go
@@ -2008,7 +2040,7 @@ index 069938a22dbc5a..8d0e06b86f4359 100644
  	}
  	h := New224()
 diff --git a/src/crypto/sha256/sha256_test.go b/src/crypto/sha256/sha256_test.go
-index e1af9640e25547..8896c6e85f4ada 100644
+index b3b4e77f578e60..23c4c7b4823f6c 100644
 --- a/src/crypto/sha256/sha256_test.go
 +++ b/src/crypto/sha256/sha256_test.go
 @@ -8,11 +8,13 @@ package sha256
@@ -2064,6 +2096,22 @@ index e1af9640e25547..8896c6e85f4ada 100644
  			t.Errorf("test %d could not unmarshal: %v", i, err)
  			continue
  		}
+@@ -354,13 +370,13 @@ func TestExtraMethods(t *testing.T) {
+ 	t.Run("SHA-224", func(t *testing.T) {
+ 		cryptotest.TestAllImplementations(t, "sha256", func(t *testing.T) {
+ 			h := New224()
+-			cryptotest.NoExtraMethods(t, &h, "MarshalBinary", "UnmarshalBinary", "AppendBinary")
++			cryptotest.NoExtraMethods(t, &h, "MarshalBinary", "UnmarshalBinary", "AppendBinary", "WriteByte", "WriteString", "Clone")
+ 		})
+ 	})
+ 	t.Run("SHA-256", func(t *testing.T) {
+ 		cryptotest.TestAllImplementations(t, "sha256", func(t *testing.T) {
+ 			h := New()
+-			cryptotest.NoExtraMethods(t, &h, "MarshalBinary", "UnmarshalBinary", "AppendBinary")
++			cryptotest.NoExtraMethods(t, &h, "MarshalBinary", "UnmarshalBinary", "AppendBinary", "WriteByte", "WriteString", "Clone")
+ 		})
+ 	})
+ }
 diff --git a/src/crypto/sha512/sha512.go b/src/crypto/sha512/sha512.go
 index 1435eac1f5b5dc..17e8501154762a 100644
 --- a/src/crypto/sha512/sha512.go
@@ -2078,7 +2126,7 @@ index 1435eac1f5b5dc..17e8501154762a 100644
  	"hash"
  )
 diff --git a/src/crypto/sha512/sha512_test.go b/src/crypto/sha512/sha512_test.go
-index 1fe9d132bb186d..0692be8461e964 100644
+index 7e80f49dea4315..6b21e0a7c8e386 100644
 --- a/src/crypto/sha512/sha512_test.go
 +++ b/src/crypto/sha512/sha512_test.go
 @@ -8,12 +8,14 @@ package sha512
@@ -2135,6 +2183,36 @@ index 1fe9d132bb186d..0692be8461e964 100644
  			t.Errorf("test %d could not unmarshal: %v", i, err)
  			continue
  		}
+@@ -967,25 +983,25 @@ func TestExtraMethods(t *testing.T) {
+ 	t.Run("SHA-384", func(t *testing.T) {
+ 		cryptotest.TestAllImplementations(t, "sha512", func(t *testing.T) {
+ 			h := New384()
+-			cryptotest.NoExtraMethods(t, &h, "MarshalBinary", "UnmarshalBinary", "AppendBinary")
++			cryptotest.NoExtraMethods(t, &h, "MarshalBinary", "UnmarshalBinary", "AppendBinary", "WriteByte", "WriteString", "Clone")
+ 		})
+ 	})
+ 	t.Run("SHA-512/224", func(t *testing.T) {
+ 		cryptotest.TestAllImplementations(t, "sha512", func(t *testing.T) {
+ 			h := New512_224()
+-			cryptotest.NoExtraMethods(t, &h, "MarshalBinary", "UnmarshalBinary", "AppendBinary")
++			cryptotest.NoExtraMethods(t, &h, "MarshalBinary", "UnmarshalBinary", "AppendBinary", "WriteByte", "WriteString", "Clone")
+ 		})
+ 	})
+ 	t.Run("SHA-512/256", func(t *testing.T) {
+ 		cryptotest.TestAllImplementations(t, "sha512", func(t *testing.T) {
+ 			h := New512_256()
+-			cryptotest.NoExtraMethods(t, &h, "MarshalBinary", "UnmarshalBinary", "AppendBinary")
++			cryptotest.NoExtraMethods(t, &h, "MarshalBinary", "UnmarshalBinary", "AppendBinary", "WriteByte", "WriteString", "Clone")
+ 		})
+ 	})
+ 	t.Run("SHA-512", func(t *testing.T) {
+ 		cryptotest.TestAllImplementations(t, "sha512", func(t *testing.T) {
+ 			h := New()
+-			cryptotest.NoExtraMethods(t, &h, "MarshalBinary", "UnmarshalBinary", "AppendBinary")
++			cryptotest.NoExtraMethods(t, &h, "MarshalBinary", "UnmarshalBinary", "AppendBinary", "WriteByte", "WriteString", "Clone")
+ 		})
+ 	})
+ }
 diff --git a/src/crypto/tls/cipher_suites.go b/src/crypto/tls/cipher_suites.go
 index 01d65688284f97..d8a26c24024348 100644
 --- a/src/crypto/tls/cipher_suites.go
@@ -2175,7 +2253,7 @@ index 027bc22c33c921..eba08da985f832 100644
  package fipsonly
  
 diff --git a/src/crypto/tls/handshake_client.go b/src/crypto/tls/handshake_client.go
-index 38bd417a0dca72..8c1ae3c7ec5485 100644
+index 1be0c82c4bce14..be59a46bc2fc6b 100644
 --- a/src/crypto/tls/handshake_client.go
 +++ b/src/crypto/tls/handshake_client.go
 @@ -11,11 +11,11 @@ import (
@@ -2191,7 +2269,7 @@ index 38bd417a0dca72..8c1ae3c7ec5485 100644
  	"crypto/x509"
  	"errors"
  	"fmt"
-@@ -549,7 +549,15 @@ func (c *Conn) pickTLSVersion(serverHello *serverHelloMsg) error {
+@@ -554,7 +554,15 @@ func (c *Conn) pickTLSVersion(serverHello *serverHelloMsg) error {
  
  // Does the handshake, either a full one or resumes old session. Requires hs.c,
  // hs.hello, hs.serverHello, and, optionally, hs.session to be set.
@@ -2256,7 +2334,7 @@ index c0396e75796add..2c00e119cb66e4 100644
  				confTranscript.Sum(nil),
  				8,
 diff --git a/src/crypto/tls/handshake_server.go b/src/crypto/tls/handshake_server.go
-index 7c75977ad3ffb2..b9db95ca7b9d5a 100644
+index 641bbec0c96fff..57704fb76d60a5 100644
 --- a/src/crypto/tls/handshake_server.go
 +++ b/src/crypto/tls/handshake_server.go
 @@ -64,7 +64,15 @@ func (c *Conn) serverHandshake(ctx context.Context) error {

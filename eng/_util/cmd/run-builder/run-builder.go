@@ -207,15 +207,16 @@ func main() {
 				log.Fatal(err)
 			}
 			conv := json2junit.NewConverter(f)
-			defer func() {
-				if err := conv.Close(); err != nil {
-					log.Fatal(err)
-				}
-				if err := f.Close(); err != nil {
-					log.Fatal(err)
-				}
-			}()
 			err = buildutil.RunCmdMultiWriter(cmdline, conv, os.Stdout)
+			if errClose := conv.Close(); err == nil {
+				err = errClose
+			}
+			if errClose := f.Close(); err == nil {
+				err = errClose
+			}
+			if err != nil {
+				log.Fatal(err)
+			}
 			// If we got an ExitError, the error message was already printed by the command. We just
 			// need to exit with the same exit code.
 			if exitErr, ok := err.(*exec.ExitError); ok {

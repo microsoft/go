@@ -215,15 +215,14 @@ func build(o *options) (err error) {
 				return err
 			}
 			conv := json2junit.NewConverter(f)
-			defer func() {
-				if closeErr := conv.Close(); err == nil {
-					err = closeErr
-				}
-				if closeErr := f.Close(); err == nil {
-					err = closeErr
-				}
-			}()
-			if err := buildutil.RunCmdMultiWriter(testCommandLine, conv, os.Stdout); err != nil {
+			err = buildutil.RunCmdMultiWriter(testCommandLine, conv, os.Stdout)
+			if closeErr := conv.Close(); err == nil {
+				err = closeErr
+			}
+			if closeErr := f.Close(); err == nil {
+				err = closeErr
+			}
+			if err != nil {
 				return err
 			}
 		} else {
