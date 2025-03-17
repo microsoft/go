@@ -68,18 +68,20 @@ Subject: [PATCH] Use crypto backends
  src/crypto/sha512/sha512.go                   |   2 +-
  src/crypto/sha512/sha512_test.go              |  24 ++-
  src/crypto/tls/cipher_suites.go               |   2 +-
+ src/crypto/tls/defaults_boring.go             |   2 +-
+ src/crypto/tls/defaults_fips140.go            |   2 +-
+ src/crypto/tls/fips140_test.go                |   2 +-
  src/crypto/tls/fipsonly/fipsonly.go           |   2 +-
  src/crypto/tls/fipsonly/fipsonly_test.go      |   2 +-
  src/crypto/tls/handshake_client.go            |  12 +-
  src/crypto/tls/handshake_client_tls13.go      |  16 +-
  src/crypto/tls/handshake_server.go            |  10 +-
  src/crypto/tls/handshake_server_tls13.go      |  27 ++-
- src/crypto/tls/internal/fips140tls/fipstls.go |   4 +-
  src/crypto/tls/internal/tls13/doc.go          |  18 ++
  src/crypto/tls/internal/tls13/tls13.go        | 182 ++++++++++++++++++
  src/crypto/tls/key_schedule.go                |   2 +-
  src/crypto/tls/prf.go                         |  41 ++++
- src/go/build/deps_test.go                     |   5 +-
+ src/go/build/deps_test.go                     |   3 +-
  src/hash/boring_test.go                       |   9 +
  src/hash/example_test.go                      |   2 +
  src/hash/marshal_test.go                      |   4 +
@@ -88,7 +90,7 @@ Subject: [PATCH] Use crypto backends
  src/net/smtp/smtp_test.go                     |  72 ++++---
  src/os/exec/exec_test.go                      |   9 +
  src/runtime/pprof/vminfo_darwin_test.go       |   6 +
- 84 files changed, 1163 insertions(+), 121 deletions(-)
+ 86 files changed, 1163 insertions(+), 121 deletions(-)
  create mode 100644 src/crypto/dsa/boring.go
  create mode 100644 src/crypto/dsa/notboring.go
  create mode 100644 src/crypto/ecdsa/badlinkname.go
@@ -138,7 +140,7 @@ index 4fcc508f8ed48e..eb5ef7df6eaca1 100644
  	// No need to enable PGO for toolchain2.
  	goInstall(toolenv(), goBootstrap, append([]string{"-pgo=off"}, toolchain...)...)
 diff --git a/src/cmd/dist/test.go b/src/cmd/dist/test.go
-index 6199dbbb93cdcc..6592cf97e482dd 100644
+index a380e46c5dadd4..1b43601edc9ffe 100644
 --- a/src/cmd/dist/test.go
 +++ b/src/cmd/dist/test.go
 @@ -710,7 +710,7 @@ func (t *tester) registerTests() {
@@ -1303,7 +1305,7 @@ index c4f6a95e3ecbe5..4cca9bcfaf905a 100644
  		t.Skipf("skipping: %v", err)
  	}
 diff --git a/src/crypto/internal/fips140test/fips_test.go b/src/crypto/internal/fips140test/fips_test.go
-index 3ed6152ea380d0..510c41e0ee6d96 100644
+index 08d60933ef38b8..8840db05bde791 100644
 --- a/src/crypto/internal/fips140test/fips_test.go
 +++ b/src/crypto/internal/fips140test/fips_test.go
 @@ -15,7 +15,7 @@ package fipstest
@@ -1418,7 +1420,7 @@ index 2353ea85b54baf..f1d3668e6abff4 100644
  
  var bench = New()
 diff --git a/src/crypto/pbkdf2/pbkdf2.go b/src/crypto/pbkdf2/pbkdf2.go
-index dd5fc33f2120c3..7ce0da53887a40 100644
+index dff2e6cb355c5f..7d1348cadc3f61 100644
 --- a/src/crypto/pbkdf2/pbkdf2.go
 +++ b/src/crypto/pbkdf2/pbkdf2.go
 @@ -11,6 +11,7 @@
@@ -2214,7 +2216,7 @@ index 7e80f49dea4315..6b21e0a7c8e386 100644
  	})
  }
 diff --git a/src/crypto/tls/cipher_suites.go b/src/crypto/tls/cipher_suites.go
-index 01d65688284f97..d8a26c24024348 100644
+index 2a96fa69036a07..f3c19c7faf1c21 100644
 --- a/src/crypto/tls/cipher_suites.go
 +++ b/src/crypto/tls/cipher_suites.go
 @@ -10,7 +10,7 @@ import (
@@ -2226,6 +2228,45 @@ index 01d65688284f97..d8a26c24024348 100644
  	fipsaes "crypto/internal/fips140/aes"
  	"crypto/internal/fips140/aes/gcm"
  	"crypto/rc4"
+diff --git a/src/crypto/tls/defaults_boring.go b/src/crypto/tls/defaults_boring.go
+index 96406acfca0f54..45da186a7123bd 100644
+--- a/src/crypto/tls/defaults_boring.go
++++ b/src/crypto/tls/defaults_boring.go
+@@ -2,7 +2,7 @@
+ // Use of this source code is governed by a BSD-style
+ // license that can be found in the LICENSE file.
+ 
+-//go:build boringcrypto
++//go:build goexperiment.systemcrypto
+ 
+ package tls
+ 
+diff --git a/src/crypto/tls/defaults_fips140.go b/src/crypto/tls/defaults_fips140.go
+index 472bb807f04dc5..28883a511d9091 100644
+--- a/src/crypto/tls/defaults_fips140.go
++++ b/src/crypto/tls/defaults_fips140.go
+@@ -2,7 +2,7 @@
+ // Use of this source code is governed by a BSD-style
+ // license that can be found in the LICENSE file.
+ 
+-//go:build !boringcrypto
++//go:build !goexperiment.systemcrypto
+ 
+ package tls
+ 
+diff --git a/src/crypto/tls/fips140_test.go b/src/crypto/tls/fips140_test.go
+index c22ad485ccdae5..7dfb00580890e5 100644
+--- a/src/crypto/tls/fips140_test.go
++++ b/src/crypto/tls/fips140_test.go
+@@ -7,7 +7,7 @@ package tls
+ import (
+ 	"crypto/ecdsa"
+ 	"crypto/elliptic"
+-	"crypto/internal/boring"
++	boring "crypto/internal/backend"
+ 	"crypto/rand"
+ 	"crypto/rsa"
+ 	"crypto/x509"
 diff --git a/src/crypto/tls/fipsonly/fipsonly.go b/src/crypto/tls/fipsonly/fipsonly.go
 index e702f44e986746..e506a0d8841237 100644
 --- a/src/crypto/tls/fipsonly/fipsonly.go
@@ -2253,7 +2294,7 @@ index 027bc22c33c921..eba08da985f832 100644
  package fipsonly
  
 diff --git a/src/crypto/tls/handshake_client.go b/src/crypto/tls/handshake_client.go
-index 1be0c82c4bce14..be59a46bc2fc6b 100644
+index 30f2e2a2a2c43d..a25a29a2a26785 100644
 --- a/src/crypto/tls/handshake_client.go
 +++ b/src/crypto/tls/handshake_client.go
 @@ -11,11 +11,11 @@ import (
@@ -2269,7 +2310,7 @@ index 1be0c82c4bce14..be59a46bc2fc6b 100644
  	"crypto/x509"
  	"errors"
  	"fmt"
-@@ -554,7 +554,15 @@ func (c *Conn) pickTLSVersion(serverHello *serverHelloMsg) error {
+@@ -543,7 +543,15 @@ func (c *Conn) pickTLSVersion(serverHello *serverHelloMsg) error {
  
  // Does the handshake, either a full one or resumes old session. Requires hs.c,
  // hs.hello, hs.serverHello, and, optionally, hs.session to be set.
@@ -2285,9 +2326,9 @@ index 1be0c82c4bce14..be59a46bc2fc6b 100644
 +	}()
  	c := hs.c
  
- 	isResume, err := hs.processServerHello()
+ 	// If we did not load a session (hs.session == nil), but we did set a
 diff --git a/src/crypto/tls/handshake_client_tls13.go b/src/crypto/tls/handshake_client_tls13.go
-index c0396e75796add..2c00e119cb66e4 100644
+index fadca22e60eecf..7a2d7ba67e6e2a 100644
 --- a/src/crypto/tls/handshake_client_tls13.go
 +++ b/src/crypto/tls/handshake_client_tls13.go
 @@ -8,12 +8,12 @@ import (
@@ -2334,7 +2375,7 @@ index c0396e75796add..2c00e119cb66e4 100644
  				confTranscript.Sum(nil),
  				8,
 diff --git a/src/crypto/tls/handshake_server.go b/src/crypto/tls/handshake_server.go
-index 641bbec0c96fff..57704fb76d60a5 100644
+index 68c14b8a5a9fc3..66ac35f294abcb 100644
 --- a/src/crypto/tls/handshake_server.go
 +++ b/src/crypto/tls/handshake_server.go
 @@ -64,7 +64,15 @@ func (c *Conn) serverHandshake(ctx context.Context) error {
@@ -2355,7 +2396,7 @@ index 641bbec0c96fff..57704fb76d60a5 100644
  
  	if err := hs.processClientHello(); err != nil {
 diff --git a/src/crypto/tls/handshake_server_tls13.go b/src/crypto/tls/handshake_server_tls13.go
-index b6d455cd397e31..c8f1c4ad43fdc3 100644
+index 1796052a3f1f1a..895060805e2254 100644
 --- a/src/crypto/tls/handshake_server_tls13.go
 +++ b/src/crypto/tls/handshake_server_tls13.go
 @@ -8,13 +8,14 @@ import (
@@ -2427,27 +2468,6 @@ index b6d455cd397e31..c8f1c4ad43fdc3 100644
  			"ech accept confirmation",
  			echTranscript.Sum(nil),
  			8,
-diff --git a/src/crypto/tls/internal/fips140tls/fipstls.go b/src/crypto/tls/internal/fips140tls/fipstls.go
-index 24d78d60cf5b64..0b87185683ab8b 100644
---- a/src/crypto/tls/internal/fips140tls/fipstls.go
-+++ b/src/crypto/tls/internal/fips140tls/fipstls.go
-@@ -6,14 +6,14 @@
- package fips140tls
- 
- import (
--	"crypto/internal/fips140"
-+	"crypto/fips140"
- 	"sync/atomic"
- )
- 
- var required atomic.Bool
- 
- func init() {
--	if fips140.Enabled {
-+	if fips140.Enabled() {
- 		Force()
- 	}
- }
 diff --git a/src/crypto/tls/internal/tls13/doc.go b/src/crypto/tls/internal/tls13/doc.go
 new file mode 100644
 index 00000000000000..acfa551001af9c
@@ -2743,7 +2763,7 @@ index e7369542a73270..ff52175e4ac636 100644
  	}
  }
 diff --git a/src/go/build/deps_test.go b/src/go/build/deps_test.go
-index 1889403cac91e0..01609e5e6a9d62 100644
+index 70f0713b6359f8..01609e5e6a9d62 100644
 --- a/src/go/build/deps_test.go
 +++ b/src/go/build/deps_test.go
 @@ -520,7 +520,7 @@ var depsRules = `
@@ -2763,15 +2783,6 @@ index 1889403cac91e0..01609e5e6a9d62 100644
  	< CRYPTO;
  
  	CGO, fmt, net !< CRYPTO;
-@@ -594,7 +595,7 @@ var depsRules = `
- 
- 	# TLS, Prince of Dependencies.
- 
--	FIPS, sync/atomic < crypto/tls/internal/fips140tls;
-+	crypto/fips140, sync/atomic < crypto/tls/internal/fips140tls;
- 
- 	crypto/internal/boring/sig, crypto/tls/internal/fips140tls < crypto/tls/fipsonly;
- 
 diff --git a/src/hash/boring_test.go b/src/hash/boring_test.go
 new file mode 100644
 index 00000000000000..52748c44698076
