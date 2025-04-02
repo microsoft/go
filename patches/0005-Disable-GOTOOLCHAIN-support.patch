@@ -1,0 +1,63 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: qmuntal <qmuntaldiaz@microsoft.com>
+Date: Thu, 8 Jun 2023 14:17:13 +0200
+Subject: [PATCH] Disable GOTOOLCHAIN support
+
+The GOTOOLCHAIN feature can potentially make a Go invocation switch
+to a non-Microsoft toolchain. To aovid it, change the GOTOOLCHAIN
+default value from "auto" to "local" and instruct the Go toolchain
+to panic if the user manually modifies the GOTOOLCHAIN variable.
+---
+ go.env                         |  6 ++++--
+ src/cmd/go/internal/cfg/cfg.go | 10 ++++++++++
+ src/cmd/go/script_test.go      |  1 +
+ 3 files changed, 15 insertions(+), 2 deletions(-)
+
+diff --git a/go.env b/go.env
+index 6ff2b921d464bc..4aca2ff2c63dbc 100644
+--- a/go.env
++++ b/go.env
+@@ -7,6 +7,8 @@
+ GOPROXY=https://proxy.golang.org,direct
+ GOSUMDB=sum.golang.org
+ 
+-# Automatically download newer toolchains as directed by go.mod files.
++# Use the locally installed Go toolchain, never downloading a different one.
++# Upstream uses `GOTOOLCHAIN=auto` instead, but `auto` can download and switch
++# to a non-Microsoft Go toolchain, and we want to avoid that.
+ # See https://go.dev/doc/toolchain for details.
+-GOTOOLCHAIN=auto
++GOTOOLCHAIN=local
+diff --git a/src/cmd/go/internal/cfg/cfg.go b/src/cmd/go/internal/cfg/cfg.go
+index 3b9f27e91d517e..e81eec22fe40c7 100644
+--- a/src/cmd/go/internal/cfg/cfg.go
++++ b/src/cmd/go/internal/cfg/cfg.go
+@@ -401,6 +401,16 @@ func Getenv(key string) string {
+ 	}
+ 	val := os.Getenv(key)
+ 	if val != "" {
++		if key == "GOTOOLCHAIN" && val != "local" {
++			// Don't allow GOTOOLCHAIN to be set to anything but "local".
++			// That would cause the go command to potentially use a different
++			// toolchain than the the Microsoft build of Go.
++			// Allow it while tunning the TestScript test from the cmd/go
++			// package, else many tests will fail.
++			if v := os.Getenv("TESTGO_MS_TESTSCRIPT"); v != "1" {
++				panic(`invalid GOTOOLCHAIN "` + val + `", only "local" is allowed`)
++			}
++		}
+ 		return val
+ 	}
+ 	envCache.once.Do(initEnvCache)
+diff --git a/src/cmd/go/script_test.go b/src/cmd/go/script_test.go
+index 0576ea8add72af..7fa53493c65579 100644
+--- a/src/cmd/go/script_test.go
++++ b/src/cmd/go/script_test.go
+@@ -253,6 +253,7 @@ func scriptEnv(srv *vcstest.Server, srvCertFile string) ([]string, error) {
+ 		"CMDGO_TEST_RUN_MAIN=true",
+ 		"HGRCPATH=",
+ 		"GOTOOLCHAIN=auto",
++		"TESTGO_MS_TESTSCRIPT=1",
+ 		"newline=\n",
+ 	}
+ 
