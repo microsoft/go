@@ -5,7 +5,6 @@ Subject: [PATCH] Use crypto backends
 
 ---
  src/cmd/api/boring_test.go                    |   2 +-
- .../compile/internal/test/issue71943_test.go  |   4 +
  src/cmd/dist/build.go                         |  13 ++
  src/cmd/dist/test.go                          |  10 +-
  src/cmd/go/go_boring_test.go                  |  11 +-
@@ -90,7 +89,7 @@ Subject: [PATCH] Use crypto backends
  src/net/lookup_test.go                        |   3 +
  src/os/exec/exec_test.go                      |   9 +
  src/runtime/pprof/vminfo_darwin_test.go       |   6 +
- 86 files changed, 1100 insertions(+), 89 deletions(-)
+ 85 files changed, 1096 insertions(+), 89 deletions(-)
  create mode 100644 src/crypto/dsa/boring.go
  create mode 100644 src/crypto/dsa/notboring.go
  create mode 100644 src/crypto/ecdsa/badlinkname.go
@@ -115,30 +114,8 @@ index f0e3575637c62a..9eab3b4e66e60b 100644
  
  package main
  
-diff --git a/src/cmd/compile/internal/test/issue71943_test.go b/src/cmd/compile/internal/test/issue71943_test.go
-index a92b0a1e2b038d..c7720720f0092f 100644
---- a/src/cmd/compile/internal/test/issue71943_test.go
-+++ b/src/cmd/compile/internal/test/issue71943_test.go
-@@ -6,6 +6,7 @@ package test
- 
- import (
- 	"crypto/sha256"
-+	"internal/goexperiment"
- 	"internal/testenv"
- 	"runtime"
- 	"testing"
-@@ -17,6 +18,9 @@ func Verify(token, salt string) [32]byte {
- 
- func TestIssue71943(t *testing.T) {
- 	testenv.SkipIfOptimizationOff(t)
-+	if goexperiment.OpenSSLCrypto || goexperiment.DarwinCrypto {
-+		t.Skip("skipping test in OpenSSL or Darwin crypto, see https://github.com/microsoft/go/issues/1629")
-+	}
- 	if n := testing.AllocsPerRun(10, func() {
- 		runtime.KeepAlive(Verify("teststring", "test"))
- 	}); n > 0 {
 diff --git a/src/cmd/dist/build.go b/src/cmd/dist/build.go
-index 4fcc508f8ed48e..eb5ef7df6eaca1 100644
+index 596036fce9f7f1..3e4b8d9e5e3903 100644
 --- a/src/cmd/dist/build.go
 +++ b/src/cmd/dist/build.go
 @@ -1534,6 +1534,19 @@ func cmdbootstrap() {
@@ -2722,10 +2699,10 @@ index e7369542a73270..ff52175e4ac636 100644
  	}
  }
 diff --git a/src/go/build/deps_test.go b/src/go/build/deps_test.go
-index 9881eab7c523a2..3c7724689d734f 100644
+index af62328edf5eca..09c16fd2db0b58 100644
 --- a/src/go/build/deps_test.go
 +++ b/src/go/build/deps_test.go
-@@ -520,7 +520,7 @@ var depsRules = `
+@@ -540,7 +540,7 @@ var depsRules = `
  	< crypto/internal/backend/internal/opensslsetup
  	< crypto/internal/backend/fips140;
  
@@ -2734,7 +2711,7 @@ index 9881eab7c523a2..3c7724689d734f 100644
  
  	crypto, hash !< FIPS;
  
-@@ -565,6 +565,7 @@ var depsRules = `
+@@ -585,6 +585,7 @@ var depsRules = `
  	  crypto/pbkdf2,
  	  crypto/ecdh,
  	  crypto/mlkem
