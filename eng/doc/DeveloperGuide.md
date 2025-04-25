@@ -44,7 +44,7 @@ The [`git-go-patch`](https://github.com/microsoft/go-infra/tree/main/cmd/git-go-
 To install the `git-go-patch` command, run the following command:
 
 ```
-go install github.com/microsoft/go-infra/cmd/go-patch@latest
+go install github.com/microsoft/go-infra/cmd/git-go-patch@latest
 ```
 
 > [!NOTE]
