@@ -20,8 +20,8 @@ Subject: [PATCH] Use crypto backends
  src/crypto/cipher/ctr_aes_test.go             |   2 +-
  src/crypto/cipher/gcm_test.go                 |   2 +-
  src/crypto/des/cipher.go                      |   7 +
- src/crypto/dsa/boring.go                      | 113 +++++++++++
- src/crypto/dsa/dsa.go                         |  88 +++++++++
+ src/crypto/dsa/boring.go                      | 113 ++++++++++
+ src/crypto/dsa/dsa.go                         |  88 ++++++++
  src/crypto/dsa/notboring.go                   |  16 ++
  src/crypto/ecdh/ecdh.go                       |   2 +-
  src/crypto/ecdh/ecdh_test.go                  |   4 +
@@ -78,7 +78,7 @@ Subject: [PATCH] Use crypto backends
  src/crypto/tls/handshake_server.go            |  10 +-
  src/crypto/tls/handshake_server_tls13.go      |  13 +-
  src/crypto/tls/internal/tls13/doc.go          |  18 ++
- src/crypto/tls/internal/tls13/tls13.go        | 182 ++++++++++++++++++
+ src/crypto/tls/internal/tls13/tls13.go        | 195 ++++++++++++++++++
  src/crypto/tls/key_schedule.go                |   2 +-
  src/crypto/tls/prf.go                         |  41 ++++
  src/go/build/deps_test.go                     |   3 +-
@@ -89,7 +89,7 @@ Subject: [PATCH] Use crypto backends
  src/net/lookup_test.go                        |   3 +
  src/os/exec/exec_test.go                      |   9 +
  src/runtime/pprof/vminfo_darwin_test.go       |   6 +
- 85 files changed, 1096 insertions(+), 89 deletions(-)
+ 85 files changed, 1109 insertions(+), 89 deletions(-)
  create mode 100644 src/crypto/dsa/boring.go
  create mode 100644 src/crypto/dsa/notboring.go
  create mode 100644 src/crypto/ecdsa/badlinkname.go
@@ -2430,10 +2430,10 @@ index 00000000000000..acfa551001af9c
 +package tls13
 diff --git a/src/crypto/tls/internal/tls13/tls13.go b/src/crypto/tls/internal/tls13/tls13.go
 new file mode 100644
-index 00000000000000..573896b9c1e6a8
+index 00000000000000..579aaedabb188a
 --- /dev/null
 +++ b/src/crypto/tls/internal/tls13/tls13.go
-@@ -0,0 +1,182 @@
+@@ -0,0 +1,195 @@
 +// Copyright 2024 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -2443,6 +2443,9 @@ index 00000000000000..573896b9c1e6a8
 +package tls13
 +
 +import (
++	boring "crypto/internal/backend"
++	"crypto/internal/fips140hash"
++
 +	"crypto/hkdf"
 +	"hash"
 +	"internal/byteorder"
@@ -2465,6 +2468,16 @@ index 00000000000000..573896b9c1e6a8
 +		// confusing to users.
 +		panic("tls13: label or context too long")
 +	}
++
++	if boring.Enabled && boring.SupportsTLS13KDF() {
++		fh := fips140hash.UnwrapNew(hash)
++		key, err := boring.ExpandTLS13KDF(fh, secret, []byte(label), context, length)
++		if err != nil {
++			panic(err)
++		}
++		return key
++	}
++
 +	hkdfLabel := make([]byte, 0, 2+1+len("tls13 ")+len(label)+1+len(context))
 +	hkdfLabel = byteorder.BEAppendUint16(hkdfLabel, uint16(length))
 +	hkdfLabel = append(hkdfLabel, byte(len("tls13 ")+len(label)))

@@ -13,10 +13,10 @@ Subject: [PATCH] Implement crypto/internal/backend
  src/crypto/internal/backend/bbig/big_cng.go   |  12 +
  .../internal/backend/bbig/big_darwin.go       |  12 +
  .../internal/backend/bbig/big_openssl.go      |  12 +
- src/crypto/internal/backend/boring_linux.go   | 279 ++++++++++++++
- src/crypto/internal/backend/cng_windows.go    | 336 ++++++++++++++++
+ src/crypto/internal/backend/boring_linux.go   | 287 ++++++++++++++
+ src/crypto/internal/backend/cng_windows.go    | 344 ++++++++++++++++
  src/crypto/internal/backend/common.go         |  59 +++
- src/crypto/internal/backend/darwin_darwin.go  | 359 ++++++++++++++++++
+ src/crypto/internal/backend/darwin_darwin.go  | 367 ++++++++++++++++++
  src/crypto/internal/backend/fips140/boring.go |  11 +
  src/crypto/internal/backend/fips140/cng.go    |  33 ++
  src/crypto/internal/backend/fips140/darwin.go |  11 +
@@ -29,8 +29,8 @@ Subject: [PATCH] Implement crypto/internal/backend
  .../internal/opensslsetup/opensslsetup.go     |  70 ++++
  .../opensslsetup/opensslsetup_test.go         |  92 +++++
  .../backend/internal/opensslsetup/stub.go     |   8 +
- src/crypto/internal/backend/nobackend.go      | 240 ++++++++++++
- src/crypto/internal/backend/openssl_linux.go  | 331 ++++++++++++++++
+ src/crypto/internal/backend/nobackend.go      | 246 ++++++++++++
+ src/crypto/internal/backend/openssl_linux.go  | 339 ++++++++++++++++
  src/crypto/internal/backend/stub.s            |  10 +
  src/go/build/deps_test.go                     |  27 +-
  .../exp_allowcryptofallback_off.go            |   9 +
@@ -49,7 +49,7 @@ Subject: [PATCH] Implement crypto/internal/backend
  ...ckenderr_gen_requirefips_nosystemcrypto.go |  17 +
  .../backenderr_gen_systemcrypto_nobackend.go  |  16 +
  src/runtime/runtime_boring.go                 |   5 +
- 45 files changed, 2690 insertions(+), 3 deletions(-)
+ 45 files changed, 2728 insertions(+), 3 deletions(-)
  create mode 100644 src/crypto/internal/backend/backend_test.go
  create mode 100644 src/crypto/internal/backend/backendgen.go
  create mode 100644 src/crypto/internal/backend/backendgen_test.go
@@ -554,10 +554,10 @@ index 00000000000000..e6695dd66b1d02
 +var Dec = bbig.Dec
 diff --git a/src/crypto/internal/backend/boring_linux.go b/src/crypto/internal/backend/boring_linux.go
 new file mode 100644
-index 00000000000000..f06fcc63b5af11
+index 00000000000000..48d44ec1723ab6
 --- /dev/null
 +++ b/src/crypto/internal/backend/boring_linux.go
-@@ -0,0 +1,279 @@
+@@ -0,0 +1,287 @@
 +// Copyright 2017 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -724,6 +724,14 @@ index 00000000000000..f06fcc63b5af11
 +	return boring.NewPublicKeyECDH(curve, bytes)
 +}
 +
++func SupportsTLS13KDF() bool {
++	return false
++}
++
++func ExpandTLS13KDF(h func() hash.Hash, pseudorandomKey, label, context []byte, keyLength int) ([]byte, error) {
++	panic("cryptobackend: not available")
++}
++
 +func SupportsHKDF() bool { return false }
 +
 +func ExpandHKDF(h func() hash.Hash, pseudorandomKey, info []byte, keyLength int) ([]byte, error) {
@@ -839,10 +847,10 @@ index 00000000000000..f06fcc63b5af11
 +}
 diff --git a/src/crypto/internal/backend/cng_windows.go b/src/crypto/internal/backend/cng_windows.go
 new file mode 100644
-index 00000000000000..31dfc9b19ee63e
+index 00000000000000..6abb6ff007c99f
 --- /dev/null
 +++ b/src/crypto/internal/backend/cng_windows.go
-@@ -0,0 +1,336 @@
+@@ -0,0 +1,344 @@
 +// Copyright 2017 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -1058,6 +1066,14 @@ index 00000000000000..31dfc9b19ee63e
 +	return cng.NewPublicKeyECDH(curve, bytes)
 +}
 +
++func SupportsTLS13KDF() bool {
++	return false
++}
++
++func ExpandTLS13KDF(h func() hash.Hash, pseudorandomKey, label, context []byte, keyLength int) ([]byte, error) {
++	panic("cryptobackend: not available")
++}
++
 +func SupportsHKDF() bool {
 +	return cng.SupportsHKDF()
 +}
@@ -1246,10 +1262,10 @@ index 00000000000000..9436b00381aaf8
 +}
 diff --git a/src/crypto/internal/backend/darwin_darwin.go b/src/crypto/internal/backend/darwin_darwin.go
 new file mode 100644
-index 00000000000000..e09524cd430125
+index 00000000000000..0c374baf8d3f80
 --- /dev/null
 +++ b/src/crypto/internal/backend/darwin_darwin.go
-@@ -0,0 +1,359 @@
+@@ -0,0 +1,367 @@
 +// Copyright 2017 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -1496,6 +1512,14 @@ index 00000000000000..e09524cd430125
 +
 +func NewPublicKeyECDH(curve string, bytes []byte) (*xcrypto.PublicKeyECDH, error) {
 +	return xcrypto.NewPublicKeyECDH(curve, bytes)
++}
++
++func SupportsTLS13KDF() bool {
++	return false
++}
++
++func ExpandTLS13KDF(h func() hash.Hash, pseudorandomKey, label, context []byte, keyLength int) ([]byte, error) {
++	panic("cryptobackend: not available")
 +}
 +
 +func SupportsHKDF() bool {
@@ -2074,10 +2098,10 @@ index 00000000000000..3b92bfc5fbabf6
 +package opensslsetup
 diff --git a/src/crypto/internal/backend/nobackend.go b/src/crypto/internal/backend/nobackend.go
 new file mode 100644
-index 00000000000000..7c3a95c2c64a2d
+index 00000000000000..1675358749323f
 --- /dev/null
 +++ b/src/crypto/internal/backend/nobackend.go
-@@ -0,0 +1,240 @@
+@@ -0,0 +1,246 @@
 +// Copyright 2017 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -2211,6 +2235,12 @@ index 00000000000000..7c3a95c2c64a2d
 +func (*PublicKeyECDH) Bytes() []byte                          { panic("cryptobackend: not available") }
 +func (*PrivateKeyECDH) PublicKey() (*PublicKeyECDH, error)    { panic("cryptobackend: not available") }
 +
++func SupportsTLS13KDF() bool { panic("cryptobackend: not available") }
++
++func ExpandTLS13KDF(h func() hash.Hash, pseudorandomKey, label, context []byte, keyLength int) ([]byte, error) {
++	panic("cryptobackend: not available")
++}
++
 +func SupportsHKDF() bool { panic("cryptobackend: not available") }
 +
 +func ExpandHKDF(h func() hash.Hash, pseudorandomKey, info []byte, keyLength int) ([]byte, error) {
@@ -2320,10 +2350,10 @@ index 00000000000000..7c3a95c2c64a2d
 +}
 diff --git a/src/crypto/internal/backend/openssl_linux.go b/src/crypto/internal/backend/openssl_linux.go
 new file mode 100644
-index 00000000000000..fe575dd8c71435
+index 00000000000000..ac656468e3ed32
 --- /dev/null
 +++ b/src/crypto/internal/backend/openssl_linux.go
-@@ -0,0 +1,331 @@
+@@ -0,0 +1,339 @@
 +// Copyright 2017 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -2518,6 +2548,14 @@ index 00000000000000..fe575dd8c71435
 +	return openssl.NewPublicKeyECDH(curve, bytes)
 +}
 +
++func SupportsTLS13KDF() bool {
++	return openssl.SupportsTLS13KDF()
++}
++
++func ExpandTLS13KDF(h func() hash.Hash, pseudorandomKey, label, context []byte, keyLength int) ([]byte, error) {
++	return openssl.ExpandTLS13KDF(h, pseudorandomKey, label, context, keyLength)
++}
++
 +func SupportsHKDF() bool {
 +	return openssl.SupportsHKDF()
 +}
@@ -2672,10 +2710,10 @@ index 00000000000000..5e4b436554d44d
 +// from complaining about the missing body
 +// (because the implementation might be here).
 diff --git a/src/go/build/deps_test.go b/src/go/build/deps_test.go
-index 2adf8c897229cf..74d0bc1d6439a3 100644
+index 0095243ce2b0b7..af62328edf5eca 100644
 --- a/src/go/build/deps_test.go
 +++ b/src/go/build/deps_test.go
-@@ -536,6 +536,11 @@ var depsRules = `
+@@ -535,6 +535,11 @@ var depsRules = `
  	< github.com/microsoft/go-crypto-winnative/internal/bcrypt
  	< github.com/microsoft/go-crypto-winnative/cng;
  
@@ -2687,7 +2725,7 @@ index 2adf8c897229cf..74d0bc1d6439a3 100644
  	FIPS, internal/godebug < crypto/fips140;
  
  	crypto, hash !< FIPS;
-@@ -546,16 +551,28 @@ var depsRules = `
+@@ -545,16 +550,28 @@ var depsRules = `
  	NONE < crypto/internal/boring/sig, crypto/internal/boring/syso;
  	sync/atomic < crypto/internal/boring/bcache;
  
@@ -2718,7 +2756,7 @@ index 2adf8c897229cf..74d0bc1d6439a3 100644
  	< crypto/boring
  	< crypto/aes,
  	  crypto/des,
-@@ -579,8 +596,12 @@ var depsRules = `
+@@ -578,8 +595,12 @@ var depsRules = `
  	math/big, github.com/microsoft/go-crypto-darwin/xcrypto < github.com/microsoft/go-crypto-darwin/bbig;
  	math/big, github.com/microsoft/go-crypto-winnative/cng < github.com/microsoft/go-crypto-winnative/cng/bbig;
  
@@ -2763,7 +2801,7 @@ index 00000000000000..8d0c3fde9ab5e8
 +const AllowCryptoFallback = true
 +const AllowCryptoFallbackInt = 1
 diff --git a/src/internal/goexperiment/flags.go b/src/internal/goexperiment/flags.go
-index 6b4289503d57ae..12fba96b868c9e 100644
+index c2a8b7f860d780..451a8924ae423d 100644
 --- a/src/internal/goexperiment/flags.go
 +++ b/src/internal/goexperiment/flags.go
 @@ -78,6 +78,14 @@ type Flags struct {
