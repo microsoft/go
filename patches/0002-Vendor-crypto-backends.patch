@@ -30,13 +30,13 @@ Use a 'go' that was recently built by the current branch to ensure stable result
  .../golang-fips/openssl/v2/goopenssl.c        | 248 ++++++
  .../golang-fips/openssl/v2/goopenssl.h        | 261 +++++++
  .../github.com/golang-fips/openssl/v2/hash.go | 714 ++++++++++++++++++
- .../github.com/golang-fips/openssl/v2/hkdf.go | 322 ++++++++
+ .../github.com/golang-fips/openssl/v2/hkdf.go | 442 +++++++++++
  .../github.com/golang-fips/openssl/v2/hmac.go | 274 +++++++
  .../github.com/golang-fips/openssl/v2/init.go |  64 ++
  .../golang-fips/openssl/v2/init_unix.go       |  31 +
  .../golang-fips/openssl/v2/init_windows.go    |  36 +
  .../golang-fips/openssl/v2/openssl.go         | 506 +++++++++++++
- .../golang-fips/openssl/v2/params.go          | 210 ++++++
+ .../golang-fips/openssl/v2/params.go          | 213 ++++++
  .../golang-fips/openssl/v2/pbkdf2.go          |  62 ++
  .../golang-fips/openssl/v2/port_dsa.c         |  85 +++
  .../github.com/golang-fips/openssl/v2/rand.go |  20 +
@@ -101,7 +101,7 @@ Use a 'go' that was recently built by the current branch to ensure stable result
  .../internal/subtle/aliasing.go               |  32 +
  .../internal/sysdll/sys_windows.go            |  55 ++
  src/vendor/modules.txt                        |  16 +
- 95 files changed, 13814 insertions(+), 7 deletions(-)
+ 95 files changed, 13937 insertions(+), 7 deletions(-)
  create mode 100644 src/crypto/internal/backend/deps_ignore.go
  create mode 100644 src/vendor/github.com/golang-fips/openssl/v2/.gitignore
  create mode 100644 src/vendor/github.com/golang-fips/openssl/v2/.gitleaks.toml
@@ -222,7 +222,7 @@ index 00000000000000..ae4055d2d71303
 +// that are used by the backend package. This allows to track
 +// their versions in a single patch file.
 diff --git a/src/go.mod b/src/go.mod
-index cc6d24c8067e9e..89361850566dc4 100644
+index cc6d24c8067e9e..7abdef9991b4aa 100644
 --- a/src/go.mod
 +++ b/src/go.mod
 @@ -11,3 +11,9 @@ require (
@@ -231,17 +231,17 @@ index cc6d24c8067e9e..89361850566dc4 100644
  )
 +
 +require (
-+	github.com/golang-fips/openssl/v2 v2.0.4-0.20250115103809-bf655f6d08d6
++	github.com/golang-fips/openssl/v2 v2.0.4-0.20250505132513-602014383322
 +	github.com/microsoft/go-crypto-darwin v0.0.2-0.20250116101429-467bd63a2d67
 +	github.com/microsoft/go-crypto-winnative v0.0.0-20250211154640-f49c8e1379ea
 +)
 diff --git a/src/go.sum b/src/go.sum
-index 7301ae09c45516..1dff2e4c9a9978 100644
+index 7301ae09c45516..2944f6089c8702 100644
 --- a/src/go.sum
 +++ b/src/go.sum
 @@ -1,3 +1,9 @@
-+github.com/golang-fips/openssl/v2 v2.0.4-0.20250115103809-bf655f6d08d6 h1:FFp7Q2AwYX+IQhhQt3ljQDdWtG5ZbRu0u3ohWQdFow8=
-+github.com/golang-fips/openssl/v2 v2.0.4-0.20250115103809-bf655f6d08d6/go.mod h1:OYUBsoxLpFu8OFyhZHxfpN8lgcsw8JhTC3BQK7+XUc0=
++github.com/golang-fips/openssl/v2 v2.0.4-0.20250505132513-602014383322 h1:KpwX+LsODtn2Y3foZ0HpbK4iTYIZk9jx3tTOBZgKbSQ=
++github.com/golang-fips/openssl/v2 v2.0.4-0.20250505132513-602014383322/go.mod h1:OYUBsoxLpFu8OFyhZHxfpN8lgcsw8JhTC3BQK7+XUc0=
 +github.com/microsoft/go-crypto-darwin v0.0.2-0.20250116101429-467bd63a2d67 h1:SI0IFiHducwfamZR7pv6jb92oc5o/z5tn66wynS6ADE=
 +github.com/microsoft/go-crypto-darwin v0.0.2-0.20250116101429-467bd63a2d67/go.mod h1:LyP4oZ0QcysEJdqUTOk9ngNFArRFK94YRImkoJ8julQ=
 +github.com/microsoft/go-crypto-winnative v0.0.0-20250211154640-f49c8e1379ea h1:JuRzAUOV9uaQdoNeuHyOEAJbpRahsICnwfPPGzzuzRw=
@@ -4382,10 +4382,10 @@ index 00000000000000..b2109857b49bdf
 +}
 diff --git a/src/vendor/github.com/golang-fips/openssl/v2/hkdf.go b/src/vendor/github.com/golang-fips/openssl/v2/hkdf.go
 new file mode 100644
-index 00000000000000..d4f8aa6a92a6fb
+index 00000000000000..cf14ac905a698a
 --- /dev/null
 +++ b/src/vendor/github.com/golang-fips/openssl/v2/hkdf.go
-@@ -0,0 +1,322 @@
+@@ -0,0 +1,442 @@
 +//go:build !cmd_go_bootstrap
 +
 +package openssl
@@ -4408,6 +4408,20 @@ index 00000000000000..d4f8aa6a92a6fb
 +		return versionAtOrAbove(1, 1, 1)
 +	case 3:
 +		_, err := fetchHKDF3()
++		return err == nil
++	default:
++		panic(errUnsupportedVersion())
++	}
++}
++
++// SupprtsTLS13KDF reports whether the current OpenSSL version supports TLS13-KDF.
++func SupportsTLS13KDF() bool {
++	switch vMajor {
++	case 1:
++		return false
++	case 3:
++		// TLS13-KDF is available in OpenSSL 3.0.0 and later.
++		_, err := fetchTLS13_KDF()
 +		return err == nil
 +	default:
 +		panic(errUnsupportedVersion())
@@ -4497,6 +4511,14 @@ index 00000000000000..d4f8aa6a92a6fb
 +	return n, nil
 +}
 +
++// hkdfAllZerosSalt is a preallocated buffer of zeros used in ExtractHKDF().
++// The size should be kept as large as the output length of any hash algorithm
++// used with HKDF.
++var hkdfAllZerosSalt [64]byte
++
++// ExtractHDKF implements the HDKF extract step.
++// If salt is nil, then this function replaces it internally with a buffer of
++// zeros whose length equals the output length of the specified hash algorithm.
 +func ExtractHKDF(h func() hash.Hash, secret, salt []byte) ([]byte, error) {
 +	if !SupportsHKDF() {
 +		return nil, errUnsupportedVersion()
@@ -4505,6 +4527,20 @@ index 00000000000000..d4f8aa6a92a6fb
 +	md, err := hashFuncToMD(h)
 +	if err != nil {
 +		return nil, err
++	}
++
++	// If calling code specifies nil salt, replace it with a buffer of hashLen
++	// zeros, as specified in RFC 5896 and as OpenSSL EVP_KDF-HKDF documentation
++	// instructs. Take a slice of a preallocated buffer to avoid allocating new
++	// buffer per call, but fall back to allocating a buffer if preallocated
++	// buffer is not large enough.
++	if salt == nil {
++		hlen := h().Size()
++		if hlen > len(hkdfAllZerosSalt) {
++			salt = make([]byte, hlen)
++		} else {
++			salt = hkdfAllZerosSalt[:hlen]
++		}
 +	}
 +
 +	switch vMajor {
@@ -4576,6 +4612,31 @@ index 00000000000000..d4f8aa6a92a6fb
 +	return out, nil
 +}
 +
++// ExpandTLS13KDF derives a key from the given hash, key, label and context. It will use
++// "TLS13-KDF" algorithm to do so.
++func ExpandTLS13KDF(h func() hash.Hash, pseudorandomKey, label, context []byte, keyLength int) ([]byte, error) {
++	if !SupportsTLS13KDF() {
++		return nil, errUnsupportedVersion()
++	}
++
++	md, err := hashFuncToMD(h)
++	if err != nil {
++		return nil, err
++	}
++
++	out := make([]byte, keyLength)
++
++	ctx, err := newTLS13KDFExpandCtx3(md, label, context, pseudorandomKey)
++	if err != nil {
++		return nil, err
++	}
++	defer C.go_openssl_EVP_KDF_CTX_free(ctx)
++	if _, err := C.go_openssl_EVP_KDF_derive(ctx, base(out), C.size_t(keyLength), nil); err != nil {
++		return nil, err
++	}
++	return out, nil
++}
++
 +func ExpandHKDF(h func() hash.Hash, pseudorandomKey, info []byte) (io.Reader, error) {
 +	if !SupportsHKDF() {
 +		return nil, errUnsupportedVersion()
@@ -4619,6 +4680,65 @@ index 00000000000000..d4f8aa6a92a6fb
 +	if c.ctx != nil {
 +		C.go_openssl_EVP_KDF_CTX_free(c.ctx)
 +	}
++}
++
++// fetchTLS13_KDF fetches the TLS13-KDF algorithm.
++// It is safe to call this function concurrently.
++// The returned EVP_KDF_PTR shouldn't be freed.
++var fetchTLS13_KDF = sync.OnceValues(func() (C.GO_EVP_KDF_PTR, error) {
++	checkMajorVersion(3)
++
++	name := C.CString("TLS13-KDF")
++	kdf := C.go_openssl_EVP_KDF_fetch(nil, name, nil)
++	C.free(unsafe.Pointer(name))
++	if kdf == nil {
++		return nil, newOpenSSLError("EVP_KDF_fetch")
++	}
++	return kdf, nil
++})
++
++// newTLS13KDFExpandCtx3 fetches the "TLS13-KDF" for TLS 1.3 handshakes.
++func newTLS13KDFExpandCtx3(md C.GO_EVP_MD_PTR, label, context, pseudorandomKey []byte) (_ C.GO_EVP_KDF_CTX_PTR, err error) {
++	checkMajorVersion(3)
++
++	kdf, err := fetchTLS13_KDF()
++	if err != nil {
++		return nil, err
++	}
++
++	ctx, err := C.go_openssl_EVP_KDF_CTX_new(kdf)
++	if err != nil {
++		return nil, err
++	}
++	defer func() {
++		if err != nil {
++			C.go_openssl_EVP_KDF_CTX_free(ctx)
++		}
++	}()
++
++	bld, err := newParamBuilder()
++	if err != nil {
++		return ctx, err
++	}
++	bld.addUTF8String(_OSSL_KDF_PARAM_DIGEST, C.go_openssl_EVP_MD_get0_name(md), 0)
++	bld.addInt32(_OSSL_KDF_PARAM_MODE, int32(C.GO_EVP_KDF_HKDF_MODE_EXPAND_ONLY))
++	bld.addOctetString(_OSSL_KDF_PARAM_PREFIX, []byte("tls13 "))
++	bld.addOctetString(_OSSL_KDF_PARAM_LABEL, label)
++	bld.addOctetString(_OSSL_KDF_PARAM_DATA, context)
++	if len(pseudorandomKey) > 0 {
++		bld.addOctetString(_OSSL_KDF_PARAM_KEY, pseudorandomKey)
++	}
++
++	params, err := bld.build()
++	if err != nil {
++		return ctx, err
++	}
++	defer C.go_openssl_OSSL_PARAM_free(params)
++
++	if _, err := C.go_openssl_EVP_KDF_CTX_set_params(ctx, params); err != nil {
++		return ctx, err
++	}
++	return ctx, nil
 +}
 +
 +// fetchHKDF3 fetches the HKDF algorithm.
@@ -5651,10 +5771,10 @@ index 00000000000000..ec39bf1533cae0
 +}
 diff --git a/src/vendor/github.com/golang-fips/openssl/v2/params.go b/src/vendor/github.com/golang-fips/openssl/v2/params.go
 new file mode 100644
-index 00000000000000..fa24a8cd673ed0
+index 00000000000000..fd5bd405ca0b17
 --- /dev/null
 +++ b/src/vendor/github.com/golang-fips/openssl/v2/params.go
-@@ -0,0 +1,210 @@
+@@ -0,0 +1,213 @@
 +//go:build !cmd_go_bootstrap
 +
 +package openssl
@@ -5675,6 +5795,9 @@ index 00000000000000..fa24a8cd673ed0
 +	_OSSL_KDF_PARAM_INFO   = C.CString("info")
 +	_OSSL_KDF_PARAM_SALT   = C.CString("salt")
 +	_OSSL_KDF_PARAM_MODE   = C.CString("mode")
++	_OSSL_KDF_PARAM_PREFIX = C.CString("prefix")
++	_OSSL_KDF_PARAM_LABEL  = C.CString("label")
++	_OSSL_KDF_PARAM_DATA   = C.CString("data")
 +
 +	// PKEY parameters
 +	_OSSL_PKEY_PARAM_PUB_KEY          = C.CString("pub")
@@ -15170,11 +15293,11 @@ index 00000000000000..1722410e5af193
 +	return getSystemDirectory() + "\\" + dll
 +}
 diff --git a/src/vendor/modules.txt b/src/vendor/modules.txt
-index 7ca8e349081787..13b13d6f565fa0 100644
+index 7ca8e349081787..3651eba0e3cb82 100644
 --- a/src/vendor/modules.txt
 +++ b/src/vendor/modules.txt
 @@ -1,3 +1,19 @@
-+# github.com/golang-fips/openssl/v2 v2.0.4-0.20250115103809-bf655f6d08d6
++# github.com/golang-fips/openssl/v2 v2.0.4-0.20250505132513-602014383322
 +## explicit; go 1.22
 +github.com/golang-fips/openssl/v2
 +github.com/golang-fips/openssl/v2/bbig
