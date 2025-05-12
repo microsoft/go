@@ -355,20 +355,19 @@ func writeDevelVersionFile(goRootDir, toolsDir string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("unable to get dist version: %v (%v)", err, string(vBytes))
 	}
-	fields := strings.Fields(string(vBytes))
-	if len(fields) < 2 {
-		return "", fmt.Errorf("expected at least 2 fields in dist version output, got %q in %q", len(fields), string(vBytes))
+	ver, _, _ := strings.Cut(string(vBytes), " ")
+	// The version string is something like "go1.21-devel_abcde1234 Mon Oct 16 12:34:56 2023"
+	// Just using the first field removing the devel_ substring: the full VERSION file string
+	// is placed into the archive filename, so this keeps it simple and avoids special characters.
+	const devel = "devel_"
+	if !strings.Contains(ver, devel) {
+		return "", fmt.Errorf("expected substring %q in dist version, got %q", devel, ver)
 	}
-	if fields[0] != "devel" {
-		return "", fmt.Errorf("expected first field 'devel' in dist version, got %q", fields[0])
-	}
-	// The second field should be something like "go1.21-abcde1234", and the remaining fields are a
-	// timestamp. Just using the second field as is: the full VERSION file string is placed into the
-	// archive filename, so this keeps it simple and avoids special characters.
-	if err := os.WriteFile(filepath.Join(goRootDir, "VERSION"), []byte(fields[1]), 0o666); err != nil {
+	ver = strings.Replace(ver, devel, "", 1)
+	if err := os.WriteFile(filepath.Join(goRootDir, "VERSION"), []byte(ver), 0o666); err != nil {
 		return "", err
 	}
-	return fields[1], nil
+	return ver, nil
 }
 
 // copyFile copies src to dst, creating dst's directory if necessary. Handles errors robustly,
