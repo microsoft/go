@@ -13,8 +13,8 @@ Subject: [PATCH] Implement crypto/internal/backend
  src/crypto/internal/backend/bbig/big_cng.go   |  12 +
  .../internal/backend/bbig/big_darwin.go       |  12 +
  .../internal/backend/bbig/big_openssl.go      |  12 +
- src/crypto/internal/backend/boring_linux.go   | 289 ++++++++++++++
- src/crypto/internal/backend/cng_windows.go    | 344 ++++++++++++++++
+ src/crypto/internal/backend/boring_linux.go   | 294 ++++++++++++++
+ src/crypto/internal/backend/cng_windows.go    | 348 +++++++++++++++++
  src/crypto/internal/backend/common.go         | 122 ++++++
  src/crypto/internal/backend/darwin_darwin.go  | 367 ++++++++++++++++++
  src/crypto/internal/backend/fips140/boring.go |  11 +
@@ -30,7 +30,7 @@ Subject: [PATCH] Implement crypto/internal/backend
  .../opensslsetup/opensslsetup_test.go         |  92 +++++
  .../backend/internal/opensslsetup/stub.go     |   8 +
  src/crypto/internal/backend/nobackend.go      | 246 ++++++++++++
- src/crypto/internal/backend/openssl_linux.go  | 341 ++++++++++++++++
+ src/crypto/internal/backend/openssl_linux.go  | 346 +++++++++++++++++
  src/crypto/internal/backend/stub.s            |  10 +
  src/go/build/deps_test.go                     |  27 +-
  .../exp_allowcryptofallback_off.go            |   9 +
@@ -49,7 +49,7 @@ Subject: [PATCH] Implement crypto/internal/backend
  ...ckenderr_gen_requirefips_nosystemcrypto.go |  17 +
  .../backenderr_gen_systemcrypto_nobackend.go  |  16 +
  src/runtime/runtime_boring.go                 |   5 +
- 45 files changed, 2795 insertions(+), 3 deletions(-)
+ 45 files changed, 2809 insertions(+), 3 deletions(-)
  create mode 100644 src/crypto/internal/backend/backend_test.go
  create mode 100644 src/crypto/internal/backend/backendgen.go
  create mode 100644 src/crypto/internal/backend/backendgen_test.go
@@ -554,10 +554,10 @@ index 00000000000000..e6695dd66b1d02
 +var Dec = bbig.Dec
 diff --git a/src/crypto/internal/backend/boring_linux.go b/src/crypto/internal/backend/boring_linux.go
 new file mode 100644
-index 00000000000000..57da4675217f3f
+index 00000000000000..3146d26e7ba7f2
 --- /dev/null
 +++ b/src/crypto/internal/backend/boring_linux.go
-@@ -0,0 +1,289 @@
+@@ -0,0 +1,294 @@
 +// Copyright 2017 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -616,8 +616,13 @@ index 00000000000000..57da4675217f3f
 +func NewHMAC(h func() hash.Hash, key []byte) hash.Hash { return boring.NewHMAC(h, key) }
 +
 +func NewAESCipher(key []byte) (cipher.Block, error) {
-+	return extendedBlockCipher(boring.NewAESCipher(key))
++	cipher, err := boring.NewAESCipher(key)
++	if err != nil {
++		return nil, err
++	}
++	return extendedBlockCipher(cipher), nil
 +}
++
 +func NewGCMTLS(c cipher.Block) (cipher.AEAD, error)   { return boring.NewGCMTLS(c) }
 +func NewGCMTLS13(c cipher.Block) (cipher.AEAD, error) { return boring.NewGCMTLS13(c) }
 +
@@ -849,10 +854,10 @@ index 00000000000000..57da4675217f3f
 +}
 diff --git a/src/crypto/internal/backend/cng_windows.go b/src/crypto/internal/backend/cng_windows.go
 new file mode 100644
-index 00000000000000..2cf6e1e435552a
+index 00000000000000..696a45ed87405d
 --- /dev/null
 +++ b/src/crypto/internal/backend/cng_windows.go
-@@ -0,0 +1,344 @@
+@@ -0,0 +1,348 @@
 +// Copyright 2017 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -926,7 +931,11 @@ index 00000000000000..2cf6e1e435552a
 +}
 +
 +func NewAESCipher(key []byte) (cipher.Block, error) {
-+	return extendedBlockCipher(cng.NewAESCipher(key))
++	cipher, err := cng.NewAESCipher(key)
++	if err != nil {
++		return nil, err
++	}
++	return extendedBlockCipher(cipher), nil
 +}
 +
 +func NewGCMTLS(c cipher.Block) (cipher.AEAD, error) {
@@ -2415,10 +2424,10 @@ index 00000000000000..1675358749323f
 +}
 diff --git a/src/crypto/internal/backend/openssl_linux.go b/src/crypto/internal/backend/openssl_linux.go
 new file mode 100644
-index 00000000000000..5e9cb4b2691a82
+index 00000000000000..a99b10566710e0
 --- /dev/null
 +++ b/src/crypto/internal/backend/openssl_linux.go
-@@ -0,0 +1,341 @@
+@@ -0,0 +1,346 @@
 +// Copyright 2017 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -2500,8 +2509,13 @@ index 00000000000000..5e9cb4b2691a82
 +func NewHMAC(h func() hash.Hash, key []byte) hash.Hash { return openssl.NewHMAC(h, key) }
 +
 +func NewAESCipher(key []byte) (cipher.Block, error) {
-+	return extendedBlockCipher(openssl.NewAESCipher(key))
++	cipher, err := openssl.NewAESCipher(key)
++	if err != nil {
++		return nil, err
++	}
++	return extendedBlockCipher(cipher), nil
 +}
++
 +func NewGCMTLS(c cipher.Block) (cipher.AEAD, error)   { return openssl.NewGCMTLS(c) }
 +func NewGCMTLS13(c cipher.Block) (cipher.AEAD, error) { return openssl.NewGCMTLS13(c) }
 +
