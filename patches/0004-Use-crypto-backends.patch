@@ -18,7 +18,7 @@ Subject: [PATCH] Use crypto backends
  src/crypto/aes/aes_test.go                    |   2 +-
  src/crypto/boring/boring.go                   |   4 +-
  src/crypto/cipher/ctr_aes_test.go             |   2 +-
- src/crypto/cipher/gcm.go                      |  46 ++++-
+ src/crypto/cipher/gcm.go                      |  53 ++++-
  src/crypto/cipher/gcm_test.go                 |  12 +-
  src/crypto/des/cipher.go                      |   7 +
  src/crypto/dsa/boring.go                      | 113 ++++++++++
@@ -90,7 +90,7 @@ Subject: [PATCH] Use crypto backends
  src/net/lookup_test.go                        |   3 +
  src/os/exec/exec_test.go                      |   9 +
  src/runtime/pprof/vminfo_darwin_test.go       |   6 +
- 86 files changed, 1158 insertions(+), 96 deletions(-)
+ 86 files changed, 1165 insertions(+), 96 deletions(-)
  create mode 100644 src/crypto/dsa/boring.go
  create mode 100644 src/crypto/dsa/notboring.go
  create mode 100644 src/crypto/ecdsa/badlinkname.go
@@ -381,7 +381,7 @@ index 33942467784ad3..0282ffa9fa23c8 100644
  	fipsaes "crypto/internal/fips140/aes"
  	"encoding/hex"
 diff --git a/src/crypto/cipher/gcm.go b/src/crypto/cipher/gcm.go
-index 5580f96d55a0fb..ec264badc5f415 100644
+index 5580f96d55a0fb..f82b95e2c85cb7 100644
 --- a/src/crypto/cipher/gcm.go
 +++ b/src/crypto/cipher/gcm.go
 @@ -93,7 +93,14 @@ func newGCM(cipher Block, nonceSize, tagSize int) (AEAD, error) {
@@ -409,23 +409,21 @@ index 5580f96d55a0fb..ec264badc5f415 100644
  }
  
  func (g gcmWithRandomNonce) NonceSize() int {
-@@ -157,7 +164,14 @@ func (g gcmWithRandomNonce) Seal(dst, nonce, plaintext, additionalData []byte) [
+@@ -157,7 +164,12 @@ func (g gcmWithRandomNonce) Seal(dst, nonce, plaintext, additionalData []byte) [
  		plaintext = ciphertext[:len(plaintext)]
  	}
  
 -	gcm.SealWithRandomNonce(g.GCM, nonce, ciphertext, plaintext, additionalData)
 +	if gc, ok := g.aead.(*gcm.GCM); ok {
 +		gcm.SealWithRandomNonce(gc, nonce, ciphertext, plaintext, additionalData)
-+	} else if gc, ok := g.aead.(interface {
-+		SealWithRandomNonce(nonce, out, plaintext, additionalData []byte)
-+	}); ok {
++	} else if gc, ok := g.aead.(randomNonceSealer); ok {
 +		gc.SealWithRandomNonce(nonce, ciphertext, plaintext, additionalData)
 +	}
 +
  	return ret
  }
  
-@@ -190,7 +204,7 @@ func (g gcmWithRandomNonce) Open(dst, nonce, ciphertext, additionalData []byte)
+@@ -190,7 +202,7 @@ func (g gcmWithRandomNonce) Open(dst, nonce, ciphertext, additionalData []byte)
  		ciphertext = ciphertext[gcmStandardNonceSize:]
  	}
  
@@ -434,7 +432,18 @@ index 5580f96d55a0fb..ec264badc5f415 100644
  	if err != nil {
  		return nil, err
  	}
-@@ -212,7 +226,11 @@ func newGCMFallback(cipher Block, nonceSize, tagSize int) (AEAD, error) {
+@@ -204,6 +216,10 @@ type gcmAble interface {
+ 	NewGCM(nonceSize, tagSize int) (AEAD, error)
+ }
+ 
++type randomNonceSealer interface {
++	SealWithRandomNonce(nonce, out, plaintext, additionalData []byte)
++}
++
+ func newGCMFallback(cipher Block, nonceSize, tagSize int) (AEAD, error) {
+ 	if tagSize < gcmMinimumTagSize || tagSize > gcmBlockSize {
+ 		return nil, errors.New("cipher: incorrect tag size given to GCM")
+@@ -212,7 +228,16 @@ func newGCMFallback(cipher Block, nonceSize, tagSize int) (AEAD, error) {
  		return nil, errors.New("cipher: the nonce can't have zero length")
  	}
  	if cipher, ok := cipher.(gcmAble); ok {
@@ -443,11 +452,16 @@ index 5580f96d55a0fb..ec264badc5f415 100644
 +		if err != nil {
 +			return nil, err
 +		}
-+		return &customGCMWrapper{aead: g}, nil
++
++		if _, ok := g.(randomNonceSealer); ok {
++			return &customGCMWrapper{g}, nil
++		}
++
++		return g, nil
  	}
  	if cipher.BlockSize() != gcmBlockSize {
  		return nil, errors.New("cipher: NewGCM requires 128-bit block cipher")
-@@ -220,6 +238,24 @@ func newGCMFallback(cipher Block, nonceSize, tagSize int) (AEAD, error) {
+@@ -220,6 +245,24 @@ func newGCMFallback(cipher Block, nonceSize, tagSize int) (AEAD, error) {
  	return &gcmFallback{cipher: cipher, nonceSize: nonceSize, tagSize: tagSize}, nil
  }
  
