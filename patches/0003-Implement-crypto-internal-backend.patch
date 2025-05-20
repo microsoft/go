@@ -15,7 +15,7 @@ Subject: [PATCH] Implement crypto/internal/backend
  .../internal/backend/bbig/big_openssl.go      |  12 +
  src/crypto/internal/backend/boring_linux.go   | 294 ++++++++++++++
  src/crypto/internal/backend/cng_windows.go    | 348 +++++++++++++++++
- src/crypto/internal/backend/common.go         | 122 ++++++
+ src/crypto/internal/backend/common.go         | 150 +++++++
  src/crypto/internal/backend/darwin_darwin.go  | 367 ++++++++++++++++++
  src/crypto/internal/backend/fips140/boring.go |  11 +
  src/crypto/internal/backend/fips140/cng.go    |  33 ++
@@ -49,7 +49,7 @@ Subject: [PATCH] Implement crypto/internal/backend
  ...ckenderr_gen_requirefips_nosystemcrypto.go |  17 +
  .../backenderr_gen_systemcrypto_nobackend.go  |  16 +
  src/runtime/runtime_boring.go                 |   5 +
- 45 files changed, 2809 insertions(+), 3 deletions(-)
+ 45 files changed, 2837 insertions(+), 3 deletions(-)
  create mode 100644 src/crypto/internal/backend/backend_test.go
  create mode 100644 src/crypto/internal/backend/backendgen.go
  create mode 100644 src/crypto/internal/backend/backendgen_test.go
@@ -554,7 +554,7 @@ index 00000000000000..e6695dd66b1d02
 +var Dec = bbig.Dec
 diff --git a/src/crypto/internal/backend/boring_linux.go b/src/crypto/internal/backend/boring_linux.go
 new file mode 100644
-index 00000000000000..3146d26e7ba7f2
+index 00000000000000..5befae98deed4d
 --- /dev/null
 +++ b/src/crypto/internal/backend/boring_linux.go
 @@ -0,0 +1,294 @@
@@ -620,7 +620,7 @@ index 00000000000000..3146d26e7ba7f2
 +	if err != nil {
 +		return nil, err
 +	}
-+	return extendedBlockCipher(cipher), nil
++	return wrapGCMCapableBlock(cipher), nil
 +}
 +
 +func NewGCMTLS(c cipher.Block) (cipher.AEAD, error)   { return boring.NewGCMTLS(c) }
@@ -854,7 +854,7 @@ index 00000000000000..3146d26e7ba7f2
 +}
 diff --git a/src/crypto/internal/backend/cng_windows.go b/src/crypto/internal/backend/cng_windows.go
 new file mode 100644
-index 00000000000000..696a45ed87405d
+index 00000000000000..21345775fe387c
 --- /dev/null
 +++ b/src/crypto/internal/backend/cng_windows.go
 @@ -0,0 +1,348 @@
@@ -935,7 +935,7 @@ index 00000000000000..696a45ed87405d
 +	if err != nil {
 +		return nil, err
 +	}
-+	return extendedBlockCipher(cipher), nil
++	return wrapGCMCapableBlock(cipher), nil
 +}
 +
 +func NewGCMTLS(c cipher.Block) (cipher.AEAD, error) {
@@ -1208,10 +1208,10 @@ index 00000000000000..696a45ed87405d
 +}
 diff --git a/src/crypto/internal/backend/common.go b/src/crypto/internal/backend/common.go
 new file mode 100644
-index 00000000000000..19b9818f8931e0
+index 00000000000000..6a85c9af5c5dd7
 --- /dev/null
 +++ b/src/crypto/internal/backend/common.go
-@@ -0,0 +1,122 @@
+@@ -0,0 +1,150 @@
 +// Copyright 2022 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -1280,7 +1280,35 @@ index 00000000000000..19b9818f8931e0
 +	gcmTagSize           = 16
 +)
 +
++// gcmMCapableBlock extends cipher.Block with the ability to create customizable GCM AEADs.
++// Based on the gcmAble interface from crypto/cipher/gcm.go.
++type gcmCapableBlock interface {
++	cipher.Block
++	NewGCM(nonceSize, tagSize int) (cipher.AEAD, error)
++}
++
++// wrapGCMCapableBlock checks if the given cipher.Block implements gcmCapableBlock.
++// If it does, it wraps it in an extendedBlockCipher; otherwise, it returns the block as is.
++func wrapGCMCapableBlock(block cipher.Block) cipher.Block {
++	if gcmBlock, ok := block.(gcmCapableBlock); ok {
++		return &extendedBlockCipher{gcmBlock}
++	}
++	return block
++}
++
 +type extendedBlockCipher struct {
++	gcmCapableBlock
++}
++
++func (e *extendedBlockCipher) NewGCM(nonceSize, tagSize int) (cipher.AEAD, error) {
++	gcm, err := e.gcmCapableBlock.NewGCM(nonceSize, tagSize)
++	if err != nil {
++		return nil, err
++	}
++	return &extendedAEAD{AEAD: gcm}, nil
++}
++
++type extendedAEAD struct {
 +	cipher.AEAD
 +}
 +
@@ -1293,7 +1321,7 @@ index 00000000000000..19b9818f8931e0
 +//
 +// Note that this is NOT a [cipher.AEAD].Seal method.
 +// This methods implementation is copied from fips140/aes/gcm
-+func (g *extendedBlockCipher) SealWithRandomNonce(nonce, out, plaintext, additionalData []byte) {
++func (g *extendedAEAD) SealWithRandomNonce(nonce, out, plaintext, additionalData []byte) {
 +	if uint64(len(plaintext)) > uint64((1<<32)-2)*gcmBlockSize {
 +		panic("crypto/cipher: message too large for GCM")
 +	}
@@ -2424,7 +2452,7 @@ index 00000000000000..1675358749323f
 +}
 diff --git a/src/crypto/internal/backend/openssl_linux.go b/src/crypto/internal/backend/openssl_linux.go
 new file mode 100644
-index 00000000000000..a99b10566710e0
+index 00000000000000..33c0fa4c583425
 --- /dev/null
 +++ b/src/crypto/internal/backend/openssl_linux.go
 @@ -0,0 +1,346 @@
@@ -2513,7 +2541,7 @@ index 00000000000000..a99b10566710e0
 +	if err != nil {
 +		return nil, err
 +	}
-+	return extendedBlockCipher(cipher), nil
++	return wrapGCMCapableBlock(cipher), nil
 +}
 +
 +func NewGCMTLS(c cipher.Block) (cipher.AEAD, error)   { return openssl.NewGCMTLS(c) }
