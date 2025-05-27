@@ -18,7 +18,7 @@ Subject: [PATCH] Use crypto backends
  src/crypto/aes/aes_test.go                    |   2 +-
  src/crypto/boring/boring.go                   |   4 +-
  src/crypto/cipher/ctr_aes_test.go             |   2 +-
- src/crypto/cipher/gcm.go                      |  31 ++-
+ src/crypto/cipher/gcm.go                      |  53 ++++-
  src/crypto/cipher/gcm_test.go                 |  13 +-
  src/crypto/des/cipher.go                      |   7 +
  src/crypto/dsa/boring.go                      | 113 ++++++++++
@@ -90,7 +90,7 @@ Subject: [PATCH] Use crypto backends
  src/net/lookup_test.go                        |   3 +
  src/os/exec/exec_test.go                      |   9 +
  src/runtime/pprof/vminfo_darwin_test.go       |   6 +
- 86 files changed, 1144 insertions(+), 96 deletions(-)
+ 86 files changed, 1166 insertions(+), 96 deletions(-)
  create mode 100644 src/crypto/dsa/boring.go
  create mode 100644 src/crypto/dsa/notboring.go
  create mode 100644 src/crypto/ecdsa/badlinkname.go
@@ -381,7 +381,7 @@ index 33942467784ad3..0282ffa9fa23c8 100644
  	fipsaes "crypto/internal/fips140/aes"
  	"encoding/hex"
 diff --git a/src/crypto/cipher/gcm.go b/src/crypto/cipher/gcm.go
-index 5580f96d55a0fb..d6f6a1538e782f 100644
+index 5580f96d55a0fb..cc759af19b116b 100644
 --- a/src/crypto/cipher/gcm.go
 +++ b/src/crypto/cipher/gcm.go
 @@ -93,7 +93,14 @@ func newGCM(cipher Block, nonceSize, tagSize int) (AEAD, error) {
@@ -443,7 +443,7 @@ index 5580f96d55a0fb..d6f6a1538e782f 100644
  func newGCMFallback(cipher Block, nonceSize, tagSize int) (AEAD, error) {
  	if tagSize < gcmMinimumTagSize || tagSize > gcmBlockSize {
  		return nil, errors.New("cipher: incorrect tag size given to GCM")
-@@ -212,7 +228,12 @@ func newGCMFallback(cipher Block, nonceSize, tagSize int) (AEAD, error) {
+@@ -212,7 +228,16 @@ func newGCMFallback(cipher Block, nonceSize, tagSize int) (AEAD, error) {
  		return nil, errors.New("cipher: the nonce can't have zero length")
  	}
  	if cipher, ok := cipher.(gcmAble); ok {
@@ -453,10 +453,39 @@ index 5580f96d55a0fb..d6f6a1538e782f 100644
 +			return nil, err
 +		}
 +
++		if _, ok := g.(randomNonceSealer); ok {
++			return &customGCMWrapper{g}, nil
++		}
++
 +		return g, nil
  	}
  	if cipher.BlockSize() != gcmBlockSize {
  		return nil, errors.New("cipher: NewGCM requires 128-bit block cipher")
+@@ -220,6 +245,24 @@ func newGCMFallback(cipher Block, nonceSize, tagSize int) (AEAD, error) {
+ 	return &gcmFallback{cipher: cipher, nonceSize: nonceSize, tagSize: tagSize}, nil
+ }
+ 
++// customGCMWrapper wraps an AEAD implementation to expose only the AEAD interface methods.
++// This prevents extra exported methods from causing test failures in cryptotest.NoExtraMethods.
++type customGCMWrapper struct {
++	aead AEAD
++}
++
++func (g *customGCMWrapper) NonceSize() int { return g.aead.NonceSize() }
++
++func (g *customGCMWrapper) Overhead() int { return g.aead.Overhead() }
++
++func (g *customGCMWrapper) Seal(dst, nonce, plaintext, additionalData []byte) []byte {
++	return g.aead.Seal(dst, nonce, plaintext, additionalData)
++}
++
++func (g *customGCMWrapper) Open(dst, nonce, ciphertext, additionalData []byte) ([]byte, error) {
++	return g.aead.Open(dst, nonce, ciphertext, additionalData)
++}
++
+ // gcmFallback is only used for non-AES ciphers, which regrettably we
+ // theoretically support. It's a copy of the generic implementation from
+ // crypto/internal/fips140/aes/gcm/gcm_generic.go, refer to that file for more details.
 diff --git a/src/crypto/cipher/gcm_test.go b/src/crypto/cipher/gcm_test.go
 index e574822c9aa6f8..f32707146a369a 100644
 --- a/src/crypto/cipher/gcm_test.go
