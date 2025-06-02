@@ -81,6 +81,10 @@ This section includes the following packages:
 
 <sup>3</sup>Supports only hash algorithms that are supported as standalone hash functions.
 
+- Encoding interfaces
+
+  The hash algorithms support the [encoding.BinaryMarshaler](https://pkg.go.dev/encoding#BinaryMarshaler), [encoding.BinaryUnmarshaler](https://pkg.go.dev/encoding#BinaryUnmarshaler), and [encoding.BinaryAppender](https://pkg.go.dev/encoding#BinaryAppender) interfaces only on Linux. When using OpenSSL 3, it requires using a built-in provider or SCOSSL v1.9.0 or later.
+
 ## Symmetric encryption
 
 This section includes the following packages:
