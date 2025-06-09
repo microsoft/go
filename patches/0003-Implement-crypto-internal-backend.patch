@@ -14,9 +14,9 @@ Subject: [PATCH] Implement crypto/internal/backend
  .../internal/backend/bbig/big_darwin.go       |  12 +
  .../internal/backend/bbig/big_openssl.go      |  12 +
  src/crypto/internal/backend/boring_linux.go   | 287 +++++++++++++
- src/crypto/internal/backend/cng_windows.go    | 368 ++++++++++++++++
- src/crypto/internal/backend/common.go         |  68 +++
- src/crypto/internal/backend/darwin_darwin.go  | 393 ++++++++++++++++++
+ src/crypto/internal/backend/cng_windows.go    | 353 ++++++++++++++++
+ src/crypto/internal/backend/common.go         |  68 ++++
+ src/crypto/internal/backend/darwin_darwin.go  | 378 ++++++++++++++++++
  src/crypto/internal/backend/fips140/boring.go |  11 +
  src/crypto/internal/backend/fips140/cng.go    |  33 ++
  src/crypto/internal/backend/fips140/darwin.go |  11 +
@@ -27,9 +27,9 @@ Subject: [PATCH] Implement crypto/internal/backend
  .../internal/backend/fips140/openssl_cgo.go   |  57 +++
  .../internal/backend/fips140/openssl_nocgo.go |  15 +
  .../internal/opensslsetup/opensslsetup.go     |  70 ++++
- .../opensslsetup/opensslsetup_test.go         |  92 ++++
+ .../opensslsetup/opensslsetup_test.go         |  92 +++++
  .../backend/internal/opensslsetup/stub.go     |   8 +
- src/crypto/internal/backend/nobackend.go      | 246 +++++++++++
+ src/crypto/internal/backend/nobackend.go      | 246 ++++++++++++
  src/crypto/internal/backend/openssl_linux.go  | 350 ++++++++++++++++
  src/crypto/internal/backend/stub.s            |  10 +
  src/go/build/deps_test.go                     |  27 +-
@@ -49,7 +49,7 @@ Subject: [PATCH] Implement crypto/internal/backend
  ...ckenderr_gen_requirefips_nosystemcrypto.go |  17 +
  .../backenderr_gen_systemcrypto_nobackend.go  |  16 +
  src/runtime/runtime_boring.go                 |   5 +
- 45 files changed, 2798 insertions(+), 3 deletions(-)
+ 45 files changed, 2768 insertions(+), 3 deletions(-)
  create mode 100644 src/crypto/internal/backend/backend_test.go
  create mode 100644 src/crypto/internal/backend/backendgen.go
  create mode 100644 src/crypto/internal/backend/backendgen_test.go
@@ -847,10 +847,10 @@ index 00000000000000..48d44ec1723ab6
 +}
 diff --git a/src/crypto/internal/backend/cng_windows.go b/src/crypto/internal/backend/cng_windows.go
 new file mode 100644
-index 00000000000000..5f117156efa84c
+index 00000000000000..523076ca2a490e
 --- /dev/null
 +++ b/src/crypto/internal/backend/cng_windows.go
-@@ -0,0 +1,368 @@
+@@ -0,0 +1,353 @@
 +// Copyright 2017 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -912,27 +912,12 @@ index 00000000000000..5f117156efa84c
 +	}
 +}
 +
-+func NewMD5() hash.Hash {
-+	return wrapHash(cng.NewMD5())
-+}
-+
-+func NewSHA1() hash.Hash {
-+	return wrapHash(cng.NewSHA1())
-+}
-+
++func NewMD5() hash.Hash    { return wrapHash(cng.NewMD5()) }
++func NewSHA1() hash.Hash   { return wrapHash(cng.NewSHA1()) }
 +func NewSHA224() hash.Hash { panic("cngcrypto: not available") }
-+
-+func NewSHA256() hash.Hash {
-+	return wrapHash(cng.NewSHA256())
-+}
-+
-+func NewSHA384() hash.Hash {
-+	return wrapHash(cng.NewSHA384())
-+}
-+
-+func NewSHA512() hash.Hash {
-+	return wrapHash(cng.NewSHA512())
-+}
++func NewSHA256() hash.Hash { return wrapHash(cng.NewSHA256()) }
++func NewSHA384() hash.Hash { return wrapHash(cng.NewSHA384()) }
++func NewSHA512() hash.Hash { return wrapHash(cng.NewSHA512()) }
 +
 +func MD5(p []byte) (sum [16]byte)        { return cng.MD5(p) }
 +func SHA1(p []byte) (sum [20]byte)       { return cng.SHA1(p) }
@@ -944,7 +929,7 @@ index 00000000000000..5f117156efa84c
 +func SHA512_256(p []byte) (sum [32]byte) { panic("cngcrypto: not available") }
 +
 +func NewHMAC(h func() hash.Hash, key []byte) hash.Hash {
-+	return cng.NewHMAC(h, key)
++	return wrapHash(cng.NewHMAC(h, key))
 +}
 +
 +func NewAESCipher(key []byte) (cipher.Block, error) {
@@ -1295,10 +1280,10 @@ index 00000000000000..c619a18b897320
 +}
 diff --git a/src/crypto/internal/backend/darwin_darwin.go b/src/crypto/internal/backend/darwin_darwin.go
 new file mode 100644
-index 00000000000000..7e761f3e141d57
+index 00000000000000..239de18b202fd8
 --- /dev/null
 +++ b/src/crypto/internal/backend/darwin_darwin.go
-@@ -0,0 +1,393 @@
+@@ -0,0 +1,378 @@
 +// Copyright 2017 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -1370,27 +1355,12 @@ index 00000000000000..7e761f3e141d57
 +	}
 +}
 +
-+func NewMD5() hash.Hash {
-+	return wrapHash(xcrypto.NewMD5())
-+}
-+
-+func NewSHA1() hash.Hash {
-+	return wrapHash(xcrypto.NewSHA1())
-+}
-+
++func NewMD5() hash.Hash    { return wrapHash(xcrypto.NewMD5()) }
++func NewSHA1() hash.Hash   { return wrapHash(xcrypto.NewSHA1()) }
 +func NewSHA224() hash.Hash { panic("cryptobackend: not available") }
-+
-+func NewSHA256() hash.Hash {
-+	return wrapHash(xcrypto.NewSHA256())
-+}
-+
-+func NewSHA384() hash.Hash {
-+	return wrapHash(xcrypto.NewSHA384())
-+}
-+
-+func NewSHA512() hash.Hash {
-+	return wrapHash(xcrypto.NewSHA512())
-+}
++func NewSHA256() hash.Hash { return wrapHash(xcrypto.NewSHA256()) }
++func NewSHA384() hash.Hash { return wrapHash(xcrypto.NewSHA384()) }
++func NewSHA512() hash.Hash { return wrapHash(xcrypto.NewSHA512()) }
 +
 +func MD5(p []byte) (sum [16]byte)        { return xcrypto.MD5(p) }
 +func SHA1(p []byte) (sum [20]byte)       { return xcrypto.SHA1(p) }
@@ -1402,7 +1372,7 @@ index 00000000000000..7e761f3e141d57
 +func SHA512_256(p []byte) (sum [32]byte) { panic("cryptobackend: not available") }
 +
 +func NewHMAC(h func() hash.Hash, key []byte) hash.Hash {
-+	return xcrypto.NewHMAC(h, key)
++	return wrapHash(xcrypto.NewHMAC(h, key))
 +}
 +
 +func NewAESCipher(key []byte) (cipher.Block, error) {
@@ -2409,7 +2379,7 @@ index 00000000000000..1675358749323f
 +}
 diff --git a/src/crypto/internal/backend/openssl_linux.go b/src/crypto/internal/backend/openssl_linux.go
 new file mode 100644
-index 00000000000000..64154d1954a7da
+index 00000000000000..ef10f754877167
 --- /dev/null
 +++ b/src/crypto/internal/backend/openssl_linux.go
 @@ -0,0 +1,350 @@
@@ -2502,7 +2472,7 @@ index 00000000000000..64154d1954a7da
 +func SHA512_224(p []byte) (sum [28]byte) { return openssl.SHA512_224(p) }
 +func SHA512_256(p []byte) (sum [32]byte) { return openssl.SHA512_256(p) }
 +
-+func NewHMAC(h func() hash.Hash, key []byte) hash.Hash { return openssl.NewHMAC(h, key) }
++func NewHMAC(h func() hash.Hash, key []byte) hash.Hash { return wrapHash(openssl.NewHMAC(h, key)) }
 +
 +func NewAESCipher(key []byte) (cipher.Block, error)   { return openssl.NewAESCipher(key) }
 +func NewGCMTLS(c cipher.Block) (cipher.AEAD, error)   { return openssl.NewGCMTLS(c) }
