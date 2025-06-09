@@ -16,7 +16,7 @@ Subject: [PATCH] Implement crypto/internal/backend
  src/crypto/internal/backend/boring_linux.go   | 287 +++++++++++++
  src/crypto/internal/backend/cng_windows.go    | 368 ++++++++++++++++
  src/crypto/internal/backend/common.go         |  68 +++
- src/crypto/internal/backend/darwin_darwin.go  | 401 ++++++++++++++++++
+ src/crypto/internal/backend/darwin_darwin.go  | 393 ++++++++++++++++++
  src/crypto/internal/backend/fips140/boring.go |  11 +
  src/crypto/internal/backend/fips140/cng.go    |  33 ++
  src/crypto/internal/backend/fips140/darwin.go |  11 +
@@ -26,11 +26,11 @@ Subject: [PATCH] Implement crypto/internal/backend
  .../backend/fips140/nosystemcrypto.go         |  11 +
  .../internal/backend/fips140/openssl_cgo.go   |  57 +++
  .../internal/backend/fips140/openssl_nocgo.go |  15 +
- .../internal/opensslsetup/opensslsetup.go     |  70 +++
+ .../internal/opensslsetup/opensslsetup.go     |  70 ++++
  .../opensslsetup/opensslsetup_test.go         |  92 ++++
  .../backend/internal/opensslsetup/stub.go     |   8 +
  src/crypto/internal/backend/nobackend.go      | 246 +++++++++++
- src/crypto/internal/backend/openssl_linux.go  | 350 +++++++++++++++
+ src/crypto/internal/backend/openssl_linux.go  | 350 ++++++++++++++++
  src/crypto/internal/backend/stub.s            |  10 +
  src/go/build/deps_test.go                     |  27 +-
  .../exp_allowcryptofallback_off.go            |   9 +
@@ -49,7 +49,7 @@ Subject: [PATCH] Implement crypto/internal/backend
  ...ckenderr_gen_requirefips_nosystemcrypto.go |  17 +
  .../backenderr_gen_systemcrypto_nobackend.go  |  16 +
  src/runtime/runtime_boring.go                 |   5 +
- 45 files changed, 2806 insertions(+), 3 deletions(-)
+ 45 files changed, 2798 insertions(+), 3 deletions(-)
  create mode 100644 src/crypto/internal/backend/backend_test.go
  create mode 100644 src/crypto/internal/backend/backendgen.go
  create mode 100644 src/crypto/internal/backend/backendgen_test.go
@@ -1295,10 +1295,10 @@ index 00000000000000..c619a18b897320
 +}
 diff --git a/src/crypto/internal/backend/darwin_darwin.go b/src/crypto/internal/backend/darwin_darwin.go
 new file mode 100644
-index 00000000000000..de0f9474aa6580
+index 00000000000000..7e761f3e141d57
 --- /dev/null
 +++ b/src/crypto/internal/backend/darwin_darwin.go
-@@ -0,0 +1,401 @@
+@@ -0,0 +1,393 @@
 +// Copyright 2017 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -1359,12 +1359,15 @@ index 00000000000000..de0f9474aa6580
 +	return false
 +}
 +
-+func (h *hashWrapper) Clone() (hash.Hash, error) {
-+	cloned, err := h.cloner.Clone()
-+	if err != nil {
-+		panic("cryptobackend: clone failed: " + err.Error())
++func (h hashWrapper) Clone() (hash.Hash, error) {
++	switch cloner := any(h.Hash).(type) {
++	case hashWrapper:
++		return cloner.Clone()
++	case interface{ Clone() hash.Hash }:
++		return wrapHash(cloner.Clone()), nil
++	default:
++		panic("cryptobackend: hash does not implement Clone()")
 +	}
-+	return wrapHash(cloned), nil
 +}
 +
 +func NewMD5() hash.Hash {
@@ -1397,17 +1400,6 @@ index 00000000000000..de0f9474aa6580
 +func SHA512(p []byte) (sum [64]byte)     { return xcrypto.SHA512(p) }
 +func SHA512_224(p []byte) (sum [28]byte) { panic("cryptobackend: not available") }
 +func SHA512_256(p []byte) (sum [32]byte) { panic("cryptobackend: not available") }
-+
-+func (h hashWrapper) Clone() (hash.Hash, error) {
-+	switch cloner := any(h.Hash).(type) {
-+	case hashWrapper:
-+		return cloner.Clone()
-+	case interface{ Clone() hash.Hash }:
-+		return wrapHash(cloner.Clone()), nil
-+	default:
-+		panic("cryptobackend: hash does not implement Clone()")
-+	}
-+}
 +
 +func NewHMAC(h func() hash.Hash, key []byte) hash.Hash {
 +	return xcrypto.NewHMAC(h, key)
