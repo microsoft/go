@@ -7,16 +7,16 @@ Subject: [PATCH] Implement crypto/internal/backend
  .gitignore                                    |   2 +
  src/crypto/internal/backend/backend_test.go   |  30 ++
  src/crypto/internal/backend/backendgen.go     |  20 +
- .../internal/backend/backendgen_test.go       | 284 ++++++++++++
+ .../internal/backend/backendgen_test.go       | 284 +++++++++++++
  src/crypto/internal/backend/bbig/big.go       |  17 +
  .../internal/backend/bbig/big_boring.go       |  12 +
  src/crypto/internal/backend/bbig/big_cng.go   |  12 +
  .../internal/backend/bbig/big_darwin.go       |  12 +
  .../internal/backend/bbig/big_openssl.go      |  12 +
  src/crypto/internal/backend/boring_linux.go   | 287 +++++++++++++
- src/crypto/internal/backend/cng_windows.go    | 379 ++++++++++++++++
- src/crypto/internal/backend/common.go         |  59 +++
- src/crypto/internal/backend/darwin_darwin.go  | 404 ++++++++++++++++++
+ src/crypto/internal/backend/cng_windows.go    | 368 ++++++++++++++++
+ src/crypto/internal/backend/common.go         |  74 ++++
+ src/crypto/internal/backend/darwin_darwin.go  | 401 ++++++++++++++++++
  src/crypto/internal/backend/fips140/boring.go |  11 +
  src/crypto/internal/backend/fips140/cng.go    |  33 ++
  src/crypto/internal/backend/fips140/darwin.go |  11 +
@@ -30,7 +30,7 @@ Subject: [PATCH] Implement crypto/internal/backend
  .../opensslsetup/opensslsetup_test.go         |  92 ++++
  .../backend/internal/opensslsetup/stub.go     |   8 +
  src/crypto/internal/backend/nobackend.go      | 246 +++++++++++
- src/crypto/internal/backend/openssl_linux.go  | 361 ++++++++++++++++
+ src/crypto/internal/backend/openssl_linux.go  | 350 +++++++++++++++
  src/crypto/internal/backend/stub.s            |  10 +
  src/go/build/deps_test.go                     |  27 +-
  .../exp_allowcryptofallback_off.go            |   9 +
@@ -49,7 +49,7 @@ Subject: [PATCH] Implement crypto/internal/backend
  ...ckenderr_gen_requirefips_nosystemcrypto.go |  17 +
  .../backenderr_gen_systemcrypto_nobackend.go  |  16 +
  src/runtime/runtime_boring.go                 |   5 +
- 45 files changed, 2822 insertions(+), 3 deletions(-)
+ 45 files changed, 2812 insertions(+), 3 deletions(-)
  create mode 100644 src/crypto/internal/backend/backend_test.go
  create mode 100644 src/crypto/internal/backend/backendgen.go
  create mode 100644 src/crypto/internal/backend/backendgen_test.go
@@ -847,10 +847,10 @@ index 00000000000000..48d44ec1723ab6
 +}
 diff --git a/src/crypto/internal/backend/cng_windows.go b/src/crypto/internal/backend/cng_windows.go
 new file mode 100644
-index 00000000000000..69c01d72178c2c
+index 00000000000000..f38aadd523d30c
 --- /dev/null
 +++ b/src/crypto/internal/backend/cng_windows.go
-@@ -0,0 +1,379 @@
+@@ -0,0 +1,368 @@
 +// Copyright 2017 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -901,48 +901,37 @@ index 00000000000000..69c01d72178c2c
 +func SupportsRSAOAEPLabel(label []byte) bool     { return true }
 +func SupportsPKCS1v15Hash(hash crypto.Hash) bool { return true }
 +
-+// Wrapper types to handle Clone method with panic on error
-+type hashWrapper struct {
-+    hash.Hash
-+    cloner interface{ Clone() (hash.Hash, error) }
-+}
-+
 +func (h *hashWrapper) Clone() (hash.Hash, error) {
-+    cloned, err := h.cloner.Clone()
-+    if err != nil {
-+        panic("cngcrypto: clone failed: " + err.Error())
-+    }
-+    return wrapHash(cloned), nil
-+}
-+
-+func wrapHash(h hash.Hash) *hashWrapper {
-+    cloner, ok := h.(interface{ Clone() (hash.Hash, error) })
-+    if !ok {
-+        panic("cngcrypto: hash does not implement Clone() (hash.Hash, error)")
-+    }
-+    return &hashWrapper{Hash: h, cloner: cloner}
++	switch cloner := any(h.Hash).(type) {
++	case *hashWrapper:
++		return cloner.Clone()
++	case interface{ Clone() hash.Hash }:
++		return wrapHash(cloner.Clone()), nil
++	default:
++		panic("cngcrypto: hash does not implement Clone()")
++	}
 +}
 +
 +func NewMD5() hash.Hash {
-+    return wrapHash(cng.NewMD5())
++	return wrapHash(cng.NewMD5())
 +}
 +
 +func NewSHA1() hash.Hash {
-+    return wrapHash(cng.NewSHA1())
++	return wrapHash(cng.NewSHA1())
 +}
 +
 +func NewSHA224() hash.Hash { panic("cngcrypto: not available") }
 +
 +func NewSHA256() hash.Hash {
-+    return wrapHash(cng.NewSHA256())
++	return wrapHash(cng.NewSHA256())
 +}
 +
 +func NewSHA384() hash.Hash {
-+    return wrapHash(cng.NewSHA384())
++	return wrapHash(cng.NewSHA384())
 +}
 +
 +func NewSHA512() hash.Hash {
-+    return wrapHash(cng.NewSHA512())
++	return wrapHash(cng.NewSHA512())
 +}
 +
 +func MD5(p []byte) (sum [16]byte)        { return cng.MD5(p) }
@@ -1232,10 +1221,10 @@ index 00000000000000..69c01d72178c2c
 +}
 diff --git a/src/crypto/internal/backend/common.go b/src/crypto/internal/backend/common.go
 new file mode 100644
-index 00000000000000..9436b00381aaf8
+index 00000000000000..28661912ee5d05
 --- /dev/null
 +++ b/src/crypto/internal/backend/common.go
-@@ -0,0 +1,59 @@
+@@ -0,0 +1,74 @@
 +// Copyright 2022 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -1245,6 +1234,7 @@ index 00000000000000..9436b00381aaf8
 +import (
 +	"crypto/internal/backend/fips140"
 +	"crypto/internal/boring/sig"
++	"hash"
 +	"internal/goexperiment"
 +	"runtime"
 +)
@@ -1295,12 +1285,26 @@ index 00000000000000..9436b00381aaf8
 +		}
 +	}
 +}
++
++type cloneHash interface {
++	hash.Hash
++	// Clone returns a separate Hash instance with the same state as h.
++	Clone() (hash.Hash, error)
++}
++
++type hashWrapper struct {
++	hash.Hash
++}
++
++func wrapHash(h hash.Hash) *hashWrapper {
++	return &hashWrapper{h}
++}
 diff --git a/src/crypto/internal/backend/darwin_darwin.go b/src/crypto/internal/backend/darwin_darwin.go
 new file mode 100644
-index 00000000000000..c4d8b5bcaf3719
+index 00000000000000..3f96b825c527aa
 --- /dev/null
 +++ b/src/crypto/internal/backend/darwin_darwin.go
-@@ -0,0 +1,404 @@
+@@ -0,0 +1,401 @@
 +// Copyright 2017 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -1361,44 +1365,30 @@ index 00000000000000..c4d8b5bcaf3719
 +	return false
 +}
 +
-+// Wrapper types to handle Clone method with panic on error
-+type hashWrapper struct {
-+    hash.Hash
-+    cloner interface{ Clone() (hash.Hash, error) }
-+}
-+
 +func (h *hashWrapper) Clone() (hash.Hash, error) {
-+    cloned, err := h.cloner.Clone()
-+    if err != nil {
-+        panic("cryptobackend: clone failed: " + err.Error())
-+    }
-+    return wrapHash(cloned), nil
-+}
-+
-+func wrapHash(h hash.Hash) *hashWrapper {
-+    cloner, ok := h.(interface{ Clone() (hash.Hash, error) })
-+    if !ok {
-+        panic("cryptobackend: hash does not implement Clone() (hash.Hash, error)")
-+    }
-+    return &hashWrapper{Hash: h, cloner: cloner}
++	cloned, err := h.cloner.Clone()
++	if err != nil {
++		panic("cryptobackend: clone failed: " + err.Error())
++	}
++	return wrapHash(cloned), nil
 +}
 +
 +func NewMD5() hash.Hash {
-+    return wrapHash(xcrypto.NewMD5())
++	return wrapHash(xcrypto.NewMD5())
 +}
 +
 +func NewSHA1() hash.Hash {
-+    return wrapHash(xcrypto.NewSHA1())
++	return wrapHash(xcrypto.NewSHA1())
 +}
 +
 +func NewSHA224() hash.Hash { panic("cryptobackend: not available") }
 +
 +func NewSHA256() hash.Hash {
-+    return wrapHash(xcrypto.NewSHA256())
++	return wrapHash(xcrypto.NewSHA256())
 +}
 +
 +func NewSHA384() hash.Hash {
-+    return wrapHash(xcrypto.NewSHA384())
++	return wrapHash(xcrypto.NewSHA384())
 +}
 +
 +func NewSHA512() hash.Hash {
@@ -1413,6 +1403,17 @@ index 00000000000000..c4d8b5bcaf3719
 +func SHA512(p []byte) (sum [64]byte)     { return xcrypto.SHA512(p) }
 +func SHA512_224(p []byte) (sum [28]byte) { panic("cryptobackend: not available") }
 +func SHA512_256(p []byte) (sum [32]byte) { panic("cryptobackend: not available") }
++
++func (h *hashWrapper) Clone() (hash.Hash, error) {
++	switch cloner := any(h.Hash).(type) {
++	case *hashWrapper:
++		return cloner.Clone()
++	case interface{ Clone() hash.Hash }:
++		return wrapHash(cloner.Clone()), nil
++	default:
++		panic("cryptobackend: hash does not implement Clone()")
++	}
++}
 +
 +func NewHMAC(h func() hash.Hash, key []byte) hash.Hash {
 +	return xcrypto.NewHMAC(h, key)
@@ -2422,10 +2423,10 @@ index 00000000000000..1675358749323f
 +}
 diff --git a/src/crypto/internal/backend/openssl_linux.go b/src/crypto/internal/backend/openssl_linux.go
 new file mode 100644
-index 00000000000000..dd04a0b5eff91f
+index 00000000000000..4f2fa3b2a175c0
 --- /dev/null
 +++ b/src/crypto/internal/backend/openssl_linux.go
-@@ -0,0 +1,361 @@
+@@ -0,0 +1,350 @@
 +// Copyright 2017 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -2486,26 +2487,15 @@ index 00000000000000..dd04a0b5eff91f
 +func SupportsRSAOAEPLabel(label []byte) bool     { return true }
 +func SupportsPKCS1v15Hash(hash crypto.Hash) bool { return true }
 +
-+// Wrapper types to handle Clone method with panic on error
-+type hashWrapper struct {
-+    hash.Hash
-+    cloner interface{ Clone() (hash.Hash, error) }
-+}
-+
 +func (h *hashWrapper) Clone() (hash.Hash, error) {
-+    cloned, err := h.cloner.Clone()
-+    if err != nil {
-+        panic("opensslcrypto: clone failed: " + err.Error())
-+    }
-+    return wrapHash(cloned), nil
-+}
-+
-+func wrapHash(h hash.Hash) *hashWrapper {
-+    cloner, ok := h.(interface{ Clone() (hash.Hash, error) })
-+    if !ok {
-+        panic("opensslcrypto: hash does not implement Clone() (hash.Hash, error)")
-+    }
-+    return &hashWrapper{Hash: h, cloner: cloner}
++	switch cloner := any(h.Hash).(type) {
++	case *hashWrapper:
++		return cloner.Clone()
++	case interface{ Clone() hash.Hash }:
++		return wrapHash(cloner.Clone()), nil
++	default:
++		panic("opensslcrypto: hash does not implement Clone()")
++	}
 +}
 +
 +func NewMD5() hash.Hash        { return wrapHash(openssl.NewMD5()) }
