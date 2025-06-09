@@ -40,6 +40,10 @@ Subject: [PATCH] Use crypto backends
  src/crypto/hkdf/hkdf_test.go                  |   2 +-
  src/crypto/hmac/hmac.go                       |   2 +-
  src/crypto/hmac/hmac_test.go                  |   2 +-
+ src/crypto/internal/backend/cng_windows.go    |   4 +-
+ src/crypto/internal/backend/common.go         |   7 +-
+ src/crypto/internal/backend/darwin_darwin.go  |   4 +-
+ src/crypto/internal/backend/openssl_linux.go  |   4 +-
  src/crypto/internal/cryptotest/allocations.go |   2 +-
  .../internal/cryptotest/implementations.go    |   2 +-
  src/crypto/internal/fips140test/acvp_test.go  |   6 +
@@ -90,7 +94,7 @@ Subject: [PATCH] Use crypto backends
  src/net/lookup_test.go                        |   3 +
  src/os/exec/exec_test.go                      |   9 +
  src/runtime/pprof/vminfo_darwin_test.go       |   6 +
- 86 files changed, 1170 insertions(+), 95 deletions(-)
+ 90 files changed, 1181 insertions(+), 103 deletions(-)
  create mode 100644 src/crypto/dsa/boring.go
  create mode 100644 src/crypto/dsa/notboring.go
  create mode 100644 src/crypto/ecdsa/badlinkname.go
@@ -1346,6 +1350,70 @@ index 7accad763244a1..dd3211f2c37af3 100644
  	"crypto/internal/cryptotest"
  	"crypto/md5"
  	"crypto/sha1"
+diff --git a/src/crypto/internal/backend/cng_windows.go b/src/crypto/internal/backend/cng_windows.go
+index 523076ca2a490e..18d2c81ad6b5fd 100644
+--- a/src/crypto/internal/backend/cng_windows.go
++++ b/src/crypto/internal/backend/cng_windows.go
+@@ -48,9 +48,9 @@ func SupportsCurve(curve string) bool            { return true }
+ func SupportsRSAOAEPLabel(label []byte) bool     { return true }
+ func SupportsPKCS1v15Hash(hash crypto.Hash) bool { return true }
+ 
+-func (h hashWrapper) Clone() (hash.Hash, error) {
++func (h *hashWrapper) Clone() (hash.Hash, error) {
+ 	switch cloner := any(h.Hash).(type) {
+-	case hashWrapper:
++	case *hashWrapper:
+ 		return cloner.Clone()
+ 	case interface{ Clone() hash.Hash }:
+ 		return wrapHash(cloner.Clone()), nil
+diff --git a/src/crypto/internal/backend/common.go b/src/crypto/internal/backend/common.go
+index c619a18b897320..2436466a968d01 100644
+--- a/src/crypto/internal/backend/common.go
++++ b/src/crypto/internal/backend/common.go
+@@ -63,6 +63,9 @@ type hashWrapper struct {
+ 	hash.Hash
+ }
+ 
+-func wrapHash(h hash.Hash) hashWrapper {
+-	return hashWrapper{h}
++func wrapHash(h hash.Hash) *hashWrapper {
++	if h != nil {
++		return &hashWrapper{h}
++	}
++	return nil
+ }
+diff --git a/src/crypto/internal/backend/darwin_darwin.go b/src/crypto/internal/backend/darwin_darwin.go
+index 239de18b202fd8..0d9afa64179c8b 100644
+--- a/src/crypto/internal/backend/darwin_darwin.go
++++ b/src/crypto/internal/backend/darwin_darwin.go
+@@ -58,9 +58,9 @@ func SupportsPKCS1v15Hash(hash crypto.Hash) bool {
+ 	return false
+ }
+ 
+-func (h hashWrapper) Clone() (hash.Hash, error) {
++func (h *hashWrapper) Clone() (hash.Hash, error) {
+ 	switch cloner := any(h.Hash).(type) {
+-	case hashWrapper:
++	case *hashWrapper:
+ 		return cloner.Clone()
+ 	case interface{ Clone() hash.Hash }:
+ 		return wrapHash(cloner.Clone()), nil
+diff --git a/src/crypto/internal/backend/openssl_linux.go b/src/crypto/internal/backend/openssl_linux.go
+index ef10f754877167..5b824877741ff7 100644
+--- a/src/crypto/internal/backend/openssl_linux.go
++++ b/src/crypto/internal/backend/openssl_linux.go
+@@ -58,9 +58,9 @@ func SupportsCurve(curve string) bool            { return true }
+ func SupportsRSAOAEPLabel(label []byte) bool     { return true }
+ func SupportsPKCS1v15Hash(hash crypto.Hash) bool { return true }
+ 
+-func (h hashWrapper) Clone() (hash.Hash, error) {
++func (h *hashWrapper) Clone() (hash.Hash, error) {
+ 	switch cloner := any(h.Hash).(type) {
+-	case hashWrapper:
++	case *hashWrapper:
+ 		return cloner.Clone()
+ 	case interface{ Clone() hash.Hash }:
+ 		return wrapHash(cloner.Clone()), nil
 diff --git a/src/crypto/internal/cryptotest/allocations.go b/src/crypto/internal/cryptotest/allocations.go
 index 70055af70b42ec..3c4b4fbaa98ded 100644
 --- a/src/crypto/internal/cryptotest/allocations.go
