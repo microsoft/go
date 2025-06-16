@@ -105,10 +105,6 @@ func AppendEnv(key, value, sep string) {
 // already set, appends a comma separator and then the given value.
 func AppendExperimentEnv(experiment string) {
 	AppendEnv("GOEXPERIMENT", experiment, ",")
-
-	// Allow fallback to Go crypto. Go turns off cgo and/or cross-builds in various situations during
-	// the build/tests, so we need to allow for it.
-	AppendEnv("GOFLAGS", "-tags=allowcryptofallback", " ")
 }
 
 // UnassignGOROOT unsets the GOROOT env var if it is set.
