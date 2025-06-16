@@ -9,6 +9,7 @@ Subject: [PATCH] Implement crypto/internal/backend
  src/cmd/compile/internal/ssa/fmahash_test.go  |   2 +-
  src/cmd/dist/test.go                          |   7 +
  src/cmd/internal/obj/x86/pcrelative_test.go   |   2 +-
+ src/cmd/internal/testdir/testdir_test.go      |  11 +
  src/cmd/link/internal/ld/ld_test.go           |   2 +-
  src/cmd/link/internal/ld/stackcheck_test.go   |   2 +-
  src/cmd/link/link_test.go                     |   4 +-
@@ -57,7 +58,7 @@ Subject: [PATCH] Implement crypto/internal/backend
  .../backenderr_gen_systemcrypto_nobackend.go  |  16 +
  src/runtime/runtime_boring.go                 |   5 +
  src/syscall/exec_linux_test.go                |   2 +-
- 53 files changed, 2715 insertions(+), 12 deletions(-)
+ 54 files changed, 2726 insertions(+), 12 deletions(-)
  create mode 100644 src/crypto/internal/backend/allocryptofallback_off.go
  create mode 100644 src/crypto/internal/backend/allocryptofallback_on.go
  create mode 100644 src/crypto/internal/backend/backend_test.go
@@ -184,6 +185,35 @@ index 1ca9ea22cf7182..3cf10b0933abc0 100644
  		filepath.Join(tmpdir, "output"))
  
  	cmd.Env = append(os.Environ(),
+diff --git a/src/cmd/internal/testdir/testdir_test.go b/src/cmd/internal/testdir/testdir_test.go
+index 7e7867d83f9c47..3e9c3d0ef7edf9 100644
+--- a/src/cmd/internal/testdir/testdir_test.go
++++ b/src/cmd/internal/testdir/testdir_test.go
+@@ -280,6 +280,10 @@ func (t test) expectFail() bool {
+ 		failureSets = append(failureSets, types2Failures32Bit)
+ 	}
+ 
++	if strings.Contains(goExperiment, "boringcrypto") {
++		failureSets = append(failureSets, boringFailures)
++	}
++
+ 	testName := path.Join(t.dir, t.goFile) // Test name is '/'-separated.
+ 
+ 	for _, set := range failureSets {
+@@ -1864,6 +1868,13 @@ var types2Failures32Bit = setOf(
+ 	"fixedbugs/issue23305.go", // large untyped int passed to println (32-bit)
+ )
+ 
++// List of files that fail with boringcrypto due
++// to it not supporting 32-bit architectures.
++var boringFailures = setOf(
++	"codegen/copy.go",
++	"codegen/memcombine.go",
++)
++
+ // In all of these cases, the 1.17 compiler reports reasonable errors, but either the
+ // 1.17 or 1.18 compiler report extra errors, so we can't match correctly on both. We
+ // now set the patterns to match correctly on all the 1.18 errors.
 diff --git a/src/cmd/link/internal/ld/ld_test.go b/src/cmd/link/internal/ld/ld_test.go
 index c954ab6bca7294..d455f4ecd2edbd 100644
 --- a/src/cmd/link/internal/ld/ld_test.go
