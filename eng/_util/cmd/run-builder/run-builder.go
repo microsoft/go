@@ -79,18 +79,18 @@ func main() {
 	// running tests:
 	switch config {
 	case "clang":
-		env("CC", "/usr/bin/clang-3.9")
+		buildutil.SetEnv("CC", "/usr/bin/clang-3.9")
 	case "longtest":
-		env("GO_TEST_SHORT", "false")
+		buildutil.SetEnv("GO_TEST_SHORT", "false")
 		timeoutScale *= 5
 	case "nocgo":
-		env("CGO_ENABLED", "0")
+		buildutil.SetEnv("CGO_ENABLED", "0")
 	case "noopt":
-		env("GO_GCFLAGS", "-N -l")
+		buildutil.SetEnv("GO_GCFLAGS", "-N -l")
 	case "regabi":
 		buildutil.AppendExperimentEnv("regabi")
 	case "ssacheck":
-		env("GO_GCFLAGS", "-d=ssa/check/on")
+		buildutil.SetEnv("GO_GCFLAGS", "-d=ssa/check/on")
 	case "staticlockranking":
 		buildutil.AppendExperimentEnv("staticlockranking")
 	}
@@ -102,7 +102,7 @@ func main() {
 	}
 
 	if timeoutScale != 1 {
-		env("GO_TEST_TIMEOUT_SCALE", strconv.Itoa(timeoutScale))
+		buildutil.SetEnv("GO_TEST_TIMEOUT_SCALE", strconv.Itoa(timeoutScale))
 	}
 
 	if err := buildutil.UnassignGOROOT(); err != nil {
@@ -150,7 +150,7 @@ func main() {
 		}
 
 		if *fipsMode {
-			envAppend("GODEBUG", "fips140=on")
+			buildutil.AppendEnv("GODEBUG", "fips140=on", ",")
 			// Enable system-wide FIPS if supported by the host platform.
 			restore, err := enableSystemWideFIPS()
 			if err != nil {
@@ -163,14 +163,14 @@ func main() {
 
 		// The tests read GO_BUILDER_NAME and make decisions based on it. For some configurations,
 		// we only need to set this env var.
-		env("GO_BUILDER_NAME", *builder)
+		buildutil.SetEnv("GO_BUILDER_NAME", *builder)
 
 		// The "fake" config "test" is a sentinel value that means we should omit the config part of
 		// the builder name. This lets us have a stable "{os}-{arch}-{config}" API (particularly
 		// useful when dealing with AzDO YAML limitations) while still being able to test e.g. the
 		// "linux-amd64" builder from upstream.
 		if config == "test" {
-			env("GO_BUILDER_NAME", goos+"-"+goarch)
+			buildutil.SetEnv("GO_BUILDER_NAME", goos+"-"+goarch)
 		}
 
 		cmdline := []string{
@@ -228,23 +228,6 @@ func main() {
 			}
 		}
 	}
-}
-
-// env sets an env var and logs it. Panics if it doesn't succeed.
-func env(key, value string) {
-	fmt.Printf("Setting env '%s' to '%s'\n", key, value)
-	if err := os.Setenv(key, value); err != nil {
-		panic(err)
-	}
-}
-
-// envAppend appends a value to an env var and logs it.
-// Panics if it doesn't succeed.
-func envAppend(key, value string) {
-	if v, ok := os.LookupEnv(key); ok {
-		value = v + "," + value
-	}
-	env(key, value)
 }
 
 func run(cmdline ...string) error {

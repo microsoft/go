@@ -11,7 +11,6 @@ import (
 	"os"
 	"os/exec"
 	"strconv"
-	"strings"
 )
 
 // Retry runs f until it succeeds or the attempt limit is reached.
@@ -85,26 +84,31 @@ func GetEnvOrDefault(varName, defaultValue string) (string, error) {
 	return v, nil
 }
 
+// SetEnv sets an env var and logs it. Panics if it doesn't succeed.
+func SetEnv(key, value string) {
+	fmt.Printf("Setting env '%s' to '%s'\n", key, value)
+	if err := os.Setenv(key, value); err != nil {
+		panic(err)
+	}
+}
+
+// AppendEnv sets the given environment variable to the given value, or if the
+// environment variable is already set, appends sep and then the given value.
+func AppendEnv(key, value, sep string) {
+	if v, ok := os.LookupEnv(key); ok {
+		value = v + sep + value
+	}
+	SetEnv(key, value)
+}
+
 // AppendExperimentEnv sets the GOEXPERIMENT env var to the given value, or if GOEXPERIMENT is
 // already set, appends a comma separator and then the given value.
 func AppendExperimentEnv(experiment string) {
-	// If the experiment enables a crypto backend, allow fallback to Go crypto. Go turns off cgo
-	// and/or cross-builds in various situations during the build/tests, so we need to allow for it.
-	if strings.Contains(experiment, "opensslcrypto") ||
-		strings.Contains(experiment, "cngcrypto") ||
-		strings.Contains(experiment, "boringcrypto") ||
-		strings.Contains(experiment, "darwincrypto") ||
-		strings.Contains(experiment, "systemcrypto") {
+	AppendEnv("GOEXPERIMENT", experiment, ",")
 
-		experiment += ",allowcryptofallback"
-	}
-	if v, ok := os.LookupEnv("GOEXPERIMENT"); ok {
-		experiment = v + "," + experiment
-	}
-	fmt.Printf("Setting GOEXPERIMENT: %v\n", experiment)
-	if err := os.Setenv("GOEXPERIMENT", experiment); err != nil {
-		panic(err)
-	}
+	// Allow fallback to Go crypto. Go turns off cgo and/or cross-builds in various situations during
+	// the build/tests, so we need to allow for it.
+	AppendEnv("GOFLAGS", "-tags=allowcryptofallback", " ")
 }
 
 // UnassignGOROOT unsets the GOROOT env var if it is set.
