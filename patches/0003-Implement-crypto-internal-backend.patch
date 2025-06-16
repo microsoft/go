@@ -7,6 +7,7 @@ Subject: [PATCH] Implement crypto/internal/backend
  .gitignore                                    |   2 +
  .../compile/internal/loopvar/loopvar_test.go  |   2 +-
  src/cmd/compile/internal/ssa/fmahash_test.go  |   2 +-
+ src/cmd/dist/test.go                          |   7 +
  src/cmd/internal/obj/x86/pcrelative_test.go   |   2 +-
  src/cmd/link/internal/ld/ld_test.go           |   2 +-
  src/cmd/link/internal/ld/stackcheck_test.go   |   2 +-
@@ -56,7 +57,7 @@ Subject: [PATCH] Implement crypto/internal/backend
  .../backenderr_gen_systemcrypto_nobackend.go  |  16 +
  src/runtime/runtime_boring.go                 |   5 +
  src/syscall/exec_linux_test.go                |   2 +-
- 52 files changed, 2708 insertions(+), 12 deletions(-)
+ 53 files changed, 2715 insertions(+), 12 deletions(-)
  create mode 100644 src/crypto/internal/backend/allocryptofallback_off.go
  create mode 100644 src/crypto/internal/backend/allocryptofallback_on.go
  create mode 100644 src/crypto/internal/backend/backend_test.go
@@ -138,6 +139,38 @@ index c563d5b8d9d01b..ed063d7ded8fd9 100644
  	// The hash-dependence on file path name is dodged by specifying "all hashes ending in 1" plus "all hashes ending in 0"
  	// i.e., all hashes.  This will print all the FMAs; this test is only interested in one of them (that should appear near the end).
  	cmd.Env = append(cmd.Env, "GOCOMPILEDEBUG=fmahash=1/0", "GOOS=linux", "GOARCH=arm64", "HOME="+tmpdir)
+diff --git a/src/cmd/dist/test.go b/src/cmd/dist/test.go
+index d335e4cfbce468..7e362c80be609a 100644
+--- a/src/cmd/dist/test.go
++++ b/src/cmd/dist/test.go
+@@ -847,6 +847,11 @@ func (t *tester) registerTests() {
+ 
+ 	// Test internal linking of PIE binaries where it is supported.
+ 	if t.internalLinkPIE() && !disablePIE {
++		var tags []string
++		if goos != "windows" {
++			// Linux and macOS don't support systemcrypto with CGO_ENABLED=0.
++			tags = append(tags, "allowcryptofallback")
++		}
+ 		t.registerTest("internal linking, -buildmode=pie",
+ 			&goTest{
+ 				variant:   "pie_internal",
+@@ -855,6 +860,7 @@ func (t *tester) registerTests() {
+ 				ldflags:   "-linkmode=internal",
+ 				env:       []string{"CGO_ENABLED=0"},
+ 				pkg:       "reflect",
++				tags:      tags,
+ 			})
+ 		t.registerTest("internal linking, -buildmode=pie",
+ 			&goTest{
+@@ -865,6 +871,7 @@ func (t *tester) registerTests() {
+ 				env:       []string{"CGO_ENABLED=0"},
+ 				pkg:       "crypto/internal/fips140test",
+ 				runTests:  "TestFIPSCheck",
++				tags:      tags,
+ 			})
+ 		// Also test a cgo package.
+ 		if t.cgoEnabled && t.internalLink() && !disablePIE {
 diff --git a/src/cmd/internal/obj/x86/pcrelative_test.go b/src/cmd/internal/obj/x86/pcrelative_test.go
 index 1ca9ea22cf7182..3cf10b0933abc0 100644
 --- a/src/cmd/internal/obj/x86/pcrelative_test.go
