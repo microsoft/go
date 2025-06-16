@@ -5,7 +5,6 @@ Subject: [PATCH] Use crypto backends
 
 ---
  src/cmd/api/boring_test.go                    |   2 +-
- src/cmd/dist/build.go                         |  13 ++
  src/cmd/dist/test.go                          |  10 +-
  src/cmd/go/go_boring_test.go                  |  11 +-
  src/cmd/go/script_test.go                     |   2 +
@@ -13,7 +12,6 @@ Subject: [PATCH] Use crypto backends
  .../go/testdata/script/gopath_std_vendor.txt  |   9 +
  src/cmd/link/internal/ld/config.go            |   8 +
  src/cmd/link/internal/ld/lib.go               |   2 +
- src/cmd/link/internal/ld/main.go              |  12 +-
  src/crypto/aes/aes.go                         |   2 +-
  src/crypto/aes/aes_test.go                    |   2 +-
  src/crypto/boring/boring.go                   |   4 +-
@@ -90,7 +88,7 @@ Subject: [PATCH] Use crypto backends
  src/net/lookup_test.go                        |   3 +
  src/os/exec/exec_test.go                      |   9 +
  src/runtime/pprof/vminfo_darwin_test.go       |   6 +
- 86 files changed, 1170 insertions(+), 95 deletions(-)
+ 84 files changed, 1146 insertions(+), 94 deletions(-)
  create mode 100644 src/crypto/dsa/boring.go
  create mode 100644 src/crypto/dsa/notboring.go
  create mode 100644 src/crypto/ecdsa/badlinkname.go
@@ -115,30 +113,6 @@ index f0e3575637c62a..9eab3b4e66e60b 100644
  
  package main
  
-diff --git a/src/cmd/dist/build.go b/src/cmd/dist/build.go
-index b50f3342fe8714..e2099ee5eff6ba 100644
---- a/src/cmd/dist/build.go
-+++ b/src/cmd/dist/build.go
-@@ -1538,6 +1538,19 @@ func cmdbootstrap() {
- 	xprintf("Building Go toolchain2 using go_bootstrap and Go toolchain1.\n")
- 	os.Setenv("CC", compilerEnvLookup("CC", defaultcc, goos, goarch))
- 	// Now that cmd/go is in charge of the build process, enable GOEXPERIMENT.
-+	//
-+	// Build the Go toolchain with "GOEXPERIMENT=allowcryptofallback". This
-+	// allows toolchains not built with "GOEXPERIMENT=systemcrypto" to be used
-+	// when GOFIPS=1 is set. For example, when running "GOFIPS=1 go test ./..."
-+	// or "GOFIPS=1 go run .".
-+	// Shadow goexperiment so that the global variable is not modified.
-+	goexperiment := goexperiment
-+	if !strings.Contains(goexperiment, "allowcryptofallback") {
-+		if goexperiment != "" {
-+			goexperiment += ","
-+		}
-+		goexperiment += "allowcryptofallback"
-+	}
- 	os.Setenv("GOEXPERIMENT", goexperiment)
- 	// No need to enable PGO for toolchain2.
- 	goInstall(toolenv(), goBootstrap, append([]string{"-pgo=off"}, toolchain...)...)
 diff --git a/src/cmd/dist/test.go b/src/cmd/dist/test.go
 index d335e4cfbce468..542b16e1f1f18a 100644
 --- a/src/cmd/dist/test.go
@@ -289,36 +263,6 @@ index 7f22b6ba1c5bf0..6d9c27f5537700 100644
  	"crypto/internal/boring",
  	"crypto/internal/boring/syso",
  	"crypto/x509",
-diff --git a/src/cmd/link/internal/ld/main.go b/src/cmd/link/internal/ld/main.go
-index 6a684890be0a03..1dcc126b7a0440 100644
---- a/src/cmd/link/internal/ld/main.go
-+++ b/src/cmd/link/internal/ld/main.go
-@@ -44,6 +44,7 @@ import (
- 	"os"
- 	"runtime"
- 	"runtime/pprof"
-+	"slices"
- 	"strconv"
- 	"strings"
- )
-@@ -187,7 +188,16 @@ func Main(arch *sys.Arch, theArch Arch) {
- 
- 	buildVersion := buildcfg.Version
- 	if goexperiment := buildcfg.Experiment.String(); goexperiment != "" {
--		buildVersion += " X:" + goexperiment
-+		// buildVersion is intended to contain non-default experiment flags.
-+		// The Microsoft build of Go default behavior is to set the
-+		// allowcryptofallback experiment, so we don't include it in the
-+		// buildVersion string.
-+		goexperiment = strings.Join(slices.DeleteFunc(strings.Split(goexperiment, ","), func(s string) bool {
-+			return s == "allowcryptofallback"
-+		}), ",")
-+		if goexperiment != "" {
-+			buildVersion += " X:" + goexperiment
-+		}
- 	}
- 	addstrdata1(ctxt, "runtime.buildVersion="+buildVersion)
- 
 diff --git a/src/crypto/aes/aes.go b/src/crypto/aes/aes.go
 index 22ea8819ed239a..1e2cba08c1c760 100644
 --- a/src/crypto/aes/aes.go
