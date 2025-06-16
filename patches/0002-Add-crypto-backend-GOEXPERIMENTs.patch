@@ -11,18 +11,15 @@ information about the behavior.
 Includes new tests in "build_test.go" and "buildbackend_test.go" to help
 maintain this feature. For more information, see the test files.
 ---
- src/cmd/dist/build.go                         | 13 +++
+ src/cmd/dist/build.go                         | 10 ++-
  src/cmd/go/internal/modindex/build.go         | 58 ++++++++++++-
  src/cmd/go/internal/modindex/build_test.go    | 73 ++++++++++++++++
- src/cmd/link/internal/ld/main.go              | 12 ++-
  src/go/build/build.go                         | 58 ++++++++++++-
  src/go/build/buildbackend_test.go             | 84 +++++++++++++++++++
  .../testdata/backendtags_openssl/main.go      |  3 +
  .../testdata/backendtags_openssl/openssl.go   |  3 +
  .../build/testdata/backendtags_system/main.go |  3 +
  .../backendtags_system/systemcrypto.go        |  3 +
- .../exp_allowcryptofallback_off.go            |  8 ++
- .../exp_allowcryptofallback_on.go             |  8 ++
  .../goexperiment/exp_cngcrypto_off.go         |  8 ++
  src/internal/goexperiment/exp_cngcrypto_on.go |  8 ++
  .../goexperiment/exp_darwincrypto_off.go      |  8 ++
@@ -31,16 +28,14 @@ maintain this feature. For more information, see the test files.
  .../goexperiment/exp_opensslcrypto_on.go      |  8 ++
  .../goexperiment/exp_systemcrypto_off.go      |  8 ++
  .../goexperiment/exp_systemcrypto_on.go       |  8 ++
- src/internal/goexperiment/flags.go            | 26 ++++++
- 21 files changed, 411 insertions(+), 5 deletions(-)
+ src/internal/goexperiment/flags.go            | 18 ++++
+ 18 files changed, 371 insertions(+), 6 deletions(-)
  create mode 100644 src/cmd/go/internal/modindex/build_test.go
  create mode 100644 src/go/build/buildbackend_test.go
  create mode 100644 src/go/build/testdata/backendtags_openssl/main.go
  create mode 100644 src/go/build/testdata/backendtags_openssl/openssl.go
  create mode 100644 src/go/build/testdata/backendtags_system/main.go
  create mode 100644 src/go/build/testdata/backendtags_system/systemcrypto.go
- create mode 100644 src/internal/goexperiment/exp_allowcryptofallback_off.go
- create mode 100644 src/internal/goexperiment/exp_allowcryptofallback_on.go
  create mode 100644 src/internal/goexperiment/exp_cngcrypto_off.go
  create mode 100644 src/internal/goexperiment/exp_cngcrypto_on.go
  create mode 100644 src/internal/goexperiment/exp_darwincrypto_off.go
@@ -51,29 +46,35 @@ maintain this feature. For more information, see the test files.
  create mode 100644 src/internal/goexperiment/exp_systemcrypto_on.go
 
 diff --git a/src/cmd/dist/build.go b/src/cmd/dist/build.go
-index b50f3342fe8714..5120c23556ebe3 100644
+index b50f3342fe8714..c4451b438bbf60 100644
 --- a/src/cmd/dist/build.go
 +++ b/src/cmd/dist/build.go
-@@ -1538,6 +1538,19 @@ func cmdbootstrap() {
+@@ -1538,9 +1538,15 @@ func cmdbootstrap() {
  	xprintf("Building Go toolchain2 using go_bootstrap and Go toolchain1.\n")
  	os.Setenv("CC", compilerEnvLookup("CC", defaultcc, goos, goarch))
  	// Now that cmd/go is in charge of the build process, enable GOEXPERIMENT.
 +	//
-+	// Build the Go toolchain with "GOEXPERIMENT=allowcryptofallback". This
++	// Build the Go toolchain with "-tags=allowcryptofallback". This
 +	// allows toolchains not built with "GOEXPERIMENT=systemcrypto" to be used
 +	// when GODEBUG=fips140=on is set. For example, when running
 +	// "GODEBUG=fips140=on go test ./..." or "GODEBUG=fips140=on go run .".
 +	// Shadow goexperiment so that the global variable is not modified.
-+	goexperiment := goexperiment
-+	if !strings.Contains(goexperiment, "allowcryptofallback") {
-+		if goexperiment != "" {
-+			goexperiment += ","
-+		}
-+		goexperiment += "allowcryptofallback"
-+	}
  	os.Setenv("GOEXPERIMENT", goexperiment)
  	// No need to enable PGO for toolchain2.
- 	goInstall(toolenv(), goBootstrap, append([]string{"-pgo=off"}, toolchain...)...)
+-	goInstall(toolenv(), goBootstrap, append([]string{"-pgo=off"}, toolchain...)...)
++	goInstall(toolenv(), goBootstrap, append([]string{"-pgo=off", "-tags=allowcryptofallback"}, toolchain...)...)
+ 	if debug {
+ 		run("", ShowOutput|CheckExit, pathf("%s/compile", tooldir), "-V=full")
+ 		copyfile(pathf("%s/compile2", tooldir), pathf("%s/compile", tooldir), writeExec)
+@@ -1567,7 +1573,7 @@ func cmdbootstrap() {
+ 		xprintf("\n")
+ 	}
+ 	xprintf("Building Go toolchain3 using go_bootstrap and Go toolchain2.\n")
+-	goInstall(toolenv(), goBootstrap, append([]string{"-a"}, toolchain...)...)
++	goInstall(toolenv(), goBootstrap, append([]string{"-a", "-tags=allowcryptofallback"}, toolchain...)...)
+ 	if debug {
+ 		run("", ShowOutput|CheckExit, pathf("%s/compile", tooldir), "-V=full")
+ 		copyfile(pathf("%s/compile3", tooldir), pathf("%s/compile", tooldir), writeExec)
 diff --git a/src/cmd/go/internal/modindex/build.go b/src/cmd/go/internal/modindex/build.go
 index d7e09fed25f43a..10614d17e62453 100644
 --- a/src/cmd/go/internal/modindex/build.go
@@ -223,36 +224,6 @@ index 00000000000000..1756c5d027fee0
 +		})
 +	}
 +}
-diff --git a/src/cmd/link/internal/ld/main.go b/src/cmd/link/internal/ld/main.go
-index 6a684890be0a03..1dcc126b7a0440 100644
---- a/src/cmd/link/internal/ld/main.go
-+++ b/src/cmd/link/internal/ld/main.go
-@@ -44,6 +44,7 @@ import (
- 	"os"
- 	"runtime"
- 	"runtime/pprof"
-+	"slices"
- 	"strconv"
- 	"strings"
- )
-@@ -187,7 +188,16 @@ func Main(arch *sys.Arch, theArch Arch) {
- 
- 	buildVersion := buildcfg.Version
- 	if goexperiment := buildcfg.Experiment.String(); goexperiment != "" {
--		buildVersion += " X:" + goexperiment
-+		// buildVersion is intended to contain non-default experiment flags.
-+		// The Microsoft build of Go default behavior is to set the
-+		// allowcryptofallback experiment, so we don't include it in the
-+		// buildVersion string.
-+		goexperiment = strings.Join(slices.DeleteFunc(strings.Split(goexperiment, ","), func(s string) bool {
-+			return s == "allowcryptofallback"
-+		}), ",")
-+		if goexperiment != "" {
-+			buildVersion += " X:" + goexperiment
-+		}
- 	}
- 	addstrdata1(ctxt, "runtime.buildVersion="+buildVersion)
- 
 diff --git a/src/go/build/build.go b/src/go/build/build.go
 index 50288fcec64141..44be2e6a4c580a 100644
 --- a/src/go/build/build.go
@@ -449,34 +420,6 @@ index 00000000000000..eb8a026982259c
 +//go:build goexperiment.systemcrypto
 +
 +package main
-diff --git a/src/internal/goexperiment/exp_allowcryptofallback_off.go b/src/internal/goexperiment/exp_allowcryptofallback_off.go
-new file mode 100644
-index 00000000000000..b8bdf689af6fb5
---- /dev/null
-+++ b/src/internal/goexperiment/exp_allowcryptofallback_off.go
-@@ -0,0 +1,8 @@
-+// Code generated by mkconsts.go. DO NOT EDIT.
-+
-+//go:build !goexperiment.allowcryptofallback
-+
-+package goexperiment
-+
-+const AllowCryptoFallback = false
-+const AllowCryptoFallbackInt = 0
-diff --git a/src/internal/goexperiment/exp_allowcryptofallback_on.go b/src/internal/goexperiment/exp_allowcryptofallback_on.go
-new file mode 100644
-index 00000000000000..d03c0284e949ba
---- /dev/null
-+++ b/src/internal/goexperiment/exp_allowcryptofallback_on.go
-@@ -0,0 +1,8 @@
-+// Code generated by mkconsts.go. DO NOT EDIT.
-+
-+//go:build goexperiment.allowcryptofallback
-+
-+package goexperiment
-+
-+const AllowCryptoFallback = true
-+const AllowCryptoFallbackInt = 1
 diff --git a/src/internal/goexperiment/exp_cngcrypto_off.go b/src/internal/goexperiment/exp_cngcrypto_off.go
 new file mode 100644
 index 00000000000000..eb879f94fa0c42
@@ -590,10 +533,10 @@ index 00000000000000..fcd4cb9da0d162
 +const SystemCrypto = true
 +const SystemCryptoInt = 1
 diff --git a/src/internal/goexperiment/flags.go b/src/internal/goexperiment/flags.go
-index ceff24193d89a5..12fba96b868c9e 100644
+index ceff24193d89a5..6b4289503d57ae 100644
 --- a/src/internal/goexperiment/flags.go
 +++ b/src/internal/goexperiment/flags.go
-@@ -59,6 +59,32 @@ type Flags struct {
+@@ -59,6 +59,24 @@ type Flags struct {
  	PreemptibleLoops  bool
  	StaticLockRanking bool
  	BoringCrypto      bool
@@ -615,14 +558,6 @@ index ceff24193d89a5..12fba96b868c9e 100644
 +	// "any crypto backend is enabled", even if GOEXPERIMENT=systemcrypto is not
 +	// being used to build the Go program.
 +	SystemCrypto bool
-+
-+	// AllowCryptoFallback allows the use of pure Go crypto if a crypto backend
-+	// experiment is enabled but the backend's requirements are not met. This is
-+	// used during the Go build itself to allow running the test suite with a
-+	// backend experiment enabled. Some parts of the Go build (bootstrapping)
-+	// and parts of the test suite run without cgo, so
-+	// GOEXPERIMENT=opensslcrypto,allowcryptofallback must be used to succeed.
-+	AllowCryptoFallback bool
  
  	// Regabi is split into several sub-experiments that can be
  	// enabled individually. Not all combinations work.

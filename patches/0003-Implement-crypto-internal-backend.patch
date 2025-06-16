@@ -5,9 +5,11 @@ Subject: [PATCH] Implement crypto/internal/backend
 
 ---
  .gitignore                                    |   2 +
+ .../backend/allocryptofallback_off.go         |   9 +
+ .../internal/backend/allocryptofallback_on.go |   9 +
  src/crypto/internal/backend/backend_test.go   |  30 ++
  src/crypto/internal/backend/backendgen.go     |  20 +
- .../internal/backend/backendgen_test.go       | 284 ++++++++++++++
+ .../internal/backend/backendgen_test.go       | 280 +++++++++++++
  src/crypto/internal/backend/bbig/big.go       |  17 +
  .../internal/backend/bbig/big_boring.go       |  12 +
  src/crypto/internal/backend/bbig/big_cng.go   |  12 +
@@ -15,7 +17,7 @@ Subject: [PATCH] Implement crypto/internal/backend
  .../internal/backend/bbig/big_openssl.go      |  12 +
  src/crypto/internal/backend/boring_linux.go   | 287 ++++++++++++++
  src/crypto/internal/backend/cng_windows.go    | 344 ++++++++++++++++
- src/crypto/internal/backend/common.go         |  59 +++
+ src/crypto/internal/backend/common.go         |  58 +++
  src/crypto/internal/backend/darwin_darwin.go  | 367 ++++++++++++++++++
  src/crypto/internal/backend/fips140/boring.go |  11 +
  src/crypto/internal/backend/fips140/cng.go    |  33 ++
@@ -39,14 +41,16 @@ Subject: [PATCH] Implement crypto/internal/backend
  .../backenderr_gen_conflict_cng_darwin.go     |  17 +
  .../backenderr_gen_conflict_cng_openssl.go    |  17 +
  .../backenderr_gen_conflict_darwin_openssl.go |  17 +
- .../backenderr_gen_nofallback_boring.go       |  24 ++
- src/runtime/backenderr_gen_nofallback_cng.go  |  24 ++
- .../backenderr_gen_nofallback_darwin.go       |  24 ++
- .../backenderr_gen_nofallback_openssl.go      |  24 ++
+ .../backenderr_gen_nofallback_boring.go       |  20 +
+ src/runtime/backenderr_gen_nofallback_cng.go  |  20 +
+ .../backenderr_gen_nofallback_darwin.go       |  20 +
+ .../backenderr_gen_nofallback_openssl.go      |  20 +
  ...ckenderr_gen_requirefips_nosystemcrypto.go |  17 +
  .../backenderr_gen_systemcrypto_nobackend.go  |  16 +
  src/runtime/runtime_boring.go                 |   5 +
- 42 files changed, 2702 insertions(+), 3 deletions(-)
+ 44 files changed, 2699 insertions(+), 3 deletions(-)
+ create mode 100644 src/crypto/internal/backend/allocryptofallback_off.go
+ create mode 100644 src/crypto/internal/backend/allocryptofallback_on.go
  create mode 100644 src/crypto/internal/backend/backend_test.go
  create mode 100644 src/crypto/internal/backend/backendgen.go
  create mode 100644 src/crypto/internal/backend/backendgen_test.go
@@ -100,6 +104,36 @@ index c6512e64a4ef39..b3b01db73b009d 100644
  # This file includes artifacts of Go build that should not be checked in.
  # For files created by specific development environment (e.g. editor),
  # use alternative ways to exclude files from git.
+diff --git a/src/crypto/internal/backend/allocryptofallback_off.go b/src/crypto/internal/backend/allocryptofallback_off.go
+new file mode 100644
+index 00000000000000..7718cc02f48556
+--- /dev/null
++++ b/src/crypto/internal/backend/allocryptofallback_off.go
+@@ -0,0 +1,9 @@
++// Copyright 2025 The Go Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style
++// license that can be found in the LICENSE file.
++
++//go:build !allowcryptofallback
++
++package backend
++
++const allowCryptoFallback = false
+diff --git a/src/crypto/internal/backend/allocryptofallback_on.go b/src/crypto/internal/backend/allocryptofallback_on.go
+new file mode 100644
+index 00000000000000..fc30aba8ad8228
+--- /dev/null
++++ b/src/crypto/internal/backend/allocryptofallback_on.go
+@@ -0,0 +1,9 @@
++// Copyright 2025 The Go Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style
++// license that can be found in the LICENSE file.
++
++//go:build allowcryptofallback
++
++package backend
++
++const allowCryptoFallback = true
 diff --git a/src/crypto/internal/backend/backend_test.go b/src/crypto/internal/backend/backend_test.go
 new file mode 100644
 index 00000000000000..c2c06d3bff8c74
@@ -164,10 +198,10 @@ index 00000000000000..acf0113bbefb6c
 +//go:generate go test -run TestGenerated -fix
 diff --git a/src/crypto/internal/backend/backendgen_test.go b/src/crypto/internal/backend/backendgen_test.go
 new file mode 100644
-index 00000000000000..1ba948c8f207e5
+index 00000000000000..1da2926a7b960f
 --- /dev/null
 +++ b/src/crypto/internal/backend/backendgen_test.go
-@@ -0,0 +1,284 @@
+@@ -0,0 +1,280 @@
 +// Copyright 2023 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -332,7 +366,7 @@ index 00000000000000..1ba948c8f207e5
 +
 +func testPreventUnintendedFallback(t *testing.T, backend *backend) string {
 +	expTag := &constraint.TagExpr{Tag: "goexperiment." + backend.name + "crypto"}
-+	optOutTag := &constraint.TagExpr{Tag: "goexperiment.allowcryptofallback"}
++	optOutTag := &constraint.TagExpr{Tag: "allowcryptofallback"}
 +	c := constraint.AndExpr{
 +		X: &constraint.AndExpr{
 +			X: expTag,
@@ -348,10 +382,6 @@ index 00000000000000..1ba948c8f207e5
 +		"Required build tags:",
 +		"  "+backend.constraint.String(),
 +		"Please check your build environment and build command for a reason one or more of these tags weren't specified.",
-+		"",
-+		"If you only performed a Go toolset upgrade and didn't expect this error, your code was likely depending on fallback to Go standard library crypto.",
-+		"As of Go 1.21, Go crypto fallback is a build error. This helps prevent accidental fallback.",
-+		"Removing "+backend.name+"crypto will restore pre-1.21 behavior by intentionally using Go standard library crypto.",
 +		"")
 +}
 +
@@ -1192,10 +1222,10 @@ index 00000000000000..6abb6ff007c99f
 +}
 diff --git a/src/crypto/internal/backend/common.go b/src/crypto/internal/backend/common.go
 new file mode 100644
-index 00000000000000..9436b00381aaf8
+index 00000000000000..9dec441fa63856
 --- /dev/null
 +++ b/src/crypto/internal/backend/common.go
-@@ -0,0 +1,59 @@
+@@ -0,0 +1,58 @@
 +// Copyright 2022 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -1205,12 +1235,11 @@ index 00000000000000..9436b00381aaf8
 +import (
 +	"crypto/internal/backend/fips140"
 +	"crypto/internal/boring/sig"
-+	"internal/goexperiment"
 +	"runtime"
 +)
 +
 +func init() {
-+	if !goexperiment.AllowCryptoFallback && fips140.Enabled() {
++	if !allowCryptoFallback && fips140.Enabled() {
 +		if !Enabled {
 +			if runtime.GOOS != "linux" && runtime.GOOS != "windows" && runtime.GOOS != "darwin" {
 +				panic("FIPS mode requested (" + fips140.Message + ") but no crypto backend is supported on " + runtime.GOOS)
@@ -2905,17 +2934,17 @@ index 00000000000000..90f4361e28cd94
 +}
 diff --git a/src/runtime/backenderr_gen_nofallback_boring.go b/src/runtime/backenderr_gen_nofallback_boring.go
 new file mode 100644
-index 00000000000000..6db0ed6dc09639
+index 00000000000000..08926e5f836698
 --- /dev/null
 +++ b/src/runtime/backenderr_gen_nofallback_boring.go
-@@ -0,0 +1,24 @@
+@@ -0,0 +1,20 @@
 +// Copyright 2023 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
 +
 +// This file is generated by crypto/internal/backend. DO NOT EDIT. DO NOT manually create files with the prefix "backenderr_gen_".
 +
-+//go:build goexperiment.boringcrypto && !(goexperiment.boringcrypto && linux && cgo && (amd64 || arm64) && !android && !msan) && !goexperiment.allowcryptofallback
++//go:build goexperiment.boringcrypto && !(goexperiment.boringcrypto && linux && cgo && (amd64 || arm64) && !android && !msan) && !allowcryptofallback
 +
 +package runtime
 +
@@ -2926,26 +2955,22 @@ index 00000000000000..6db0ed6dc09639
 +	  goexperiment.boringcrypto && linux && cgo && (amd64 || arm64) && !android && !msan
 +	Please check your build environment and build command for a reason one or more of these tags weren't specified.
 +	
-+	If you only performed a Go toolset upgrade and didn't expect this error, your code was likely depending on fallback to Go standard library crypto.
-+	As of Go 1.21, Go crypto fallback is a build error. This helps prevent accidental fallback.
-+	Removing boringcrypto will restore pre-1.21 behavior by intentionally using Go standard library crypto.
-+	
 +	For more information, visit https://github.com/microsoft/go/tree/microsoft/main/eng/doc/fips
 +	`
 +}
 diff --git a/src/runtime/backenderr_gen_nofallback_cng.go b/src/runtime/backenderr_gen_nofallback_cng.go
 new file mode 100644
-index 00000000000000..ae7f798ea41225
+index 00000000000000..fcd86ebaa37814
 --- /dev/null
 +++ b/src/runtime/backenderr_gen_nofallback_cng.go
-@@ -0,0 +1,24 @@
+@@ -0,0 +1,20 @@
 +// Copyright 2023 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
 +
 +// This file is generated by crypto/internal/backend. DO NOT EDIT. DO NOT manually create files with the prefix "backenderr_gen_".
 +
-+//go:build goexperiment.cngcrypto && !(goexperiment.cngcrypto && windows) && !goexperiment.allowcryptofallback
++//go:build goexperiment.cngcrypto && !(goexperiment.cngcrypto && windows) && !allowcryptofallback
 +
 +package runtime
 +
@@ -2956,26 +2981,22 @@ index 00000000000000..ae7f798ea41225
 +	  goexperiment.cngcrypto && windows
 +	Please check your build environment and build command for a reason one or more of these tags weren't specified.
 +	
-+	If you only performed a Go toolset upgrade and didn't expect this error, your code was likely depending on fallback to Go standard library crypto.
-+	As of Go 1.21, Go crypto fallback is a build error. This helps prevent accidental fallback.
-+	Removing cngcrypto will restore pre-1.21 behavior by intentionally using Go standard library crypto.
-+	
 +	For more information, visit https://github.com/microsoft/go/tree/microsoft/main/eng/doc/fips
 +	`
 +}
 diff --git a/src/runtime/backenderr_gen_nofallback_darwin.go b/src/runtime/backenderr_gen_nofallback_darwin.go
 new file mode 100644
-index 00000000000000..8a32f2cb25bda2
+index 00000000000000..bcca3e1a5a548d
 --- /dev/null
 +++ b/src/runtime/backenderr_gen_nofallback_darwin.go
-@@ -0,0 +1,24 @@
+@@ -0,0 +1,20 @@
 +// Copyright 2023 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
 +
 +// This file is generated by crypto/internal/backend. DO NOT EDIT. DO NOT manually create files with the prefix "backenderr_gen_".
 +
-+//go:build goexperiment.darwincrypto && !(goexperiment.darwincrypto && darwin && cgo) && !goexperiment.allowcryptofallback
++//go:build goexperiment.darwincrypto && !(goexperiment.darwincrypto && darwin && cgo) && !allowcryptofallback
 +
 +package runtime
 +
@@ -2986,26 +3007,22 @@ index 00000000000000..8a32f2cb25bda2
 +	  goexperiment.darwincrypto && darwin && cgo
 +	Please check your build environment and build command for a reason one or more of these tags weren't specified.
 +	
-+	If you only performed a Go toolset upgrade and didn't expect this error, your code was likely depending on fallback to Go standard library crypto.
-+	As of Go 1.21, Go crypto fallback is a build error. This helps prevent accidental fallback.
-+	Removing darwincrypto will restore pre-1.21 behavior by intentionally using Go standard library crypto.
-+	
 +	For more information, visit https://github.com/microsoft/go/tree/microsoft/main/eng/doc/fips
 +	`
 +}
 diff --git a/src/runtime/backenderr_gen_nofallback_openssl.go b/src/runtime/backenderr_gen_nofallback_openssl.go
 new file mode 100644
-index 00000000000000..7e1679dfc37a23
+index 00000000000000..c88593ad85fc76
 --- /dev/null
 +++ b/src/runtime/backenderr_gen_nofallback_openssl.go
-@@ -0,0 +1,24 @@
+@@ -0,0 +1,20 @@
 +// Copyright 2023 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
 +
 +// This file is generated by crypto/internal/backend. DO NOT EDIT. DO NOT manually create files with the prefix "backenderr_gen_".
 +
-+//go:build goexperiment.opensslcrypto && !(goexperiment.opensslcrypto && linux && cgo) && !goexperiment.allowcryptofallback
++//go:build goexperiment.opensslcrypto && !(goexperiment.opensslcrypto && linux && cgo) && !allowcryptofallback
 +
 +package runtime
 +
@@ -3015,10 +3032,6 @@ index 00000000000000..7e1679dfc37a23
 +	Required build tags:
 +	  goexperiment.opensslcrypto && linux && cgo
 +	Please check your build environment and build command for a reason one or more of these tags weren't specified.
-+	
-+	If you only performed a Go toolset upgrade and didn't expect this error, your code was likely depending on fallback to Go standard library crypto.
-+	As of Go 1.21, Go crypto fallback is a build error. This helps prevent accidental fallback.
-+	Removing opensslcrypto will restore pre-1.21 behavior by intentionally using Go standard library crypto.
 +	
 +	For more information, visit https://github.com/microsoft/go/tree/microsoft/main/eng/doc/fips
 +	`
