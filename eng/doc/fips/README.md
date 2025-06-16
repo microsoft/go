@@ -84,7 +84,7 @@ Some configurations are invalid and intentionally result in a build error or run
 | `GOEXPERIMENT=systemcrypto` and `-tags=requirefips` | `GOFIPS=0` | The app panics due to the conflict between build-time and runtime configuration. |
 | `-tags=requirefips` | | The build fails. A crypto backend must be specified to enable FIPS features. |
 | `GOEXPERIMENT=cngcrypto,opensslcrypto` | | The build fails. Only one crypto backend can be enabled at a time. |
-| `GOOS=linux CGO_ENABLED=0 GOEXPERIMENT=systemcrypto` | | The build fails. Cgo is required to use the OpenSSL backend. <br/> Prior to Go 1.21 or if 
+| `GOOS=linux CGO_ENABLED=0 GOEXPERIMENT=systemcrypto` | | The build fails. Cgo is required to use the OpenSSL backend. <br/> Prior to Go 1.21 the build would succeed but use standard Go crypto, making the app non-compliant. |
 
 ## Usage: Build
 
