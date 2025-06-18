@@ -6,6 +6,8 @@ package main
 import (
 	"log"
 	"os"
+
+	"github.com/microsoft/go/_util/buildutil"
 )
 
 // enableSystemWideFIPS enables Mariner and Azure Linux 3 process-wide FIPS mode
@@ -18,7 +20,7 @@ func enableSystemWideFIPS() (restore func(), err error) {
 		return nil, nil
 	}
 
-	env("OPENSSL_FORCE_FIPS_MODE", "1")
+	buildutil.SetEnv("OPENSSL_FORCE_FIPS_MODE", "1")
 	log.Println("Enabled Mariner and Azure Linux 3 FIPS mode (OPENSSL_FORCE_FIPS_MODE).")
 
 	return func() {
