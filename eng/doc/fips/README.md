@@ -439,7 +439,7 @@ This list of major changes is intended for quick reference and for access to his
 
 ### Go 1.25 (Aug 2025)
 
-- `GOEXPERIMENT=allowcryptofallback` has been downgraded to the `allowcryptofallback` build tag. Applications shouldn't be using it anymore, as it was a mechanism to facilitate migrating to Go 1.21. The build tag is still there for rare exceptions, please contact the Go team at Microsoft if you need to use it so we can help you migrate to the new behavior.
+- `GOEXPERIMENT=allowcryptofallback` has been downgraded to the `allowcryptofallback` build tag. This is an internal mechanism that is not intended for use when building a Go application. This document has always recommended against using it, so we anticipate that this change won't affect users of the Microsoft build of Go. Please [contact the maintainers of the Microsoft build of Go](https://github.com/microsoft/go/blob/microsoft/main/SUPPORT.md) if you need to use it so we can understand the scenario and help find a safer alternative.
 
 ### Go 1.24 (Feb 2025)
 
