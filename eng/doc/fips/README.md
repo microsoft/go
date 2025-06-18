@@ -105,7 +105,7 @@ The options are exclusive and must not be enabled at the same time as one anothe
 | Target platform | `systemcrypto` selection | Library |
 | --- | --- | --- |
 | Linux | `opensslcrypto` | OpenSSL |
-| Windows | `cngcrypto` | CNG |
+| Windows (amd64 and arm64) | `cngcrypto` | CNG |
 | macOS (since 1.24) | `darwincrypto` | CommonCrypto & CryptoKit |
 | macOS (prior to 1.24) | N/A, build error | N/A |
 
