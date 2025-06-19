@@ -288,7 +288,7 @@ func build(o *options) (err error) {
 		var version string
 		if data, err := os.ReadFile(filepath.Join(goRootDir, "VERSION")); err != nil {
 			if errors.Is(err, os.ErrNotExist) {
-				if version, err = writeDevelVersionFile(goRootDir, toolsDir); err != nil {
+				if version, err = writeDevelVersionFile(goRootDir, executableExtension); err != nil {
 					return fmt.Errorf("unable to pack: failed writing development VERSION file: %v", err)
 				}
 				// Best effort: clean up the VERSION file when we're done. This is just for dev
@@ -348,8 +348,8 @@ func build(o *options) (err error) {
 	return nil
 }
 
-func writeDevelVersionFile(goRootDir, toolsDir string) (string, error) {
-	cmd := exec.Command(filepath.Join(toolsDir, "dist"), "version")
+func writeDevelVersionFile(goRootDir, executableExtension string) (string, error) {
+	cmd := exec.Command(filepath.Join(goRootDir, "bin", "go"+executableExtension), "tool", "dist", "version")
 	cmd.Env = append(os.Environ(), "GOROOT="+goRootDir)
 	vBytes, err := cmd.CombinedOutput()
 	if err != nil {
