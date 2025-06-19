@@ -31,6 +31,16 @@ parameters:
     type: object
     default: ["FINAL"]
 
+  - name: osArchList
+    type: object
+    default:
+      - { os: 'linux', arch: 'amd64' }
+      - { os: 'windows', arch: 'amd64' }
+      - { os: 'linux', arch: 'arm' }
+      - { os: 'linux', arch: 'arm64' }
+      - { os: 'darwin', arch: 'amd64' }
+      - { os: 'darwin', arch: 'arm64' }
+
 stages:
   - stage: ${{ parameters.builder.id }}
     # For display name, try for readability. Use some parameters set by
@@ -87,14 +97,30 @@ stages:
               ls "$(Pipeline.Workspace)/Binaries Signed/go"
             displayName: Extract Microsoft build of Go (linux-amd64)
 
-          - bash: |
-              "$(GoExecutable)" version
-            displayName: Show Go version
+          - ${{ each c in parameters.osArchList }}:
+            - bash: |
+                set -eux
+                export GOOS=${{ c.os }}
+                export GOARCH=${{ c.arch }}
 
-          - bash: |
-              "$(GoExecutable)" build std
-            displayName: Build std
+                # Static binary workaround for CodeQL and Go 1.21 and higher
+                # https://eng.ms/docs/cloud-ai-platform/devdiv/one-engineering-system-1es/1es-docs/codeql/troubleshooting/onboarding/language-compiled#go-121-and-higher-on-linux
 
-          - bash: |
-              "$(GoExecutable)" build cmd/...
-            displayName: Build cmd
+                WORKAROUND_DIR=$AGENT_TEMPDIRECTORY/codeql-go-tracing-${{ c.os }}-${{ c.arch }}
+                mkdir "${WORKAROUND_DIR}"
+                WHICH_GO="$(GoExecutable)"
+
+                cat > "${WORKAROUND_DIR}/go" <<EOF
+                #!/bin/bash
+                exec "$WHICH_GO" "\$@"
+                EOF
+
+                chmod 755 "${WORKAROUND_DIR}/go"
+                export PATH="${WORKAROUND_DIR}:${PATH}"
+
+                # Build Go itself.
+                go build std
+                go build cmd/...
+                # Build our infra tools.
+                ( cd eng/_util/ && go build ./... )
+              displayName: Build ${{ c.os }}-${{ c.arch }}
