@@ -5,15 +5,7 @@ Subject: [PATCH] Implement crypto/internal/backend
 
 ---
  .gitignore                                    |   2 +
- .../compile/internal/loopvar/loopvar_test.go  |   2 +-
- src/cmd/compile/internal/ssa/fmahash_test.go  |   2 +-
- src/cmd/dist/test.go                          |   7 +
- src/cmd/internal/obj/x86/pcrelative_test.go   |   2 +-
- src/cmd/internal/testdir/testdir_test.go      |  12 +
- src/cmd/link/internal/ld/ld_test.go           |   2 +-
- src/cmd/link/internal/ld/stackcheck_test.go   |   2 +-
- src/cmd/link/link_test.go                     |   4 +-
- src/cmd/vet/vet_test.go                       |   2 +-
+ src/cmd/dist/test.go                          |   6 +
  .../backend/allocryptofallback_off.go         |   9 +
  .../internal/backend/allocryptofallback_on.go |   9 +
  src/crypto/internal/backend/backend_test.go   |  30 ++
@@ -57,8 +49,7 @@ Subject: [PATCH] Implement crypto/internal/backend
  .../zbackenderrsystemcrypto_nobackend.go      |  16 +
  src/go/build/deps_test.go                     |  27 +-
  src/runtime/runtime_boring.go                 |   5 +
- src/syscall/exec_linux_test.go                |   2 +-
- 54 files changed, 2725 insertions(+), 12 deletions(-)
+ 45 files changed, 2703 insertions(+), 3 deletions(-)
  create mode 100644 src/crypto/internal/backend/allocryptofallback_off.go
  create mode 100644 src/crypto/internal/backend/allocryptofallback_on.go
  create mode 100644 src/crypto/internal/backend/backend_test.go
@@ -114,34 +105,8 @@ index c6512e64a4ef39..b3b01db73b009d 100644
  # This file includes artifacts of Go build that should not be checked in.
  # For files created by specific development environment (e.g. editor),
  # use alternative ways to exclude files from git.
-diff --git a/src/cmd/compile/internal/loopvar/loopvar_test.go b/src/cmd/compile/internal/loopvar/loopvar_test.go
-index b19962f0fd4023..ce018311a35d7d 100644
---- a/src/cmd/compile/internal/loopvar/loopvar_test.go
-+++ b/src/cmd/compile/internal/loopvar/loopvar_test.go
-@@ -189,7 +189,7 @@ func TestLoopVarHashes(t *testing.T) {
- 		// -trimpath is necessary so we get the same answer no matter where the
- 		// Go repository is checked out. This is not normally a concern since people
- 		// do not normally rely on the meaning of specific hashes.
--		cmd := testenv.Command(t, gocmd, "run", "-trimpath", root)
-+		cmd := testenv.Command(t, gocmd, "run", "-trimpath", "-tags=allowcryptofallback", root)
- 		cmd.Env = append(cmd.Env, "GOCOMPILEDEBUG=loopvarhash="+hash, "HOME="+tmpdir)
- 		cmd.Dir = filepath.Join("testdata", "inlines")
- 
-diff --git a/src/cmd/compile/internal/ssa/fmahash_test.go b/src/cmd/compile/internal/ssa/fmahash_test.go
-index c563d5b8d9d01b..ed063d7ded8fd9 100644
---- a/src/cmd/compile/internal/ssa/fmahash_test.go
-+++ b/src/cmd/compile/internal/ssa/fmahash_test.go
-@@ -33,7 +33,7 @@ func TestFmaHash(t *testing.T) {
- 	tmpdir := t.TempDir()
- 	source := filepath.Join("testdata", "fma.go")
- 	output := filepath.Join(tmpdir, "fma.exe")
--	cmd := testenv.Command(t, gocmd, "build", "-o", output, source)
-+	cmd := testenv.Command(t, gocmd, "build", "-o", output, "-tags=allowcryptofallback", source)
- 	// The hash-dependence on file path name is dodged by specifying "all hashes ending in 1" plus "all hashes ending in 0"
- 	// i.e., all hashes.  This will print all the FMAs; this test is only interested in one of them (that should appear near the end).
- 	cmd.Env = append(cmd.Env, "GOCOMPILEDEBUG=fmahash=1/0", "GOOS=linux", "GOARCH=arm64", "HOME="+tmpdir)
 diff --git a/src/cmd/dist/test.go b/src/cmd/dist/test.go
-index d335e4cfbce468..7e362c80be609a 100644
+index d335e4cfbce468..786dcdf971dbb1 100644
 --- a/src/cmd/dist/test.go
 +++ b/src/cmd/dist/test.go
 @@ -847,6 +847,11 @@ func (t *tester) registerTests() {
@@ -156,15 +121,7 @@ index d335e4cfbce468..7e362c80be609a 100644
  		t.registerTest("internal linking, -buildmode=pie",
  			&goTest{
  				variant:   "pie_internal",
-@@ -855,6 +860,7 @@ func (t *tester) registerTests() {
- 				ldflags:   "-linkmode=internal",
- 				env:       []string{"CGO_ENABLED=0"},
- 				pkg:       "reflect",
-+				tags:      tags,
- 			})
- 		t.registerTest("internal linking, -buildmode=pie",
- 			&goTest{
-@@ -865,6 +871,7 @@ func (t *tester) registerTests() {
+@@ -865,6 +870,7 @@ func (t *tester) registerTests() {
  				env:       []string{"CGO_ENABLED=0"},
  				pkg:       "crypto/internal/fips140test",
  				runTests:  "TestFIPSCheck",
@@ -172,110 +129,6 @@ index d335e4cfbce468..7e362c80be609a 100644
  			})
  		// Also test a cgo package.
  		if t.cgoEnabled && t.internalLink() && !disablePIE {
-diff --git a/src/cmd/internal/obj/x86/pcrelative_test.go b/src/cmd/internal/obj/x86/pcrelative_test.go
-index 1ca9ea22cf7182..3cf10b0933abc0 100644
---- a/src/cmd/internal/obj/x86/pcrelative_test.go
-+++ b/src/cmd/internal/obj/x86/pcrelative_test.go
-@@ -56,7 +56,7 @@ func objdumpOutput(t *testing.T, mname, source string) []byte {
- 	}
- 
- 	cmd := testenv.Command(t,
--		testenv.GoToolPath(t), "build", "-o",
-+		testenv.GoToolPath(t), "build", "-tags=allowcryptofallback", "-o",
- 		filepath.Join(tmpdir, "output"))
- 
- 	cmd.Env = append(os.Environ(),
-diff --git a/src/cmd/internal/testdir/testdir_test.go b/src/cmd/internal/testdir/testdir_test.go
-index 7e7867d83f9c47..d593aaa5f7adb5 100644
---- a/src/cmd/internal/testdir/testdir_test.go
-+++ b/src/cmd/internal/testdir/testdir_test.go
-@@ -280,6 +280,10 @@ func (t test) expectFail() bool {
- 		failureSets = append(failureSets, types2Failures32Bit)
- 	}
- 
-+	if strings.Contains(goExperiment, "boringcrypto") {
-+		failureSets = append(failureSets, boringFailures)
-+	}
-+
- 	testName := path.Join(t.dir, t.goFile) // Test name is '/'-separated.
- 
- 	for _, set := range failureSets {
-@@ -1864,6 +1868,14 @@ var types2Failures32Bit = setOf(
- 	"fixedbugs/issue23305.go", // large untyped int passed to println (32-bit)
- )
- 
-+// List of files that fail with boringcrypto due
-+// to it not supporting 32-bit architectures.
-+var boringFailures = setOf(
-+	"codegen/copy.go",
-+	"codegen/memcombine.go",
-+	"codegen/stack.go",
-+)
-+
- // In all of these cases, the 1.17 compiler reports reasonable errors, but either the
- // 1.17 or 1.18 compiler report extra errors, so we can't match correctly on both. We
- // now set the patterns to match correctly on all the 1.18 errors.
-diff --git a/src/cmd/link/internal/ld/ld_test.go b/src/cmd/link/internal/ld/ld_test.go
-index c954ab6bca7294..d455f4ecd2edbd 100644
---- a/src/cmd/link/internal/ld/ld_test.go
-+++ b/src/cmd/link/internal/ld/ld_test.go
-@@ -417,7 +417,7 @@ func d()
- 	if err := os.WriteFile(filepath.Join(tmpDir, "x.go"), []byte(main), 0644); err != nil {
- 		t.Fatalf("failed to write main: %v\n", err)
- 	}
--	cmd := testenv.Command(t, testenv.GoToolPath(t), "build", "-ldflags=-linkmode=internal")
-+	cmd := testenv.Command(t, testenv.GoToolPath(t), "build", "-ldflags=-linkmode=internal", "-tags=allowcryptofallback")
- 	cmd.Dir = tmpDir
- 	cmd.Env = append(os.Environ(), "GOARCH=riscv64", "GOOS=linux")
- 	out, err := cmd.CombinedOutput()
-diff --git a/src/cmd/link/internal/ld/stackcheck_test.go b/src/cmd/link/internal/ld/stackcheck_test.go
-index dd7e20528f0959..693d4ca473f95a 100644
---- a/src/cmd/link/internal/ld/stackcheck_test.go
-+++ b/src/cmd/link/internal/ld/stackcheck_test.go
-@@ -19,7 +19,7 @@ func TestStackCheckOutput(t *testing.T) {
- 	testenv.MustHaveGoBuild(t)
- 	t.Parallel()
- 
--	cmd := testenv.Command(t, testenv.GoToolPath(t), "build", "-o", os.DevNull, "./testdata/stackcheck")
-+	cmd := testenv.Command(t, testenv.GoToolPath(t), "build", "-tags=allowcryptofallback", "-o", os.DevNull, "./testdata/stackcheck")
- 	// The rules for computing frame sizes on all of the
- 	// architectures are complicated, so just do this on amd64.
- 	cmd.Env = append(os.Environ(), "GOARCH=amd64", "GOOS=linux")
-diff --git a/src/cmd/link/link_test.go b/src/cmd/link/link_test.go
-index 53c4ee77fed4b4..43effb152f63f5 100644
---- a/src/cmd/link/link_test.go
-+++ b/src/cmd/link/link_test.go
-@@ -167,7 +167,7 @@ TEXT ·x(SB),0,$0
-         MOVD ·zero(SB), AX
-         RET
- `)
--	cmd := testenv.Command(t, testenv.GoToolPath(t), "build")
-+	cmd := testenv.Command(t, testenv.GoToolPath(t), "build", "-tags=allowcryptofallback")
- 	cmd.Dir = tmpdir
- 	cmd.Env = append(os.Environ(),
- 		"GOARCH=amd64", "GOOS=linux", "GOPATH="+filepath.Join(tmpdir, "_gopath"))
-@@ -370,7 +370,7 @@ func TestMachOBuildVersion(t *testing.T) {
- 	}
- 
- 	exe := filepath.Join(tmpdir, "main")
--	cmd := testenv.Command(t, testenv.GoToolPath(t), "build", "-ldflags=-linkmode=internal", "-o", exe, src)
-+	cmd := testenv.Command(t, testenv.GoToolPath(t), "build", "-ldflags=-linkmode=internal", "-tags=allowcryptofallback", "-o", exe, src)
- 	cmd.Env = append(os.Environ(),
- 		"CGO_ENABLED=0",
- 		"GOOS=darwin",
-diff --git a/src/cmd/vet/vet_test.go b/src/cmd/vet/vet_test.go
-index 54eabca938c3a9..56546c413b330c 100644
---- a/src/cmd/vet/vet_test.go
-+++ b/src/cmd/vet/vet_test.go
-@@ -38,7 +38,7 @@ func vetPath(t testing.TB) string {
- }
- 
- func vetCmd(t *testing.T, arg, pkg string) *exec.Cmd {
--	cmd := testenv.Command(t, testenv.GoToolPath(t), "vet", "-vettool="+vetPath(t), arg, path.Join("cmd/vet/testdata", pkg))
-+	cmd := testenv.Command(t, testenv.GoToolPath(t), "vet", "-tags=allowcryptofallback", "-vettool="+vetPath(t), arg, path.Join("cmd/vet/testdata", pkg))
- 	cmd.Env = os.Environ()
- 	return cmd
- }
 diff --git a/src/crypto/internal/backend/allocryptofallback_off.go b/src/crypto/internal/backend/allocryptofallback_off.go
 new file mode 100644
 index 00000000000000..7718cc02f48556
@@ -3264,16 +3117,3 @@ index 831ee67afc952d..d2f00d57c10286 100644
 +func crypto_backend_runtime_arg0() string {
 +	return boring_runtime_arg0()
 +}
-diff --git a/src/syscall/exec_linux_test.go b/src/syscall/exec_linux_test.go
-index 69d49169446d1c..9c16f665d4a223 100644
---- a/src/syscall/exec_linux_test.go
-+++ b/src/syscall/exec_linux_test.go
-@@ -299,7 +299,7 @@ func TestUnshareMountNameSpaceChroot(t *testing.T) {
- 		}
- 	})
- 
--	cmd := testenv.Command(t, testenv.GoToolPath(t), "test", "-c", "-o", x, "syscall")
-+	cmd := testenv.Command(t, testenv.GoToolPath(t), "test", "-c", "-tags=allowcryptofallback", "-o", x, "syscall")
- 	cmd.Env = append(cmd.Environ(), "CGO_ENABLED=0")
- 	if o, err := cmd.CombinedOutput(); err != nil {
- 		t.Fatalf("%v: %v\n%s", cmd, err, o)
