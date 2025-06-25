@@ -439,7 +439,11 @@ This list of major changes is intended for quick reference and for access to his
 
 ### Go 1.25 (Aug 2025)
 
-- `GOEXPERIMENT=allowcryptofallback` has been downgraded to the `allowcryptofallback` build tag. This is an internal mechanism that is not intended for use when building a Go application. This document has always recommended against using it, so we anticipate that this change won't affect users of the Microsoft build of Go. Please [contact the maintainers of the Microsoft build of Go](https://github.com/microsoft/go/blob/microsoft/main/SUPPORT.md) if you need to use it so we can understand the scenario and help find a safer alternative.
+- Running `go version -m` on a binary which uses a system crypto backend now shows the `microsoft_systemcrypto=1` build setting.
+
+- `GOEXPERIMENT=allowcryptofallback` has been removed. It was an internal mechanism that was not intended for use when building a Go application. Please [contact the maintainers of the Microsoft build of Go](https://github.com/microsoft/go/blob/microsoft/main/SUPPORT.md) if you need to use it so we can understand the scenario and help find a safer alternative.
+
+- It is now possible to build a binary that doesn't depend on a crypto package using invalid configurations, for example `GOOS=linux CGO_ENABLED=0 GOEXPERIMENT=systemcrypto`.
 
 ### Go 1.24 (Feb 2025)
 
