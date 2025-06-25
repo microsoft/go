@@ -9,7 +9,7 @@ Subject: [PATCH] Implement crypto/internal/backend
  src/cmd/dist/test.go                          |   9 +-
  src/cmd/go/internal/load/pkg.go               |   3 +
  .../go/testdata/script/build_systemcrypto.txt |  35 ++
- src/cmd/link/internal/ld/main.go              |  11 +-
+ src/cmd/link/internal/ld/main.go              |  15 +-
  src/crypto/internal/backend/backend_test.go   |  30 ++
  src/crypto/internal/backend/backendgen.go     |  20 +
  .../internal/backend/backendgen_test.go       | 274 +++++++++++++
@@ -54,7 +54,7 @@ Subject: [PATCH] Implement crypto/internal/backend
  src/go/build/deps_test.go                     |  27 +-
  src/runtime/runtime_boring.go                 |   5 +
  src/syscall/exec_linux_test.go                |   2 +-
- 50 files changed, 2771 insertions(+), 8 deletions(-)
+ 50 files changed, 2775 insertions(+), 8 deletions(-)
  create mode 100644 src/cmd/go/testdata/script/build_systemcrypto.txt
  create mode 100644 src/crypto/internal/backend/backend_test.go
  create mode 100644 src/crypto/internal/backend/backendgen.go
@@ -231,7 +231,7 @@ index 00000000000000..3ae8fbfa3ccad3
 +}
 \ No newline at end of file
 diff --git a/src/cmd/link/internal/ld/main.go b/src/cmd/link/internal/ld/main.go
-index 6a684890be0a03..0d3f6a51b69e58 100644
+index 6a684890be0a03..4d84fc9bd08984 100644
 --- a/src/cmd/link/internal/ld/main.go
 +++ b/src/cmd/link/internal/ld/main.go
 @@ -44,6 +44,7 @@ import (
@@ -242,7 +242,7 @@ index 6a684890be0a03..0d3f6a51b69e58 100644
  	"strconv"
  	"strings"
  )
-@@ -187,7 +188,15 @@ func Main(arch *sys.Arch, theArch Arch) {
+@@ -187,7 +188,19 @@ func Main(arch *sys.Arch, theArch Arch) {
  
  	buildVersion := buildcfg.Version
  	if goexperiment := buildcfg.Experiment.String(); goexperiment != "" {
@@ -250,8 +250,12 @@ index 6a684890be0a03..0d3f6a51b69e58 100644
 +		// systemcrypt is managed an experiment for historical reasons,
 +		// but it is really not an experiment, but a consolidated feature.
 +		// Don't report it in the build version.
++		var cryptoBackends = [...]string{"systemcrypto", "opensslcrypto", "cngcrypto", "darwincrypto", "boringcrypto"}
 +		goexperiment = strings.Join(slices.DeleteFunc(strings.Split(goexperiment, ","), func(s string) bool {
-+			return s == "nosystemcrypto" || s == "systemcrypto"
++			if slices.Contains(cryptoBackends[:], s) {
++				return true
++			}
++			return strings.HasPrefix(s, "no") && slices.Contains(cryptoBackends[:], s[2:])
 +		}), ",")
 +		if goexperiment != "" {
 +			buildVersion += " X:" + goexperiment
