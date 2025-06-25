@@ -5,7 +5,7 @@ Subject: [PATCH] Implement crypto/internal/backend
 
 ---
  .gitignore                                    |   2 +
- src/cmd/dist/build.go                         |   5 +
+ src/cmd/dist/build.go                         |  19 +-
  src/cmd/dist/test.go                          |   9 +-
  src/cmd/go/internal/load/pkg.go               |   3 +
  .../go/testdata/script/build_systemcrypto.txt |  35 ++
@@ -54,7 +54,7 @@ Subject: [PATCH] Implement crypto/internal/backend
  src/go/build/deps_test.go                     |  27 +-
  src/runtime/runtime_boring.go                 |   5 +
  src/syscall/exec_linux_test.go                |   2 +-
- 50 files changed, 2758 insertions(+), 7 deletions(-)
+ 50 files changed, 2771 insertions(+), 8 deletions(-)
  create mode 100644 src/cmd/go/testdata/script/build_systemcrypto.txt
  create mode 100644 src/crypto/internal/backend/backend_test.go
  create mode 100644 src/crypto/internal/backend/backendgen.go
@@ -112,13 +112,27 @@ index c6512e64a4ef39..b3b01db73b009d 100644
  # For files created by specific development environment (e.g. editor),
  # use alternative ways to exclude files from git.
 diff --git a/src/cmd/dist/build.go b/src/cmd/dist/build.go
-index b50f3342fe8714..fb61daf8160a5b 100644
+index b50f3342fe8714..a327e0a50e0d74 100644
 --- a/src/cmd/dist/build.go
 +++ b/src/cmd/dist/build.go
-@@ -1539,6 +1539,11 @@ func cmdbootstrap() {
+@@ -1538,7 +1538,24 @@ func cmdbootstrap() {
+ 	xprintf("Building Go toolchain2 using go_bootstrap and Go toolchain1.\n")
  	os.Setenv("CC", compilerEnvLookup("CC", defaultcc, goos, goarch))
  	// Now that cmd/go is in charge of the build process, enable GOEXPERIMENT.
- 	os.Setenv("GOEXPERIMENT", goexperiment)
+-	os.Setenv("GOEXPERIMENT", goexperiment)
++	//
++	// The Go toolchain does not use crypto for security. Disable systemcrypto
++	// to favor portability.
++	var goexpSlice []string
++	if goexperiment != "" {
++		goexpSlice = strings.Split(goexperiment, ",")
++		goexpSlice = slices.DeleteFunc(goexpSlice, func(exp string) bool {
++			return exp == "systemcrypto" || exp == "opensslcrypto" ||
++				exp == "cngcrypto" || exp == "darwincrypto" || exp == "boringcrypto"
++		})
++	}
++	goexpSlice = append(goexpSlice, "nosystemcrypto")
++	os.Setenv("GOEXPERIMENT", strings.Join(goexpSlice, ","))
 +	// Set the norequirefips to allow using the toolchain when it is
 +	// not built with a systemcrypto backend and GODEBUG=fips140=on is set.
 +	// For example, when runnings "GODEBUG=fips140=on go test ./..." or
