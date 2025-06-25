@@ -6,7 +6,7 @@ Subject: [PATCH] Implement crypto/internal/backend
 ---
  .gitignore                                    |   2 +
  src/cmd/dist/build.go                         |  19 +-
- src/cmd/dist/test.go                          |   9 +-
+ src/cmd/dist/test.go                          |  16 +-
  src/cmd/go/internal/load/pkg.go               |   3 +
  .../go/testdata/script/build_systemcrypto.txt |  35 ++
  src/cmd/link/internal/ld/main.go              |  15 +-
@@ -54,7 +54,7 @@ Subject: [PATCH] Implement crypto/internal/backend
  src/go/build/deps_test.go                     |  27 +-
  src/runtime/runtime_boring.go                 |   5 +
  src/syscall/exec_linux_test.go                |   2 +-
- 50 files changed, 2775 insertions(+), 8 deletions(-)
+ 50 files changed, 2781 insertions(+), 9 deletions(-)
  create mode 100644 src/cmd/go/testdata/script/build_systemcrypto.txt
  create mode 100644 src/crypto/internal/backend/backend_test.go
  create mode 100644 src/crypto/internal/backend/backendgen.go
@@ -142,7 +142,7 @@ index b50f3342fe8714..a327e0a50e0d74 100644
  	goInstall(toolenv(), goBootstrap, append([]string{"-pgo=off"}, toolchain...)...)
  	if debug {
 diff --git a/src/cmd/dist/test.go b/src/cmd/dist/test.go
-index d335e4cfbce468..a80815006a5377 100644
+index d335e4cfbce468..e169f14170c413 100644
 --- a/src/cmd/dist/test.go
 +++ b/src/cmd/dist/test.go
 @@ -847,13 +847,18 @@ func (t *tester) registerTests() {
@@ -174,6 +174,26 @@ index d335e4cfbce468..a80815006a5377 100644
  				pkg:       "crypto/internal/fips140test",
  				runTests:  "TestFIPSCheck",
  			})
+@@ -881,13 +886,18 @@ func (t *tester) registerTests() {
+ 
+ 	if t.extLink() && !t.compileOnly {
+ 		if goos != "android" { // Android does not support non-PIE linking
++			var extraEnvs []string
++			if goos == "darwin" {
++				// macOS don't support systemcrypto with non-PIE linking.
++				extraEnvs = append(extraEnvs, "GOEXPERIMENT=nosystemcrypto", "GOFLAGS=-tags=norequirefips")
++			}
+ 			t.registerTest("external linking, -buildmode=exe",
+ 				&goTest{
+ 					variant:   "exe_external",
+ 					timeout:   60 * time.Second,
+ 					buildmode: "exe",
+ 					ldflags:   "-linkmode=external",
+-					env:       []string{"CGO_ENABLED=1"},
++					env:       append([]string{"CGO_ENABLED=1"}, extraEnvs...),
+ 					pkg:       "crypto/internal/fips140test",
+ 					runTests:  "TestFIPSCheck",
+ 				})
 diff --git a/src/cmd/go/internal/load/pkg.go b/src/cmd/go/internal/load/pkg.go
 index e913f9885234fd..ef331980a816a3 100644
 --- a/src/cmd/go/internal/load/pkg.go
