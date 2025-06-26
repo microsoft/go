@@ -23,7 +23,7 @@ Subject: [PATCH] Implement crypto/internal/backend
  src/crypto/internal/backend/fips140/boring.go |  11 +
  src/crypto/internal/backend/fips140/cng.go    |  33 ++
  src/crypto/internal/backend/fips140/darwin.go |  11 +
- .../internal/backend/fips140/fips140.go       |  63 +++
+ .../internal/backend/fips140/fips140.go       |  52 +++
  .../internal/backend/fips140/isrequirefips.go |   9 +
  .../internal/backend/fips140/norequirefips.go |   9 +
  .../backend/fips140/nosystemcrypto.go         |  11 +
@@ -33,7 +33,7 @@ Subject: [PATCH] Implement crypto/internal/backend
  .../opensslsetup/opensslsetup_test.go         |  92 +++++
  .../backend/internal/opensslsetup/stub.go     |   8 +
  src/crypto/internal/backend/nobackend.go      | 246 ++++++++++++
- src/crypto/internal/backend/openssl_linux.go  | 339 ++++++++++++++++
+ src/crypto/internal/backend/openssl_linux.go  | 334 ++++++++++++++++
  src/crypto/internal/backend/stub.s            |  10 +
  src/crypto/zbackenderrconflict_boring_cng.go  |  17 +
  .../zbackenderrconflict_boring_darwin.go      |  17 +
@@ -50,7 +50,7 @@ Subject: [PATCH] Implement crypto/internal/backend
  src/go/build/deps_test.go                     |  27 +-
  src/runtime/runtime_boring.go                 |   5 +
  src/syscall/exec_linux_test.go                |   2 +-
- 46 files changed, 2705 insertions(+), 4 deletions(-)
+ 46 files changed, 2689 insertions(+), 4 deletions(-)
  create mode 100644 src/crypto/internal/backend/allocryptofallback_off.go
  create mode 100644 src/crypto/internal/backend/allocryptofallback_on.go
  create mode 100644 src/crypto/internal/backend/backend_test.go
@@ -1764,10 +1764,10 @@ index 00000000000000..ef5af5d956163e
 +}
 diff --git a/src/crypto/internal/backend/fips140/fips140.go b/src/crypto/internal/backend/fips140/fips140.go
 new file mode 100644
-index 00000000000000..7e5dd9b1544940
+index 00000000000000..49eb8b71ae1bb4
 --- /dev/null
 +++ b/src/crypto/internal/backend/fips140/fips140.go
-@@ -0,0 +1,63 @@
+@@ -0,0 +1,52 @@
 +// Copyright 2024 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -1789,13 +1789,6 @@ index 00000000000000..7e5dd9b1544940
 +
 +var enabled bool
 +
-+// Disabled reports whether FIPS 140 mode is disabled by using GOFIPS or GOLANG_FIPS.
-+func Disabled() bool {
-+	return disabled
-+}
-+
-+var disabled bool
-+
 +// Message is a human-readable message about how [Enabled] was set.
 +var Message string
 +
@@ -1815,11 +1808,7 @@ index 00000000000000..7e5dd9b1544940
 +		Message = "system FIPS mode"
 +		value = "1"
 +	}
-+	if value == "1" {
-+		enabled = true
-+	} else if value == "0" {
-+		disabled = true
-+	}
++	enabled = value == "1"
 +	if isRequireFIPS {
 +		if disabled {
 +			panic("the 'requirefips' build tag is enabled, but it conflicts " +
@@ -2406,10 +2395,10 @@ index 00000000000000..dc8513b535f19b
 +}
 diff --git a/src/crypto/internal/backend/openssl_linux.go b/src/crypto/internal/backend/openssl_linux.go
 new file mode 100644
-index 00000000000000..ac656468e3ed32
+index 00000000000000..89a5fe5d170c41
 --- /dev/null
 +++ b/src/crypto/internal/backend/openssl_linux.go
-@@ -0,0 +1,339 @@
+@@ -0,0 +1,334 @@
 +// Copyright 2017 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -2450,11 +2439,6 @@ index 00000000000000..ac656468e3ed32
 +			// - In OpenSSL 1, the active engine supports FIPS mode, but it is not enabled.
 +			// - In OpenSSL 3, the provider used by default doesn't match the `fips=yes` query.
 +			panic("opensslcrypto: FIPS mode requested (" + fips140.Message + ") but not available in " + openssl.VersionText())
-+		}
-+	} else if fips140.Disabled() {
-+		// TODO: Remove this block when GOFIPS=0 is no longer supported.
-+		if openssl.FIPS() {
-+			panic("opensslcrypto: FIPS mode explicitly disabled (" + fips140.Message + ") but enabled in " + openssl.VersionText())
 +		}
 +	}
 +	sig.BoringCrypto()

@@ -81,7 +81,6 @@ Some configurations are invalid and intentionally result in a build error or run
 
 | Build-time config | Runtime config | Behavior |
 | --- | --- | --- |
-| `GOEXPERIMENT=systemcrypto` and `-tags=requirefips` | `GOFIPS=0` | The app panics due to the conflict between build-time and runtime configuration. |
 | `-tags=requirefips` | | The build fails. A crypto backend must be specified to enable FIPS features. |
 | `GOEXPERIMENT=cngcrypto,opensslcrypto` | | The build fails. Only one crypto backend can be enabled at a time. |
 | `GOOS=linux CGO_ENABLED=0 GOEXPERIMENT=systemcrypto` | | The build fails. Cgo is required to use the OpenSSL backend. <br/> Prior to Go 1.21 the build would succeed but use standard Go crypto, making the app non-compliant. |
@@ -222,7 +221,6 @@ To set FIPS mode preference on Linux, use one of the following options. The firs
 
 - Explicitly enable it by setting the environment variable `GODEBUG=fips140=on`.
 - Explicitly enable it by setting the environment variable `GOFIPS=1`.
-- Explicitly disable it by setting the environment variable `GOFIPS=0`.
 - Implicitly enable it by booting the Linux Kernel in FIPS mode.
   - The Linux Kernel's FIPS mode sets the content of `/proc/sys/crypto/fips_enabled` to `1`. The Go runtime reads this file.
 
@@ -305,8 +303,6 @@ Most programs aren't expected to use these options. Determining FIPS mode at run
 - Dependence on environment variables like `GODEBUG` and `GOFIPS` in any way may be undesirable.
 - The program's documentation can state it will always run in FIPS mode without any nuance about environment variables.
 - If the program is used by someone unfamiliar with the system they're configuring, the panic will help catch mistakes before they become a problem.
-
-We chose to make a FIPS-only Go program panic if `GOFIPS=0` rather than silently ignoring the setting. This helps avoid a surprise if a user of such program sets `GOFIPS=0` and expects it to turn off FIPS mode.
 
 ### Build option to use Go crypto if the backend compatibility check fails
 
@@ -438,6 +434,8 @@ A program running in FIPS mode can claim it is using a FIPS-certified cryptograp
 This list of major changes is intended for quick reference and for access to historical information about versions that are no longer supported. The behavior of all in-support versions are documented in the sections above with notes for version-specific differences where necessary.
 
 ### Go 1.25 (Aug 2025)
+
+- `GOFIPS=0` support has been removed. It now has no effect.
 
 - `GOEXPERIMENT=allowcryptofallback` has been downgraded to the `allowcryptofallback` build tag. This is an internal mechanism that is not intended for use when building a Go application. This document has always recommended against using it, so we anticipate that this change won't affect users of the Microsoft build of Go. Please [contact the maintainers of the Microsoft build of Go](https://github.com/microsoft/go/blob/microsoft/main/SUPPORT.md) if you need to use it so we can understand the scenario and help find a safer alternative.
 
