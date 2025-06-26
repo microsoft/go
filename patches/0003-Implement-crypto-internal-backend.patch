@@ -6,7 +6,7 @@ Subject: [PATCH] Implement crypto/internal/backend
 ---
  .gitignore                                    |   2 +
  src/cmd/dist/build.go                         |   6 +
- src/cmd/dist/test.go                          |   7 +
+ src/cmd/dist/test.go                          |  17 +-
  src/cmd/go/systemcrypto_test.go               |  92 +++++
  src/crypto/internal/backend/backend_test.go   |  30 ++
  src/crypto/internal/backend/backendgen.go     |  20 +
@@ -52,7 +52,7 @@ Subject: [PATCH] Implement crypto/internal/backend
  src/go/build/deps_test.go                     |  27 +-
  src/runtime/runtime_boring.go                 |   5 +
  src/syscall/exec_linux_test.go                |   2 +-
- 48 files changed, 2823 insertions(+), 4 deletions(-)
+ 48 files changed, 2829 insertions(+), 8 deletions(-)
  create mode 100644 src/cmd/go/systemcrypto_test.go
  create mode 100644 src/crypto/internal/backend/backend_test.go
  create mode 100644 src/crypto/internal/backend/backendgen.go
@@ -127,10 +127,37 @@ index b50f3342fe8714..23a7f132788ebc 100644
  	goInstall(toolenv(), goBootstrap, append([]string{"-pgo=off"}, toolchain...)...)
  	if debug {
 diff --git a/src/cmd/dist/test.go b/src/cmd/dist/test.go
-index d335e4cfbce468..f8abfe6f62216f 100644
+index d335e4cfbce468..b4ba0ad8210a94 100644
 --- a/src/cmd/dist/test.go
 +++ b/src/cmd/dist/test.go
-@@ -847,6 +847,11 @@ func (t *tester) registerTests() {
+@@ -156,10 +156,12 @@ func (t *tester) run() {
+ 		}
+ 	}
+ 
++	tags := []string{"-tags=allowcryptofallback,skipfipscheck"}
++
+ 	if t.rebuild {
+ 		t.out("Building packages and commands.")
+ 		// Force rebuild the whole toolchain.
+-		goInstall(toolenv(), gorootBinGo, append([]string{"-a"}, toolchain...)...)
++		goInstall(toolenv(), gorootBinGo, append([]string{"-a"}, append(tags, toolchain...)...)...)
+ 	}
+ 
+ 	if !t.listMode {
+@@ -176,9 +178,9 @@ func (t *tester) run() {
+ 			// and virtualization we usually start with a clean GOCACHE, so we would
+ 			// end up rebuilding large parts of the standard library that aren't
+ 			// otherwise relevant to the actual set of packages under test.
+-			goInstall(toolenv(), gorootBinGo, toolchain...)
+-			goInstall(toolenv(), gorootBinGo, toolchain...)
+-			goInstall(toolenv(), gorootBinGo, "cmd")
++			goInstall(toolenv(), gorootBinGo, append(tags, toolchain...)...)
++			goInstall(toolenv(), gorootBinGo, append(tags, toolchain...)...)
++			goInstall(toolenv(), gorootBinGo, append(tags, "cmd")...)
+ 		}
+ 	}
+ 
+@@ -847,6 +849,11 @@ func (t *tester) registerTests() {
  
  	// Test internal linking of PIE binaries where it is supported.
  	if t.internalLinkPIE() && !disablePIE {
@@ -142,7 +169,7 @@ index d335e4cfbce468..f8abfe6f62216f 100644
  		t.registerTest("internal linking, -buildmode=pie",
  			&goTest{
  				variant:   "pie_internal",
-@@ -855,6 +860,7 @@ func (t *tester) registerTests() {
+@@ -855,6 +862,7 @@ func (t *tester) registerTests() {
  				ldflags:   "-linkmode=internal",
  				env:       []string{"CGO_ENABLED=0"},
  				pkg:       "reflect",
@@ -150,7 +177,7 @@ index d335e4cfbce468..f8abfe6f62216f 100644
  			})
  		t.registerTest("internal linking, -buildmode=pie",
  			&goTest{
-@@ -865,6 +871,7 @@ func (t *tester) registerTests() {
+@@ -865,6 +873,7 @@ func (t *tester) registerTests() {
  				env:       []string{"CGO_ENABLED=0"},
  				pkg:       "crypto/internal/fips140test",
  				runTests:  "TestFIPSCheck",
