@@ -7,7 +7,7 @@ Subject: [PATCH] Implement crypto/internal/backend
  .gitignore                                    |   2 +
  src/cmd/dist/build.go                         |   6 +
  src/cmd/dist/test.go                          |   7 +
- .../go/testdata/script/build_systemcrypto.txt |  18 +
+ src/cmd/go/systemcrypto_test.go               |  92 +++++
  src/crypto/internal/backend/backend_test.go   |  30 ++
  src/crypto/internal/backend/backendgen.go     |  20 +
  .../internal/backend/backendgen_test.go       | 278 +++++++++++++
@@ -52,8 +52,8 @@ Subject: [PATCH] Implement crypto/internal/backend
  src/go/build/deps_test.go                     |  27 +-
  src/runtime/runtime_boring.go                 |   5 +
  src/syscall/exec_linux_test.go                |   2 +-
- 48 files changed, 2749 insertions(+), 4 deletions(-)
- create mode 100644 src/cmd/go/testdata/script/build_systemcrypto.txt
+ 48 files changed, 2823 insertions(+), 4 deletions(-)
+ create mode 100644 src/cmd/go/systemcrypto_test.go
  create mode 100644 src/crypto/internal/backend/backend_test.go
  create mode 100644 src/crypto/internal/backend/backendgen.go
  create mode 100644 src/crypto/internal/backend/backendgen_test.go
@@ -158,20 +158,28 @@ index d335e4cfbce468..7e362c80be609a 100644
  			})
  		// Also test a cgo package.
  		if t.cgoEnabled && t.internalLink() && !disablePIE {
-diff --git a/src/cmd/go/testdata/script/build_systemcrypto.txt b/src/cmd/go/testdata/script/build_systemcrypto.txt
+diff --git a/src/cmd/go/systemcrypto_test.go b/src/cmd/go/systemcrypto_test.go
 new file mode 100644
-index 00000000000000..b795e27f6d75e8
+index 00000000000000..5fc1c487b6ffe1
 --- /dev/null
-+++ b/src/cmd/go/testdata/script/build_systemcrypto.txt
-@@ -0,0 +1,18 @@
-+# "GODEBUG=fips140=on go build" should always succeed, 
-+# even if the toolchain is not build with systemcrypto
-+# or the system doesn't support FIPS mode.
-+env GODEBUG=fips140=on
-+go build main.go 
++++ b/src/cmd/go/systemcrypto_test.go
+@@ -0,0 +1,92 @@
++// Copyright 2025 The Go Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style
++// license that can be found in the LICENSE file.
 +
-+-- main.go --
++package main_test
 +
++import (
++	"internal/goexperiment"
++	"internal/testenv"
++	"os"
++	"path/filepath"
++	"strings"
++	"testing"
++)
++
++const fileWithCrypto = `
 +package main
 +
 +import (
@@ -182,7 +190,72 @@ index 00000000000000..b795e27f6d75e8
 +func main() {
 +	fmt.Println(sha256.Sum256([]byte("Hello, World!")))
 +}
-\ No newline at end of file
++`
++
++const fileWithoutCrypto = `
++package main
++
++import (
++	"fmt"
++)
++
++func main() {
++	fmt.Println("Hello, World!")
++}
++`
++
++func execGoTool(t *testing.T, command string, env []string, args ...string) {
++	t.Helper()
++	cmdArgs := []string{command}
++	if command == "build" {
++		out := filepath.Join(t.TempDir(), "out")
++		cmdArgs = append(cmdArgs, "-o", out)
++	}
++	cmdArgs = append(cmdArgs, args...)
++	cmd := testenv.Command(t, testenv.GoToolPath(t), cmdArgs...)
++	cmd = testenv.CleanCmdEnv(cmd)
++	cmd.Env = append(cmd.Env, env...)
++	out, err := cmd.CombinedOutput()
++	if err != nil {
++		t.Fatalf("go build failed: %v\n%s", err, out)
++	}
++}
++
++// writeFile creates a temporary file with the given content and returns its path.
++func writeFile(t *testing.T, content string) string {
++	t.Helper()
++	name := "main.go"
++	if strings.Contains(content, "testing") {
++		name = "main_test.go"
++	}
++	name = filepath.Join(t.TempDir(), name)
++	if err := os.WriteFile(name, []byte(content), 0644); err != nil {
++		t.Fatal(err)
++	}
++	return name
++}
++
++func TestSystemCryptoFIPS(t *testing.T) {
++	// Test different go commands with GODEBUG=fips140=on
++	// to exercise the skipfipscheck build tag.
++	if goexperiment.BoringCrypto {
++		t.Skip("BoringCrypto doesn't support GODEBUG=fips140=on")
++	}
++	t.Parallel()
++	env := []string{"GODEBUG=fips140=on"}
++
++	cryptoFile := writeFile(t, fileWithCrypto)
++	nonCryptoFile := writeFile(t, fileWithoutCrypto)
++
++	// Build should always succeed given that the go toolchain
++	// is built with the skipfipscheck build tag.
++	execGoTool(t, "build", env, cryptoFile)
++	execGoTool(t, "build", env, nonCryptoFile)
++
++	// Run should always succed if the target go package
++	// doesn't use crypto.
++	execGoTool(t, "run", env, nonCryptoFile)
++}
 diff --git a/src/crypto/internal/backend/backend_test.go b/src/crypto/internal/backend/backend_test.go
 new file mode 100644
 index 00000000000000..c2c06d3bff8c74
