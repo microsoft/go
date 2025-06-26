@@ -5,9 +5,9 @@ Subject: [PATCH] Implement crypto/internal/backend
 
 ---
  .gitignore                                    |   2 +
+ src/cmd/dist/build.go                         |   6 +
  src/cmd/dist/test.go                          |   7 +
- .../backend/allocryptofallback_off.go         |   9 +
- .../internal/backend/allocryptofallback_on.go |   9 +
+ .../go/testdata/script/build_systemcrypto.txt |  18 +
  src/crypto/internal/backend/backend_test.go   |  30 ++
  src/crypto/internal/backend/backendgen.go     |  20 +
  .../internal/backend/backendgen_test.go       | 278 +++++++++++++
@@ -16,24 +16,26 @@ Subject: [PATCH] Implement crypto/internal/backend
  src/crypto/internal/backend/bbig/big_cng.go   |  12 +
  .../internal/backend/bbig/big_darwin.go       |  12 +
  .../internal/backend/bbig/big_openssl.go      |  12 +
- src/crypto/internal/backend/boring_linux.go   | 287 ++++++++++++++
- src/crypto/internal/backend/cng_windows.go    | 344 ++++++++++++++++
- src/crypto/internal/backend/common.go         |  58 +++
- src/crypto/internal/backend/darwin_darwin.go  | 367 ++++++++++++++++++
- src/crypto/internal/backend/fips140/boring.go |  11 +
- src/crypto/internal/backend/fips140/cng.go    |  33 ++
- src/crypto/internal/backend/fips140/darwin.go |  11 +
- .../internal/backend/fips140/fips140.go       |  47 +++
+ src/crypto/internal/backend/boring_linux.go   | 294 ++++++++++++++
+ src/crypto/internal/backend/cng_windows.go    | 345 ++++++++++++++++
+ src/crypto/internal/backend/common.go         |  46 +++
+ src/crypto/internal/backend/darwin_darwin.go  | 372 ++++++++++++++++++
+ src/crypto/internal/backend/fips140/boring.go |  13 +
+ src/crypto/internal/backend/fips140/cng.go    |  35 ++
+ src/crypto/internal/backend/fips140/darwin.go |  13 +
+ .../internal/backend/fips140/fips140.go       |  70 ++++
  .../internal/backend/fips140/isrequirefips.go |   9 +
  .../internal/backend/fips140/norequirefips.go |   9 +
- .../backend/fips140/nosystemcrypto.go         |  11 +
- .../internal/backend/fips140/openssl_cgo.go   |  57 +++
- .../internal/backend/fips140/openssl_nocgo.go |  15 +
+ .../backend/fips140/nosystemcrypto.go         |  13 +
+ .../internal/backend/fips140/openssl_cgo.go   |  59 +++
+ .../internal/backend/fips140/openssl_nocgo.go |  17 +
+ .../backend/fips140/skipfipscheck_off.go      |   9 +
+ .../backend/fips140/skipfipscheck_on.go       |   9 +
  .../internal/opensslsetup/opensslsetup.go     |  70 ++++
  .../opensslsetup/opensslsetup_test.go         |  92 +++++
  .../backend/internal/opensslsetup/stub.go     |   8 +
- src/crypto/internal/backend/nobackend.go      | 246 ++++++++++++
- src/crypto/internal/backend/openssl_linux.go  | 334 ++++++++++++++++
+ src/crypto/internal/backend/nobackend.go      | 253 ++++++++++++
+ src/crypto/internal/backend/openssl_linux.go  | 332 ++++++++++++++++
  src/crypto/internal/backend/stub.s            |  10 +
  src/crypto/zbackenderrconflict_boring_cng.go  |  17 +
  .../zbackenderrconflict_boring_darwin.go      |  17 +
@@ -50,9 +52,8 @@ Subject: [PATCH] Implement crypto/internal/backend
  src/go/build/deps_test.go                     |  27 +-
  src/runtime/runtime_boring.go                 |   5 +
  src/syscall/exec_linux_test.go                |   2 +-
- 46 files changed, 2684 insertions(+), 4 deletions(-)
- create mode 100644 src/crypto/internal/backend/allocryptofallback_off.go
- create mode 100644 src/crypto/internal/backend/allocryptofallback_on.go
+ 48 files changed, 2749 insertions(+), 4 deletions(-)
+ create mode 100644 src/cmd/go/testdata/script/build_systemcrypto.txt
  create mode 100644 src/crypto/internal/backend/backend_test.go
  create mode 100644 src/crypto/internal/backend/backendgen.go
  create mode 100644 src/crypto/internal/backend/backendgen_test.go
@@ -74,6 +75,8 @@ Subject: [PATCH] Implement crypto/internal/backend
  create mode 100644 src/crypto/internal/backend/fips140/nosystemcrypto.go
  create mode 100644 src/crypto/internal/backend/fips140/openssl_cgo.go
  create mode 100644 src/crypto/internal/backend/fips140/openssl_nocgo.go
+ create mode 100644 src/crypto/internal/backend/fips140/skipfipscheck_off.go
+ create mode 100644 src/crypto/internal/backend/fips140/skipfipscheck_on.go
  create mode 100644 src/crypto/internal/backend/internal/opensslsetup/opensslsetup.go
  create mode 100644 src/crypto/internal/backend/internal/opensslsetup/opensslsetup_test.go
  create mode 100644 src/crypto/internal/backend/internal/opensslsetup/stub.go
@@ -106,6 +109,23 @@ index c6512e64a4ef39..b3b01db73b009d 100644
  # This file includes artifacts of Go build that should not be checked in.
  # For files created by specific development environment (e.g. editor),
  # use alternative ways to exclude files from git.
+diff --git a/src/cmd/dist/build.go b/src/cmd/dist/build.go
+index b50f3342fe8714..23a7f132788ebc 100644
+--- a/src/cmd/dist/build.go
++++ b/src/cmd/dist/build.go
+@@ -1539,6 +1539,12 @@ func cmdbootstrap() {
+ 	os.Setenv("CC", compilerEnvLookup("CC", defaultcc, goos, goarch))
+ 	// Now that cmd/go is in charge of the build process, enable GOEXPERIMENT.
+ 	os.Setenv("GOEXPERIMENT", goexperiment)
++	// Build the Go toolchain with "-tags=allowcryptofallback,skipfipscheck". This
++	// allows toolchains not built with "GOEXPERIMENT=systemcrypto" to be used
++	// when GODEBUG=fips140=on is set. For example, when running
++	// "GODEBUG=fips140=on go test ./..." or "GODEBUG=fips140=on go run .".
++	// Shadow goexperiment so that the global variable is not modified.
++	os.Setenv("GOFLAGS", "-tags=allowcryptofallback,skipfipscheck")
+ 	// No need to enable PGO for toolchain2.
+ 	goInstall(toolenv(), goBootstrap, append([]string{"-pgo=off"}, toolchain...)...)
+ 	if debug {
 diff --git a/src/cmd/dist/test.go b/src/cmd/dist/test.go
 index d335e4cfbce468..7e362c80be609a 100644
 --- a/src/cmd/dist/test.go
@@ -138,36 +158,31 @@ index d335e4cfbce468..7e362c80be609a 100644
  			})
  		// Also test a cgo package.
  		if t.cgoEnabled && t.internalLink() && !disablePIE {
-diff --git a/src/crypto/internal/backend/allocryptofallback_off.go b/src/crypto/internal/backend/allocryptofallback_off.go
+diff --git a/src/cmd/go/testdata/script/build_systemcrypto.txt b/src/cmd/go/testdata/script/build_systemcrypto.txt
 new file mode 100644
-index 00000000000000..7718cc02f48556
+index 00000000000000..b795e27f6d75e8
 --- /dev/null
-+++ b/src/crypto/internal/backend/allocryptofallback_off.go
-@@ -0,0 +1,9 @@
-+// Copyright 2025 The Go Authors. All rights reserved.
-+// Use of this source code is governed by a BSD-style
-+// license that can be found in the LICENSE file.
++++ b/src/cmd/go/testdata/script/build_systemcrypto.txt
+@@ -0,0 +1,18 @@
++# "GODEBUG=fips140=on go build" should always succeed, 
++# even if the toolchain is not build with systemcrypto
++# or the system doesn't support FIPS mode.
++env GODEBUG=fips140=on
++go build main.go 
 +
-+//go:build !allowcryptofallback
++-- main.go --
 +
-+package backend
++package main
 +
-+const allowCryptoFallback = false
-diff --git a/src/crypto/internal/backend/allocryptofallback_on.go b/src/crypto/internal/backend/allocryptofallback_on.go
-new file mode 100644
-index 00000000000000..fc30aba8ad8228
---- /dev/null
-+++ b/src/crypto/internal/backend/allocryptofallback_on.go
-@@ -0,0 +1,9 @@
-+// Copyright 2025 The Go Authors. All rights reserved.
-+// Use of this source code is governed by a BSD-style
-+// license that can be found in the LICENSE file.
++import (
++	"crypto/sha256"
++	"fmt"
++)
 +
-+//go:build allowcryptofallback
-+
-+package backend
-+
-+const allowCryptoFallback = true
++func main() {
++	fmt.Println(sha256.Sum256([]byte("Hello, World!")))
++}
+\ No newline at end of file
 diff --git a/src/crypto/internal/backend/backend_test.go b/src/crypto/internal/backend/backend_test.go
 new file mode 100644
 index 00000000000000..c2c06d3bff8c74
@@ -611,10 +626,10 @@ index 00000000000000..e6695dd66b1d02
 +var Dec = bbig.Dec
 diff --git a/src/crypto/internal/backend/boring_linux.go b/src/crypto/internal/backend/boring_linux.go
 new file mode 100644
-index 00000000000000..48d44ec1723ab6
+index 00000000000000..1d6ec4eef5a5b4
 --- /dev/null
 +++ b/src/crypto/internal/backend/boring_linux.go
-@@ -0,0 +1,287 @@
+@@ -0,0 +1,294 @@
 +// Copyright 2017 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -629,9 +644,16 @@ index 00000000000000..48d44ec1723ab6
 +import (
 +	"crypto"
 +	"crypto/cipher"
++	"crypto/internal/backend/fips140"
 +	"crypto/internal/boring"
 +	"hash"
 +)
++
++func init() {
++	if err := fips140.Check(func() bool { return true }); err != nil {
++		panic(err)
++	}
++}
 +
 +const Enabled = true
 +
@@ -904,10 +926,10 @@ index 00000000000000..48d44ec1723ab6
 +}
 diff --git a/src/crypto/internal/backend/cng_windows.go b/src/crypto/internal/backend/cng_windows.go
 new file mode 100644
-index 00000000000000..7a89cfb5d2f596
+index 00000000000000..448311cbfd3f10
 --- /dev/null
 +++ b/src/crypto/internal/backend/cng_windows.go
-@@ -0,0 +1,344 @@
+@@ -0,0 +1,345 @@
 +// Copyright 2017 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -930,23 +952,24 @@ index 00000000000000..7a89cfb5d2f596
 +	"github.com/microsoft/go-crypto-winnative/cng"
 +)
 +
-+// Enabled controls whether FIPS crypto is enabled.
-+const Enabled = true
-+
-+type BigInt = cng.BigInt
-+
 +func init() {
-+	if fips140.Enabled() {
++	fn := func() bool {
 +		enabled, err := cng.FIPS()
 +		if err != nil {
 +			panic("cngcrypto: unknown FIPS mode: " + err.Error())
 +		}
-+		if !enabled {
-+			panic("cngcrypto: not in FIPS mode")
-+		}
++		return enabled
++	}
++	if err := fips140.Check(fn); err != nil {
++		panic("cngcrypto: " + err.Error())
 +	}
 +	sig.BoringCrypto()
 +}
++
++// Enabled controls whether FIPS crypto is enabled.
++const Enabled = true
++
++type BigInt = cng.BigInt
 +
 +const RandReader = cng.RandReader
 +
@@ -1254,10 +1277,10 @@ index 00000000000000..7a89cfb5d2f596
 +}
 diff --git a/src/crypto/internal/backend/common.go b/src/crypto/internal/backend/common.go
 new file mode 100644
-index 00000000000000..9dec441fa63856
+index 00000000000000..a9682181ffa154
 --- /dev/null
 +++ b/src/crypto/internal/backend/common.go
-@@ -0,0 +1,58 @@
+@@ -0,0 +1,46 @@
 +// Copyright 2022 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -1265,21 +1288,9 @@ index 00000000000000..9dec441fa63856
 +package backend
 +
 +import (
-+	"crypto/internal/backend/fips140"
 +	"crypto/internal/boring/sig"
 +	"runtime"
 +)
-+
-+func init() {
-+	if !allowCryptoFallback && fips140.Enabled() {
-+		if !Enabled {
-+			if runtime.GOOS != "linux" && runtime.GOOS != "windows" && runtime.GOOS != "darwin" {
-+				panic("FIPS mode requested (" + fips140.Message + ") but no crypto backend is supported on " + runtime.GOOS)
-+			}
-+			panic("FIPS mode requested (" + fips140.Message + ") but no supported crypto backend is enabled")
-+		}
-+	}
-+}
 +
 +// Unreachable marks code that should be unreachable
 +// when backend is in use.
@@ -1318,10 +1329,10 @@ index 00000000000000..9dec441fa63856
 +}
 diff --git a/src/crypto/internal/backend/darwin_darwin.go b/src/crypto/internal/backend/darwin_darwin.go
 new file mode 100644
-index 00000000000000..0c374baf8d3f80
+index 00000000000000..fea0f284de2439
 --- /dev/null
 +++ b/src/crypto/internal/backend/darwin_darwin.go
-@@ -0,0 +1,367 @@
+@@ -0,0 +1,372 @@
 +// Copyright 2017 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -1336,6 +1347,7 @@ index 00000000000000..0c374baf8d3f80
 +import (
 +	"crypto"
 +	"crypto/cipher"
++	"crypto/internal/backend/fips140"
 +	"crypto/internal/boring/sig"
 +	"crypto/internal/fips140/nistec"
 +	"errors"
@@ -1345,14 +1357,18 @@ index 00000000000000..0c374baf8d3f80
 +	"github.com/microsoft/go-crypto-darwin/xcrypto"
 +)
 +
++func init() {
++	// Darwin is considered FIPS compliant.
++	if err := fips140.Check(func() bool { return true }); err != nil {
++		panic("darwincrypto: " + err.Error())
++	}
++	sig.BoringCrypto()
++}
++
 +// Enabled controls whether FIPS crypto is enabled.
 +const Enabled = true
 +
 +type BigInt = xcrypto.BigInt
-+
-+func init() {
-+	sig.BoringCrypto()
-+}
 +
 +const RandReader = xcrypto.RandReader
 +
@@ -1691,10 +1707,10 @@ index 00000000000000..0c374baf8d3f80
 +}
 diff --git a/src/crypto/internal/backend/fips140/boring.go b/src/crypto/internal/backend/fips140/boring.go
 new file mode 100644
-index 00000000000000..3b583dc0eb0235
+index 00000000000000..4a955f7d781022
 --- /dev/null
 +++ b/src/crypto/internal/backend/fips140/boring.go
-@@ -0,0 +1,11 @@
+@@ -0,0 +1,13 @@
 +// Copyright 2024 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -1703,15 +1719,17 @@ index 00000000000000..3b583dc0eb0235
 +
 +package fips140
 +
++const backendEnabled = true
++
 +func systemFIPSMode() bool {
 +	return false
 +}
 diff --git a/src/crypto/internal/backend/fips140/cng.go b/src/crypto/internal/backend/fips140/cng.go
 new file mode 100644
-index 00000000000000..f769d15f94ab05
+index 00000000000000..e4a1ddeeb7dc09
 --- /dev/null
 +++ b/src/crypto/internal/backend/fips140/cng.go
-@@ -0,0 +1,33 @@
+@@ -0,0 +1,35 @@
 +// Copyright 2024 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -1725,6 +1743,8 @@ index 00000000000000..f769d15f94ab05
 +	"syscall"
 +	"unsafe"
 +)
++
++const backendEnabled = true
 +
 +// Don't use github.com/microsoft/go-crypto-winnative here.
 +// The fips140 package should have minimal dependencies.
@@ -1747,10 +1767,10 @@ index 00000000000000..f769d15f94ab05
 +}
 diff --git a/src/crypto/internal/backend/fips140/darwin.go b/src/crypto/internal/backend/fips140/darwin.go
 new file mode 100644
-index 00000000000000..ef5af5d956163e
+index 00000000000000..8a2efe2346e84c
 --- /dev/null
 +++ b/src/crypto/internal/backend/fips140/darwin.go
-@@ -0,0 +1,11 @@
+@@ -0,0 +1,13 @@
 +// Copyright 2024 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -1759,15 +1779,17 @@ index 00000000000000..ef5af5d956163e
 +
 +package fips140
 +
++const backendEnabled = true
++
 +func systemFIPSMode() bool {
 +	return false
 +}
 diff --git a/src/crypto/internal/backend/fips140/fips140.go b/src/crypto/internal/backend/fips140/fips140.go
 new file mode 100644
-index 00000000000000..b11251ad4c6c9c
+index 00000000000000..c623233633daec
 --- /dev/null
 +++ b/src/crypto/internal/backend/fips140/fips140.go
-@@ -0,0 +1,47 @@
+@@ -0,0 +1,70 @@
 +// Copyright 2024 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -1775,7 +1797,9 @@ index 00000000000000..b11251ad4c6c9c
 +package fips140
 +
 +import (
++	"errors"
 +	"internal/godebug"
++	"runtime"
 +	"syscall"
 +)
 +
@@ -1789,8 +1813,8 @@ index 00000000000000..b11251ad4c6c9c
 +
 +var enabled bool
 +
-+// Message is a human-readable message about how [Enabled] was set.
-+var Message string
++// message is a human-readable message about how [Enabled] was set.
++var message string
 +
 +func init() {
 +	// TODO: Decide which environment variable to use.
@@ -1798,22 +1822,43 @@ index 00000000000000..b11251ad4c6c9c
 +	var ok bool
 +	value := fips140GODEBUG.Value()
 +	if value == "on" || value == "only" || value == "debug" {
-+		Message = "environment variable GODEBUG=fips140=" + value
++		message = "environment variable GODEBUG=fips140=" + value
 +		value = "1"
 +	} else if value, ok = syscall.Getenv("GOFIPS"); ok {
-+		Message = "environment variable GOFIPS"
++		message = "environment variable GOFIPS"
 +	} else if value, ok = syscall.Getenv("GOLANG_FIPS"); ok {
-+		Message = "environment variable GOLANG_FIPS"
++		message = "environment variable GOLANG_FIPS"
 +	} else if systemFIPSMode() {
-+		Message = "system FIPS mode"
++		message = "system FIPS mode"
 +		value = "1"
 +	}
 +	enabled = value == "1"
 +	if isRequireFIPS {
-+		Message = "requirefips tag set"
++		if isSkipFIPSCheck {
++			panic("the 'requirefips' build tag is enabled, but it conflicts " +
++				"with the 'skipfipscheck' build tag")
++		}
++		message = "requirefips tag set"
 +		enabled = true
-+		return
 +	}
++}
++
++// Check checks whether fips mode, as returned by fips(),
++// is valid given the current settings.
++func Check(fips func() bool) error {
++	if isSkipFIPSCheck || !enabled {
++		return nil
++	}
++	if !backendEnabled {
++		if runtime.GOOS != "linux" && runtime.GOOS != "windows" && runtime.GOOS != "darwin" {
++			return errors.New("FIPS mode requested (" + message + ") but no crypto backend is supported on " + runtime.GOOS)
++		}
++		return errors.New("FIPS mode requested (" + message + ") but no supported crypto backend is enabled")
++	}
++	if !fips() {
++		return errors.New("FIPS mode requested (" + message + ") but not available")
++	}
++	return nil
 +}
 diff --git a/src/crypto/internal/backend/fips140/isrequirefips.go b/src/crypto/internal/backend/fips140/isrequirefips.go
 new file mode 100644
@@ -1849,10 +1894,10 @@ index 00000000000000..6f01b9a3524dee
 \ No newline at end of file
 diff --git a/src/crypto/internal/backend/fips140/nosystemcrypto.go b/src/crypto/internal/backend/fips140/nosystemcrypto.go
 new file mode 100644
-index 00000000000000..83691d7dd42d51
+index 00000000000000..289d6594eac54b
 --- /dev/null
 +++ b/src/crypto/internal/backend/fips140/nosystemcrypto.go
-@@ -0,0 +1,11 @@
+@@ -0,0 +1,13 @@
 +// Copyright 2024 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -1861,15 +1906,17 @@ index 00000000000000..83691d7dd42d51
 +
 +package fips140
 +
++const backendEnabled = false
++
 +func systemFIPSMode() bool {
 +	return false
 +}
 diff --git a/src/crypto/internal/backend/fips140/openssl_cgo.go b/src/crypto/internal/backend/fips140/openssl_cgo.go
 new file mode 100644
-index 00000000000000..d9ea4e513db72d
+index 00000000000000..a24db78572f528
 --- /dev/null
 +++ b/src/crypto/internal/backend/fips140/openssl_cgo.go
-@@ -0,0 +1,57 @@
+@@ -0,0 +1,59 @@
 +// Copyright 2024 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -1884,6 +1931,8 @@ index 00000000000000..d9ea4e513db72d
 +
 +	"github.com/golang-fips/openssl/v2"
 +)
++
++const backendEnabled = true
 +
 +// systemFIPSMode reports whether the system is in FIPS mode.
 +// It first checks the kernel, and if that is not available, it checks the
@@ -1929,10 +1978,10 @@ index 00000000000000..d9ea4e513db72d
 +}
 diff --git a/src/crypto/internal/backend/fips140/openssl_nocgo.go b/src/crypto/internal/backend/fips140/openssl_nocgo.go
 new file mode 100644
-index 00000000000000..60ed26591d05d8
+index 00000000000000..a8ff666b6d182e
 --- /dev/null
 +++ b/src/crypto/internal/backend/fips140/openssl_nocgo.go
-@@ -0,0 +1,15 @@
+@@ -0,0 +1,17 @@
 +// Copyright 2025 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -1945,9 +1994,41 @@ index 00000000000000..60ed26591d05d8
 +
 +package fips140
 +
++const backendEnabled = true
++
 +func systemFIPSMode() bool {
 +	return false
 +}
+diff --git a/src/crypto/internal/backend/fips140/skipfipscheck_off.go b/src/crypto/internal/backend/fips140/skipfipscheck_off.go
+new file mode 100644
+index 00000000000000..e279bb4820cbc1
+--- /dev/null
++++ b/src/crypto/internal/backend/fips140/skipfipscheck_off.go
+@@ -0,0 +1,9 @@
++// Copyright 2025 The Go Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style
++// license that can be found in the LICENSE file.
++
++//go:build !skipfipscheck
++
++package fips140
++
++const isSkipFIPSCheck = false
+diff --git a/src/crypto/internal/backend/fips140/skipfipscheck_on.go b/src/crypto/internal/backend/fips140/skipfipscheck_on.go
+new file mode 100644
+index 00000000000000..8509e61c588df7
+--- /dev/null
++++ b/src/crypto/internal/backend/fips140/skipfipscheck_on.go
+@@ -0,0 +1,9 @@
++// Copyright 2025 The Go Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style
++// license that can be found in the LICENSE file.
++
++//go:build skipfipscheck
++
++package fips140
++
++const isSkipFIPSCheck = true
 diff --git a/src/crypto/internal/backend/internal/opensslsetup/opensslsetup.go b/src/crypto/internal/backend/internal/opensslsetup/opensslsetup.go
 new file mode 100644
 index 00000000000000..c6c1f53e7452ab
@@ -2138,10 +2219,10 @@ index 00000000000000..3b92bfc5fbabf6
 +package opensslsetup
 diff --git a/src/crypto/internal/backend/nobackend.go b/src/crypto/internal/backend/nobackend.go
 new file mode 100644
-index 00000000000000..dc8513b535f19b
+index 00000000000000..6eea4e1c93b314
 --- /dev/null
 +++ b/src/crypto/internal/backend/nobackend.go
-@@ -0,0 +1,246 @@
+@@ -0,0 +1,253 @@
 +// Copyright 2017 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -2155,8 +2236,15 @@ index 00000000000000..dc8513b535f19b
 +import (
 +	"crypto"
 +	"crypto/cipher"
++	"crypto/internal/backend/fips140"
 +	"hash"
 +)
++
++func init() {
++	if err := fips140.Check(func() bool { return false }); err != nil {
++		panic(err)
++	}
++}
 +
 +const Enabled = false
 +
@@ -2390,10 +2478,10 @@ index 00000000000000..dc8513b535f19b
 +}
 diff --git a/src/crypto/internal/backend/openssl_linux.go b/src/crypto/internal/backend/openssl_linux.go
 new file mode 100644
-index 00000000000000..89a5fe5d170c41
+index 00000000000000..02c3c67f822ae2
 --- /dev/null
 +++ b/src/crypto/internal/backend/openssl_linux.go
-@@ -0,0 +1,334 @@
+@@ -0,0 +1,332 @@
 +// Copyright 2017 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -2422,19 +2510,17 @@ index 00000000000000..89a5fe5d170c41
 +type BigInt = openssl.BigInt
 +
 +func init() {
-+	if fips140.Enabled() {
-+		// Some distributions, e.g. Azure Linux 3, don't set the `fips=yes` property when running in FIPS mode,
-+		// but they configure OpenSSL to use a FIPS-compliant provider (in the case of Azure Linux 3, the SCOSSL provider).
-+		// In this cases, openssl.FIPS would return `false` and openssl.FIPSCapable would return `true`.
-+		// We don't care about the `fips=yes` property as long as the provider is FIPS-compliant, so use
-+		// openssl.FIPSCapable to determine whether FIPS mode is enabled.
-+		if !openssl.FIPSCapable() {
-+			// This path can be reached for the following reasons:
-+			// - In OpenSSL 1, the active engine doesn't support FIPS mode.
-+			// - In OpenSSL 1, the active engine supports FIPS mode, but it is not enabled.
-+			// - In OpenSSL 3, the provider used by default doesn't match the `fips=yes` query.
-+			panic("opensslcrypto: FIPS mode requested (" + fips140.Message + ") but not available in " + openssl.VersionText())
-+		}
++	// Some distributions, e.g. Azure Linux 3, don't set the `fips=yes` property when running in FIPS mode,
++	// but they configure OpenSSL to use a FIPS-compliant provider (in the case of Azure Linux 3, the SCOSSL provider).
++	// In this cases, openssl.FIPS would return `false` and openssl.FIPSCapable would return `true`.
++	// We don't care about the `fips=yes` property as long as the provider is FIPS-compliant, so use
++	// openssl.FIPSCapable to determine whether FIPS mode is enabled.
++	if err := fips140.Check(func() bool { return openssl.FIPSCapable() }); err != nil {
++		// This path can be reached for the following reasons:
++		// - In OpenSSL 1, the active engine doesn't support FIPS mode.
++		// - In OpenSSL 1, the active engine supports FIPS mode, but it is not enabled.
++		// - In OpenSSL 3, the provider used by default doesn't match the `fips=yes` query.
++		panic("opensslcrypto: " + err.Error() + ": " + openssl.VersionText())
 +	}
 +	sig.BoringCrypto()
 +}
