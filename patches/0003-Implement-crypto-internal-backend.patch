@@ -3,14 +3,19 @@ From: qmuntal <qmuntaldiaz@microsoft.com>
 Date: Wed, 15 Jan 2025 16:32:26 +0100
 Subject: [PATCH] Implement crypto/internal/backend
 
+Implement the supporting code for using the crypto backends,
+but without using them yet.
+
+Update the Go toolchain build settings so that it uses the
+desired goexperiments and build tags.
 ---
  .gitignore                                    |   2 +
- src/cmd/dist/build.go                         |   6 +
+ src/cmd/dist/build.go                         |   5 +
  src/cmd/dist/test.go                          |  17 +-
- src/cmd/go/systemcrypto_test.go               |  92 +++++
+ src/cmd/go/systemcrypto_test.go               |  97 +++++
  src/crypto/internal/backend/backend_test.go   |  30 ++
  src/crypto/internal/backend/backendgen.go     |  20 +
- .../internal/backend/backendgen_test.go       | 278 +++++++++++++
+ .../internal/backend/backendgen_test.go       | 288 ++++++++++++++
  src/crypto/internal/backend/bbig/big.go       |  17 +
  .../internal/backend/bbig/big_boring.go       |  12 +
  src/crypto/internal/backend/bbig/big_cng.go   |  12 +
@@ -48,11 +53,12 @@ Subject: [PATCH] Implement crypto/internal/backend
  src/crypto/zbackenderrnofallback_darwin.go    |  20 +
  src/crypto/zbackenderrnofallback_openssl.go   |  20 +
  .../zbackenderrrequirefips_nosystemcrypto.go  |  17 +
+ .../zbackenderrrequirefips_skipfipscheck.go   |  16 +
  .../zbackenderrsystemcrypto_nobackend.go      |  16 +
  src/go/build/deps_test.go                     |  27 +-
  src/runtime/runtime_boring.go                 |   5 +
  src/syscall/exec_linux_test.go                |   2 +-
- 48 files changed, 2829 insertions(+), 8 deletions(-)
+ 49 files changed, 2859 insertions(+), 8 deletions(-)
  create mode 100644 src/cmd/go/systemcrypto_test.go
  create mode 100644 src/crypto/internal/backend/backend_test.go
  create mode 100644 src/crypto/internal/backend/backendgen.go
@@ -94,6 +100,7 @@ Subject: [PATCH] Implement crypto/internal/backend
  create mode 100644 src/crypto/zbackenderrnofallback_darwin.go
  create mode 100644 src/crypto/zbackenderrnofallback_openssl.go
  create mode 100644 src/crypto/zbackenderrrequirefips_nosystemcrypto.go
+ create mode 100644 src/crypto/zbackenderrrequirefips_skipfipscheck.go
  create mode 100644 src/crypto/zbackenderrsystemcrypto_nobackend.go
 
 diff --git a/.gitignore b/.gitignore
@@ -110,31 +117,30 @@ index c6512e64a4ef39..b3b01db73b009d 100644
  # For files created by specific development environment (e.g. editor),
  # use alternative ways to exclude files from git.
 diff --git a/src/cmd/dist/build.go b/src/cmd/dist/build.go
-index b50f3342fe8714..23a7f132788ebc 100644
+index b50f3342fe8714..3d3dde18a6562b 100644
 --- a/src/cmd/dist/build.go
 +++ b/src/cmd/dist/build.go
-@@ -1539,6 +1539,12 @@ func cmdbootstrap() {
+@@ -1539,6 +1539,11 @@ func cmdbootstrap() {
  	os.Setenv("CC", compilerEnvLookup("CC", defaultcc, goos, goarch))
  	// Now that cmd/go is in charge of the build process, enable GOEXPERIMENT.
  	os.Setenv("GOEXPERIMENT", goexperiment)
-+	// Build the Go toolchain with "-tags=allowcryptofallback,skipfipscheck". This
++	// Build the Go toolchain with "-tags=allowcryptofallback,ms_skipfipscheck". This
 +	// allows toolchains not built with the systemcrypto goexperiment to be used
 +	// when GODEBUG=fips140=on is set. For example, when running
 +	// "GODEBUG=fips140=on go test ./..." or "GODEBUG=fips140=on go run .".
-+	// Shadow goexperiment so that the global variable is not modified.
-+	os.Setenv("GOFLAGS", "-tags=allowcryptofallback,skipfipscheck")
++	os.Setenv("GOFLAGS", "-tags=allowcryptofallback,ms_skipfipscheck")
  	// No need to enable PGO for toolchain2.
  	goInstall(toolenv(), goBootstrap, append([]string{"-pgo=off"}, toolchain...)...)
  	if debug {
 diff --git a/src/cmd/dist/test.go b/src/cmd/dist/test.go
-index d335e4cfbce468..b4ba0ad8210a94 100644
+index d335e4cfbce468..5663aa3286a816 100644
 --- a/src/cmd/dist/test.go
 +++ b/src/cmd/dist/test.go
 @@ -156,10 +156,12 @@ func (t *tester) run() {
  		}
  	}
  
-+	tags := []string{"-tags=allowcryptofallback,skipfipscheck"}
++	tags := []string{"-tags=allowcryptofallback,ms_skipfipscheck"}
 +
  	if t.rebuild {
  		t.out("Building packages and commands.")
@@ -164,7 +170,7 @@ index d335e4cfbce468..b4ba0ad8210a94 100644
 +		var tags []string
 +		if goos != "windows" {
 +			// Linux and macOS don't support systemcrypto with CGO_ENABLED=0.
-+			tags = append(tags, "allowcryptofallback,skipfipscheck")
++			tags = append(tags, "allowcryptofallback,ms_skipfipscheck")
 +		}
  		t.registerTest("internal linking, -buildmode=pie",
  			&goTest{
@@ -187,10 +193,10 @@ index d335e4cfbce468..b4ba0ad8210a94 100644
  		if t.cgoEnabled && t.internalLink() && !disablePIE {
 diff --git a/src/cmd/go/systemcrypto_test.go b/src/cmd/go/systemcrypto_test.go
 new file mode 100644
-index 00000000000000..5fc1c487b6ffe1
+index 00000000000000..9bc2e228fee3a6
 --- /dev/null
 +++ b/src/cmd/go/systemcrypto_test.go
-@@ -0,0 +1,92 @@
+@@ -0,0 +1,97 @@
 +// Copyright 2025 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -264,7 +270,7 @@ index 00000000000000..5fc1c487b6ffe1
 +
 +func TestSystemCryptoFIPS(t *testing.T) {
 +	// Test different go commands with GODEBUG=fips140=on
-+	// to exercise the skipfipscheck build tag.
++	// to exercise the ms_skipfipscheck build tag.
 +	if goexperiment.BoringCrypto {
 +		t.Skip("BoringCrypto doesn't support GODEBUG=fips140=on")
 +	}
@@ -275,13 +281,18 @@ index 00000000000000..5fc1c487b6ffe1
 +	nonCryptoFile := writeFile(t, fileWithoutCrypto)
 +
 +	// Build should always succeed given that the go toolchain
-+	// is built with the skipfipscheck build tag.
++	// is built with the ms_skipfipscheck build tag.
 +	execGoTool(t, "build", env, cryptoFile)
 +	execGoTool(t, "build", env, nonCryptoFile)
 +
 +	// Run should always succeed if the target go package
 +	// doesn't use crypto.
 +	execGoTool(t, "run", env, nonCryptoFile)
++
++	// Run may or may not fail if the target go package uses crypto,
++	// because while the toolchain was built with ms_skipfipscheck, the
++	// target program was not. Failure depends on system crypto mode
++	// and presence of system-provided crypto, and it can't be tested here.
 +}
 diff --git a/src/crypto/internal/backend/backend_test.go b/src/crypto/internal/backend/backend_test.go
 new file mode 100644
@@ -347,10 +358,10 @@ index 00000000000000..acf0113bbefb6c
 +//go:generate go test -run TestGenerated -fix
 diff --git a/src/crypto/internal/backend/backendgen_test.go b/src/crypto/internal/backend/backendgen_test.go
 new file mode 100644
-index 00000000000000..063e0bb4948236
+index 00000000000000..647d9f0b871aff
 --- /dev/null
 +++ b/src/crypto/internal/backend/backendgen_test.go
-@@ -0,0 +1,278 @@
+@@ -0,0 +1,288 @@
 +// Copyright 2023 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -485,6 +496,8 @@ index 00000000000000..063e0bb4948236
 +	delete(existingFiles, f)
 +	f = testRequireFIPSWithoutBackend(t)
 +	delete(existingFiles, f)
++	f = testRequireFIPSWithSkipFIPSCheck(t)
++	delete(existingFiles, f)
 +
 +	for f := range existingFiles {
 +		if *fix {
@@ -553,6 +566,14 @@ index 00000000000000..063e0bb4948236
 +		"//go:build requirefips && !goexperiment.systemcrypto",
 +		"The requirefips tag is enabled, but no crypto backend is enabled.",
 +		"A crypto backend is required to enable FIPS mode.")
++}
++
++func testRequireFIPSWithSkipFIPSCheck(t *testing.T) string {
++	return testErrorFile(
++		t,
++		filepath.Join(cryptoPackageDir, backendErrPrefix+"requirefips_skipfipscheck.go"),
++		"//go:build requirefips && ms_skipfipscheck",
++		"The requirefips tag is enabled but conflicts with the ms_skipfipscheck tag.")
 +}
 +
 +// testErrorFile checks/generates a Go file with a given build constraint that
@@ -1886,7 +1907,7 @@ index 00000000000000..8a2efe2346e84c
 +}
 diff --git a/src/crypto/internal/backend/fips140/fips140.go b/src/crypto/internal/backend/fips140/fips140.go
 new file mode 100644
-index 00000000000000..c623233633daec
+index 00000000000000..1bf7c3b7d63da8
 --- /dev/null
 +++ b/src/crypto/internal/backend/fips140/fips140.go
 @@ -0,0 +1,70 @@
@@ -1936,7 +1957,7 @@ index 00000000000000..c623233633daec
 +	if isRequireFIPS {
 +		if isSkipFIPSCheck {
 +			panic("the 'requirefips' build tag is enabled, but it conflicts " +
-+				"with the 'skipfipscheck' build tag")
++				"with the 'ms_skipfipscheck' build tag")
 +		}
 +		message = "requirefips tag set"
 +		enabled = true
@@ -2101,7 +2122,7 @@ index 00000000000000..a8ff666b6d182e
 +}
 diff --git a/src/crypto/internal/backend/fips140/skipfipscheck_off.go b/src/crypto/internal/backend/fips140/skipfipscheck_off.go
 new file mode 100644
-index 00000000000000..e279bb4820cbc1
+index 00000000000000..f60b10dfa3aaf3
 --- /dev/null
 +++ b/src/crypto/internal/backend/fips140/skipfipscheck_off.go
 @@ -0,0 +1,9 @@
@@ -2109,14 +2130,14 @@ index 00000000000000..e279bb4820cbc1
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
 +
-+//go:build !skipfipscheck
++//go:build !ms_skipfipscheck
 +
 +package fips140
 +
 +const isSkipFIPSCheck = false
 diff --git a/src/crypto/internal/backend/fips140/skipfipscheck_on.go b/src/crypto/internal/backend/fips140/skipfipscheck_on.go
 new file mode 100644
-index 00000000000000..8509e61c588df7
+index 00000000000000..d3d39fd77f98db
 --- /dev/null
 +++ b/src/crypto/internal/backend/fips140/skipfipscheck_on.go
 @@ -0,0 +1,9 @@
@@ -2124,7 +2145,7 @@ index 00000000000000..8509e61c588df7
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
 +
-+//go:build skipfipscheck
++//go:build ms_skipfipscheck
 +
 +package fips140
 +
@@ -3192,6 +3213,28 @@ index 00000000000000..91bede3aa030a5
 +	`
 +	The requirefips tag is enabled, but no crypto backend is enabled.
 +	A crypto backend is required to enable FIPS mode.
++	For more information, visit https://github.com/microsoft/go/tree/microsoft/main/eng/doc/fips
++	`
++}
+diff --git a/src/crypto/zbackenderrrequirefips_skipfipscheck.go b/src/crypto/zbackenderrrequirefips_skipfipscheck.go
+new file mode 100644
+index 00000000000000..8ba88a888eb8c0
+--- /dev/null
++++ b/src/crypto/zbackenderrrequirefips_skipfipscheck.go
+@@ -0,0 +1,16 @@
++// Copyright 2023 The Go Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style
++// license that can be found in the LICENSE file.
++
++// This file is generated by crypto/internal/backend. DO NOT EDIT. DO NOT manually create files with the prefix "zbackenderr".
++
++//go:build requirefips && ms_skipfipscheck
++
++package crypto
++
++func init() {
++	`
++	The requirefips tag is enabled but conflicts with the ms_skipfipscheck tag.
 +	For more information, visit https://github.com/microsoft/go/tree/microsoft/main/eng/doc/fips
 +	`
 +}
