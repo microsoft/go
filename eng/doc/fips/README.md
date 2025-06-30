@@ -437,7 +437,9 @@ This list of major changes is intended for quick reference and for access to his
 
 - Running `go version -m` on a binary which uses a system crypto backend now shows the `microsoft_systemcrypto=1` build setting.
 
- - It is now possible to build a binary that doesn't depend on a crypto package using invalid configurations, for example `GOOS=linux CGO_ENABLED=0 GOEXPERIMENT=systemcrypto`.
+ - The build-time backend compatibility check now only runs when a crypto package is required for the build.
+   - If your app doesn't depend on a crypto package, you may, for example, use `GOOS=linux CGO_ENABLED=0 GOEXPERIMENT=systemcrypto`.
+   - If your app doesn't use a crypto package and you make a change that introduces a crypto package dependency, you will only encounter a compatibility check failure after the change. The change may be in your transitive dependencies: for example, depending on a new module that uses `crypto/sha256` may trigger the compatibility check. This is undesirable, but it's necessary to enable flexibility.
 
 - `GOFIPS=0` support has been removed. It now has no effect.
 
