@@ -75,7 +75,7 @@ Subject: [PATCH] Use crypto backends
  src/crypto/tls/handshake_client.go            |  12 +-
  src/crypto/tls/handshake_client_tls13.go      |   2 +-
  src/crypto/tls/handshake_server.go            |  10 +-
- src/crypto/tls/handshake_server_tls13.go      |  13 +-
+ src/crypto/tls/handshake_server_tls13.go      |  18 +-
  src/crypto/tls/internal/tls13/doc.go          |  18 ++
  src/crypto/tls/internal/tls13/tls13.go        | 195 ++++++++++++++++++
  src/crypto/tls/key_schedule.go                |   2 +-
@@ -88,7 +88,7 @@ Subject: [PATCH] Use crypto backends
  src/net/lookup_test.go                        |   3 +
  src/os/exec/exec_test.go                      |   9 +
  src/runtime/pprof/vminfo_darwin_test.go       |   6 +
- 85 files changed, 1111 insertions(+), 89 deletions(-)
+ 84 files changed, 1153 insertions(+), 94 deletions(-)
  create mode 100644 src/crypto/dsa/boring.go
  create mode 100644 src/crypto/dsa/notboring.go
  create mode 100644 src/crypto/ecdsa/badlinkname.go
@@ -114,7 +114,7 @@ index f0e3575637c62a..9eab3b4e66e60b 100644
  package main
  
 diff --git a/src/cmd/dist/test.go b/src/cmd/dist/test.go
-index 82c6ee4631ee87..cdf02ca115ce3f 100644
+index dd7f5970a6e673..8312607e8c475f 100644
 --- a/src/cmd/dist/test.go
 +++ b/src/cmd/dist/test.go
 @@ -710,7 +710,7 @@ func (t *tester) registerTests() {
@@ -126,7 +126,7 @@ index 82c6ee4631ee87..cdf02ca115ce3f 100644
  		// Test standard crypto packages with fips140=on.
  		t.registerTest("GOFIPS140=latest go test crypto/...", &goTest{
  			variant: "gofips140",
-@@ -1166,6 +1166,11 @@ func (t *tester) internalLink() bool {
+@@ -1173,6 +1173,11 @@ func (t *tester) internalLink() bool {
  	if goos == "windows" && goarch == "arm64" {
  		return false
  	}
@@ -138,7 +138,7 @@ index 82c6ee4631ee87..cdf02ca115ce3f 100644
  	// Internally linking cgo is incomplete on some architectures.
  	// https://golang.org/issue/10373
  	// https://golang.org/issue/14449
-@@ -1329,12 +1334,11 @@ func (t *tester) registerCgoTests(heading string) {
+@@ -1336,12 +1341,11 @@ func (t *tester) registerCgoTests(heading string) {
  			// a C linker warning on Linux.
  			// in function `bio_ip_and_port_to_socket_and_addr':
  			// warning: Using 'getaddrinfo' in statically linked applications requires at runtime the shared libraries from the glibc version used for linking
@@ -2342,7 +2342,7 @@ index 00176795eba6b7..c6352af84f1f1d 100644
  package tls
  
 diff --git a/src/crypto/tls/fips140_test.go b/src/crypto/tls/fips140_test.go
-index 46d3076864fc5a..b6fe54406f8e85 100644
+index d3fa61dc97d398..711ce750a71a93 100644
 --- a/src/crypto/tls/fips140_test.go
 +++ b/src/crypto/tls/fips140_test.go
 @@ -7,7 +7,7 @@ package tls
@@ -2381,7 +2381,7 @@ index 027bc22c33c921..eba08da985f832 100644
  package fipsonly
  
 diff --git a/src/crypto/tls/handshake_client.go b/src/crypto/tls/handshake_client.go
-index 2d3a2ef25b8c8d..1d44bd2b1f1f03 100644
+index 90c5bdacd82318..c4ca03ddfb4de0 100644
 --- a/src/crypto/tls/handshake_client.go
 +++ b/src/crypto/tls/handshake_client.go
 @@ -11,11 +11,11 @@ import (
@@ -2397,7 +2397,7 @@ index 2d3a2ef25b8c8d..1d44bd2b1f1f03 100644
  	"crypto/x509"
  	"errors"
  	"fmt"
-@@ -548,7 +548,15 @@ func (c *Conn) pickTLSVersion(serverHello *serverHelloMsg) error {
+@@ -542,7 +542,15 @@ func (c *Conn) pickTLSVersion(serverHello *serverHelloMsg) error {
  
  // Does the handshake, either a full one or resumes old session. Requires hs.c,
  // hs.hello, hs.serverHello, and, optionally, hs.session to be set.
@@ -2415,7 +2415,7 @@ index 2d3a2ef25b8c8d..1d44bd2b1f1f03 100644
  
  	// If we did not load a session (hs.session == nil), but we did set a
 diff --git a/src/crypto/tls/handshake_client_tls13.go b/src/crypto/tls/handshake_client_tls13.go
-index bf3cab97b8a7c5..49cae0b257dd94 100644
+index 4f4966904f59f4..b2d3949e2ede38 100644
 --- a/src/crypto/tls/handshake_client_tls13.go
 +++ b/src/crypto/tls/handshake_client_tls13.go
 @@ -11,9 +11,9 @@ import (
@@ -2430,10 +2430,10 @@ index bf3cab97b8a7c5..49cae0b257dd94 100644
  	"hash"
  	"slices"
 diff --git a/src/crypto/tls/handshake_server.go b/src/crypto/tls/handshake_server.go
-index 6848407e74b70c..b0cc9876c877bc 100644
+index 8240e6afae3c6b..5dd00e27037a0f 100644
 --- a/src/crypto/tls/handshake_server.go
 +++ b/src/crypto/tls/handshake_server.go
-@@ -64,7 +64,15 @@ func (c *Conn) serverHandshake(ctx context.Context) error {
+@@ -63,7 +63,15 @@ func (c *Conn) serverHandshake(ctx context.Context) error {
  	return hs.handshake()
  }
  
@@ -2451,7 +2451,7 @@ index 6848407e74b70c..b0cc9876c877bc 100644
  
  	if err := hs.processClientHello(); err != nil {
 diff --git a/src/crypto/tls/handshake_server_tls13.go b/src/crypto/tls/handshake_server_tls13.go
-index 090ff67fb75a62..cbd563cd10f60e 100644
+index dbd6ff2c4f4d94..ef11e56aaec4b9 100644
 --- a/src/crypto/tls/handshake_server_tls13.go
 +++ b/src/crypto/tls/handshake_server_tls13.go
 @@ -10,11 +10,12 @@ import (
@@ -2468,15 +2468,20 @@ index 090ff67fb75a62..cbd563cd10f60e 100644
  	"errors"
  	"fmt"
  	"hash"
-@@ -472,15 +473,19 @@ func (hs *serverHandshakeStateTLS13) checkForResumption() error {
+@@ -472,15 +473,24 @@ func (hs *serverHandshakeStateTLS13) checkForResumption() error {
  // interfaces implemented by standard library hashes to clone the state of in
  // to a new instance of h. It returns nil if the operation fails.
  func cloneHash(in hash.Hash, h crypto.Hash) hash.Hash {
 +	if boring.Enabled {
 +		// CNG and OpenSSL with SymCrypt hash functions do not implement the
 +		// encoding.BinaryMarshaler interface, but they do implement the Clone method.
-+		if cloner, ok := in.(interface{ Clone() hash.Hash }); ok {
-+			return cloner.Clone()
++		if cloner, ok := in.(hash.Cloner); ok {
++			clone, err := cloner.Clone()
++			if err != nil {
++				// If Clone fails, we can't clone the hash.
++				return nil
++			}
++			return clone
 +		}
 +	}
  	// Recreate the interface to avoid importing encoding.
@@ -2799,10 +2804,10 @@ index e7369542a73270..ff52175e4ac636 100644
  	}
  }
 diff --git a/src/go/build/deps_test.go b/src/go/build/deps_test.go
-index a676a8c831a84d..9fd56ccae8727e 100644
+index c5a42266a9f736..3ec19155c70c31 100644
 --- a/src/go/build/deps_test.go
 +++ b/src/go/build/deps_test.go
-@@ -519,7 +519,7 @@ var depsRules = `
+@@ -517,7 +517,7 @@ var depsRules = `
  	< crypto/internal/fips140/edwards25519
  	< crypto/internal/fips140/ed25519
  	< crypto/internal/fips140/rsa
@@ -2811,7 +2816,7 @@ index a676a8c831a84d..9fd56ccae8727e 100644
  
  	FIPS, hash < crypto/internal/fips140only;
  	crypto/internal/fips140/subtle,	hash < crypto;
-@@ -544,6 +544,8 @@ var depsRules = `
+@@ -542,6 +542,8 @@ var depsRules = `
  	< crypto/internal/backend/internal/opensslsetup
  	< crypto/internal/backend/fips140;
  
@@ -2820,7 +2825,7 @@ index a676a8c831a84d..9fd56ccae8727e 100644
  	crypto !< FIPS;
  
  	# CRYPTO is core crypto algorithms - no cgo, fmt, net.
-@@ -587,6 +589,7 @@ var depsRules = `
+@@ -585,6 +587,7 @@ var depsRules = `
  	  crypto/pbkdf2,
  	  crypto/ecdh,
  	  crypto/mlkem
