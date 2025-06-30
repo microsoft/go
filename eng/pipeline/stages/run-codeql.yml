@@ -1,0 +1,126 @@
+# Copyright (c) Microsoft Corporation.
+# Use of this source code is governed by a BSD-style
+# license that can be found in the LICENSE file.
+
+# This job runs a builder for any OS.
+
+parameters:
+  # { id, os, arch, hostArch, config, distro?, experiment?, fips?, broken? }
+  - name: builder
+    type: object
+
+  - name: createSourceArchive # Ignored
+    type: boolean
+    default: false
+
+  - name: createSymbols # Ignored
+    type: boolean
+    default: false
+
+  - name: releaseVersion # Ignored
+    type: string
+    default: 'nil'
+
+  - name: pool
+    type: object
+
+  - name: official # Ignored
+    type: boolean
+
+  - name: retryAttempts # Ignored
+    type: object
+    default: ["FINAL"]
+
+  - name: osArchList
+    type: object
+    default:
+      - { os: 'linux', arch: 'amd64' }
+      - { os: 'windows', arch: 'amd64' }
+      - { os: 'linux', arch: 'arm' }
+      - { os: 'linux', arch: 'arm64' }
+      - { os: 'darwin', arch: 'amd64' }
+      - { os: 'darwin', arch: 'arm64' }
+
+stages:
+  - stage: ${{ parameters.builder.id }}
+    # For display name, try for readability. Use some parameters set by
+    # shorthand-builders-to-builders.yml that let us add some formatting.
+    displayName: ${{ parameters.builder.os }}-${{ parameters.builder.arch }} ${{ parameters.builder.hostParens}} ${{ parameters.builder.config }} ${{ parameters.builder.distroParens}} ${{ parameters.builder.experimentBrackets }} ${{ parameters.builder.fipsAcronym }}
+    dependsOn: []
+    jobs:
+      - job: ${{ parameters.builder.id }}
+        displayName: ${{ parameters.builder.os }}-${{ parameters.builder.arch }} ${{ parameters.builder.hostParens}} ${{ parameters.builder.config }} ${{ parameters.builder.distroParens}} ${{ parameters.builder.experimentBrackets }} ${{ parameters.builder.fipsAcronym }}
+        workspace:
+          clean: all
+
+        # Validation for complex inputs.
+        ${{ if startsWith(parameters.builder.config, 'codeql') }}:
+          ${{ if not(or(eq(parameters.builder.config, 'codeql_inner'), eq(parameters.builder.config, 'codeql_outer'))) }}:
+            'The CodeQL configuration must include "_inner" or "_outer" suffix': error
+
+        # Allow CodeQL to take a while. https://eng.ms/docs/cloud-ai-platform/devdiv/one-engineering-system-1es/1es-docs/codeql/configuring-codeql3000-ado-pipelines#other-issues
+        timeoutInMinutes: 420
+
+        pool: ${{ parameters.pool }}
+
+        variables:
+          - ${{ if eq(parameters.builder.config, 'codeql_inner') }}:
+            # Manually specify the repository being scanned by this job because
+            # CodeQL can't detect the inner repository (the submodule)
+            # automatically. See https://stackoverflow.microsoft.com/a/368419
+            - name: Codeql.ADO.Build.Repository.Provider
+              value: override
+            - name: Codeql.ADO.Build.Repository.Uri
+              value: https://dev.azure.com/dnceng/internal/_git/microsoft-go-mirror
+          - name: GoExecutable
+            value: '$(Pipeline.Workspace)/Binaries Signed/go/bin/go'
+
+        steps:
+          - template: ../steps/checkout-unix-task.yml
+
+          - template: ../steps/download-signed-binaries-task.yml
+            parameters:
+              runID: $(resources.pipeline.build.runID)
+
+          - bash: |
+              set -eux
+
+              for f in "$(Pipeline.Workspace)/Binaries Signed/"go*.linux-amd64.tar.gz; do
+                if [ "${found:-}" ]; then
+                  echo "Found multiple Go binaries in Binaries Signed: $found and $f"
+                  exit 1
+                fi
+                found=$f
+              done
+
+              tar -xf "$found" -C "$(Pipeline.Workspace)/Binaries Signed"
+              ls "$(Pipeline.Workspace)/Binaries Signed/go"
+            displayName: Extract Microsoft build of Go (linux-amd64)
+
+          - ${{ each c in parameters.osArchList }}:
+            - bash: |
+                set -eux
+                export GOOS=${{ c.os }}
+                export GOARCH=${{ c.arch }}
+
+                # Static binary workaround for CodeQL and Go 1.21 and higher
+                # https://eng.ms/docs/cloud-ai-platform/devdiv/one-engineering-system-1es/1es-docs/codeql/troubleshooting/onboarding/language-compiled#go-121-and-higher-on-linux
+
+                WORKAROUND_DIR=$AGENT_TEMPDIRECTORY/codeql-go-tracing-${{ c.os }}-${{ c.arch }}
+                mkdir "${WORKAROUND_DIR}"
+                WHICH_GO="$(GoExecutable)"
+
+                cat > "${WORKAROUND_DIR}/go" <<EOF
+                #!/bin/bash
+                exec "$WHICH_GO" "\$@"
+                EOF
+
+                chmod 755 "${WORKAROUND_DIR}/go"
+                export PATH="${WORKAROUND_DIR}:${PATH}"
+
+                # Build Go itself.
+                go build std
+                go build cmd/...
+                # Build our infra tools.
+                ( cd eng/_util/ && go build ./... )
+              displayName: Build ${{ c.os }}-${{ c.arch }}
