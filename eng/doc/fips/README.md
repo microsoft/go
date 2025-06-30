@@ -306,7 +306,7 @@ Most programs aren't expected to use these options. Determining FIPS mode at run
 
 ### Build option to use Go crypto if the backend compatibility check fails
 
-When building a Go program with a crypto backend, the build will check that the build environment and target are compatible with that backend. If not, the build will fail with an error. For example, a common unsupported build configuration is `GOOS=linux CGO_ENABLED=0 GOEXPERIMENT=opensslcrypto`. The OpenSSL backend requires cgo, so the build fails:
+When building a Go program that imports a `crypto` package, the build will check that the build environment and target are compatible with the crypto backend being used, if any. If it's incompatible, the build will fail with an error. For example, a common unsupported build configuration is `GOOS=linux CGO_ENABLED=0 GOEXPERIMENT=opensslcrypto`. The OpenSSL backend requires cgo, so the build fails:
 
 ```
 # runtime
@@ -317,11 +317,12 @@ When building a Go program with a crypto backend, the build will check that the 
         Please check your build environment and build command for a reason one or more of these tags weren't specified.
 ```
 
-We recommend one of these fixes:
+We recommend fixing the build environment to allow the crypto backend to be used. (Enable cgo.)
 
-- Fix the build environment to allow the crypto backend to be used. (Enable cgo.)
+These are other fixes that may be used on a case-by-case basis:
+
 - Remove `GOEXPERIMENT` entirely. This intentionally doesn't comply with the internal Microsoft crypto policy or FIPS, so for builds within Microsoft, this should only be done under a documented exception.
-
+- Refactor the code to not use a `crypto` package. For example, when computing a hash for non-cryptographic purposes, there are several alternatives in the Go standard library that don't require a crypto backend, such as `hash/fnv` or `hash/maphash`.
 
 > [!IMPORTANT]
 > Individual crypto calls may fall back to standard Go crypto at runtime if the selected backend doesn't support an API or the arguments used. See the [FIPS User Guide](UserGuide.md) for more information.
@@ -434,6 +435,12 @@ A program running in FIPS mode can claim it is using a FIPS-certified cryptograp
 This list of major changes is intended for quick reference and for access to historical information about versions that are no longer supported. The behavior of all in-support versions are documented in the sections above with notes for version-specific differences where necessary.
 
 ### Go 1.25 (Aug 2025)
+
+- Running `go version -m` on a binary which uses a system crypto backend now shows the `microsoft_systemcrypto=1` build setting.
+
+ - The build-time backend compatibility check now only runs when a crypto package is required for the build.
+   - If your app doesn't depend on a crypto package, you may, for example, use `GOOS=linux CGO_ENABLED=0 GOEXPERIMENT=systemcrypto`.
+   - If your app doesn't use a crypto package and you make a change that introduces a crypto package dependency, you will only encounter a compatibility check failure after the change. The change may be in your transitive dependencies: for example, depending on a new module that uses `crypto/sha256` may trigger the compatibility check. This is undesirable, but it's necessary to enable flexibility.
 
 - `GOFIPS=0` support has been removed. It now has no effect.
 
