@@ -317,11 +317,12 @@ When building a Go program that imports a `crypto` package with a crypto backend
         Please check your build environment and build command for a reason one or more of these tags weren't specified.
 ```
 
-We recommend one of these fixes:
+We recommend fixing the build environment to allow the crypto backend to be used. (Enable cgo.)
 
-- Fix the build environment to allow the crypto backend to be used. (Enable cgo.)
+These are other fixes that may be used on a case-by-case basis:
+
 - Remove `GOEXPERIMENT` entirely. This intentionally doesn't comply with the internal Microsoft crypto policy or FIPS, so for builds within Microsoft, this should only be done under a documented exception.
-
+- Refactor the code to not use a `crypto` package. For example, when computing a hash for not cryptographic purposes, there are several alternatives in the Go standard library that don't require a crypto backend, such as `hash/fnv` or `hash/maphash`.
 
 > [!IMPORTANT]
 > Individual crypto calls may fall back to standard Go crypto at runtime if the selected backend doesn't support an API or the arguments used. See the [FIPS User Guide](UserGuide.md) for more information.
