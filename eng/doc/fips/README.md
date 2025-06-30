@@ -306,7 +306,7 @@ Most programs aren't expected to use these options. Determining FIPS mode at run
 
 ### Build option to use Go crypto if the backend compatibility check fails
 
-When building a Go program with a crypto backend, the build will check that the build environment and target are compatible with that backend. If not, the build will fail with an error. For example, a common unsupported build configuration is `GOOS=linux CGO_ENABLED=0 GOEXPERIMENT=opensslcrypto`. The OpenSSL backend requires cgo, so the build fails:
+When building a Go program that imports a `crypto` package with a crypto backend, the build will check that the build environment and target are compatible with that backend. If not, the build will fail with an error. For example, a common unsupported build configuration is `GOOS=linux CGO_ENABLED=0 GOEXPERIMENT=opensslcrypto`. The OpenSSL backend requires cgo, so the build fails:
 
 ```
 # runtime
