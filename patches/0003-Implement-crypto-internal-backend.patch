@@ -13,20 +13,17 @@ desired goexperiments and build tags.
  src/cmd/dist/build.go                         |   5 +
  src/cmd/dist/test.go                          |  17 +-
  src/cmd/go/internal/load/pkg.go               |   6 +
- src/cmd/go/systemcrypto_test.go               | 148 +++++++
+ src/cmd/go/systemcrypto_test.go               | 144 +++++++
  src/crypto/internal/backend/backend_test.go   |  30 ++
  src/crypto/internal/backend/backendgen.go     |  20 +
  .../internal/backend/backendgen_test.go       | 288 ++++++++++++++
  src/crypto/internal/backend/bbig/big.go       |  17 +
- .../internal/backend/bbig/big_boring.go       |  12 +
  src/crypto/internal/backend/bbig/big_cng.go   |  12 +
  .../internal/backend/bbig/big_darwin.go       |  12 +
  .../internal/backend/bbig/big_openssl.go      |  12 +
- src/crypto/internal/backend/boring_linux.go   | 294 ++++++++++++++
  src/crypto/internal/backend/cng_windows.go    | 345 ++++++++++++++++
  src/crypto/internal/backend/common.go         |  46 +++
  src/crypto/internal/backend/darwin_darwin.go  | 372 ++++++++++++++++++
- src/crypto/internal/backend/fips140/boring.go |  13 +
  src/crypto/internal/backend/fips140/cng.go    |  35 ++
  src/crypto/internal/backend/fips140/darwin.go |  13 +
  .../internal/backend/fips140/fips140.go       |  70 ++++
@@ -43,37 +40,30 @@ desired goexperiments and build tags.
  src/crypto/internal/backend/nobackend.go      | 253 ++++++++++++
  src/crypto/internal/backend/openssl_linux.go  | 332 ++++++++++++++++
  src/crypto/internal/backend/stub.s            |  10 +
- src/crypto/zbackenderrconflict_boring_cng.go  |  17 +
- .../zbackenderrconflict_boring_darwin.go      |  17 +
- .../zbackenderrconflict_boring_openssl.go     |  17 +
  src/crypto/zbackenderrconflict_cng_darwin.go  |  17 +
  src/crypto/zbackenderrconflict_cng_openssl.go |  17 +
  .../zbackenderrconflict_darwin_openssl.go     |  17 +
- src/crypto/zbackenderrnofallback_boring.go    |  20 +
  src/crypto/zbackenderrnofallback_cng.go       |  20 +
  src/crypto/zbackenderrnofallback_darwin.go    |  20 +
  src/crypto/zbackenderrnofallback_openssl.go   |  20 +
  .../zbackenderrrequirefips_nosystemcrypto.go  |  17 +
  .../zbackenderrrequirefips_skipfipscheck.go   |  16 +
  .../zbackenderrsystemcrypto_nobackend.go      |  16 +
- src/go/build/deps_test.go                     |  27 +-
+ src/go/build/deps_test.go                     |  30 +-
  src/runtime/runtime_boring.go                 |   5 +
  src/syscall/exec_linux_test.go                |   2 +-
- 50 files changed, 2916 insertions(+), 8 deletions(-)
+ 43 files changed, 2524 insertions(+), 9 deletions(-)
  create mode 100644 src/cmd/go/systemcrypto_test.go
  create mode 100644 src/crypto/internal/backend/backend_test.go
  create mode 100644 src/crypto/internal/backend/backendgen.go
  create mode 100644 src/crypto/internal/backend/backendgen_test.go
  create mode 100644 src/crypto/internal/backend/bbig/big.go
- create mode 100644 src/crypto/internal/backend/bbig/big_boring.go
  create mode 100644 src/crypto/internal/backend/bbig/big_cng.go
  create mode 100644 src/crypto/internal/backend/bbig/big_darwin.go
  create mode 100644 src/crypto/internal/backend/bbig/big_openssl.go
- create mode 100644 src/crypto/internal/backend/boring_linux.go
  create mode 100644 src/crypto/internal/backend/cng_windows.go
  create mode 100644 src/crypto/internal/backend/common.go
  create mode 100644 src/crypto/internal/backend/darwin_darwin.go
- create mode 100644 src/crypto/internal/backend/fips140/boring.go
  create mode 100644 src/crypto/internal/backend/fips140/cng.go
  create mode 100644 src/crypto/internal/backend/fips140/darwin.go
  create mode 100644 src/crypto/internal/backend/fips140/fips140.go
@@ -90,13 +80,9 @@ desired goexperiments and build tags.
  create mode 100644 src/crypto/internal/backend/nobackend.go
  create mode 100644 src/crypto/internal/backend/openssl_linux.go
  create mode 100644 src/crypto/internal/backend/stub.s
- create mode 100644 src/crypto/zbackenderrconflict_boring_cng.go
- create mode 100644 src/crypto/zbackenderrconflict_boring_darwin.go
- create mode 100644 src/crypto/zbackenderrconflict_boring_openssl.go
  create mode 100644 src/crypto/zbackenderrconflict_cng_darwin.go
  create mode 100644 src/crypto/zbackenderrconflict_cng_openssl.go
  create mode 100644 src/crypto/zbackenderrconflict_darwin_openssl.go
- create mode 100644 src/crypto/zbackenderrnofallback_boring.go
  create mode 100644 src/crypto/zbackenderrnofallback_cng.go
  create mode 100644 src/crypto/zbackenderrnofallback_darwin.go
  create mode 100644 src/crypto/zbackenderrnofallback_openssl.go
@@ -211,10 +197,10 @@ index e913f9885234fd..123a77518106c5 100644
  	if gccgoflags := BuildGccgoflags.String(); gccgoflags != "" && cfg.BuildContext.Compiler == "gccgo" {
 diff --git a/src/cmd/go/systemcrypto_test.go b/src/cmd/go/systemcrypto_test.go
 new file mode 100644
-index 00000000000000..385226588b5dcc
+index 00000000000000..b2298b8157ae92
 --- /dev/null
 +++ b/src/cmd/go/systemcrypto_test.go
-@@ -0,0 +1,148 @@
+@@ -0,0 +1,144 @@
 +// Copyright 2025 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -222,7 +208,6 @@ index 00000000000000..385226588b5dcc
 +package main_test
 +
 +import (
-+	"internal/goexperiment"
 +	"internal/testenv"
 +	"os"
 +	"path/filepath"
@@ -294,9 +279,6 @@ index 00000000000000..385226588b5dcc
 +func TestSystemCryptoFIPS(t *testing.T) {
 +	// Test different go commands with GODEBUG=fips140=on
 +	// to exercise the ms_skipfipscheck build tag.
-+	if goexperiment.BoringCrypto {
-+		t.Skip("BoringCrypto doesn't support GODEBUG=fips140=on")
-+	}
 +	t.Parallel()
 +	env := []string{"GODEBUG=fips140=on"}
 +
@@ -742,24 +724,6 @@ index 00000000000000..ab3f30825dcfa1
 +func Dec(b []uint) *big.Int {
 +	return nil
 +}
-diff --git a/src/crypto/internal/backend/bbig/big_boring.go b/src/crypto/internal/backend/bbig/big_boring.go
-new file mode 100644
-index 00000000000000..0b62cef68546d0
---- /dev/null
-+++ b/src/crypto/internal/backend/bbig/big_boring.go
-@@ -0,0 +1,12 @@
-+// Copyright 2022 The Go Authors. All rights reserved.
-+// Use of this source code is governed by a BSD-style
-+// license that can be found in the LICENSE file.
-+
-+//go:build goexperiment.boringcrypto
-+
-+package bbig
-+
-+import "crypto/internal/boring/bbig"
-+
-+var Enc = bbig.Enc
-+var Dec = bbig.Dec
 diff --git a/src/crypto/internal/backend/bbig/big_cng.go b/src/crypto/internal/backend/bbig/big_cng.go
 new file mode 100644
 index 00000000000000..92623031fd87d0
@@ -814,306 +778,6 @@ index 00000000000000..e6695dd66b1d02
 +
 +var Enc = bbig.Enc
 +var Dec = bbig.Dec
-diff --git a/src/crypto/internal/backend/boring_linux.go b/src/crypto/internal/backend/boring_linux.go
-new file mode 100644
-index 00000000000000..1d6ec4eef5a5b4
---- /dev/null
-+++ b/src/crypto/internal/backend/boring_linux.go
-@@ -0,0 +1,294 @@
-+// Copyright 2017 The Go Authors. All rights reserved.
-+// Use of this source code is governed by a BSD-style
-+// license that can be found in the LICENSE file.
-+
-+//go:build goexperiment.boringcrypto && linux && cgo && (amd64 || arm64) && !android && !msan
-+
-+// Package boring provides access to BoringCrypto implementation functions.
-+// Check the variable Enabled to find out whether BoringCrypto is available.
-+// If BoringCrypto is not available, the functions in this package all panic.
-+package backend
-+
-+import (
-+	"crypto"
-+	"crypto/cipher"
-+	"crypto/internal/backend/fips140"
-+	"crypto/internal/boring"
-+	"hash"
-+)
-+
-+func init() {
-+	if err := fips140.Check(func() bool { return true }); err != nil {
-+		panic(err)
-+	}
-+}
-+
-+const Enabled = true
-+
-+type BigInt = boring.BigInt
-+
-+const RandReader = boring.RandReader
-+
-+func SupportsHash(h crypto.Hash) bool {
-+	switch h {
-+	case crypto.MD5SHA1, crypto.SHA1, crypto.SHA224, crypto.SHA256, crypto.SHA384, crypto.SHA512:
-+		return true
-+	default:
-+		return false
-+	}
-+}
-+
-+func SupportsCurve(curve string) bool            { return true }
-+func SupportsRSAOAEPLabel(label []byte) bool     { return true }
-+func SupportsPKCS1v15Hash(hash crypto.Hash) bool { return true }
-+
-+func NewMD5() hash.Hash        { panic("cryptobackend: not available") }
-+func NewSHA1() hash.Hash       { return boring.NewSHA1() }
-+func NewSHA224() hash.Hash     { return boring.NewSHA224() }
-+func NewSHA256() hash.Hash     { return boring.NewSHA256() }
-+func NewSHA384() hash.Hash     { return boring.NewSHA384() }
-+func NewSHA512() hash.Hash     { return boring.NewSHA512() }
-+func NewSHA512_224() hash.Hash { panic("cryptobackend: not available") }
-+func NewSHA512_256() hash.Hash { panic("cryptobackend: not available") }
-+
-+func MD5(p []byte) (sum [16]byte)        { panic("cryptobackend: not available") }
-+func SHA1(p []byte) (sum [20]byte)       { return boring.SHA1(p) }
-+func SHA224(p []byte) (sum [28]byte)     { return boring.SHA224(p) }
-+func SHA256(p []byte) (sum [32]byte)     { return boring.SHA256(p) }
-+func SHA384(p []byte) (sum [48]byte)     { return boring.SHA384(p) }
-+func SHA512(p []byte) (sum [64]byte)     { return boring.SHA512(p) }
-+func SHA512_224(p []byte) (sum [28]byte) { panic("cryptobackend: not available") }
-+func SHA512_256(p []byte) (sum [32]byte) { panic("cryptobackend: not available") }
-+
-+func NewHMAC(h func() hash.Hash, key []byte) hash.Hash { return boring.NewHMAC(h, key) }
-+
-+func NewAESCipher(key []byte) (cipher.Block, error)   { return boring.NewAESCipher(key) }
-+func NewGCMTLS(c cipher.Block) (cipher.AEAD, error)   { return boring.NewGCMTLS(c) }
-+func NewGCMTLS13(c cipher.Block) (cipher.AEAD, error) { return boring.NewGCMTLS13(c) }
-+
-+type PublicKeyECDSA = boring.PublicKeyECDSA
-+type PrivateKeyECDSA = boring.PrivateKeyECDSA
-+
-+func GenerateKeyECDSA(curve string) (X, Y, D boring.BigInt, err error) {
-+	return boring.GenerateKeyECDSA(curve)
-+}
-+
-+func NewPrivateKeyECDSA(curve string, X, Y, D boring.BigInt) (*boring.PrivateKeyECDSA, error) {
-+	return boring.NewPrivateKeyECDSA(curve, X, Y, D)
-+}
-+
-+func NewPublicKeyECDSA(curve string, X, Y boring.BigInt) (*boring.PublicKeyECDSA, error) {
-+	return boring.NewPublicKeyECDSA(curve, X, Y)
-+}
-+
-+func SignMarshalECDSA(priv *boring.PrivateKeyECDSA, hash []byte) ([]byte, error) {
-+	return boring.SignMarshalECDSA(priv, hash)
-+}
-+
-+func VerifyECDSA(pub *boring.PublicKeyECDSA, hash []byte, sig []byte) bool {
-+	return boring.VerifyECDSA(pub, hash, sig)
-+}
-+
-+func SupportsRSAKeyPrimes(primes int) bool {
-+	return true
-+}
-+
-+func SupportsRSASaltLength(sign bool, salt int) bool {
-+	return true
-+}
-+
-+type PublicKeyRSA = boring.PublicKeyRSA
-+type PrivateKeyRSA = boring.PrivateKeyRSA
-+
-+func DecryptRSAOAEP(h, mgfHash hash.Hash, priv *boring.PrivateKeyRSA, ciphertext, label []byte) ([]byte, error) {
-+	return boring.DecryptRSAOAEP(h, mgfHash, priv, ciphertext, label)
-+}
-+
-+func DecryptRSAPKCS1(priv *boring.PrivateKeyRSA, ciphertext []byte) ([]byte, error) {
-+	return boring.DecryptRSAPKCS1(priv, ciphertext)
-+}
-+
-+func DecryptRSANoPadding(priv *boring.PrivateKeyRSA, ciphertext []byte) ([]byte, error) {
-+	return boring.DecryptRSANoPadding(priv, ciphertext)
-+}
-+
-+func EncryptRSAOAEP(h, mgfHash hash.Hash, pub *boring.PublicKeyRSA, msg, label []byte) ([]byte, error) {
-+	return boring.EncryptRSAOAEP(h, mgfHash, pub, msg, label)
-+}
-+
-+func EncryptRSAPKCS1(pub *boring.PublicKeyRSA, msg []byte) ([]byte, error) {
-+	return boring.EncryptRSAPKCS1(pub, msg)
-+}
-+
-+func EncryptRSANoPadding(pub *boring.PublicKeyRSA, msg []byte) ([]byte, error) {
-+	return boring.EncryptRSANoPadding(pub, msg)
-+}
-+
-+func GenerateKeyRSA(bits int) (N, E, D, P, Q, Dp, Dq, Qinv boring.BigInt, err error) {
-+	return boring.GenerateKeyRSA(bits)
-+}
-+
-+func NewPrivateKeyRSA(N, E, D, P, Q, Dp, Dq, Qinv boring.BigInt) (*boring.PrivateKeyRSA, error) {
-+	return boring.NewPrivateKeyRSA(N, E, D, P, Q, Dp, Dq, Qinv)
-+}
-+
-+func NewPublicKeyRSA(N, E boring.BigInt) (*boring.PublicKeyRSA, error) {
-+	return boring.NewPublicKeyRSA(N, E)
-+}
-+
-+func SignRSAPKCS1v15(priv *boring.PrivateKeyRSA, h crypto.Hash, hashed []byte) ([]byte, error) {
-+	return boring.SignRSAPKCS1v15(priv, h, hashed)
-+}
-+
-+func SignRSAPSS(priv *boring.PrivateKeyRSA, h crypto.Hash, hashed []byte, saltLen int) ([]byte, error) {
-+	return boring.SignRSAPSS(priv, h, hashed, saltLen)
-+}
-+
-+func VerifyRSAPKCS1v15(pub *boring.PublicKeyRSA, h crypto.Hash, hashed, sig []byte) error {
-+	return boring.VerifyRSAPKCS1v15(pub, h, hashed, sig)
-+}
-+
-+func VerifyRSAPSS(pub *boring.PublicKeyRSA, h crypto.Hash, hashed, sig []byte, saltLen int) error {
-+	return boring.VerifyRSAPSS(pub, h, hashed, sig, saltLen)
-+}
-+
-+type PublicKeyECDH = boring.PublicKeyECDH
-+type PrivateKeyECDH = boring.PrivateKeyECDH
-+
-+func ECDH(priv *boring.PrivateKeyECDH, pub *boring.PublicKeyECDH) ([]byte, error) {
-+	return boring.ECDH(priv, pub)
-+}
-+
-+func GenerateKeyECDH(curve string) (*boring.PrivateKeyECDH, []byte, error) {
-+	return boring.GenerateKeyECDH(curve)
-+}
-+
-+func NewPrivateKeyECDH(curve string, bytes []byte) (*boring.PrivateKeyECDH, error) {
-+	return boring.NewPrivateKeyECDH(curve, bytes)
-+}
-+
-+func NewPublicKeyECDH(curve string, bytes []byte) (*boring.PublicKeyECDH, error) {
-+	return boring.NewPublicKeyECDH(curve, bytes)
-+}
-+
-+func SupportsTLS13KDF() bool {
-+	return false
-+}
-+
-+func ExpandTLS13KDF(h func() hash.Hash, pseudorandomKey, label, context []byte, keyLength int) ([]byte, error) {
-+	panic("cryptobackend: not available")
-+}
-+
-+func SupportsHKDF() bool { return false }
-+
-+func ExpandHKDF(h func() hash.Hash, pseudorandomKey, info []byte, keyLength int) ([]byte, error) {
-+	panic("cryptobackend: not available")
-+}
-+
-+func ExtractHKDF(h func() hash.Hash, secret, salt []byte) ([]byte, error) {
-+	panic("cryptobackend: not available")
-+}
-+
-+func SupportsPBKDF2() bool { return false }
-+
-+func PBKDF2(password, salt []byte, iter, keyLen int, fh func() hash.Hash) ([]byte, error) {
-+	panic("cryptobackend: not available")
-+}
-+
-+func SupportsTLS1PRF() bool { return false }
-+
-+func TLS1PRF(result, secret, label, seed []byte, h func() hash.Hash) error {
-+	panic("cryptobackend: not available")
-+}
-+
-+func SupportsDESCipher() bool { return false }
-+
-+func SupportsTripleDESCipher() bool { return false }
-+
-+func NewDESCipher(key []byte) (cipher.Block, error) {
-+	panic("cryptobackend: not available")
-+}
-+
-+func NewTripleDESCipher(key []byte) (cipher.Block, error) {
-+	panic("cryptobackend: not available")
-+}
-+
-+func SupportsRC4() bool { return false }
-+
-+type RC4Cipher struct{}
-+
-+func (c *RC4Cipher) Reset()                       { panic("cryptobackend: not available") }
-+func (c *RC4Cipher) XORKeyStream(dst, src []byte) { panic("cryptobackend: not available") }
-+
-+func NewRC4Cipher(key []byte) (*RC4Cipher, error) {
-+	panic("cryptobackend: not available")
-+}
-+
-+func SupportsEd25519() bool { return false }
-+
-+type PublicKeyEd25519 struct{}
-+
-+func (k PublicKeyEd25519) Bytes() ([]byte, error) {
-+	panic("cryptobackend: not available")
-+}
-+
-+type PrivateKeyEd25519 struct{}
-+
-+func (k PrivateKeyEd25519) Bytes() ([]byte, error) {
-+	panic("cryptobackend: not available")
-+}
-+
-+func GenerateKeyEd25519() (PrivateKeyEd25519, error) {
-+	panic("cryptobackend: not available")
-+}
-+
-+func NewPrivateKeyEd25519(priv []byte) (PrivateKeyEd25519, error) {
-+	panic("cryptobackend: not available")
-+}
-+
-+func NewPublicKeyEd25519(pub []byte) (PublicKeyEd25519, error) {
-+	panic("cryptobackend: not available")
-+}
-+
-+func NewPrivateKeyEd25519FromSeed(seed []byte) (PrivateKeyEd25519, error) {
-+	panic("cryptobackend: not available")
-+}
-+
-+func SignEd25519(priv PrivateKeyEd25519, message []byte) ([]byte, error) {
-+	panic("cryptobackend: not available")
-+}
-+
-+func VerifyEd25519(pub PublicKeyEd25519, message, sig []byte) error {
-+	panic("cryptobackend: not available")
-+}
-+
-+func SupportsDSA(l, n int) bool {
-+	return false
-+}
-+
-+func GenerateParametersDSA(l, n int) (p, q, g boring.BigInt, err error) {
-+	panic("cryptobackend: not available")
-+}
-+
-+type PrivateKeyDSA struct{}
-+type PublicKeyDSA struct{}
-+
-+func GenerateKeyDSA(p, q, g boring.BigInt) (x, y boring.BigInt, err error) {
-+	panic("cryptobackend: not available")
-+}
-+
-+func NewPrivateKeyDSA(p, q, g, x, y boring.BigInt) (*PrivateKeyDSA, error) {
-+	panic("cryptobackend: not available")
-+}
-+
-+func NewPublicKeyDSA(p, q, g, y boring.BigInt) (*PublicKeyDSA, error) {
-+	panic("cryptobackend: not available")
-+}
-+
-+func SignDSA(priv *PrivateKeyDSA, hash []byte, parseSignature func([]byte) (boring.BigInt, boring.BigInt, error)) (r, s boring.BigInt, err error) {
-+	panic("cryptobackend: not available")
-+}
-+
-+func VerifyDSA(pub *PublicKeyDSA, hashed []byte, r, s boring.BigInt, encodeSignature func(r, s boring.BigInt) ([]byte, error)) bool {
-+	panic("cryptobackend: not available")
-+}
 diff --git a/src/crypto/internal/backend/cng_windows.go b/src/crypto/internal/backend/cng_windows.go
 new file mode 100644
 index 00000000000000..448311cbfd3f10
@@ -1895,25 +1559,6 @@ index 00000000000000..fea0f284de2439
 +func VerifyDSA(pub *PublicKeyDSA, hashed []byte, r, s xcrypto.BigInt, encodeSignature func(r, s xcrypto.BigInt) ([]byte, error)) bool {
 +	panic("cryptobackend: not available")
 +}
-diff --git a/src/crypto/internal/backend/fips140/boring.go b/src/crypto/internal/backend/fips140/boring.go
-new file mode 100644
-index 00000000000000..4a955f7d781022
---- /dev/null
-+++ b/src/crypto/internal/backend/fips140/boring.go
-@@ -0,0 +1,13 @@
-+// Copyright 2024 The Go Authors. All rights reserved.
-+// Use of this source code is governed by a BSD-style
-+// license that can be found in the LICENSE file.
-+
-+//go:build goexperiment.boringcrypto
-+
-+package fips140
-+
-+const backendEnabled = true
-+
-+func systemFIPSMode() bool {
-+	return false
-+}
 diff --git a/src/crypto/internal/backend/fips140/cng.go b/src/crypto/internal/backend/fips140/cng.go
 new file mode 100644
 index 00000000000000..e4a1ddeeb7dc09
@@ -2409,7 +2054,7 @@ index 00000000000000..3b92bfc5fbabf6
 +package opensslsetup
 diff --git a/src/crypto/internal/backend/nobackend.go b/src/crypto/internal/backend/nobackend.go
 new file mode 100644
-index 00000000000000..6eea4e1c93b314
+index 00000000000000..eb73b4e9cb57d8
 --- /dev/null
 +++ b/src/crypto/internal/backend/nobackend.go
 @@ -0,0 +1,253 @@
@@ -2419,7 +2064,7 @@ index 00000000000000..6eea4e1c93b314
 +
 +// Do not edit the build constraint by hand. It is generated by "backendgen.go".
 +
-+//go:build !(goexperiment.boringcrypto && linux && cgo && (amd64 || arm64) && !android && !msan) && !(goexperiment.cngcrypto && windows && (amd64 || arm64)) && !(goexperiment.darwincrypto && darwin && cgo) && !(goexperiment.opensslcrypto && linux && cgo)
++//go:build !(goexperiment.cngcrypto && windows && (amd64 || arm64)) && !(goexperiment.darwincrypto && darwin && cgo) && !(goexperiment.opensslcrypto && linux && cgo)
 +
 +package backend
 +
@@ -3020,75 +2665,6 @@ index 00000000000000..5e4b436554d44d
 +// Having this assembly file keeps the go command
 +// from complaining about the missing body
 +// (because the implementation might be here).
-diff --git a/src/crypto/zbackenderrconflict_boring_cng.go b/src/crypto/zbackenderrconflict_boring_cng.go
-new file mode 100644
-index 00000000000000..03aa67a60bd92b
---- /dev/null
-+++ b/src/crypto/zbackenderrconflict_boring_cng.go
-@@ -0,0 +1,17 @@
-+// Copyright 2023 The Go Authors. All rights reserved.
-+// Use of this source code is governed by a BSD-style
-+// license that can be found in the LICENSE file.
-+
-+// This file is generated by crypto/internal/backend. DO NOT EDIT. DO NOT manually create files with the prefix "zbackenderr".
-+
-+//go:build goexperiment.boringcrypto && goexperiment.cngcrypto
-+
-+package crypto
-+
-+func init() {
-+	`
-+	The boring and cng backends are both enabled, but they are mutually exclusive.
-+	Please make sure only one crypto backend experiment is enabled by GOEXPERIMENT or '-tags'.
-+	For more information, visit https://github.com/microsoft/go/tree/microsoft/main/eng/doc/fips
-+	`
-+}
-diff --git a/src/crypto/zbackenderrconflict_boring_darwin.go b/src/crypto/zbackenderrconflict_boring_darwin.go
-new file mode 100644
-index 00000000000000..fa463937e0453a
---- /dev/null
-+++ b/src/crypto/zbackenderrconflict_boring_darwin.go
-@@ -0,0 +1,17 @@
-+// Copyright 2023 The Go Authors. All rights reserved.
-+// Use of this source code is governed by a BSD-style
-+// license that can be found in the LICENSE file.
-+
-+// This file is generated by crypto/internal/backend. DO NOT EDIT. DO NOT manually create files with the prefix "zbackenderr".
-+
-+//go:build goexperiment.boringcrypto && goexperiment.darwincrypto
-+
-+package crypto
-+
-+func init() {
-+	`
-+	The boring and darwin backends are both enabled, but they are mutually exclusive.
-+	Please make sure only one crypto backend experiment is enabled by GOEXPERIMENT or '-tags'.
-+	For more information, visit https://github.com/microsoft/go/tree/microsoft/main/eng/doc/fips
-+	`
-+}
-diff --git a/src/crypto/zbackenderrconflict_boring_openssl.go b/src/crypto/zbackenderrconflict_boring_openssl.go
-new file mode 100644
-index 00000000000000..ba99c374422357
---- /dev/null
-+++ b/src/crypto/zbackenderrconflict_boring_openssl.go
-@@ -0,0 +1,17 @@
-+// Copyright 2023 The Go Authors. All rights reserved.
-+// Use of this source code is governed by a BSD-style
-+// license that can be found in the LICENSE file.
-+
-+// This file is generated by crypto/internal/backend. DO NOT EDIT. DO NOT manually create files with the prefix "zbackenderr".
-+
-+//go:build goexperiment.boringcrypto && goexperiment.opensslcrypto
-+
-+package crypto
-+
-+func init() {
-+	`
-+	The boring and openssl backends are both enabled, but they are mutually exclusive.
-+	Please make sure only one crypto backend experiment is enabled by GOEXPERIMENT or '-tags'.
-+	For more information, visit https://github.com/microsoft/go/tree/microsoft/main/eng/doc/fips
-+	`
-+}
 diff --git a/src/crypto/zbackenderrconflict_cng_darwin.go b/src/crypto/zbackenderrconflict_cng_darwin.go
 new file mode 100644
 index 00000000000000..046f94d615efa7
@@ -3155,32 +2731,6 @@ index 00000000000000..8d16f2133615bb
 +	`
 +	The darwin and openssl backends are both enabled, but they are mutually exclusive.
 +	Please make sure only one crypto backend experiment is enabled by GOEXPERIMENT or '-tags'.
-+	For more information, visit https://github.com/microsoft/go/tree/microsoft/main/eng/doc/fips
-+	`
-+}
-diff --git a/src/crypto/zbackenderrnofallback_boring.go b/src/crypto/zbackenderrnofallback_boring.go
-new file mode 100644
-index 00000000000000..f3f5d73b4ec1e6
---- /dev/null
-+++ b/src/crypto/zbackenderrnofallback_boring.go
-@@ -0,0 +1,20 @@
-+// Copyright 2023 The Go Authors. All rights reserved.
-+// Use of this source code is governed by a BSD-style
-+// license that can be found in the LICENSE file.
-+
-+// This file is generated by crypto/internal/backend. DO NOT EDIT. DO NOT manually create files with the prefix "zbackenderr".
-+
-+//go:build goexperiment.boringcrypto && !(goexperiment.boringcrypto && linux && cgo && (amd64 || arm64) && !android && !msan) && !allowcryptofallback
-+
-+package crypto
-+
-+func init() {
-+	`
-+	The goexperiment.boringcrypto tag is specified, but other tags required to enable that backend were not met.
-+	Required build tags:
-+	  goexperiment.boringcrypto && linux && cgo && (amd64 || arm64) && !android && !msan
-+	Please check your build environment and build command for a reason one or more of these tags weren't specified.
-+	
 +	For more information, visit https://github.com/microsoft/go/tree/microsoft/main/eng/doc/fips
 +	`
 +}
@@ -3309,7 +2859,7 @@ index 00000000000000..8ba88a888eb8c0
 +}
 diff --git a/src/crypto/zbackenderrsystemcrypto_nobackend.go b/src/crypto/zbackenderrsystemcrypto_nobackend.go
 new file mode 100644
-index 00000000000000..919c4d8ffa3740
+index 00000000000000..73404496a46f07
 --- /dev/null
 +++ b/src/crypto/zbackenderrsystemcrypto_nobackend.go
 @@ -0,0 +1,16 @@
@@ -3319,7 +2869,7 @@ index 00000000000000..919c4d8ffa3740
 +
 +// This file is generated by crypto/internal/backend. DO NOT EDIT. DO NOT manually create files with the prefix "zbackenderr".
 +
-+//go:build goexperiment.systemcrypto && !goexperiment.boringcrypto && !goexperiment.cngcrypto && !goexperiment.darwincrypto && !goexperiment.opensslcrypto
++//go:build goexperiment.systemcrypto && !goexperiment.cngcrypto && !goexperiment.darwincrypto && !goexperiment.opensslcrypto
 +
 +package crypto
 +
@@ -3330,7 +2880,7 @@ index 00000000000000..919c4d8ffa3740
 +	`
 +}
 diff --git a/src/go/build/deps_test.go b/src/go/build/deps_test.go
-index 3ad0b0a3f2f465..2e4b1fd1b370cc 100644
+index 3ad0b0a3f2f465..8477ba131082a8 100644
 --- a/src/go/build/deps_test.go
 +++ b/src/go/build/deps_test.go
 @@ -536,6 +536,11 @@ var depsRules = `
@@ -3345,7 +2895,7 @@ index 3ad0b0a3f2f465..2e4b1fd1b370cc 100644
  	FIPS, internal/godebug < crypto/fips140;
  
  	crypto, hash !< FIPS;
-@@ -546,16 +551,28 @@ var depsRules = `
+@@ -546,16 +551,27 @@ var depsRules = `
  	NONE < crypto/internal/boring/sig, crypto/internal/boring/syso;
  	sync/atomic < crypto/internal/boring/bcache;
  
@@ -3357,8 +2907,7 @@ index 3ad0b0a3f2f465..2e4b1fd1b370cc 100644
 +	crypto/internal/backend/fips140,
 +	github.com/golang-fips/openssl/v2,
 +	github.com/microsoft/go-crypto-darwin/xcrypto,
-+	github.com/microsoft/go-crypto-winnative/cng,
-+	crypto/internal/boring
++	github.com/microsoft/go-crypto-winnative/cng
 +	< crypto/internal/backend;
 +
  	FIPS, internal/godebug, hash, embed,
@@ -3376,16 +2925,19 @@ index 3ad0b0a3f2f465..2e4b1fd1b370cc 100644
  	< crypto/boring
  	< crypto/aes,
  	  crypto/des,
-@@ -579,8 +596,12 @@ var depsRules = `
+@@ -579,8 +595,14 @@ var depsRules = `
  	math/big, github.com/microsoft/go-crypto-darwin/xcrypto < github.com/microsoft/go-crypto-darwin/bbig;
  	math/big, github.com/microsoft/go-crypto-winnative/cng < github.com/microsoft/go-crypto-winnative/cng/bbig;
  
 -	CRYPTO, FMT, math/big
+-	< crypto/internal/boring/bbig
++	FMT, math/big, crypto/internal/boring
++	< crypto/internal/boring/bbig;
++
 +	CRYPTO, FMT, math/big,
 +	github.com/golang-fips/openssl/v2/bbig,
 +	github.com/microsoft/go-crypto-darwin/bbig,
 +	github.com/microsoft/go-crypto-winnative/cng/bbig
- 	< crypto/internal/boring/bbig
 +	< crypto/internal/backend/bbig
  	< crypto/rand
  	< crypto/ed25519 # depends on crypto/rand.Reader
