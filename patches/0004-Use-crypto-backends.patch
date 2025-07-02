@@ -17,7 +17,7 @@ Subject: [PATCH] Use crypto backends
  src/crypto/boring/boring.go                   |   4 +-
  src/crypto/cipher/ctr_aes_test.go             |   2 +-
  src/crypto/cipher/gcm.go                      |  59 +++++-
- src/crypto/cipher/gcm_test.go                 |  10 +-
+ src/crypto/cipher/gcm_test.go                 |   9 +-
  src/crypto/des/cipher.go                      |   7 +
  src/crypto/dsa/boring.go                      | 113 ++++++++++
  src/crypto/dsa/dsa.go                         |  88 ++++++++
@@ -88,7 +88,7 @@ Subject: [PATCH] Use crypto backends
  src/net/lookup_test.go                        |   3 +
  src/os/exec/exec_test.go                      |   9 +
  src/runtime/pprof/vminfo_darwin_test.go       |   6 +
- 84 files changed, 1146 insertions(+), 94 deletions(-)
+ 84 files changed, 1145 insertions(+), 94 deletions(-)
  create mode 100644 src/crypto/dsa/boring.go
  create mode 100644 src/crypto/dsa/notboring.go
  create mode 100644 src/crypto/ecdsa/badlinkname.go
@@ -114,10 +114,10 @@ index f0e3575637c62a..9eab3b4e66e60b 100644
  package main
  
 diff --git a/src/cmd/dist/test.go b/src/cmd/dist/test.go
-index d335e4cfbce468..542b16e1f1f18a 100644
+index 5663aa3286a816..07929009c069ea 100644
 --- a/src/cmd/dist/test.go
 +++ b/src/cmd/dist/test.go
-@@ -710,7 +710,7 @@ func (t *tester) registerTests() {
+@@ -712,7 +712,7 @@ func (t *tester) registerTests() {
  	})
  
  	// Check that all crypto packages compile (and test correctly, in longmode) with fips.
@@ -126,7 +126,7 @@ index d335e4cfbce468..542b16e1f1f18a 100644
  		// Test standard crypto packages with fips140=on.
  		t.registerTest("GOFIPS140=latest go test crypto/...", &goTest{
  			variant: "gofips140",
-@@ -1165,6 +1165,11 @@ func (t *tester) internalLink() bool {
+@@ -1174,6 +1174,11 @@ func (t *tester) internalLink() bool {
  	if goos == "windows" && goarch == "arm64" {
  		return false
  	}
@@ -138,12 +138,12 @@ index d335e4cfbce468..542b16e1f1f18a 100644
  	// Internally linking cgo is incomplete on some architectures.
  	// https://golang.org/issue/10373
  	// https://golang.org/issue/14449
-@@ -1328,12 +1333,11 @@ func (t *tester) registerCgoTests(heading string) {
+@@ -1337,12 +1342,11 @@ func (t *tester) registerCgoTests(heading string) {
  			// a C linker warning on Linux.
  			// in function `bio_ip_and_port_to_socket_and_addr':
  			// warning: Using 'getaddrinfo' in statically linked applications requires at runtime the shared libraries from the glibc version used for linking
 -			if staticCheck.skip == nil && goos == "linux" && strings.Contains(goexperiment, "boringcrypto") {
-+			if staticCheck.skip == nil && goos == "linux" && (strings.Contains(goexperiment, "boringcrypto") || strings.Contains(goexperiment, "opensslcrypto")) {
++			if staticCheck.skip == nil && goos == "linux" && (strings.Contains(goexperiment, "systemcrypto") || strings.Contains(goexperiment, "opensslcrypto")) {
  				staticCheck.skip = func(*distTest) (string, bool) {
  					return "skipping static linking check on Linux when using boringcrypto to avoid C linker warning about getaddrinfo", true
  				}
@@ -437,7 +437,7 @@ index 5580f96d55a0fb..9599e9bf604d3f 100644
  // theoretically support. It's a copy of the generic implementation from
  // crypto/internal/fips140/aes/gcm/gcm_generic.go, refer to that file for more details.
 diff --git a/src/crypto/cipher/gcm_test.go b/src/crypto/cipher/gcm_test.go
-index e574822c9aa6f8..5d9f27fb6b1931 100644
+index e574822c9aa6f8..15b141ba4c45cf 100644
 --- a/src/crypto/cipher/gcm_test.go
 +++ b/src/crypto/cipher/gcm_test.go
 @@ -8,7 +8,6 @@ import (
@@ -448,20 +448,12 @@ index e574822c9aa6f8..5d9f27fb6b1931 100644
  	"crypto/internal/cryptotest"
  	"crypto/internal/fips140"
  	fipsaes "crypto/internal/fips140/aes"
-@@ -17,6 +16,7 @@ import (
- 	"encoding/hex"
- 	"errors"
- 	"fmt"
-+	"internal/goexperiment"
- 	"io"
- 	"reflect"
- 	"testing"
-@@ -727,9 +727,13 @@ func testGCMAEAD(t *testing.T, newCipher func(key []byte) cipher.Block) {
+@@ -727,9 +726,13 @@ func testGCMAEAD(t *testing.T, newCipher func(key []byte) cipher.Block) {
  
  			// Test NewGCMWithRandomNonce.
  			t.Run("GCMWithRandomNonce", func(t *testing.T) {
 -				if _, ok := block.(*wrapper); ok || boring.Enabled {
-+				if _, ok := block.(*wrapper); ok || goexperiment.BoringCrypto {
++				if _, ok := block.(*wrapper); ok {
  					t.Skip("NewGCMWithRandomNonce requires an AES block cipher")
  				}
 +				a, _ := cipher.NewGCMWithRandomNonce(block)
@@ -471,12 +463,12 @@ index e574822c9aa6f8..5d9f27fb6b1931 100644
  				cryptotest.TestAEAD(t, func() (cipher.AEAD, error) { return cipher.NewGCMWithRandomNonce(block) })
  			})
  		})
-@@ -752,7 +756,7 @@ func TestGCMExtraMethods(t *testing.T) {
+@@ -752,7 +755,7 @@ func TestGCMExtraMethods(t *testing.T) {
  		})
  		t.Run("NewGCMWithRandomNonce", func(t *testing.T) {
  			block := newCipher(make([]byte, 16))
 -			if _, ok := block.(*wrapper); ok || boring.Enabled {
-+			if _, ok := block.(*wrapper); ok || goexperiment.BoringCrypto {
++			if _, ok := block.(*wrapper); ok {
  				t.Skip("NewGCMWithRandomNonce requires an AES block cipher")
  			}
  			a, _ := cipher.NewGCMWithRandomNonce(block)

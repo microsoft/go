@@ -94,7 +94,6 @@ The `GOEXPERIMENT` environment variable is used at build time to select a crypto
 - `opensslcrypto` selects OpenSSL, for Linux
 - `cngcrypto` selects CNG, for Windows
 - Since 1.24, `darwincrypto` selects CommonCrypto & CryptoKit for macOS
-- `boringcrypto` selects the upstream BoringCrypto backend, which is **not supported and not compliant with internal Microsoft policy**
 - If no option is selected, Go standard library cryptography is used.
 
 The options are exclusive and must not be enabled at the same time as one another.
@@ -364,7 +363,7 @@ Normally this is not necessary, but a shared package may need to change its impl
 
 The `goexperiment.systemcrypto` tag's behavior is implemented in a patch to the build system in the Microsoft build of Go.
 It is not available in builds of upstream Go.
-The constraint `//go:build !goexperiment.systemcrypto` won't cause a build to fail with upstream Go, but it is always satisfied even if the BoringCrypto backend is enabled.
+The constraint `//go:build !goexperiment.systemcrypto` won't cause a build to fail with upstream Go, but it is always satisfied.
 The constraint also doesn't interact with the FIPS features introduced in Go 1.24.
 
 ## Features
@@ -443,6 +442,8 @@ This list of major changes is intended for quick reference and for access to his
    - If your app doesn't use a crypto package and you make a change that introduces a crypto package dependency, you will only encounter a compatibility check failure after the change. The change may be in your transitive dependencies: for example, depending on a new module that uses `crypto/sha256` may trigger the compatibility check. This is undesirable, but it's necessary to enable flexibility.
 
 - `GOFIPS=0` support has been removed. It now has no effect.
+
+- `GOEXPERIMENT=boringcrypto` support has been removed.
 
 - `GOEXPERIMENT=allowcryptofallback` has been downgraded to the `allowcryptofallback` build tag. This is an internal mechanism that is not intended for use when building a Go application. This document has always recommended against using it, so we anticipate that this change won't affect users of the Microsoft build of Go. Please [contact the maintainers of the Microsoft build of Go](https://github.com/microsoft/go/blob/microsoft/main/SUPPORT.md) if you need to use it so we can understand the scenario and help find a safer alternative.
 
