@@ -11,7 +11,7 @@ desired goexperiments and build tags.
 ---
  .gitignore                                    |   2 +
  src/cmd/dist/build.go                         |   5 +
- src/cmd/dist/test.go                          |  17 +-
+ src/cmd/dist/test.go                          |  22 +-
  src/cmd/go/internal/load/pkg.go               |   6 +
  src/cmd/go/systemcrypto_test.go               | 144 +++++++
  src/crypto/internal/backend/backend_test.go   |  30 ++
@@ -52,7 +52,7 @@ desired goexperiments and build tags.
  src/go/build/deps_test.go                     |  30 +-
  src/runtime/runtime_boring.go                 |   5 +
  src/syscall/exec_linux_test.go                |   2 +-
- 43 files changed, 2524 insertions(+), 9 deletions(-)
+ 43 files changed, 2529 insertions(+), 9 deletions(-)
  create mode 100644 src/cmd/go/systemcrypto_test.go
  create mode 100644 src/crypto/internal/backend/backend_test.go
  create mode 100644 src/crypto/internal/backend/backendgen.go
@@ -120,7 +120,7 @@ index 024050c2dd70c4..e8f388badaeb3c 100644
  	goInstall(toolenv(), goBootstrap, append([]string{"-pgo=off"}, toolchain...)...)
  	if debug {
 diff --git a/src/cmd/dist/test.go b/src/cmd/dist/test.go
-index 637433d45135a2..a45b47b549d775 100644
+index aa09d1eba34be8..c2adb959460ac2 100644
 --- a/src/cmd/dist/test.go
 +++ b/src/cmd/dist/test.go
 @@ -156,10 +156,12 @@ func (t *tester) run() {
@@ -150,7 +150,19 @@ index 637433d45135a2..a45b47b549d775 100644
  		}
  	}
  
-@@ -847,6 +849,11 @@ func (t *tester) registerTests() {
+@@ -749,6 +751,11 @@ func (t *tester) registerTests() {
+ 			variant: "jsonv2",
+ 			env:     []string{"GOEXPERIMENT=jsonv2"},
+ 			pkg:     "encoding/json/...",
++			// Skip FIPS checks. The test overrides GOEXPERIMENT,
++			// so if we have been executed with GOEXPERIMENT=systemcrypto
++			// and FIPS mode is required, then the test will fail because
++			// the systemcrypto package will not be available.
++			tags: []string{"ms_skipfipscheck"},
+ 		})
+ 	}
+ 
+@@ -863,6 +870,11 @@ func (t *tester) registerTests() {
  
  	// Test internal linking of PIE binaries where it is supported.
  	if t.internalLinkPIE() && !disablePIE {
@@ -162,7 +174,7 @@ index 637433d45135a2..a45b47b549d775 100644
  		t.registerTest("internal linking, -buildmode=pie",
  			&goTest{
  				variant:   "pie_internal",
-@@ -855,6 +862,7 @@ func (t *tester) registerTests() {
+@@ -871,6 +883,7 @@ func (t *tester) registerTests() {
  				ldflags:   "-linkmode=internal",
  				env:       []string{"CGO_ENABLED=0"},
  				pkg:       "reflect",
@@ -170,7 +182,7 @@ index 637433d45135a2..a45b47b549d775 100644
  			})
  		t.registerTest("internal linking, -buildmode=pie",
  			&goTest{
-@@ -865,6 +873,7 @@ func (t *tester) registerTests() {
+@@ -881,6 +894,7 @@ func (t *tester) registerTests() {
  				env:       []string{"CGO_ENABLED=0"},
  				pkg:       "crypto/internal/fips140test",
  				runTests:  "TestFIPSCheck",
@@ -2880,10 +2892,10 @@ index 00000000000000..73404496a46f07
 +	`
 +}
 diff --git a/src/go/build/deps_test.go b/src/go/build/deps_test.go
-index 3ad0b0a3f2f465..8477ba131082a8 100644
+index 9b7613a62b5a31..eddaf170772e19 100644
 --- a/src/go/build/deps_test.go
 +++ b/src/go/build/deps_test.go
-@@ -536,6 +536,11 @@ var depsRules = `
+@@ -537,6 +537,11 @@ var depsRules = `
  	< github.com/microsoft/go-crypto-winnative/internal/bcrypt
  	< github.com/microsoft/go-crypto-winnative/cng;
  
