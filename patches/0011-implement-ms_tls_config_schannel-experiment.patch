@@ -1,27 +1,27 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: qmuntal <qmuntaldiaz@microsoft.com>
 Date: Thu, 3 Jul 2025 15:13:26 +0200
-Subject: [PATCH] implement ms_schannelsiphersuites experiment
+Subject: [PATCH] implement ms_tls_config_schannel experiment
 
 ---
  src/crypto/tls/cipher_suites_windows.go       | 74 +++++++++++++++++++
  src/crypto/tls/cipher_suites_windows_test.go  | 67 +++++++++++++++++
- src/crypto/tls/fips140_test.go                |  4 +
+ src/crypto/tls/fips140_test.go                |  7 ++
  src/crypto/tls/tls_test.go                    |  8 ++
- .../exp_ms_schannelciphersuites_off.go        |  8 ++
- .../exp_ms_schannelciphersuites_on.go         |  8 ++
+ .../exp_ms_tls_config_schannel_off.go         |  8 ++
+ .../exp_ms_tls_config_schannel_on.go          |  8 ++
  src/internal/goexperiment/flags.go            |  4 +
  .../syscall/windows/security_windows.go       | 28 +++++++
  .../syscall/windows/zsyscall_windows.go       | 16 ++++
- 9 files changed, 217 insertions(+)
+ 9 files changed, 220 insertions(+)
  create mode 100644 src/crypto/tls/cipher_suites_windows.go
  create mode 100644 src/crypto/tls/cipher_suites_windows_test.go
- create mode 100644 src/internal/goexperiment/exp_ms_schannelciphersuites_off.go
- create mode 100644 src/internal/goexperiment/exp_ms_schannelciphersuites_on.go
+ create mode 100644 src/internal/goexperiment/exp_ms_tls_config_schannel_off.go
+ create mode 100644 src/internal/goexperiment/exp_ms_tls_config_schannel_on.go
 
 diff --git a/src/crypto/tls/cipher_suites_windows.go b/src/crypto/tls/cipher_suites_windows.go
 new file mode 100644
-index 00000000000000..d9276b46fbadc9
+index 00000000000000..c1dcd97555fe4d
 --- /dev/null
 +++ b/src/crypto/tls/cipher_suites_windows.go
 @@ -0,0 +1,74 @@
@@ -29,7 +29,7 @@ index 00000000000000..d9276b46fbadc9
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
 +
-+//go:build goexperiment.ms_schannelciphersuites
++//go:build goexperiment.ms_tls_config_schannel
 +
 +package tls
 +
@@ -101,7 +101,7 @@ index 00000000000000..d9276b46fbadc9
 +}
 diff --git a/src/crypto/tls/cipher_suites_windows_test.go b/src/crypto/tls/cipher_suites_windows_test.go
 new file mode 100644
-index 00000000000000..02e28482bb813b
+index 00000000000000..4a1e932e609749
 --- /dev/null
 +++ b/src/crypto/tls/cipher_suites_windows_test.go
 @@ -0,0 +1,67 @@
@@ -109,7 +109,7 @@ index 00000000000000..02e28482bb813b
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
 +
-+//go:build goexperiment.ms_schannelciphersuites
++//go:build goexperiment.ms_tls_config_schannel
 +
 +package tls
 +
@@ -173,7 +173,7 @@ index 00000000000000..02e28482bb813b
 +	}
 +}
 diff --git a/src/crypto/tls/fips140_test.go b/src/crypto/tls/fips140_test.go
-index 711ce750a71a93..c4a1834adf70b7 100644
+index 711ce750a71a93..13ecc49a05e14e 100644
 --- a/src/crypto/tls/fips140_test.go
 +++ b/src/crypto/tls/fips140_test.go
 @@ -14,6 +14,7 @@ import (
@@ -184,18 +184,28 @@ index 711ce750a71a93..c4a1834adf70b7 100644
  	"internal/obscuretestdata"
  	"internal/testenv"
  	"math/big"
-@@ -174,6 +175,9 @@ func isFIPSSignatureScheme(alg SignatureScheme) bool {
+@@ -51,6 +52,9 @@ func generateKeyShare(group CurveID) keyShare {
+ }
+ 
+ func TestFIPSServerProtocolVersion(t *testing.T) {
++	if goexperiment.MS_TLS_Config_Schannel {
++		t.Skip("skipping Schannel cipher suite test")
++	}
+ 	test := func(t *testing.T, name string, v uint16, msg string) {
+ 		t.Run(name, func(t *testing.T) {
+ 			serverConfig := testConfig.Clone()
+@@ -174,6 +178,9 @@ func isFIPSSignatureScheme(alg SignatureScheme) bool {
  }
  
  func TestFIPSServerCipherSuites(t *testing.T) {
-+	if goexperiment.MS_SchannelCipherSuites {
++	if goexperiment.MS_TLS_Config_Schannel {
 +		t.Skip("skipping Schannel cipher suite test")
 +	}
  	serverConfig := testConfig.Clone()
  	serverConfig.Certificates = make([]Certificate, 1)
  
 diff --git a/src/crypto/tls/tls_test.go b/src/crypto/tls/tls_test.go
-index bfcc62ccfb8ba0..3f4da38fcde887 100644
+index bfcc62ccfb8ba0..1bea8f21789d4f 100644
 --- a/src/crypto/tls/tls_test.go
 +++ b/src/crypto/tls/tls_test.go
 @@ -21,6 +21,7 @@ import (
@@ -210,7 +220,7 @@ index bfcc62ccfb8ba0..3f4da38fcde887 100644
  	if fips140tls.Required() {
  		t.Skip("skipping test in FIPS mode")
  	}
-+	if goexperiment.MS_SchannelCipherSuites {
++	if goexperiment.MS_TLS_Config_Schannel {
 +		// Reuse the FIPS skip logic for Schannel.
 +		t.Skip("skipping test in Schannel mode")
 +	}
@@ -221,42 +231,42 @@ index bfcc62ccfb8ba0..3f4da38fcde887 100644
  }
  
  func TestCipherSuites(t *testing.T) {
-+	if goexperiment.MS_SchannelCipherSuites {
-+		t.Skip("Skipping CipherSuites test in MS_SchannelCipherSuites mode")
++	if goexperiment.MS_TLS_Config_Schannel {
++		t.Skip("Skipping CipherSuites test in Schannel mode")
 +	}
  	var lastID uint16
  	for _, c := range CipherSuites() {
  		if lastID > c.ID {
-diff --git a/src/internal/goexperiment/exp_ms_schannelciphersuites_off.go b/src/internal/goexperiment/exp_ms_schannelciphersuites_off.go
+diff --git a/src/internal/goexperiment/exp_ms_tls_config_schannel_off.go b/src/internal/goexperiment/exp_ms_tls_config_schannel_off.go
 new file mode 100644
-index 00000000000000..a3b7d02c464a9c
+index 00000000000000..db7790d1a1f1b9
 --- /dev/null
-+++ b/src/internal/goexperiment/exp_ms_schannelciphersuites_off.go
++++ b/src/internal/goexperiment/exp_ms_tls_config_schannel_off.go
 @@ -0,0 +1,8 @@
 +// Code generated by mkconsts.go. DO NOT EDIT.
 +
-+//go:build !goexperiment.ms_schannelciphersuites
++//go:build !goexperiment.ms_tls_config_schannel
 +
 +package goexperiment
 +
-+const MS_SchannelCipherSuites = false
-+const MS_SchannelCipherSuitesInt = 0
-diff --git a/src/internal/goexperiment/exp_ms_schannelciphersuites_on.go b/src/internal/goexperiment/exp_ms_schannelciphersuites_on.go
++const MS_TLS_Config_Schannel = false
++const MS_TLS_Config_SchannelInt = 0
+diff --git a/src/internal/goexperiment/exp_ms_tls_config_schannel_on.go b/src/internal/goexperiment/exp_ms_tls_config_schannel_on.go
 new file mode 100644
-index 00000000000000..e23dc6f2a6f361
+index 00000000000000..a2dbc6187da2a0
 --- /dev/null
-+++ b/src/internal/goexperiment/exp_ms_schannelciphersuites_on.go
++++ b/src/internal/goexperiment/exp_ms_tls_config_schannel_on.go
 @@ -0,0 +1,8 @@
 +// Code generated by mkconsts.go. DO NOT EDIT.
 +
-+//go:build goexperiment.ms_schannelciphersuites
++//go:build goexperiment.ms_tls_config_schannel
 +
 +package goexperiment
 +
-+const MS_SchannelCipherSuites = true
-+const MS_SchannelCipherSuitesInt = 1
++const MS_TLS_Config_Schannel = true
++const MS_TLS_Config_SchannelInt = 1
 diff --git a/src/internal/goexperiment/flags.go b/src/internal/goexperiment/flags.go
-index 6b4289503d57ae..37455eab360f40 100644
+index 6b4289503d57ae..90b046af1965f1 100644
 --- a/src/internal/goexperiment/flags.go
 +++ b/src/internal/goexperiment/flags.go
 @@ -147,4 +147,8 @@ type Flags struct {
@@ -264,9 +274,9 @@ index 6b4289503d57ae..37455eab360f40 100644
  	// GreenTeaGC enables the Green Tea GC implementation.
  	GreenTeaGC bool
 +
-+	// MS_SchannelCipherSuites enables the filtering and ordering of cipher suites
++	// MS_TLS_Config_Schannel enables the filtering and ordering of cipher suites
 +	// according to the Windows Schannel settings.
-+	MS_SchannelCipherSuites bool
++	MS_TLS_Config_Schannel bool
  }
 diff --git a/src/internal/syscall/windows/security_windows.go b/src/internal/syscall/windows/security_windows.go
 index f0ab52ac819baf..d6ef32c0e5c089 100644

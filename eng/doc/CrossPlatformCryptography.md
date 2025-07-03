@@ -315,7 +315,7 @@ The TLS stack is implemented using native Go code but the crypto primitives are 
 
 <sup>1</sup>When using OpenSSL 3, requires the legacy provider to be enabled.
 
-On Windows, it is possible to restrict and reorder the cipher suites following the [Schannel preferences](https://learn.microsoft.com/en-us/windows/win32/secauthn/cipher-suites-in-schannel) by building with the `ms_schannelciphersuites` goexperiment enabled.
+On Windows, it is possible to restrict and reorder the cipher suites following the [Schannel preferences](https://learn.microsoft.com/en-us/windows/win32/secauthn/cipher-suites-in-schannel) by building with the `ms_tls_config_schannel` goexperiment enabled.
 
 ### Curves and Groups
 
