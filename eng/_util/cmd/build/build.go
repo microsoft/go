@@ -281,14 +281,12 @@ func build(o *options) (err error) {
 	}
 
 	if o.PackBuild || o.PackSource {
-		// Find the host version of distpack. (Not the target version, which might not run.)
-		toolsDir := filepath.Join(goRootDir, "pkg", "tool", runtime.GOOS+"_"+runtime.GOARCH)
 		// distpack needs a VERSION file to run. If we're on the main branch, we don't have one, so
 		// use dist's version calculation to create a temp dev version and put it in VERSION.
 		var version string
 		if data, err := os.ReadFile(filepath.Join(goRootDir, "VERSION")); err != nil {
 			if errors.Is(err, os.ErrNotExist) {
-				if version, err = writeDevelVersionFile(goRootDir, toolsDir); err != nil {
+				if version, err = writeDevelVersionFile(goRootDir, executableExtension); err != nil {
 					return fmt.Errorf("unable to pack: failed writing development VERSION file: %v", err)
 				}
 				// Best effort: clean up the VERSION file when we're done. This is just for dev
@@ -300,7 +298,7 @@ func build(o *options) (err error) {
 		} else {
 			version, _, _ = strings.Cut(string(data), "\n")
 		}
-		cmd := exec.Command(filepath.Join(toolsDir, "distpack"+executableExtension))
+		cmd := exec.Command(filepath.Join(goRootDir, "bin", "go"+executableExtension), "tool", "distpack")
 		cmd.Env = append(os.Environ(), "GOROOT="+goRootDir)
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
@@ -348,8 +346,8 @@ func build(o *options) (err error) {
 	return nil
 }
 
-func writeDevelVersionFile(goRootDir, toolsDir string) (string, error) {
-	cmd := exec.Command(filepath.Join(toolsDir, "dist"), "version")
+func writeDevelVersionFile(goRootDir, executableExtension string) (string, error) {
+	cmd := exec.Command(filepath.Join(goRootDir, "bin", "go"+executableExtension), "tool", "dist", "version")
 	cmd.Env = append(os.Environ(), "GOROOT="+goRootDir)
 	vBytes, err := cmd.CombinedOutput()
 	if err != nil {
