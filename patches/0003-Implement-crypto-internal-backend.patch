@@ -10,6 +10,7 @@ Update the Go toolchain build settings so that it uses the
 desired goexperiments and build tags.
 ---
  .gitignore                                    |   2 +
+ .../compile/internal/logopt/logopt_test.go    |   6 +-
  .../compile/internal/ssa/stmtlines_test.go    |   1 -
  src/cmd/dist/build.go                         |   5 +
  src/cmd/dist/test.go                          |  22 +-
@@ -18,6 +19,7 @@ desired goexperiments and build tags.
  src/cmd/go/systemcrypto_test.go               | 144 +++++++
  .../go/testdata/script/env_cross_build.txt    |   2 +
  .../script/test_android_issue62123.txt        |   2 +
+ src/cmd/link/link_test.go                     |   8 +
  src/crypto/internal/backend/backend_test.go   |  30 ++
  src/crypto/internal/backend/bbig/big.go       |  17 +
  src/crypto/internal/backend/bbig/big_cng.go   |  12 +
@@ -48,7 +50,7 @@ desired goexperiments and build tags.
  src/internal/buildcfg/exp.go                  |  54 +++
  src/runtime/runtime_boring.go                 |   5 +
  src/syscall/exec_linux_test.go                |   2 +-
- 39 files changed, 2149 insertions(+), 11 deletions(-)
+ 41 files changed, 2162 insertions(+), 12 deletions(-)
  create mode 100644 src/cmd/go/systemcrypto_test.go
  create mode 100644 src/crypto/internal/backend/backend_test.go
  create mode 100644 src/crypto/internal/backend/bbig/big.go
@@ -90,6 +92,30 @@ index c6512e64a4ef39..b3b01db73b009d 100644
  # This file includes artifacts of Go build that should not be checked in.
  # For files created by specific development environment (e.g. editor),
  # use alternative ways to exclude files from git.
+diff --git a/src/cmd/compile/internal/logopt/logopt_test.go b/src/cmd/compile/internal/logopt/logopt_test.go
+index 1edabf9fb7ff04..026f8cb0278ab6 100644
+--- a/src/cmd/compile/internal/logopt/logopt_test.go
++++ b/src/cmd/compile/internal/logopt/logopt_test.go
+@@ -5,6 +5,7 @@
+ package logopt
+ 
+ import (
++	"internal/goexperiment"
+ 	"internal/testenv"
+ 	"os"
+ 	"path/filepath"
+@@ -147,7 +148,10 @@ func s15a8(x *[15]int64) [15]int64 {
+ 		arches := []string{runtime.GOARCH}
+ 		goos0 := runtime.GOOS
+ 		if runtime.GOARCH == "amd64" { // Test many things with "linux" (wasm will get "js")
+-			arches = []string{"arm", "arm64", "386", "amd64", "mips", "mips64", "loong64", "ppc64le", "riscv64", "s390x", "wasm"}
++			if !goexperiment.SystemCrypto {
++				// SystemCrypto does not support cross-compilation.
++				arches = []string{"arm", "arm64", "386", "amd64", "mips", "mips64", "loong64", "ppc64le", "riscv64", "s390x", "wasm"}
++			}
+ 			goos0 = "linux"
+ 		}
+ 
 diff --git a/src/cmd/compile/internal/ssa/stmtlines_test.go b/src/cmd/compile/internal/ssa/stmtlines_test.go
 index e17a5402af818d..e83c4c5b79d11b 100644
 --- a/src/cmd/compile/internal/ssa/stmtlines_test.go
@@ -398,6 +424,39 @@ index 2f46a6b44bffe1..69071289e2de81 100644
  env GOOS=android GOARCH=amd64 CGO_ENABLED=0
  
  ! go build -o $devnull cmd/buildid
+diff --git a/src/cmd/link/link_test.go b/src/cmd/link/link_test.go
+index 2fe32600f1d6c7..f84cbdc5ee25f0 100644
+--- a/src/cmd/link/link_test.go
++++ b/src/cmd/link/link_test.go
+@@ -9,6 +9,7 @@ import (
+ 	"bytes"
+ 	"debug/macho"
+ 	"errors"
++	"internal/goexperiment"
+ 	"internal/platform"
+ 	"internal/testenv"
+ 	"os"
+@@ -280,6 +281,9 @@ func TestBuildForTvOS(t *testing.T) {
+ 	if runtime.GOOS != "darwin" {
+ 		t.Skip("skipping on non-darwin platform")
+ 	}
++	if goexperiment.SystemCrypto {
++		t.Skip("tvOS is not supported by system crypto")
++	}
+ 	if testing.Short() && os.Getenv("GO_BUILDER_NAME") == "" {
+ 		t.Skip("skipping in -short mode with $GO_BUILDER_NAME empty")
+ 	}
+@@ -512,6 +516,10 @@ func TestIssue34788Android386TLSSequence(t *testing.T) {
+ 		t.Skip("skipping on non-{linux,darwin}/amd64 platform")
+ 	}
+ 
++	if goexperiment.SystemCrypto {
++		t.Skip("skipping on system crypto, which does not support android/386")
++	}
++
+ 	t.Parallel()
+ 
+ 	tmpdir := t.TempDir()
 diff --git a/src/crypto/internal/backend/backend_test.go b/src/crypto/internal/backend/backend_test.go
 new file mode 100644
 index 00000000000000..c2c06d3bff8c74
