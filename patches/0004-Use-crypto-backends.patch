@@ -39,7 +39,7 @@ Subject: [PATCH] Use crypto backends
  src/crypto/hmac/hmac.go                       |   2 +-
  src/crypto/hmac/hmac_test.go                  |   2 +-
  src/crypto/internal/cryptotest/allocations.go |   2 +-
- src/crypto/internal/cryptotest/hash.go        |   2 +-
+ src/crypto/internal/cryptotest/hash.go        |   3 +-
  .../internal/cryptotest/implementations.go    |   2 +-
  src/crypto/internal/fips140test/acvp_test.go  |   6 +
  src/crypto/internal/fips140test/check_test.go |  16 ++
@@ -90,7 +90,7 @@ Subject: [PATCH] Use crypto backends
  src/net/lookup_test.go                        |   3 +
  src/os/exec/exec_test.go                      |   9 +
  src/runtime/pprof/vminfo_darwin_test.go       |   6 +
- 86 files changed, 1154 insertions(+), 95 deletions(-)
+ 86 files changed, 1154 insertions(+), 96 deletions(-)
  create mode 100644 src/crypto/dsa/boring.go
  create mode 100644 src/crypto/dsa/notboring.go
  create mode 100644 src/crypto/ecdsa/badlinkname.go
@@ -116,10 +116,10 @@ index f0e3575637c62a..9eab3b4e66e60b 100644
  package main
  
 diff --git a/src/cmd/dist/test.go b/src/cmd/dist/test.go
-index a45b47b549d775..731296e29e3666 100644
+index c2adb959460ac2..ee766afaca06e7 100644
 --- a/src/cmd/dist/test.go
 +++ b/src/cmd/dist/test.go
-@@ -712,7 +712,7 @@ func (t *tester) registerTests() {
+@@ -719,7 +719,7 @@ func (t *tester) registerTests() {
  	})
  
  	// Check that all crypto packages compile (and test correctly, in longmode) with fips.
@@ -128,7 +128,7 @@ index a45b47b549d775..731296e29e3666 100644
  		// Test standard crypto packages with fips140=on.
  		t.registerTest("GOFIPS140=latest go test crypto/...", &goTest{
  			variant: "gofips140",
-@@ -1175,6 +1175,11 @@ func (t *tester) internalLink() bool {
+@@ -1199,6 +1199,11 @@ func (t *tester) internalLink() bool {
  	if goos == "windows" && goarch == "arm64" {
  		return false
  	}
@@ -140,7 +140,7 @@ index a45b47b549d775..731296e29e3666 100644
  	// Internally linking cgo is incomplete on some architectures.
  	// https://golang.org/issue/10373
  	// https://golang.org/issue/14449
-@@ -1338,12 +1343,11 @@ func (t *tester) registerCgoTests(heading string) {
+@@ -1362,12 +1367,11 @@ func (t *tester) registerCgoTests(heading string) {
  			// a C linker warning on Linux.
  			// in function `bio_ip_and_port_to_socket_and_addr':
  			// warning: Using 'getaddrinfo' in statically linked applications requires at runtime the shared libraries from the glibc version used for linking
@@ -327,7 +327,7 @@ index 33942467784ad3..0282ffa9fa23c8 100644
  	fipsaes "crypto/internal/fips140/aes"
  	"encoding/hex"
 diff --git a/src/crypto/cipher/gcm.go b/src/crypto/cipher/gcm.go
-index 5580f96d55a0fb..9599e9bf604d3f 100644
+index 73493f6cd2311b..8dfba7cdff5405 100644
 --- a/src/crypto/cipher/gcm.go
 +++ b/src/crypto/cipher/gcm.go
 @@ -93,6 +93,15 @@ func newGCM(cipher Block, nonceSize, tagSize int) (AEAD, error) {
@@ -875,7 +875,7 @@ index 275c60b4de49eb..ff8bddf28c4545 100644
  	"math/big"
  )
 diff --git a/src/crypto/ecdsa/ecdsa.go b/src/crypto/ecdsa/ecdsa.go
-index 9affc1ff786125..7e1b98f344cc0a 100644
+index 340edbbaba7807..4490f67e22f88a 100644
 --- a/src/crypto/ecdsa/ecdsa.go
 +++ b/src/crypto/ecdsa/ecdsa.go
 @@ -20,8 +20,8 @@ import (
@@ -1272,7 +1272,7 @@ index 554c8c9b78940b..c68a394280cc2c 100644
  	"crypto/internal/fips140hash"
  	"crypto/internal/fips140only"
 diff --git a/src/crypto/hmac/hmac_test.go b/src/crypto/hmac/hmac_test.go
-index 9b7eee7bf7873e..1755c95a08868b 100644
+index 4046a9555a8e35..4721a2a7ac04f7 100644
 --- a/src/crypto/hmac/hmac_test.go
 +++ b/src/crypto/hmac/hmac_test.go
 @@ -5,7 +5,7 @@
@@ -1298,18 +1298,26 @@ index 70055af70b42ec..3c4b4fbaa98ded 100644
  	"internal/msan"
  	"internal/race"
 diff --git a/src/crypto/internal/cryptotest/hash.go b/src/crypto/internal/cryptotest/hash.go
-index f00e9c80d3c86a..6e3e61446fc053 100644
+index f00e9c80d3c86a..e24b6cbbd00f68 100644
 --- a/src/crypto/internal/cryptotest/hash.go
 +++ b/src/crypto/internal/cryptotest/hash.go
-@@ -5,7 +5,7 @@
+@@ -5,7 +5,6 @@
  package cryptotest
  
  import (
 -	"crypto/internal/boring"
-+	boring "crypto/internal/backend"
  	"crypto/internal/fips140"
  	"hash"
  	"internal/testhash"
+@@ -20,7 +19,7 @@ type MakeHash func() hash.Hash
+ // TestHash performs a set of tests on hash.Hash implementations, checking the
+ // documented requirements of Write, Sum, Reset, Size, and BlockSize.
+ func TestHash(t *testing.T, mh MakeHash) {
+-	if boring.Enabled || fips140.Version() == "v1.0" {
++	if fips140.Version() == "v1.0" {
+ 		testhash.TestHashWithoutClone(t, testhash.MakeHash(mh))
+ 		return
+ 	}
 diff --git a/src/crypto/internal/cryptotest/implementations.go b/src/crypto/internal/cryptotest/implementations.go
 index f0ba665403e4e2..e1869abd3ccc4b 100644
 --- a/src/crypto/internal/cryptotest/implementations.go
@@ -2434,7 +2442,7 @@ index 90c5bdacd82318..c4ca03ddfb4de0 100644
  
  	// If we did not load a session (hs.session == nil), but we did set a
 diff --git a/src/crypto/tls/handshake_client_tls13.go b/src/crypto/tls/handshake_client_tls13.go
-index 4f4966904f59f4..b2d3949e2ede38 100644
+index 7018bb2336b8f3..d5e02272d7afe1 100644
 --- a/src/crypto/tls/handshake_client_tls13.go
 +++ b/src/crypto/tls/handshake_client_tls13.go
 @@ -11,9 +11,9 @@ import (
@@ -2470,7 +2478,7 @@ index 8240e6afae3c6b..5dd00e27037a0f 100644
  
  	if err := hs.processClientHello(); err != nil {
 diff --git a/src/crypto/tls/handshake_server_tls13.go b/src/crypto/tls/handshake_server_tls13.go
-index dbd6ff2c4f4d94..ef11e56aaec4b9 100644
+index a52bc76a0d1a9f..6c32550b0129b8 100644
 --- a/src/crypto/tls/handshake_server_tls13.go
 +++ b/src/crypto/tls/handshake_server_tls13.go
 @@ -10,11 +10,12 @@ import (
