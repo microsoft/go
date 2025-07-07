@@ -10,13 +10,18 @@ Update the Go toolchain build settings so that it uses the
 desired goexperiments and build tags.
 ---
  .gitignore                                    |   2 +
+ .../compile/internal/logopt/logopt_test.go    |   6 +-
+ .../compile/internal/ssa/stmtlines_test.go    |   1 -
  src/cmd/dist/build.go                         |   5 +
- src/cmd/dist/test.go                          |  17 +-
+ src/cmd/dist/test.go                          |  26 +-
+ src/cmd/go/go_test.go                         |   4 +
  src/cmd/go/internal/load/pkg.go               |   3 +
  src/cmd/go/systemcrypto_test.go               | 144 +++++++
+ .../go/testdata/script/env_cross_build.txt    |   2 +
+ .../script/test_android_issue62123.txt        |   2 +
+ src/cmd/internal/testdir/testdir_test.go      |   7 +
+ src/cmd/link/link_test.go                     |   8 +
  src/crypto/internal/backend/backend_test.go   |  30 ++
- src/crypto/internal/backend/backendgen.go     |  20 +
- .../internal/backend/backendgen_test.go       | 288 ++++++++++++++
  src/crypto/internal/backend/bbig/big.go       |  17 +
  src/crypto/internal/backend/bbig/big_cng.go   |  12 +
  .../internal/backend/bbig/big_darwin.go       |  12 +
@@ -32,31 +37,23 @@ desired goexperiments and build tags.
  .../backend/fips140/nosystemcrypto.go         |  13 +
  .../internal/backend/fips140/openssl_cgo.go   |  59 +++
  .../internal/backend/fips140/openssl_nocgo.go |  17 +
+ .../fips140/requirefips_nosystemcrypto.go     |  15 +
  .../backend/fips140/skipfipscheck_off.go      |   9 +
  .../backend/fips140/skipfipscheck_on.go       |   9 +
  .../internal/opensslsetup/opensslsetup.go     |  70 ++++
  .../opensslsetup/opensslsetup_test.go         |  92 +++++
  .../backend/internal/opensslsetup/stub.go     |   8 +
- src/crypto/internal/backend/nobackend.go      | 253 ++++++++++++
+ src/crypto/internal/backend/nobackend.go      | 251 ++++++++++++
  src/crypto/internal/backend/openssl_linux.go  | 332 ++++++++++++++++
  src/crypto/internal/backend/stub.s            |  10 +
- src/crypto/zbackenderrconflict_cng_darwin.go  |  17 +
- src/crypto/zbackenderrconflict_cng_openssl.go |  17 +
- .../zbackenderrconflict_darwin_openssl.go     |  17 +
- src/crypto/zbackenderrnofallback_cng.go       |  20 +
- src/crypto/zbackenderrnofallback_darwin.go    |  20 +
- src/crypto/zbackenderrnofallback_openssl.go   |  20 +
- .../zbackenderrrequirefips_nosystemcrypto.go  |  17 +
- .../zbackenderrrequirefips_skipfipscheck.go   |  16 +
- .../zbackenderrsystemcrypto_nobackend.go      |  16 +
- src/go/build/deps_test.go                     |  30 +-
+ src/crypto/systemcrypto_nocgo.go              |  15 +
+ src/go/build/deps_test.go                     |  32 +-
+ src/internal/buildcfg/exp.go                  |  54 +++
  src/runtime/runtime_boring.go                 |   5 +
  src/syscall/exec_linux_test.go                |   2 +-
- 43 files changed, 2521 insertions(+), 9 deletions(-)
+ 42 files changed, 2172 insertions(+), 13 deletions(-)
  create mode 100644 src/cmd/go/systemcrypto_test.go
  create mode 100644 src/crypto/internal/backend/backend_test.go
- create mode 100644 src/crypto/internal/backend/backendgen.go
- create mode 100644 src/crypto/internal/backend/backendgen_test.go
  create mode 100644 src/crypto/internal/backend/bbig/big.go
  create mode 100644 src/crypto/internal/backend/bbig/big_cng.go
  create mode 100644 src/crypto/internal/backend/bbig/big_darwin.go
@@ -72,6 +69,7 @@ desired goexperiments and build tags.
  create mode 100644 src/crypto/internal/backend/fips140/nosystemcrypto.go
  create mode 100644 src/crypto/internal/backend/fips140/openssl_cgo.go
  create mode 100644 src/crypto/internal/backend/fips140/openssl_nocgo.go
+ create mode 100644 src/crypto/internal/backend/fips140/requirefips_nosystemcrypto.go
  create mode 100644 src/crypto/internal/backend/fips140/skipfipscheck_off.go
  create mode 100644 src/crypto/internal/backend/fips140/skipfipscheck_on.go
  create mode 100644 src/crypto/internal/backend/internal/opensslsetup/opensslsetup.go
@@ -80,15 +78,7 @@ desired goexperiments and build tags.
  create mode 100644 src/crypto/internal/backend/nobackend.go
  create mode 100644 src/crypto/internal/backend/openssl_linux.go
  create mode 100644 src/crypto/internal/backend/stub.s
- create mode 100644 src/crypto/zbackenderrconflict_cng_darwin.go
- create mode 100644 src/crypto/zbackenderrconflict_cng_openssl.go
- create mode 100644 src/crypto/zbackenderrconflict_darwin_openssl.go
- create mode 100644 src/crypto/zbackenderrnofallback_cng.go
- create mode 100644 src/crypto/zbackenderrnofallback_darwin.go
- create mode 100644 src/crypto/zbackenderrnofallback_openssl.go
- create mode 100644 src/crypto/zbackenderrrequirefips_nosystemcrypto.go
- create mode 100644 src/crypto/zbackenderrrequirefips_skipfipscheck.go
- create mode 100644 src/crypto/zbackenderrsystemcrypto_nobackend.go
+ create mode 100644 src/crypto/systemcrypto_nocgo.go
 
 diff --git a/.gitignore b/.gitignore
 index c6512e64a4ef39..b3b01db73b009d 100644
@@ -103,6 +93,42 @@ index c6512e64a4ef39..b3b01db73b009d 100644
  # This file includes artifacts of Go build that should not be checked in.
  # For files created by specific development environment (e.g. editor),
  # use alternative ways to exclude files from git.
+diff --git a/src/cmd/compile/internal/logopt/logopt_test.go b/src/cmd/compile/internal/logopt/logopt_test.go
+index 1edabf9fb7ff04..026f8cb0278ab6 100644
+--- a/src/cmd/compile/internal/logopt/logopt_test.go
++++ b/src/cmd/compile/internal/logopt/logopt_test.go
+@@ -5,6 +5,7 @@
+ package logopt
+ 
+ import (
++	"internal/goexperiment"
+ 	"internal/testenv"
+ 	"os"
+ 	"path/filepath"
+@@ -147,7 +148,10 @@ func s15a8(x *[15]int64) [15]int64 {
+ 		arches := []string{runtime.GOARCH}
+ 		goos0 := runtime.GOOS
+ 		if runtime.GOARCH == "amd64" { // Test many things with "linux" (wasm will get "js")
+-			arches = []string{"arm", "arm64", "386", "amd64", "mips", "mips64", "loong64", "ppc64le", "riscv64", "s390x", "wasm"}
++			if !goexperiment.SystemCrypto {
++				// SystemCrypto does not support cross-compilation.
++				arches = []string{"arm", "arm64", "386", "amd64", "mips", "mips64", "loong64", "ppc64le", "riscv64", "s390x", "wasm"}
++			}
+ 			goos0 = "linux"
+ 		}
+ 
+diff --git a/src/cmd/compile/internal/ssa/stmtlines_test.go b/src/cmd/compile/internal/ssa/stmtlines_test.go
+index e17a5402af818d..e83c4c5b79d11b 100644
+--- a/src/cmd/compile/internal/ssa/stmtlines_test.go
++++ b/src/cmd/compile/internal/ssa/stmtlines_test.go
+@@ -113,7 +113,6 @@ func TestStmtLines(t *testing.T) {
+ 		must(err)
+ 
+ 		var le dwarf.LineEntry
+-
+ 		for {
+ 			err := lrdr.Next(&le)
+ 			if err == io.EOF {
 diff --git a/src/cmd/dist/build.go b/src/cmd/dist/build.go
 index 024050c2dd70c4..e8f388badaeb3c 100644
 --- a/src/cmd/dist/build.go
@@ -120,7 +146,7 @@ index 024050c2dd70c4..e8f388badaeb3c 100644
  	goInstall(toolenv(), goBootstrap, append([]string{"-pgo=off"}, toolchain...)...)
  	if debug {
 diff --git a/src/cmd/dist/test.go b/src/cmd/dist/test.go
-index aa09d1eba34be8..c2adb959460ac2 100644
+index aa09d1eba34be8..f4d720ab213eb1 100644
 --- a/src/cmd/dist/test.go
 +++ b/src/cmd/dist/test.go
 @@ -156,10 +156,12 @@ func (t *tester) run() {
@@ -150,7 +176,7 @@ index aa09d1eba34be8..c2adb959460ac2 100644
  		}
  	}
  
-@@ -749,6 +751,11 @@ func (t *tester) registerTests() {
+@@ -749,11 +751,18 @@ func (t *tester) registerTests() {
  			variant: "jsonv2",
  			env:     []string{"GOEXPERIMENT=jsonv2"},
  			pkg:     "encoding/json/...",
@@ -162,7 +188,15 @@ index aa09d1eba34be8..c2adb959460ac2 100644
  		})
  	}
  
-@@ -863,6 +870,11 @@ func (t *tester) registerTests() {
+ 	// Test ios/amd64 for the iOS simulator.
+-	if goos == "darwin" && goarch == "amd64" && t.cgoEnabled {
++	if goos == "darwin" && goarch == "amd64" && t.cgoEnabled &&
++		// IOS is not supported with darwincrypto.
++		!(strings.Contains(goexperiment, "systemcrypto") || strings.Contains(goexperiment, "darwincrypto")) {
+ 		t.registerTest("GOOS=ios on darwin/amd64",
+ 			&goTest{
+ 				variant:  "amd64ios",
+@@ -863,6 +872,11 @@ func (t *tester) registerTests() {
  
  	// Test internal linking of PIE binaries where it is supported.
  	if t.internalLinkPIE() && !disablePIE {
@@ -174,7 +208,7 @@ index aa09d1eba34be8..c2adb959460ac2 100644
  		t.registerTest("internal linking, -buildmode=pie",
  			&goTest{
  				variant:   "pie_internal",
-@@ -871,6 +883,7 @@ func (t *tester) registerTests() {
+@@ -871,6 +885,7 @@ func (t *tester) registerTests() {
  				ldflags:   "-linkmode=internal",
  				env:       []string{"CGO_ENABLED=0"},
  				pkg:       "reflect",
@@ -182,7 +216,7 @@ index aa09d1eba34be8..c2adb959460ac2 100644
  			})
  		t.registerTest("internal linking, -buildmode=pie",
  			&goTest{
-@@ -881,6 +894,7 @@ func (t *tester) registerTests() {
+@@ -881,6 +896,7 @@ func (t *tester) registerTests() {
  				env:       []string{"CGO_ENABLED=0"},
  				pkg:       "crypto/internal/fips140test",
  				runTests:  "TestFIPSCheck",
@@ -190,6 +224,28 @@ index aa09d1eba34be8..c2adb959460ac2 100644
  			})
  		// Also test a cgo package.
  		if t.cgoEnabled && t.internalLink() && !disablePIE {
+diff --git a/src/cmd/go/go_test.go b/src/cmd/go/go_test.go
+index 3e691abe41f702..2c4eed0bc575cf 100644
+--- a/src/cmd/go/go_test.go
++++ b/src/cmd/go/go_test.go
+@@ -14,6 +14,7 @@ import (
+ 	"fmt"
+ 	"go/format"
+ 	"internal/godebug"
++	"internal/goexperiment"
+ 	"internal/platform"
+ 	"internal/testenv"
+ 	"io"
+@@ -1861,6 +1862,9 @@ func TestGenerateUsesBuildContext(t *testing.T) {
+ }
+ 
+ func TestGoEnv(t *testing.T) {
++	if goexperiment.SystemCrypto {
++		t.Skip("freebsd is not supported by system crypto")
++	}
+ 	tg := testgo(t)
+ 	tg.parallel()
+ 	defer tg.cleanup()
 diff --git a/src/cmd/go/internal/load/pkg.go b/src/cmd/go/internal/load/pkg.go
 index e913f9885234fd..ef331980a816a3 100644
 --- a/src/cmd/go/internal/load/pkg.go
@@ -206,7 +262,7 @@ index e913f9885234fd..ef331980a816a3 100644
  	if gccgoflags := BuildGccgoflags.String(); gccgoflags != "" && cfg.BuildContext.Compiler == "gccgo" {
 diff --git a/src/cmd/go/systemcrypto_test.go b/src/cmd/go/systemcrypto_test.go
 new file mode 100644
-index 00000000000000..b2298b8157ae92
+index 00000000000000..33d85d0df477d7
 --- /dev/null
 +++ b/src/cmd/go/systemcrypto_test.go
 @@ -0,0 +1,144 @@
@@ -338,8 +394,8 @@ index 00000000000000..b2298b8157ae92
 +			out := outPath(t)
 +
 +			// Build the binary with the specified GOEXPERIMENT.
-+			fail, _ := execGoTool(t, true, []string{"GOEXPERIMENT=" + tt.exp}, "build", "-o", out, file)
-+			if fail && tt.enabled {
++			succed, _ := execGoTool(t, true, []string{"GOEXPERIMENT=" + tt.exp}, "build", "-o", out, file)
++			if !succed {
 +				t.Skip("skipping test because GOEXPERIMENT not supported by the current toolchain")
 +			}
 +
@@ -354,6 +410,80 @@ index 00000000000000..b2298b8157ae92
 +		})
 +	}
 +}
+diff --git a/src/cmd/go/testdata/script/env_cross_build.txt b/src/cmd/go/testdata/script/env_cross_build.txt
+index 91d1cb936d3652..b7f503d9506324 100644
+--- a/src/cmd/go/testdata/script/env_cross_build.txt
++++ b/src/cmd/go/testdata/script/env_cross_build.txt
+@@ -1,6 +1,8 @@
+ # Test that the correct default GOEXPERIMENT is used when cross
+ # building with GOENV (#46815).
+ 
++[GOEXPERIMENT:systemcrypto] skip # systemcrypto is not supported on ios nor mips
++
+ # Unset variables set by the TestScript harness. Users typically won't
+ # explicitly configure these, and #46815 doesn't repro if they are.
+ env GOOS=
+diff --git a/src/cmd/go/testdata/script/test_android_issue62123.txt b/src/cmd/go/testdata/script/test_android_issue62123.txt
+index 2f46a6b44bffe1..69071289e2de81 100644
+--- a/src/cmd/go/testdata/script/test_android_issue62123.txt
++++ b/src/cmd/go/testdata/script/test_android_issue62123.txt
+@@ -1,3 +1,5 @@
++[GOEXPERIMENT:systemcrypto] skip # systemcrypto is not supported on android
++
+ env GOOS=android GOARCH=amd64 CGO_ENABLED=0
+ 
+ ! go build -o $devnull cmd/buildid
+diff --git a/src/cmd/internal/testdir/testdir_test.go b/src/cmd/internal/testdir/testdir_test.go
+index 483a9ec33c6798..fad922e3f844ab 100644
+--- a/src/cmd/internal/testdir/testdir_test.go
++++ b/src/cmd/internal/testdir/testdir_test.go
+@@ -118,6 +118,13 @@ func Test(t *testing.T) {
+ 	goDebug = env.GODEBUG
+ 	tmpDir = t.TempDir()
+ 
++	if slices.ContainsFunc(strings.Split(goExperiment, ","), func(s string) bool {
++		return s == "systemcrypto" || s == "opensslcrypto" || s == "cngcrypto" || s == "darwincrypto"
++	}) {
++		// Codegen tests cross-compile to platforms that do not support system crypto.
++		*allCodegen = false
++	}
++
+ 	common := testCommon{
+ 		gorootTestDir: filepath.Join(testenv.GOROOT(t), "test"),
+ 		runoutputGate: make(chan bool, *runoutputLimit),
+diff --git a/src/cmd/link/link_test.go b/src/cmd/link/link_test.go
+index 2fe32600f1d6c7..f84cbdc5ee25f0 100644
+--- a/src/cmd/link/link_test.go
++++ b/src/cmd/link/link_test.go
+@@ -9,6 +9,7 @@ import (
+ 	"bytes"
+ 	"debug/macho"
+ 	"errors"
++	"internal/goexperiment"
+ 	"internal/platform"
+ 	"internal/testenv"
+ 	"os"
+@@ -280,6 +281,9 @@ func TestBuildForTvOS(t *testing.T) {
+ 	if runtime.GOOS != "darwin" {
+ 		t.Skip("skipping on non-darwin platform")
+ 	}
++	if goexperiment.SystemCrypto {
++		t.Skip("tvOS is not supported by system crypto")
++	}
+ 	if testing.Short() && os.Getenv("GO_BUILDER_NAME") == "" {
+ 		t.Skip("skipping in -short mode with $GO_BUILDER_NAME empty")
+ 	}
+@@ -512,6 +516,10 @@ func TestIssue34788Android386TLSSequence(t *testing.T) {
+ 		t.Skip("skipping on non-{linux,darwin}/amd64 platform")
+ 	}
+ 
++	if goexperiment.SystemCrypto {
++		t.Skip("skipping on system crypto, which does not support android/386")
++	}
++
+ 	t.Parallel()
+ 
+ 	tmpdir := t.TempDir()
 diff --git a/src/crypto/internal/backend/backend_test.go b/src/crypto/internal/backend/backend_test.go
 new file mode 100644
 index 00000000000000..c2c06d3bff8c74
@@ -389,326 +519,6 @@ index 00000000000000..c2c06d3bff8c74
 +// Test that UnreachableExceptTests does not panic (this is a test).
 +func TestUnreachableExceptTests(t *testing.T) {
 +	UnreachableExceptTests()
-+}
-diff --git a/src/crypto/internal/backend/backendgen.go b/src/crypto/internal/backend/backendgen.go
-new file mode 100644
-index 00000000000000..acf0113bbefb6c
---- /dev/null
-+++ b/src/crypto/internal/backend/backendgen.go
-@@ -0,0 +1,20 @@
-+// Copyright 2023 The Go Authors. All rights reserved.
-+// Use of this source code is governed by a BSD-style
-+// license that can be found in the LICENSE file.
-+
-+package backend
-+
-+// Generate files and Go code based on the set of backends:
-+//
-+// - The build constraint in nobackend.go.
-+// - Go files in the runtime package that detect issues with backend selection
-+//   and report an error at compile time.
-+//
-+// Runs in -mod=readonly mode so that it is able to run during each crypto
-+// backend patch. This is before the final vendoring refresh patch, so it would
-+// normally fail to build due to inconsistent vendoring.
-+
-+// Use "go generate -run TestGenerated crypto/internal/backend"
-+// to run only this generator.
-+
-+//go:generate go test -run TestGenerated -fix
-diff --git a/src/crypto/internal/backend/backendgen_test.go b/src/crypto/internal/backend/backendgen_test.go
-new file mode 100644
-index 00000000000000..647d9f0b871aff
---- /dev/null
-+++ b/src/crypto/internal/backend/backendgen_test.go
-@@ -0,0 +1,288 @@
-+// Copyright 2023 The Go Authors. All rights reserved.
-+// Use of this source code is governed by a BSD-style
-+// license that can be found in the LICENSE file.
-+
-+package backend
-+
-+import (
-+	"bytes"
-+	"flag"
-+	"go/build/constraint"
-+	"go/parser"
-+	"go/token"
-+	"os"
-+	"path/filepath"
-+	"sort"
-+	"strings"
-+	"testing"
-+)
-+
-+var fix = flag.Bool("fix", false, "if true, update the generated files to the wanted value")
-+
-+const cryptoPackageDir = "../../../crypto"
-+
-+// backendErrPrefix is the prefix of the generated backend error files. Any file
-+// in the crypto package with this prefix will be considered a backend error
-+// file, so it's important that this prefix is unique or this generator may
-+// delete unexpected files.
-+const backendErrPrefix = "zbackenderr"
-+
-+const generateInstruction = "run 'go generate crypto/internal/backend' to fix"
-+
-+// TestGeneratedBackendErrorFiles tests that the current nobackend constraint
-+// is correct.
-+//
-+// Generate the build constraint in nobackend.go. This build constraint enables
-+// nobackend when all of the backends are not enabled. This constraint is fairly
-+// long and would not be trivial to maintain manually.
-+func TestGeneratedNobackendConstraint(t *testing.T) {
-+	backends := parseBackends(t)
-+	// none is a constraint that is met when all crypto backend constraints are
-+	// unmet. (That is: no backend constraint is met.)
-+	var none constraint.Expr
-+	for _, b := range backends {
-+		notB := &constraint.NotExpr{X: b.constraint}
-+		if none == nil {
-+			none = notB
-+		} else {
-+			none = &constraint.AndExpr{
-+				X: none,
-+				Y: notB,
-+			}
-+		}
-+	}
-+	bytes, err := os.ReadFile("nobackend.go")
-+	if err != nil {
-+		t.Fatal(err)
-+	}
-+	lines := strings.Split(string(bytes), "\n")
-+
-+	var gotIndex int
-+	var gotLine string
-+	for i, line := range lines {
-+		if strings.HasPrefix(line, "//go:build ") {
-+			gotIndex, gotLine = i, line
-+			break
-+		}
-+	}
-+	_ = gotIndex
-+
-+	var wantLine string
-+	if none == nil {
-+		// If there are no backends yet, use a trivially true constraint.
-+		// We could remove the constraint line, but this would make generation
-+		// more complicated.
-+		wantLine = "//go:build go1.1"
-+	} else {
-+		wantLine = "//go:build " + none.String()
-+	}
-+	if wantLine != gotLine {
-+		if *fix {
-+			lines[gotIndex] = wantLine
-+			want := strings.Join(lines, "\n")
-+			if err := os.WriteFile("nobackend.go", []byte(want), 0o666); err != nil {
-+				t.Fatal(err)
-+			}
-+		} else {
-+			t.Errorf("nobackend.go build constraint:\ngot %q\nwant %q\n%v", gotLine, wantLine, generateInstruction)
-+		}
-+	}
-+}
-+
-+// TestGeneratedBackendErrorFiles tests that the current backend error files are
-+// the same as what would generated under the current conditions.
-+//
-+// The error files are Go files that detect issues with the backend selection
-+// and report an error at compile time.
-+//
-+// The issue detection files are placed in the crypto package rather than the
-+// crypto/internal/backend package to make sure these helpful errors will show
-+// up. If the files were in the backend package, DuplicateDecl and other errors
-+// would show up first, causing these informative errors to be skipped because
-+// there are too many total errors already reported.
-+//
-+// Issues will only be detected if the binary uses a crypto package, else
-+// the issue dection files will not be built and the errors will not be reported.
-+// That done on purpose to avoid putting unnecessary restrictions on applications
-+// that do not use crypto, like for example requiring cgo.
-+func TestGeneratedBackendErrorFiles(t *testing.T) {
-+	// Chip away at a list of files that should come from this generator.
-+	// Any remaining are unexpected.
-+	existingFiles := make(map[string]struct{})
-+	entries, err := os.ReadDir(cryptoPackageDir)
-+	if err != nil {
-+		t.Fatal(err)
-+	}
-+	for _, e := range entries {
-+		if strings.HasPrefix(e.Name(), backendErrPrefix) && strings.HasSuffix(e.Name(), ".go") {
-+			existingFiles[filepath.Join(cryptoPackageDir, e.Name())] = struct{}{}
-+		}
-+	}
-+
-+	backends := parseBackends(t)
-+	for i := 0; i < len(backends); i++ {
-+		for j := i + 1; j < len(backends); j++ {
-+			f := testConflict(t, backends[i].name, backends[j].name)
-+			delete(existingFiles, f)
-+		}
-+		f := testPreventUnintendedFallback(t, backends[i])
-+		delete(existingFiles, f)
-+	}
-+	f := testUnsatisfied(t, backends)
-+	delete(existingFiles, f)
-+	f = testRequireFIPSWithoutBackend(t)
-+	delete(existingFiles, f)
-+	f = testRequireFIPSWithSkipFIPSCheck(t)
-+	delete(existingFiles, f)
-+
-+	for f := range existingFiles {
-+		if *fix {
-+			if err := os.Remove(f); err != nil {
-+				t.Fatal(err)
-+			}
-+		} else {
-+			t.Errorf("unexpected file: %q", f)
-+		}
-+	}
-+	if !*fix && len(existingFiles) > 0 {
-+		t.Log(generateInstruction)
-+	}
-+}
-+
-+// testConflict checks/generates a file that fails if two backends are enabled
-+// at the same time.
-+func testConflict(t *testing.T, a, b string) string {
-+	return testErrorFile(
-+		t,
-+		filepath.Join(cryptoPackageDir, backendErrPrefix+"conflict_"+a+"_"+b+".go"),
-+		"//go:build goexperiment."+a+"crypto && goexperiment."+b+"crypto",
-+		"The "+a+" and "+b+" backends are both enabled, but they are mutually exclusive.",
-+		"Please make sure only one crypto backend experiment is enabled by GOEXPERIMENT or '-tags'.")
-+}
-+
-+func testPreventUnintendedFallback(t *testing.T, backend *backend) string {
-+	expTag := &constraint.TagExpr{Tag: "goexperiment." + backend.name + "crypto"}
-+	optOutTag := &constraint.TagExpr{Tag: "allowcryptofallback"}
-+	c := constraint.AndExpr{
-+		X: &constraint.AndExpr{
-+			X: expTag,
-+			Y: &constraint.NotExpr{X: backend.constraint},
-+		},
-+		Y: &constraint.NotExpr{X: optOutTag},
-+	}
-+	return testErrorFile(
-+		t,
-+		filepath.Join(cryptoPackageDir, backendErrPrefix+"nofallback_"+backend.name+".go"),
-+		"//go:build "+c.String(),
-+		"The "+expTag.String()+" tag is specified, but other tags required to enable that backend were not met.",
-+		"Required build tags:",
-+		"  "+backend.constraint.String(),
-+		"Please check your build environment and build command for a reason one or more of these tags weren't specified.",
-+		"")
-+}
-+
-+// testUnsatisfied checks/generates a file that fails if systemcrypto is enabled
-+// on an OS with no suitable backend.
-+func testUnsatisfied(t *testing.T, backends []*backend) string {
-+	constraint := "//go:build goexperiment.systemcrypto"
-+	for _, b := range backends {
-+		constraint += ` && !goexperiment.` + b.name + "crypto"
-+	}
-+	return testErrorFile(
-+		t,
-+		filepath.Join(cryptoPackageDir, backendErrPrefix+"systemcrypto_nobackend.go"),
-+		constraint,
-+		"The systemcrypto feature is enabled, but it was unable to enable an appropriate crypto backend for the target GOOS.")
-+}
-+
-+func testRequireFIPSWithoutBackend(t *testing.T) string {
-+	return testErrorFile(
-+		t,
-+		filepath.Join(cryptoPackageDir, backendErrPrefix+"requirefips_nosystemcrypto.go"),
-+		"//go:build requirefips && !goexperiment.systemcrypto",
-+		"The requirefips tag is enabled, but no crypto backend is enabled.",
-+		"A crypto backend is required to enable FIPS mode.")
-+}
-+
-+func testRequireFIPSWithSkipFIPSCheck(t *testing.T) string {
-+	return testErrorFile(
-+		t,
-+		filepath.Join(cryptoPackageDir, backendErrPrefix+"requirefips_skipfipscheck.go"),
-+		"//go:build requirefips && ms_skipfipscheck",
-+		"The requirefips tag is enabled but conflicts with the ms_skipfipscheck tag.")
-+}
-+
-+// testErrorFile checks/generates a Go file with a given build constraint that
-+// fails to compile. The file uses an unused string to convey an error message
-+// to the dev on the "go build" command line.
-+func testErrorFile(t *testing.T, file, constraint string, message ...string) string {
-+	const header = `// Copyright 2023 The Go Authors. All rights reserved.
-+// Use of this source code is governed by a BSD-style
-+// license that can be found in the LICENSE file.
-+
-+// This file is generated by crypto/internal/backend. DO NOT EDIT. DO NOT manually create files with the prefix "` + backendErrPrefix + `".`
-+	c := header + "\n\n" + constraint + "\n\npackage crypto\n\nfunc init() {\n\t`\n"
-+	for _, m := range message {
-+		c += "\t" + m + "\n"
-+	}
-+	c += "\tFor more information, visit https://github.com/microsoft/go/tree/microsoft/main/eng/doc/fips\n"
-+	c += "\t`" + "\n}\n"
-+	if *fix {
-+		if err := os.WriteFile(file, []byte(c), 0o666); err != nil {
-+			t.Fatal(err)
-+		}
-+	} else {
-+		existing, err := os.ReadFile(file)
-+		if err != nil {
-+			t.Fatal(err)
-+		}
-+		if !bytes.Equal(existing, []byte(c)) {
-+			t.Errorf("file %v doesn't match expected value; %v", file, generateInstruction)
-+			t.Log("found:", string(existing))
-+			t.Log("would generate:", c)
-+		}
-+	}
-+	return file
-+}
-+
-+type backend struct {
-+	filename   string
-+	name       string
-+	constraint constraint.Expr
-+}
-+
-+func parseBackends(t *testing.T) []*backend {
-+	fs := token.NewFileSet()
-+	pkgs, err := parser.ParseDir(fs, ".", nil, parser.ParseComments)
-+	if err != nil {
-+		t.Fatal(err)
-+	}
-+	var bs []*backend
-+	// Any file in this dir that defines "Enabled" is a backend.
-+	for k, v := range pkgs["backend"].Files {
-+		if en := v.Scope.Lookup("Enabled"); en != nil {
-+			// nobackend defines Enabled, but it is specifically not a backend.
-+			if k == "nobackend.go" {
-+				continue
-+			}
-+			b := backend{filename: k}
-+			b.name, _, _ = strings.Cut(strings.TrimSuffix(k, ".go"), "_")
-+			for _, comment := range v.Comments {
-+				for _, c := range comment.List {
-+					if strings.HasPrefix(c.Text, "//go:build ") {
-+						if c, err := constraint.Parse(c.Text); err == nil {
-+							b.constraint = c
-+						} else {
-+							t.Fatal(err)
-+						}
-+					}
-+				}
-+			}
-+			bs = append(bs, &b)
-+		}
-+	}
-+	sort.Slice(bs, func(i, j int) bool {
-+		return bs[i].name < bs[j].name
-+	})
-+	return bs
 +}
 diff --git a/src/crypto/internal/backend/bbig/big.go b/src/crypto/internal/backend/bbig/big.go
 new file mode 100644
@@ -789,7 +599,7 @@ index 00000000000000..e6695dd66b1d02
 +var Dec = bbig.Dec
 diff --git a/src/crypto/internal/backend/cng_windows.go b/src/crypto/internal/backend/cng_windows.go
 new file mode 100644
-index 00000000000000..448311cbfd3f10
+index 00000000000000..c5bffa7b6c3949
 --- /dev/null
 +++ b/src/crypto/internal/backend/cng_windows.go
 @@ -0,0 +1,345 @@
@@ -797,7 +607,7 @@ index 00000000000000..448311cbfd3f10
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
 +
-+//go:build goexperiment.cngcrypto && windows && (amd64 || arm64)
++//go:build goexperiment.cngcrypto && windows
 +
 +// Package cng provides access to CNGCrypto implementation functions.
 +// Check the variable Enabled to find out whether CNGCrypto is available.
@@ -1843,6 +1653,27 @@ index 00000000000000..a8ff666b6d182e
 +func systemFIPSMode() bool {
 +	return false
 +}
+diff --git a/src/crypto/internal/backend/fips140/requirefips_nosystemcrypto.go b/src/crypto/internal/backend/fips140/requirefips_nosystemcrypto.go
+new file mode 100644
+index 00000000000000..dad6bcea9451e2
+--- /dev/null
++++ b/src/crypto/internal/backend/fips140/requirefips_nosystemcrypto.go
+@@ -0,0 +1,15 @@
++// Copyright 2025 The Go Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style
++// license that can be found in the LICENSE file.
++
++//go:build requirefips && !goexperiment.systemcrypto
++
++package fips140
++
++func init() {
++	`
++	The requirefips tag is enabled, but no crypto backend is enabled.
++	A crypto backend is required to enable FIPS mode.
++	For more information, visit https://github.com/microsoft/go/tree/microsoft/main/eng/doc/fips
++	`
++}
 diff --git a/src/crypto/internal/backend/fips140/skipfipscheck_off.go b/src/crypto/internal/backend/fips140/skipfipscheck_off.go
 new file mode 100644
 index 00000000000000..f60b10dfa3aaf3
@@ -2063,17 +1894,15 @@ index 00000000000000..3b92bfc5fbabf6
 +package opensslsetup
 diff --git a/src/crypto/internal/backend/nobackend.go b/src/crypto/internal/backend/nobackend.go
 new file mode 100644
-index 00000000000000..eb73b4e9cb57d8
+index 00000000000000..ce267825dc6ddc
 --- /dev/null
 +++ b/src/crypto/internal/backend/nobackend.go
-@@ -0,0 +1,253 @@
+@@ -0,0 +1,251 @@
 +// Copyright 2017 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
 +
-+// Do not edit the build constraint by hand. It is generated by "backendgen.go".
-+
-+//go:build !(goexperiment.cngcrypto && windows && (amd64 || arm64)) && !(goexperiment.darwincrypto && darwin && cgo) && !(goexperiment.opensslcrypto && linux && cgo)
++//go:build !goexperiment.systemcrypto || ((goexperiment.opensslcrypto || goexperiment.darwincrypto) && !cgo)
 +
 +package backend
 +
@@ -2674,224 +2503,40 @@ index 00000000000000..5e4b436554d44d
 +// Having this assembly file keeps the go command
 +// from complaining about the missing body
 +// (because the implementation might be here).
-diff --git a/src/crypto/zbackenderrconflict_cng_darwin.go b/src/crypto/zbackenderrconflict_cng_darwin.go
+diff --git a/src/crypto/systemcrypto_nocgo.go b/src/crypto/systemcrypto_nocgo.go
 new file mode 100644
-index 00000000000000..046f94d615efa7
+index 00000000000000..99cf22dc13ef89
 --- /dev/null
-+++ b/src/crypto/zbackenderrconflict_cng_darwin.go
-@@ -0,0 +1,17 @@
-+// Copyright 2023 The Go Authors. All rights reserved.
++++ b/src/crypto/systemcrypto_nocgo.go
+@@ -0,0 +1,15 @@
++// Copyright 2025 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
 +
-+// This file is generated by crypto/internal/backend. DO NOT EDIT. DO NOT manually create files with the prefix "zbackenderr".
-+
-+//go:build goexperiment.cngcrypto && goexperiment.darwincrypto
++//go:build !cgo && (goexperiment.opensslcrypto || goexperiment.darwincrypto) && !allowcryptofallback
 +
 +package crypto
 +
 +func init() {
 +	`
-+	The cng and darwin backends are both enabled, but they are mutually exclusive.
-+	Please make sure only one crypto backend experiment is enabled by GOEXPERIMENT or '-tags'.
-+	For more information, visit https://github.com/microsoft/go/tree/microsoft/main/eng/doc/fips
-+	`
-+}
-diff --git a/src/crypto/zbackenderrconflict_cng_openssl.go b/src/crypto/zbackenderrconflict_cng_openssl.go
-new file mode 100644
-index 00000000000000..11070cf8303a8c
---- /dev/null
-+++ b/src/crypto/zbackenderrconflict_cng_openssl.go
-@@ -0,0 +1,17 @@
-+// Copyright 2023 The Go Authors. All rights reserved.
-+// Use of this source code is governed by a BSD-style
-+// license that can be found in the LICENSE file.
-+
-+// This file is generated by crypto/internal/backend. DO NOT EDIT. DO NOT manually create files with the prefix "zbackenderr".
-+
-+//go:build goexperiment.cngcrypto && goexperiment.opensslcrypto
-+
-+package crypto
-+
-+func init() {
-+	`
-+	The cng and openssl backends are both enabled, but they are mutually exclusive.
-+	Please make sure only one crypto backend experiment is enabled by GOEXPERIMENT or '-tags'.
-+	For more information, visit https://github.com/microsoft/go/tree/microsoft/main/eng/doc/fips
-+	`
-+}
-diff --git a/src/crypto/zbackenderrconflict_darwin_openssl.go b/src/crypto/zbackenderrconflict_darwin_openssl.go
-new file mode 100644
-index 00000000000000..8d16f2133615bb
---- /dev/null
-+++ b/src/crypto/zbackenderrconflict_darwin_openssl.go
-@@ -0,0 +1,17 @@
-+// Copyright 2023 The Go Authors. All rights reserved.
-+// Use of this source code is governed by a BSD-style
-+// license that can be found in the LICENSE file.
-+
-+// This file is generated by crypto/internal/backend. DO NOT EDIT. DO NOT manually create files with the prefix "zbackenderr".
-+
-+//go:build goexperiment.darwincrypto && goexperiment.opensslcrypto
-+
-+package crypto
-+
-+func init() {
-+	`
-+	The darwin and openssl backends are both enabled, but they are mutually exclusive.
-+	Please make sure only one crypto backend experiment is enabled by GOEXPERIMENT or '-tags'.
-+	For more information, visit https://github.com/microsoft/go/tree/microsoft/main/eng/doc/fips
-+	`
-+}
-diff --git a/src/crypto/zbackenderrnofallback_cng.go b/src/crypto/zbackenderrnofallback_cng.go
-new file mode 100644
-index 00000000000000..50198a70ebb639
---- /dev/null
-+++ b/src/crypto/zbackenderrnofallback_cng.go
-@@ -0,0 +1,20 @@
-+// Copyright 2023 The Go Authors. All rights reserved.
-+// Use of this source code is governed by a BSD-style
-+// license that can be found in the LICENSE file.
-+
-+// This file is generated by crypto/internal/backend. DO NOT EDIT. DO NOT manually create files with the prefix "zbackenderr".
-+
-+//go:build goexperiment.cngcrypto && !(goexperiment.cngcrypto && windows && (amd64 || arm64)) && !allowcryptofallback
-+
-+package crypto
-+
-+func init() {
-+	`
-+	The goexperiment.cngcrypto tag is specified, but other tags required to enable that backend were not met.
-+	Required build tags:
-+	  goexperiment.cngcrypto && windows && (amd64 || arm64)
-+	Please check your build environment and build command for a reason one or more of these tags weren't specified.
++	Using a crypto backend requires CGO_ENABLED=1.
 +	
-+	For more information, visit https://github.com/microsoft/go/tree/microsoft/main/eng/doc/fips
-+	`
-+}
-diff --git a/src/crypto/zbackenderrnofallback_darwin.go b/src/crypto/zbackenderrnofallback_darwin.go
-new file mode 100644
-index 00000000000000..8b4c2a0b549e46
---- /dev/null
-+++ b/src/crypto/zbackenderrnofallback_darwin.go
-@@ -0,0 +1,20 @@
-+// Copyright 2023 The Go Authors. All rights reserved.
-+// Use of this source code is governed by a BSD-style
-+// license that can be found in the LICENSE file.
-+
-+// This file is generated by crypto/internal/backend. DO NOT EDIT. DO NOT manually create files with the prefix "zbackenderr".
-+
-+//go:build goexperiment.darwincrypto && !(goexperiment.darwincrypto && darwin && cgo) && !allowcryptofallback
-+
-+package crypto
-+
-+func init() {
-+	`
-+	The goexperiment.darwincrypto tag is specified, but other tags required to enable that backend were not met.
-+	Required build tags:
-+	  goexperiment.darwincrypto && darwin && cgo
-+	Please check your build environment and build command for a reason one or more of these tags weren't specified.
-+	
-+	For more information, visit https://github.com/microsoft/go/tree/microsoft/main/eng/doc/fips
-+	`
-+}
-diff --git a/src/crypto/zbackenderrnofallback_openssl.go b/src/crypto/zbackenderrnofallback_openssl.go
-new file mode 100644
-index 00000000000000..5f137d23b6bc97
---- /dev/null
-+++ b/src/crypto/zbackenderrnofallback_openssl.go
-@@ -0,0 +1,20 @@
-+// Copyright 2023 The Go Authors. All rights reserved.
-+// Use of this source code is governed by a BSD-style
-+// license that can be found in the LICENSE file.
-+
-+// This file is generated by crypto/internal/backend. DO NOT EDIT. DO NOT manually create files with the prefix "zbackenderr".
-+
-+//go:build goexperiment.opensslcrypto && !(goexperiment.opensslcrypto && linux && cgo) && !allowcryptofallback
-+
-+package crypto
-+
-+func init() {
-+	`
-+	The goexperiment.opensslcrypto tag is specified, but other tags required to enable that backend were not met.
-+	Required build tags:
-+	  goexperiment.opensslcrypto && linux && cgo
-+	Please check your build environment and build command for a reason one or more of these tags weren't specified.
-+	
-+	For more information, visit https://github.com/microsoft/go/tree/microsoft/main/eng/doc/fips
-+	`
-+}
-diff --git a/src/crypto/zbackenderrrequirefips_nosystemcrypto.go b/src/crypto/zbackenderrrequirefips_nosystemcrypto.go
-new file mode 100644
-index 00000000000000..91bede3aa030a5
---- /dev/null
-+++ b/src/crypto/zbackenderrrequirefips_nosystemcrypto.go
-@@ -0,0 +1,17 @@
-+// Copyright 2023 The Go Authors. All rights reserved.
-+// Use of this source code is governed by a BSD-style
-+// license that can be found in the LICENSE file.
-+
-+// This file is generated by crypto/internal/backend. DO NOT EDIT. DO NOT manually create files with the prefix "zbackenderr".
-+
-+//go:build requirefips && !goexperiment.systemcrypto
-+
-+package crypto
-+
-+func init() {
-+	`
-+	The requirefips tag is enabled, but no crypto backend is enabled.
-+	A crypto backend is required to enable FIPS mode.
-+	For more information, visit https://github.com/microsoft/go/tree/microsoft/main/eng/doc/fips
-+	`
-+}
-diff --git a/src/crypto/zbackenderrrequirefips_skipfipscheck.go b/src/crypto/zbackenderrrequirefips_skipfipscheck.go
-new file mode 100644
-index 00000000000000..8ba88a888eb8c0
---- /dev/null
-+++ b/src/crypto/zbackenderrrequirefips_skipfipscheck.go
-@@ -0,0 +1,16 @@
-+// Copyright 2023 The Go Authors. All rights reserved.
-+// Use of this source code is governed by a BSD-style
-+// license that can be found in the LICENSE file.
-+
-+// This file is generated by crypto/internal/backend. DO NOT EDIT. DO NOT manually create files with the prefix "zbackenderr".
-+
-+//go:build requirefips && ms_skipfipscheck
-+
-+package crypto
-+
-+func init() {
-+	`
-+	The requirefips tag is enabled but conflicts with the ms_skipfipscheck tag.
-+	For more information, visit https://github.com/microsoft/go/tree/microsoft/main/eng/doc/fips
-+	`
-+}
-diff --git a/src/crypto/zbackenderrsystemcrypto_nobackend.go b/src/crypto/zbackenderrsystemcrypto_nobackend.go
-new file mode 100644
-index 00000000000000..73404496a46f07
---- /dev/null
-+++ b/src/crypto/zbackenderrsystemcrypto_nobackend.go
-@@ -0,0 +1,16 @@
-+// Copyright 2023 The Go Authors. All rights reserved.
-+// Use of this source code is governed by a BSD-style
-+// license that can be found in the LICENSE file.
-+
-+// This file is generated by crypto/internal/backend. DO NOT EDIT. DO NOT manually create files with the prefix "zbackenderr".
-+
-+//go:build goexperiment.systemcrypto && !goexperiment.cngcrypto && !goexperiment.darwincrypto && !goexperiment.opensslcrypto
-+
-+package crypto
-+
-+func init() {
-+	`
-+	The systemcrypto feature is enabled, but it was unable to enable an appropriate crypto backend for the target GOOS.
 +	For more information, visit https://github.com/microsoft/go/tree/microsoft/main/eng/doc/fips
 +	`
 +}
 diff --git a/src/go/build/deps_test.go b/src/go/build/deps_test.go
-index 9b7613a62b5a31..eddaf170772e19 100644
+index 9b7613a62b5a31..1997d90f2f20ba 100644
 --- a/src/go/build/deps_test.go
 +++ b/src/go/build/deps_test.go
+@@ -348,7 +348,7 @@ var depsRules = `
+ 	math/big, go/token
+ 	< go/constant;
+ 
+-	FMT, internal/goexperiment
++	FMT, internal/goexperiment, internal/platform
+ 	< internal/buildcfg;
+ 
+ 	container/heap, go/constant, go/parser, internal/buildcfg, internal/goversion, internal/types/errors
 @@ -537,6 +537,11 @@ var depsRules = `
  	< github.com/microsoft/go-crypto-winnative/internal/bcrypt
  	< github.com/microsoft/go-crypto-winnative/cng;
@@ -2951,6 +2596,83 @@ index 9b7613a62b5a31..eddaf170772e19 100644
  	< crypto/internal/fips140cache
  	< crypto/rand
  	< crypto/ed25519 # depends on crypto/rand.Reader
+diff --git a/src/internal/buildcfg/exp.go b/src/internal/buildcfg/exp.go
+index bba73cfab9a108..c6bc4f165e6048 100644
+--- a/src/internal/buildcfg/exp.go
++++ b/src/internal/buildcfg/exp.go
+@@ -5,11 +5,14 @@
+ package buildcfg
+ 
+ import (
++	"errors"
+ 	"fmt"
+ 	"reflect"
++	"slices"
+ 	"strings"
+ 
+ 	"internal/goexperiment"
++	goplatform "internal/platform"
+ )
+ 
+ // ExperimentFlags represents a set of GOEXPERIMENT flags relative to a baseline
+@@ -167,6 +170,57 @@ func ParseGOEXPERIMENT(goos, goarch, goexp string) (*ExperimentFlags, error) {
+ 	if flags.BoringCrypto {
+ 		return nil, fmt.Errorf("GOEXPERIMENT boringcrypto is not supported in the Microsoft build of Go")
+ 	}
++	// Check crypto backend conflicts.
++	type platform struct {
++		goos   string
++		goarch []string // if nil or empty, enabled on all architectures
++	}
++	var backends = []struct {
++		name     string
++		enabled  bool
++		platform []platform
++	}{
++		{"systemcrypto", flags.SystemCrypto, []platform{
++			{"linux", nil},
++			{"windows", []string{"amd64", "arm64"}},
++			{"darwin", nil},
++		}},
++		{"opensslcrypto", flags.OpenSSLCrypto, []platform{{"linux", nil}}},
++		{"cngcrypto", flags.CNGCrypto, []platform{{"windows", []string{"amd64", "arm64"}}}},
++		{"darwincrypto", flags.DarwinCrypto, []platform{{"darwin", nil}}},
++	}
++	var errs []string
++	for i, backend := range backends {
++		if !backend.enabled {
++			continue
++		}
++		// Don't report an error if the build mode is not supported,
++		// since that is not a problem with the experiment configuration.
++		if goplatform.BuildModeSupported("gc", "default", goos, goarch) {
++			if !slices.ContainsFunc(backend.platform, func(p platform) bool { return p.goos == goos }) {
++				errs = append(errs, fmt.Sprintf("GOEXPERIMENT %s is not supported on %s", backend.name, goos))
++			} else {
++				for _, platform := range backend.platform {
++					if platform.goos == goos && (len(platform.goarch) > 0 && !slices.Contains(platform.goarch, goarch)) {
++						errs = append(errs, fmt.Sprintf("GOEXPERIMENT %s is not supported on %s/%s", backend.name, goos, goarch))
++					}
++				}
++			}
++		}
++		if backend.name != "systemcrypto" { // systemcrypto can coexist with other valid backends
++			for _, backend2 := range backends[i+1:] {
++				if !backend2.enabled {
++					continue
++				}
++				errs = append(errs, fmt.Sprintf("GOEXPERIMENT %s and %s are both enabled, but they are mutually exclusive",
++					backend.name, backend2.name))
++			}
++		}
++	}
++	if len(errs) > 0 {
++		errs = append(errs, "For more information, visit https://github.com/microsoft/go/tree/microsoft/main/eng/doc/fips")
++		return nil, errors.New(strings.Join(errs, "\n\t"))
++	}
+ 	return flags, nil
+ }
+ 
 diff --git a/src/runtime/runtime_boring.go b/src/runtime/runtime_boring.go
 index 831ee67afc952d..d2f00d57c10286 100644
 --- a/src/runtime/runtime_boring.go
