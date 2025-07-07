@@ -13,7 +13,7 @@ desired goexperiments and build tags.
  .../compile/internal/logopt/logopt_test.go    |   6 +-
  .../compile/internal/ssa/stmtlines_test.go    |   1 -
  src/cmd/dist/build.go                         |  11 +
- src/cmd/dist/test.go                          |  45 ++-
+ src/cmd/dist/test.go                          |  47 ++-
  src/cmd/go/go_test.go                         |   4 +
  src/cmd/go/internal/load/pkg.go               |   3 +
  src/cmd/go/systemcrypto_test.go               | 144 +++++++
@@ -52,7 +52,7 @@ desired goexperiments and build tags.
  src/internal/buildcfg/exp.go                  |  54 +++
  src/runtime/runtime_boring.go                 |   5 +
  src/syscall/exec_linux_test.go                |   2 +-
- 43 files changed, 2206 insertions(+), 17 deletions(-)
+ 43 files changed, 2208 insertions(+), 17 deletions(-)
  create mode 100644 src/cmd/go/systemcrypto_test.go
  create mode 100644 src/crypto/internal/backend/backend_test.go
  create mode 100644 src/crypto/internal/backend/bbig/big.go
@@ -160,7 +160,7 @@ index 024050c2dd70c4..be3a730af69c07 100644
  	goInstall(toolenv(), goBootstrap, append([]string{"-pgo=off"}, toolchain...)...)
  	if debug {
 diff --git a/src/cmd/dist/test.go b/src/cmd/dist/test.go
-index aa09d1eba34be8..2c49e2233ce84c 100644
+index aa09d1eba34be8..b2e8fe9734b76e 100644
 --- a/src/cmd/dist/test.go
 +++ b/src/cmd/dist/test.go
 @@ -156,10 +156,12 @@ func (t *tester) run() {
@@ -245,13 +245,14 @@ index aa09d1eba34be8..2c49e2233ce84c 100644
  			})
  		// Also test a cgo package.
  		if t.cgoEnabled && t.internalLink() && !disablePIE {
-@@ -897,13 +914,18 @@ func (t *tester) registerTests() {
+@@ -897,15 +914,22 @@ func (t *tester) registerTests() {
  
  	if t.extLink() && !t.compileOnly {
  		if goos != "android" { // Android does not support non-PIE linking
-+			var env []string
++			var tags, env []string
 +			if goos == "darwin" {
 +				// Darwincrypto doesn't support external linking.
++				tags = append(tags, "ms_skipfipscheck")
 +				env = append(env, "GOEXPERIMENT=nosystemcrypto")
 +			}
  			t.registerTest("external linking, -buildmode=exe",
@@ -264,8 +265,11 @@ index aa09d1eba34be8..2c49e2233ce84c 100644
 +					env:       append([]string{"CGO_ENABLED=1"}, env...),
  					pkg:       "crypto/internal/fips140test",
  					runTests:  "TestFIPSCheck",
++					tags:      tags,
  				})
-@@ -985,6 +1007,12 @@ func (t *tester) registerTests() {
+ 		}
+ 		if t.externalLinkPIE() && !disablePIE {
+@@ -985,6 +1009,12 @@ func (t *tester) registerTests() {
  	}
  
  	if goos != "android" && !t.iOS() {
@@ -278,7 +282,7 @@ index aa09d1eba34be8..2c49e2233ce84c 100644
  		// Only start multiple test dir shards on builders,
  		// where they get distributed to multiple machines.
  		// See issues 20141 and 31834.
-@@ -1007,6 +1035,7 @@ func (t *tester) registerTests() {
+@@ -1007,6 +1037,7 @@ func (t *tester) registerTests() {
  					pkg:         "cmd/internal/testdir",
  					testFlags:   []string{fmt.Sprintf("-shard=%d", shard), fmt.Sprintf("-shards=%d", nShards)},
  					runOnHost:   true,
