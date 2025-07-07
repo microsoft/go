@@ -443,9 +443,9 @@ This list of major changes is intended for quick reference and for access to his
 
 - `GOFIPS=0` support has been removed. It now has no effect.
 
-- `GOEXPERIMENT=boringcrypto` support has been removed.
+- `GOEXPERIMENT=boringcrypto` has been removed.
 
-- `GOEXPERIMENT=allowcryptofallback` has removed. Instead, if it's necessary to opt out from using a system crypto backend, use `GOEXPERIMENT=nosystemcrypto`. This is an internal mechanism that is not intended for use when building a Go application. This document has always recommended against using it, so we anticipate that this change won't affect users of the Microsoft build of Go. Please [contact the maintainers of the Microsoft build of Go](https://github.com/microsoft/go/blob/microsoft/main/SUPPORT.md) if you need to use it so we can understand the scenario and help find a safer alternative.
+- `GOEXPERIMENT=allowcryptofallback` has been removed. Instead, if it's necessary to opt out from using a system crypto backend, use `GOEXPERIMENT=nosystemcrypto`. This is an internal mechanism that is not intended for use when building a Go application. This document has always recommended against using it, so we anticipate that this change won't affect users of the Microsoft build of Go. Please [contact the maintainers of the Microsoft build of Go](https://github.com/microsoft/go/blob/microsoft/main/SUPPORT.md) if you need to use it so we can understand the scenario and help find a safer alternative.
 
 ### Go 1.24 (Feb 2025)
 
