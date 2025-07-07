@@ -14,13 +14,12 @@ desired goexperiments and build tags.
  .../compile/internal/ssa/stmtlines_test.go    |   1 -
  src/cmd/dist/build.go                         |  11 +
  src/cmd/dist/test.go                          |  44 ++-
- src/cmd/go/go_test.go                         |   4 +
+ src/cmd/go/go_test.go                         |  11 +
  src/cmd/go/internal/load/pkg.go               |   3 +
  src/cmd/go/systemcrypto_test.go               | 144 +++++++
  .../go/testdata/script/env_cross_build.txt    |   2 +
  .../script/test_android_issue62123.txt        |   2 +
  src/cmd/internal/testdir/testdir_test.go      |   7 +
- src/cmd/link/internal/ld/main.go              |  13 +-
  src/cmd/link/link_test.go                     |   8 +
  src/crypto/internal/backend/backend_test.go   |  30 ++
  src/crypto/internal/backend/bbig/big.go       |  17 +
@@ -52,7 +51,7 @@ desired goexperiments and build tags.
  src/internal/buildcfg/exp.go                  |  54 +++
  src/runtime/runtime_boring.go                 |   5 +
  src/syscall/exec_linux_test.go                |   2 +-
- 43 files changed, 2204 insertions(+), 18 deletions(-)
+ 42 files changed, 2199 insertions(+), 17 deletions(-)
  create mode 100644 src/cmd/go/systemcrypto_test.go
  create mode 100644 src/crypto/internal/backend/backend_test.go
  create mode 100644 src/crypto/internal/backend/bbig/big.go
@@ -131,7 +130,7 @@ index e17a5402af818d..e83c4c5b79d11b 100644
  			err := lrdr.Next(&le)
  			if err == io.EOF {
 diff --git a/src/cmd/dist/build.go b/src/cmd/dist/build.go
-index 024050c2dd70c4..be3a730af69c07 100644
+index 024050c2dd70c4..3c82b7436d10bf 100644
 --- a/src/cmd/dist/build.go
 +++ b/src/cmd/dist/build.go
 @@ -1387,6 +1387,12 @@ func toolenv() []string {
@@ -139,8 +138,8 @@ index 024050c2dd70c4..be3a730af69c07 100644
  		env = append(env, "GOFLAGS=-trimpath -ldflags=-w -gcflags=cmd/...=-dwarf=false")
  	}
 +	if goexp := os.Getenv("GOEXPERIMENT"); goexp != "" {
-+		// Remove systemcrypto from GOEXPERIMENT, the Microsoft build of Go
-+		// should not use it to favor portability. It only uses crypto packages
++		// Remove systemcrypto from GOEXPERIMENT: to favor portability, the
++		// Microsoft build of Go should not use it. Go only uses crypto packages
 +		// for non-crypto purposes, such as generating build IDs.
 +		env = append(env, "GOEXPERIMENT="+goexp+",nosystemcrypto")
 +	}
@@ -281,7 +280,7 @@ index aa09d1eba34be8..c3f3a8324c507c 100644
  		// where they get distributed to multiple machines.
  		// See issues 20141 and 31834.
 diff --git a/src/cmd/go/go_test.go b/src/cmd/go/go_test.go
-index 3e691abe41f702..2c4eed0bc575cf 100644
+index 3e691abe41f702..b799031d598892 100644
 --- a/src/cmd/go/go_test.go
 +++ b/src/cmd/go/go_test.go
 @@ -14,6 +14,7 @@ import (
@@ -292,7 +291,21 @@ index 3e691abe41f702..2c4eed0bc575cf 100644
  	"internal/platform"
  	"internal/testenv"
  	"io"
-@@ -1861,6 +1862,9 @@ func TestGenerateUsesBuildContext(t *testing.T) {
+@@ -111,6 +112,13 @@ func TestMain(m *testing.M) {
+ 		if v := os.Getenv("TESTGO_TOOLCHAIN_VERSION"); v != "" {
+ 			work.ToolchainVersion = v
+ 		}
++		// Remove the " X:systemcrypto" suffix from the toolchain version,
++		// else it won't match the compiler version and the tests will fail.
++		// This happens because "go" invocations inside TestScript don't
++		// really call the go binary, which is never built with systemcrypto,
++		// but it instead calls the test binary with CMDGO_TEST_RUN_MAIN=1,
++		// which can be built with systemcrypto.
++		work.ToolchainVersion = strings.ReplaceAll(work.ToolchainVersion, " X:systemcrypto", "")
+ 
+ 		if testGOROOT := os.Getenv("TESTGO_GOROOT"); testGOROOT != "" {
+ 			// Disallow installs to the GOROOT from which testgo was built.
+@@ -1861,6 +1869,9 @@ func TestGenerateUsesBuildContext(t *testing.T) {
  }
  
  func TestGoEnv(t *testing.T) {
@@ -507,37 +520,6 @@ index 483a9ec33c6798..fad922e3f844ab 100644
  	common := testCommon{
  		gorootTestDir: filepath.Join(testenv.GOROOT(t), "test"),
  		runoutputGate: make(chan bool, *runoutputLimit),
-diff --git a/src/cmd/link/internal/ld/main.go b/src/cmd/link/internal/ld/main.go
-index 6a684890be0a03..1678bb5baf4aef 100644
---- a/src/cmd/link/internal/ld/main.go
-+++ b/src/cmd/link/internal/ld/main.go
-@@ -44,6 +44,7 @@ import (
- 	"os"
- 	"runtime"
- 	"runtime/pprof"
-+	"slices"
- 	"strconv"
- 	"strings"
- )
-@@ -187,7 +188,17 @@ func Main(arch *sys.Arch, theArch Arch) {
- 
- 	buildVersion := buildcfg.Version
- 	if goexperiment := buildcfg.Experiment.String(); goexperiment != "" {
--		buildVersion += " X:" + goexperiment
-+		// Don't report crypto experiments in build version.
-+		// These are already reported in the buildInfo.
-+		// If we don't do this, "go tool dist test" will always fail.
-+		goexpList := strings.Split(goexperiment, ",")
-+		goexpList = slices.DeleteFunc(goexpList, func(s string) bool {
-+			return s == "systemcrypto" || s == "opensslcrypto" || s == "cngcrypto" || s == "darwincrypto"
-+		})
-+		goexperiment = strings.Join(goexpList, ",")
-+		if goexperiment != "" {
-+			buildVersion += " X:" + strings.Join(goexpList, ",")
-+		}
- 	}
- 	addstrdata1(ctxt, "runtime.buildVersion="+buildVersion)
- 
 diff --git a/src/cmd/link/link_test.go b/src/cmd/link/link_test.go
 index 2fe32600f1d6c7..f84cbdc5ee25f0 100644
 --- a/src/cmd/link/link_test.go
