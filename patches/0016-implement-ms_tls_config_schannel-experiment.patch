@@ -8,8 +8,8 @@ Subject: [PATCH] implement ms_tls_config_schannel experiment
  src/crypto/tls/handshake_server_test.go       |  20 +++
  src/crypto/tls/handshake_test.go              |   6 +
  src/crypto/tls/schannel_windows.go            | 118 ++++++++++++++++++
- src/crypto/tls/schannel_windows_test.go       |  99 +++++++++++++++
- src/crypto/tls/tls_test.go                    |   6 +
+ src/crypto/tls/schannel_windows_test.go       |  94 ++++++++++++++
+ src/crypto/tls/tls_test.go                    |  11 ++
  .../exp_ms_tls_config_schannel_off.go         |   8 ++
  .../exp_ms_tls_config_schannel_on.go          |   8 ++
  src/internal/goexperiment/flags.go            |   4 +
@@ -256,10 +256,10 @@ index 00000000000000..08178ab0dcdbc8
 +}
 diff --git a/src/crypto/tls/schannel_windows_test.go b/src/crypto/tls/schannel_windows_test.go
 new file mode 100644
-index 00000000000000..220d1b8879ca9d
+index 00000000000000..6bde50af79593e
 --- /dev/null
 +++ b/src/crypto/tls/schannel_windows_test.go
-@@ -0,0 +1,99 @@
+@@ -0,0 +1,94 @@
 +// Copyright 2025 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -271,7 +271,6 @@ index 00000000000000..220d1b8879ca9d
 +import (
 +	"bytes"
 +	"os/exec"
-+	"slices"
 +	"sync"
 +	"testing"
 +)
@@ -283,10 +282,6 @@ index 00000000000000..220d1b8879ca9d
 +	}
 +	return cipherSuites
 +})
-+
-+func isSchannelCipherSuite(id uint16) bool {
-+	return slices.Contains(schannelSuites(), id)
-+}
 +
 +func TestCipherSuitesSchannel(t *testing.T) {
 +	cipherSuites, err := cipherSuitesSchannel()
@@ -360,7 +355,7 @@ index 00000000000000..220d1b8879ca9d
 +	}
 +}
 diff --git a/src/crypto/tls/tls_test.go b/src/crypto/tls/tls_test.go
-index 13c5ddced2cddb..21b4f4b2d032b4 100644
+index 13c5ddced2cddb..2a90b3e46b9934 100644
 --- a/src/crypto/tls/tls_test.go
 +++ b/src/crypto/tls/tls_test.go
 @@ -18,6 +18,7 @@ import (
@@ -371,7 +366,19 @@ index 13c5ddced2cddb..21b4f4b2d032b4 100644
  	"internal/testenv"
  	"io"
  	"math"
-@@ -1417,6 +1418,11 @@ func TestClientHelloInfo_SupportsCertificate(t *testing.T) {
+@@ -1404,6 +1405,11 @@ func TestClientHelloInfo_SupportsCertificate(t *testing.T) {
+ 		}, ""}, // static RSA fallback
+ 	}
+ 	for i, tt := range tests {
++		if goexperiment.MS_TLS_Config_Schannel &&
++			len(tt.chi.SupportedVersions) == 0 && tt.chi.SupportedVersions[0] == VersionTLS10 {
++			// Schannel might not support TLS 1.0.
++			continue
++		}
+ 		err := tt.chi.SupportsCertificate(tt.c)
+ 		switch {
+ 		case tt.wantErr == "" && err != nil:
+@@ -1417,6 +1423,11 @@ func TestClientHelloInfo_SupportsCertificate(t *testing.T) {
  }
  
  func TestCipherSuites(t *testing.T) {
