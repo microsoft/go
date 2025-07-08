@@ -1,0 +1,568 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: qmuntal <qmuntaldiaz@microsoft.com>
+Date: Tue, 8 Jul 2025 16:04:25 +0200
+Subject: [PATCH] implement ms_tls_config_schannel experiment
+
+---
+ src/cmd/go/script_test.go                     |   2 +-
+ src/crypto/tls/bogo_shim_test.go              |   7 ++
+ src/crypto/tls/handshake_server_test.go       |  20 +++
+ src/crypto/tls/handshake_test.go              |   6 +
+ src/crypto/tls/schannel_windows.go            | 118 ++++++++++++++++++
+ src/crypto/tls/schannel_windows_test.go       |  94 ++++++++++++++
+ src/crypto/tls/tls_test.go                    |  11 ++
+ .../exp_ms_tls_config_schannel_off.go         |   8 ++
+ .../exp_ms_tls_config_schannel_on.go          |   8 ++
+ src/internal/goexperiment/flags.go            |   4 +
+ .../syscall/windows/security_windows.go       |  28 +++++
+ .../syscall/windows/syscall_windows.go        |  16 +++
+ .../syscall/windows/zsyscall_windows.go       |  23 ++++
+ 13 files changed, 344 insertions(+), 1 deletion(-)
+ create mode 100644 src/crypto/tls/schannel_windows.go
+ create mode 100644 src/crypto/tls/schannel_windows_test.go
+ create mode 100644 src/internal/goexperiment/exp_ms_tls_config_schannel_off.go
+ create mode 100644 src/internal/goexperiment/exp_ms_tls_config_schannel_on.go
+
+diff --git a/src/cmd/go/script_test.go b/src/cmd/go/script_test.go
+index b1dae3b592e99d..8780eb5f5eb0cc 100644
+--- a/src/cmd/go/script_test.go
++++ b/src/cmd/go/script_test.go
+@@ -420,4 +420,4 @@ const disabledOnPlatform = false ||
+ 	runtime.GOOS == "wasip1" || // #60971
+ 	runtime.GOOS == "plan9" || // https://github.com/golang/go/issues/57540#issuecomment-1470766639
+ 	// On Windows, setting a GOEXPERIMENT prevents the telemetry counters from being written. https://github.com/golang/go/issues/68579
+-	goexperiment.CNGCrypto
++	goexperiment.CNGCrypto || goexperiment.MS_TLS_Config_Schannel
+diff --git a/src/crypto/tls/bogo_shim_test.go b/src/crypto/tls/bogo_shim_test.go
+index ce01852aeeda30..b51e59889380aa 100644
+--- a/src/crypto/tls/bogo_shim_test.go
++++ b/src/crypto/tls/bogo_shim_test.go
+@@ -9,6 +9,7 @@ import (
+ 	"flag"
+ 	"fmt"
+ 	"internal/byteorder"
++	"internal/goexperiment"
+ 	"internal/testenv"
+ 	"io"
+ 	"log"
+@@ -339,6 +340,12 @@ func TestBogoSuite(t *testing.T) {
+ 	testenv.MustHaveGoRun(t)
+ 	testenv.MustHaveExec(t)
+ 
++	if goexperiment.MS_TLS_Config_Schannel {
++		// Schannel mode is not supported for these tests,
++		// as available cipher suites are not reproducible.
++		t.Skip("skipping bogo tests in Schannel mode")
++	}
++
+ 	if testing.Short() {
+ 		t.Skip("skipping in short mode")
+ 	}
+diff --git a/src/crypto/tls/handshake_server_test.go b/src/crypto/tls/handshake_server_test.go
+index 1d6419376f3871..1e9910f9d71c2b 100644
+--- a/src/crypto/tls/handshake_server_test.go
++++ b/src/crypto/tls/handshake_server_test.go
+@@ -15,6 +15,7 @@ import (
+ 	"encoding/pem"
+ 	"errors"
+ 	"fmt"
++	"internal/goexperiment"
+ 	"io"
+ 	"net"
+ 	"os"
+@@ -434,6 +435,11 @@ func TestVersion(t *testing.T) {
+ }
+ 
+ func TestCipherSuitePreference(t *testing.T) {
++	if goexperiment.MS_TLS_Config_Schannel {
++		// Schannel mode is not supported for these tests,
++		// as available cipher suites are not reproducible.
++		t.Skip("skipping cipher suite preference test in Schannel mode")
++	}
+ 	serverConfig := &Config{
+ 		CipherSuites: []uint16{TLS_RSA_WITH_RC4_128_SHA, TLS_AES_128_GCM_SHA256,
+ 			TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256},
+@@ -929,6 +935,10 @@ func TestHandshakeServerKeySharePreference(t *testing.T) {
+ // TestHandshakeServerUnsupportedKeyShare tests a client that sends a key share
+ // that's not in the supported groups list.
+ func TestHandshakeServerUnsupportedKeyShare(t *testing.T) {
++	if goexperiment.MS_TLS_Config_Schannel {
++		// CHACHA20 is not supported in Schannel mode.
++		t.Skip("skipping test in Schannel mode")
++	}
+ 	pk, _ := ecdh.X25519().GenerateKey(rand.Reader)
+ 	clientHello := &clientHelloMsg{
+ 		vers:               VersionTLS12,
+@@ -1720,6 +1730,11 @@ func TestMultipleCertificates(t *testing.T) {
+ }
+ 
+ func TestAESCipherReordering(t *testing.T) {
++	if goexperiment.MS_TLS_Config_Schannel {
++		// Schannel mode is not supported for these tests,
++		// as available cipher suites are not reproducible.
++		t.Skip("skipping test in Schannel mode")
++	}
+ 	currentAESSupport := hasAESGCMHardwareSupport
+ 	defer func() { hasAESGCMHardwareSupport = currentAESSupport }()
+ 
+@@ -1863,6 +1878,11 @@ func TestAESCipherReordering(t *testing.T) {
+ }
+ 
+ func TestAESCipherReorderingTLS13(t *testing.T) {
++	if goexperiment.MS_TLS_Config_Schannel {
++		// Schannel mode is not supported for these tests,
++		// as available cipher suites are not reproducible.
++		t.Skip("skipping test in Schannel mode")
++	}
+ 	currentAESSupport := hasAESGCMHardwareSupport
+ 	defer func() { hasAESGCMHardwareSupport = currentAESSupport }()
+ 
+diff --git a/src/crypto/tls/handshake_test.go b/src/crypto/tls/handshake_test.go
+index 803aa736578f8c..92b31362f3d65d 100644
+--- a/src/crypto/tls/handshake_test.go
++++ b/src/crypto/tls/handshake_test.go
+@@ -13,6 +13,7 @@ import (
+ 	"errors"
+ 	"flag"
+ 	"fmt"
++	"internal/goexperiment"
+ 	"io"
+ 	"net"
+ 	"os"
+@@ -50,6 +51,11 @@ var (
+ )
+ 
+ func runTestAndUpdateIfNeeded(t *testing.T, name string, run func(t *testing.T, update bool), wait bool) {
++	if goexperiment.MS_TLS_Config_Schannel {
++		// Schannel mode is not supported for these tests,
++		// as available cipher suites are not reproducable. 
++		t.Skip("skipping test in Schannel mode")
++	}
+ 	success := t.Run(name, func(t *testing.T) {
+ 		if !*update && !wait {
+ 			t.Parallel()
+diff --git a/src/crypto/tls/schannel_windows.go b/src/crypto/tls/schannel_windows.go
+new file mode 100644
+index 00000000000000..93b7e8c912b3c1
+--- /dev/null
++++ b/src/crypto/tls/schannel_windows.go
+@@ -0,0 +1,118 @@
++// Copyright 2025 The Go Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style
++// license that can be found in the LICENSE file.
++
++//go:build goexperiment.ms_tls_config_schannel
++
++package tls
++
++import (
++	"internal/syscall/windows"
++	"slices"
++	"unsafe"
++)
++
++// init modifies the default cipher suites, the preference order, and the disabled cipher suites
++// based on the cipher suites that Schannel supports.
++//
++// The user-visible behavior changes are:
++// - The cipher suites used when [Config.CipherSuites] is nil, or when using TLS 1.3, only include those that Schannel supports.
++// - The order in which cipher suites are tried, regardless of whether the user sets [Config.CipherSuites] or not, is the order that Schannel prefers.
++func init() {
++	cipherSuitesSchannel, err := cipherSuitesSchannel()
++	if err != nil {
++		panic(err) // This should never happen, as Schannel is always available on Windows.
++	}
++
++	// cipherSuitesSchannel contains the cipher suites that Schannel supports in its preference order.
++	// We use this to filter the default cipher suites and to order the preference order.
++
++	disableCipherSuites(CipherSuites(), cipherSuitesSchannel, disabledCipherSuites)
++	disableCipherSuites(InsecureCipherSuites(), cipherSuitesSchannel, disabledCipherSuites)
++
++	cipherSuitesPreferenceOrder = orderCipherSuites(cipherSuitesPreferenceOrder, cipherSuitesSchannel)
++	cipherSuitesPreferenceOrderNoAES = orderCipherSuites(cipherSuitesPreferenceOrderNoAES, cipherSuitesSchannel)
++
++	defaultCipherSuitesFIPS = filterCipherSuites(cipherSuitesSchannel, defaultCipherSuitesFIPS)
++	defaultCipherSuitesTLS13 = filterCipherSuites(cipherSuitesSchannel, defaultCipherSuitesTLS13)
++	defaultCipherSuitesTLS13NoAES = filterCipherSuites(cipherSuitesSchannel, defaultCipherSuitesTLS13NoAES)
++	defaultCipherSuitesTLS13FIPS = filterCipherSuites(cipherSuitesSchannel, defaultCipherSuitesTLS13FIPS)
++}
++
++// cipherSuiteID returns the ID of the cipher suite with the given name.
++func cipherSuiteID(name string) (uint16, bool) {
++	for _, c := range CipherSuites() {
++		if c.Name == name {
++			return c.ID, true
++		}
++	}
++	for _, c := range InsecureCipherSuites() {
++		if c.Name == name {
++			return c.ID, true
++		}
++	}
++	return 0, false
++}
++
++// cipherSuitesSchannel returns all the cipher suites that Schannel supports in Schannel's preference order.
++func cipherSuitesSchannel() ([]uint16, error) {
++	// Get all the cipher suites that Schannel supports in preference order.
++	var size uint32
++	var funcs *windows.CRYPT_CONTEXT_FUNCTIONS
++	err := windows.BCryptEnumContextFunctions(windows.CRYPT_LOCAL, unsafe.SliceData(windows.SSL_CONTEXT[:]), windows.NCRYPT_SCHANNEL_INTERFACE, &size, &funcs)
++	if err != nil {
++		return nil, err
++	}
++	defer windows.BCryptFreeBuffer(unsafe.Pointer(funcs))
++
++	suites := make([]uint16, 0, funcs.Count) // order[i] will be the index of suites[i] in the Schannel list
++	for i := range funcs.Count {
++		name := windows.UTF16PtrToString(funcs.At(int(i)))
++		id, ok := cipherSuiteID(name)
++		if !ok {
++			continue // cipher suite not found in the provided list
++		}
++		suites = append(suites, id)
++	}
++	return suites, nil
++}
++
++// filterCipherSuites filters the provided cipher suites, creating a new slice
++// that only includes those that are in the allowed list.
++func filterCipherSuites(suites, allowed []uint16) []uint16 {
++	out := make([]uint16, 0, len(suites))
++	for _, suite := range suites {
++		if slices.Contains(allowed, suite) {
++			out = append(out, suite)
++		}
++	}
++	return out
++}
++
++// orderCipherSuites returns a new slice of cipher suites ordered according to the provided order.
++// If suites contains a cipher suite that is not in the order, it will be placed
++// at the end of the returned slice in the order they appear in suites.
++func orderCipherSuites(suites []uint16, order []uint16) []uint16 {
++	out := make([]uint16, 0, len(suites))
++	for _, id := range order {
++		if slices.Contains(suites, id) {
++			out = append(out, id)
++		}
++	}
++	for _, id := range suites {
++		if !slices.Contains(out, id) {
++			out = append(out, id)
++		}
++	}
++	return out
++}
++
++// disableCipherSuites modifies the disabled map adding the cippher suites in supported
++// that are not in allowed.
++func disableCipherSuites(supported []*CipherSuite, allowed []uint16, disabled map[uint16]bool) {
++	for _, suite := range supported {
++		if !slices.Contains(allowed, suite.ID) {
++			disabled[suite.ID] = true
++		}
++	}
++}
+diff --git a/src/crypto/tls/schannel_windows_test.go b/src/crypto/tls/schannel_windows_test.go
+new file mode 100644
+index 00000000000000..88f693ddce77a6
+--- /dev/null
++++ b/src/crypto/tls/schannel_windows_test.go
+@@ -0,0 +1,94 @@
++// Copyright 2025 The Go Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style
++// license that can be found in the LICENSE file.
++
++//go:build goexperiment.ms_tls_config_schannel
++
++package tls
++
++import (
++	"bytes"
++	"os/exec"
++	"sync"
++	"testing"
++)
++
++var schannelSuites = sync.OnceValue(func() []uint16 {
++	cipherSuites, err := cipherSuitesSchannel()
++	if err != nil {
++		panic(err) // This should never happen, as Schannel is always available on Windows.
++	}
++	return cipherSuites
++})
++
++func TestCipherSuitesSchannel(t *testing.T) {
++	cipherSuites, err := cipherSuitesSchannel()
++	if err != nil {
++		t.Fatal(err)
++	}
++	if len(cipherSuites) == 0 {
++		t.Fatal("cipherSuitesSchannel returned no cipher suites")
++	}
++
++	for _, suite := range cipherSuites {
++		if suite == 0 {
++			t.Fatal("cipherSuitesSchannel returned a 0 cipher suite")
++		}
++	}
++
++	// Check that all the cipher suites are present in the Get-TlsCipherSuite output.
++	output, err := exec.Command("powershell", "-Command", "Get-TlsCipherSuite").CombinedOutput()
++	if err != nil {
++		t.Fatalf("failed to get TLS cipher suites: %v\n%s", err, output)
++	}
++	for _, id := range cipherSuites {
++		name := CipherSuiteName(id)
++		if !bytes.Contains(output, []byte(name)) {
++			t.Errorf("cipher suite %s not found in PowerShell output", name)
++		}
++	}
++}
++
++func TestCipherSuitePreferenceSchannelTLS12(t *testing.T) {
++	// Schannel should prefer AES-256 over AES-128.
++	serverConfig := &Config{
++		CipherSuites: []uint16{TLS_RSA_WITH_RC4_128_SHA, TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256},
++		Certificates: testConfig.Certificates,
++		MaxVersion:   VersionTLS12,
++		GetConfigForClient: func(chi *ClientHelloInfo) (*Config, error) {
++			if chi.CipherSuites[0] != TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256 {
++				t.Error("the advertised order should not depend on Config.CipherSuites")
++			}
++			return nil, nil
++		},
++	}
++	clientConfig := &Config{
++		CipherSuites:       []uint16{TLS_RSA_WITH_RC4_128_SHA, TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256},
++		InsecureSkipVerify: true,
++	}
++	state, _, err := testHandshake(t, clientConfig, serverConfig)
++	if err != nil {
++		t.Fatalf("handshake failed: %s", err)
++	}
++	if state.CipherSuite != TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256 {
++		t.Error("the preference order should not depend on Config.CipherSuites")
++	}
++}
++
++func TestCipherSuitePreferenceSchannelTLS13(t *testing.T) {
++	// Schannel should prefer AES-256 over AES-128.
++	serverConfig := &Config{
++		Certificates: testConfig.Certificates,
++		MaxVersion:   VersionTLS13,
++	}
++	clientConfig := &Config{
++		InsecureSkipVerify: true,
++	}
++	state, _, err := testHandshake(t, clientConfig, serverConfig)
++	if err != nil {
++		t.Fatalf("handshake failed: %s", err)
++	}
++	if state.CipherSuite != TLS_AES_256_GCM_SHA384 {
++		t.Error("the preference order should not depend on Config.CipherSuites")
++	}
++}
+diff --git a/src/crypto/tls/tls_test.go b/src/crypto/tls/tls_test.go
+index 13c5ddced2cddb..423796e36cd155 100644
+--- a/src/crypto/tls/tls_test.go
++++ b/src/crypto/tls/tls_test.go
+@@ -18,6 +18,7 @@ import (
+ 	"encoding/pem"
+ 	"errors"
+ 	"fmt"
++	"internal/goexperiment"
+ 	"internal/testenv"
+ 	"io"
+ 	"math"
+@@ -1404,6 +1405,11 @@ func TestClientHelloInfo_SupportsCertificate(t *testing.T) {
+ 		}, ""}, // static RSA fallback
+ 	}
+ 	for i, tt := range tests {
++		if goexperiment.MS_TLS_Config_Schannel &&
++			len(tt.chi.SupportedVersions) == 1 && tt.chi.SupportedVersions[0] == VersionTLS10 {
++			// Schannel might not support TLS 1.0.
++			continue
++		}
+ 		err := tt.chi.SupportsCertificate(tt.c)
+ 		switch {
+ 		case tt.wantErr == "" && err != nil:
+@@ -1417,6 +1423,11 @@ func TestClientHelloInfo_SupportsCertificate(t *testing.T) {
+ }
+ 
+ func TestCipherSuites(t *testing.T) {
++	if goexperiment.MS_TLS_Config_Schannel {
++		// Schannel mode is not supported for these tests,
++		// as available cipher suites are not reproducible.
++		t.Skip("skipping cipher suite test in Schannel mode")
++	}
+ 	var lastID uint16
+ 	for _, c := range CipherSuites() {
+ 		if lastID > c.ID {
+diff --git a/src/internal/goexperiment/exp_ms_tls_config_schannel_off.go b/src/internal/goexperiment/exp_ms_tls_config_schannel_off.go
+new file mode 100644
+index 00000000000000..db7790d1a1f1b9
+--- /dev/null
++++ b/src/internal/goexperiment/exp_ms_tls_config_schannel_off.go
+@@ -0,0 +1,8 @@
++// Code generated by mkconsts.go. DO NOT EDIT.
++
++//go:build !goexperiment.ms_tls_config_schannel
++
++package goexperiment
++
++const MS_TLS_Config_Schannel = false
++const MS_TLS_Config_SchannelInt = 0
+diff --git a/src/internal/goexperiment/exp_ms_tls_config_schannel_on.go b/src/internal/goexperiment/exp_ms_tls_config_schannel_on.go
+new file mode 100644
+index 00000000000000..a2dbc6187da2a0
+--- /dev/null
++++ b/src/internal/goexperiment/exp_ms_tls_config_schannel_on.go
+@@ -0,0 +1,8 @@
++// Code generated by mkconsts.go. DO NOT EDIT.
++
++//go:build goexperiment.ms_tls_config_schannel
++
++package goexperiment
++
++const MS_TLS_Config_Schannel = true
++const MS_TLS_Config_SchannelInt = 1
+diff --git a/src/internal/goexperiment/flags.go b/src/internal/goexperiment/flags.go
+index 8e4cf87664e28e..206d7b110cbc4e 100644
+--- a/src/internal/goexperiment/flags.go
++++ b/src/internal/goexperiment/flags.go
+@@ -140,4 +140,8 @@ type Flags struct {
+ 	// Requires that gotypesalias=1 is set with GODEBUG.
+ 	// This flag will be removed with Go 1.24.
+ 	AliasTypeParams bool
++
++	// MS_TLS_Config_Schannel enables the filtering and ordering of cipher suites
++	// according to the Windows Schannel settings.
++	MS_TLS_Config_Schannel bool
+ }
+diff --git a/src/internal/syscall/windows/security_windows.go b/src/internal/syscall/windows/security_windows.go
+index c8c5cbed747360..40d6f07b812852 100644
+--- a/src/internal/syscall/windows/security_windows.go
++++ b/src/internal/syscall/windows/security_windows.go
+@@ -132,3 +132,31 @@ type UserInfo4 struct {
+ //
+ //go:linkname GetSystemDirectory
+ func GetSystemDirectory() string // Implemented in runtime package.
++
++const (
++	CRYPT_LOCAL = 0x00000001
++
++	CRYPT_UM = 0x00000001
++
++	NCRYPT_SCHANNEL_INTERFACE = 0x00010002
++)
++
++var SSL_CONTEXT = [...]uint16{'S', 'S', 'L', 0}
++
++type CRYPT_CONTEXT_FUNCTIONS struct {
++	Count     uint32
++	Functions **uint16 // pointer to an array of pointers to null-terminated UTF-16 function names
++}
++
++func (ccf *CRYPT_CONTEXT_FUNCTIONS) At(i int) *uint16 {
++	if i < 0 || i >= int(ccf.Count) {
++		panic("index out of range")
++	}
++	if ccf.Functions == nil || *ccf.Functions == nil {
++		return nil
++	}
++	return *(**uint16)(unsafe.Add(unsafe.Pointer(ccf.Functions), uintptr(i)*unsafe.Sizeof(uintptr(0))))
++}
++
++//sys	BCryptFreeBuffer(buffer unsafe.Pointer) = bcrypt.BCryptFreeBuffer
++//sys	BCryptEnumContextFunctions(table uint32, context *uint16, iface uint32, bufferSize *uint32, buffer **CRYPT_CONTEXT_FUNCTIONS) (err error) = bcrypt.BCryptEnumContextFunctions
+\ No newline at end of file
+diff --git a/src/internal/syscall/windows/syscall_windows.go b/src/internal/syscall/windows/syscall_windows.go
+index cc26a50bb0acf2..d5a8b86718e4f4 100644
+--- a/src/internal/syscall/windows/syscall_windows.go
++++ b/src/internal/syscall/windows/syscall_windows.go
+@@ -499,3 +499,19 @@ func QueryPerformanceCounter() int64 // Implemented in runtime package.
+ //
+ //go:linkname QueryPerformanceFrequency
+ func QueryPerformanceFrequency() int64 // Implemented in runtime package.
++
++//sys   rtlNtStatusToDosErrorNoTeb(ntstatus NTStatus) (ret syscall.Errno) = ntdll.RtlNtStatusToDosErrorNoTeb
++
++// NTStatus corresponds with NTSTATUS, error values returned by ntdll.dll and
++// other native functions.
++type NTStatus uint32
++
++func (s NTStatus) Errno() syscall.Errno {
++	return rtlNtStatusToDosErrorNoTeb(s)
++}
++
++func langID(pri, sub uint16) uint32 { return uint32(sub)<<10 | uint32(pri) }
++
++func (s NTStatus) Error() string {
++	return s.Errno().Error()
++}
+\ No newline at end of file
+diff --git a/src/internal/syscall/windows/zsyscall_windows.go b/src/internal/syscall/windows/zsyscall_windows.go
+index 414ad2647d1abd..35ee24f125928d 100644
+--- a/src/internal/syscall/windows/zsyscall_windows.go
++++ b/src/internal/syscall/windows/zsyscall_windows.go
+@@ -38,6 +38,7 @@ func errnoErr(e syscall.Errno) error {
+ 
+ var (
+ 	modadvapi32         = syscall.NewLazyDLL(sysdll.Add("advapi32.dll"))
++	modbcrypt           = syscall.NewLazyDLL(sysdll.Add("bcrypt.dll"))
+ 	modbcryptprimitives = syscall.NewLazyDLL(sysdll.Add("bcryptprimitives.dll"))
+ 	modiphlpapi         = syscall.NewLazyDLL(sysdll.Add("iphlpapi.dll"))
+ 	modkernel32         = syscall.NewLazyDLL(sysdll.Add("kernel32.dll"))
+@@ -57,6 +58,8 @@ var (
+ 	procQueryServiceStatus                = modadvapi32.NewProc("QueryServiceStatus")
+ 	procRevertToSelf                      = modadvapi32.NewProc("RevertToSelf")
+ 	procSetTokenInformation               = modadvapi32.NewProc("SetTokenInformation")
++	procBCryptEnumContextFunctions        = modbcrypt.NewProc("BCryptEnumContextFunctions")
++	procBCryptFreeBuffer                  = modbcrypt.NewProc("BCryptFreeBuffer")
+ 	procProcessPrng                       = modbcryptprimitives.NewProc("ProcessPrng")
+ 	procGetAdaptersAddresses              = modiphlpapi.NewProc("GetAdaptersAddresses")
+ 	procCreateEventW                      = modkernel32.NewProc("CreateEventW")
+@@ -84,6 +87,7 @@ var (
+ 	procNetShareDel                       = modnetapi32.NewProc("NetShareDel")
+ 	procNetUserGetLocalGroups             = modnetapi32.NewProc("NetUserGetLocalGroups")
+ 	procRtlGetVersion                     = modntdll.NewProc("RtlGetVersion")
++	procRtlNtStatusToDosErrorNoTeb        = modntdll.NewProc("RtlNtStatusToDosErrorNoTeb")
+ 	procGetProcessMemoryInfo              = modpsapi.NewProc("GetProcessMemoryInfo")
+ 	procCreateEnvironmentBlock            = moduserenv.NewProc("CreateEnvironmentBlock")
+ 	procDestroyEnvironmentBlock           = moduserenv.NewProc("DestroyEnvironmentBlock")
+@@ -183,6 +187,19 @@ func SetTokenInformation(tokenHandle syscall.Token, tokenInformationClass uint32
+ 	return
+ }
+ 
++func BCryptEnumContextFunctions(table uint32, context *uint16, iface uint32, bufferSize *uint32, buffer **CRYPT_CONTEXT_FUNCTIONS) (ntstatus error) {
++	r0, _, _ := syscall.Syscall6(procBCryptEnumContextFunctions.Addr(), 5, uintptr(table), uintptr(unsafe.Pointer(context)), uintptr(iface), uintptr(unsafe.Pointer(bufferSize)), uintptr(unsafe.Pointer(buffer)), 0)
++	if r0 != 0 {
++		ntstatus = NTStatus(r0)
++	}
++	return
++}
++
++func BCryptFreeBuffer(buffer unsafe.Pointer) {
++	syscall.Syscall(procBCryptFreeBuffer.Addr(), 1, uintptr(buffer), 0, 0)
++	return
++}
++
+ func ProcessPrng(buf []byte) (err error) {
+ 	var _p0 *byte
+ 	if len(buf) > 0 {
+@@ -398,6 +415,12 @@ func rtlGetVersion(info *_OSVERSIONINFOW) {
+ 	return
+ }
+ 
++func rtlNtStatusToDosErrorNoTeb(ntstatus NTStatus) (ret syscall.Errno) {
++	r0, _, _ := syscall.Syscall(procRtlNtStatusToDosErrorNoTeb.Addr(), 1, uintptr(ntstatus), 0, 0)
++	ret = syscall.Errno(r0)
++	return
++}
++
+ func GetProcessMemoryInfo(handle syscall.Handle, memCounters *PROCESS_MEMORY_COUNTERS, cb uint32) (err error) {
+ 	r1, _, e1 := syscall.Syscall(procGetProcessMemoryInfo.Addr(), 3, uintptr(handle), uintptr(unsafe.Pointer(memCounters)), uintptr(cb))
+ 	if r1 == 0 {
