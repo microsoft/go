@@ -19,7 +19,7 @@ maintain this feature. For more information, see the test files.
  .../testdata/backendtags_openssl/openssl.go   |  3 +
  .../build/testdata/backendtags_system/main.go |  3 +
  .../backendtags_system/systemcrypto.go        |  3 +
- src/internal/buildcfg/exp.go                  | 15 ++++
+ src/internal/buildcfg/exp.go                  | 28 +++++++
  .../goexperiment/exp_cngcrypto_off.go         |  8 ++
  src/internal/goexperiment/exp_cngcrypto_on.go |  8 ++
  .../goexperiment/exp_darwincrypto_off.go      |  8 ++
@@ -29,7 +29,7 @@ maintain this feature. For more information, see the test files.
  .../goexperiment/exp_systemcrypto_off.go      |  8 ++
  .../goexperiment/exp_systemcrypto_on.go       |  8 ++
  src/internal/goexperiment/flags.go            | 18 ++++
- 18 files changed, 374 insertions(+), 4 deletions(-)
+ 18 files changed, 387 insertions(+), 4 deletions(-)
  create mode 100644 src/cmd/go/internal/modindex/build_test.go
  create mode 100644 src/go/build/buildbackend_test.go
  create mode 100644 src/go/build/testdata/backendtags_openssl/main.go
@@ -387,10 +387,37 @@ index 00000000000000..eb8a026982259c
 +
 +package main
 diff --git a/src/internal/buildcfg/exp.go b/src/internal/buildcfg/exp.go
-index e36ec08a5b0232..c1bd89cf694bea 100644
+index 689ca8ce58a6f2..9b3bafd0fc6cd9 100644
 --- a/src/internal/buildcfg/exp.go
 +++ b/src/internal/buildcfg/exp.go
-@@ -126,6 +126,14 @@ func ParseGOEXPERIMENT(goos, goarch, goexp string) (*ExperimentFlags, error) {
+@@ -67,6 +67,18 @@ func ParseGOEXPERIMENT(goos, goarch, goexp string) (*ExperimentFlags, error) {
+ 		regabiSupported = true
+ 	}
+ 
++	// These are the goos/goarch combinations where systemcrypto is
++	// enabled by default.
++	var systemCryptoSupported bool
++	switch goos {
++	case "windows":
++		systemCryptoSupported = goarch == "amd64" || goarch == "arm64"
++	case "linux":
++		systemCryptoSupported = true
++	case "darwin":
++		// darwincrypto is still experimental.
++	}
++
+ 	// Older versions (anything before V16) of dsymutil don't handle
+ 	// the .debug_rnglists section in DWARF5. See
+ 	// https://github.com/golang/go/issues/26379#issuecomment-2677068742
+@@ -85,6 +97,7 @@ func ParseGOEXPERIMENT(goos, goarch, goexp string) (*ExperimentFlags, error) {
+ 		SwissMap:        true,
+ 		SyncHashTrieMap: true,
+ 		Dwarf5:          dwarf5Supported,
++		SystemCrypto:    systemCryptoSupported,
+ 	}
+ 
+ 	// Start with the statically enabled set of experiments.
+@@ -126,6 +139,14 @@ func ParseGOEXPERIMENT(goos, goarch, goexp string) (*ExperimentFlags, error) {
  				// to build with any experiment flags.
  				flags.Flags = goexperiment.Flags{}
  				continue
@@ -405,7 +432,7 @@ index e36ec08a5b0232..c1bd89cf694bea 100644
  			}
  			val := true
  			if strings.HasPrefix(f, "no") {
-@@ -139,6 +147,10 @@ func ParseGOEXPERIMENT(goos, goarch, goexp string) (*ExperimentFlags, error) {
+@@ -139,6 +160,10 @@ func ParseGOEXPERIMENT(goos, goarch, goexp string) (*ExperimentFlags, error) {
  		}
  	}
  
@@ -416,7 +443,7 @@ index e36ec08a5b0232..c1bd89cf694bea 100644
  	if regabiAlwaysOn {
  		flags.RegabiWrappers = true
  		flags.RegabiArgs = true
-@@ -152,6 +164,9 @@ func ParseGOEXPERIMENT(goos, goarch, goexp string) (*ExperimentFlags, error) {
+@@ -152,6 +177,9 @@ func ParseGOEXPERIMENT(goos, goarch, goexp string) (*ExperimentFlags, error) {
  	if flags.RegabiArgs && !flags.RegabiWrappers {
  		return nil, fmt.Errorf("GOEXPERIMENT regabiargs requires regabiwrappers")
  	}
@@ -539,7 +566,7 @@ index 00000000000000..fcd4cb9da0d162
 +const SystemCrypto = true
 +const SystemCryptoInt = 1
 diff --git a/src/internal/goexperiment/flags.go b/src/internal/goexperiment/flags.go
-index ceff24193d89a5..6b4289503d57ae 100644
+index 63a338883991e0..04f8fce2dfed03 100644
 --- a/src/internal/goexperiment/flags.go
 +++ b/src/internal/goexperiment/flags.go
 @@ -59,6 +59,24 @@ type Flags struct {
