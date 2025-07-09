@@ -292,7 +292,7 @@ If a Windows system is in FIPS mode, CNG is already in FIPS mode, and the fork e
 
 ### Build option to require FIPS mode
 
-FIPS mode preference is normally determined at runtime, but the `GOFIPS140=latest` and `requirefips` options can be used to make a program always require FIPS mode and panic if FIPS mode is not enabled:
+FIPS mode preference is normally determined at runtime, but the `GOFIPS140=latest` and `requirefips` options can be used to make a program (that depends on the `crypto` package) always require FIPS mode and panic if FIPS mode is not enabled:
 
 - The `requirefips` build tag is available since Go 1.21. See [the "GOFLAGS" example in the build section](#modify-the-build-command).
 - The `GOFIPS140=latest` environment variable is available since Go 1.24.

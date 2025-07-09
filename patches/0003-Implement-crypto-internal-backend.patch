@@ -119,7 +119,7 @@ index 1edabf9fb7ff04..026f8cb0278ab6 100644
  		}
  
 diff --git a/src/cmd/compile/internal/ssa/stmtlines_test.go b/src/cmd/compile/internal/ssa/stmtlines_test.go
-index e17a5402af818d..e83c4c5b79d11b 100644
+index 8cd11e9828e0f9..4de8629a078d58 100644
 --- a/src/cmd/compile/internal/ssa/stmtlines_test.go
 +++ b/src/cmd/compile/internal/ssa/stmtlines_test.go
 @@ -113,7 +113,6 @@ func TestStmtLines(t *testing.T) {
@@ -358,7 +358,7 @@ index e913f9885234fd..ef331980a816a3 100644
  	if gccgoflags := BuildGccgoflags.String(); gccgoflags != "" && cfg.BuildContext.Compiler == "gccgo" {
 diff --git a/src/cmd/go/systemcrypto_test.go b/src/cmd/go/systemcrypto_test.go
 new file mode 100644
-index 00000000000000..33d85d0df477d7
+index 00000000000000..5ee9c2e050cf24
 --- /dev/null
 +++ b/src/cmd/go/systemcrypto_test.go
 @@ -0,0 +1,144 @@
@@ -402,7 +402,7 @@ index 00000000000000..33d85d0df477d7
 +}
 +`
 +
-+func execGoTool(t *testing.T, allowFail bool, env []string, args ...string) (bool, string) {
++func execGoTool(t *testing.T, allowFail bool, env []string, args ...string) (string, bool) {
 +	t.Helper()
 +	cmd := testenv.Command(t, testenv.GoToolPath(t), args...)
 +	cmd = testenv.CleanCmdEnv(cmd)
@@ -411,11 +411,11 @@ index 00000000000000..33d85d0df477d7
 +	sout := strings.TrimSpace(string(out))
 +	if err != nil {
 +		if allowFail {
-+			return false, sout
++			return sout, false
 +		}
 +		t.Fatalf("go build failed: %v\n%s", err, out)
 +	}
-+	return true, sout
++	return sout, true
 +}
 +
 +// writeFile creates a temporary file with the given content and returns its path.
@@ -490,13 +490,13 @@ index 00000000000000..33d85d0df477d7
 +			out := outPath(t)
 +
 +			// Build the binary with the specified GOEXPERIMENT.
-+			succed, _ := execGoTool(t, true, []string{"GOEXPERIMENT=" + tt.exp}, "build", "-o", out, file)
-+			if !succed {
++			_, ok := execGoTool(t, true, []string{"GOEXPERIMENT=" + tt.exp}, "build", "-o", out, file)
++			if !ok {
 +				t.Skip("skipping test because GOEXPERIMENT not supported by the current toolchain")
 +			}
 +
 +			// Check that the binary has the correct settings.
-+			_, settings := execGoTool(t, false, nil, "version", "-m", out)
++			settings, _ := execGoTool(t, false, nil, "version", "-m", out)
 +			hashSetting := strings.Contains(settings, "microsoft_systemcrypto=1")
 +			if tt.enabled && !hashSetting {
 +				t.Errorf("expected microsoft_systemcrypto=1 in settings, got %v", settings)
@@ -2693,7 +2693,7 @@ index 9b7613a62b5a31..1997d90f2f20ba 100644
  	< crypto/rand
  	< crypto/ed25519 # depends on crypto/rand.Reader
 diff --git a/src/internal/buildcfg/exp.go b/src/internal/buildcfg/exp.go
-index bba73cfab9a108..c6bc4f165e6048 100644
+index bba73cfab9a108..11ffdf2213dc7b 100644
 --- a/src/internal/buildcfg/exp.go
 +++ b/src/internal/buildcfg/exp.go
 @@ -5,11 +5,14 @@
@@ -2754,7 +2754,7 @@ index bba73cfab9a108..c6bc4f165e6048 100644
 +		}
 +		if backend.name != "systemcrypto" { // systemcrypto can coexist with other valid backends
 +			for _, backend2 := range backends[i+1:] {
-+				if !backend2.enabled {
++				if !backend2.enabled || backend2.name == "systemcrypto" {
 +					continue
 +				}
 +				errs = append(errs, fmt.Sprintf("GOEXPERIMENT %s and %s are both enabled, but they are mutually exclusive",
