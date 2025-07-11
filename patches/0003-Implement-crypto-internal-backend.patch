@@ -13,7 +13,7 @@ desired goexperiments and build tags.
  .../compile/internal/logopt/logopt_test.go    |   6 +-
  .../compile/internal/ssa/stmtlines_test.go    |   1 -
  src/cmd/compile/script_test.go                |   8 +
- src/cmd/dist/build.go                         |  17 +
+ src/cmd/dist/build.go                         |  23 ++
  src/cmd/dist/test.go                          |  45 ++-
  src/cmd/go/go_test.go                         |  11 +
  src/cmd/go/internal/load/pkg.go               |   3 +
@@ -52,7 +52,7 @@ desired goexperiments and build tags.
  src/internal/buildcfg/exp.go                  |  54 +++
  src/runtime/runtime_boring.go                 |   5 +
  src/syscall/exec_linux_test.go                |   2 +-
- 43 files changed, 2214 insertions(+), 17 deletions(-)
+ 43 files changed, 2220 insertions(+), 17 deletions(-)
  create mode 100644 src/cmd/go/systemcrypto_test.go
  create mode 100644 src/crypto/internal/backend/backend_test.go
  create mode 100644 src/crypto/internal/backend/bbig/big.go
@@ -157,10 +157,10 @@ index 0e32e0769ee2e2..eda2d576acc6c6 100644
  	if doReplacement {
  		if testCompiler == "" {
 diff --git a/src/cmd/dist/build.go b/src/cmd/dist/build.go
-index 024050c2dd70c4..1291bb632d2f7e 100644
+index 024050c2dd70c4..e39be4bef50022 100644
 --- a/src/cmd/dist/build.go
 +++ b/src/cmd/dist/build.go
-@@ -1390,6 +1390,17 @@ func toolenv() []string {
+@@ -1390,6 +1390,23 @@ func toolenv() []string {
  	return env
  }
  
@@ -168,17 +168,23 @@ index 024050c2dd70c4..1291bb632d2f7e 100644
 +// the Microsoft build of Go should not use it. Go only uses crypto packages
 +// for non-crypto purposes, such as generating build IDs.
 +func disableSystemCrypto() {
-+	goexp := os.Getenv("GOEXPERIMENT")
-+	if goexp != "" {
-+		goexp += ","
++	goexp := strings.Split(os.Getenv("GOEXPERIMENT"), ",")
++	if len(goexp) == 1 && goexp[0] == "" {
++		goexp = nil
 +	}
-+	os.Setenv("GOEXPERIMENT", goexp+"nosystemcrypto")
++	goexp = slices.DeleteFunc(goexp, func(s string) bool {
++		return s == "systemcrypto"
++	})
++	if !slices.Contains(goexp, "nosystemcrypto") {
++		goexp = append(goexp, "nosystemcrypto")
++	}
++	os.Setenv("GOEXPERIMENT", strings.Join(goexp, ","))
 +}
 +
  var (
  	toolchain = []string{"cmd/asm", "cmd/cgo", "cmd/compile", "cmd/link", "cmd/preprofile"}
  
-@@ -1548,6 +1559,12 @@ func cmdbootstrap() {
+@@ -1548,6 +1565,12 @@ func cmdbootstrap() {
  	os.Setenv("CC", compilerEnvLookup("CC", defaultcc, goos, goarch))
  	// Now that cmd/go is in charge of the build process, enable GOEXPERIMENT.
  	os.Setenv("GOEXPERIMENT", goexperiment)
