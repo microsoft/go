@@ -13,7 +13,7 @@ desired goexperiments and build tags.
  .../compile/internal/logopt/logopt_test.go    |   6 +-
  .../compile/internal/ssa/stmtlines_test.go    |   1 -
  src/cmd/compile/script_test.go                |   8 +
- src/cmd/dist/build.go                         |  11 +
+ src/cmd/dist/build.go                         |  13 +
  src/cmd/dist/test.go                          |  44 ++-
  src/cmd/go/go_test.go                         |  11 +
  src/cmd/go/internal/load/pkg.go               |   3 +
@@ -52,7 +52,7 @@ desired goexperiments and build tags.
  src/internal/buildcfg/exp.go                  |  54 +++
  src/runtime/runtime_boring.go                 |   5 +
  src/syscall/exec_linux_test.go                |   2 +-
- 43 files changed, 2207 insertions(+), 17 deletions(-)
+ 43 files changed, 2209 insertions(+), 17 deletions(-)
  create mode 100644 src/cmd/go/systemcrypto_test.go
  create mode 100644 src/crypto/internal/backend/backend_test.go
  create mode 100644 src/crypto/internal/backend/bbig/big.go
@@ -157,23 +157,25 @@ index 0e32e0769ee2e2..eda2d576acc6c6 100644
  	if doReplacement {
  		if testCompiler == "" {
 diff --git a/src/cmd/dist/build.go b/src/cmd/dist/build.go
-index 024050c2dd70c4..3c82b7436d10bf 100644
+index 024050c2dd70c4..ad7a09918c38c2 100644
 --- a/src/cmd/dist/build.go
 +++ b/src/cmd/dist/build.go
-@@ -1387,6 +1387,12 @@ func toolenv() []string {
+@@ -1387,6 +1387,14 @@ func toolenv() []string {
  		// still have full paths for stack traces for compiler crashes and the like.
  		env = append(env, "GOFLAGS=-trimpath -ldflags=-w -gcflags=cmd/...=-dwarf=false")
  	}
-+	if goexp := os.Getenv("GOEXPERIMENT"); goexp != "" {
-+		// Remove systemcrypto from GOEXPERIMENT: to favor portability, the
-+		// Microsoft build of Go should not use it. Go only uses crypto packages
-+		// for non-crypto purposes, such as generating build IDs.
-+		env = append(env, "GOEXPERIMENT="+goexp+",nosystemcrypto")
++	// Remove systemcrypto from GOEXPERIMENT: to favor portability, the
++	// Microsoft build of Go should not use it. Go only uses crypto packages
++	// for non-crypto purposes, such as generating build IDs.
++	goexp := os.Getenv("GOEXPERIMENT")
++	if goexp != "" {
++		goexp += ","
 +	}
++	env = append(env, "GOEXPERIMENT="+goexp+"nosystemcrypto")
  	return env
  }
  
-@@ -1548,6 +1554,11 @@ func cmdbootstrap() {
+@@ -1548,6 +1556,11 @@ func cmdbootstrap() {
  	os.Setenv("CC", compilerEnvLookup("CC", defaultcc, goos, goarch))
  	// Now that cmd/go is in charge of the build process, enable GOEXPERIMENT.
  	os.Setenv("GOEXPERIMENT", goexperiment)
@@ -343,7 +345,7 @@ index 3e691abe41f702..b799031d598892 100644
  	tg.parallel()
  	defer tg.cleanup()
 diff --git a/src/cmd/go/internal/load/pkg.go b/src/cmd/go/internal/load/pkg.go
-index e913f9885234fd..ef331980a816a3 100644
+index 1f791546f90088..d20890b4e70fae 100644
 --- a/src/cmd/go/internal/load/pkg.go
 +++ b/src/cmd/go/internal/load/pkg.go
 @@ -2412,6 +2412,9 @@ func (p *Package) setBuildInfo(ctx context.Context, autoVCS bool) {
@@ -2693,7 +2695,7 @@ index 9b7613a62b5a31..1997d90f2f20ba 100644
  	< crypto/rand
  	< crypto/ed25519 # depends on crypto/rand.Reader
 diff --git a/src/internal/buildcfg/exp.go b/src/internal/buildcfg/exp.go
-index bba73cfab9a108..11ffdf2213dc7b 100644
+index 9b3bafd0fc6cd9..b7cc2bdfa6ffd9 100644
 --- a/src/internal/buildcfg/exp.go
 +++ b/src/internal/buildcfg/exp.go
 @@ -5,11 +5,14 @@
@@ -2711,7 +2713,7 @@ index bba73cfab9a108..11ffdf2213dc7b 100644
  )
  
  // ExperimentFlags represents a set of GOEXPERIMENT flags relative to a baseline
-@@ -167,6 +170,57 @@ func ParseGOEXPERIMENT(goos, goarch, goexp string) (*ExperimentFlags, error) {
+@@ -180,6 +183,57 @@ func ParseGOEXPERIMENT(goos, goarch, goexp string) (*ExperimentFlags, error) {
  	if flags.BoringCrypto {
  		return nil, fmt.Errorf("GOEXPERIMENT boringcrypto is not supported in the Microsoft build of Go")
  	}
