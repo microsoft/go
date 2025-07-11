@@ -14,7 +14,7 @@ desired goexperiments and build tags.
  .../compile/internal/ssa/stmtlines_test.go    |   1 -
  src/cmd/compile/script_test.go                |   8 +
  src/cmd/dist/build.go                         |  29 +-
- src/cmd/dist/test.go                          |  45 ++-
+ src/cmd/dist/test.go                          |  44 ++-
  src/cmd/go/go_test.go                         |  11 +
  src/cmd/go/internal/load/pkg.go               |   3 +
  src/cmd/go/systemcrypto_test.go               | 144 +++++++
@@ -52,7 +52,7 @@ desired goexperiments and build tags.
  src/internal/buildcfg/exp.go                  |  54 +++
  src/runtime/runtime_boring.go                 |   5 +
  src/syscall/exec_linux_test.go                |   2 +-
- 43 files changed, 2222 insertions(+), 21 deletions(-)
+ 43 files changed, 2221 insertions(+), 21 deletions(-)
  create mode 100644 src/cmd/go/systemcrypto_test.go
  create mode 100644 src/crypto/internal/backend/backend_test.go
  create mode 100644 src/crypto/internal/backend/bbig/big.go
@@ -214,14 +214,13 @@ index 024050c2dd70c4..a3ae7ef562cace 100644
  	if debug {
  		run("", ShowOutput|CheckExit, pathf("%s/compile", tooldir), "-V=full")
 diff --git a/src/cmd/dist/test.go b/src/cmd/dist/test.go
-index aa09d1eba34be8..e037970d95cba2 100644
+index aa09d1eba34be8..c3f3a8324c507c 100644
 --- a/src/cmd/dist/test.go
 +++ b/src/cmd/dist/test.go
-@@ -156,10 +156,13 @@ func (t *tester) run() {
+@@ -156,10 +156,12 @@ func (t *tester) run() {
  		}
  	}
  
-+	disableSystemCrypto()
 +	tags := []string{"-tags=ms_skipfipscheck"}
 +
  	if t.rebuild {
@@ -232,7 +231,7 @@ index aa09d1eba34be8..e037970d95cba2 100644
  	}
  
  	if !t.listMode {
-@@ -176,9 +179,9 @@ func (t *tester) run() {
+@@ -176,9 +178,9 @@ func (t *tester) run() {
  			// and virtualization we usually start with a clean GOCACHE, so we would
  			// end up rebuilding large parts of the standard library that aren't
  			// otherwise relevant to the actual set of packages under test.
@@ -245,7 +244,7 @@ index aa09d1eba34be8..e037970d95cba2 100644
  		}
  	}
  
-@@ -749,11 +752,18 @@ func (t *tester) registerTests() {
+@@ -749,11 +751,18 @@ func (t *tester) registerTests() {
  			variant: "jsonv2",
  			env:     []string{"GOEXPERIMENT=jsonv2"},
  			pkg:     "encoding/json/...",
@@ -265,7 +264,7 @@ index aa09d1eba34be8..e037970d95cba2 100644
  		t.registerTest("GOOS=ios on darwin/amd64",
  			&goTest{
  				variant:  "amd64ios",
-@@ -863,14 +873,21 @@ func (t *tester) registerTests() {
+@@ -863,14 +872,21 @@ func (t *tester) registerTests() {
  
  	// Test internal linking of PIE binaries where it is supported.
  	if t.internalLinkPIE() && !disablePIE {
@@ -288,7 +287,7 @@ index aa09d1eba34be8..e037970d95cba2 100644
  			})
  		t.registerTest("internal linking, -buildmode=pie",
  			&goTest{
-@@ -878,9 +895,10 @@ func (t *tester) registerTests() {
+@@ -878,9 +894,10 @@ func (t *tester) registerTests() {
  				timeout:   60 * time.Second,
  				buildmode: "pie",
  				ldflags:   "-linkmode=internal",
@@ -300,7 +299,7 @@ index aa09d1eba34be8..e037970d95cba2 100644
  			})
  		// Also test a cgo package.
  		if t.cgoEnabled && t.internalLink() && !disablePIE {
-@@ -897,15 +915,22 @@ func (t *tester) registerTests() {
+@@ -897,15 +914,22 @@ func (t *tester) registerTests() {
  
  	if t.extLink() && !t.compileOnly {
  		if goos != "android" { // Android does not support non-PIE linking
@@ -324,7 +323,7 @@ index aa09d1eba34be8..e037970d95cba2 100644
  				})
  		}
  		if t.externalLinkPIE() && !disablePIE {
-@@ -984,7 +1009,9 @@ func (t *tester) registerTests() {
+@@ -984,7 +1008,9 @@ func (t *tester) registerTests() {
  		t.registerRaceTests()
  	}
  
