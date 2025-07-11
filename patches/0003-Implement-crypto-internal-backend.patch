@@ -13,8 +13,8 @@ desired goexperiments and build tags.
  .../compile/internal/logopt/logopt_test.go    |   6 +-
  .../compile/internal/ssa/stmtlines_test.go    |   1 -
  src/cmd/compile/script_test.go                |   8 +
- src/cmd/dist/build.go                         |  13 +
- src/cmd/dist/test.go                          |  44 ++-
+ src/cmd/dist/build.go                         |  17 +
+ src/cmd/dist/test.go                          |  45 ++-
  src/cmd/go/go_test.go                         |  11 +
  src/cmd/go/internal/load/pkg.go               |   3 +
  src/cmd/go/systemcrypto_test.go               | 144 +++++++
@@ -52,7 +52,7 @@ desired goexperiments and build tags.
  src/internal/buildcfg/exp.go                  |  54 +++
  src/runtime/runtime_boring.go                 |   5 +
  src/syscall/exec_linux_test.go                |   2 +-
- 43 files changed, 2209 insertions(+), 17 deletions(-)
+ 43 files changed, 2214 insertions(+), 17 deletions(-)
  create mode 100644 src/cmd/go/systemcrypto_test.go
  create mode 100644 src/crypto/internal/backend/backend_test.go
  create mode 100644 src/crypto/internal/backend/bbig/big.go
@@ -157,28 +157,32 @@ index 0e32e0769ee2e2..eda2d576acc6c6 100644
  	if doReplacement {
  		if testCompiler == "" {
 diff --git a/src/cmd/dist/build.go b/src/cmd/dist/build.go
-index 024050c2dd70c4..ad7a09918c38c2 100644
+index 024050c2dd70c4..1291bb632d2f7e 100644
 --- a/src/cmd/dist/build.go
 +++ b/src/cmd/dist/build.go
-@@ -1387,6 +1387,14 @@ func toolenv() []string {
- 		// still have full paths for stack traces for compiler crashes and the like.
- 		env = append(env, "GOFLAGS=-trimpath -ldflags=-w -gcflags=cmd/...=-dwarf=false")
- 	}
-+	// Remove systemcrypto from GOEXPERIMENT: to favor portability, the
-+	// Microsoft build of Go should not use it. Go only uses crypto packages
-+	// for non-crypto purposes, such as generating build IDs.
+@@ -1390,6 +1390,17 @@ func toolenv() []string {
+ 	return env
+ }
+ 
++// disableSystemCrypto removes systemcrypto from GOEXPERIMENT: to favor portability,
++// the Microsoft build of Go should not use it. Go only uses crypto packages
++// for non-crypto purposes, such as generating build IDs.
++func disableSystemCrypto() {
 +	goexp := os.Getenv("GOEXPERIMENT")
 +	if goexp != "" {
 +		goexp += ","
 +	}
-+	env = append(env, "GOEXPERIMENT="+goexp+"nosystemcrypto")
- 	return env
- }
++	os.Setenv("GOEXPERIMENT", goexp+"nosystemcrypto")
++}
++
+ var (
+ 	toolchain = []string{"cmd/asm", "cmd/cgo", "cmd/compile", "cmd/link", "cmd/preprofile"}
  
-@@ -1548,6 +1556,11 @@ func cmdbootstrap() {
+@@ -1548,6 +1559,12 @@ func cmdbootstrap() {
  	os.Setenv("CC", compilerEnvLookup("CC", defaultcc, goos, goarch))
  	// Now that cmd/go is in charge of the build process, enable GOEXPERIMENT.
  	os.Setenv("GOEXPERIMENT", goexperiment)
++	disableSystemCrypto()
 +	// Build the Go toolchain with "-tags=ms_skipfipscheck". This
 +	// allows toolchains not built with the systemcrypto goexperiment to be used
 +	// when GODEBUG=fips140=on is set. For example, when running
@@ -188,13 +192,14 @@ index 024050c2dd70c4..ad7a09918c38c2 100644
  	goInstall(toolenv(), goBootstrap, append([]string{"-pgo=off"}, toolchain...)...)
  	if debug {
 diff --git a/src/cmd/dist/test.go b/src/cmd/dist/test.go
-index aa09d1eba34be8..c3f3a8324c507c 100644
+index aa09d1eba34be8..e037970d95cba2 100644
 --- a/src/cmd/dist/test.go
 +++ b/src/cmd/dist/test.go
-@@ -156,10 +156,12 @@ func (t *tester) run() {
+@@ -156,10 +156,13 @@ func (t *tester) run() {
  		}
  	}
  
++	disableSystemCrypto()
 +	tags := []string{"-tags=ms_skipfipscheck"}
 +
  	if t.rebuild {
@@ -205,7 +210,7 @@ index aa09d1eba34be8..c3f3a8324c507c 100644
  	}
  
  	if !t.listMode {
-@@ -176,9 +178,9 @@ func (t *tester) run() {
+@@ -176,9 +179,9 @@ func (t *tester) run() {
  			// and virtualization we usually start with a clean GOCACHE, so we would
  			// end up rebuilding large parts of the standard library that aren't
  			// otherwise relevant to the actual set of packages under test.
@@ -218,7 +223,7 @@ index aa09d1eba34be8..c3f3a8324c507c 100644
  		}
  	}
  
-@@ -749,11 +751,18 @@ func (t *tester) registerTests() {
+@@ -749,11 +752,18 @@ func (t *tester) registerTests() {
  			variant: "jsonv2",
  			env:     []string{"GOEXPERIMENT=jsonv2"},
  			pkg:     "encoding/json/...",
@@ -238,7 +243,7 @@ index aa09d1eba34be8..c3f3a8324c507c 100644
  		t.registerTest("GOOS=ios on darwin/amd64",
  			&goTest{
  				variant:  "amd64ios",
-@@ -863,14 +872,21 @@ func (t *tester) registerTests() {
+@@ -863,14 +873,21 @@ func (t *tester) registerTests() {
  
  	// Test internal linking of PIE binaries where it is supported.
  	if t.internalLinkPIE() && !disablePIE {
@@ -261,7 +266,7 @@ index aa09d1eba34be8..c3f3a8324c507c 100644
  			})
  		t.registerTest("internal linking, -buildmode=pie",
  			&goTest{
-@@ -878,9 +894,10 @@ func (t *tester) registerTests() {
+@@ -878,9 +895,10 @@ func (t *tester) registerTests() {
  				timeout:   60 * time.Second,
  				buildmode: "pie",
  				ldflags:   "-linkmode=internal",
@@ -273,7 +278,7 @@ index aa09d1eba34be8..c3f3a8324c507c 100644
  			})
  		// Also test a cgo package.
  		if t.cgoEnabled && t.internalLink() && !disablePIE {
-@@ -897,15 +914,22 @@ func (t *tester) registerTests() {
+@@ -897,15 +915,22 @@ func (t *tester) registerTests() {
  
  	if t.extLink() && !t.compileOnly {
  		if goos != "android" { // Android does not support non-PIE linking
@@ -297,7 +302,7 @@ index aa09d1eba34be8..c3f3a8324c507c 100644
  				})
  		}
  		if t.externalLinkPIE() && !disablePIE {
-@@ -984,7 +1008,9 @@ func (t *tester) registerTests() {
+@@ -984,7 +1009,9 @@ func (t *tester) registerTests() {
  		t.registerRaceTests()
  	}
  
