@@ -16,8 +16,9 @@ desired goexperiments and build tags.
  src/cmd/dist/build.go                         |  29 +-
  src/cmd/dist/test.go                          |  44 ++-
  src/cmd/go/go_test.go                         |  11 +
- src/cmd/go/internal/cfg/cfg.go                |  12 +
+ src/cmd/go/internal/cfg/cfg.go                |  11 +
  src/cmd/go/internal/load/pkg.go               |   3 +
+ src/cmd/go/internal/tool/tool.go              |   7 +
  src/cmd/go/systemcrypto_test.go               | 144 +++++++
  .../go/testdata/script/env_cross_build.txt    |   2 +
  .../script/test_android_issue62123.txt        |   2 +
@@ -54,7 +55,7 @@ desired goexperiments and build tags.
  src/internal/buildcfg/exp.go                  |  54 +++
  src/runtime/runtime_boring.go                 |   5 +
  src/syscall/exec_linux_test.go                |   2 +-
- 45 files changed, 2246 insertions(+), 22 deletions(-)
+ 46 files changed, 2252 insertions(+), 22 deletions(-)
  create mode 100644 src/cmd/go/systemcrypto_test.go
  create mode 100644 src/crypto/internal/backend/backend_test.go
  create mode 100644 src/crypto/internal/backend/bbig/big.go
@@ -373,7 +374,7 @@ index 3e691abe41f702..b799031d598892 100644
  	tg.parallel()
  	defer tg.cleanup()
 diff --git a/src/cmd/go/internal/cfg/cfg.go b/src/cmd/go/internal/cfg/cfg.go
-index a4edd854f1d35a..2214338adf86a0 100644
+index a4edd854f1d35a..f082588cb75549 100644
 --- a/src/cmd/go/internal/cfg/cfg.go
 +++ b/src/cmd/go/internal/cfg/cfg.go
 @@ -19,6 +19,7 @@ import (
@@ -384,7 +385,7 @@ index a4edd854f1d35a..2214338adf86a0 100644
  	"strings"
  	"sync"
  	"time"
-@@ -232,6 +233,17 @@ func ForceHost() {
+@@ -232,6 +233,16 @@ func ForceHost() {
  	// Recompute experiments: the settings determined depend on GOOS and GOARCH.
  	// This will also update the BuildContext's tool tags to include the new
  	// experiment tags.
@@ -398,7 +399,6 @@ index a4edd854f1d35a..2214338adf86a0 100644
 +	})
 +	goexp = append(goexp, "nosystemcrypto")
 +	RawGOEXPERIMENT = strings.Join(goexp, ",")
-+	os.Setenv("GOEXPERIMENT", RawGOEXPERIMENT)
  	computeExperiment()
  }
  
@@ -416,6 +416,31 @@ index 1f791546f90088..d20890b4e70fae 100644
  	appendSetting("-buildmode", buildmode)
  	appendSetting("-compiler", cfg.BuildContext.Compiler)
  	if gccgoflags := BuildGccgoflags.String(); gccgoflags != "" && cfg.BuildContext.Compiler == "gccgo" {
+diff --git a/src/cmd/go/internal/tool/tool.go b/src/cmd/go/internal/tool/tool.go
+index 16e1a4f47f49c0..38688015d5a704 100644
+--- a/src/cmd/go/internal/tool/tool.go
++++ b/src/cmd/go/internal/tool/tool.go
+@@ -281,6 +281,10 @@ func buildAndRunBuiltinTool(ctx context.Context, toolName, tool string, args []s
+ 	// Override GOOS and GOARCH for the build to build the tool using
+ 	// the same GOOS and GOARCH as this go command.
+ 	cfg.ForceHost()
++	// The tool might build some additional packages, set the GOEXPERIMENT
++	// environment variable to the one we just computed in cfg.ForceHost.
++	originalGOEXPERIMENT := os.Getenv("GOEXPERIMENT")
++	os.Setenv("GOEXPERIMENT", cfg.RawGOEXPERIMENT)
+ 
+ 	// Ignore go.mod and go.work: we don't need them, and we want to be able
+ 	// to run the tool even if there's an issue with the module or workspace the
+@@ -288,6 +292,9 @@ func buildAndRunBuiltinTool(ctx context.Context, toolName, tool string, args []s
+ 	modload.RootMode = modload.NoRoot
+ 
+ 	runFunc := func(b *work.Builder, ctx context.Context, a *work.Action) error {
++		// Now that the tool is built, revert the GOEXPERIMENT
++		// environment variable to the original value.
++		os.Setenv("GOEXPERIMENT", originalGOEXPERIMENT)
+ 		cmdline := str.StringList(a.Deps[0].BuiltTarget(), a.Args)
+ 		return runBuiltTool(toolName, nil, cmdline)
+ 	}
 diff --git a/src/cmd/go/systemcrypto_test.go b/src/cmd/go/systemcrypto_test.go
 new file mode 100644
 index 00000000000000..5ee9c2e050cf24
