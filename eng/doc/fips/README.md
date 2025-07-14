@@ -68,7 +68,7 @@ There are typically two goals that lead to this document. Creating a FIPS compli
 > 1.24 introduces `GODEBUG=fips140=on` as the preferred way to enable FIPS mode. See also [the Go 1.24 changelog](#go-124-feb-2025).
 
 > [!NOTE]
-> Since Go 1.25 `systemcrypto` is by default on Windows and Linux, there is no need to set it anymore. See also [the Go 1.25 changelog](#go-125-aug-2025).
+> Since Go 1.25 `systemcrypto` is enabled by default on Windows and Linux, there is no need to set it anymore. See also [the Go 1.25 changelog](#go-125-aug-2025).
 
 | Build-time config | Runtime config | Internal Microsoft crypto policy | FIPS behavior |
 | --- | --- | --- | --- |
@@ -139,7 +139,7 @@ See [the microsoft/go-images documentation][microsoft-go-images] for more inform
 ### Dockerfile env instruction
 
 > [!NOTE]
-> Since Go 1.25 `systemcrypto` is by default on Windows and Linux, there is no need to set it anymore. See also [the Go 1.25 changelog](#go-125-aug-2025).
+> Since Go 1.25 `systemcrypto` is enabled by default on Windows and Linux, there is no need to set it anymore. See also [the Go 1.25 changelog](#go-125-aug-2025).
 
 If you don't use the standard Go base images (e.g. your Dockerfile downloads the Microsoft build of Go manually), you can use an `env` instruction before the build instruction in your Dockerfile:
 
@@ -150,7 +150,7 @@ env GOEXPERIMENT=systemcrypto
 ### Modify the build command
 
 > [!NOTE]
-> Since Go 1.25 `systemcrypto` is by default on Windows and Linux, there is no need to set it anymore. See also [the Go 1.25 changelog](#go-125-aug-2025).
+> Since Go 1.25 `systemcrypto` is enabled by default on Windows and Linux, there is no need to set it anymore. See also [the Go 1.25 changelog](#go-125-aug-2025).
 
 Another approach that generally works for any build system is to modify the build command or build script. This section lists some helpful snippets to select a backend.
 
