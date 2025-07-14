@@ -17,6 +17,7 @@ desired goexperiments and build tags.
  src/cmd/dist/test.go                          |  44 ++-
  src/cmd/go/go_test.go                         |  11 +
  src/cmd/go/internal/load/pkg.go               |   3 +
+ src/cmd/go/internal/tool/tool.go              |  10 +
  src/cmd/go/systemcrypto_test.go               | 144 +++++++
  .../go/testdata/script/env_cross_build.txt    |   2 +
  .../script/test_android_issue62123.txt        |   2 +
@@ -53,7 +54,7 @@ desired goexperiments and build tags.
  src/internal/buildcfg/exp.go                  |  54 +++
  src/runtime/runtime_boring.go                 |   5 +
  src/syscall/exec_linux_test.go                |   2 +-
- 44 files changed, 2234 insertions(+), 22 deletions(-)
+ 45 files changed, 2244 insertions(+), 22 deletions(-)
  create mode 100644 src/cmd/go/systemcrypto_test.go
  create mode 100644 src/crypto/internal/backend/backend_test.go
  create mode 100644 src/crypto/internal/backend/bbig/big.go
@@ -385,6 +386,27 @@ index 1f791546f90088..d20890b4e70fae 100644
  	appendSetting("-buildmode", buildmode)
  	appendSetting("-compiler", cfg.BuildContext.Compiler)
  	if gccgoflags := BuildGccgoflags.String(); gccgoflags != "" && cfg.BuildContext.Compiler == "gccgo" {
+diff --git a/src/cmd/go/internal/tool/tool.go b/src/cmd/go/internal/tool/tool.go
+index 16e1a4f47f49c0..4a8f63f21c73cd 100644
+--- a/src/cmd/go/internal/tool/tool.go
++++ b/src/cmd/go/internal/tool/tool.go
+@@ -280,6 +280,16 @@ func loadModTool(ctx context.Context, name string) string {
+ func buildAndRunBuiltinTool(ctx context.Context, toolName, tool string, args []string) {
+ 	// Override GOOS and GOARCH for the build to build the tool using
+ 	// the same GOOS and GOARCH as this go command.
++	//
++	// Remove systemcrypto from the RawGOEXPERIMENT and add nosystemcrypto
++	// to the GOEXPERIMENT environment variable, so that the tool
++	// is built without systemcrypto, as the rest of the toolchain.
++	goexp := strings.Split(cfg.RawGOEXPERIMENT, ",")
++	goexp = slices.DeleteFunc(goexp, func(s string) bool {
++		return s == "systemcrypto" || s == ""
++	})
++	goexp = append(goexp, "nosystemcrypto")
++	cfg.RawGOEXPERIMENT = strings.Join(goexp, ",")
+ 	cfg.ForceHost()
+ 
+ 	// Ignore go.mod and go.work: we don't need them, and we want to be able
 diff --git a/src/cmd/go/systemcrypto_test.go b/src/cmd/go/systemcrypto_test.go
 new file mode 100644
 index 00000000000000..5ee9c2e050cf24
