@@ -21,6 +21,7 @@ desired goexperiments and build tags.
  .../go/testdata/script/env_cross_build.txt    |   2 +
  .../script/test_android_issue62123.txt        |   2 +
  src/cmd/internal/testdir/testdir_test.go      |   7 +
+ src/cmd/link/internal/ld/main.go              |  14 +-
  src/cmd/link/link_test.go                     |   8 +
  src/crypto/internal/backend/backend_test.go   |  30 ++
  src/crypto/internal/backend/bbig/big.go       |  17 +
@@ -52,7 +53,7 @@ desired goexperiments and build tags.
  src/internal/buildcfg/exp.go                  |  54 +++
  src/runtime/runtime_boring.go                 |   5 +
  src/syscall/exec_linux_test.go                |   2 +-
- 43 files changed, 2222 insertions(+), 21 deletions(-)
+ 44 files changed, 2235 insertions(+), 22 deletions(-)
  create mode 100644 src/cmd/go/systemcrypto_test.go
  create mode 100644 src/crypto/internal/backend/backend_test.go
  create mode 100644 src/crypto/internal/backend/bbig/big.go
@@ -576,6 +577,38 @@ index 483a9ec33c6798..fad922e3f844ab 100644
  	common := testCommon{
  		gorootTestDir: filepath.Join(testenv.GOROOT(t), "test"),
  		runoutputGate: make(chan bool, *runoutputLimit),
+diff --git a/src/cmd/link/internal/ld/main.go b/src/cmd/link/internal/ld/main.go
+index 6a684890be0a03..09554a60b23471 100644
+--- a/src/cmd/link/internal/ld/main.go
++++ b/src/cmd/link/internal/ld/main.go
+@@ -44,6 +44,7 @@ import (
+ 	"os"
+ 	"runtime"
+ 	"runtime/pprof"
++	"slices"
+ 	"strconv"
+ 	"strings"
+ )
+@@ -187,7 +188,18 @@ func Main(arch *sys.Arch, theArch Arch) {
+ 
+ 	buildVersion := buildcfg.Version
+ 	if goexperiment := buildcfg.Experiment.String(); goexperiment != "" {
+-		buildVersion += " X:" + goexperiment
++		// buildVersion is intended to contain non-default experiment flags.
++		// The Microsoft build of Go default behavior is to set the
++		// nosystemcrypto experiments, so we don't include it in the buildVersion string.
++		// This is also important because runtime.Version() gets the value from
++		// the buildVersion string, and many code out there, e.g. the standard library
++		// go/version package, doesn't expect the version to contain experiments.
++		goexperiment = strings.Join(slices.DeleteFunc(strings.Split(goexperiment, ","), func(s string) bool {
++			return s == "nosystemcrypto"
++		}), ",")
++		if goexperiment != "" {
++			buildVersion += " X:" + goexperiment
++		}
+ 	}
+ 	addstrdata1(ctxt, "runtime.buildVersion="+buildVersion)
+ 
 diff --git a/src/cmd/link/link_test.go b/src/cmd/link/link_test.go
 index 2fe32600f1d6c7..f84cbdc5ee25f0 100644
 --- a/src/cmd/link/link_test.go
