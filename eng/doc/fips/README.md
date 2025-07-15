@@ -68,7 +68,7 @@ There are typically two goals that lead to this document. Creating a FIPS compli
 > 1.24 introduces `GODEBUG=fips140=on` as the preferred way to enable FIPS mode. See also [the Go 1.24 changelog](#go-124-feb-2025).
 
 > [!NOTE]
-> Since Go 1.25 `systemcrypto` is enabled by default on Windows and Linux, there is no need to set it anymore. See also [the Go 1.25 changelog](#go-125-aug-2025).
+> Since Go 1.25, `systemcrypto` is enabled by default on Linux and Windows. There is no need to manually enable using OpenSSL/CNG under the hood anymore. See also [the Go 1.25 changelog](#go-125-aug-2025).
 
 | Build-time config | Runtime config | Internal Microsoft crypto policy | FIPS behavior |
 | --- | --- | --- | --- |
@@ -95,7 +95,7 @@ The `GOEXPERIMENT` environment variable is used at build time to select a crypto
 
 - `systemcrypto` automatically selects the suggested crypto backend for the target platform
    - Prior to Go 1.21, this experiment is not available and the backend must be selected manually
-   - Since Go 1.25, this experiment es enabled automatically on Windows and Linux. It can be disabled in the usual way: setting `GOEXPERIMENT=nosystemcrypto`
+   - Since Go 1.25, this experiment is enabled automatically on Windows and Linux. It can be disabled like any other `GOEXPERIMENT`: setting `GOEXPERIMENT=nosystemcrypto`
 - `opensslcrypto` selects OpenSSL, for Linux
 - `cngcrypto` selects CNG, for Windows
 - Since 1.24, `darwincrypto` selects CommonCrypto & CryptoKit for macOS
@@ -446,7 +446,7 @@ This list of major changes is intended for quick reference and for access to his
 
 ### Go 1.25 (Aug 2025)
 
-- Enable the `systemcrypto` goexperiment by default behavior on Windows and Linux. To disable it, set `GOEXPERIMENT=nosystemcrypto`.
+- The `systemcrypto` goexperiment is now enabled by default on Windows and Linux. To disable it, set `GOEXPERIMENT=nosystemcrypto`.
 
 - Running `go version -m` on a binary which uses a system crypto backend now shows the `microsoft_systemcrypto=1` build setting.
 
