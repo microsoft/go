@@ -16,7 +16,7 @@ desired goexperiments and build tags.
  src/cmd/dist/build.go                         |  29 +-
  src/cmd/dist/test.go                          |  44 ++-
  src/cmd/go/go_test.go                         |  11 +
- src/cmd/go/internal/cfg/cfg.go                |  13 +
+ src/cmd/go/internal/cfg/cfg.go                |  16 +
  src/cmd/go/internal/load/pkg.go               |   3 +
  src/cmd/go/internal/tool/tool.go              |   9 +-
  src/cmd/go/systemcrypto_test.go               | 144 +++++++
@@ -55,7 +55,7 @@ desired goexperiments and build tags.
  src/internal/buildcfg/exp.go                  |  54 +++
  src/runtime/runtime_boring.go                 |   5 +
  src/syscall/exec_linux_test.go                |   2 +-
- 46 files changed, 2255 insertions(+), 23 deletions(-)
+ 46 files changed, 2258 insertions(+), 23 deletions(-)
  create mode 100644 src/cmd/go/systemcrypto_test.go
  create mode 100644 src/crypto/internal/backend/backend_test.go
  create mode 100644 src/crypto/internal/backend/bbig/big.go
@@ -374,36 +374,39 @@ index 3e691abe41f702..b799031d598892 100644
  	tg.parallel()
  	defer tg.cleanup()
 diff --git a/src/cmd/go/internal/cfg/cfg.go b/src/cmd/go/internal/cfg/cfg.go
-index a4edd854f1d35a..a0672ced2ca107 100644
+index a4edd854f1d35a..10ee92536b96cd 100644
 --- a/src/cmd/go/internal/cfg/cfg.go
 +++ b/src/cmd/go/internal/cfg/cfg.go
 @@ -19,6 +19,7 @@ import (
  	"os"
  	"path/filepath"
  	"runtime"
-+	"slices"
++	"runtime/debug"
  	"strings"
  	"sync"
  	"time"
-@@ -232,6 +233,18 @@ func ForceHost() {
+@@ -229,6 +230,21 @@ func ForceHost() {
+ 	BuildContext = defaultContext()
+ 	// Call SetGOROOT to properly set the GOROOT on the new context.
+ 	SetGOROOT(Getenv("GOROOT"), false)
++	// The Microsoft build of Go might be built with non-default
++	// GOEXPERIMENT and BuildTags, so we need to get them from
++	// the build info.
++	bi, ok := debug.ReadBuildInfo()
++	if !ok {
++		panic("missing build info")
++	}
++	for _, s := range bi.Settings {
++		switch s.Key {
++		case "-tags":
++			BuildContext.BuildTags = strings.Split(s.Value, ",")
++		case "GOEXPERIMENT":
++			RawGOEXPERIMENT = s.Value
++		}
++	}
  	// Recompute experiments: the settings determined depend on GOOS and GOARCH.
  	// This will also update the BuildContext's tool tags to include the new
  	// experiment tags.
-+	//
-+	// Remove systemcrypto from the RawGOEXPERIMENT and add
-+	// nosystemcrypto so that the tool is built without systemcrypto,
-+	// like the rest of the toolchain.
-+	goexp := strings.Split(RawGOEXPERIMENT, ",")
-+	goexp = slices.DeleteFunc(goexp, func(s string) bool {
-+		return s == "systemcrypto" || s == "nosystemcrypto" || s == ""
-+	})
-+	goexp = append(goexp, "nosystemcrypto")
-+	RawGOEXPERIMENT = strings.Join(goexp, ",")
-+	// Set the ms_skipfipscheck build tag, like the rest of the toolchain.
-+	BuildContext.BuildTags = append(BuildContext.BuildTags, "ms_skipfipscheck")
- 	computeExperiment()
- }
- 
 diff --git a/src/cmd/go/internal/load/pkg.go b/src/cmd/go/internal/load/pkg.go
 index 1f791546f90088..d20890b4e70fae 100644
 --- a/src/cmd/go/internal/load/pkg.go
