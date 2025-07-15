@@ -5,14 +5,25 @@ Subject: [PATCH] Add appinsights telemetry
 
 ---
  README.md                                     | 15 ++++++
+ src/cmd/go.mod                                |  3 +-
+ src/cmd/go.sum                                |  6 ++-
  src/cmd/go/main.go                            |  1 +
  src/cmd/go/mstelemetry_test.go                | 52 +++++++++++++++++++
  src/cmd/go/script_test.go                     |  7 +++
- src/cmd/internal/telemetry/counter/counter.go | 31 ++++++++++-
+ src/cmd/internal/telemetry/counter/counter.go | 33 +++++++++++-
  .../telemetry/counter/counter_bootstrap.go    |  2 +
+ .../go-infra/telemetry/config/LICENSE         | 21 ++++++++
+ .../go-infra/telemetry/config/config.go       | 11 ++++
+ .../telemetry/{ => config}/config.json        |  9 ----
+ .../telemetry/internal/config/config.go       |  7 ++-
+ .../microsoft/go-infra/telemetry/telemetry.go | 39 +++++++-------
+ src/cmd/vendor/modules.txt                    |  5 +-
  src/go/build/vendor_test.go                   |  1 +
- 7 files changed, 108 insertions(+), 1 deletion(-)
+ 15 files changed, 173 insertions(+), 39 deletions(-)
  create mode 100644 src/cmd/go/mstelemetry_test.go
+ create mode 100644 src/cmd/vendor/github.com/microsoft/go-infra/telemetry/config/LICENSE
+ create mode 100644 src/cmd/vendor/github.com/microsoft/go-infra/telemetry/config/config.go
+ rename src/cmd/vendor/github.com/microsoft/go-infra/telemetry/{ => config}/config.json (84%)
 
 diff --git a/README.md b/README.md
 index 71c9d1dc299388..8cab5daec4da54 100644
@@ -38,6 +49,37 @@ index 71c9d1dc299388..8cab5daec4da54 100644
 +our privacy statement. Your use of the software operates as your consent to
 +these practices.
 \ No newline at end of file
+diff --git a/src/cmd/go.mod b/src/cmd/go.mod
+index 1d4b7f30894cbd..edaa5d3cb8b2c5 100644
+--- a/src/cmd/go.mod
++++ b/src/cmd/go.mod
+@@ -4,7 +4,8 @@ go 1.25
+ 
+ require (
+ 	github.com/google/pprof v0.0.0-20250208200701-d0013a598941
+-	github.com/microsoft/go-infra/telemetry v0.0.0-20250603171931-8d11a613d784
++	github.com/microsoft/go-infra/telemetry v0.0.0-20250715111012-2d08bb42a36b
++	github.com/microsoft/go-infra/telemetry/config v0.0.0-20250715111012-2d08bb42a36b
+ 	golang.org/x/arch v0.18.1-0.20250605182141-b2f4e2807dec
+ 	golang.org/x/build v0.0.0-20250606033421-8c8ff6f34a83
+ 	golang.org/x/mod v0.25.0
+diff --git a/src/cmd/go.sum b/src/cmd/go.sum
+index 06a00930d6a8b3..e6fa9f04be91b0 100644
+--- a/src/cmd/go.sum
++++ b/src/cmd/go.sum
+@@ -4,8 +4,10 @@ github.com/google/pprof v0.0.0-20250208200701-d0013a598941 h1:43XjGa6toxLpeksjcx
+ github.com/google/pprof v0.0.0-20250208200701-d0013a598941/go.mod h1:vavhavw2zAxS5dIdcRluK6cSGGPlZynqzFM8NdvU144=
+ github.com/ianlancetaylor/demangle v0.0.0-20240912202439-0a2b6291aafd h1:EVX1s+XNss9jkRW9K6XGJn2jL2lB1h5H804oKPsxOec=
+ github.com/ianlancetaylor/demangle v0.0.0-20240912202439-0a2b6291aafd/go.mod h1:gx7rwoVhcfuVKG5uya9Hs3Sxj7EIvldVofAWIUtGouw=
+-github.com/microsoft/go-infra/telemetry v0.0.0-20250603171931-8d11a613d784 h1:ZMTsT8szMuZcaqRWSiJtpRjAXp0dMKzwFEz8WvUAsV4=
+-github.com/microsoft/go-infra/telemetry v0.0.0-20250603171931-8d11a613d784/go.mod h1:XQP+NhZgM1i1+asOSnAFPRzv2HhQibhk6k6FIllx8/Y=
++github.com/microsoft/go-infra/telemetry v0.0.0-20250715111012-2d08bb42a36b h1:AilXE4hfoVOBNL9brZKV8SDn1LKz6frE0slMqrdWSt4=
++github.com/microsoft/go-infra/telemetry v0.0.0-20250715111012-2d08bb42a36b/go.mod h1:XQP+NhZgM1i1+asOSnAFPRzv2HhQibhk6k6FIllx8/Y=
++github.com/microsoft/go-infra/telemetry/config v0.0.0-20250715111012-2d08bb42a36b h1:GfdjYN/VWPWMbnrdetSbflL15N9sD7uVslcbDoDMQFQ=
++github.com/microsoft/go-infra/telemetry/config v0.0.0-20250715111012-2d08bb42a36b/go.mod h1:t6u8QcO4tExYT4+NEB0XqR0ObiUvLe0D8ZpxFobGuA8=
+ github.com/yuin/goldmark v1.6.0 h1:boZcn2GTjpsynOsC0iJHnBWa4Bi0qzfJjthwauItG68=
+ github.com/yuin/goldmark v1.6.0/go.mod h1:6yULJ656Px+3vBD8DxQVa3kxgyrAnzto9xy5taEt/CY=
+ golang.org/x/arch v0.18.1-0.20250605182141-b2f4e2807dec h1:fCOjXc18tBlkVy4m+VuL1WU8VTukYOGtAk7nC5QYPRY=
 diff --git a/src/cmd/go/main.go b/src/cmd/go/main.go
 index e81969ca4a3144..61b9219df8f389 100644
 --- a/src/cmd/go/main.go
@@ -141,10 +183,10 @@ index 1345ea8bb8e530..f915bd26994ffe 100644
  			t.Fatal("go was invoked but no counters were incremented")
  		}
 diff --git a/src/cmd/internal/telemetry/counter/counter.go b/src/cmd/internal/telemetry/counter/counter.go
-index 5cef0b0041551a..9125e9550f4047 100644
+index 5cef0b0041551a..ec2a0b962bf29c 100644
 --- a/src/cmd/internal/telemetry/counter/counter.go
 +++ b/src/cmd/internal/telemetry/counter/counter.go
-@@ -7,12 +7,20 @@
+@@ -7,12 +7,21 @@
  package counter
  
  import (
@@ -157,6 +199,7 @@ index 5cef0b0041551a..9125e9550f4047 100644
  	"golang.org/x/telemetry/counter"
 +
 +	mstelemetry "github.com/microsoft/go-infra/telemetry"
++	msconfig "github.com/microsoft/go-infra/telemetry/config"
 +	mscounter "github.com/microsoft/go-infra/telemetry/counter"
  )
  
@@ -165,7 +208,7 @@ index 5cef0b0041551a..9125e9550f4047 100644
  var openCalled bool
  
  func OpenCalled() bool { return openCalled }
-@@ -22,11 +30,29 @@ func OpenCalled() bool { return openCalled }
+@@ -22,11 +31,30 @@ func OpenCalled() bool { return openCalled }
  func Open() {
  	openCalled = true
  	counter.OpenDir(os.Getenv("TEST_TELEMETRY_DIR"))
@@ -174,6 +217,7 @@ index 5cef0b0041551a..9125e9550f4047 100644
 +			InstrumentationKey: appInsightsInstrumentationKey,
 +			Endpoint:           os.Getenv("MS_GOTOOLCHAIN_TELEMETRY_ENDPOINT"),
 +			AllowGoDevel:       os.Getenv("MS_GOTOOLCHAIN_TELEMETRY_ALLOW_GO_DEVEL") == "1",
++			UploadConfig:       msconfig.Config,
 +		})
 +	}
 +}
@@ -195,7 +239,7 @@ index 5cef0b0041551a..9125e9550f4047 100644
  }
  
  // New returns a counter with the given name.
-@@ -44,6 +70,7 @@ func NewStack(name string, depth int) *counter.StackCounter {
+@@ -44,6 +72,7 @@ func NewStack(name string, depth int) *counter.StackCounter {
  // the concatenation of prefix and the flag name.
  func CountFlags(prefix string, flagSet flag.FlagSet) {
  	counter.CountFlags(prefix, flagSet)
@@ -203,7 +247,7 @@ index 5cef0b0041551a..9125e9550f4047 100644
  }
  
  // CountFlagValue creates a counter for the flag value
-@@ -56,7 +83,9 @@ func CountFlagValue(prefix string, flagSet flag.FlagSet, flagName string) {
+@@ -56,7 +85,9 @@ func CountFlagValue(prefix string, flagSet flag.FlagSet, flagName string) {
  	// TODO(matloob): Add this to x/telemetry?
  	flagSet.Visit(func(f *flag.Flag) {
  		if f.Name == flagName {
@@ -224,6 +268,190 @@ index 00808294053c23..1adda045749c29 100644
  func CountFlagValue(prefix string, flagSet flag.FlagSet, flagName string) {}
 +
 +func Close() {}
+diff --git a/src/cmd/vendor/github.com/microsoft/go-infra/telemetry/config/LICENSE b/src/cmd/vendor/github.com/microsoft/go-infra/telemetry/config/LICENSE
+new file mode 100644
+index 00000000000000..9e841e7a26e4eb
+--- /dev/null
++++ b/src/cmd/vendor/github.com/microsoft/go-infra/telemetry/config/LICENSE
+@@ -0,0 +1,21 @@
++    MIT License
++
++    Copyright (c) Microsoft Corporation.
++
++    Permission is hereby granted, free of charge, to any person obtaining a copy
++    of this software and associated documentation files (the "Software"), to deal
++    in the Software without restriction, including without limitation the rights
++    to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
++    copies of the Software, and to permit persons to whom the Software is
++    furnished to do so, subject to the following conditions:
++
++    The above copyright notice and this permission notice shall be included in all
++    copies or substantial portions of the Software.
++
++    THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
++    IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
++    FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
++    AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
++    LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
++    OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
++    SOFTWARE
+diff --git a/src/cmd/vendor/github.com/microsoft/go-infra/telemetry/config/config.go b/src/cmd/vendor/github.com/microsoft/go-infra/telemetry/config/config.go
+new file mode 100644
+index 00000000000000..044268a046a54d
+--- /dev/null
++++ b/src/cmd/vendor/github.com/microsoft/go-infra/telemetry/config/config.go
+@@ -0,0 +1,11 @@
++// The config package holds the config.json file defining the Go telemetry
++// upload configuration.
++//
++// An upload configuration specifies the set of values that are permitted in
++// telemetry uploads: GOOS, GOARCH, and per-program counters.
++package config
++
++import _ "embed" // for config.json
++
++//go:embed config.json
++var Config []byte
+diff --git a/src/cmd/vendor/github.com/microsoft/go-infra/telemetry/config.json b/src/cmd/vendor/github.com/microsoft/go-infra/telemetry/config/config.json
+similarity index 84%
+rename from src/cmd/vendor/github.com/microsoft/go-infra/telemetry/config.json
+rename to src/cmd/vendor/github.com/microsoft/go-infra/telemetry/config/config.json
+index 01f28774efbb35..189f42aa9bd51a 100644
+--- a/src/cmd/vendor/github.com/microsoft/go-infra/telemetry/config.json
++++ b/src/cmd/vendor/github.com/microsoft/go-infra/telemetry/config/config.json
+@@ -45,15 +45,6 @@
+ 		"sparc64",
+ 		"wasm"
+ 	],
+-	"GoVersion": [
+-		"go1.24rc1",
+-		"go1.24rc2",
+-		"go1.24rc3",
+-		"go1.24.0",
+-		"go1.24.1",
+-		"go1.24.2",
+-		"go1.24.3"
+-	],
+ 	"Programs": [
+ 		{
+ 			"Name": "cmd/go",
+diff --git a/src/cmd/vendor/github.com/microsoft/go-infra/telemetry/internal/config/config.go b/src/cmd/vendor/github.com/microsoft/go-infra/telemetry/internal/config/config.go
+index 1ad030cea6659d..7980b1505b2caa 100644
+--- a/src/cmd/vendor/github.com/microsoft/go-infra/telemetry/internal/config/config.go
++++ b/src/cmd/vendor/github.com/microsoft/go-infra/telemetry/internal/config/config.go
+@@ -11,10 +11,9 @@ import (
+ 
+ // An UploadConfig controls what data is uploaded.
+ type UploadConfig struct {
+-	GOOS      []string
+-	GOARCH    []string
+-	GoVersion []string
+-	Programs  []*ProgramConfig
++	GOOS     []string
++	GOARCH   []string
++	Programs []*ProgramConfig
+ }
+ 
+ // A ProgramConfig contains the configuration for a single program.
+diff --git a/src/cmd/vendor/github.com/microsoft/go-infra/telemetry/telemetry.go b/src/cmd/vendor/github.com/microsoft/go-infra/telemetry/telemetry.go
+index 23b60d189f102d..338e225866a5b0 100644
+--- a/src/cmd/vendor/github.com/microsoft/go-infra/telemetry/telemetry.go
++++ b/src/cmd/vendor/github.com/microsoft/go-infra/telemetry/telemetry.go
+@@ -23,6 +23,10 @@ type Config struct {
+ 	// This key is required and must be set before sending any telemetry.
+ 	InstrumentationKey string
+ 
++	// UploadConfig is the json-encoded telemetry upload configuration.
++	// This parameter is required.
++	UploadConfig []byte
++
+ 	// The endpoint URL to which telemetry will be sent.
+ 	// If empty, it defaults to https://dc.services.visualstudio.com/v2/track.
+ 	Endpoint string
+@@ -37,46 +41,39 @@ type Config struct {
+ 	// If zero, it defaults to 10 seconds.
+ 	MaxBatchInterval time.Duration
+ 
+-	// UploadConfigPath is the path to the telemetry upload configuration file.
+-	// If empty, the default configuration embedded in the binary will be used.
+-	UploadConfigPath string
+-
+ 	// Allow uploading telemetry for Go development versions even if the
+ 	// upload configuration does not explicitly include them.
+ 	AllowGoDevel bool
+ }
+ 
+-//go:embed config.json
+-var uploadConfigData []byte
+-
+ var countersToUpload map[string]struct{}
+ 
+ // Start initializes telemetry using the specified configuration.
+ func Start(cfg Config) {
+-	var uploadConfig *config.UploadConfig
+-	var err error
+-	if cfg.UploadConfigPath != "" {
+-		uploadConfig, err = config.ReadConfig(cfg.UploadConfigPath)
+-	} else {
+-		uploadConfig, err = config.UnmarshalConfig(uploadConfigData)
++	if cfg.UploadConfig == nil {
++		panic("UploadConfigPath must be set in telemetry.Config")
+ 	}
++	uploadConfig, err := config.UnmarshalConfig(cfg.UploadConfig)
+ 	if err != nil {
+ 		panic(fmt.Errorf("failed to unmarshal telemetry config: %v", err))
+ 	}
+-	if cfg.AllowGoDevel {
+-		uploadConfig.GoVersion = append(uploadConfig.GoVersion, "devel")
++	if !slices.Contains(uploadConfig.GOOS, runtime.GOOS) ||
++		!slices.Contains(uploadConfig.GOARCH, runtime.GOARCH) {
++		// Only start telemetry if the current GOOS and GOARCH
++		// are supported by the telemetry configuration.
++		return
+ 	}
+ 	bi, ok := debug.ReadBuildInfo()
+ 	if !ok {
+ 		panic("failed to read build info for telemetry")
+ 	}
+ 	ver, prog := telemetry.ProgramInfo(bi)
+-	if !slices.Contains(uploadConfig.GOOS, runtime.GOOS) ||
+-		!slices.Contains(uploadConfig.GOARCH, runtime.GOARCH) ||
+-		!slices.Contains(uploadConfig.GoVersion, ver) {
+-		// Only start telemetry if the current GOOS, GOARCH, and Go version
+-		// are supported by the telemetry configuration.
+-		return
++	if ver == "devel" {
++		if !cfg.AllowGoDevel {
++			// If the Go version is a development version and we are not allowing
++			// development versions, do not start telemetry.
++			return
++		}
+ 	}
+ 
+ 	progIdx := slices.IndexFunc(uploadConfig.Programs, func(p *config.ProgramConfig) bool {
+diff --git a/src/cmd/vendor/modules.txt b/src/cmd/vendor/modules.txt
+index 9791fd2c5fbb46..de41cc34c42163 100644
+--- a/src/cmd/vendor/modules.txt
++++ b/src/cmd/vendor/modules.txt
+@@ -16,7 +16,7 @@ github.com/google/pprof/third_party/svgpan
+ # github.com/ianlancetaylor/demangle v0.0.0-20240912202439-0a2b6291aafd
+ ## explicit; go 1.13
+ github.com/ianlancetaylor/demangle
+-# github.com/microsoft/go-infra/telemetry v0.0.0-20250603171931-8d11a613d784
++# github.com/microsoft/go-infra/telemetry v0.0.0-20250715111012-2d08bb42a36b
+ ## explicit; go 1.24
+ github.com/microsoft/go-infra/telemetry
+ github.com/microsoft/go-infra/telemetry/counter
+@@ -24,6 +24,9 @@ github.com/microsoft/go-infra/telemetry/internal/appinsights
+ github.com/microsoft/go-infra/telemetry/internal/appinsights/internal/contracts
+ github.com/microsoft/go-infra/telemetry/internal/config
+ github.com/microsoft/go-infra/telemetry/internal/telemetry
++# github.com/microsoft/go-infra/telemetry/config v0.0.0-20250715111012-2d08bb42a36b
++## explicit; go 1.24
++github.com/microsoft/go-infra/telemetry/config
+ # golang.org/x/arch v0.18.1-0.20250605182141-b2f4e2807dec
+ ## explicit; go 1.23.0
+ golang.org/x/arch/arm/armasm
 diff --git a/src/go/build/vendor_test.go b/src/go/build/vendor_test.go
 index 6092c93d4c5b26..8f68bc361081f1 100644
 --- a/src/go/build/vendor_test.go
