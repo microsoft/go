@@ -13,14 +13,17 @@ desired goexperiments and build tags.
  .../compile/internal/logopt/logopt_test.go    |   6 +-
  .../compile/internal/ssa/stmtlines_test.go    |   1 -
  src/cmd/compile/script_test.go                |   8 +
- src/cmd/dist/build.go                         |  11 +
+ src/cmd/dist/build.go                         |  29 +-
  src/cmd/dist/test.go                          |  44 ++-
  src/cmd/go/go_test.go                         |  11 +
+ src/cmd/go/internal/cfg/cfg.go                |  16 +
  src/cmd/go/internal/load/pkg.go               |   3 +
+ src/cmd/go/internal/tool/tool.go              |   9 +-
  src/cmd/go/systemcrypto_test.go               | 144 +++++++
  .../go/testdata/script/env_cross_build.txt    |   2 +
  .../script/test_android_issue62123.txt        |   2 +
  src/cmd/internal/testdir/testdir_test.go      |   7 +
+ src/cmd/link/internal/ld/main.go              |  14 +-
  src/cmd/link/link_test.go                     |   8 +
  src/crypto/internal/backend/backend_test.go   |  30 ++
  src/crypto/internal/backend/bbig/big.go       |  17 +
@@ -52,7 +55,7 @@ desired goexperiments and build tags.
  src/internal/buildcfg/exp.go                  |  54 +++
  src/runtime/runtime_boring.go                 |   5 +
  src/syscall/exec_linux_test.go                |   2 +-
- 43 files changed, 2207 insertions(+), 17 deletions(-)
+ 46 files changed, 2258 insertions(+), 23 deletions(-)
  create mode 100644 src/cmd/go/systemcrypto_test.go
  create mode 100644 src/crypto/internal/backend/backend_test.go
  create mode 100644 src/crypto/internal/backend/bbig/big.go
@@ -157,23 +160,35 @@ index 0e32e0769ee2e2..eda2d576acc6c6 100644
  	if doReplacement {
  		if testCompiler == "" {
 diff --git a/src/cmd/dist/build.go b/src/cmd/dist/build.go
-index 024050c2dd70c4..3c82b7436d10bf 100644
+index 024050c2dd70c4..a3ae7ef562cace 100644
 --- a/src/cmd/dist/build.go
 +++ b/src/cmd/dist/build.go
-@@ -1387,6 +1387,12 @@ func toolenv() []string {
+@@ -1387,7 +1387,23 @@ func toolenv() []string {
  		// still have full paths for stack traces for compiler crashes and the like.
  		env = append(env, "GOFLAGS=-trimpath -ldflags=-w -gcflags=cmd/...=-dwarf=false")
  	}
-+	if goexp := os.Getenv("GOEXPERIMENT"); goexp != "" {
-+		// Remove systemcrypto from GOEXPERIMENT: to favor portability, the
-+		// Microsoft build of Go should not use it. Go only uses crypto packages
-+		// for non-crypto purposes, such as generating build IDs.
-+		env = append(env, "GOEXPERIMENT="+goexp+",nosystemcrypto")
-+	}
- 	return env
+-	return env
++	return toolchainGOEXPERIMENT(env)
++}
++
++// toolchainGOEXPERIMENT appends a GOEXPERIMENT to env
++// that contains all the experiments from the current
++// environment, but with "systemcrypto" removed and
++// "nosystemcrypto" added. This is used when building
++// the Microsoft build of Go to favor portability.
++// Go only uses crypto packages for non-crypto purposes,
++// such as generating build IDs.
++func toolchainGOEXPERIMENT(env []string) []string {
++	goexp := strings.Split(os.Getenv("GOEXPERIMENT"), ",")
++	goexp = slices.DeleteFunc(goexp, func(s string) bool {
++		return s == "systemcrypto" || s == "nosystemcrypto" || s == ""
++	})
++	goexp = append(goexp, "nosystemcrypto")
++	return append(env, "GOEXPERIMENT="+strings.Join(goexp, ","))
  }
  
-@@ -1548,6 +1554,11 @@ func cmdbootstrap() {
+ var (
+@@ -1548,6 +1564,11 @@ func cmdbootstrap() {
  	os.Setenv("CC", compilerEnvLookup("CC", defaultcc, goos, goarch))
  	// Now that cmd/go is in charge of the build process, enable GOEXPERIMENT.
  	os.Setenv("GOEXPERIMENT", goexperiment)
@@ -185,6 +200,22 @@ index 024050c2dd70c4..3c82b7436d10bf 100644
  	// No need to enable PGO for toolchain2.
  	goInstall(toolenv(), goBootstrap, append([]string{"-pgo=off"}, toolchain...)...)
  	if debug {
+@@ -1629,12 +1650,12 @@ func cmdbootstrap() {
+ 		os.Setenv("CC", compilerEnvLookup("CC", defaultcc, goos, goarch))
+ 		xprintf("Building packages and commands for target, %s/%s.\n", goos, goarch)
+ 	}
+-	goInstall(nil, goBootstrap, "std")
++	goInstall(toolchainGOEXPERIMENT(nil), goBootstrap, "std")
+ 	goInstall(toolenv(), goBootstrap, toolsToInstall...)
+ 	checkNotStale(toolenv(), goBootstrap, toolchain...)
+-	checkNotStale(nil, goBootstrap, "std")
++	checkNotStale(toolchainGOEXPERIMENT(nil), goBootstrap, "std")
+ 	checkNotStale(toolenv(), goBootstrap, toolsToInstall...)
+-	checkNotStale(nil, gorootBinGo, "std")
++	checkNotStale(toolchainGOEXPERIMENT(nil), gorootBinGo, "std")
+ 	checkNotStale(toolenv(), gorootBinGo, toolsToInstall...)
+ 	if debug {
+ 		run("", ShowOutput|CheckExit, pathf("%s/compile", tooldir), "-V=full")
 diff --git a/src/cmd/dist/test.go b/src/cmd/dist/test.go
 index aa09d1eba34be8..c3f3a8324c507c 100644
 --- a/src/cmd/dist/test.go
@@ -342,8 +373,42 @@ index 3e691abe41f702..b799031d598892 100644
  	tg := testgo(t)
  	tg.parallel()
  	defer tg.cleanup()
+diff --git a/src/cmd/go/internal/cfg/cfg.go b/src/cmd/go/internal/cfg/cfg.go
+index a4edd854f1d35a..10ee92536b96cd 100644
+--- a/src/cmd/go/internal/cfg/cfg.go
++++ b/src/cmd/go/internal/cfg/cfg.go
+@@ -19,6 +19,7 @@ import (
+ 	"os"
+ 	"path/filepath"
+ 	"runtime"
++	"runtime/debug"
+ 	"strings"
+ 	"sync"
+ 	"time"
+@@ -229,6 +230,21 @@ func ForceHost() {
+ 	BuildContext = defaultContext()
+ 	// Call SetGOROOT to properly set the GOROOT on the new context.
+ 	SetGOROOT(Getenv("GOROOT"), false)
++	// The Microsoft build of Go might be built with non-default
++	// GOEXPERIMENT and BuildTags, so we need to get them from
++	// the build info.
++	bi, ok := debug.ReadBuildInfo()
++	if !ok {
++		panic("missing build info")
++	}
++	for _, s := range bi.Settings {
++		switch s.Key {
++		case "-tags":
++			BuildContext.BuildTags = strings.Split(s.Value, ",")
++		case "GOEXPERIMENT":
++			RawGOEXPERIMENT = s.Value
++		}
++	}
+ 	// Recompute experiments: the settings determined depend on GOOS and GOARCH.
+ 	// This will also update the BuildContext's tool tags to include the new
+ 	// experiment tags.
 diff --git a/src/cmd/go/internal/load/pkg.go b/src/cmd/go/internal/load/pkg.go
-index e913f9885234fd..ef331980a816a3 100644
+index 1f791546f90088..d20890b4e70fae 100644
 --- a/src/cmd/go/internal/load/pkg.go
 +++ b/src/cmd/go/internal/load/pkg.go
 @@ -2412,6 +2412,9 @@ func (p *Package) setBuildInfo(ctx context.Context, autoVCS bool) {
@@ -356,6 +421,34 @@ index e913f9885234fd..ef331980a816a3 100644
  	appendSetting("-buildmode", buildmode)
  	appendSetting("-compiler", cfg.BuildContext.Compiler)
  	if gccgoflags := BuildGccgoflags.String(); gccgoflags != "" && cfg.BuildContext.Compiler == "gccgo" {
+diff --git a/src/cmd/go/internal/tool/tool.go b/src/cmd/go/internal/tool/tool.go
+index 16e1a4f47f49c0..f987e499da4c15 100644
+--- a/src/cmd/go/internal/tool/tool.go
++++ b/src/cmd/go/internal/tool/tool.go
+@@ -281,6 +281,10 @@ func buildAndRunBuiltinTool(ctx context.Context, toolName, tool string, args []s
+ 	// Override GOOS and GOARCH for the build to build the tool using
+ 	// the same GOOS and GOARCH as this go command.
+ 	cfg.ForceHost()
++	// The tool might build some additional packages, set the GOEXPERIMENT
++	// environment variable to the one we just computed in cfg.ForceHost.
++	originalGOEXPERIMENT := os.Getenv("GOEXPERIMENT")
++	os.Setenv("GOEXPERIMENT", cfg.RawGOEXPERIMENT)
+ 
+ 	// Ignore go.mod and go.work: we don't need them, and we want to be able
+ 	// to run the tool even if there's an issue with the module or workspace the
+@@ -288,8 +292,11 @@ func buildAndRunBuiltinTool(ctx context.Context, toolName, tool string, args []s
+ 	modload.RootMode = modload.NoRoot
+ 
+ 	runFunc := func(b *work.Builder, ctx context.Context, a *work.Action) error {
++		// Now that the tool is built, revert the GOEXPERIMENT
++		// environment variable to the original value.
++		env := append(os.Environ(), "GOEXPERIMENT="+originalGOEXPERIMENT)
+ 		cmdline := str.StringList(a.Deps[0].BuiltTarget(), a.Args)
+-		return runBuiltTool(toolName, nil, cmdline)
++		return runBuiltTool(toolName, env, cmdline)
+ 	}
+ 
+ 	buildAndRunTool(ctx, tool, args, runFunc)
 diff --git a/src/cmd/go/systemcrypto_test.go b/src/cmd/go/systemcrypto_test.go
 new file mode 100644
 index 00000000000000..5ee9c2e050cf24
@@ -547,6 +640,38 @@ index 483a9ec33c6798..fad922e3f844ab 100644
  	common := testCommon{
  		gorootTestDir: filepath.Join(testenv.GOROOT(t), "test"),
  		runoutputGate: make(chan bool, *runoutputLimit),
+diff --git a/src/cmd/link/internal/ld/main.go b/src/cmd/link/internal/ld/main.go
+index 6a684890be0a03..09554a60b23471 100644
+--- a/src/cmd/link/internal/ld/main.go
++++ b/src/cmd/link/internal/ld/main.go
+@@ -44,6 +44,7 @@ import (
+ 	"os"
+ 	"runtime"
+ 	"runtime/pprof"
++	"slices"
+ 	"strconv"
+ 	"strings"
+ )
+@@ -187,7 +188,18 @@ func Main(arch *sys.Arch, theArch Arch) {
+ 
+ 	buildVersion := buildcfg.Version
+ 	if goexperiment := buildcfg.Experiment.String(); goexperiment != "" {
+-		buildVersion += " X:" + goexperiment
++		// buildVersion is intended to contain non-default experiment flags.
++		// The Microsoft build of Go default behavior is to set the
++		// nosystemcrypto experiments, so we don't include it in the buildVersion string.
++		// This is also important because runtime.Version() gets the value from
++		// the buildVersion string, and many code out there, e.g. the standard library
++		// go/version package, doesn't expect the version to contain experiments.
++		goexperiment = strings.Join(slices.DeleteFunc(strings.Split(goexperiment, ","), func(s string) bool {
++			return s == "nosystemcrypto"
++		}), ",")
++		if goexperiment != "" {
++			buildVersion += " X:" + goexperiment
++		}
+ 	}
+ 	addstrdata1(ctxt, "runtime.buildVersion="+buildVersion)
+ 
 diff --git a/src/cmd/link/link_test.go b/src/cmd/link/link_test.go
 index 2fe32600f1d6c7..f84cbdc5ee25f0 100644
 --- a/src/cmd/link/link_test.go
@@ -2693,7 +2818,7 @@ index 9b7613a62b5a31..1997d90f2f20ba 100644
  	< crypto/rand
  	< crypto/ed25519 # depends on crypto/rand.Reader
 diff --git a/src/internal/buildcfg/exp.go b/src/internal/buildcfg/exp.go
-index bba73cfab9a108..11ffdf2213dc7b 100644
+index 9b3bafd0fc6cd9..b7cc2bdfa6ffd9 100644
 --- a/src/internal/buildcfg/exp.go
 +++ b/src/internal/buildcfg/exp.go
 @@ -5,11 +5,14 @@
@@ -2711,7 +2836,7 @@ index bba73cfab9a108..11ffdf2213dc7b 100644
  )
  
  // ExperimentFlags represents a set of GOEXPERIMENT flags relative to a baseline
-@@ -167,6 +170,57 @@ func ParseGOEXPERIMENT(goos, goarch, goexp string) (*ExperimentFlags, error) {
+@@ -180,6 +183,57 @@ func ParseGOEXPERIMENT(goos, goarch, goexp string) (*ExperimentFlags, error) {
  	if flags.BoringCrypto {
  		return nil, fmt.Errorf("GOEXPERIMENT boringcrypto is not supported in the Microsoft build of Go")
  	}
