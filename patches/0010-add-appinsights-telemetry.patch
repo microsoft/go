@@ -7,7 +7,7 @@ Subject: [PATCH] Add appinsights telemetry
  README.md                                     | 15 ++++++
  src/cmd/go.mod                                |  3 +-
  src/cmd/go.sum                                |  6 ++-
- .../internal/telemetrystats/telemetrystats.go | 11 ++++
+ .../internal/telemetrystats/telemetrystats.go | 13 +++++
  src/cmd/go/main.go                            |  1 +
  src/cmd/go/mstelemetry_test.go                | 52 +++++++++++++++++++
  src/cmd/go/script_test.go                     |  7 +++
@@ -20,7 +20,7 @@ Subject: [PATCH] Add appinsights telemetry
  .../microsoft/go-infra/telemetry/telemetry.go | 39 +++++++-------
  src/cmd/vendor/modules.txt                    |  5 +-
  src/go/build/vendor_test.go                   |  1 +
- 16 files changed, 184 insertions(+), 39 deletions(-)
+ 16 files changed, 186 insertions(+), 39 deletions(-)
  create mode 100644 src/cmd/go/mstelemetry_test.go
  create mode 100644 src/cmd/vendor/github.com/microsoft/go-infra/telemetry/config/LICENSE
  create mode 100644 src/cmd/vendor/github.com/microsoft/go-infra/telemetry/config/config.go
@@ -82,7 +82,7 @@ index 06a00930d6a8b3..e6fa9f04be91b0 100644
  github.com/yuin/goldmark v1.6.0/go.mod h1:6yULJ656Px+3vBD8DxQVa3kxgyrAnzto9xy5taEt/CY=
  golang.org/x/arch v0.18.1-0.20250605182141-b2f4e2807dec h1:fCOjXc18tBlkVy4m+VuL1WU8VTukYOGtAk7nC5QYPRY=
 diff --git a/src/cmd/go/internal/telemetrystats/telemetrystats.go b/src/cmd/go/internal/telemetrystats/telemetrystats.go
-index 950453fa951374..adf49f26479f32 100644
+index 950453fa951374..d5b642240f16b7 100644
 --- a/src/cmd/go/internal/telemetrystats/telemetrystats.go
 +++ b/src/cmd/go/internal/telemetrystats/telemetrystats.go
 @@ -11,6 +11,7 @@ import (
@@ -93,7 +93,7 @@ index 950453fa951374..adf49f26479f32 100644
  )
  
  func Increment() {
-@@ -48,4 +49,14 @@ func incrementConfig() {
+@@ -48,4 +49,16 @@ func incrementConfig() {
  	case "wasm":
  		counter.Inc("go/platform/target/gowasm:" + cfg.GOWASM)
  	}
@@ -101,11 +101,13 @@ index 950453fa951374..adf49f26479f32 100644
 +	// Use cfg.Experiment.String instead of cfg.Experiment.Enabled
 +	// because we only want to count the experiments that differ
 +	// from the baseline.
-+	for exp := range strings.SplitSeq(cfg.Experiment.String(), ",") {
-+		if exp == "" {
-+			continue
++	if cfg.Experiment != nil {
++		for exp := range strings.SplitSeq(cfg.Experiment.String(), ",") {
++			if exp == "" {
++				continue
++			}
++			counter.Inc("go/goexperiment:" + exp)
 +		}
-+		counter.Inc("go/goexperiment:" + exp)
 +	}
  }
 diff --git a/src/cmd/go/main.go b/src/cmd/go/main.go
