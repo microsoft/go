@@ -18,7 +18,7 @@ desired goexperiments and build tags.
  src/cmd/go/go_test.go                         |  11 +
  src/cmd/go/internal/cfg/cfg.go                |  13 +
  src/cmd/go/internal/load/pkg.go               |   3 +
- src/cmd/go/internal/tool/tool.go              |   7 +
+ src/cmd/go/internal/tool/tool.go              |   9 +-
  src/cmd/go/systemcrypto_test.go               | 144 +++++++
  .../go/testdata/script/env_cross_build.txt    |   2 +
  .../script/test_android_issue62123.txt        |   2 +
@@ -55,7 +55,7 @@ desired goexperiments and build tags.
  src/internal/buildcfg/exp.go                  |  54 +++
  src/runtime/runtime_boring.go                 |   5 +
  src/syscall/exec_linux_test.go                |   2 +-
- 46 files changed, 2254 insertions(+), 22 deletions(-)
+ 46 files changed, 2255 insertions(+), 23 deletions(-)
  create mode 100644 src/cmd/go/systemcrypto_test.go
  create mode 100644 src/crypto/internal/backend/backend_test.go
  create mode 100644 src/crypto/internal/backend/bbig/big.go
@@ -374,7 +374,7 @@ index 3e691abe41f702..b799031d598892 100644
  	tg.parallel()
  	defer tg.cleanup()
 diff --git a/src/cmd/go/internal/cfg/cfg.go b/src/cmd/go/internal/cfg/cfg.go
-index a4edd854f1d35a..3efe51984c2566 100644
+index a4edd854f1d35a..a0672ced2ca107 100644
 --- a/src/cmd/go/internal/cfg/cfg.go
 +++ b/src/cmd/go/internal/cfg/cfg.go
 @@ -19,6 +19,7 @@ import (
@@ -390,16 +390,16 @@ index a4edd854f1d35a..3efe51984c2566 100644
  	// This will also update the BuildContext's tool tags to include the new
  	// experiment tags.
 +	//
-+	// Remove systemcrypto from the RawGOEXPERIMENT and add instead
++	// Remove systemcrypto from the RawGOEXPERIMENT and add
 +	// nosystemcrypto so that the tool is built without systemcrypto,
-+	// as the rest of the toolchain.
++	// like the rest of the toolchain.
 +	goexp := strings.Split(RawGOEXPERIMENT, ",")
 +	goexp = slices.DeleteFunc(goexp, func(s string) bool {
 +		return s == "systemcrypto" || s == "nosystemcrypto" || s == ""
 +	})
 +	goexp = append(goexp, "nosystemcrypto")
 +	RawGOEXPERIMENT = strings.Join(goexp, ",")
-+	// Set the ms_skipfipscheck build tag, as the rest of the toolchain.
++	// Set the ms_skipfipscheck build tag, like the rest of the toolchain.
 +	BuildContext.BuildTags = append(BuildContext.BuildTags, "ms_skipfipscheck")
  	computeExperiment()
  }
@@ -419,7 +419,7 @@ index 1f791546f90088..d20890b4e70fae 100644
  	appendSetting("-compiler", cfg.BuildContext.Compiler)
  	if gccgoflags := BuildGccgoflags.String(); gccgoflags != "" && cfg.BuildContext.Compiler == "gccgo" {
 diff --git a/src/cmd/go/internal/tool/tool.go b/src/cmd/go/internal/tool/tool.go
-index 16e1a4f47f49c0..38688015d5a704 100644
+index 16e1a4f47f49c0..6c16293cd8deb0 100644
 --- a/src/cmd/go/internal/tool/tool.go
 +++ b/src/cmd/go/internal/tool/tool.go
 @@ -281,6 +281,10 @@ func buildAndRunBuiltinTool(ctx context.Context, toolName, tool string, args []s
@@ -433,16 +433,19 @@ index 16e1a4f47f49c0..38688015d5a704 100644
  
  	// Ignore go.mod and go.work: we don't need them, and we want to be able
  	// to run the tool even if there's an issue with the module or workspace the
-@@ -288,6 +292,9 @@ func buildAndRunBuiltinTool(ctx context.Context, toolName, tool string, args []s
+@@ -288,8 +292,11 @@ func buildAndRunBuiltinTool(ctx context.Context, toolName, tool string, args []s
  	modload.RootMode = modload.NoRoot
  
  	runFunc := func(b *work.Builder, ctx context.Context, a *work.Action) error {
 +		// Now that the tool is built, revert the GOEXPERIMENT
 +		// environment variable to the original value.
-+		os.Setenv("GOEXPERIMENT", originalGOEXPERIMENT)
++		env := []string{"GOEXPERIMENT=" + originalGOEXPERIMENT}
  		cmdline := str.StringList(a.Deps[0].BuiltTarget(), a.Args)
- 		return runBuiltTool(toolName, nil, cmdline)
+-		return runBuiltTool(toolName, nil, cmdline)
++		return runBuiltTool(toolName, env, cmdline)
  	}
+ 
+ 	buildAndRunTool(ctx, tool, args, runFunc)
 diff --git a/src/cmd/go/systemcrypto_test.go b/src/cmd/go/systemcrypto_test.go
 new file mode 100644
 index 00000000000000..5ee9c2e050cf24
