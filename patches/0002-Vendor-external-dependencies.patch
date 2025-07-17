@@ -8,6 +8,29 @@ To reproduce changes in 'src/cmd/vendor', run 'go mod vendor' in 'src/cmd'.
 If 'go mod vendor' makes any changes, run 'go mod tidy'.
 Use a 'go' that was recently built by the current branch to ensure stable results.
 ---
+ src/cmd/go.mod                                |   2 +
+ src/cmd/go.sum                                |   4 +
+ .../microsoft/go-infra/telemetry/LICENSE      |  21 +
+ .../microsoft/go-infra/telemetry/README.md    |   7 +
+ .../go-infra/telemetry/config/LICENSE         |  21 +
+ .../go-infra/telemetry/config/config.go       |  11 +
+ .../go-infra/telemetry/config/config.json     |  61 ++
+ .../go-infra/telemetry/counter/counter.go     |  63 ++
+ .../telemetry/internal/appinsights/README.md  |  12 +
+ .../telemetry/internal/appinsights/client.go  | 175 +++++
+ .../internal/appinsights/inmemorychannel.go   | 310 +++++++++
+ .../internal/contracts/contexttagkeys.go      |  50 ++
+ .../internal/contracts/envelope.go            | 123 ++++
+ .../internal/contracts/response.go            |  32 +
+ .../internal/appinsights/jsonserializer.go    |  33 +
+ .../telemetry/internal/appinsights/package.go |  13 +
+ .../internal/appinsights/telemetrycontext.go  |  44 ++
+ .../internal/appinsights/transmitter.go       | 169 +++++
+ .../telemetry/internal/config/config.go       |  63 ++
+ .../telemetry/internal/telemetry/proginfo.go  |  32 +
+ .../telemetry/internal/telemetry/telemetry.go |  32 +
+ .../microsoft/go-infra/telemetry/telemetry.go | 120 ++++
+ src/cmd/vendor/modules.txt                    |  11 +
  src/crypto/internal/backend/deps_ignore.go    |  22 +
  src/go.mod                                    |   6 +
  src/go.sum                                    |   6 +
@@ -105,7 +128,27 @@ Use a 'go' that was recently built by the current branch to ensure stable result
  .../internal/subtle/aliasing.go               |  32 +
  .../internal/sysdll/sys_windows.go            |  55 ++
  src/vendor/modules.txt                        |  16 +
- 97 files changed, 14353 insertions(+), 7 deletions(-)
+ 120 files changed, 15762 insertions(+), 7 deletions(-)
+ create mode 100644 src/cmd/vendor/github.com/microsoft/go-infra/telemetry/LICENSE
+ create mode 100644 src/cmd/vendor/github.com/microsoft/go-infra/telemetry/README.md
+ create mode 100644 src/cmd/vendor/github.com/microsoft/go-infra/telemetry/config/LICENSE
+ create mode 100644 src/cmd/vendor/github.com/microsoft/go-infra/telemetry/config/config.go
+ create mode 100644 src/cmd/vendor/github.com/microsoft/go-infra/telemetry/config/config.json
+ create mode 100644 src/cmd/vendor/github.com/microsoft/go-infra/telemetry/counter/counter.go
+ create mode 100644 src/cmd/vendor/github.com/microsoft/go-infra/telemetry/internal/appinsights/README.md
+ create mode 100644 src/cmd/vendor/github.com/microsoft/go-infra/telemetry/internal/appinsights/client.go
+ create mode 100644 src/cmd/vendor/github.com/microsoft/go-infra/telemetry/internal/appinsights/inmemorychannel.go
+ create mode 100644 src/cmd/vendor/github.com/microsoft/go-infra/telemetry/internal/appinsights/internal/contracts/contexttagkeys.go
+ create mode 100644 src/cmd/vendor/github.com/microsoft/go-infra/telemetry/internal/appinsights/internal/contracts/envelope.go
+ create mode 100644 src/cmd/vendor/github.com/microsoft/go-infra/telemetry/internal/appinsights/internal/contracts/response.go
+ create mode 100644 src/cmd/vendor/github.com/microsoft/go-infra/telemetry/internal/appinsights/jsonserializer.go
+ create mode 100644 src/cmd/vendor/github.com/microsoft/go-infra/telemetry/internal/appinsights/package.go
+ create mode 100644 src/cmd/vendor/github.com/microsoft/go-infra/telemetry/internal/appinsights/telemetrycontext.go
+ create mode 100644 src/cmd/vendor/github.com/microsoft/go-infra/telemetry/internal/appinsights/transmitter.go
+ create mode 100644 src/cmd/vendor/github.com/microsoft/go-infra/telemetry/internal/config/config.go
+ create mode 100644 src/cmd/vendor/github.com/microsoft/go-infra/telemetry/internal/telemetry/proginfo.go
+ create mode 100644 src/cmd/vendor/github.com/microsoft/go-infra/telemetry/internal/telemetry/telemetry.go
+ create mode 100644 src/cmd/vendor/github.com/microsoft/go-infra/telemetry/telemetry.go
  create mode 100644 src/crypto/internal/backend/deps_ignore.go
  create mode 100644 src/vendor/github.com/golang-fips/openssl/v2/.gitignore
  create mode 100644 src/vendor/github.com/golang-fips/openssl/v2/.gitleaks.toml
@@ -199,6 +242,1569 @@ Use a 'go' that was recently built by the current branch to ensure stable result
  create mode 100644 src/vendor/github.com/microsoft/go-crypto-winnative/internal/subtle/aliasing.go
  create mode 100644 src/vendor/github.com/microsoft/go-crypto-winnative/internal/sysdll/sys_windows.go
 
+diff --git a/src/cmd/go.mod b/src/cmd/go.mod
+index 9c29c3ac74d197..565de205ce3f61 100644
+--- a/src/cmd/go.mod
++++ b/src/cmd/go.mod
+@@ -4,6 +4,8 @@ go 1.24
+ 
+ require (
+ 	github.com/google/pprof v0.0.0-20241101162523-b92577c0c142
++	github.com/microsoft/go-infra/telemetry v0.0.0-20250716090631-5672f943a6c1
++	github.com/microsoft/go-infra/telemetry/config v0.0.0-20250716090631-5672f943a6c1
+ 	golang.org/x/arch v0.12.0
+ 	golang.org/x/build v0.0.0-20241205234318-b850320af2a4
+ 	golang.org/x/mod v0.22.0
+diff --git a/src/cmd/go.sum b/src/cmd/go.sum
+index 593063a9daa351..3c45318df4e20d 100644
+--- a/src/cmd/go.sum
++++ b/src/cmd/go.sum
+@@ -4,6 +4,10 @@ github.com/google/pprof v0.0.0-20241101162523-b92577c0c142 h1:sAGdeJj0bnMgUNVeUp
+ github.com/google/pprof v0.0.0-20241101162523-b92577c0c142/go.mod h1:vavhavw2zAxS5dIdcRluK6cSGGPlZynqzFM8NdvU144=
+ github.com/ianlancetaylor/demangle v0.0.0-20240912202439-0a2b6291aafd h1:EVX1s+XNss9jkRW9K6XGJn2jL2lB1h5H804oKPsxOec=
+ github.com/ianlancetaylor/demangle v0.0.0-20240912202439-0a2b6291aafd/go.mod h1:gx7rwoVhcfuVKG5uya9Hs3Sxj7EIvldVofAWIUtGouw=
++github.com/microsoft/go-infra/telemetry v0.0.0-20250716090631-5672f943a6c1 h1:GrwQB5oC7TORdL+bRRKP+7ceLwr2iK0+vBpG82zgLyI=
++github.com/microsoft/go-infra/telemetry v0.0.0-20250716090631-5672f943a6c1/go.mod h1:XQP+NhZgM1i1+asOSnAFPRzv2HhQibhk6k6FIllx8/Y=
++github.com/microsoft/go-infra/telemetry/config v0.0.0-20250716090631-5672f943a6c1 h1:2doxdRr67OgtkPNjGuLcdf+i4+HVQgikubr3xv0dXg8=
++github.com/microsoft/go-infra/telemetry/config v0.0.0-20250716090631-5672f943a6c1/go.mod h1:t6u8QcO4tExYT4+NEB0XqR0ObiUvLe0D8ZpxFobGuA8=
+ github.com/yuin/goldmark v1.6.0 h1:boZcn2GTjpsynOsC0iJHnBWa4Bi0qzfJjthwauItG68=
+ github.com/yuin/goldmark v1.6.0/go.mod h1:6yULJ656Px+3vBD8DxQVa3kxgyrAnzto9xy5taEt/CY=
+ golang.org/x/arch v0.12.0 h1:UsYJhbzPYGsT0HbEdmYcqtCv8UNGvnaL561NnIUvaKg=
+diff --git a/src/cmd/vendor/github.com/microsoft/go-infra/telemetry/LICENSE b/src/cmd/vendor/github.com/microsoft/go-infra/telemetry/LICENSE
+new file mode 100644
+index 00000000000000..9e841e7a26e4eb
+--- /dev/null
++++ b/src/cmd/vendor/github.com/microsoft/go-infra/telemetry/LICENSE
+@@ -0,0 +1,21 @@
++    MIT License
++
++    Copyright (c) Microsoft Corporation.
++
++    Permission is hereby granted, free of charge, to any person obtaining a copy
++    of this software and associated documentation files (the "Software"), to deal
++    in the Software without restriction, including without limitation the rights
++    to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
++    copies of the Software, and to permit persons to whom the Software is
++    furnished to do so, subject to the following conditions:
++
++    The above copyright notice and this permission notice shall be included in all
++    copies or substantial portions of the Software.
++
++    THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
++    IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
++    FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
++    AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
++    LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
++    OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
++    SOFTWARE
+diff --git a/src/cmd/vendor/github.com/microsoft/go-infra/telemetry/README.md b/src/cmd/vendor/github.com/microsoft/go-infra/telemetry/README.md
+new file mode 100644
+index 00000000000000..472894e2011f93
+--- /dev/null
++++ b/src/cmd/vendor/github.com/microsoft/go-infra/telemetry/README.md
+@@ -0,0 +1,7 @@
++# telemetry
++
++This directory, the `telemetry` package, contains the telemetry transmission code for the Microsoft build of Go.
++It is specialized to work similarly to the upstream telemetry counters.
++
++The [`appinsights`](appinsights) package is an alternative client that can send more arbitrary telemetry event data to Application Insights.
++It only supports a few features of Application Insights that are used in other projects maintained by the Microsoft build of Go team.
+diff --git a/src/cmd/vendor/github.com/microsoft/go-infra/telemetry/config/LICENSE b/src/cmd/vendor/github.com/microsoft/go-infra/telemetry/config/LICENSE
+new file mode 100644
+index 00000000000000..9e841e7a26e4eb
+--- /dev/null
++++ b/src/cmd/vendor/github.com/microsoft/go-infra/telemetry/config/LICENSE
+@@ -0,0 +1,21 @@
++    MIT License
++
++    Copyright (c) Microsoft Corporation.
++
++    Permission is hereby granted, free of charge, to any person obtaining a copy
++    of this software and associated documentation files (the "Software"), to deal
++    in the Software without restriction, including without limitation the rights
++    to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
++    copies of the Software, and to permit persons to whom the Software is
++    furnished to do so, subject to the following conditions:
++
++    The above copyright notice and this permission notice shall be included in all
++    copies or substantial portions of the Software.
++
++    THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
++    IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
++    FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
++    AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
++    LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
++    OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
++    SOFTWARE
+diff --git a/src/cmd/vendor/github.com/microsoft/go-infra/telemetry/config/config.go b/src/cmd/vendor/github.com/microsoft/go-infra/telemetry/config/config.go
+new file mode 100644
+index 00000000000000..044268a046a54d
+--- /dev/null
++++ b/src/cmd/vendor/github.com/microsoft/go-infra/telemetry/config/config.go
+@@ -0,0 +1,11 @@
++// The config package holds the config.json file defining the Go telemetry
++// upload configuration.
++//
++// An upload configuration specifies the set of values that are permitted in
++// telemetry uploads: GOOS, GOARCH, and per-program counters.
++package config
++
++import _ "embed" // for config.json
++
++//go:embed config.json
++var Config []byte
+diff --git a/src/cmd/vendor/github.com/microsoft/go-infra/telemetry/config/config.json b/src/cmd/vendor/github.com/microsoft/go-infra/telemetry/config/config.json
+new file mode 100644
+index 00000000000000..8c1a4bff90bf9b
+--- /dev/null
++++ b/src/cmd/vendor/github.com/microsoft/go-infra/telemetry/config/config.json
+@@ -0,0 +1,61 @@
++{
++	"GOOS": [
++		"aix",
++		"android",
++		"darwin",
++		"dragonfly",
++		"freebsd",
++		"hurd",
++		"illumos",
++		"ios",
++		"js",
++		"linux",
++		"nacl",
++		"netbsd",
++		"openbsd",
++		"plan9",
++		"solaris",
++		"wasip1",
++		"windows",
++		"zos"
++	],
++	"GOARCH": [
++		"386",
++		"amd64",
++		"amd64p32",
++		"arm",
++		"arm64",
++		"arm64be",
++		"armbe",
++		"loong64",
++		"mips",
++		"mips64",
++		"mips64le",
++		"mips64p32",
++		"mips64p32le",
++		"mipsle",
++		"ppc",
++		"ppc64",
++		"ppc64le",
++		"riscv",
++		"riscv64",
++		"s390",
++		"s390x",
++		"sparc",
++		"sparc64",
++		"wasm"
++	],
++	"Programs": [
++		{
++			"Name": "cmd/go",
++			"Counters": [
++				{
++					"Name": "go/invocations"
++				},
++				{
++					"Name": "go/goexperiment:{ms_tls_config_schannel,systemcrypto,nosystemcrypto,opensslcrypto,cngcrypto,darwincrypto}"
++				}
++			]
++		}
++	]
++}
+\ No newline at end of file
+diff --git a/src/cmd/vendor/github.com/microsoft/go-infra/telemetry/counter/counter.go b/src/cmd/vendor/github.com/microsoft/go-infra/telemetry/counter/counter.go
+new file mode 100644
+index 00000000000000..542b9c780b5f1b
+--- /dev/null
++++ b/src/cmd/vendor/github.com/microsoft/go-infra/telemetry/counter/counter.go
+@@ -0,0 +1,63 @@
++// Copyright (c) Microsoft Corporation.
++// Licensed under the MIT License.
++
++package counter
++
++import (
++	"flag"
++	"path"
++	"runtime/debug"
++
++	"github.com/microsoft/go-infra/telemetry/internal/appinsights"
++	"github.com/microsoft/go-infra/telemetry/internal/telemetry"
++)
++
++// A Counter is a single named event counter.
++type Counter = appinsights.Event
++
++// Inc increments the counter with the given name.
++func Inc(name string) {
++	New(name).Inc()
++}
++
++// Add adds n to the counter with the given name.
++func Add(name string, n int64) {
++	New(name).Add(n)
++}
++
++// New returns a counter with the given name.
++func New(name string) *Counter {
++	return telemetry.Client.NewEvent(name, nil)
++}
++
++// CountFlags creates a counter for every flag that is set
++// and increments the counter. The name of the counter is
++// the concatenation of prefix and the flag name.
++//
++//	For instance, CountFlags("gopls/flag:", *flag.CommandLine)
++func CountFlags(prefix string, fs flag.FlagSet) {
++	fs.Visit(func(f *flag.Flag) {
++		New(prefix + f.Name).Inc()
++	})
++}
++
++// CountCommandLineFlags creates a counter for every flag
++// that is set in the default flag.CommandLine FlagSet using
++// the counter name binaryName+"/flag:"+flagName where
++// binaryName is the base name of the Path embedded in the
++// binary's build info. If the binary does not have embedded build
++// info, the "flag:"+flagName counter will be incremented.
++//
++// CountCommandLineFlags must be called after flags are parsed
++// with flag.Parse.
++//
++// For instance, if the -S flag is passed to cmd/compile and
++// CountCommandLineFlags is called after flags are parsed,
++// the "compile/flag:S" counter will be incremented.
++func CountCommandLineFlags() {
++	prefix := "flag:"
++	if buildInfo, ok := debug.ReadBuildInfo(); ok && buildInfo.Path != "" {
++		prefix = path.Base(buildInfo.Path) + "/" + prefix
++	}
++	CountFlags(prefix, *flag.CommandLine)
++}
+diff --git a/src/cmd/vendor/github.com/microsoft/go-infra/telemetry/internal/appinsights/README.md b/src/cmd/vendor/github.com/microsoft/go-infra/telemetry/internal/appinsights/README.md
+new file mode 100644
+index 00000000000000..2e96890f60b871
+--- /dev/null
++++ b/src/cmd/vendor/github.com/microsoft/go-infra/telemetry/internal/appinsights/README.md
+@@ -0,0 +1,12 @@
++# appinsights
++
++This package is a trimmed down version of https://github.com/microsoft/ApplicationInsights-Go.
++It is tailored for the use of the [Microsoft build of Go](https://github.com/microsoft/go).
++
++These are the changes made to the original package:
++
++- Remove all external dependencies.
++- Remove all telemetry types except for `Event`.
++- Simplify implementation.
++- Modernize the code.
++- Improve testing.
+diff --git a/src/cmd/vendor/github.com/microsoft/go-infra/telemetry/internal/appinsights/client.go b/src/cmd/vendor/github.com/microsoft/go-infra/telemetry/internal/appinsights/client.go
+new file mode 100644
+index 00000000000000..1a629e35709231
+--- /dev/null
++++ b/src/cmd/vendor/github.com/microsoft/go-infra/telemetry/internal/appinsights/client.go
+@@ -0,0 +1,175 @@
++// Copyright (c) Microsoft Corporation.
++// Licensed under the MIT License.
++
++package appinsights
++
++import (
++	"cmp"
++	"context"
++	"log"
++	"maps"
++	"net/http"
++	"sync"
++	"sync/atomic"
++	"time"
++
++	"github.com/microsoft/go-infra/telemetry/internal/appinsights/internal/contracts"
++)
++
++// Client is the main entry point for sending telemetry to Application Insights.
++// Changing its properties after a telemetry item is created will have no effect.
++type Client struct {
++	// The instrumentation key used to identify the application.
++	// This key is required and must be set before sending any telemetry.
++	InstrumentationKey string
++
++	// The endpoint URL to which telemetry will be sent.
++	// If empty, it defaults to https://dc.services.visualstudio.com/v2/track.
++	Endpoint string
++
++	// Maximum number of telemetry items that can be submitted in each
++	// request. If this many items are buffered, the buffer will be
++	// flushed before MaxBatchInterval expires.
++	// If zero, it defaults to 1024.
++	MaxBatchSize int
++
++	// Maximum time to wait before sending a batch of telemetry.
++	// If zero, it defaults to 10 seconds.
++	MaxBatchInterval time.Duration
++
++	// Customized http client.
++	// If nil, it defaults to http.DefaultClient.
++	HTTPClient *http.Client
++
++	// Tags to be sent with every telemetry item.
++	// If nil, no additional tags will be sent.
++	Tags map[string]string
++
++	// ErrorLog specifies an optional logger for errors
++	// that occur when attempting to upload telemetry.
++	// If nil, logging is done via the log package's standard logger.
++	ErrorLog *log.Logger
++
++	// Function to filter out telemetry items by name before they are sent.
++	// If nil, all telemetry items are sent.
++	UploadFilter func(name string) bool
++
++	channel *inMemoryChannel
++	context *telemetryContext
++
++	initialized atomic.Bool
++	initOnce    sync.Once
++}
++
++// init initializes the client.
++// It is safe to call this method multiple times concurrently.
++func (c *Client) init() {
++	c.initOnce.Do(func() {
++		if c.InstrumentationKey == "" {
++			panic("instrumentation key is required")
++		}
++		endpoint := cmp.Or(c.Endpoint, "https://dc.services.visualstudio.com/v2/track")
++		batchSize := cmp.Or(c.MaxBatchSize, 1024)
++		batchInterval := cmp.Or(c.MaxBatchInterval, 10*time.Second)
++		httpClient := cmp.Or(c.HTTPClient, http.DefaultClient)
++		errorLog := c.ErrorLog
++		if errorLog == nil {
++			std := log.Default()
++			errorLog = log.New(std.Writer(), std.Prefix()+"appinsights: ", std.Flags())
++		}
++		c.channel = newInMemoryChannel(endpoint, batchSize, batchInterval, httpClient, errorLog)
++		c.context = setupContext(c.InstrumentationKey, c.Tags)
++		if err := contracts.SanitizeTags(c.context.Tags); err != nil {
++			c.channel.logf("Warning sanitizing tags: %v", err)
++		}
++
++		go c.channel.acceptLoop()
++		c.initialized.Store(true)
++	})
++}
++
++func setupContext(instrumentationKey string, tags map[string]string) *telemetryContext {
++	context := newTelemetryContext(instrumentationKey)
++	context.Tags["ai.internal.sdkVersion"] = internalVersion
++	maps.Copy(context.Tags, tags)
++	return context
++}
++
++// NewEvent creates a new event with the specified name.
++// If c is nil, returns a usable Event that does not send any telemetry.
++func (c *Client) NewEvent(name string, properties map[string]string) *Event {
++	return &Event{
++		name:       name,
++		client:     c,
++		properties: properties,
++	}
++}
++
++// TrackEvent logs a user action with the specified name.
++// If c is nil, nothing is logged.
++func (c *Client) TrackEvent(name string, properties map[string]string) {
++	c.NewEvent(name, properties).Inc()
++}
++
++// Forces the current queue to be sent.
++func (c *Client) Flush() {
++	if !c.initialized.Load() {
++		return
++	}
++	c.channel.flush()
++}
++
++// Close flushes and tears down the submission goroutine and closes internal channels.
++// Waits until all pending telemetry items have been submitted.
++func (c *Client) Close(ctx context.Context) {
++	if !c.initialized.Load() {
++		return
++	}
++	c.channel.close(ctx)
++}
++
++// Stop tears down the submission goroutines, closes internal channels.
++// Any telemetry waiting to be sent is discarded.
++// This is a more abrupt version of [Client.Close].
++func (c *Client) Stop() {
++	c.channel.stop()
++}
++
++// Submits the specified telemetry item.
++func (c *Client) track(data contracts.EventData, n int64) {
++	if n == 0 || (c.UploadFilter != nil && !c.UploadFilter(data.Name)) {
++		return
++	}
++	c.init()
++	ev := c.context.envelop(data)
++	if err := ev.Sanitize(); err != nil {
++		c.channel.logf("Warning sanitizing telemetry item: %v", err)
++	}
++	for range n {
++		c.channel.send(ev)
++	}
++}
++
++// Event represents an event to be tracked.
++type Event struct {
++	name       string
++	client     *Client
++	properties map[string]string
++}
++
++// Inc adds 1 to the counter.
++func (e *Event) Inc() {
++	e.Add(1)
++}
++
++// Add adds n to the counter. n cannot be negative, as counts cannot decrease.
++func (e *Event) Add(n int64) {
++	if e == nil || e.client == nil {
++		return
++	}
++	e.client.track(contracts.EventData{
++		Name:       e.name,
++		Ver:        2,
++		Properties: e.properties,
++	}, n)
++}
+diff --git a/src/cmd/vendor/github.com/microsoft/go-infra/telemetry/internal/appinsights/inmemorychannel.go b/src/cmd/vendor/github.com/microsoft/go-infra/telemetry/internal/appinsights/inmemorychannel.go
+new file mode 100644
+index 00000000000000..05dbdfe0e3efcd
+--- /dev/null
++++ b/src/cmd/vendor/github.com/microsoft/go-infra/telemetry/internal/appinsights/inmemorychannel.go
+@@ -0,0 +1,310 @@
++// Copyright (c) Microsoft Corporation.
++// Licensed under the MIT License.
++
++package appinsights
++
++import (
++	"context"
++	"errors"
++	"log"
++	"net/http"
++	"slices"
++	"sync"
++	"sync/atomic"
++	"time"
++
++	"github.com/microsoft/go-infra/telemetry/internal/appinsights/internal/contracts"
++)
++
++// batchItem is a telemetry item that is sent in a batch.
++type batchItem struct {
++	item    *contracts.Envelope
++	retries int
++}
++
++// inMemoryChannel stores events exclusively in memory.
++// Presently the only telemetry channel implementation available.
++type inMemoryChannel struct {
++	endpointAddr  string
++	batchSize     int
++	batchInterval time.Duration
++	errorLog      *log.Logger
++
++	collectChan chan *contracts.Envelope
++	flushChan   chan struct{}
++	retryChan   chan retryMessage
++
++	transmitter transmitter
++
++	// Use a context instead of a channel to
++	// allow propagating the cancellation to the
++	// transmitter and to the underlying HTTP client.
++	cancelCtx       context.Context
++	cancelCauseFunc context.CancelCauseFunc
++
++	throttled   atomic.Bool
++	closed      atomic.Bool
++	sendQueue   []*[]batchItem
++	sendQueueMu sync.Mutex
++	sendMu      sync.Mutex
++
++	itemsBuf sync.Pool
++}
++
++type retryMessage struct {
++	throttled  bool
++	retryAfter time.Time
++	items      []batchItem
++}
++
++// newInMemoryChannel creates an inMemoryChannel instance and starts a background submission goroutine.
++func newInMemoryChannel(endpointUrl string, batchSize int, batchInterval time.Duration, httpClient *http.Client, errorLog *log.Logger) *inMemoryChannel {
++	// Set up the channel
++	channel := &inMemoryChannel{
++		endpointAddr:  endpointUrl,
++		batchSize:     batchSize,
++		batchInterval: batchInterval,
++		errorLog:      errorLog,
++		collectChan:   make(chan *contracts.Envelope),
++		flushChan:     make(chan struct{}),
++		retryChan:     make(chan retryMessage),
++		transmitter:   newTransmitter(endpointUrl, httpClient),
++		itemsBuf: sync.Pool{
++			New: func() any {
++				buf := make([]batchItem, 0, batchSize)
++				return &buf
++			},
++		},
++	}
++	channel.cancelCtx, channel.cancelCauseFunc = context.WithCancelCause(context.Background())
++	return channel
++}
++
++func (channel *inMemoryChannel) logf(format string, args ...any) {
++	channel.errorLog.Printf(format, args...)
++}
++
++// Queues a single telemetry item
++func (channel *inMemoryChannel) send(item *contracts.Envelope) {
++	if item != nil && !channel.closed.Load() {
++		channel.collectChan <- item
++	}
++}
++
++// Forces the current queue to be sent
++func (channel *inMemoryChannel) flush() {
++	if channel.closed.Load() {
++		return
++	}
++	channel.flushChan <- struct{}{}
++}
++
++func (channel *inMemoryChannel) retry(throttled bool, retryAfter time.Time, items []batchItem) {
++	// Retry even if the channel is closed to allow for
++	// retrying items that were already sent.
++	channel.retryChan <- retryMessage{throttled, retryAfter, items}
++}
++
++var errStopped = errors.New("client stopped")
++var errClosed = errors.New("client closed")
++
++func (channel *inMemoryChannel) stop() {
++	if channel.closed.Load() {
++		return
++	}
++
++	channel.closed.Store(true)
++	channel.cancelCauseFunc(errStopped)
++}
++
++// close flushes and tears down the submission goroutine and closes internal
++// channels. Returns when all pending telemetry items have been submitted
++// (it is then safe to shut down without losing telemetry) or when
++// the context is canceled.
++func (channel *inMemoryChannel) close(ctx context.Context) {
++	if channel.closed.Load() {
++		return
++	}
++
++	channel.closed.Store(true)
++	channel.flushChan <- struct{}{}
++	select {
++	case <-ctx.Done():
++		channel.cancelCauseFunc(context.Cause(ctx))
++	case <-channel.cancelCtx.Done():
++		// Successfully flushed
++	}
++}
++
++func (channel *inMemoryChannel) acceptLoop() {
++	channel.start()
++}
++
++// Part of channel accept loop: Initialize buffer and accept first message, handle controls.
++func (channel *inMemoryChannel) start() {
++	items := make([]batchItem, 0, channel.batchSize)
++	timer := time.NewTimer(time.Hour)
++	timer.Stop() // Stop timer until we need it.
++	var dropped int
++	for {
++		select {
++		case item := <-channel.collectChan:
++			if item == nil {
++				panic("received nil event")
++			}
++			if channel.throttled.Load() {
++				// Check if there is space to add the item to the batch.
++				// If not, then drop the event.
++				if len(items) < channel.batchSize {
++					items = append(items, batchItem{item, 0})
++				} else {
++					dropped++
++				}
++				continue
++			}
++			items = append(items, batchItem{item, 0})
++			if len(items) >= channel.batchSize {
++				timer.Stop()
++				channel.sendBatch(items)
++				items = items[:0]
++			} else if len(items) == 1 {
++				// Start the timer if this is the first item in the batch.
++				timer.Reset(channel.batchInterval)
++			}
++
++		case <-channel.flushChan:
++			if channel.throttled.Load() {
++				// Ignore the flush request if we are throttled.
++				continue
++			}
++			timer.Stop()
++			channel.sendBatch(items)
++			items = items[:0]
++
++		case <-timer.C:
++			if channel.throttled.Load() {
++				// When throttled, the timer is reset to the retry time,
++				// so if we get here, then we're no longer throttled.
++				channel.throttled.Store(false)
++				if dropped > 0 {
++					channel.logf("Dropped %d telemetry items due to throttling", dropped)
++					dropped = 0
++				}
++			}
++			channel.sendBatch(items)
++			items = items[:0]
++
++		case msg := <-channel.retryChan:
++			// If there is not enough space in the batch, drop the items.
++			space := channel.batchSize - len(items)
++			if space < len(msg.items) {
++				dropped += len(msg.items) - space
++				msg.items = msg.items[:space]
++			}
++			items = append(items, msg.items...)
++
++			if msg.throttled {
++				channel.throttled.Store(true)
++			}
++			if msg.retryAfter.IsZero() {
++				// If the retry time is not set, use the default batch interval.
++				timer.Reset(channel.batchInterval)
++			} else {
++				timer.Reset(time.Until(msg.retryAfter))
++			}
++
++		case <-channel.cancelCtx.Done():
++			// This is the only path to exit the loop.
++			timer.Stop()
++			return
++		}
++	}
++}
++
++// sendBatch schedules a batch of items for transmission.
++func (channel *inMemoryChannel) sendBatch(items []batchItem) {
++	channel.sendQueueMu.Lock()
++	defer channel.sendQueueMu.Unlock()
++
++	if len(items) == 0 {
++		// Cancel the accept loop if we are closed and the queue is empty.
++		if len(channel.sendQueue) == 0 && channel.closed.Load() {
++			channel.cancelCauseFunc(errClosed)
++		}
++		return
++	}
++
++	// Copy the items to a temporary buffer to let the caller
++	// reuse the item slice. The size of items is capped to the
++	// maximum batch size, so the length of the polled buffer
++	// can't grow unbounded.
++	buf := channel.itemsBuf.Get().(*[]batchItem)
++	*buf = (*buf)[:0]
++	*buf = append(*buf, items...)
++	channel.sendQueue = append(channel.sendQueue, buf)
++
++	// Start a goroutine to transmit the items without blocking
++	// the accept loop.
++	go func() {
++		retry := channel.transmitRetry()
++		channel.sendQueueMu.Lock()
++		defer channel.sendQueueMu.Unlock()
++		if !retry && len(channel.sendQueue) == 0 && channel.closed.Load() {
++			// Cancel the accept loop if we are closed and the queue is empty.
++			channel.cancelCauseFunc(errClosed)
++		}
++	}()
++}
++
++// transmitRetry pops the first item from the queue and transmits it.
++// If the transmission fails, it retries the items that can be retried.
++// Returns true if some items were retried.
++func (channel *inMemoryChannel) transmitRetry() bool {
++	// Allow only one goroutine to transmit at a time.
++	channel.sendMu.Lock()
++	defer channel.sendMu.Unlock()
++
++	// Pop the first item from the queue.
++	channel.sendQueueMu.Lock()
++	itemsPtr := channel.sendQueue[0]
++	channel.sendQueue = channel.sendQueue[1:]
++	channel.sendQueueMu.Unlock()
++	defer channel.itemsBuf.Put(itemsPtr)
++
++	result, err := channel.transmitter.transmit(channel.cancelCtx, *itemsPtr)
++	if err != nil {
++		channel.logf("Error transmitting payload: %v", err)
++		if result == nil {
++			return false
++		}
++	}
++	if result.isSuccess() {
++		return false
++	}
++	canRetry := result.canRetry()
++	throttled := result.isThrottled()
++	channel.logf("Failed to transmit payload: code=%v, received=%d, accepted=%d, canRetry=%t, throttled=%t",
++		result.statusCode, result.response.ItemsReceived, result.response.ItemsAccepted, canRetry, throttled)
++
++	if !canRetry {
++		return false
++	}
++
++	// Filter down to failed items.
++	retryItems := result.getRetryItems(*itemsPtr)
++
++	// Delete items that have been retried more than 2 times.
++	retryItems = slices.DeleteFunc(retryItems, func(item batchItem) bool {
++		return item.retries > 2
++	})
++	if len(retryItems) == 0 {
++		return false
++	}
++	for i := range retryItems {
++		item := &retryItems[i]
++		item.retries++
++	}
++
++	channel.retry(throttled, result.retryAfter, retryItems)
++	return true
++}
+diff --git a/src/cmd/vendor/github.com/microsoft/go-infra/telemetry/internal/appinsights/internal/contracts/contexttagkeys.go b/src/cmd/vendor/github.com/microsoft/go-infra/telemetry/internal/appinsights/internal/contracts/contexttagkeys.go
+new file mode 100644
+index 00000000000000..58b0d5dc34d954
+--- /dev/null
++++ b/src/cmd/vendor/github.com/microsoft/go-infra/telemetry/internal/appinsights/internal/contracts/contexttagkeys.go
+@@ -0,0 +1,50 @@
++// Copyright (c) Microsoft Corporation.
++// Licensed under the MIT License.
++
++package contracts
++
++import (
++	"errors"
++	"fmt"
++)
++
++type ContextTags map[string]string
++
++var tagMaxLengths = map[string]int{
++	"ai.application.ver":             1024,
++	"ai.device.id":                   1024,
++	"ai.device.locale":               64,
++	"ai.device.model":                256,
++	"ai.device.oemName":              256,
++	"ai.device.osVersion":            256,
++	"ai.device.type":                 64,
++	"ai.location.ip":                 46,
++	"ai.operation.id":                128,
++	"ai.operation.name":              1024,
++	"ai.operation.parentId":          128,
++	"ai.operation.syntheticSource":   1024,
++	"ai.operation.correlationVector": 64,
++	"ai.session.id":                  64,
++	"ai.session.isFirst":             5,
++	"ai.user.accountId":              1024,
++	"ai.user.id":                     128,
++	"ai.user.authUserId":             1024,
++	"ai.cloud.role":                  256,
++	"ai.cloud.roleInstance":          256,
++	"ai.internal.sdkVersion":         64,
++	"ai.internal.agentVersion":       64,
++	"ai.internal.nodeName":           256,
++}
++
++// Truncates tag values that exceed their maximum supported lengths.  Returns
++// warnings for each affected field.
++func SanitizeTags(tags map[string]string) error {
++	var errs []error
++	for k, v := range tags {
++		if maxlen, ok := tagMaxLengths[k]; ok && len(v) > maxlen {
++			tags[k] = v[:maxlen]
++			errs = append(errs, fmt.Errorf("%s exceeded maximum length of %d", k, maxlen))
++		}
++	}
++	return errors.Join(errs...)
++}
+diff --git a/src/cmd/vendor/github.com/microsoft/go-infra/telemetry/internal/appinsights/internal/contracts/envelope.go b/src/cmd/vendor/github.com/microsoft/go-infra/telemetry/internal/appinsights/internal/contracts/envelope.go
+new file mode 100644
+index 00000000000000..511b8c4a62f551
+--- /dev/null
++++ b/src/cmd/vendor/github.com/microsoft/go-infra/telemetry/internal/appinsights/internal/contracts/envelope.go
+@@ -0,0 +1,123 @@
++// Copyright (c) Microsoft Corporation.
++// Licensed under the MIT License.
++
++package contracts
++
++import (
++	"errors"
++	"fmt"
++	"time"
++)
++
++// Data struct to contain both B and C sections.
++type Data struct {
++	BaseType string    `json:"baseType"`
++	BaseData EventData `json:"baseData"`
++}
++
++// EventData represents structured event records that can be grouped
++// and searched by their properties. Event data item also creates a metric of
++// event count by name.
++type EventData struct {
++	// Schema version
++	Ver int `json:"ver"`
++
++	// Event name. Keep it low cardinality to allow proper grouping and useful
++	// metrics.
++	Name string `json:"name"`
++
++	// Properties is a collection of custom properties for this specific event.
++	Properties map[string]string `json:"properties,omitempty"`
++}
++
++// Envelope is the telemetry payload that is sent to the Application Insights.
++type Envelope struct {
++	// Envelope version. For internal use only. By assigning this the default, it
++	// will not be serialized within the payload unless changed to a value other
++	// than #1.
++	Ver int `json:"ver"`
++
++	// Type name of telemetry data item.
++	Name string `json:"name"`
++
++	// Event date time when telemetry item was created. This is the wall clock
++	// time on the client when the event was generated. There is no guarantee that
++	// the client's time is accurate. This field must be formatted in UTC ISO 8601
++	// format, with a trailing 'Z' character, as described publicly on
++	// https://en.wikipedia.org/wiki/ISO_8601#UTC. Note: the number of decimal
++	// seconds digits provided are variable (and unspecified). Consumers should
++	// handle this, i.e. managed code consumers should not use format 'O' for
++	// parsing as it specifies a fixed length. Example:
++	// 2009-06-15T13:45:30.0000000Z.
++	Time time.Time `json:"time"`
++
++	// Sampling rate used in application. This telemetry item represents 1 /
++	// sampleRate actual telemetry items.
++	SampleRate float64 `json:"sampleRate"`
++
++	// Sequence field used to track absolute order of uploaded events.
++	Seq string `json:"seq"`
++
++	// The application's instrumentation key. The key is typically represented as
++	// a GUID, but there are cases when it is not a guid. No code should rely on
++	// iKey being a GUID. Instrumentation key is case insensitive.
++	IKey string `json:"iKey"`
++
++	// Key/value collection of context properties. See ContextTagKeys for
++	// information on available properties.
++	Tags map[string]string `json:"tags,omitempty"`
++
++	// Telemetry data item.
++	Data Data `json:"data"`
++}
++
++// Sanitize truncates string fields that exceed their maximum supported sizes for this
++// object and all objects it references. Returns a warning for each affected
++// field.
++func (data *Envelope) Sanitize() error {
++	var errs []error
++
++	if len(data.Name) > 1024 {
++		data.Name = data.Name[:1024]
++		errs = append(errs, errors.New("Envelope.Name exceeded maximum length of 1024"))
++	}
++
++	if props := data.Data.BaseData.Properties; len(props) > 0 {
++		for k, v := range props {
++			if len(v) > 8192 {
++				props[k] = v[:8192]
++				errs = append(errs, fmt.Errorf("EventData.Properties has value with length exceeding max of 8192: %v", v))
++			}
++			if len(k) > 150 {
++				props[k[:150]] = props[k]
++				delete(props, k)
++				errs = append(errs, fmt.Errorf("EventData.Properties has key with length exceeding max of 150: %v", k))
++			}
++		}
++	}
++
++	if len(data.Seq) > 64 {
++		data.Seq = data.Seq[:64]
++		errs = append(errs, errors.New("Envelope.Seq exceeded maximum length of 64"))
++	}
++
++	if len(data.IKey) > 40 {
++		data.IKey = data.IKey[:40]
++		errs = append(errs, errors.New("Envelope.IKey exceeded maximum length of 40"))
++	}
++
++	if len(data.Data.BaseData.Name) > 512 {
++		data.Data.BaseData.Name = data.Data.BaseData.Name[:512]
++		errs = append(errs, errors.New("EventData.Name exceeded maximum length of 512"))
++	}
++
++	return errors.Join(errs...)
++}
++
++// NewEnvelope creates a new [Envelope] instance with default values set by the schema.
++func NewEnvelope() *Envelope {
++	return &Envelope{
++		Ver:        1,
++		SampleRate: 100.0,
++	}
++}
+diff --git a/src/cmd/vendor/github.com/microsoft/go-infra/telemetry/internal/appinsights/internal/contracts/response.go b/src/cmd/vendor/github.com/microsoft/go-infra/telemetry/internal/appinsights/internal/contracts/response.go
+new file mode 100644
+index 00000000000000..f7d291fdab8927
+--- /dev/null
++++ b/src/cmd/vendor/github.com/microsoft/go-infra/telemetry/internal/appinsights/internal/contracts/response.go
+@@ -0,0 +1,32 @@
++// Copyright (c) Microsoft Corporation.
++// Licensed under the MIT License.
++
++package contracts
++
++import "fmt"
++
++const (
++	tooManyRequestsOverExtendedTimeResponse = 439
++)
++
++// BackendResponse represents the response from the Application Insights backend.
++type BackendResponse struct {
++	ItemsReceived int                    `json:"itemsReceived"`
++	ItemsAccepted int                    `json:"itemsAccepted"`
++	Errors        []BackendResponseError `json:"errors"`
++}
++
++func (r *BackendResponse) IsSucess() bool {
++	return r.ItemsReceived == r.ItemsAccepted
++}
++
++// BackendResponseError represents an error in the response from the Application Insights backend.
++type BackendResponseError struct {
++	Index      int    `json:"index"`
++	StatusCode int    `json:"statusCode"`
++	Message    string `json:"message"`
++}
++
++func (r BackendResponseError) Error() string {
++	return fmt.Errorf("index: %d, statusCode: %d, message: %s", r.Index, r.StatusCode, r.Message).Error()
++}
+diff --git a/src/cmd/vendor/github.com/microsoft/go-infra/telemetry/internal/appinsights/jsonserializer.go b/src/cmd/vendor/github.com/microsoft/go-infra/telemetry/internal/appinsights/jsonserializer.go
+new file mode 100644
+index 00000000000000..02fe54dae88963
+--- /dev/null
++++ b/src/cmd/vendor/github.com/microsoft/go-infra/telemetry/internal/appinsights/jsonserializer.go
+@@ -0,0 +1,33 @@
++// Copyright (c) Microsoft Corporation.
++// Licensed under the MIT License.
++
++package appinsights
++
++import (
++	"bytes"
++	"encoding/json"
++	"fmt"
++)
++
++func serialize(items []batchItem) ([]byte, error) {
++	var result bytes.Buffer
++	encoder := json.NewEncoder(&result)
++
++	var nfail int
++	for _, item := range items {
++		end := result.Len()
++		if err := encoder.Encode(item.item); err != nil {
++			nfail++
++			result.Truncate(end)
++		}
++	}
++	ret := result.Bytes()
++	if nfail > 0 {
++		if nfail == len(items) {
++			ret = nil
++		}
++		return ret, fmt.Errorf("failed to serialize %d items out of %d", nfail, len(items))
++	}
++
++	return ret, nil
++}
+diff --git a/src/cmd/vendor/github.com/microsoft/go-infra/telemetry/internal/appinsights/package.go b/src/cmd/vendor/github.com/microsoft/go-infra/telemetry/internal/appinsights/package.go
+new file mode 100644
+index 00000000000000..9c2f950a309e5e
+--- /dev/null
++++ b/src/cmd/vendor/github.com/microsoft/go-infra/telemetry/internal/appinsights/package.go
+@@ -0,0 +1,13 @@
++// Copyright (c) Microsoft Corporation.
++// Licensed under the MIT License.
++
++// Package appinsights provides an interface to submit telemetry to Application Insights,
++// a component of Azure Monitor. This package calls the Classic API.
++// See https://learn.microsoft.com/en-us/azure/azure-monitor/app/api-custom-events-metrics
++package appinsights
++
++const (
++	sdkName         = "go-infra/telemetry"
++	Version         = "v0.0.1"
++	internalVersion = sdkName + ":" + Version
++)
+diff --git a/src/cmd/vendor/github.com/microsoft/go-infra/telemetry/internal/appinsights/telemetrycontext.go b/src/cmd/vendor/github.com/microsoft/go-infra/telemetry/internal/appinsights/telemetrycontext.go
+new file mode 100644
+index 00000000000000..a2e954ae84aa6e
+--- /dev/null
++++ b/src/cmd/vendor/github.com/microsoft/go-infra/telemetry/internal/appinsights/telemetrycontext.go
+@@ -0,0 +1,44 @@
++// Copyright (c) Microsoft Corporation.
++// Licensed under the MIT License.
++
++package appinsights
++
++import (
++	"time"
++
++	"github.com/microsoft/go-infra/telemetry/internal/appinsights/internal/contracts"
++)
++
++// telemetryContext encapsulates contextual data common to all telemetry submitted through a
++// TelemetryClient instance such as including instrumentation key, tags, and
++// common properties.
++type telemetryContext struct {
++	// Instrumentation key
++	iKey string
++
++	// Collection of tag data to attach to the telemetry item.
++	Tags contracts.ContextTags
++}
++
++// newTelemetryContext creates a new, empty telemetryContext.
++func newTelemetryContext(ikey string) *telemetryContext {
++	return &telemetryContext{
++		iKey: ikey,
++		Tags: make(contracts.ContextTags),
++	}
++}
++
++// Wraps a telemetry item in an envelope with the information found in this
++// context.
++func (context *telemetryContext) envelop(data contracts.EventData) *contracts.Envelope {
++	envelope := contracts.NewEnvelope()
++	envelope.Name = "Microsoft.ApplicationInsights.Event"
++	envelope.Data = contracts.Data{
++		BaseType: "EventData",
++		BaseData: data,
++	}
++	envelope.IKey = context.iKey
++	envelope.Time = time.Now().UTC()
++	envelope.Tags = context.Tags
++	return envelope
++}
+diff --git a/src/cmd/vendor/github.com/microsoft/go-infra/telemetry/internal/appinsights/transmitter.go b/src/cmd/vendor/github.com/microsoft/go-infra/telemetry/internal/appinsights/transmitter.go
+new file mode 100644
+index 00000000000000..3cca77e3070fd2
+--- /dev/null
++++ b/src/cmd/vendor/github.com/microsoft/go-infra/telemetry/internal/appinsights/transmitter.go
+@@ -0,0 +1,169 @@
++// Copyright (c) Microsoft Corporation.
++// Licensed under the MIT License.
++
++package appinsights
++
++import (
++	"bytes"
++	"cmp"
++	"compress/gzip"
++	"context"
++	"encoding/json"
++	"errors"
++	"fmt"
++	"io"
++	"net/http"
++	"slices"
++	"time"
++
++	"github.com/microsoft/go-infra/telemetry/internal/appinsights/internal/contracts"
++)
++
++type transmitter interface {
++	transmit(ctx context.Context, items []batchItem) (*transmissionResponse, error)
++}
++
++type httpTransmitter struct {
++	endpoint string
++	client   *http.Client
++}
++
++type transmissionResponse struct {
++	statusCode int
++	retryAfter time.Time
++	response   contracts.BackendResponse
++}
++
++const (
++	successResponse                         = http.StatusOK
++	partialSuccessResponse                  = http.StatusPartialContent
++	requestTimeoutResponse                  = http.StatusRequestTimeout
++	tooManyRequestsResponse                 = http.StatusTooManyRequests
++	tooManyRequestsOverExtendedTimeResponse = 439
++	errorResponse                           = http.StatusInternalServerError
++	serviceUnavailableResponse              = http.StatusServiceUnavailable
++)
++
++func newTransmitter(endpointAddress string, client *http.Client) transmitter {
++	if client == nil {
++		client = http.DefaultClient
++	}
++	return &httpTransmitter{endpointAddress, client}
++}
++
++func (transmitter *httpTransmitter) transmit(ctx context.Context, items []batchItem) (*transmissionResponse, error) {
++	// Serialize the items. It could be that some items can't be serialized,
++	// in which case we will skip them and return an error together with the
++	// transmission result.
++	payload, jsonErr := serialize(items)
++	if jsonErr != nil && payload == nil {
++		return nil, jsonErr
++	}
++
++	// Compress the payload
++	var postBody bytes.Buffer
++	gzipWriter := gzip.NewWriter(&postBody)
++	if _, err := gzipWriter.Write(payload); err != nil {
++		gzipWriter.Close()
++		return nil, fmt.Errorf("failed to compress the payload: %v", err)
++	}
++
++	if err := gzipWriter.Close(); err != nil {
++		return nil, fmt.Errorf("failed to close gzip writer: %v", err)
++	}
++
++	req, err := http.NewRequestWithContext(ctx, http.MethodPost, transmitter.endpoint, &postBody)
++	if err != nil {
++		return nil, fmt.Errorf("failed to create request: %v", err)
++	}
++
++	req.Header.Set("Content-Encoding", "gzip")
++	req.Header.Set("Content-Type", "application/x-json-stream")
++	req.Header.Set("Accept-Encoding", "gzip, deflate")
++
++	resp, err := transmitter.client.Do(req)
++	if err != nil {
++		return nil, fmt.Errorf("failed to transmit telemetry: %v", err)
++	}
++	defer resp.Body.Close()
++
++	result := &transmissionResponse{statusCode: resp.StatusCode}
++	if retryAfterValue := resp.Header.Get("Retry-After"); retryAfterValue != "" {
++		if result.retryAfter, err = time.Parse(time.RFC1123, retryAfterValue); err != nil {
++			return nil, fmt.Errorf("failed to parse Retry-After header: %v", err)
++		}
++	}
++	if err := json.NewDecoder(resp.Body).Decode(&result.response); err != nil {
++		if errors.Is(err, io.EOF) {
++			// Empty response is valid, possibly throttling.
++			return result, nil
++		}
++		return nil, fmt.Errorf("failed to parse response: %v", err)
++	}
++	return result, jsonErr
++}
++
++func (result *transmissionResponse) isSuccess() bool {
++	return result.statusCode == successResponse ||
++		// Partial response but all items accepted
++		(result.statusCode == partialSuccessResponse &&
++			result.response.ItemsReceived == result.response.ItemsAccepted)
++}
++
++func (result *transmissionResponse) isFailure() bool {
++	return result.statusCode != successResponse && result.statusCode != partialSuccessResponse
++}
++
++func (result *transmissionResponse) canRetry() bool {
++	if result.isSuccess() {
++		return false
++	}
++
++	return result.statusCode == partialSuccessResponse ||
++		!result.retryAfter.IsZero() ||
++		(result.statusCode == requestTimeoutResponse ||
++			result.statusCode == serviceUnavailableResponse ||
++			result.statusCode == errorResponse ||
++			result.statusCode == tooManyRequestsResponse ||
++			result.statusCode == tooManyRequestsOverExtendedTimeResponse)
++}
++
++func (result *transmissionResponse) isThrottled() bool {
++	return result.statusCode == tooManyRequestsResponse ||
++		result.statusCode == tooManyRequestsOverExtendedTimeResponse ||
++		!result.retryAfter.IsZero()
++}
++
++func canRetryBackendError(berror contracts.BackendResponseError) bool {
++	return berror.StatusCode == requestTimeoutResponse ||
++		berror.StatusCode == serviceUnavailableResponse ||
++		berror.StatusCode == errorResponse ||
++		berror.StatusCode == tooManyRequestsResponse ||
++		berror.StatusCode == tooManyRequestsOverExtendedTimeResponse
++}
++
++func (result *transmissionResponse) getRetryItems(items []batchItem) []batchItem {
++	if result.statusCode == partialSuccessResponse {
++		// Make sure errors are ordered by index
++		slices.SortFunc(result.response.Errors, func(a, b contracts.BackendResponseError) int {
++			return cmp.Compare(a.Index, b.Index)
++		})
++
++		resultItems := make([]batchItem, 0, len(result.response.Errors))
++		// Find each retryable error
++		for _, responseResult := range result.response.Errors {
++			if !canRetryBackendError(responseResult) {
++				continue
++			}
++			if responseResult.Index >= len(items) {
++				continue
++			}
++			resultItems = append(resultItems, items[responseResult.Index])
++		}
++
++		return resultItems
++	} else if result.canRetry() {
++		return items
++	}
++	return nil
++}
+diff --git a/src/cmd/vendor/github.com/microsoft/go-infra/telemetry/internal/config/config.go b/src/cmd/vendor/github.com/microsoft/go-infra/telemetry/internal/config/config.go
+new file mode 100644
+index 00000000000000..7980b1505b2caa
+--- /dev/null
++++ b/src/cmd/vendor/github.com/microsoft/go-infra/telemetry/internal/config/config.go
+@@ -0,0 +1,63 @@
++// Copyright (c) Microsoft Corporation.
++// Licensed under the MIT License.
++
++package config
++
++import (
++	"encoding/json"
++	"os"
++	"strings"
++)
++
++// An UploadConfig controls what data is uploaded.
++type UploadConfig struct {
++	GOOS     []string
++	GOARCH   []string
++	Programs []*ProgramConfig
++}
++
++// A ProgramConfig contains the configuration for a single program.
++type ProgramConfig struct {
++	// the counter names may have to be
++	// repeated for each program. (e.g., if the counters are in a package
++	// that is used in more than one program.)
++	Name     string
++	Counters []CounterConfig `json:",omitempty"`
++}
++
++// A CounterConfig contains the configuration for a single counter.
++type CounterConfig struct {
++	Name string // The "collapsed" counter: <chart>:{<bucket1>,<bucket2>,...}
++}
++
++func ReadConfig(file string) (*UploadConfig, error) {
++	data, err := os.ReadFile(file)
++	if err != nil {
++		return nil, err
++	}
++	return UnmarshalConfig(data)
++}
++
++func UnmarshalConfig(data []byte) (*UploadConfig, error) {
++	var cfg UploadConfig
++	if err := json.Unmarshal(data, &cfg); err != nil {
++		return nil, err
++	}
++	return &cfg, nil
++}
++
++// Expand takes a counter defined with buckets and expands it into distinct
++// strings for each bucket.
++func Expand(counter string) []string {
++	prefix, rest, hasBuckets := strings.Cut(counter, "{")
++	var counters []string
++	if hasBuckets {
++		buckets := strings.SplitSeq(strings.TrimSuffix(rest, "}"), ",")
++		for b := range buckets {
++			counters = append(counters, prefix+b)
++		}
++	} else {
++		counters = append(counters, prefix)
++	}
++	return counters
++}
+diff --git a/src/cmd/vendor/github.com/microsoft/go-infra/telemetry/internal/telemetry/proginfo.go b/src/cmd/vendor/github.com/microsoft/go-infra/telemetry/internal/telemetry/proginfo.go
+new file mode 100644
+index 00000000000000..1ac9e000e65c77
+--- /dev/null
++++ b/src/cmd/vendor/github.com/microsoft/go-infra/telemetry/internal/telemetry/proginfo.go
+@@ -0,0 +1,32 @@
++// Copyright (c) Microsoft Corporation.
++// Licensed under the MIT License.
++
++package telemetry
++
++import (
++	"go/version"
++	"os"
++	"path/filepath"
++	"runtime/debug"
++	"strings"
++)
++
++// ProgramInfo extracts the go version and program package path to use for counter files.
++//
++// For programs in the Go toolchain, the program version will be the same as
++// the Go version, and will typically be of the form "go1.2.3", not a semantic
++// version of the form "v1.2.3". Go versions may also include spaces and
++// special characters.
++func ProgramInfo(info *debug.BuildInfo) (goVers, progPath string) {
++	goVers = info.GoVersion
++	if strings.Contains(goVers, "devel") || strings.Contains(goVers, "-") || !version.IsValid(goVers) {
++		goVers = "devel"
++	}
++
++	progPath = info.Path
++	if progPath == "" {
++		progPath = strings.TrimSuffix(filepath.Base(os.Args[0]), ".exe")
++	}
++
++	return goVers, progPath
++}
+diff --git a/src/cmd/vendor/github.com/microsoft/go-infra/telemetry/internal/telemetry/telemetry.go b/src/cmd/vendor/github.com/microsoft/go-infra/telemetry/internal/telemetry/telemetry.go
+new file mode 100644
+index 00000000000000..02d112edb8ad3e
+--- /dev/null
++++ b/src/cmd/vendor/github.com/microsoft/go-infra/telemetry/internal/telemetry/telemetry.go
+@@ -0,0 +1,32 @@
++package telemetry
++
++import (
++	"crypto/rand"
++	"fmt"
++	"runtime"
++
++	"github.com/microsoft/go-infra/telemetry/internal/appinsights"
++)
++
++// Client is the global telemetry client used to send telemetry data.
++//
++// It is kept in an internal package to prevent direct access
++// from outside the telemetry package.
++var Client *appinsights.Client
++
++// Init adds common tags to the telemetry client then assigns it to [Client].
++func Init(client *appinsights.Client) {
++	if client.Tags == nil {
++		client.Tags = make(map[string]string)
++	}
++
++	// Generate a random session ID to uniquely identify this telemetry session.
++	var sessionID [32]byte
++	rand.Read(sessionID[:])
++
++	// Add common tags to the client.
++	client.Tags["ai.device.osVersion"] = runtime.GOOS + "/" + runtime.GOARCH
++	client.Tags["ai.session.id"] = fmt.Sprintf("%x", sessionID[:])
++
++	Client = client
++}
+diff --git a/src/cmd/vendor/github.com/microsoft/go-infra/telemetry/telemetry.go b/src/cmd/vendor/github.com/microsoft/go-infra/telemetry/telemetry.go
+new file mode 100644
+index 00000000000000..338e225866a5b0
+--- /dev/null
++++ b/src/cmd/vendor/github.com/microsoft/go-infra/telemetry/telemetry.go
+@@ -0,0 +1,120 @@
++// Copyright (c) Microsoft Corporation.
++// Licensed under the MIT License.
++
++package telemetry
++
++import (
++	"context"
++	_ "embed"
++	"fmt"
++	"runtime"
++	"runtime/debug"
++	"slices"
++	"time"
++
++	"github.com/microsoft/go-infra/telemetry/internal/appinsights"
++	"github.com/microsoft/go-infra/telemetry/internal/config"
++	"github.com/microsoft/go-infra/telemetry/internal/telemetry"
++)
++
++// Config holds the configuration for the telemetry client.
++type Config struct {
++	// The instrumentation key used to identify the application.
++	// This key is required and must be set before sending any telemetry.
++	InstrumentationKey string
++
++	// UploadConfig is the json-encoded telemetry upload configuration.
++	// This parameter is required.
++	UploadConfig []byte
++
++	// The endpoint URL to which telemetry will be sent.
++	// If empty, it defaults to https://dc.services.visualstudio.com/v2/track.
++	Endpoint string
++
++	// Maximum number of telemetry items that can be submitted in each
++	// request. If this many items are buffered, the buffer will be
++	// flushed before MaxBatchInterval expires.
++	// If zero, it defaults to 1024.
++	MaxBatchSize int
++
++	// Maximum time to wait before sending a batch of telemetry.
++	// If zero, it defaults to 10 seconds.
++	MaxBatchInterval time.Duration
++
++	// Allow uploading telemetry for Go development versions even if the
++	// upload configuration does not explicitly include them.
++	AllowGoDevel bool
++}
++
++var countersToUpload map[string]struct{}
++
++// Start initializes telemetry using the specified configuration.
++func Start(cfg Config) {
++	if cfg.UploadConfig == nil {
++		panic("UploadConfigPath must be set in telemetry.Config")
++	}
++	uploadConfig, err := config.UnmarshalConfig(cfg.UploadConfig)
++	if err != nil {
++		panic(fmt.Errorf("failed to unmarshal telemetry config: %v", err))
++	}
++	if !slices.Contains(uploadConfig.GOOS, runtime.GOOS) ||
++		!slices.Contains(uploadConfig.GOARCH, runtime.GOARCH) {
++		// Only start telemetry if the current GOOS and GOARCH
++		// are supported by the telemetry configuration.
++		return
++	}
++	bi, ok := debug.ReadBuildInfo()
++	if !ok {
++		panic("failed to read build info for telemetry")
++	}
++	ver, prog := telemetry.ProgramInfo(bi)
++	if ver == "devel" {
++		if !cfg.AllowGoDevel {
++			// If the Go version is a development version and we are not allowing
++			// development versions, do not start telemetry.
++			return
++		}
++	}
++
++	progIdx := slices.IndexFunc(uploadConfig.Programs, func(p *config.ProgramConfig) bool {
++		return p.Name == prog
++	})
++	if progIdx == -1 {
++		return // Program not configured for telemetry
++	}
++	countersToUpload = make(map[string]struct{})
++	for _, c := range uploadConfig.Programs[progIdx].Counters {
++		if c.Name == "" {
++			continue // Skip empty counter names
++		}
++		for _, e := range config.Expand(c.Name) {
++			countersToUpload[e] = struct{}{}
++		}
++	}
++
++	telemetry.Init(&appinsights.Client{
++		InstrumentationKey: cfg.InstrumentationKey,
++		Endpoint:           cfg.Endpoint,
++		MaxBatchSize:       cfg.MaxBatchSize,
++		MaxBatchInterval:   cfg.MaxBatchInterval,
++		Tags: map[string]string{
++			"ai.application.ver": ver,
++			"ai.cloud.role":      prog,
++		},
++		UploadFilter: uploadFilter,
++	})
++}
++
++// Close closes the telemetry client and flushes any remaining telemetry data.
++// It should be called when the application is shutting down to ensure all
++// telemetry data is sent before the program exits.
++func Close(ctx context.Context) {
++	if telemetry.Client != nil {
++		telemetry.Client.Close(ctx)
++	}
++}
++
++func uploadFilter(name string) bool {
++	_, ok := countersToUpload[name]
++	return ok
++}
+diff --git a/src/cmd/vendor/modules.txt b/src/cmd/vendor/modules.txt
+index 118646d75c4ccb..7ceabc0c163d37 100644
+--- a/src/cmd/vendor/modules.txt
++++ b/src/cmd/vendor/modules.txt
+@@ -16,6 +16,17 @@ github.com/google/pprof/third_party/svgpan
+ # github.com/ianlancetaylor/demangle v0.0.0-20240912202439-0a2b6291aafd
+ ## explicit; go 1.13
+ github.com/ianlancetaylor/demangle
++# github.com/microsoft/go-infra/telemetry v0.0.0-20250716090631-5672f943a6c1
++## explicit; go 1.24
++github.com/microsoft/go-infra/telemetry
++github.com/microsoft/go-infra/telemetry/counter
++github.com/microsoft/go-infra/telemetry/internal/appinsights
++github.com/microsoft/go-infra/telemetry/internal/appinsights/internal/contracts
++github.com/microsoft/go-infra/telemetry/internal/config
++github.com/microsoft/go-infra/telemetry/internal/telemetry
++# github.com/microsoft/go-infra/telemetry/config v0.0.0-20250716090631-5672f943a6c1
++## explicit; go 1.24
++github.com/microsoft/go-infra/telemetry/config
+ # golang.org/x/arch v0.12.0
+ ## explicit; go 1.18
+ golang.org/x/arch/arm/armasm
 diff --git a/src/crypto/internal/backend/deps_ignore.go b/src/crypto/internal/backend/deps_ignore.go
 new file mode 100644
 index 00000000000000..ae4055d2d71303
