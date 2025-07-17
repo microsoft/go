@@ -2,37 +2,48 @@ name: "CodeQL"
 
 on:
   push:
-    branches:
-      - "microsoft/*"
+    branches: ["microsoft/*"]
   pull_request:
-    branches:
-      - "microsoft/*"
+    branches: ["microsoft/*"]
   schedule:
     - cron: 29 7 * * 2
 
 jobs:
   analyze:
-    name: Analyze
+    name: CodeQL Analyze with MS Go
     runs-on: ubuntu-22.04
-    timeout-minutes: 360
+    timeout-minutes: 420
     permissions:
       security-events: write
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        uses: actions/checkout@v4
+
+      - name: Initialize submodules and install Microsoft Go
+        shell: pwsh
+        run: |
+          eng/run.ps1 submodule-refresh -shallow
+
+      - name: Add Microsoft Go to PATH
+        run: |
+          echo "$HOME/.local/share/microsoft-go/go1.24.0-1/bin" >> $GITHUB_PATH
+          go version
 
       - name: Initialize CodeQL
-        uses: github/codeql-action/init@181d5eefc20863364f96762470ba6f862bdef56b # v3.29.2
+        uses: github/codeql-action/init@v3
         with:
           languages: go
 
-      - name: Autobuild
-        uses: github/codeql-action/autobuild@181d5eefc20863364f96762470ba6f862bdef56b # v3.29.2
-        with:
-          working-directory: eng/_util
+      - name: Manually build std, cmd, and infra tools
+        run: |
+          GOOS=linux GOARCH=amd64 go build std
+          GOOS=linux GOARCH=amd64 go build cmd/...
+          pushd eng/_util
+          go build ./...
+          popd
 
       - name: Perform CodeQL Analysis
-        uses: github/codeql-action/analyze@181d5eefc20863364f96762470ba6f862bdef56b # v3.29.2
+        uses: github/codeql-action/analyze@v3
         with:
           category: /language:go
