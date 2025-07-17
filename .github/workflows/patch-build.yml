@@ -10,6 +10,10 @@ on:
   pull_request:
     branches: [ microsoft/* ]
 
+concurrency:
+  group: ${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/microsoft/release-branch.go1.24' }}
+
 jobs:
   build_patches:
     name: Patches Build in Order
@@ -29,10 +33,15 @@ jobs:
         run: |
           for file in $(ls -v patches/*.patch); do
             echo "::group::Building $file"
-            cd go
-            git am --whitespace=nowarn ../$file
-            cd src
+            cd ${{ github.workspace }}/go
+            git am --whitespace=nowarn ${{ github.workspace }}/$file
+            cd ${{ github.workspace }}/go/src
             bash make.bash
-            cd ../../
+            ${{ github.workspace }}/go/bin/go mod vendor
+            cd ${{ github.workspace }}/go/src/cmd
+            ${{ github.workspace }}/go/bin/go mod vendor
+            cd ${{ github.workspace }}/go/src
+            # Check if the vendor directory is clean
+            git diff --exit-code vendor cmd/vendor || (echo "Vendor directories are not clean. Please run 'go mod vendor' in the appropriate directories and commit the changes." && exit 1)
             echo "::endgroup::"
           done
