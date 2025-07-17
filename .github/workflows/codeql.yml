@@ -10,15 +10,19 @@ on:
 
 jobs:
   analyze:
-    name: CodeQL Analyze with MS Go
+    name: Analyze - ${{ matrix.classifier }}
     runs-on: ubuntu-22.04
-    timeout-minutes: 420
+    timeout-minutes: 360
     permissions:
       security-events: write
+    strategy:
+      fail-fast: false
+      matrix:
+        classifier: [util, cmd, std]
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
       - name: Initialize submodules and install Microsoft Go
         shell: pwsh
@@ -27,13 +31,15 @@ jobs:
 
       - name: Add Microsoft Go to PATH
         run: |
-          echo "$HOME/.local/share/microsoft-go/go1.24.0-1/bin" >> $GITHUB_PATH
+          GOROOT=$(find $HOME/.local/share/microsoft-go -name go* -type d | head -n1)
+          echo "$GOROOT/bin" >> $GITHUB_PATH
           go version
 
       - name: Initialize CodeQL
-        uses: github/codeql-action/init@v3
+        uses: github/codeql-action/init@181d5eefc20863364f96762470ba6f862bdef56b # v3.29.2
         with:
           languages: go
+          config-file: .github/codeql-config.yml
 
       - name: Manually build std, cmd, and infra tools
         run: |
@@ -43,7 +49,8 @@ jobs:
           go build ./...
           popd
 
-      - name: Perform CodeQL Analysis
-        uses: github/codeql-action/analyze@v3
+      - name: Perform CodeQL Analysis (/${{ matrix.classifier }})
+        uses: github/codeql-action/analyze@181d5eefc20863364f96762470ba6f862bdef56b # v3.29.2
         with:
           category: /language:go
+          path-classifier: ${{ matrix.classifier }}
