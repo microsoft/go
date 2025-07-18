@@ -9,7 +9,7 @@ Subject: [PATCH] implement ms_tls_config_schannel experiment
  src/crypto/tls/handshake_server_test.go       |  20 ++
  src/crypto/tls/handshake_test.go              |   6 +
  src/crypto/tls/schannel_windows.go            | 142 +++++++++++++
- src/crypto/tls/schannel_windows_test.go       | 192 ++++++++++++++++++
+ src/crypto/tls/schannel_windows_test.go       | 190 ++++++++++++++++++
  src/crypto/tls/tls_test.go                    |  11 +
  .../exp_ms_tls_config_schannel_off.go         |   8 +
  .../exp_ms_tls_config_schannel_on.go          |   8 +
@@ -17,7 +17,7 @@ Subject: [PATCH] implement ms_tls_config_schannel experiment
  .../syscall/windows/security_windows.go       |  28 +++
  .../syscall/windows/syscall_windows.go        |  16 ++
  .../syscall/windows/zsyscall_windows.go       |  23 +++
- 13 files changed, 466 insertions(+), 1 deletion(-)
+ 13 files changed, 464 insertions(+), 1 deletion(-)
  create mode 100644 src/crypto/tls/schannel_windows.go
  create mode 100644 src/crypto/tls/schannel_windows_test.go
  create mode 100644 src/internal/goexperiment/exp_ms_tls_config_schannel_off.go
@@ -143,7 +143,7 @@ index 803aa736578f8c..92b31362f3d65d 100644
  			t.Parallel()
 diff --git a/src/crypto/tls/schannel_windows.go b/src/crypto/tls/schannel_windows.go
 new file mode 100644
-index 00000000000000..4e338175f48651
+index 00000000000000..a77186c66d3095
 --- /dev/null
 +++ b/src/crypto/tls/schannel_windows.go
 @@ -0,0 +1,142 @@
@@ -211,7 +211,7 @@ index 00000000000000..4e338175f48651
 +}
 +
 +// getCipherSuitesSchannel returns all the cipher suites that Schannel supports in Schannel's preference order.
-+func getCipherSuitesSchannel() (suites []uint16, versions []uint16, err error) {
++func getCipherSuitesSchannel() (suites, versions []uint16, err error) {
 +	// Get all the cipher suites that Schannel supports in preference order.
 +	var size uint32
 +	var funcs *windows.CRYPT_CONTEXT_FUNCTIONS
@@ -240,7 +240,7 @@ index 00000000000000..4e338175f48651
 +
 +// filterCipherSuites filters the provided cipher suites, creating a new slice
 +// that only includes those that are in the allowed list.
-+func filterCipherSuites(suites []uint16, allowed []uint16) []uint16 {
++func filterCipherSuites(suites, allowed []uint16) []uint16 {
 +	out := make([]uint16, 0, len(allowed))
 +	for _, id := range suites {
 +		if slices.Contains(allowed, id) {
@@ -291,10 +291,10 @@ index 00000000000000..4e338175f48651
 +}
 diff --git a/src/crypto/tls/schannel_windows_test.go b/src/crypto/tls/schannel_windows_test.go
 new file mode 100644
-index 00000000000000..06bf2f80bc20bc
+index 00000000000000..426eb120adf559
 --- /dev/null
 +++ b/src/crypto/tls/schannel_windows_test.go
-@@ -0,0 +1,192 @@
+@@ -0,0 +1,190 @@
 +// Copyright 2025 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -305,7 +305,6 @@ index 00000000000000..06bf2f80bc20bc
 +
 +import (
 +	"bytes"
-+	"fmt"
 +	"internal/testenv"
 +	"os"
 +	"os/exec"
@@ -313,16 +312,15 @@ index 00000000000000..06bf2f80bc20bc
 +)
 +
 +func init() {
-+	cipherSuites, versions, err := getCipherSuitesSchannel()
-+	if err != nil {
-+		panic(err)
++	// Many tests require TLS 1.1 and TLS 1.0 to be available, so we override the
++	// supported versions previously set in Schannel init() to include them.
++	// This increases the coverage for Schannel cipher suites.
++	supportedVersions = []uint16{
++		VersionTLS13,
++		VersionTLS12,
++		VersionTLS11,
++		VersionTLS10,
 +	}
-+	fmt.Println("Schannel cipher suites:")
-+	for _, id := range cipherSuites {
-+		name, _ := cipherSuiteFromID(id)
-+		fmt.Println(id, name)
-+	}
-+	fmt.Println("Schannel versions:", versions)
 +}
 +
 +// testSchannel runs the provided function in a child process with Schannel cipher suites set.
