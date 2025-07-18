@@ -31,14 +31,14 @@ Subject: [PATCH] Use crypto backends
  src/crypto/ecdsa/notboring.go                 |   4 +-
  src/crypto/ed25519/boring.go                  |  71 +++++++
  src/crypto/ed25519/ed25519.go                 |  73 +++++++
- src/crypto/ed25519/ed25519_test.go            |   3 +-
+ src/crypto/ed25519/ed25519_test.go            |  13 +-
  src/crypto/ed25519/notboring.go               |  16 ++
  src/crypto/fips140/fips140.go                 |   3 +-
  src/crypto/hkdf/hkdf.go                       |  14 ++
  src/crypto/hkdf/hkdf_test.go                  |   2 +-
  src/crypto/hmac/hmac.go                       |   2 +-
  src/crypto/hmac/hmac_test.go                  |   2 +-
- src/crypto/internal/cryptotest/allocations.go |   2 +-
+ src/crypto/internal/cryptotest/allocations.go |   6 -
  src/crypto/internal/cryptotest/hash.go        |   3 +-
  .../internal/cryptotest/implementations.go    |   2 +-
  src/crypto/internal/fips140test/acvp_test.go  |   6 +
@@ -50,6 +50,7 @@ Subject: [PATCH] Use crypto backends
  src/crypto/pbkdf2/pbkdf2_test.go              |   6 +-
  src/crypto/purego_test.go                     |   2 +-
  src/crypto/rand/rand.go                       |   2 +-
+ src/crypto/rand/rand_test.go                  |   9 +-
  src/crypto/rc4/rc4.go                         |  18 ++
  src/crypto/rsa/boring.go                      |  12 +-
  src/crypto/rsa/boring_test.go                 |   2 +-
@@ -64,9 +65,9 @@ Subject: [PATCH] Use crypto backends
  src/crypto/sha1/sha1.go                       |   8 +-
  src/crypto/sha1/sha1_test.go                  |  11 +-
  src/crypto/sha256/sha256.go                   |   6 +-
- src/crypto/sha256/sha256_test.go              |  20 +-
+ src/crypto/sha256/sha256_test.go              |  35 +++-
  src/crypto/sha512/sha512.go                   |   2 +-
- src/crypto/sha512/sha512_test.go              |  24 ++-
+ src/crypto/sha512/sha512_test.go              |  32 ++-
  src/crypto/tls/auth_test.go                   |   7 +
  src/crypto/tls/cipher_suites.go               |   2 +-
  src/crypto/tls/defaults_boring.go             |   2 +-
@@ -90,7 +91,7 @@ Subject: [PATCH] Use crypto backends
  src/net/lookup_test.go                        |   3 +
  src/os/exec/exec_test.go                      |   9 +
  src/runtime/pprof/vminfo_darwin_test.go       |   6 +
- 86 files changed, 1160 insertions(+), 96 deletions(-)
+ 87 files changed, 1186 insertions(+), 116 deletions(-)
  create mode 100644 src/crypto/dsa/boring.go
  create mode 100644 src/crypto/dsa/notboring.go
  create mode 100644 src/crypto/ecdsa/badlinkname.go
@@ -1138,10 +1139,15 @@ index 0e268139587075..b770c8c4987ca6 100644
  	default:
  		return errors.New("ed25519: expected opts.Hash zero (unhashed message, for standard Ed25519) or SHA-512 (for Ed25519ph)")
 diff --git a/src/crypto/ed25519/ed25519_test.go b/src/crypto/ed25519/ed25519_test.go
-index c8a23e3246a949..7f3d012f1a0707 100644
+index c8a23e3246a949..393a1e40ce704e 100644
 --- a/src/crypto/ed25519/ed25519_test.go
 +++ b/src/crypto/ed25519/ed25519_test.go
-@@ -13,6 +13,7 @@ import (
+@@ -9,10 +9,12 @@ import (
+ 	"bytes"
+ 	"compress/gzip"
+ 	"crypto"
++	boring "crypto/internal/backend"
+ 	"crypto/internal/cryptotest"
  	"crypto/rand"
  	"crypto/sha512"
  	"encoding/hex"
@@ -1149,7 +1155,7 @@ index c8a23e3246a949..7f3d012f1a0707 100644
  	"log"
  	"os"
  	"strings"
-@@ -316,7 +317,7 @@ func TestGolden(t *testing.T) {
+@@ -316,7 +318,7 @@ func TestGolden(t *testing.T) {
  		copy(priv[32:], pubKey)
  
  		sig2 := Sign(priv[:], msg)
@@ -1157,6 +1163,29 @@ index c8a23e3246a949..7f3d012f1a0707 100644
 +		if !bytes.Equal(sig, sig2[:]) && !goexperiment.DarwinCrypto {
  			t.Errorf("different signature result on line %d: %x vs %x", lineNo, sig, sig2)
  		}
+ 
+@@ -371,6 +373,11 @@ func TestAllocations(t *testing.T) {
+ 	cryptotest.SkipTestAllocations(t)
+ 	seed := make([]byte, SeedSize)
+ 	priv := NewKeyFromSeed(seed)
++	expectedAllocations := 0.0
++	if boring.Enabled {
++		expectedAllocations = 6
++	}
++
+ 	if allocs := testing.AllocsPerRun(100, func() {
+ 		message := []byte("Hello, world!")
+ 		pub := priv.Public().(PublicKey)
+@@ -378,8 +385,8 @@ func TestAllocations(t *testing.T) {
+ 		if !Verify(pub, message, signature) {
+ 			t.Fatal("signature didn't verify")
+ 		}
+-	}); allocs > 0 {
+-		t.Errorf("expected zero allocations, got %0.1f", allocs)
++	}); allocs > expectedAllocations {
++		t.Errorf("expected %v allocations, got %0.1f", expectedAllocations, allocs)
+ 	}
+ }
  
 diff --git a/src/crypto/ed25519/notboring.go b/src/crypto/ed25519/notboring.go
 new file mode 100644
@@ -1285,18 +1314,29 @@ index 4046a9555a8e35..4721a2a7ac04f7 100644
  	"crypto/md5"
  	"crypto/sha1"
 diff --git a/src/crypto/internal/cryptotest/allocations.go b/src/crypto/internal/cryptotest/allocations.go
-index 70055af70b42ec..3c4b4fbaa98ded 100644
+index 70055af70b42ec..21528faa0d6145 100644
 --- a/src/crypto/internal/cryptotest/allocations.go
 +++ b/src/crypto/internal/cryptotest/allocations.go
-@@ -5,7 +5,7 @@
+@@ -5,7 +5,6 @@
  package cryptotest
  
  import (
 -	"crypto/internal/boring"
-+	boring "crypto/internal/backend"
  	"internal/asan"
  	"internal/msan"
  	"internal/race"
+@@ -17,11 +16,6 @@ import (
+ // SkipTestAllocations skips the test if there are any factors that interfere
+ // with allocation optimizations.
+ func SkipTestAllocations(t *testing.T) {
+-	// Go+BoringCrypto uses cgo.
+-	if boring.Enabled {
+-		t.Skip("skipping allocations test with BoringCrypto")
+-	}
+-
+ 	// The sanitizers sometimes cause allocations.
+ 	if race.Enabled || msan.Enabled || asan.Enabled {
+ 		t.Skip("skipping allocations test with sanitizers")
 diff --git a/src/crypto/internal/cryptotest/hash.go b/src/crypto/internal/cryptotest/hash.go
 index f00e9c80d3c86a..e24b6cbbd00f68 100644
 --- a/src/crypto/internal/cryptotest/hash.go
@@ -1601,6 +1641,38 @@ index 1ca16caa9563e6..3ef22b5ff8222b 100644
  	"crypto/internal/fips140"
  	"crypto/internal/fips140/drbg"
  	"crypto/internal/sysrand"
+diff --git a/src/crypto/rand/rand_test.go b/src/crypto/rand/rand_test.go
+index 22ccb8a35334c9..832910da482f44 100644
+--- a/src/crypto/rand/rand_test.go
++++ b/src/crypto/rand/rand_test.go
+@@ -7,6 +7,7 @@ package rand
+ import (
+ 	"bytes"
+ 	"compress/flate"
++	boring "crypto/internal/backend"
+ 	"crypto/internal/cryptotest"
+ 	"errors"
+ 	"internal/testenv"
+@@ -154,13 +155,17 @@ var sink byte
+ 
+ func TestAllocations(t *testing.T) {
+ 	cryptotest.SkipTestAllocations(t)
++	expectedAllocations := 0
++	if boring.Enabled {
++		expectedAllocations = 1
++	}
+ 	n := int(testing.AllocsPerRun(10, func() {
+ 		buf := make([]byte, 32)
+ 		Read(buf)
+ 		sink ^= buf[0]
+ 	}))
+-	if n > 0 {
+-		t.Errorf("allocs = %d, want 0", n)
++	if n > expectedAllocations {
++		t.Errorf("allocs = %d, want %d", n, expectedAllocations)
+ 	}
+ }
+ 
 diff --git a/src/crypto/rc4/rc4.go b/src/crypto/rc4/rc4.go
 index 90943a0935befb..09ebdfd733e5d6 100644
 --- a/src/crypto/rc4/rc4.go
@@ -1974,10 +2046,10 @@ index e03f4ab06603c6..cd44f3af23b0d4 100644
  		t.Fatal(err)
  	}
 diff --git a/src/crypto/rsa/rsa.go b/src/crypto/rsa/rsa.go
-index 95bb4becd2ff8c..73991434dabaf1 100644
+index c557c3710af710..42832da8349355 100644
 --- a/src/crypto/rsa/rsa.go
 +++ b/src/crypto/rsa/rsa.go
-@@ -42,8 +42,8 @@ package rsa
+@@ -43,8 +43,8 @@ package rsa
  
  import (
  	"crypto"
@@ -2144,7 +2216,7 @@ index 069938a22dbc5a..8d0e06b86f4359 100644
  	}
  	h := New224()
 diff --git a/src/crypto/sha256/sha256_test.go b/src/crypto/sha256/sha256_test.go
-index 11b24db7d6b0a0..cacfad5c30e4c8 100644
+index 11b24db7d6b0a0..9aa28dd024385f 100644
 --- a/src/crypto/sha256/sha256_test.go
 +++ b/src/crypto/sha256/sha256_test.go
 @@ -8,11 +8,13 @@ package sha256
@@ -2200,7 +2272,38 @@ index 11b24db7d6b0a0..cacfad5c30e4c8 100644
  			t.Errorf("test %d could not unmarshal: %v", i, err)
  			continue
  		}
-@@ -404,13 +420,13 @@ func TestExtraMethods(t *testing.T) {
+@@ -347,6 +363,10 @@ func TestLargeHashes(t *testing.T) {
+ 
+ func TestAllocations(t *testing.T) {
+ 	cryptotest.SkipTestAllocations(t)
++	expectedAllocations := 0.0
++	if boring.Enabled {
++		expectedAllocations = 1
++	}
+ 	if n := testing.AllocsPerRun(10, func() {
+ 		in := []byte("hello, world!")
+ 		out := make([]byte, 0, Size)
+@@ -357,17 +377,10 @@ func TestAllocations(t *testing.T) {
+ 			h.Write(in)
+ 			out = h.Sum(out[:0])
+ 		}
+-		{
+-			h := New224()
+-			h.Reset()
+-			h.Write(in)
+-			out = h.Sum(out[:0])
+-		}
+ 
+ 		Sum256(in)
+-		Sum224(in)
+-	}); n > 0 {
+-		t.Errorf("allocs = %v, want 0", n)
++	}); n > expectedAllocations {
++		t.Errorf("allocs = %v, want %v", n, expectedAllocations)
+ 	}
+ }
+ 
+@@ -404,13 +417,13 @@ func TestExtraMethods(t *testing.T) {
  	t.Run("SHA-224", func(t *testing.T) {
  		cryptotest.TestAllImplementations(t, "sha256", func(t *testing.T) {
  			h := maybeCloner(New224())
@@ -2230,7 +2333,7 @@ index 1435eac1f5b5dc..17e8501154762a 100644
  	"hash"
  )
 diff --git a/src/crypto/sha512/sha512_test.go b/src/crypto/sha512/sha512_test.go
-index 080bf694f03652..8962a54f1bcddd 100644
+index 080bf694f03652..d6058d541e9e61 100644
 --- a/src/crypto/sha512/sha512_test.go
 +++ b/src/crypto/sha512/sha512_test.go
 @@ -8,12 +8,14 @@ package sha512
@@ -2287,7 +2390,29 @@ index 080bf694f03652..8962a54f1bcddd 100644
  			t.Errorf("test %d could not unmarshal: %v", i, err)
  			continue
  		}
-@@ -967,25 +983,25 @@ func TestExtraMethods(t *testing.T) {
+@@ -902,6 +918,10 @@ func TestLargeHashes(t *testing.T) {
+ 
+ func TestAllocations(t *testing.T) {
+ 	cryptotest.SkipTestAllocations(t)
++	expectedAllocations := 0.0
++	if boring.Enabled {
++		expectedAllocations = 2
++	}
+ 	if n := testing.AllocsPerRun(10, func() {
+ 		in := []byte("hello, world!")
+ 		out := make([]byte, 0, Size)
+@@ -935,8 +955,8 @@ func TestAllocations(t *testing.T) {
+ 		Sum384(in)
+ 		Sum512_224(in)
+ 		Sum512_256(in)
+-	}); n > 0 {
+-		t.Errorf("allocs = %v, want 0", n)
++	}); n > expectedAllocations {
++		t.Errorf("allocs = %v, want %v", n, expectedAllocations)
+ 	}
+ }
+ 
+@@ -967,25 +987,25 @@ func TestExtraMethods(t *testing.T) {
  	t.Run("SHA-384", func(t *testing.T) {
  		cryptotest.TestAllImplementations(t, "sha512", func(t *testing.T) {
  			h := maybeCloner(New384())
@@ -2463,7 +2588,7 @@ index 7018bb2336b8f3..d5e02272d7afe1 100644
  	"hash"
  	"slices"
 diff --git a/src/crypto/tls/handshake_server.go b/src/crypto/tls/handshake_server.go
-index 8240e6afae3c6b..5dd00e27037a0f 100644
+index 1e0b5f06672d15..9f72e2376e42ce 100644
 --- a/src/crypto/tls/handshake_server.go
 +++ b/src/crypto/tls/handshake_server.go
 @@ -63,7 +63,15 @@ func (c *Conn) serverHandshake(ctx context.Context) error {
@@ -2484,7 +2609,7 @@ index 8240e6afae3c6b..5dd00e27037a0f 100644
  
  	if err := hs.processClientHello(); err != nil {
 diff --git a/src/crypto/tls/handshake_server_tls13.go b/src/crypto/tls/handshake_server_tls13.go
-index a52bc76a0d1a9f..6c32550b0129b8 100644
+index 501bdeb66b05a8..571369cdbfcd34 100644
 --- a/src/crypto/tls/handshake_server_tls13.go
 +++ b/src/crypto/tls/handshake_server_tls13.go
 @@ -10,11 +10,12 @@ import (
