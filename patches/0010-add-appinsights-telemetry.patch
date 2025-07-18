@@ -8,8 +8,8 @@ Subject: [PATCH] Add appinsights telemetry
  .../internal/telemetrystats/telemetrystats.go | 13 +++++
  src/cmd/go/main.go                            |  1 +
  src/cmd/go/mstelemetry_test.go                | 52 +++++++++++++++++++
- src/cmd/go/script_test.go                     |  7 +++
- src/cmd/internal/telemetry/counter/counter.go | 36 ++++++++++++-
+ src/cmd/go/script_test.go                     |  6 +++
+ src/cmd/internal/telemetry/counter/counter.go | 37 ++++++++++++-
  .../telemetry/counter/counter_bootstrap.go    |  2 +
  7 files changed, 125 insertions(+), 1 deletion(-)
  create mode 100644 src/cmd/go/mstelemetry_test.go
@@ -138,7 +138,7 @@ index 00000000000000..6993137ad56e8c
 +	fmt.Fprint(w, `{"itemsReceived": 1, "itemsAccepted": 1}`)
 +}
 diff --git a/src/cmd/go/script_test.go b/src/cmd/go/script_test.go
-index 0576ea8add72af..84ccfd9ef407cc 100644
+index 1345ea8bb8e530..1a7a62fdc7c19d 100644
 --- a/src/cmd/go/script_test.go
 +++ b/src/cmd/go/script_test.go
 @@ -60,6 +60,7 @@ func TestScript(t *testing.T) {
@@ -149,17 +149,16 @@ index 0576ea8add72af..84ccfd9ef407cc 100644
  
  	var (
  		ctx         = context.Background()
-@@ -253,6 +254,9 @@ func scriptEnv(srv *vcstest.Server, srvCertFile string) ([]string, error) {
+@@ -253,6 +254,8 @@ func scriptEnv(srv *vcstest.Server, srvCertFile string) ([]string, error) {
  		"CMDGO_TEST_RUN_MAIN=true",
  		"HGRCPATH=",
  		"GOTOOLCHAIN=auto",
 +		"MS_GOTOOLCHAIN_TELEMETRY_ENDPOINT=" + appInsightsURL,
 +		"MS_GOTOOLCHAIN_TELEMETRY_ALLOW_GO_DEVEL=1", // allow telemetry for Go development versions
-+		"MS_GOTOOLCHAIN_TELEMETRY_INSTRUMENTATION_KEY=fake_key",
  		"newline=\n",
  	}
  
-@@ -403,6 +407,9 @@ func readCounters(t *testing.T, telemetryDir string) map[string]uint64 {
+@@ -404,6 +407,9 @@ func readCounters(t *testing.T, telemetryDir string) map[string]uint64 {
  func checkCounters(t *testing.T, telemetryDir string) {
  	counters := readCounters(t, telemetryDir)
  	if _, ok := scriptGoInvoked.Load(testing.TB(t)); ok {
@@ -170,13 +169,14 @@ index 0576ea8add72af..84ccfd9ef407cc 100644
  			t.Fatal("go was invoked but no counters were incremented")
  		}
 diff --git a/src/cmd/internal/telemetry/counter/counter.go b/src/cmd/internal/telemetry/counter/counter.go
-index 5cef0b0041551a..229758ef8e61b4 100644
+index 5cef0b0041551a..a099b4698a21c4 100644
 --- a/src/cmd/internal/telemetry/counter/counter.go
 +++ b/src/cmd/internal/telemetry/counter/counter.go
-@@ -7,10 +7,22 @@
+@@ -7,10 +7,23 @@
  package counter
  
  import (
++	"cmp"
 +	"context"
  	"flag"
 +	"log"
@@ -196,14 +196,14 @@ index 5cef0b0041551a..229758ef8e61b4 100644
  )
  
  var openCalled bool
-@@ -22,11 +34,30 @@ func OpenCalled() bool { return openCalled }
+@@ -22,11 +35,30 @@ func OpenCalled() bool { return openCalled }
  func Open() {
  	openCalled = true
  	counter.OpenDir(os.Getenv("TEST_TELEMETRY_DIR"))
 +	if os.Getenv("MS_GOTOOLCHAIN_TELEMETRY_ENABLED") != "0" {
 +		mstelemetry.Start(mstelemetry.Config{
 +			InstrumentationKey: appInsightsInstrumentationKey,
-+			Endpoint:           appInsightsEndpoint,
++			Endpoint:           cmp.Or(os.Getenv("MS_GOTOOLCHAIN_TELEMETRY_ENDPOINT"), appInsightsEndpoint), // configurable for testing purposes
 +			AllowGoDevel:       os.Getenv("MS_GOTOOLCHAIN_TELEMETRY_ALLOW_GO_DEVEL") == "1",
 +			UploadConfig:       msconfig.Config,
 +		})
@@ -227,7 +227,7 @@ index 5cef0b0041551a..229758ef8e61b4 100644
  }
  
  // New returns a counter with the given name.
-@@ -44,6 +75,7 @@ func NewStack(name string, depth int) *counter.StackCounter {
+@@ -44,6 +76,7 @@ func NewStack(name string, depth int) *counter.StackCounter {
  // the concatenation of prefix and the flag name.
  func CountFlags(prefix string, flagSet flag.FlagSet) {
  	counter.CountFlags(prefix, flagSet)
@@ -235,7 +235,7 @@ index 5cef0b0041551a..229758ef8e61b4 100644
  }
  
  // CountFlagValue creates a counter for the flag value
-@@ -56,7 +88,9 @@ func CountFlagValue(prefix string, flagSet flag.FlagSet, flagName string) {
+@@ -56,7 +89,9 @@ func CountFlagValue(prefix string, flagSet flag.FlagSet, flagName string) {
  	// TODO(matloob): Add this to x/telemetry?
  	flagSet.Visit(func(f *flag.Flag) {
  		if f.Name == flagName {
