@@ -86,7 +86,7 @@ Use a 'go' that was recently built by the current branch to ensure stable result
  .../internal/cryptokit/cryptokit.h            |   67 +
  .../internal/cryptokit/ed25519.go             |   72 +
  .../internal/cryptokit/gcm.go                 |   36 +
- .../internal/cryptokit/hash.go                |  245 ++
+ .../internal/cryptokit/hash.go                |  247 ++
  .../internal/cryptokit/hashclone.go           |   17 +
  .../internal/cryptokit/hashclone_go125.go     |   12 +
  .../internal/cryptokit/hkdf.go                |   77 +
@@ -137,7 +137,7 @@ Use a 'go' that was recently built by the current branch to ensure stable result
  .../internal/subtle/aliasing.go               |   32 +
  .../internal/sysdll/sys_windows.go            |   55 +
  src/vendor/modules.txt                        |   17 +
- 129 files changed, 19190 insertions(+), 7 deletions(-)
+ 129 files changed, 19192 insertions(+), 7 deletions(-)
  create mode 100644 src/cmd/internal/telemetry/counter/deps_ignore.go
  create mode 100644 src/cmd/vendor/github.com/microsoft/go-infra/telemetry/LICENSE
  create mode 100644 src/cmd/vendor/github.com/microsoft/go-infra/telemetry/README.md
@@ -1875,7 +1875,7 @@ index 00000000000000..ae4055d2d71303
 +// that are used by the backend package. This allows to track
 +// their versions in a single patch file.
 diff --git a/src/go.mod b/src/go.mod
-index b81f19068aef23..74c129d7995deb 100644
+index b81f19068aef23..da03dfd87e7aec 100644
 --- a/src/go.mod
 +++ b/src/go.mod
 @@ -11,3 +11,9 @@ require (
@@ -1885,18 +1885,18 @@ index b81f19068aef23..74c129d7995deb 100644
 +
 +require (
 +	github.com/golang-fips/openssl/v2 v2.0.4-0.20250619123805-fe4bc89177d7
-+	github.com/microsoft/go-crypto-darwin v0.0.2-0.20250703113729-2543273fb498
++	github.com/microsoft/go-crypto-darwin v0.0.2-0.20250714125817-871ed82e87d7
 +	github.com/microsoft/go-crypto-winnative v0.0.0-20250703113837-e4483837c98b
 +)
 diff --git a/src/go.sum b/src/go.sum
-index 410eb8648a710a..31a26b0d5104e1 100644
+index 410eb8648a710a..928d040435b4b7 100644
 --- a/src/go.sum
 +++ b/src/go.sum
 @@ -1,3 +1,9 @@
 +github.com/golang-fips/openssl/v2 v2.0.4-0.20250619123805-fe4bc89177d7 h1:ZjpSTr5uh4P3EKwrZQ8Fr/NZJ6NBgf+8UabCp9Kmtoc=
 +github.com/golang-fips/openssl/v2 v2.0.4-0.20250619123805-fe4bc89177d7/go.mod h1:OYUBsoxLpFu8OFyhZHxfpN8lgcsw8JhTC3BQK7+XUc0=
-+github.com/microsoft/go-crypto-darwin v0.0.2-0.20250703113729-2543273fb498 h1:UbccQbkPCI4kCh2s4gnJevJEaNyb/R19lXsII1RC8Nw=
-+github.com/microsoft/go-crypto-darwin v0.0.2-0.20250703113729-2543273fb498/go.mod h1:LyP4oZ0QcysEJdqUTOk9ngNFArRFK94YRImkoJ8julQ=
++github.com/microsoft/go-crypto-darwin v0.0.2-0.20250714125817-871ed82e87d7 h1:6a0YcJOAJWLtEqDW55bUhhe4Nx/9Rpmm80KVMUxD6B4=
++github.com/microsoft/go-crypto-darwin v0.0.2-0.20250714125817-871ed82e87d7/go.mod h1:LyP4oZ0QcysEJdqUTOk9ngNFArRFK94YRImkoJ8julQ=
 +github.com/microsoft/go-crypto-winnative v0.0.0-20250703113837-e4483837c98b h1:Yf6lm9r6Aid3PG5FoeSX2v4iU+xWnAmCRQNjBxgceWI=
 +github.com/microsoft/go-crypto-winnative v0.0.0-20250703113837-e4483837c98b/go.mod h1:JkxQeL8dGcyCuKjn1Etz4NmQrOMImMy4BA9hptEfVFA=
  golang.org/x/crypto v0.39.0 h1:SHs+kF4LP+f+p14esP5jAoDpHU8Gu/v9lFRK6IT5imM=
@@ -14238,10 +14238,10 @@ index 00000000000000..458e9eb57416b1
 +}
 diff --git a/src/vendor/github.com/microsoft/go-crypto-darwin/internal/cryptokit/hash.go b/src/vendor/github.com/microsoft/go-crypto-darwin/internal/cryptokit/hash.go
 new file mode 100644
-index 00000000000000..469bcb16f4c7e5
+index 00000000000000..977ee3152ada71
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go-crypto-darwin/internal/cryptokit/hash.go
-@@ -0,0 +1,245 @@
+@@ -0,0 +1,247 @@
 +// Copyright (c) Microsoft Corporation.
 +// Licensed under the MIT License.
 +
@@ -14314,9 +14314,9 @@ index 00000000000000..469bcb16f4c7e5
 +	size          int
 +}
 +
-+func newEVPHash(ptr unsafe.Pointer, hashAlgorithm C.int, blockSize, size int) *evpHash {
++func newEVPHash(hashAlgorithm C.int, blockSize, size int) *evpHash {
 +	h := &evpHash{
-+		ptr:           ptr,
++		ptr:           C.hashNew(hashAlgorithm),
 +		hashAlgorithm: hashAlgorithm,
 +		blockSize:     blockSize,
 +		size:          size,
@@ -14339,7 +14339,14 @@ index 00000000000000..469bcb16f4c7e5
 +		panic("cryptokit: hash already finalized")
 +	}
 +
-+	newHash := newEVPHash(C.hashCopy(h.hashAlgorithm, h.ptr), h.hashAlgorithm, h.blockSize, h.size)
++	newHash := &evpHash{
++		ptr:           C.hashCopy(h.hashAlgorithm, h.ptr),
++		hashAlgorithm: h.hashAlgorithm,
++		blockSize:     h.blockSize,
++		size:          h.size,
++	}
++
++	runtime.SetFinalizer(newHash, (*evpHash).finalize)
 +
 +	runtime.KeepAlive(h)
 +
@@ -14414,9 +14421,8 @@ index 00000000000000..469bcb16f4c7e5
 +}
 +
 +func NewMD5() hash.Hash {
-+	return &MD5Hash{
++	return MD5Hash{
 +		evpHash: newEVPHash(
-+			C.hashNew(md5),
 +			C.int(md5),
 +			MD5BlockSize,
 +			MD5Size,
@@ -14430,9 +14436,8 @@ index 00000000000000..469bcb16f4c7e5
 +
 +// NewSHA1 initializes a new SHA1 hasher.
 +func NewSHA1() hash.Hash {
-+	return &SHA1Hash{
++	return SHA1Hash{
 +		evpHash: newEVPHash(
-+			C.hashNew(sha1),
 +			sha1,
 +			SHA1BlockSize,
 +			SHA1Size,
@@ -14446,9 +14451,8 @@ index 00000000000000..469bcb16f4c7e5
 +
 +// NewSHA256 initializes a new SHA256 hasher.
 +func NewSHA256() hash.Hash {
-+	return &SHA256Hash{
++	return SHA256Hash{
 +		evpHash: newEVPHash(
-+			C.hashNew(sha256),
 +			sha256,
 +			SHA256BlockSize,
 +			SHA256Size,
@@ -14462,9 +14466,8 @@ index 00000000000000..469bcb16f4c7e5
 +
 +// NewSHA384 initializes a new SHA384 hasher.
 +func NewSHA384() hash.Hash {
-+	return &SHA384Hash{
++	return SHA384Hash{
 +		evpHash: newEVPHash(
-+			C.hashNew(sha384),
 +			sha384,
 +			SHA384BlockSize,
 +			SHA384Size,
@@ -14478,9 +14481,8 @@ index 00000000000000..469bcb16f4c7e5
 +
 +// NewSHA512 initializes a new SHA512 hasher.
 +func NewSHA512() hash.Hash {
-+	return &SHA512Hash{
++	return SHA512Hash{
 +		evpHash: newEVPHash(
-+			C.hashNew(sha512),
 +			sha512,
 +			SHA512BlockSize,
 +			SHA512Size,
@@ -14613,7 +14615,7 @@ index 00000000000000..da161adcd88ea6
 +}
 diff --git a/src/vendor/github.com/microsoft/go-crypto-darwin/internal/cryptokit/hmac.go b/src/vendor/github.com/microsoft/go-crypto-darwin/internal/cryptokit/hmac.go
 new file mode 100644
-index 00000000000000..53790ffa74310e
+index 00000000000000..f06abe11e3854d
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go-crypto-darwin/internal/cryptokit/hmac.go
 @@ -0,0 +1,146 @@
@@ -14749,15 +14751,15 @@ index 00000000000000..53790ffa74310e
 +
 +func hashToHMACEnum(h hash.Hash) int {
 +	switch h.(type) {
-+	case *MD5Hash:
++	case MD5Hash:
 +		return 1
-+	case *SHA1Hash:
++	case SHA1Hash:
 +		return 2
-+	case *SHA256Hash:
++	case SHA256Hash:
 +		return 3
-+	case *SHA384Hash:
++	case SHA384Hash:
 +		return 4
-+	case *SHA512Hash:
++	case SHA512Hash:
 +		return 5
 +	default:
 +		return 0
@@ -15881,7 +15883,7 @@ index 00000000000000..f59e6f9af58cd4
 +}
 diff --git a/src/vendor/github.com/microsoft/go-crypto-darwin/xcrypto/evp.go b/src/vendor/github.com/microsoft/go-crypto-darwin/xcrypto/evp.go
 new file mode 100644
-index 00000000000000..f01b519ee2c4e7
+index 00000000000000..6928418b4d26b9
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go-crypto-darwin/xcrypto/evp.go
 @@ -0,0 +1,345 @@
@@ -16057,13 +16059,13 @@ index 00000000000000..f01b519ee2c4e7
 +// hashToCryptoHash converts a hash.Hash to a crypto.Hash.
 +func hashToCryptoHash(hash hash.Hash) (crypto.Hash, error) {
 +	switch hash.(type) {
-+	case *cryptokit.SHA1Hash:
++	case cryptokit.SHA1Hash:
 +		return crypto.SHA1, nil
-+	case *cryptokit.SHA256Hash:
++	case cryptokit.SHA256Hash:
 +		return crypto.SHA256, nil
-+	case *cryptokit.SHA384Hash:
++	case cryptokit.SHA384Hash:
 +		return crypto.SHA384, nil
-+	case *cryptokit.SHA512Hash:
++	case cryptokit.SHA512Hash:
 +		return crypto.SHA512, nil
 +	default:
 +		return 0, errors.New("unsupported hash function")
@@ -16405,7 +16407,7 @@ index 00000000000000..ceb33c5cf99ca2
 +}
 diff --git a/src/vendor/github.com/microsoft/go-crypto-darwin/xcrypto/pbkdf2.go b/src/vendor/github.com/microsoft/go-crypto-darwin/xcrypto/pbkdf2.go
 new file mode 100644
-index 00000000000000..f29d30e599117c
+index 00000000000000..1f1b25d36981c3
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go-crypto-darwin/xcrypto/pbkdf2.go
 @@ -0,0 +1,65 @@
@@ -16462,13 +16464,13 @@ index 00000000000000..f29d30e599117c
 +// Mapping Go hash functions to CommonCrypto hash constants
 +func hashToCCDigestPBKDF2(hash hash.Hash) (C.CCAlgorithm, error) {
 +	switch hash.(type) {
-+	case *cryptokit.SHA1Hash:
++	case cryptokit.SHA1Hash:
 +		return C.kCCPRFHmacAlgSHA1, nil
-+	case *cryptokit.SHA256Hash:
++	case cryptokit.SHA256Hash:
 +		return C.kCCPRFHmacAlgSHA256, nil
-+	case *cryptokit.SHA384Hash:
++	case cryptokit.SHA384Hash:
 +		return C.kCCPRFHmacAlgSHA384, nil
-+	case *cryptokit.SHA512Hash:
++	case cryptokit.SHA512Hash:
 +		return C.kCCPRFHmacAlgSHA512, nil
 +	default:
 +		return 0, errors.New("unsupported hash function")
@@ -21333,7 +21335,7 @@ index 00000000000000..1722410e5af193
 +	return getSystemDirectory() + "\\" + dll
 +}
 diff --git a/src/vendor/modules.txt b/src/vendor/modules.txt
-index 8507f01b12f518..13b7bb0fa3777e 100644
+index 8507f01b12f518..918aaab0a32fef 100644
 --- a/src/vendor/modules.txt
 +++ b/src/vendor/modules.txt
 @@ -1,3 +1,20 @@
@@ -21342,7 +21344,7 @@ index 8507f01b12f518..13b7bb0fa3777e 100644
 +github.com/golang-fips/openssl/v2
 +github.com/golang-fips/openssl/v2/bbig
 +github.com/golang-fips/openssl/v2/internal/ossl
-+# github.com/microsoft/go-crypto-darwin v0.0.2-0.20250703113729-2543273fb498
++# github.com/microsoft/go-crypto-darwin v0.0.2-0.20250714125817-871ed82e87d7
 +## explicit; go 1.22
 +github.com/microsoft/go-crypto-darwin/bbig
 +github.com/microsoft/go-crypto-darwin/internal/cryptokit
