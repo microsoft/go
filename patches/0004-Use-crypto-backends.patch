@@ -50,6 +50,7 @@ Subject: [PATCH] Use crypto backends
  src/crypto/pbkdf2/pbkdf2_test.go              |   6 +-
  src/crypto/purego_test.go                     |   2 +-
  src/crypto/rand/rand.go                       |   2 +-
+ src/crypto/rand/rand_test.go                  |   9 +-
  src/crypto/rc4/rc4.go                         |  18 ++
  src/crypto/rsa/boring.go                      |  12 +-
  src/crypto/rsa/boring_test.go                 |   2 +-
@@ -90,7 +91,7 @@ Subject: [PATCH] Use crypto backends
  src/net/lookup_test.go                        |   3 +
  src/os/exec/exec_test.go                      |   9 +
  src/runtime/pprof/vminfo_darwin_test.go       |   6 +
- 86 files changed, 1179 insertions(+), 114 deletions(-)
+ 87 files changed, 1186 insertions(+), 116 deletions(-)
  create mode 100644 src/crypto/dsa/boring.go
  create mode 100644 src/crypto/dsa/notboring.go
  create mode 100644 src/crypto/ecdsa/badlinkname.go
@@ -1640,6 +1641,38 @@ index 1ca16caa9563e6..3ef22b5ff8222b 100644
  	"crypto/internal/fips140"
  	"crypto/internal/fips140/drbg"
  	"crypto/internal/sysrand"
+diff --git a/src/crypto/rand/rand_test.go b/src/crypto/rand/rand_test.go
+index 22ccb8a35334c9..832910da482f44 100644
+--- a/src/crypto/rand/rand_test.go
++++ b/src/crypto/rand/rand_test.go
+@@ -7,6 +7,7 @@ package rand
+ import (
+ 	"bytes"
+ 	"compress/flate"
++	boring "crypto/internal/backend"
+ 	"crypto/internal/cryptotest"
+ 	"errors"
+ 	"internal/testenv"
+@@ -154,13 +155,17 @@ var sink byte
+ 
+ func TestAllocations(t *testing.T) {
+ 	cryptotest.SkipTestAllocations(t)
++	expectedAllocations := 0
++	if boring.Enabled {
++		expectedAllocations = 1
++	}
+ 	n := int(testing.AllocsPerRun(10, func() {
+ 		buf := make([]byte, 32)
+ 		Read(buf)
+ 		sink ^= buf[0]
+ 	}))
+-	if n > 0 {
+-		t.Errorf("allocs = %d, want 0", n)
++	if n > expectedAllocations {
++		t.Errorf("allocs = %d, want %d", n, expectedAllocations)
+ 	}
+ }
+ 
 diff --git a/src/crypto/rc4/rc4.go b/src/crypto/rc4/rc4.go
 index 90943a0935befb..09ebdfd733e5d6 100644
 --- a/src/crypto/rc4/rc4.go
