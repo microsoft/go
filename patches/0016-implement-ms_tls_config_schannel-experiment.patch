@@ -8,16 +8,16 @@ Subject: [PATCH] implement ms_tls_config_schannel experiment
  src/crypto/tls/bogo_shim_test.go              |   7 +
  src/crypto/tls/handshake_server_test.go       |  20 ++
  src/crypto/tls/handshake_test.go              |   6 +
- src/crypto/tls/schannel_windows.go            | 142 ++++++++++++++
- src/crypto/tls/schannel_windows_test.go       | 178 ++++++++++++++++++
- src/crypto/tls/tls_test.go                    |  11 ++
+ src/crypto/tls/schannel_windows.go            | 142 +++++++++++++
+ src/crypto/tls/schannel_windows_test.go       | 192 ++++++++++++++++++
+ src/crypto/tls/tls_test.go                    |  11 +
  .../exp_ms_tls_config_schannel_off.go         |   8 +
  .../exp_ms_tls_config_schannel_on.go          |   8 +
  src/internal/goexperiment/flags.go            |   4 +
  .../syscall/windows/security_windows.go       |  28 +++
  .../syscall/windows/syscall_windows.go        |  16 ++
  .../syscall/windows/zsyscall_windows.go       |  23 +++
- 13 files changed, 452 insertions(+), 1 deletion(-)
+ 13 files changed, 466 insertions(+), 1 deletion(-)
  create mode 100644 src/crypto/tls/schannel_windows.go
  create mode 100644 src/crypto/tls/schannel_windows_test.go
  create mode 100644 src/internal/goexperiment/exp_ms_tls_config_schannel_off.go
@@ -240,7 +240,7 @@ index 00000000000000..4e338175f48651
 +
 +// filterCipherSuites filters the provided cipher suites, creating a new slice
 +// that only includes those that are in the allowed list.
-+func filterCipherSuites(suites, allowed []uint16) []uint16 {
++func filterCipherSuites(suites []uint16, allowed []uint16) []uint16 {
 +	out := make([]uint16, 0, len(allowed))
 +	for _, id := range suites {
 +		if slices.Contains(allowed, id) {
@@ -291,10 +291,10 @@ index 00000000000000..4e338175f48651
 +}
 diff --git a/src/crypto/tls/schannel_windows_test.go b/src/crypto/tls/schannel_windows_test.go
 new file mode 100644
-index 00000000000000..01fb8852f38c6f
+index 00000000000000..06bf2f80bc20bc
 --- /dev/null
 +++ b/src/crypto/tls/schannel_windows_test.go
-@@ -0,0 +1,178 @@
+@@ -0,0 +1,192 @@
 +// Copyright 2025 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -305,11 +305,25 @@ index 00000000000000..01fb8852f38c6f
 +
 +import (
 +	"bytes"
++	"fmt"
 +	"internal/testenv"
 +	"os"
 +	"os/exec"
 +	"testing"
 +)
++
++func init() {
++	cipherSuites, versions, err := getCipherSuitesSchannel()
++	if err != nil {
++		panic(err)
++	}
++	fmt.Println("Schannel cipher suites:")
++	for _, id := range cipherSuites {
++		name, _ := cipherSuiteFromID(id)
++		fmt.Println(id, name)
++	}
++	fmt.Println("Schannel versions:", versions)
++}
 +
 +// testSchannel runs the provided function in a child process with Schannel cipher suites set.
 +func testSchannel(t *testing.T, ids, versions []uint16, fn func()) {
