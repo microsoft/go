@@ -19,11 +19,13 @@ This command refreshes the Go submodule: initializes it, resets the content, and
 applies patches to the stage by default, or optionally as commits.
 `
 
-var commits = flag.Bool("commits", false, "Apply the patches as commits.")
-var skipPatch = flag.Bool("skip-patch", false, "Skip applying patches.")
-var origin = flag.String("origin", "", "Use this origin instead of the default defined in '.gitmodules' to fetch the repository.")
-var shallow = flag.Bool("shallow", false, "Clone the submodule with depth 1.")
-var fetchBearerToken = flag.String("fetch-bearer-token", "", "Use this bearer token to fetch the submodule repository.")
+var (
+	commits          = flag.Bool("commits", false, "Apply the patches as commits.")
+	skipPatch        = flag.Bool("skip-patch", false, "Skip applying patches.")
+	origin           = flag.String("origin", "", "Use this origin instead of the default defined in '.gitmodules' to fetch the repository.")
+	shallow          = flag.Bool("shallow", false, "Clone the submodule with depth 1.")
+	fetchBearerToken = flag.String("fetch-bearer-token", "", "Use this bearer token to fetch the submodule repository.")
+)
 
 func main() {
 	repoRootDir, err := os.Getwd()
@@ -31,7 +33,7 @@ func main() {
 		panic(err)
 	}
 
-	var help = flag.Bool("h", false, "Print this help message.")
+	help := flag.Bool("h", false, "Print this help message.")
 
 	flag.Usage = func() {
 		fmt.Fprintf(flag.CommandLine.Output(), "Usage:\n")

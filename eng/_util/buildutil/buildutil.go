@@ -15,7 +15,7 @@ import (
 
 // Retry runs f until it succeeds or the attempt limit is reached.
 func Retry(attempts int, f func() error) error {
-	var i = 0
+	i := 0
 	for ; i < attempts; i++ {
 		if attempts > 1 {
 			fmt.Printf("---- Running attempt %v of %v...\n", i+1, attempts)

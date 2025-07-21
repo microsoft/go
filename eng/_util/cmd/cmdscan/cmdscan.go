@@ -186,7 +186,7 @@ func scan(r io.Reader, commands, echo *os.File) error {
 		for _, f := range filters {
 			if f.regexp.MatchString(s.Text()) {
 				fmt.Fprintf(echo, "Found pattern '%v'\n", f.regexp)
-				fmt.Fprintf(commands, warn(&f, s.Text()))
+				fmt.Fprint(commands, warn(&f, s.Text()))
 			}
 		}
 	}

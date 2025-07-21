@@ -106,6 +106,9 @@ func run() error {
 	individualFilesToNotarize, err := flatMapSlice(archives, func(a *archive) ([]*fileToSign, error) {
 		return a.prepareIndividualNotarize(ctx)
 	})
+	if err != nil {
+		return err
+	}
 
 	if err := sign(ctx, "2-Notarize-Individual", individualFilesToNotarize); err != nil {
 		return err

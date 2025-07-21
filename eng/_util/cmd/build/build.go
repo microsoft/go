@@ -38,7 +38,7 @@ Example: Build Go, run tests, and produce an archive file:
 `
 
 func main() {
-	var help = flag.Bool("h", false, "Print this help message.")
+	help := flag.Bool("h", false, "Print this help message.")
 	o := &options{}
 
 	flag.BoolVar(&o.SkipBuild, "skipbuild", false, "Disable building Go.")
@@ -91,7 +91,6 @@ type options struct {
 }
 
 func build(o *options) (err error) {
-
 	scriptExtension := ".bash"
 	executableExtension := ""
 	archiveExtension := ".tar.gz"

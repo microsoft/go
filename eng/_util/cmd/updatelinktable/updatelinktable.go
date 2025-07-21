@@ -129,21 +129,27 @@ func filename(version, platform, ext string) string {
 	return "go" + version + "." + platform + ext
 }
 
-const checksumSuffix = ".sha256"
-const checksumMsg = "Checksum (SHA256)"
-const signatureSuffix = ".sig"
-const signatureMsg = "Signature<sup>1</sup>"
+const (
+	checksumSuffix  = ".sha256"
+	checksumMsg     = "Checksum (SHA256)"
+	signatureSuffix = ".sig"
+	signatureMsg    = "Signature<sup>1</sup>"
+)
 
 const baseURL = "https://aka.ms/golang/release/latest/"
 
-var docPath = filepath.Join("eng", "doc", "Downloads.md")
-var jsonPath = filepath.Join("eng", "doc", "release-branch-links.json")
+var (
+	docPath  = filepath.Join("eng", "doc", "Downloads.md")
+	jsonPath = filepath.Join("eng", "doc", "release-branch-links.json")
+)
 
-const beginMark = "<!-- BEGIN TABLES -->"
-const endMark = "<!-- END TABLES -->"
+const (
+	beginMark = "<!-- BEGIN TABLES -->"
+	endMark   = "<!-- END TABLES -->"
+)
 
 func main() {
-	var help = flag.Bool("h", false, "Print this help message.")
+	help := flag.Bool("h", false, "Print this help message.")
 
 	flag.Usage = func() {
 		fmt.Fprintf(flag.CommandLine.Output(), "Usage:\n")
