@@ -134,7 +134,7 @@ func (c *testJSONSummaryConverter) Write(b []byte) (int, error) {
 	return len(b), nil
 }
 
-// jsonEntry is the parts of a single entry in the JSON file relevant to testJSONHumanConverter.
+// jsonEntry is the parts of a single entry in the JSON file relevant to testJSONSummaryConverter.
 type jsonEntry struct {
 	Time    time.Time
 	Action  string
