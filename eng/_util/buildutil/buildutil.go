@@ -125,7 +125,7 @@ func UnassignGOROOT() error {
 
 // RunCmdMultiWriter runs a command and outputs the stdout to multiple [io.Writer].
 // The writers are closed after the command completes.
-func RunCmdMultiWriter(cmdline []string, stdout ...io.Writer) (err error) {
+func RunCmdMultiWriter(cmdline []string, stdout ...io.Writer) error {
 	c := exec.Command(cmdline[0], cmdline[1:]...)
 	c.Stdout = io.MultiWriter(stdout...)
 	c.Stderr = os.Stderr
