@@ -12,25 +12,25 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/microsoft/go-infra/json2junit"
 )
 
 type TestJSONFlags struct {
-	JUnitOutFile           string
-	RawTestOutArtifactName string
+	JUnitOutFile   string
+	RawTestOutFile string
 }
 
 func BindTestJSONFlags() *TestJSONFlags {
 	var f TestJSONFlags
 	flag.StringVar(
 		&f.JUnitOutFile, "junitout", "junit.xml",
-		"Write the test output to this path as a JUnit file if running tests.")
+		"Write the test output to a new file at this path as a JUnit file if running tests.")
 	flag.StringVar(
-		&f.RawTestOutArtifactName, "rawtestoutartifact", "",
-		"Upload raw test output to AzDO as an artifact with this name\n"+
-			"and summarize any test JSON before it reaches stdout.")
+		&f.RawTestOutFile, "rawtestout", "",
+		"Write raw test output to a new file at this path and summarize any test JSON before it reaches stdout.")
 	return &f
 }
 
@@ -39,45 +39,45 @@ func (f *TestJSONFlags) AppendToCmdline(cmdline []string) []string {
 		if f.JUnitOutFile != "" {
 			cmdline = append(cmdline, "-junitout", f.JUnitOutFile)
 		}
-		if f.RawTestOutArtifactName != "" {
-			cmdline = append(cmdline, "-rawtestoutartifact", f.RawTestOutArtifactName)
+		if f.RawTestOutFile != "" {
+			cmdline = append(cmdline, "-rawtestout", f.RawTestOutFile)
 		}
 	}
 	return cmdline
 }
 
-func (f *TestJSONFlags) RunTestCmd(cmdline []string) error {
+func (f *TestJSONFlags) RunTestCmd(cmdline []string) (err error) {
 	var writers []io.Writer
-	var extraClosers []func() error
-
 	var needJSON bool
 
 	if f != nil {
 		if f.JUnitOutFile != "" {
-			jf, err := os.Create(f.JUnitOutFile)
-			if err != nil {
+			var jf *os.File
+			if jf, err = os.Create(f.JUnitOutFile); err != nil {
 				return err
 			}
+			defer func() {
+				err = errors.Join(err, jf.Close())
+			}()
 			writers = append(writers, json2junit.NewConverter(jf))
-			extraClosers = append(extraClosers, jf.Close)
 			needJSON = true
 		}
-		if f.RawTestOutArtifactName != "" {
-			tmpFile, err := os.CreateTemp("", "ms-go-raw-test-out-*.txt")
-			if err != nil {
+		if f.RawTestOutFile != "" {
+			var rf *os.File
+			if err := os.MkdirAll(filepath.Dir(f.RawTestOutFile), 0o755); err != nil {
+				return fmt.Errorf("failed to create directory for raw test output: %w", err)
+			}
+			if rf, err = os.Create(f.RawTestOutFile); err != nil {
 				return err
 			}
-			fmt.Printf("---- Created temp file for raw JSON test output: %v\n", tmpFile.Name())
+			defer func() {
+				err = errors.Join(err, rf.Close())
+			}()
 			writers = append(
 				writers,
 				&testJSONSummaryConverter{w: os.Stdout},
-				tmpFile,
+				rf,
 			)
-			extraClosers = append(extraClosers, func() error {
-				err := tmpFile.Close()
-				fmt.Fprintf(os.Stdout, "##vso[artifact.upload artifactname=%s]%s\n", f.RawTestOutArtifactName, tmpFile.Name())
-				return err
-			})
 			needJSON = true
 		} else {
 			// If we don't summarize, we need to write directly to stdout.
@@ -88,11 +88,7 @@ func (f *TestJSONFlags) RunTestCmd(cmdline []string) error {
 		cmdline = append(cmdline, "-json")
 	}
 
-	err := RunCmdMultiWriter(cmdline, writers...)
-	for _, closer := range extraClosers {
-		err = errors.Join(err, closer())
-	}
-	return err
+	return RunCmdMultiWriter(cmdline, writers...)
 }
 
 // testJSONSummaryConverter reads Go JSON test output and writes a summary that
