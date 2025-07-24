@@ -26,7 +26,7 @@ type TestJSONFlags struct {
 func BindTestJSONFlags() *TestJSONFlags {
 	var f TestJSONFlags
 	flag.StringVar(
-		&f.JUnitOutFile, "junitout", "junit.xml",
+		&f.JUnitOutFile, "junitout", "",
 		"Write the test output to a new file at this path as a JUnit file if running tests.")
 	flag.StringVar(
 		&f.RawTestOutFile, "rawtestout", "",
