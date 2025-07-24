@@ -88,11 +88,11 @@ func (f *TestJSONFlags) RunTestCmd(cmdline []string) error {
 		cmdline = append(cmdline, "-json")
 	}
 
-	errs := []error{RunCmdMultiWriter(cmdline, writers...)}
+	err := RunCmdMultiWriter(cmdline, writers...)
 	for _, closer := range extraClosers {
-		errs = append(errs, closer())
+		err = errors.Join(err, closer())
 	}
-	return errors.Join(errs...)
+	return err
 }
 
 // testJSONSummaryConverter reads Go JSON test output and writes a summary that
