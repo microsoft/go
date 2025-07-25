@@ -60,7 +60,13 @@ After the release of Go 1.25, Go 1.23 will no longer be supported.
 - **Minimum supported distributions**: 
   - Azure Linux 3.0 (recommended)
   - Ubuntu 22.04 and later
+  - CBL-Mariner 2.0
   - Other modern Linux distributions with glibc 2.17+ or musl 1.1.16+
+- **OpenSSL Requirements**:
+  - OpenSSL 1.1.1 (supported)
+  - OpenSSL 3.x (supported)
+    - Built-in providers are supported
+    - SymCrypt provider v1.6.0 or higher is supported
 
 ### Windows
 - **windows-amd64**: Fully supported on Windows Server 2016 and later, Windows 10 and later.
