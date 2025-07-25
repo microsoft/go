@@ -13,7 +13,7 @@ desired goexperiments and build tags.
  .../compile/internal/logopt/logopt_test.go    |   6 +-
  .../compile/internal/ssa/stmtlines_test.go    |   1 -
  src/cmd/compile/script_test.go                |   8 +
- src/cmd/dist/build.go                         |  29 +-
+ src/cmd/dist/build.go                         |  80 +++-
  src/cmd/dist/test.go                          |  44 ++-
  src/cmd/go/go_test.go                         |  11 +
  src/cmd/go/internal/cfg/cfg.go                |  16 +
@@ -55,7 +55,7 @@ desired goexperiments and build tags.
  src/internal/buildcfg/exp.go                  |  54 +++
  src/runtime/runtime_boring.go                 |   5 +
  src/syscall/exec_linux_test.go                |   2 +-
- 46 files changed, 2258 insertions(+), 23 deletions(-)
+ 46 files changed, 2310 insertions(+), 22 deletions(-)
  create mode 100644 src/cmd/go/systemcrypto_test.go
  create mode 100644 src/crypto/internal/backend/backend_test.go
  create mode 100644 src/crypto/internal/backend/bbig/big.go
@@ -160,59 +160,103 @@ index 0e32e0769ee2e2..eda2d576acc6c6 100644
  	if doReplacement {
  		if testCompiler == "" {
 diff --git a/src/cmd/dist/build.go b/src/cmd/dist/build.go
-index 024050c2dd70c4..a3ae7ef562cace 100644
+index 024050c2dd70c4..f91bf0a7c4ad1c 100644
 --- a/src/cmd/dist/build.go
 +++ b/src/cmd/dist/build.go
-@@ -1387,7 +1387,23 @@ func toolenv() []string {
+@@ -1387,6 +1387,80 @@ func toolenv() []string {
  		// still have full paths for stack traces for compiler crashes and the like.
  		env = append(env, "GOFLAGS=-trimpath -ldflags=-w -gcflags=cmd/...=-dwarf=false")
  	}
--	return env
-+	return toolchainGOEXPERIMENT(env)
++	return toolenvMicrosoft(env)
 +}
 +
-+// toolchainGOEXPERIMENT appends a GOEXPERIMENT to env
-+// that contains all the experiments from the current
-+// environment, but with "systemcrypto" removed and
-+// "nosystemcrypto" added. This is used when building
-+// the Microsoft build of Go to favor portability.
-+// Go only uses crypto packages for non-crypto purposes,
-+// such as generating build IDs.
-+func toolchainGOEXPERIMENT(env []string) []string {
-+	goexp := strings.Split(os.Getenv("GOEXPERIMENT"), ",")
-+	goexp = slices.DeleteFunc(goexp, func(s string) bool {
-+		return s == "systemcrypto" || s == "nosystemcrypto" || s == ""
++// updateEnv updates the environment variable named name in env
++// by applying the function fn to its value.
++// If the variable is not present in env, the value is taken from
++// the current environment (os.Getenv), and the updated value is appended
++// to env.
++// If the variable is not present in the current environment, the new value
++// is appended to env.
++func updateEnv(name string, env []string, fn func(string) string) []string {
++	// Find the variable in env.
++	for i, e := range env {
++		if value, ok := strings.CutPrefix(e, name+"="); ok {
++			// Found it, update it.
++			env[i] = name + "=" + fn(value)
++			return env
++		}
++	}
++
++	// Not found, use the current environment.
++	val := os.Getenv(name)
++	if val == "" {
++		val = fn("")
++	} else {
++		val = fn(val)
++	}
++	return append(env, name+"="+val)
++}
++
++// toolenvMicrosoft appends Microsoft-specific environment variables to env.
++func toolenvMicrosoft(env []string) []string {
++	// Keep all the experiments from the current
++	// environment, but with "systemcrypto" removed and
++	// "nosystemcrypto" added. This is used when building
++	// the Microsoft build of Go to favor portability.
++	// Go only uses crypto packages for non-crypto purposes,
++	// such as generating build IDs.
++	env = updateEnv("GOEXPERIMENT", env, func(value string) string {
++		if value == "" {
++			return "nosystemcrypto"
++		}
++		goexp := strings.Split(value, ",")
++		goexp = slices.DeleteFunc(goexp, func(s string) bool {
++			return s == "systemcrypto" || s == "nosystemcrypto"
++		})
++		goexp = append(goexp, "nosystemcrypto")
++		return strings.Join(goexp, ",")
 +	})
-+	goexp = append(goexp, "nosystemcrypto")
-+	return append(env, "GOEXPERIMENT="+strings.Join(goexp, ","))
- }
- 
- var (
-@@ -1548,6 +1564,11 @@ func cmdbootstrap() {
- 	os.Setenv("CC", compilerEnvLookup("CC", defaultcc, goos, goarch))
- 	// Now that cmd/go is in charge of the build process, enable GOEXPERIMENT.
- 	os.Setenv("GOEXPERIMENT", goexperiment)
++
 +	// Build the Go toolchain with "-tags=ms_skipfipscheck". This
 +	// allows toolchains not built with the systemcrypto goexperiment to be used
 +	// when GODEBUG=fips140=on is set. For example, when running
 +	// "GODEBUG=fips140=on go test ./..." or "GODEBUG=fips140=on go run .".
-+	os.Setenv("GOFLAGS", "-tags=ms_skipfipscheck")
- 	// No need to enable PGO for toolchain2.
- 	goInstall(toolenv(), goBootstrap, append([]string{"-pgo=off"}, toolchain...)...)
- 	if debug {
-@@ -1629,12 +1650,12 @@ func cmdbootstrap() {
++	env = updateEnv("GOFLAGS", env, func(value string) string {
++		if value == "" {
++			return "-tags=ms_skipfipscheck"
++		}
++		goflags := strings.Fields(value)
++		// If -tags= is already set, append "ms_skipfipscheck" to it.
++		// If not, add it as a new flag.
++		var found bool
++		for i, e := range goflags {
++			if value, ok := strings.CutPrefix(e, "-tags="); ok {
++				goflags[i] = "-tags=" + value + ",ms_skipfipscheck"
++				found = true
++				break
++			}
++		}
++		if !found {
++			goflags = append(goflags, "-tags=ms_skipfipscheck")
++		}
++		return strings.Join(goflags, " ")
++	})
+ 	return env
+ }
+ 
+@@ -1629,12 +1703,12 @@ func cmdbootstrap() {
  		os.Setenv("CC", compilerEnvLookup("CC", defaultcc, goos, goarch))
  		xprintf("Building packages and commands for target, %s/%s.\n", goos, goarch)
  	}
 -	goInstall(nil, goBootstrap, "std")
-+	goInstall(toolchainGOEXPERIMENT(nil), goBootstrap, "std")
++	goInstall(toolenvMicrosoft(nil), goBootstrap, "std")
  	goInstall(toolenv(), goBootstrap, toolsToInstall...)
  	checkNotStale(toolenv(), goBootstrap, toolchain...)
 -	checkNotStale(nil, goBootstrap, "std")
-+	checkNotStale(toolchainGOEXPERIMENT(nil), goBootstrap, "std")
++	checkNotStale(toolenvMicrosoft(nil), goBootstrap, "std")
  	checkNotStale(toolenv(), goBootstrap, toolsToInstall...)
 -	checkNotStale(nil, gorootBinGo, "std")
-+	checkNotStale(toolchainGOEXPERIMENT(nil), gorootBinGo, "std")
++	checkNotStale(toolenvMicrosoft(nil), gorootBinGo, "std")
  	checkNotStale(toolenv(), gorootBinGo, toolsToInstall...)
  	if debug {
  		run("", ShowOutput|CheckExit, pathf("%s/compile", tooldir), "-V=full")
