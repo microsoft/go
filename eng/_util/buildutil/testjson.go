@@ -26,7 +26,7 @@ type TestJSONFlags struct {
 func BindTestJSONFlags() *TestJSONFlags {
 	var f TestJSONFlags
 	flag.StringVar(
-		&f.JUnitOutFile, "junitout", "junit.xml",
+		&f.JUnitOutFile, "junitout", "",
 		"Write the test output to a new file at this path as a JUnit file if running tests.")
 	flag.StringVar(
 		&f.RawTestOutFile, "rawtestout", "",
@@ -53,19 +53,26 @@ func (f *TestJSONFlags) RunTestCmd(cmdline []string) (err error) {
 	if f != nil {
 		if f.JUnitOutFile != "" {
 			var jf *os.File
+			if err := os.MkdirAll(filepath.Dir(f.JUnitOutFile), 0o755); err != nil {
+				return fmt.Errorf("failed to create directory for JUnit output: %v", err)
+			}
 			if jf, err = os.Create(f.JUnitOutFile); err != nil {
 				return err
 			}
 			defer func() {
 				err = errors.Join(err, jf.Close())
 			}()
-			writers = append(writers, json2junit.NewConverter(jf))
+			c := json2junit.NewConverter(jf)
+			defer func() {
+				err = errors.Join(err, c.Close())
+			}()
+			writers = append(writers, c)
 			needJSON = true
 		}
 		if f.RawTestOutFile != "" {
 			var rf *os.File
 			if err := os.MkdirAll(filepath.Dir(f.RawTestOutFile), 0o755); err != nil {
-				return fmt.Errorf("failed to create directory for raw test output: %w", err)
+				return fmt.Errorf("failed to create directory for raw test output: %v", err)
 			}
 			if rf, err = os.Create(f.RawTestOutFile); err != nil {
 				return err
