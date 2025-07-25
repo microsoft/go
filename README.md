@@ -68,6 +68,8 @@ cross-compilation may be necessary.
 * `linux_arm64`
 * `windows_amd64`
 
+For detailed platform support information across different Go versions, see [SUPPORTED_PLATFORMS.md](SUPPORTED_PLATFORMS.md).
+
 The following sections list the ways to get a build of the Microsoft fork of Go.
 
 > [!NOTE]
