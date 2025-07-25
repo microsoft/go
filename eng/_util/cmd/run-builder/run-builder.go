@@ -5,6 +5,7 @@
 package main
 
 import (
+	"errors"
 	"flag"
 	"fmt"
 	"log"
@@ -13,7 +14,6 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/microsoft/go-infra/json2junit"
 	"github.com/microsoft/go/_util/buildutil"
 )
 
@@ -40,9 +40,10 @@ func main() {
 	builder := flag.String("builder", "", "[Required] Specify a builder to run. Note, this may be destructive!")
 	experiment := flag.String("experiment", "", "Include this string in GOEXPERIMENT.")
 	fipsMode := flag.Bool("fipsmode", false, "Run the Go tests in FIPS mode.")
-	junitOutFile := flag.String("junitout", "", "Write the test output to this path as a JUnit file if this builder runs tests.")
 	build := flag.Bool("build", false, "Run the build.")
 	test := flag.Bool("test", false, "Run the tests.")
+
+	testJSONFlags := buildutil.BindTestJSONFlags()
 
 	help := flag.Bool("h", false, "Print this help message.")
 
@@ -134,9 +135,7 @@ func main() {
 		// validate the run.ps1 script with "build" tool works to build and test Go. It runs a
 		// subset of the "test" builder's tests, but it uses the dev workflow.
 		testCmdline := append(buildCmdline, "-skipbuild", "-test")
-		if *junitOutFile != "" {
-			testCmdline = append(testCmdline, "-junitout", *junitOutFile)
-		}
+		testCmdline = testJSONFlags.AppendToCmdline(testCmdline)
 		if err := run(testCmdline...); err != nil {
 			log.Fatal(err)
 		}
@@ -197,32 +196,16 @@ func main() {
 			)
 		}
 
-		cmdline = append(cmdline, "-json")
-
 		if *dryRun {
 			fmt.Printf("---- Dry run. Would have run test command: %v\n", cmdline)
 		} else {
-			f, err := os.Create(*junitOutFile)
-			if err != nil {
-				log.Fatal(err)
-			}
-			conv := json2junit.NewConverter(f)
-			err = buildutil.RunCmdMultiWriter(cmdline, conv, os.Stdout)
-			if errClose := conv.Close(); err == nil {
-				err = errClose
-			}
-			if errClose := f.Close(); err == nil {
-				err = errClose
-			}
-			if err != nil {
-				log.Fatal(err)
-			}
-			// If we got an ExitError, the error message was already printed by the command. We just
-			// need to exit with the same exit code.
-			if exitErr, ok := err.(*exec.ExitError); ok {
-				os.Exit(exitErr.ExitCode())
-			}
-			if err != nil {
+			if err := testJSONFlags.RunTestCmd(cmdline); err != nil {
+				// If we got an ExitError, the error message was already printed by the command. We just
+				// need to exit with the same exit code.
+				var exitErr *exec.ExitError
+				if errors.As(err, &exitErr) {
+					os.Exit(exitErr.ExitCode())
+				}
 				// Something else happened: alert the user.
 				log.Fatal(err)
 			}

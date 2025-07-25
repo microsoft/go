@@ -15,7 +15,6 @@ import (
 	"runtime"
 	"strings"
 
-	"github.com/microsoft/go-infra/json2junit"
 	"github.com/microsoft/go-infra/patch"
 	"github.com/microsoft/go-infra/submodule"
 	"github.com/microsoft/go/_util/buildutil"
@@ -53,7 +52,8 @@ func main() {
 			"For more refresh options, use the top level 'submodule-refresh' command instead of 'build'.")
 
 	flag.StringVar(&o.Experiment, "experiment", "", "Include this string in GOEXPERIMENT.")
-	flag.StringVar(&o.JUnitOutFile, "junitout", "", "Write the test output to this path as a JUnit file if this builder runs tests.")
+
+	o.TestJSONFlags = buildutil.BindTestJSONFlags()
 
 	o.MaxMakeAttempts = buildutil.MaxMakeRetryAttemptsOrExit()
 
@@ -78,14 +78,15 @@ func main() {
 }
 
 type options struct {
-	SkipBuild    bool
-	Test         bool
-	PackBuild    bool
-	PackSource   bool
-	CreatePDB    bool
-	Refresh      bool
-	Experiment   string
-	JUnitOutFile string
+	SkipBuild  bool
+	Test       bool
+	PackBuild  bool
+	PackSource bool
+	CreatePDB  bool
+	Refresh    bool
+	Experiment string
+
+	TestJSONFlags *buildutil.TestJSONFlags
 
 	MaxMakeAttempts int
 }
@@ -207,27 +208,8 @@ func build(o *options) (err error) {
 			}...,
 		)
 
-		if o.JUnitOutFile != "" {
-			testCommandLine = append(testCommandLine, "-json")
-			f, err := os.Create(o.JUnitOutFile)
-			if err != nil {
-				return err
-			}
-			conv := json2junit.NewConverter(f)
-			err = buildutil.RunCmdMultiWriter(testCommandLine, conv, os.Stdout)
-			if closeErr := conv.Close(); err == nil {
-				err = closeErr
-			}
-			if closeErr := f.Close(); err == nil {
-				err = closeErr
-			}
-			if err != nil {
-				return err
-			}
-		} else {
-			if err := buildutil.RunCmdMultiWriter(testCommandLine, os.Stdout); err != nil {
-				return err
-			}
+		if err := o.TestJSONFlags.RunTestCmd(testCommandLine); err != nil {
+			return err
 		}
 	}
 
