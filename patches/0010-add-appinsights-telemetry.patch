@@ -10,9 +10,9 @@ Subject: [PATCH] Add appinsights telemetry
  src/cmd/go/mstelemetry_test.go                | 52 +++++++++++++++++++
  src/cmd/go/script_test.go                     |  8 +++
  src/cmd/go/scriptcmds_test.go                 | 11 ++++
- src/cmd/internal/telemetry/counter/counter.go | 50 +++++++++++++++++-
+ src/cmd/internal/telemetry/counter/counter.go | 48 ++++++++++++++++-
  .../telemetry/counter/counter_bootstrap.go    |  3 ++
- 8 files changed, 159 insertions(+), 1 deletion(-)
+ 8 files changed, 157 insertions(+), 1 deletion(-)
  create mode 100644 src/cmd/go/mstelemetry_test.go
 
 diff --git a/README.md b/README.md
@@ -208,10 +208,10 @@ index ced8d880e9ae3a..b3ad521ff94873 100644
  	})
  }
 diff --git a/src/cmd/internal/telemetry/counter/counter.go b/src/cmd/internal/telemetry/counter/counter.go
-index 5cef0b0041551a..6c180bf9e60482 100644
+index 5cef0b0041551a..2c1b8143d60764 100644
 --- a/src/cmd/internal/telemetry/counter/counter.go
 +++ b/src/cmd/internal/telemetry/counter/counter.go
-@@ -7,10 +7,23 @@
+@@ -7,10 +7,24 @@
  package counter
  
  import (
@@ -219,6 +219,7 @@ index 5cef0b0041551a..6c180bf9e60482 100644
 +	"context"
  	"flag"
 +	"log"
++	"log/slog"
  	"os"
 +	"time"
  
@@ -235,30 +236,25 @@ index 5cef0b0041551a..6c180bf9e60482 100644
  )
  
  var openCalled bool
-@@ -22,11 +35,43 @@ func OpenCalled() bool { return openCalled }
- func Open() {
- 	openCalled = true
+@@ -24,9 +38,38 @@ func Open() {
  	counter.OpenDir(os.Getenv("TEST_TELEMETRY_DIR"))
-+	if os.Getenv("MS_GOTOOLCHAIN_TELEMETRY_ENABLED") != "0" {
-+		mstelemetry.Start(mstelemetry.Config{
-+			InstrumentationKey: appInsightsInstrumentationKey,
-+			Endpoint:           cmp.Or(os.Getenv("MS_GOTOOLCHAIN_TELEMETRY_ENDPOINT"), appInsightsEndpoint), // configurable for testing purposes
-+			AllowGoDevel:       os.Getenv("MS_GOTOOLCHAIN_TELEMETRY_ALLOW_GO_DEVEL") == "1",
-+			UploadConfig:       msconfig.Config,
-+		})
-+	}
-+}
-+
+ }
+ 
 +func OpenMicrosoft() {
 +	if os.Getenv("MS_GOTOOLCHAIN_TELEMETRY_ENABLED") == "0" {
 +		// Telemetry disabled.
 +		return
++	}
++	var logger *slog.Logger
++	if os.Getenv("MS_GOTOOLCHAIN_TELEMETRY_VERBOSE") == "1" {
++		logger = slog.Default()
 +	}
 +	mstelemetry.Start(mstelemetry.Config{
 +		InstrumentationKey: appInsightsInstrumentationKey,
 +		Endpoint:           cmp.Or(os.Getenv("MS_GOTOOLCHAIN_TELEMETRY_ENDPOINT"), appInsightsEndpoint), // configurable for testing purposes
 +		AllowGoDevel:       os.Getenv("MS_GOTOOLCHAIN_TELEMETRY_ALLOW_GO_DEVEL") == "1",
 +		UploadConfig:       msconfig.Config,
++		Logger:             logger,
 +	})
 +}
 +
@@ -267,11 +263,11 @@ index 5cef0b0041551a..6c180bf9e60482 100644
 +	defer cancel()
 +	start := time.Now()
 +	mstelemetry.Close(ctx)
-+	if os.Getenv("MS_GOTOOLCHAIN_TELEMETRY_STATS") == "1" {
++	if os.Getenv("MS_GOTOOLCHAIN_TELEMETRY_VERBOSE") == "1" {
 +		log.Printf("telemetry: closed in %s\n", time.Since(start))
 +	}
- }
- 
++}
++
  // Inc increments the counter with the given name.
  func Inc(name string) {
  	counter.Inc(name)
@@ -279,7 +275,7 @@ index 5cef0b0041551a..6c180bf9e60482 100644
  }
  
  // New returns a counter with the given name.
-@@ -44,6 +89,7 @@ func NewStack(name string, depth int) *counter.StackCounter {
+@@ -44,6 +87,7 @@ func NewStack(name string, depth int) *counter.StackCounter {
  // the concatenation of prefix and the flag name.
  func CountFlags(prefix string, flagSet flag.FlagSet) {
  	counter.CountFlags(prefix, flagSet)
@@ -287,7 +283,7 @@ index 5cef0b0041551a..6c180bf9e60482 100644
  }
  
  // CountFlagValue creates a counter for the flag value
-@@ -56,7 +102,9 @@ func CountFlagValue(prefix string, flagSet flag.FlagSet, flagName string) {
+@@ -56,7 +100,9 @@ func CountFlagValue(prefix string, flagSet flag.FlagSet, flagName string) {
  	// TODO(matloob): Add this to x/telemetry?
  	flagSet.Visit(func(f *flag.Flag) {
  		if f.Name == flagName {
