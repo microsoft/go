@@ -30,7 +30,7 @@ Subject: [PATCH] Use crypto backends
  src/crypto/ecdsa/ecdsa.go                     |  10 +-
  src/crypto/ecdsa/notboring.go                 |   4 +-
  src/crypto/ed25519/boring.go                  |  71 +++++++
- src/crypto/ed25519/ed25519.go                 |  73 +++++++
+ src/crypto/ed25519/ed25519.go                 |  70 +++++++
  src/crypto/ed25519/ed25519_test.go            |  13 +-
  src/crypto/ed25519/notboring.go               |  16 ++
  src/crypto/fips140/fips140.go                 |   3 +-
@@ -91,7 +91,7 @@ Subject: [PATCH] Use crypto backends
  src/net/lookup_test.go                        |   3 +
  src/os/exec/exec_test.go                      |   9 +
  src/runtime/pprof/vminfo_darwin_test.go       |   6 +
- 87 files changed, 1186 insertions(+), 116 deletions(-)
+ 87 files changed, 1183 insertions(+), 116 deletions(-)
  create mode 100644 src/crypto/dsa/boring.go
  create mode 100644 src/crypto/dsa/notboring.go
  create mode 100644 src/crypto/ecdsa/badlinkname.go
@@ -1013,7 +1013,7 @@ index 00000000000000..4e18cdfbaad4fd
 +	return key, nil
 +}
 diff --git a/src/crypto/ed25519/ed25519.go b/src/crypto/ed25519/ed25519.go
-index 0e268139587075..b770c8c4987ca6 100644
+index 0e268139587075..4ac5e90bb73e57 100644
 --- a/src/crypto/ed25519/ed25519.go
 +++ b/src/crypto/ed25519/ed25519.go
 @@ -17,6 +17,7 @@ package ed25519
@@ -1032,30 +1032,27 @@ index 0e268139587075..b770c8c4987ca6 100644
  )
  
  const (
-@@ -144,6 +146,22 @@ func GenerateKey(rand io.Reader) (PublicKey, PrivateKey, error) {
+@@ -144,6 +146,19 @@ func GenerateKey(rand io.Reader) (PublicKey, PrivateKey, error) {
  	if rand == nil {
  		rand = cryptorand.Reader
  	}
-+	if boring.Enabled && boring.SupportsEd25519() {
-+		if rand == boring.RandReader {
-+			priv, err := boring.GenerateKeyEd25519()
-+			if err != nil {
-+				return nil, nil, err
-+			}
-+			privData, err := priv.Bytes()
-+			if err != nil {
-+				return nil, nil, err
-+			}
-+			privKey := PrivateKey(privData)
-+			pubKey := privKey.Public().(PublicKey)
-+			return pubKey, privKey, err
++	if boring.Enabled && rand == boring.RandReader && boring.SupportsEd25519() {
++		priv, err := boring.GenerateKeyEd25519()
++		if err != nil {
++			return nil, nil, err
 +		}
-+		boring.UnreachableExceptTests()
++		privData, err := priv.Bytes()
++		if err != nil {
++			return nil, nil, err
++		}
++		privKey := PrivateKey(privData)
++		pubKey := privKey.Public().(PublicKey)
++		return pubKey, privKey, err
 +	}
  
  	seed := make([]byte, SeedSize)
  	if _, err := io.ReadFull(rand, seed); err != nil {
-@@ -160,6 +178,17 @@ func GenerateKey(rand io.Reader) (PublicKey, PrivateKey, error) {
+@@ -160,6 +175,17 @@ func GenerateKey(rand io.Reader) (PublicKey, PrivateKey, error) {
  // with RFC 8032. RFC 8032's private keys correspond to seeds in this
  // package.
  func NewKeyFromSeed(seed []byte) PrivateKey {
@@ -1073,7 +1070,7 @@ index 0e268139587075..b770c8c4987ca6 100644
  	// Outline the function body so that the returned key can be stack-allocated.
  	privateKey := make([]byte, PrivateKeySize)
  	newKeyFromSeed(privateKey, seed)
-@@ -178,6 +207,17 @@ func newKeyFromSeed(privateKey, seed []byte) {
+@@ -178,6 +204,17 @@ func newKeyFromSeed(privateKey, seed []byte) {
  // Sign signs the message with privateKey and returns a signature. It will
  // panic if len(privateKey) is not [PrivateKeySize].
  func Sign(privateKey PrivateKey, message []byte) []byte {
@@ -1091,7 +1088,7 @@ index 0e268139587075..b770c8c4987ca6 100644
  	// Outline the function body so that the returned signature can be
  	// stack-allocated.
  	signature := make([]byte, SignatureSize)
-@@ -207,6 +247,32 @@ func Verify(publicKey PublicKey, message, sig []byte) bool {
+@@ -207,6 +244,32 @@ func Verify(publicKey PublicKey, message, sig []byte) bool {
  	return VerifyWithOptions(publicKey, message, sig, &Options{Hash: crypto.Hash(0)}) == nil
  }
  
@@ -1124,7 +1121,7 @@ index 0e268139587075..b770c8c4987ca6 100644
  // VerifyWithOptions reports whether sig is a valid signature of message by
  // publicKey. A valid signature is indicated by returning a nil error. It will
  // panic if len(publicKey) is not [PublicKeySize].
-@@ -235,6 +301,13 @@ func VerifyWithOptions(publicKey PublicKey, message, sig []byte, opts *Options)
+@@ -235,6 +298,13 @@ func VerifyWithOptions(publicKey PublicKey, message, sig []byte, opts *Options)
  		}
  		return ed25519.VerifyCtx(k, message, sig, opts.Context)
  	case opts.Hash == crypto.Hash(0): // Ed25519
