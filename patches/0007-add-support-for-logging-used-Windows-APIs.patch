@@ -4,42 +4,52 @@ Date: Tue, 19 Mar 2024 16:48:18 +0100
 Subject: [PATCH] add support for logging used Windows APIs
 
 ---
- src/runtime/os_windows.go                    |   1 +
- src/runtime/syscall_windows.go               |   1 +
- src/runtime/syscalltrace_generate_windows.go |  50 +++++++
- src/runtime/syscalltrace_windows.go          | 131 +++++++++++++++++++
- src/runtime/syscalltrace_windows_test.go     |  81 ++++++++++++
- src/runtime/zsyscalltrace_windows.go         |  60 +++++++++
- 6 files changed, 324 insertions(+)
+ src/runtime/os_windows.go                     |   1 +
+ src/runtime/syscall_windows.go                |  11 ++
+ src/runtime/syscalltrace_generate_windows.go  |  50 +++++++
+ src/runtime/syscalltrace_windows.go           | 131 ++++++++++++++++++
+ src/runtime/syscalltrace_windows_test.go      |  81 +++++++++++
+ src/runtime/zsyscalltrace_windows.go          |  60 ++++++++
+ 6 files changed, 335 insertions(+), 1 deletion(-)
  create mode 100644 src/runtime/syscalltrace_generate_windows.go
  create mode 100644 src/runtime/syscalltrace_windows.go
  create mode 100644 src/runtime/syscalltrace_windows_test.go
  create mode 100644 src/runtime/zsyscalltrace_windows.go
 
 diff --git a/src/runtime/os_windows.go b/src/runtime/os_windows.go
-index 88d730aa026a7f..53e3332d9fa77f 100644
+index ab4e165baecfb0..608ee8bc962a0c 100644
 --- a/src/runtime/os_windows.go
 +++ b/src/runtime/os_windows.go
-@@ -222,6 +222,7 @@ func windowsFindfunc(lib uintptr, name []byte) stdFunction {
+@@ -220,6 +220,7 @@ func windowsFindfunc(lib uintptr, name []byte) stdFunction {
  	if name[len(name)-1] != 0 {
  		throw("usage")
  	}
 +	syscallTrace(lib, &name[0])
- 	f := stdcall2(_GetProcAddress, lib, uintptr(unsafe.Pointer(&name[0])))
+ 	f := stdcall(_GetProcAddress, lib, uintptr(unsafe.Pointer(&name[0])))
  	return stdFunction(unsafe.Pointer(f))
  }
 diff --git a/src/runtime/syscall_windows.go b/src/runtime/syscall_windows.go
-index 0f74ebbe240eaf..11c680630b2f00 100644
+index b3c3d8c0d53864..be225e825ff421 100644
 --- a/src/runtime/syscall_windows.go
 +++ b/src/runtime/syscall_windows.go
-@@ -444,6 +444,7 @@ func syscall_loadlibrary(filename *uint16) (handle, err uintptr) {
+@@ -417,6 +417,17 @@ func callbackWrap(a *callbackArgs) {
+ // It shouldn't be used in the runtime package,
+ // use [stdcall] instead.
  //
- //go:linkname syscall_getprocaddress syscall.getprocaddress
- func syscall_getprocaddress(handle uintptr, procname *byte) (outhandle, err uintptr) {
++//go:linkname syscall_getprocaddress syscall.getprocaddress
++func syscall_getprocaddress(handle uintptr, procname *byte) (outhandle, err uintptr) {
 +	syscallTrace(handle, procname)
- 	outhandle, _, err = syscall_syscalln(uintptr(unsafe.Pointer(_GetProcAddress)), 2, handle, uintptr(unsafe.Pointer(procname)))
- 	KeepAlive(procname)
- 	if outhandle != 0 {
++	outhandle, _, err = syscall_syscalln(uintptr(unsafe.Pointer(_GetProcAddress)), 2, handle, uintptr(unsafe.Pointer(procname)))
++	KeepAlive(procname)
++	if outhandle != 0 {
++		err = 0
++	}
++	return
++}
++
+ //go:linkname syscall_syscalln syscall.syscalln
+ //go:nosplit
+ //go:uintptrkeepalive
 diff --git a/src/runtime/syscalltrace_generate_windows.go b/src/runtime/syscalltrace_generate_windows.go
 new file mode 100644
 index 00000000000000..17fb696be88776
