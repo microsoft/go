@@ -784,7 +784,7 @@ GenerateKey generates a public/private key pair using entropy from rand. If rand
 
 **Requirements**
 
-- `rand` must be boring.RandReader or nil, else GenerateKey will panic. `crypto/rand.Reader` normally meets this invariant as it is assigned to boring.RandReader in the crypto/rand init function.
+- `rand` must be boring.RandReader or nil. `crypto/rand.Reader` normally meets this invariant as it is assigned to boring.RandReader in the crypto/rand init function.
 
 **Implementation**
 
