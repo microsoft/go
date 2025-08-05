@@ -5,41 +5,29 @@ Subject: [PATCH] add support for logging used Windows APIs
 
 ---
  src/runtime/os_windows.go                    |   1 +
- src/runtime/syscall_windows.go               |   1 +
  src/runtime/syscalltrace_generate_windows.go |  50 +++++++
- src/runtime/syscalltrace_windows.go          | 131 +++++++++++++++++++
- src/runtime/syscalltrace_windows_test.go     |  81 ++++++++++++
- src/runtime/zsyscalltrace_windows.go         |  60 +++++++++
- 6 files changed, 324 insertions(+)
+ src/runtime/syscalltrace_windows.go          | 133 +++++++++++++++++++
+ src/runtime/syscalltrace_windows_test.go     |  81 +++++++++++
+ src/runtime/zsyscalltrace_windows.go         |  59 ++++++++
+ src/syscall/dll_windows.go                   |   4 +
+ 6 files changed, 328 insertions(+)
  create mode 100644 src/runtime/syscalltrace_generate_windows.go
  create mode 100644 src/runtime/syscalltrace_windows.go
  create mode 100644 src/runtime/syscalltrace_windows_test.go
  create mode 100644 src/runtime/zsyscalltrace_windows.go
 
 diff --git a/src/runtime/os_windows.go b/src/runtime/os_windows.go
-index 88d730aa026a7f..53e3332d9fa77f 100644
+index ab4e165baecfb0..608ee8bc962a0c 100644
 --- a/src/runtime/os_windows.go
 +++ b/src/runtime/os_windows.go
-@@ -222,6 +222,7 @@ func windowsFindfunc(lib uintptr, name []byte) stdFunction {
+@@ -220,6 +220,7 @@ func windowsFindfunc(lib uintptr, name []byte) stdFunction {
  	if name[len(name)-1] != 0 {
  		throw("usage")
  	}
 +	syscallTrace(lib, &name[0])
- 	f := stdcall2(_GetProcAddress, lib, uintptr(unsafe.Pointer(&name[0])))
+ 	f := stdcall(_GetProcAddress, lib, uintptr(unsafe.Pointer(&name[0])))
  	return stdFunction(unsafe.Pointer(f))
  }
-diff --git a/src/runtime/syscall_windows.go b/src/runtime/syscall_windows.go
-index 0f74ebbe240eaf..11c680630b2f00 100644
---- a/src/runtime/syscall_windows.go
-+++ b/src/runtime/syscall_windows.go
-@@ -444,6 +444,7 @@ func syscall_loadlibrary(filename *uint16) (handle, err uintptr) {
- //
- //go:linkname syscall_getprocaddress syscall.getprocaddress
- func syscall_getprocaddress(handle uintptr, procname *byte) (outhandle, err uintptr) {
-+	syscallTrace(handle, procname)
- 	outhandle, _, err = syscall_syscalln(uintptr(unsafe.Pointer(_GetProcAddress)), 2, handle, uintptr(unsafe.Pointer(procname)))
- 	KeepAlive(procname)
- 	if outhandle != 0 {
 diff --git a/src/runtime/syscalltrace_generate_windows.go b/src/runtime/syscalltrace_generate_windows.go
 new file mode 100644
 index 00000000000000..17fb696be88776
@@ -98,10 +86,10 @@ index 00000000000000..17fb696be88776
 +}
 diff --git a/src/runtime/syscalltrace_windows.go b/src/runtime/syscalltrace_windows.go
 new file mode 100644
-index 00000000000000..ed9161b797c4f9
+index 00000000000000..11187541b1153f
 --- /dev/null
 +++ b/src/runtime/syscalltrace_windows.go
-@@ -0,0 +1,131 @@
+@@ -0,0 +1,133 @@
 +// Copyright 2024 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -134,6 +122,8 @@ index 00000000000000..ed9161b797c4f9
 +// If the underlying file supports atomic writes, the trace is guaranteed
 +// to be written atomically.
 +// procName should be a pointer to a null-terminated string.
++//
++//go:linkname syscallTrace
 +func syscallTrace(modHandle uintptr, procName *byte) {
 +	if syscallTraceFileHandle == _INVALID_HANDLE_VALUE {
 +		return
@@ -158,7 +148,7 @@ index 00000000000000..ed9161b797c4f9
 +	n += 1
 +	// Use GetModuleFileNameA instead of GetModuleFileNameW to avoid
 +	// having to allocate memory for the UTF-16 string.
-+	n1 := stdcall3(_GetModuleFileNameA, modHandle, uintptr(unsafe.Pointer(&buf[n])), _MAX_PATH)
++	n1 := stdcall(_GetModuleFileNameA, modHandle, uintptr(unsafe.Pointer(&buf[n])), _MAX_PATH)
 +	if n1 == 0 || n1 == _MAX_PATH {
 +		// Failed or short buffer.
 +		buf[n] = '?'
@@ -184,7 +174,7 @@ index 00000000000000..ed9161b797c4f9
 +// initSyscallTrace initializes syscall tracing.
 +func initSyscallTrace() bool {
 +	// Get the name of the current process.
-+	n := int(stdcall3(_GetModuleFileNameA, 0, uintptr(unsafe.Pointer(&currentProcessName[0])), uintptr(len(currentProcessName))))
++	n := int(stdcall(_GetModuleFileNameA, 0, uintptr(unsafe.Pointer(&currentProcessName[0])), uintptr(len(currentProcessName))))
 +	if n == 0 || n == len(currentProcessName) {
 +		// Failed or short buffer.
 +		currentProcessName[0] = '?'
@@ -193,7 +183,7 @@ index 00000000000000..ed9161b797c4f9
 +	// and if so, use it as the trace file.
 +	envName := [...]uint16{'M', 'S', '_', 'G', 'O', '_', 'S', 'Y', 'S', 'C', 'A', 'L', 'L', '_', 'T', 'R', 'A', 'C', 'E', 0}
 +	var file [_MAX_PATH + 1]uint16
-+	if stdcall3(_GetEnvironmentVariableW, uintptr(unsafe.Pointer(&envName[0])), uintptr(unsafe.Pointer(&file[0])), uintptr(len(file))) == 0 {
++	if stdcall(_GetEnvironmentVariableW, uintptr(unsafe.Pointer(&envName[0])), uintptr(unsafe.Pointer(&file[0])), uintptr(len(file))) == 0 {
 +		// Disable syscall tracing.
 +		syscallTraceFileHandle = _INVALID_HANDLE_VALUE
 +		return false
@@ -208,7 +198,7 @@ index 00000000000000..ed9161b797c4f9
 +	)
 +	// Create the file with FILE_APPEND_DATA access to ensure that
 +	// writes are atomic.
-+	syscallTraceFileHandle = stdcall7(_CreateFileW, uintptr(unsafe.Pointer(&file[0])), FILE_APPEND_DATA, FILE_SHARE_READ|FILE_SHARE_WRITE|FILE_SHARE_DELETE, 0, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, 0)
++	syscallTraceFileHandle = stdcall(_CreateFileW, uintptr(unsafe.Pointer(&file[0])), FILE_APPEND_DATA, FILE_SHARE_READ|FILE_SHARE_WRITE|FILE_SHARE_DELETE, 0, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, 0)
 +	if syscallTraceFileHandle == _INVALID_HANDLE_VALUE {
 +		println("runtime: CreateFileA failed; errno=", getlasterror())
 +		throw("failed to create syscall trace file")
@@ -322,10 +312,10 @@ index 00000000000000..626c5e98f7eae4
 +}
 diff --git a/src/runtime/zsyscalltrace_windows.go b/src/runtime/zsyscalltrace_windows.go
 new file mode 100644
-index 00000000000000..4731d6fa34a29c
+index 00000000000000..d827281b8e9f7b
 --- /dev/null
 +++ b/src/runtime/zsyscalltrace_windows.go
-@@ -0,0 +1,60 @@
+@@ -0,0 +1,59 @@
 +// Code generated by syscalltrace_generate_windows.go. DO NOT EDIT.
 +
 +package runtime
@@ -355,7 +345,6 @@ index 00000000000000..4731d6fa34a29c
 +	"GetThreadContext\x00",
 +	"SetThreadContext\x00",
 +	"LoadLibraryExW\x00",
-+	"LoadLibraryW\x00",
 +	"PostQueuedCompletionStatus\x00",
 +	"QueryPerformanceCounter\x00",
 +	"QueryPerformanceFrequency\x00",
@@ -386,3 +375,20 @@ index 00000000000000..4731d6fa34a29c
 +	"GetEnvironmentVariableW\x00",
 +	"GetModuleFileNameA\x00",
 +}
+diff --git a/src/syscall/dll_windows.go b/src/syscall/dll_windows.go
+index 9d779869531788..d659736fcb720a 100644
+--- a/src/syscall/dll_windows.go
++++ b/src/syscall/dll_windows.go
+@@ -128,8 +128,12 @@ func loadsystemlibrary(filename *uint16) (uintptr, Errno) {
+ 	return handle, err
+ }
+ 
++//go:linkname syscallTrace runtime.syscallTrace
++func syscallTrace(lib uintptr, procname *byte)
++
+ //go:linkname getprocaddress
+ func getprocaddress(handle uintptr, procname *uint8) (uintptr, Errno) {
++	syscallTrace(handle, (*byte)(procname))
+ 	proc, _, err := SyscallN(uintptr(__GetProcAddress), handle, uintptr(unsafe.Pointer(procname)))
+ 	if proc != 0 {
+ 		err = 0
