@@ -22,9 +22,9 @@ parameters:
 
   - name: publishReleaseStudio
     displayName: >
-      [Release automation input]
-      Publish artifacts to the public using Release Studio integration.
-      To save resources, leave false for builds that definitely won't be released, like microsoft/main rolling builds.
+      For debugging publish steps: force publishing artifacts to the public
+      using Release Studio integration, even if this isn't the official pipeline
+      or this isn't a release branch.
     type: boolean
     default: false
 
@@ -39,12 +39,28 @@ parameters:
     default: 'nil'
 
 variables:
+  - template: variables/pipeline.yml
   - template: variables/pool-providers.yml
+
   # MicroBuild configuration.
   - name: TeamName
     value: golang
-  - name: MS_GOTOOLCHAIN_TELEMETRY_ENABLED
-    value: '0'
+
+  - name: GoSigningType # Note: not quite SignType. MicroBuild generates SignType.
+    ${{ if variables['Go1ESOfficial'] }}:
+      value: 'real'
+    ${{ else }}:
+      value: 'test'
+
+  - name: GoPublishReleaseStudio
+    ${{ if startsWith(variables['Build.SourceBranch'], 'refs/heads/internal/') }}:
+      value: '' # Never publish internal branches using release studio.
+    ${{ elseif parameters.publishReleaseStudio }}:
+      value: 'true'
+    ${{ elseif and(variables['Go1ESOfficial'], ne(variables['Build.SourceBranch'], 'refs/heads/main')) }}:
+      value: 'true'
+    ${{ else }}:
+      value: ''
 
 resources:
   repositories:
@@ -54,7 +70,10 @@ resources:
       ref: refs/tags/release
 
 extends:
-  template: azure-pipelines/MicroBuild.1ES.Official.yml@MicroBuildTemplate
+  ${{ if variables['Go1ESOfficial'] }}:
+    template: azure-pipelines/MicroBuild.1ES.Official.yml@MicroBuildTemplate
+  ${{ else }}:
+    template: azure-pipelines/MicroBuild.1ES.Unofficial.yml@MicroBuildTemplate
   parameters:
     pool:
       # Default, used for SDL analysis.
@@ -62,6 +81,7 @@ extends:
       image: 1es-windows-2022
       os: windows
     sdl:
+      enableProductionSDL: true
       codeql:
         compiled:
           enabled: false
@@ -75,13 +95,25 @@ extends:
     stages:
       - template: stages/go-builder-matrix-stages.yml
         parameters:
+          # There is a limitation with compile-time references to user-defined
+          # variables: each stages template actually has its own "variables" map
+          # and doesn't inherit global variables other than default ones. Values
+          # that can be used in this file like "variables['Go1ESOfficial']" must
+          # be passed along manually for compile-time use like
+          # "parameters.ctx['Go1ESOfficial']" by templates. This limitation is not
+          # documented as of writing.
+          #
+          # Only pass "Go*" variables to avoid built-in variables. There are a
+          # lot, and they clutter attempts to debug pipeline behavior.
+          ctx:
+            ${{ each variable in variables }}:
+              ${{ if startsWith(variable.key, 'Go') }}:
+                ${{ variable.key }}: ${{ variable.value }}
           buildandpack: true
-          official: true
           sign: true
           signExistingRunID: ${{ parameters.signExistingRunID }}
           createSourceArchive: true
           createSymbols: true
           publish: true
-          publishReleaseStudio: ${{ parameters.publishReleaseStudio }}
           publishExistingRunID: ${{ parameters.publishExistingRunID }}
           releaseVersion: ${{ parameters.releaseVersion }}
