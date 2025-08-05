@@ -10,7 +10,6 @@ Update the Go toolchain build settings so that it uses the
 desired goexperiments and build tags.
 ---
  .gitignore                                    |   2 +
- .../cgo/internal/testsanitizers/asan_test.go  |   5 +
  .../compile/internal/logopt/logopt_test.go    |   6 +-
  .../compile/internal/ssa/stmtlines_test.go    |   1 -
  src/cmd/compile/script_test.go                |   8 +
@@ -56,7 +55,7 @@ desired goexperiments and build tags.
  src/internal/buildcfg/exp.go                  |  54 +++
  src/runtime/runtime_boring.go                 |   5 +
  src/syscall/exec_linux_test.go                |   2 +-
- 47 files changed, 2315 insertions(+), 22 deletions(-)
+ 46 files changed, 2310 insertions(+), 22 deletions(-)
  create mode 100644 src/cmd/go/systemcrypto_test.go
  create mode 100644 src/crypto/internal/backend/backend_test.go
  create mode 100644 src/crypto/internal/backend/bbig/big.go
@@ -98,29 +97,6 @@ index c6512e64a4ef39..b3b01db73b009d 100644
  # This file includes artifacts of Go build that should not be checked in.
  # For files created by specific development environment (e.g. editor),
  # use alternative ways to exclude files from git.
-diff --git a/src/cmd/cgo/internal/testsanitizers/asan_test.go b/src/cmd/cgo/internal/testsanitizers/asan_test.go
-index dd01bd0dc0bde9..cb7d857280416f 100644
---- a/src/cmd/cgo/internal/testsanitizers/asan_test.go
-+++ b/src/cmd/cgo/internal/testsanitizers/asan_test.go
-@@ -8,6 +8,7 @@ package sanitizers_test
- 
- import (
- 	"bytes"
-+	"crypto/fips140"
- 	"fmt"
- 	"internal/platform"
- 	"internal/testenv"
-@@ -157,6 +158,10 @@ func mustHaveASAN(t *testing.T) *config {
- 		t.Skipf("skipping on %s/%s; -asan option is not supported.", goos, goarch)
- 	}
- 
-+	if fips140.Enabled() {
-+		t.Skipf("skipping with FIPS 140 mode; -asan option is not supported.")
-+	}
-+
- 	// The current implementation is only compatible with the ASan library from version
- 	// v7 to v9 (See the description in src/runtime/asan/asan.go). Therefore, using the
- 	// -asan option must use a compatible version of ASan library, which requires that
 diff --git a/src/cmd/compile/internal/logopt/logopt_test.go b/src/cmd/compile/internal/logopt/logopt_test.go
 index 1edabf9fb7ff04..026f8cb0278ab6 100644
 --- a/src/cmd/compile/internal/logopt/logopt_test.go
@@ -146,7 +122,7 @@ index 1edabf9fb7ff04..026f8cb0278ab6 100644
  		}
  
 diff --git a/src/cmd/compile/internal/ssa/stmtlines_test.go b/src/cmd/compile/internal/ssa/stmtlines_test.go
-index e17a5402af818d..e83c4c5b79d11b 100644
+index 8cd11e9828e0f9..4de8629a078d58 100644
 --- a/src/cmd/compile/internal/ssa/stmtlines_test.go
 +++ b/src/cmd/compile/internal/ssa/stmtlines_test.go
 @@ -113,7 +113,6 @@ func TestStmtLines(t *testing.T) {
@@ -490,10 +466,10 @@ index 1f791546f90088..d20890b4e70fae 100644
  	appendSetting("-compiler", cfg.BuildContext.Compiler)
  	if gccgoflags := BuildGccgoflags.String(); gccgoflags != "" && cfg.BuildContext.Compiler == "gccgo" {
 diff --git a/src/cmd/go/internal/tool/tool.go b/src/cmd/go/internal/tool/tool.go
-index 16e1a4f47f49c0..f987e499da4c15 100644
+index 120ef5339bede0..b7b145fdfc9972 100644
 --- a/src/cmd/go/internal/tool/tool.go
 +++ b/src/cmd/go/internal/tool/tool.go
-@@ -281,6 +281,10 @@ func buildAndRunBuiltinTool(ctx context.Context, toolName, tool string, args []s
+@@ -304,6 +304,10 @@ func buildAndRunBuiltinTool(ctx context.Context, toolName, tool string, args []s
  	// Override GOOS and GOARCH for the build to build the tool using
  	// the same GOOS and GOARCH as this go command.
  	cfg.ForceHost()
@@ -504,14 +480,14 @@ index 16e1a4f47f49c0..f987e499da4c15 100644
  
  	// Ignore go.mod and go.work: we don't need them, and we want to be able
  	// to run the tool even if there's an issue with the module or workspace the
-@@ -288,8 +292,11 @@ func buildAndRunBuiltinTool(ctx context.Context, toolName, tool string, args []s
+@@ -311,8 +315,11 @@ func buildAndRunBuiltinTool(ctx context.Context, toolName, tool string, args []s
  	modload.RootMode = modload.NoRoot
  
  	runFunc := func(b *work.Builder, ctx context.Context, a *work.Action) error {
 +		// Now that the tool is built, revert the GOEXPERIMENT
 +		// environment variable to the original value.
 +		env := append(os.Environ(), "GOEXPERIMENT="+originalGOEXPERIMENT)
- 		cmdline := str.StringList(a.Deps[0].BuiltTarget(), a.Args)
+ 		cmdline := str.StringList(builtTool(a), a.Args)
 -		return runBuiltTool(toolName, nil, cmdline)
 +		return runBuiltTool(toolName, env, cmdline)
  	}
