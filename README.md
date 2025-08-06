@@ -67,6 +67,8 @@ cross-compilation may be necessary.
 * `linux_armv6l`
 * `linux_arm64`
 * `windows_amd64`
+* `darwin_amd64`
+* `darwin_arm64`
 
 For detailed platform support information across different Go versions, see [SUPPORTED_PLATFORMS.md](SUPPORTED_PLATFORMS.md).
 
