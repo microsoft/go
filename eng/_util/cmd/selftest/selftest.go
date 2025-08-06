@@ -18,7 +18,7 @@ This command runs the _util self-tests using the stage 0 Go toolchain.
 `
 
 func main() {
-	var help = flag.Bool("h", false, "Print this help message.")
+	help := flag.Bool("h", false, "Print this help message.")
 
 	flag.Usage = func() {
 		fmt.Fprintf(flag.CommandLine.Output(), "Usage of selftest:\n")

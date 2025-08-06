@@ -37,15 +37,15 @@ in your repository to read-only.
 var dryRun = flag.Bool("n", false, "Enable dry run: print the commands that would be run, but do not run them.")
 
 func main() {
-	var builder = flag.String("builder", "", "[Required] Specify a builder to run. Note, this may be destructive!")
-	var experiment = flag.String("experiment", "", "Include this string in GOEXPERIMENT.")
-	var fipsMode = flag.Bool("fipsmode", false, "Run the Go tests in FIPS mode.")
-	var build = flag.Bool("build", false, "Run the build.")
-	var test = flag.Bool("test", false, "Run the tests.")
+	builder := flag.String("builder", "", "[Required] Specify a builder to run. Note, this may be destructive!")
+	experiment := flag.String("experiment", "", "Include this string in GOEXPERIMENT.")
+	fipsMode := flag.Bool("fipsmode", false, "Run the Go tests in FIPS mode.")
+	build := flag.Bool("build", false, "Run the build.")
+	test := flag.Bool("test", false, "Run the tests.")
 
-	var testJSONFlags = buildutil.BindTestJSONFlags()
+	testJSONFlags := buildutil.BindTestJSONFlags()
 
-	var help = flag.Bool("h", false, "Print this help message.")
+	help := flag.Bool("h", false, "Print this help message.")
 
 	flag.Usage = func() {
 		fmt.Fprintf(flag.CommandLine.Output(), "Usage of run-builder.go:\n")
