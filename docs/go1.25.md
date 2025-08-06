@@ -16,7 +16,7 @@ This aligns with Microsoft's internal security and compliance policies. You may 
 
 To opt out of systemcrypto, set the `GOEXPERIMENT` environment variable to include `nosystemcrypto`.
 
-For full documentation, see the [Microsoft build of Go FIPS guide](https://github.com/microsoft/go/blob/microsoft/release-branch.go1.25/eng/doc/fips/UserGuide.md).
+For full documentation, see the [Microsoft build of Go FIPS guide](https://github.com/microsoft/go/blob/microsoft/main/eng/doc/fips/README.md).
 
 ## Telemetry collection enabled
 
