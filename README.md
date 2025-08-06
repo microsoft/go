@@ -90,7 +90,7 @@ includes builds of this Go fork.
 
 ### Ubuntu
 
-To install the Microsoft Build of Go on Ubuntu 22.04 or 24.04 LTS, open a terminal and run the following commands:
+To install the Microsoft Build of Go on Ubuntu, open a terminal and run the following commands:
 ```bash
 # Valid values are only '22.04' and '24.04'
 # For other versions of Ubuntu, please use the tar.gz package
