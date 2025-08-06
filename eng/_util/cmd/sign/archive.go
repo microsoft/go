@@ -102,10 +102,6 @@ func (a *archive) macIndividualNotarizePackPath() string {
 	return filepath.Join(a.workDir, a.name+".FilesToNotarize.zip")
 }
 
-func (a *archive) macBundleNotarizePackPath() string {
-	return filepath.Join(a.workDir, a.name+".BundlesToNotarize.zip")
-}
-
 // entrySignInfo returns signing details for a given file in the Go archive, or nil if the given
 // file entry doesn't need to be signed.
 func (a *archive) entrySignInfo(name string) *fileToSign {
