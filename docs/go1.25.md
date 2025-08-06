@@ -6,18 +6,20 @@ After the release of 1.25, 1.23 is no longer supported, per the [Go release poli
 
 The Microsoft build of Go 1.25 enables the `systemcrypto` experiment by default:
 
-- **Linux:** Uses OpenSSL (requires `cgo`)
-- **Windows:** Uses CNG (does *not* require `cgo`)
-- **macOS:** Systemcrypto backend remains in preview
+- **Linux:** Uses OpenSSL (requires cgo)
+- **Windows:** Uses CNG (does *not* require cgo)
 
-This aligns with Microsoft's internal security and compliance policies. You may need to take action if your builds rely on Linux without `cgo`, use distroless containers, or have cross-distro deployment requirements.
+> [!NOTE]
+> **macOS:** system-provided crypto backend remains in preview and is not enabled by default.
 
-To opt out of systemcrypto, set `GOEXPERIMENT=nosystemcrypto`.
+This aligns with Microsoft's internal security and compliance policies. You may need to take action if your builds rely on Linux without cgo, use distroless containers, or have cross-distro deployment requirements.
+
+To opt out of systemcrypto, set the `GOEXPERIMENT` environment variable to include `nosystemcrypto`.
 
 For full documentation, see the [Microsoft build of Go FIPS guide](https://github.com/microsoft/go/blob/microsoft/release-branch.go1.25/eng/doc/fips/UserGuide.md).
 
 ## Telemetry collection enabled
 
-Go 1.25 introduces opt-out telemetry collection to help us prioritize features, identify performance bottlenecks, and understand real-world developer workflows. All telemetry is anonymized and handled in accordance with [Microsoft's privacy policies](https://privacy.microsoft.com/privacystatement).
+The Microsoft build of Go 1.25 introduces opt-out telemetry collection to help us prioritize features, identify performance bottlenecks, and understand real-world developer workflows. All telemetry is anonymized and handled in accordance with [Microsoft's privacy policies](https://privacy.microsoft.com/privacystatement).
 
 To disable telemetry, set the `MS_GOTOOLCHAIN_TELEMETRY_ENABLED` environment variable to be `0`.
