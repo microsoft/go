@@ -13,8 +13,8 @@ This document outlines the platform support matrix for different versions of the
 | Linux | armv6l | ✅ Supported | Modern Linux distributions |
 | Windows | amd64 | ✅ Supported | Windows Server 2016+, Windows 10+ |
 | Windows | arm64 | ✅ Supported | Windows Server 2016+, Windows 10+ |
-| macOS (Darwin) | amd64 | 🔄 Preview | macOS 11+, not for production |
-| macOS (Darwin) | arm64 | 🔄 Preview | macOS 11+, not for production |
+| macOS (Darwin) | amd64 | 🔄 Preview | macOS 13+, not for production |
+| macOS (Darwin) | arm64 | 🔄 Preview | macOS 13+, not for production |
 
 ## Platform Support History
 
