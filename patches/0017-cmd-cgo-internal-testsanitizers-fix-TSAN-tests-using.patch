@@ -1,0 +1,78 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: qmuntal <quimmuntal@gmail.com>
+Date: Wed, 20 Nov 2024 16:02:03 +0100
+Subject: [PATCH] cmd/cgo/internal/testsanitizers: fix TSAN tests using setarch
+
+Some systems don't have permissions to run setarch, for example
+when running in a docker container without the --privileged flag.
+
+This change makes the tests skip the setarch command if it fails.
+
+Fixes #70463
+
+Cq-Include-Trybots: luci.golang.try:gotip-linux-amd64-asan-clang15
+Change-Id: I02fbd423ba809f5229b8639c9abe6fd275f32558
+Reviewed-on: https://go-review.googlesource.com/c/go/+/630096
+LUCI-TryBot-Result: Go LUCI <golang-scoped@luci-project-accounts.iam.gserviceaccount.com>
+Reviewed-by: Dmitri Shuralyov <dmitshur@google.com>
+Reviewed-by: Ian Lance Taylor <iant@google.com>
+(cherry picked from commit 5254e989425648ff62faa270948bb927b6568ff3)
+---
+ src/cmd/cgo/internal/testsanitizers/cshared_test.go | 13 ++++++++++---
+ src/cmd/cgo/internal/testsanitizers/tsan_test.go    | 13 ++++++++++---
+ 2 files changed, 20 insertions(+), 6 deletions(-)
+
+diff --git a/src/cmd/cgo/internal/testsanitizers/cshared_test.go b/src/cmd/cgo/internal/testsanitizers/cshared_test.go
+index 15409d0fca04fd..0cf094ead79e66 100644
+--- a/src/cmd/cgo/internal/testsanitizers/cshared_test.go
++++ b/src/cmd/cgo/internal/testsanitizers/cshared_test.go
+@@ -93,12 +93,19 @@ func TestShared(t *testing.T) {
+ 
+ 			cmdArgs := []string{dstBin}
+ 			if tc.sanitizer == "thread" && GOOS == "linux" {
+-				// Disable ASLR for TSAN. See #59418.
+-				arch, err := exec.Command("uname", "-m").Output()
++				// Disable ASLR for TSAN. See https://go.dev/issue/59418.
++				out, err := exec.Command("uname", "-m").Output()
+ 				if err != nil {
+ 					t.Fatalf("failed to run `uname -m`: %v", err)
+ 				}
+-				cmdArgs = []string{"setarch", strings.TrimSpace(string(arch)), "-R", dstBin}
++				arch := strings.TrimSpace(string(out))
++				if _, err := exec.Command("setarch", arch, "-R", "true").Output(); err != nil {
++					// Some systems don't have permission to run `setarch`.
++					// See https://go.dev/issue/70463.
++					t.Logf("failed to run `setarch %s -R true`: %v", arch, err)
++				} else {
++					cmdArgs = []string{"setarch", arch, "-R", dstBin}
++				}
+ 			}
+ 			cmd = hangProneCmd(cmdArgs[0], cmdArgs[1:]...)
+ 			replaceEnv(cmd, "LD_LIBRARY_PATH", ".")
+diff --git a/src/cmd/cgo/internal/testsanitizers/tsan_test.go b/src/cmd/cgo/internal/testsanitizers/tsan_test.go
+index 74acde57f23d53..c8ff76b4c32246 100644
+--- a/src/cmd/cgo/internal/testsanitizers/tsan_test.go
++++ b/src/cmd/cgo/internal/testsanitizers/tsan_test.go
+@@ -71,12 +71,19 @@ func TestTSAN(t *testing.T) {
+ 
+ 			cmdArgs := []string{outPath}
+ 			if goos == "linux" {
+-				// Disable ASLR. See #59418.
+-				arch, err := exec.Command("uname", "-m").Output()
++				// Disable ASLR for TSAN. See https://go.dev/issue/59418.
++				out, err := exec.Command("uname", "-m").Output()
+ 				if err != nil {
+ 					t.Fatalf("failed to run `uname -m`: %v", err)
+ 				}
+-				cmdArgs = []string{"setarch", strings.TrimSpace(string(arch)), "-R", outPath}
++				arch := strings.TrimSpace(string(out))
++				if _, err := exec.Command("setarch", arch, "-R", "true").Output(); err != nil {
++					// Some systems don't have permission to run `setarch`.
++					// See https://go.dev/issue/70463.
++					t.Logf("failed to run `setarch %s -R true`: %v", arch, err)
++				} else {
++					cmdArgs = []string{"setarch", arch, "-R", outPath}
++				}
+ 			}
+ 			cmd := hangProneCmd(cmdArgs[0], cmdArgs[1:]...)
+ 			if tc.needsRuntime {
