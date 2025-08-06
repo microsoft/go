@@ -28,9 +28,9 @@ SCOSSL is expected to be used with the default built-in provider enabled as a fa
 
 ## macOS
 
-On macOS, th Microsoft build Go uses [CommonCrypto](https://developer.apple.com/library/archive/documentation/System/Conceptual/ManPages_iPhoneOS/man3/Common%20Crypto.3cc.html) and [CryptoKit](https://developer.apple.com/documentation/cryptokit) for cryptographic operations.
+On macOS, the Microsoft build Go uses [CommonCrypto](https://developer.apple.com/library/archive/documentation/System/Conceptual/ManPages_iPhoneOS/man3/Common%20Crypto.3cc.html) and [CryptoKit](https://developer.apple.com/documentation/cryptokit) for cryptographic operations.
 CommonCrypto and CryptoKit are shipped with macOS and don't require any additional installation nor configuration.
-Currently macOS 13 and above is supported.
+Currently macOS 11 and above is supported.
 
 ## Table legend
 
