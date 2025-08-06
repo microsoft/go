@@ -103,6 +103,24 @@ After the repository is added, install the Microsoft Build of Go by running the 
 sudo apt-get update
 sudo apt-get install msft-golang
 ```
+Installing a Specific Version
+To install a specific version of the Microsoft Build of Go:
+
+List available versions:
+
+```bash
+apt-cache madison msft-golang
+```
+Install a specific version by specifying it explicitly:
+```bash
+sudo apt-get install msft-golang=<version>
+```
+For example:
+```bash
+sudo apt-get install msft-golang=1.22.3-1
+```
+Replace 1.22.3-1 with the version string listed in the apt-cache madison output.
+
 To verify the installation:
 ```bash
 go version
