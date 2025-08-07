@@ -6,6 +6,7 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
 	"flag"
 	"fmt"
 	"io"
@@ -39,7 +40,10 @@ var (
 	tempDir          = flag.String("temp-dir", "eng/signing/signing-temp", "Directory to store temporary files.")
 	signingCsprojDir = flag.String("signing-csproj-dir", "eng/signing", "Directory containing Sign.csproj and related files.")
 
-	signType = flag.String("sign-type", "test", "Type of signing to perform. Options: test, real.")
+	signType = flag.String("sign-type", "test",
+		"Type of signing to perform. Options: test, real. "+
+			// https://github.com/microsoft/go-lab/issues/231
+			"Test signing skips using MicroBuild tooling because it throws exception 'The test signing method for cert (8020) has NOT been implemented.'")
 
 	timeout = flag.Duration("timeout", 0,
 		"Timeout for signing operations. Zero means no timeout. "+
@@ -230,6 +234,29 @@ func sign(ctx context.Context, step string, files []*fileToSign) error {
 	log.Printf("Signing with props file content:\n%s\n", sb.String())
 	if *dryRun {
 		log.Printf("Dry run: skipping signing.")
+		return nil
+	}
+	if *signType == "test" {
+		log.Printf("Testing signing: skipping MicroBuild tooling.")
+		for _, f := range files {
+			if strings.HasSuffix(f.fullPath, ".sig") {
+				log.Printf("Replacing file with placeholder content to reduce size and simulate signature: %q", f.fullPath)
+				// Get a checksum to make the file content unique. Otherwise,
+				// publishing rejects the repeated file content.
+				data, err := os.ReadFile(f.fullPath)
+				if err != nil {
+					return fmt.Errorf("failed to read file %q: %v", f.fullPath, err)
+				}
+				checksum := fmt.Sprintf("%x", sha256.Sum256(data))
+				if err := os.WriteFile(
+					f.fullPath,
+					fmt.Appendf(nil, "This is a placeholder test signature file. Original content checksum: %v\n", checksum),
+					0o666,
+				); err != nil {
+					return fmt.Errorf("failed to write test signature file %q: %v", f.fullPath, err)
+				}
+			}
+		}
 		return nil
 	}
 
