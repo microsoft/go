@@ -90,7 +90,7 @@ includes builds of this Go fork.
 
 ### Ubuntu
 
-To install the Microsoft Build of Go on Ubuntu, open a terminal and run the following commands:
+To install the Microsoft Build of Go using an Ubuntu package, open a terminal and run the following commands:
 
 ```bash
 # Valid values are only '22.04' and '24.04'
@@ -102,33 +102,7 @@ sudo dpkg -i packages-microsoft-prod.deb
 After the repository is added, install the Microsoft Build of Go by running the following commands:
 
 ```bash
-sudo apt-get update
-sudo apt-get install msft-golang
-```
-Installing a Specific Version
-To install a specific version of the Microsoft Build of Go:
-
-List available versions:
-
-```bash
-apt-cache madison msft-golang
-```
-Install a specific version by specifying it explicitly:
-
-```bash
-sudo apt-get install msft-golang=<version>
-```
-For example:
-
-```bash
-sudo apt-get install msft-golang=1.22.3-1
-```
-Replace 1.22.3-1 with the version string listed in the apt-cache madison output.
-
-To verify the installation:
-
-```bash
-go version
+sudo apt-get update && sudo apt-get install msft-golang
 ```
 
 ### Binary archive
