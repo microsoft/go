@@ -6,6 +6,7 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
 	"flag"
 	"fmt"
 	"io"
@@ -243,7 +244,18 @@ func sign(ctx context.Context, step string, files []*fileToSign) error {
 		for _, f := range files {
 			if strings.HasSuffix(f.fullPath, ".sig") {
 				log.Printf("Replacing file with placeholder content to reduce size and simulate signature: %q", f.fullPath)
-				if err := os.WriteFile(f.fullPath, []byte("This is a placeholder test signature file."), 0o666); err != nil {
+				// Get a checksum to make the file content unique. Otherwise,
+				// publishing rejects the repeated file content.
+				data, err := os.ReadFile(f.fullPath)
+				if err != nil {
+					return fmt.Errorf("failed to read file %q: %v", f.fullPath, err)
+				}
+				checksum := fmt.Sprintf("%x", sha256.Sum256(data))
+				if err := os.WriteFile(
+					f.fullPath,
+					fmt.Appendf(nil, "This is a placeholder test signature file. Original content checksum: %v\n", checksum),
+					0o666,
+				); err != nil {
 					return fmt.Errorf("failed to write test signature file %q: %v", f.fullPath, err)
 				}
 			}
