@@ -5,25 +5,39 @@
 # This template expands a list of builders into a list of jobs.
 
 parameters:
+  - name: ctx
+    type: object
+
   # [] of { id, os, arch, hostarch, config, distro?, experiment?, broken? }
-  builders: []
+  - name: builders
+    type: object
   # If true, include a signing stage+job that depends on all 'buildandpack' builder jobs finishing.
-  sign: false
+  - name: sign
+    type: boolean
+    default: false
   # If changed to specify an existing pipeline run, skip build and sign the existing run.
-  signExistingRunID: 'nil'
-  # If true, publish build artifacts to blob storage.
-  publish: false
-  # If true, publish artifacts to the public using Release Studio integration.
-  publishReleaseStudio: false
+  - name: signExistingRunID
+    type: string
+    default: 'nil'
+  # If true, publish build artifacts.
+  - name: publish
+    type: boolean
+    default: false
   # If changed to specify an existing pipeline run, skip build/sign and publish the existing run.
-  publishExistingRunID: 'nil'
-  # If true, the stage will run in 1ES PT Official template compatibility mode.
-  official: false
+  - name: publishExistingRunID
+    type: string
+    default: 'nil'
   # If true, generate source archive tarballs.
-  createSourceArchive: false
+  - name: createSourceArchive
+    type: boolean
+    default: false
   # If true, generate and publish symbols (aka PDBs).
-  createSymbols: false
-  releaseVersion: 'nil'
+  - name: createSymbols
+    type: boolean
+    default: false
+  - name: releaseVersion
+    type: string
+    default: 'nil'
 
 stages:
   - ${{ if eq(parameters.publishExistingRunID, 'nil') }}:
@@ -31,13 +45,14 @@ stages:
       - ${{ each builder in parameters.builders }}:
         - template: pool.yml
           parameters:
+            ctx: ${{ parameters.ctx }}
             inner:
               template: run-stage.yml
               parameters:
+                ctx: ${{ parameters.ctx }}
                 builder: ${{ builder }}
                 createSourceArchive: ${{ parameters.createSourceArchive }}
                 releaseVersion: ${{ parameters.releaseVersion }}
-                official: ${{ parameters.official }}
                 createSymbols: ${{ parameters.createSymbols }}
                 # Attempt to retry the build on Windows to mitigate flakiness:
                 # "Access Denied" during EXE copying and general flakiness during tests.
@@ -51,12 +66,13 @@ stages:
     - ${{ if eq(parameters.sign, true) }}:
       - template: pool.yml
         parameters:
+          ctx: ${{ parameters.ctx }}
           inner:
             template: sign-stage.yml
             parameters:
+              ctx: ${{ parameters.ctx }}
               # This is not a builder, but provide partial builder info for agent selection.
               builder: { os: windows, arch: amd64 }
-              official: ${{ parameters.official }}
               # The list of builders to depend on and grab artifacts from.
               builders:
                 - ${{ each builder in parameters.builders }}:
@@ -65,22 +81,26 @@ stages:
               signExistingRunID: ${{ parameters.signExistingRunID }}
 
   - ${{ if eq(parameters.publish, true) }}:
-    - ${{ if and(not(startsWith(variables['Build.SourceBranch'], 'refs/heads/internal/')), eq(parameters.publishReleaseStudio, true)) }}:
+    - ${{ if parameters.ctx['GoPublishReleaseStudio'] }}:
       - template: public-publish-stages.yml
         parameters:
+          ctx: ${{ parameters.ctx }}
           publishExistingRunID: ${{ parameters.publishExistingRunID }}
 
-    # Always publish the results to a private storage account and publish symbols to AzDO.
-    - template: pool.yml
-      parameters:
-        inner:
-          template: internal-publish-stage.yml
-          parameters:
-            builder: { os: windows, arch: amd64 }
-            official: true
-            builders:
-              - ${{ each builder in parameters.builders }}:
-                - ${{ if eq(builder.config, 'buildandpack') }}:
-                  - ${{ builder }}
-            publishSymbols: ${{ parameters.createSymbols }}
-            publishExistingRunID: ${{ parameters.publishExistingRunID }}
+    # If publishing, always publish the results to a private storage account and
+    # publish symbols to AzDO.
+    - ${{ if parameters.ctx['Go1ESOfficial'] }}:
+      - template: pool.yml
+        parameters:
+          ctx: ${{ parameters.ctx }}
+          inner:
+            template: internal-publish-stage.yml
+            parameters:
+              ctx: ${{ parameters.ctx }}
+              builder: { os: windows, arch: amd64 }
+              builders:
+                - ${{ each builder in parameters.builders }}:
+                  - ${{ if eq(builder.config, 'buildandpack') }}:
+                    - ${{ builder }}
+              publishSymbols: ${{ parameters.createSymbols }}
+              publishExistingRunID: ${{ parameters.publishExistingRunID }}
