@@ -88,6 +88,17 @@ includes builds of this Go fork.
 * In Azure Linux 2.0, the package `msft-golang` installs this fork.
 * In Azure Linux 3.0, the `golang` package installs this fork.
 
+### Ubuntu
+
+To install the Microsoft build of Go using an Ubuntu package, first set up the [Linux package repository for Microsoft Products](https://learn.microsoft.com/en-us/linux/packages).
+Packages are available in the Ubuntu 22.04 and 24.04 repositories.
+
+After the repository is added, install the Microsoft build of Go by running the following commands:
+
+```bash
+sudo apt-get update && sudo apt-get install msft-golang
+```
+
 ### Binary archive
 
 [Signed builds of Go](https://github.com/microsoft/go/blob/microsoft/main/eng/doc/Downloads.md)
