@@ -93,8 +93,10 @@ includes builds of this Go fork.
 To install the Microsoft Build of Go using an Ubuntu package, open a terminal and run the following commands:
 
 ```bash
-# Valid values are only '22.04' and '24.04'
-# For other versions of Ubuntu, please use the tar.gz package
+# Supported Ubuntu versions: 22.04 and 24.04.
+# For other versions, please use the tar.gz package.
+# See Microsoft's official instructions for up-to-date steps:
+# https://learn.microsoft.com/linux/packages
 ubuntu_release=`lsb_release -rs`
 wget https://packages.microsoft.com/config/ubuntu/${ubuntu_release}/packages-microsoft-prod.deb -O packages-microsoft-prod.deb
 sudo dpkg -i packages-microsoft-prod.deb
