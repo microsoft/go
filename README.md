@@ -92,6 +92,7 @@ includes builds of this Go fork.
 
 To install the Microsoft build of Go using an Ubuntu package, first set up the [Linux package repository for Microsoft Products](https://learn.microsoft.com/en-us/linux/packages).
 Packages are available in the Ubuntu 22.04 and 24.04 repositories.
+
 After the repository is added, install the Microsoft build of Go by running the following commands:
 
 ```bash
