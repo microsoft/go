@@ -124,6 +124,30 @@ func copyToFile(path string, r io.Reader) error {
 	return cmp.Or(err, f.Close())
 }
 
+func copyFromFile(w io.Writer, path string) error {
+	f, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	_, err = io.Copy(w, f)
+	return cmp.Or(err, f.Close())
+}
+
+func copyGlobFilesToDir(dir string, globs ...string) error {
+	for _, glob := range globs {
+		files, err := filepath.Glob(glob)
+		if err != nil {
+			return err
+		}
+		for _, f := range files {
+			if err := copyFile(filepath.Join(dir, filepath.Base(f)), f); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
 // matchOrPanic returns whether name matches the pattern glob, or panics if pattern is invalid.
 func matchOrPanic(pattern, name string) bool {
 	ok, err := filepath.Match(pattern, name)
