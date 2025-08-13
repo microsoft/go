@@ -18,6 +18,16 @@ To opt out of systemcrypto, set the `GOEXPERIMENT` environment variable to inclu
 
 For full documentation, see the [Microsoft build of Go FIPS guide](https://github.com/microsoft/go/blob/microsoft/main/eng/doc/fips/README.md).
 
+## The `-fips` variant Docker container images are no longer supported
+
+The change to enable system-provided cryptography by default applies to all Docker container images for the Microsoft build of Go.
+The `-fips` image variants only set the `GOEXPERIMENT` environment to `systemcrypto`, so there is no longer any reason to use them.
+These variants are no longer produced.
+
+If you use the `-fips` image variants prior to 1.25, to upgrade to 1.25 you must switch to the standard container image tags by removing the `-fips` substring from your tag reference.
+
+For more information, see [the recommended tags for the Microsoft build of Go](https://github.com/microsoft/go-images?tab=readme-ov-file#recommended-tags).
+
 ## Telemetry collection enabled
 
 The Microsoft build of Go 1.25 introduces opt-out telemetry collection to help us prioritize features, identify performance bottlenecks, and understand real-world developer workflows. All telemetry is anonymized and handled in accordance with [Microsoft's privacy policies](https://privacy.microsoft.com/privacystatement).
