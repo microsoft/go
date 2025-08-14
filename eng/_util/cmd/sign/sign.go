@@ -35,10 +35,11 @@ See /eng/_util/cmd/sign/README.md for more information.
 `
 
 var (
-	filesGlob        = flag.String("files", "eng/signing/tosign/*", "Glob of Go archives to sign.")
-	destinationDir   = flag.String("o", "eng/signing/signed", "Directory to store signed files.")
-	tempDir          = flag.String("temp-dir", "eng/signing/signing-temp", "Directory to store temporary files.")
-	signingCsprojDir = flag.String("signing-csproj-dir", "eng/signing", "Directory containing Sign.csproj and related files.")
+	filesGlob          = flag.String("files", "eng/signing/tosign/*", "Glob of Go archives to sign.")
+	destinationDir     = flag.String("o", "eng/signing/signed", "Directory to store signed files.")
+	consolidateDiagDir = flag.String("consolidate-diag-dir", "eng/signing/diag", "Directory to store consolidated diagnostic files.")
+	tempDir            = flag.String("temp-dir", "eng/signing/signing-temp", "Directory to store temporary files.")
+	signingCsprojDir   = flag.String("signing-csproj-dir", "eng/signing", "Directory containing Sign.csproj and related files.")
 
 	signType = flag.String("sign-type", "test",
 		"Type of signing to perform. Options: test, real. "+
@@ -154,6 +155,7 @@ func run() error {
 	}
 
 	log.Println("Copying finished files to destination")
+	log.Printf("Destination directory: %q", *destinationDir)
 
 	for _, a := range archives {
 		if err := a.copyToDestination(ctx); err != nil {
@@ -167,6 +169,13 @@ func run() error {
 		if err := checksum.WriteSHA256ChecksumFile(filepath.Join(*destinationDir, a.name)); err != nil {
 			return err
 		}
+	}
+
+	log.Println("Consolidating diagnostic files")
+	log.Printf("Consolidated diagnostic directory: %q", *consolidateDiagDir)
+
+	if err := consolidateDiagnosticFiles(); err != nil {
+		return err
 	}
 
 	return nil
