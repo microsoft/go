@@ -11,6 +11,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"io/fs"
 	"log"
 	"os"
 	"path/filepath"
@@ -44,6 +45,8 @@ type archive struct {
 	notarizedPath string
 }
 
+const signingWorkingDirPrefix = "sign-work-"
+
 func newArchive(p string) (*archive, error) {
 	name := filepath.Base(p)
 	a := archive{
@@ -65,7 +68,7 @@ func newArchive(p string) (*archive, error) {
 	if err := os.MkdirAll(*tempDir, 0o777); err != nil {
 		return nil, err
 	}
-	workDir, err := os.MkdirTemp(*tempDir, "sign-work-"+name)
+	workDir, err := os.MkdirTemp(*tempDir, signingWorkingDirPrefix+name)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create work directory: %v", err)
 	}
@@ -461,5 +464,80 @@ func (a *archive) copyToDestination(ctx context.Context) error {
 	if err := copyFile(filepath.Join(*destinationDir, a.name+".sig"), a.sigPath()); err != nil {
 		return err
 	}
+	return nil
+}
+
+func consolidateDiagnosticFiles() error {
+	// Signing process logs.
+	if err := copyGlobFilesToDir(
+		*consolidateDiagDir,
+		filepath.Join(*signingCsprojDir, "*.log"),
+		filepath.Join(*tempDir, "*.binlog"),
+		filepath.Join(*tempDir, "*.props"),
+	); err != nil {
+		return err
+	}
+	// .NET diag data, for package versions etc.
+	if err := copyGlobFilesToDir(
+		filepath.Join(*consolidateDiagDir, "obj"),
+		filepath.Join(*signingCsprojDir, "obj", "*"),
+	); err != nil {
+		return err
+	}
+
+	// Signing working dirs. These contain the files actually sent to sign. Make
+	// it clear that they're not production-ready files through the filename.
+	cleanTempDir := filepath.Clean(*tempDir)
+	if err := withTarGzCreate(
+		filepath.Join(*consolidateDiagDir, "sign-work-archives.nonproduction.tar.gz"),
+		func(tw *tar.Writer) error {
+			if err := filepath.WalkDir(cleanTempDir, func(path string, d fs.DirEntry, err error) error {
+				if err != nil {
+					return err
+				}
+				// At the top level, only walk into working dirs.
+				if d.IsDir() &&
+					filepath.Dir(path) == cleanTempDir &&
+					!strings.HasPrefix(d.Name(), signingWorkingDirPrefix) {
+
+					return filepath.SkipDir
+				}
+				// Inside a given working dir, we are free to walk recursively.
+				if d.IsDir() {
+					return nil
+				}
+				// This is a file: archive it.
+				df, err := d.Info()
+				if err != nil {
+					return err
+				}
+				// Basic sanity checks.
+				if !filepath.IsLocal(path) {
+					return fmt.Errorf("path %q is not a local path", path)
+				}
+				tarPath, ok := strings.CutPrefix(path, cleanTempDir+string(filepath.Separator))
+				if !ok {
+					return fmt.Errorf("path %q is not under temp dir %q", path, *tempDir)
+				}
+				tarPath = filepath.ToSlash(tarPath)
+
+				err = tw.WriteHeader(&tar.Header{
+					Name: tarPath,
+					Size: df.Size(),
+					Mode: 0o644,
+				})
+				if err != nil {
+					return err
+				}
+				return copyFromFile(tw, path)
+			}); err != nil {
+				return err
+			}
+			return nil
+		},
+	); err != nil {
+		return err
+	}
+
 	return nil
 }
