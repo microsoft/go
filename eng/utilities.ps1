@@ -24,7 +24,7 @@ function Download-Stage0() {
   # pre-installed (or the right version pre-installed). This CI script installs a consistent version
   # of Go to handle this. This also makes it easier to locally repro issues in CI that involve a
   # specific version of Go. The downloaded copy of Go is called the "stage 0" version.
-  $stage0_go_version = 'go1.24.0-1'
+  $stage0_go_version = 'go1.25.0-1'
 
   # Source the install script so that we can use the PATH it assigns.
   $installScriptPath = Join-Path $PSScriptRoot "_util" "go-install.ps1"
