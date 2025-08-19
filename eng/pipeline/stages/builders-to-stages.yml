@@ -57,14 +57,15 @@ stages:
                 createSourceArchive: ${{ parameters.createSourceArchive }}
                 releaseVersion: ${{ parameters.releaseVersion }}
                 createSymbols: ${{ parameters.createSymbols }}
-                # Attempt to retry the build on Windows to mitigate flakiness:
-                # "Access Denied" during EXE copying and general flakiness during tests.
-                ${{ if eq(builder.os, 'windows') }}:
-                  retryAttempts: [1, 2, 3, 4, "FINAL"]
-                # Attempt to retry the build on macOS to mitigate flakiness:
-                # "read: connection reset by peer" in cmd/go tests
-                ${{ if eq(builder.os, 'darwin') }}:
-                  retryAttempts: [1, 2, "FINAL"]
+                ${{ if not(builder.broken) }}:
+                  # Attempt to retry the build on Windows to mitigate flakiness:
+                  # "Access Denied" during EXE copying and general flakiness during tests.
+                  ${{ if eq(builder.os, 'windows') }}:
+                    retryAttempts: [1, 2, 3, 4, "FINAL"]
+                  # Attempt to retry the build on macOS to mitigate flakiness:
+                  # "read: connection reset by peer" in cmd/go tests
+                  ${{ if eq(builder.os, 'darwin') }}:
+                    retryAttempts: [1, 2, "FINAL"]
 
     - ${{ if eq(parameters.sign, true) }}:
       - template: pool.yml
@@ -75,7 +76,7 @@ stages:
             parameters:
               ctx: ${{ parameters.ctx }}
               # This is not a builder, but provide partial builder info for agent selection.
-              builder: { os: windows, arch: amd64 }
+              builder: { os: windows, arch: amd64, distro: '2022' }
               # The list of builders to depend on and grab artifacts from.
               builders:
                 - ${{ each builder in parameters.builders }}:
@@ -100,7 +101,7 @@ stages:
             template: internal-publish-stage.yml
             parameters:
               ctx: ${{ parameters.ctx }}
-              builder: { os: windows, arch: amd64 }
+              builder: { os: windows, arch: amd64, distro: '2022' }
               builders:
                 - ${{ each builder in parameters.builders }}:
                   - ${{ if eq(builder.config, 'buildandpack') }}:
