@@ -4,11 +4,11 @@ Date: Tue, 19 Aug 2025 15:16:09 +0200
 Subject: [PATCH] Implement ms_tls_config_schannel experiment
 
 ---
- src/crypto/tls/fips140_test.go                |   4 +
+ src/crypto/tls/fips_test.go                   |   4 +
  src/crypto/tls/schannel_disabled_test.go      |  11 +
  src/crypto/tls/schannel_windows.go            | 166 +++++++++++++
  src/crypto/tls/schannel_windows_test.go       | 226 ++++++++++++++++++
- src/crypto/tls/tls_test.go                    |  19 ++
+ src/crypto/tls/tls_test.go                    |  16 ++
  .../exp_ms_tls_config_schannel_off.go         |   8 +
  .../exp_ms_tls_config_schannel_on.go          |   8 +
  src/internal/goexperiment/flags.go            |   8 +
@@ -16,18 +16,18 @@ Subject: [PATCH] Implement ms_tls_config_schannel experiment
  .../syscall/windows/version_windows.go        |  11 +
  .../syscall/windows/version_windows_test.go   |   7 +
  .../syscall/windows/zsyscall_windows.go       |  16 ++
- 12 files changed, 512 insertions(+)
+ 12 files changed, 509 insertions(+)
  create mode 100644 src/crypto/tls/schannel_disabled_test.go
  create mode 100644 src/crypto/tls/schannel_windows.go
  create mode 100644 src/crypto/tls/schannel_windows_test.go
  create mode 100644 src/internal/goexperiment/exp_ms_tls_config_schannel_off.go
  create mode 100644 src/internal/goexperiment/exp_ms_tls_config_schannel_on.go
 
-diff --git a/src/crypto/tls/fips140_test.go b/src/crypto/tls/fips140_test.go
-index 711ce750a71a93..05312aaf9bcb9d 100644
---- a/src/crypto/tls/fips140_test.go
-+++ b/src/crypto/tls/fips140_test.go
-@@ -14,6 +14,7 @@ import (
+diff --git a/src/crypto/tls/fips_test.go b/src/crypto/tls/fips_test.go
+index d5ac9b6899d928..cbea4e3982184d 100644
+--- a/src/crypto/tls/fips_test.go
++++ b/src/crypto/tls/fips_test.go
+@@ -13,6 +13,7 @@ import (
  	"crypto/x509/pkix"
  	"encoding/pem"
  	"fmt"
@@ -35,7 +35,7 @@ index 711ce750a71a93..05312aaf9bcb9d 100644
  	"internal/obscuretestdata"
  	"internal/testenv"
  	"math/big"
-@@ -187,6 +188,9 @@ func TestFIPSServerCipherSuites(t *testing.T) {
+@@ -153,6 +154,9 @@ func TestFIPSServerCipherSuites(t *testing.T) {
  		}
  		serverConfig.BuildNameToCertificate()
  		t.Run(fmt.Sprintf("suite=%s", CipherSuiteName(id)), func(t *testing.T) {
@@ -467,7 +467,7 @@ index 00000000000000..b1bdb31863cc7a
 +	}
 +}
 diff --git a/src/crypto/tls/tls_test.go b/src/crypto/tls/tls_test.go
-index bfcc62ccfb8ba0..1a2f7e2fc96f5e 100644
+index 76a9a222a94bd7..8864b52b266821 100644
 --- a/src/crypto/tls/tls_test.go
 +++ b/src/crypto/tls/tls_test.go
 @@ -21,6 +21,7 @@ import (
@@ -490,17 +490,7 @@ index bfcc62ccfb8ba0..1a2f7e2fc96f5e 100644
  }
  
  func TestDialTimeout(t *testing.T) {
-@@ -1289,6 +1295,9 @@ func TestConnectionState(t *testing.T) {
- 		if !isFIPSVersion(v) && fips140tls.Required() {
- 			t.Skipf("skipping test in FIPS 140-3 mode for non-FIPS version %x", v)
- 		}
-+		if goexperiment.MS_TLS_Config_Schannel && v < VersionTLS12 {
-+			t.Skipf("skipping test for Schannel unsupported version %x", v)
-+		}
- 		var name string
- 		switch v {
- 		case VersionTLS10:
-@@ -1532,6 +1541,11 @@ func TestClientHelloInfo_SupportsCertificate(t *testing.T) {
+@@ -1452,6 +1458,11 @@ func TestClientHelloInfo_SupportsCertificate(t *testing.T) {
  		}, ""}, // static RSA fallback
  	}
  	for i, tt := range tests {
@@ -512,7 +502,7 @@ index bfcc62ccfb8ba0..1a2f7e2fc96f5e 100644
  		err := tt.chi.SupportsCertificate(tt.c)
  		switch {
  		case tt.wantErr == "" && err != nil:
-@@ -1545,6 +1559,11 @@ func TestClientHelloInfo_SupportsCertificate(t *testing.T) {
+@@ -1465,6 +1476,11 @@ func TestClientHelloInfo_SupportsCertificate(t *testing.T) {
  }
  
  func TestCipherSuites(t *testing.T) {
@@ -553,13 +543,13 @@ index 00000000000000..a2dbc6187da2a0
 +const MS_TLS_Config_Schannel = true
 +const MS_TLS_Config_SchannelInt = 1
 diff --git a/src/internal/goexperiment/flags.go b/src/internal/goexperiment/flags.go
-index 04f8fce2dfed03..3d55cf3e6f7cbc 100644
+index d8c518a78bf973..2c2acf42f5b945 100644
 --- a/src/internal/goexperiment/flags.go
 +++ b/src/internal/goexperiment/flags.go
-@@ -147,4 +147,12 @@ type Flags struct {
+@@ -154,4 +154,12 @@ type Flags struct {
  
- 	// GreenTeaGC enables the Green Tea GC implementation.
- 	GreenTeaGC bool
+ 	// Synctest enables the testing/synctest package.
+ 	Synctest bool
 +
 +	// MS_TLS_Config_Schannel enables the filtering and ordering of cipher
 +	// suites according to the Windows Schannel settings.
@@ -570,7 +560,7 @@ index 04f8fce2dfed03..3d55cf3e6f7cbc 100644
 +	MS_TLS_Config_Schannel bool
  }
 diff --git a/src/internal/syscall/windows/security_windows.go b/src/internal/syscall/windows/security_windows.go
-index f0ab52ac819baf..d6ef32c0e5c089 100644
+index 017e25aaef5ec0..ba6b6d6fce6584 100644
 --- a/src/internal/syscall/windows/security_windows.go
 +++ b/src/internal/syscall/windows/security_windows.go
 @@ -262,3 +262,31 @@ func GetSidSubAuthorityCount(sid *syscall.SID) uint8 {
@@ -606,10 +596,10 @@ index f0ab52ac819baf..d6ef32c0e5c089 100644
 +//sys	BCryptFreeBuffer(buffer unsafe.Pointer) = bcrypt.BCryptFreeBuffer
 +//sys	BCryptEnumContextFunctions(table uint32, context *uint16, iface uint32, bufferSize *uint32, buffer **CRYPT_CONTEXT_FUNCTIONS) (ntstatus error) = bcrypt.BCryptEnumContextFunctions
 diff --git a/src/internal/syscall/windows/version_windows.go b/src/internal/syscall/windows/version_windows.go
-index 5edf7a01e270d4..3cb6af21f52978 100644
+index cb5f6ba6cd30e4..a1635ce5eca870 100644
 --- a/src/internal/syscall/windows/version_windows.go
 +++ b/src/internal/syscall/windows/version_windows.go
-@@ -136,3 +136,14 @@ var SupportUnixSocket = sync.OnceValue(func() bool {
+@@ -111,3 +111,14 @@ var SupportUnixSocket = sync.OnceValue(func() bool {
  	}
  	return false
  })
@@ -640,7 +630,7 @@ index 09be2eb0807932..b74b311279e81f 100644
 +	}
 +}
 diff --git a/src/internal/syscall/windows/zsyscall_windows.go b/src/internal/syscall/windows/zsyscall_windows.go
-index 90cf0b92a49bc4..db43b5da72f00e 100644
+index 6a6ea7bdc06ba8..2f9d845614128e 100644
 --- a/src/internal/syscall/windows/zsyscall_windows.go
 +++ b/src/internal/syscall/windows/zsyscall_windows.go
 @@ -38,6 +38,7 @@ func errnoErr(e syscall.Errno) error {
@@ -660,7 +650,7 @@ index 90cf0b92a49bc4..db43b5da72f00e 100644
  	procProcessPrng                       = modbcryptprimitives.NewProc("ProcessPrng")
  	procGetAdaptersAddresses              = modiphlpapi.NewProc("GetAdaptersAddresses")
  	procCreateEventW                      = modkernel32.NewProc("CreateEventW")
-@@ -242,6 +245,19 @@ func SetTokenInformation(tokenHandle syscall.Token, tokenInformationClass uint32
+@@ -236,6 +239,19 @@ func SetTokenInformation(tokenHandle syscall.Token, tokenInformationClass uint32
  	return
  }
  
