@@ -52,7 +52,10 @@ Each microsoft/go release is announced at the
 Check out the upstream [golang-announce mailing list](https://groups.google.com/g/golang-announce)
 for a summary of the changes in each Go version.
 
+See [SUPPORT.md](SUPPORT.md) for more information about reporting bugs, requesting features, and asking questions.
+
 There are a few additional support resources internal to Microsoft:
+
 * [Languages at Microsoft: Go](https://eng.ms/docs/more/languages-at-microsoft/go/articles/overview).
 * [A Microsoft-internal email distribution list 📧 (instant join link)](https://idwebelements.microsoft.com/GroupManagement.aspx?Group=golang-announce&Operation=join)
   for release announcements.
@@ -103,6 +106,13 @@ sudo apt-get update && sudo apt-get install msft-golang
 
 [Signed builds of Go](https://github.com/microsoft/go/blob/microsoft/main/eng/doc/Downloads.md)
 for several platforms are available as `zip` and `tar.gz` files.
+
+### The `go-install.ps1` script
+
+The [cross-platform `go-install.ps1` script](https://github.com/microsoft/go-infra/tree/main/goinstallscript) installs the Microsoft build of Go.
+It can install specific versions or the latest releases.
+
+If you use Azure Pipelines, try running the script in a [script step](https://learn.microsoft.com/en-us/azure/devops/pipelines/tasks/reference/cmd-line-v2?view=azure-pipelines) and pass the `-AzurePipelinePath` argument to automatically set up `go` in the environment for future steps.
 
 ### Build from source
 
