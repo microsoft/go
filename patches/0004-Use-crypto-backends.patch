@@ -78,7 +78,7 @@ Subject: [PATCH] Use crypto backends
  src/crypto/tls/handshake_client.go            |  12 +-
  src/crypto/tls/handshake_client_tls13.go      |   2 +-
  src/crypto/tls/handshake_server.go            |  10 +-
- src/crypto/tls/handshake_server_tls13.go      |  18 +-
+ src/crypto/tls/handshake_server_tls13.go      |   5 +-
  src/crypto/tls/internal/tls13/doc.go          |  18 ++
  src/crypto/tls/internal/tls13/tls13.go        | 195 ++++++++++++++++++
  src/crypto/tls/key_schedule.go                |   2 +-
@@ -91,7 +91,7 @@ Subject: [PATCH] Use crypto backends
  src/net/lookup_test.go                        |   3 +
  src/os/exec/exec_test.go                      |   9 +
  src/runtime/pprof/vminfo_darwin_test.go       |   6 +
- 87 files changed, 1183 insertions(+), 116 deletions(-)
+ 87 files changed, 1170 insertions(+), 116 deletions(-)
  create mode 100644 src/crypto/dsa/boring.go
  create mode 100644 src/crypto/dsa/notboring.go
  create mode 100644 src/crypto/ecdsa/badlinkname.go
@@ -117,7 +117,7 @@ index f0e3575637c62a..9eab3b4e66e60b 100644
  package main
  
 diff --git a/src/cmd/dist/test.go b/src/cmd/dist/test.go
-index c3f3a8324c507c..aedd8cd2902f27 100644
+index 1543e96f061d66..11ecb032339282 100644
 --- a/src/cmd/dist/test.go
 +++ b/src/cmd/dist/test.go
 @@ -719,7 +719,7 @@ func (t *tester) registerTests() {
@@ -2594,14 +2594,12 @@ index 1e0b5f06672d15..9f72e2376e42ce 100644
  
  	if err := hs.processClientHello(); err != nil {
 diff --git a/src/crypto/tls/handshake_server_tls13.go b/src/crypto/tls/handshake_server_tls13.go
-index 501bdeb66b05a8..571369cdbfcd34 100644
+index dbbdb5d6a2b268..b97b6eef0b0c22 100644
 --- a/src/crypto/tls/handshake_server_tls13.go
 +++ b/src/crypto/tls/handshake_server_tls13.go
-@@ -10,11 +10,12 @@ import (
- 	"crypto"
+@@ -11,10 +11,10 @@ import (
  	"crypto/hkdf"
  	"crypto/hmac"
-+	boring "crypto/internal/backend"
  	"crypto/internal/fips140/mlkem"
 -	"crypto/internal/fips140/tls13"
  	"crypto/internal/hpke"
@@ -2611,25 +2609,7 @@ index 501bdeb66b05a8..571369cdbfcd34 100644
  	"errors"
  	"fmt"
  	"hash"
-@@ -472,15 +473,24 @@ func (hs *serverHandshakeStateTLS13) checkForResumption() error {
- // interfaces implemented by standard library hashes to clone the state of in
- // to a new instance of h. It returns nil if the operation fails.
- func cloneHash(in hash.Hash, h crypto.Hash) hash.Hash {
-+	if boring.Enabled {
-+		// CNG and OpenSSL with SymCrypt hash functions do not implement the
-+		// encoding.BinaryMarshaler interface, but they do implement the Clone method.
-+		if cloner, ok := in.(hash.Cloner); ok {
-+			clone, err := cloner.Clone()
-+			if err != nil {
-+				// If Clone fails, we can't clone the hash.
-+				return nil
-+			}
-+			return clone
-+		}
-+	}
- 	// Recreate the interface to avoid importing encoding.
- 	type binaryMarshaler interface {
- 		MarshalBinary() (data []byte, err error)
+@@ -485,9 +485,6 @@ func cloneHash(in hash.Hash, h crypto.Hash) hash.Hash {
  		UnmarshalBinary(data []byte) error
  	}
  	marshaler, ok := in.(binaryMarshaler)
@@ -2947,10 +2927,10 @@ index e7369542a73270..ff52175e4ac636 100644
  	}
  }
 diff --git a/src/go/build/deps_test.go b/src/go/build/deps_test.go
-index ecf705b1333f28..cbd6d45ac3139a 100644
+index 51ea2b8f994d4a..c0bfad417f0dfa 100644
 --- a/src/go/build/deps_test.go
 +++ b/src/go/build/deps_test.go
-@@ -518,7 +518,7 @@ var depsRules = `
+@@ -519,7 +519,7 @@ var depsRules = `
  	< crypto/internal/fips140/edwards25519
  	< crypto/internal/fips140/ed25519
  	< crypto/internal/fips140/rsa
@@ -2959,7 +2939,7 @@ index ecf705b1333f28..cbd6d45ac3139a 100644
  
  	FIPS, hash < crypto/internal/fips140only;
  	crypto/internal/fips140/subtle,	hash < crypto;
-@@ -543,6 +543,8 @@ var depsRules = `
+@@ -544,6 +544,8 @@ var depsRules = `
  	< crypto/internal/backend/internal/opensslsetup
  	< crypto/internal/backend/fips140;
  
@@ -2968,7 +2948,7 @@ index ecf705b1333f28..cbd6d45ac3139a 100644
  	crypto !< FIPS;
  
  	# CRYPTO is core crypto algorithms - no cgo, fmt, net.
-@@ -585,6 +587,7 @@ var depsRules = `
+@@ -586,6 +588,7 @@ var depsRules = `
  	  crypto/pbkdf2,
  	  crypto/ecdh,
  	  crypto/mlkem
