@@ -109,13 +109,31 @@ That page provides both `aka.ms` links that redirect to the latest version and i
 
 ## Testing
 
-If it isn't clear that the correct build of Go was used to build your program, check which Go toolset built a specific Go binary by running:
+Make sure pipelines that run `go test` also use the Microsoft build of Go.
+It's important that tests exercise the same runtime behavior as a build.
 
-`TODO`
+## Examining Go binaries
 
-To determine which Go distribution `go` is at any point in time, run:
+> [!NOTE]
+> Currently `go version` and `go version -m <your-application>` don't clearly indicate whether or not the Microsoft build of Go is involved.
+> We plan to address this: see [microsoft/go#262](https://github.com/microsoft/go/issues/262).
+> In the meantime, this section describes how to identify a Go program or Go toolset.
 
-`TODO`
+We recommend confirming that your final application was built with the Microsoft build of Go.
+However, if you use a 1.25 or later version of Go, or you have enabled `systemcrypto`  manually, you can check that your binary uses `systemcrypto` by running:
+
+```sh
+go version -m <your-application>
+```
+
+Then, look for a line that contains `GOEXPERIMENT=systemcrypto`.
+`systemcrypto` is unique to the Microsoft build of Go, so if it's present, this confirms that the binary is built by the Microsoft build of Go.
+If this string isn't present, we can't confirm which Go toolset was used; however, we do know that it doesn't meet Microsoft internal crypto policy.
+
+If you have a `go` toolset but are unsure which distribution it is, first run `go env GOROOT` to find the root directory of the toolset.
+The path may be enough to identify what it is.
+If not, examine the `go.env` file in the `GOROOT` directory.
+The Microsoft build of Go `go.env` file includes `GOTOOLCHAIN=local`, and the comment above that line mentions the Microsoft build of Go.
 
 ### Common build issues
 
