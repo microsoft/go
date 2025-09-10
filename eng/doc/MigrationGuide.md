@@ -18,12 +18,13 @@ To comply with Microsoft internal policy for the use of Go, most projects need t
     - If you use a version of Go prior to 1.25, you must enable `systemcrypto`. Starting with 1.25, `systemcrypto` is enabled by default.
     - If your build targets a preview platform (such as macOS), [additional configuration](fips/README.md#configuration-overview) may be required to enable `systemcrypto`.
 1. **Test** your program.
+    - It's important to test on all target platforms. The changes to runtime behavior are platform-specific.
 1. Consider **whether your project must be FIPS compliant** and if so, review your project.
     - `systemcrypto` may be sufficient, however, you must review your project for compliant use of cryptography and a compliant environment.
     - For example, FedRAMP approval generally requires FIPS compliance.
 
 For local development, it's not required to use the Microsoft build of Go.
-Consider installing the toolset on a developer machine if you need to use it to debug behavior that's specific to the Microsoft build.
+Consider [installing the toolset](/README.md#download-and-install) on a developer machine if you need to use it to debug behavior that's specific to the Microsoft build.
 
 Like the official Go distribution, the Microsoft build of Go has no Go runtime component that must be installed in the target environment.
 Your Go application is still a single executable binary.
@@ -40,6 +41,9 @@ The Microsoft build of Go includes [patches](/patches/) that:
 - **Disable [GOTOOLCHAIN](https://go.dev/doc/toolchain) by default** to avoid mixups with the official Go distribution.
 - **Remove use of undocumented Windows APIs** for compatibility, security, and compliance.
 
+The patches directory at each Git tag specifies the exact code changes we have made to the official Go toolchain of that version.
+If it's critical to you to understand the exact set of changes we've made, please review the patch files.
+
 ## Migration steps
 
 This section describes some migration scenarios we know about and what path we recommend following for each one.
@@ -52,13 +56,19 @@ The scenarios in the following sections simply offer targeted guidance to help f
 
 The `GoTool@0` step doesn't currently support the Microsoft build of Go, and there is no equivalent step.
 (See [microsoft/go#483](https://github.com/microsoft/go/issues/483).)
+
 The most direct replacement is to use a `script` step to run [the cross-platform `go-install.ps1` script](/README.md#the-go-installps1-script).
 
 ### A `go` toolset that happens to be on my build agent
 
-Some build agents (VMs, containers, etc.) have `go` conveniently pre-installed, just not the Microsoft build of Go.
-There is no direct migration unless you can influence your agent provider to provide the Microsoft build of Go.
-You will likely need to find the best fit for your situation.
+Some build agents (VMs, containers, etc.) have `go` conveniently pre-installed, but it's the official distribution of Go rather than the Microsoft build.
+There is no universal migration. You may be able to:
+
+* Request that your agent provider includes the Microsoft build of Go.
+* Pick a different agent.
+* Use a [Microsoft build of Go container image](https://github.com/microsoft/go-images/blob/microsoft/main/README.md) on the agent.
+
+Otherwise, you need to find a suitable way to install it manually, such as [the cross-platform `go-install.ps1` script](/README.md#the-go-installps1-script).
 
 ### An Azure Pipelines container job referring to the official `golang` container image
 
@@ -84,17 +94,18 @@ If you're using it, no action is needed.
 
 ### An Ubuntu `golang` package
 
-Ubuntu packages for the Microsoft build of Go are hosted on the [Linux Software Repository for Microsoft Products](https://learn.microsoft.com/en-us/linux/packages), PMC (packages.microsoft.com) as `msft-golang`.
+Ubuntu packages for the Microsoft build of Go are `msft-golang` on the [Linux Software Repository for Microsoft Products](https://learn.microsoft.com/en-us/linux/packages), also known as PMC (packages.microsoft.com).
 Install instructions [are in the project README file](/README.md#ubuntu).
 
 ### A OneBranch Azure Pipeline
 
-We don't have much information about OneBranch, but we are not aware of an enhanced migration path for OneBranch pipelines above other Azure Pipelines migrations.
+We are not aware of an enhanced migration path for OneBranch pipelines that should be preferred over the Azure Pipelines migrations mentioned above.
 See the above sections for [`GoTool@0`](#the-gotool0-azure-pipelines-step) and [container jobs](#azure-pipelines-container-jobs-using-the-official-golang-image) to find the best fit for your project.
 
 ### Direct download of the Go `tar.gz` or `zip` file
 
-If you currently download an archived binary release of Go directly, you can continue to do so with the [Microsoft build of Go binary archives](https://github.com/microsoft/go/blob/microsoft/main/eng/doc/Downloads.md).
+If you currently download an archived binary release of Go directly, you can switch to [Microsoft build of Go binary archives](https://github.com/microsoft/go/blob/microsoft/main/eng/doc/Downloads.md).
+That page provides both `aka.ms` links that redirect to the latest version and immutable links to specific releases.
 
 ## Testing
 
