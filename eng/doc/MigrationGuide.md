@@ -126,11 +126,19 @@ However, if you use a 1.25 or later version of Go, or you have enabled `systemcr
 go version -m <your-application>
 ```
 
-Then, look for a line that contains `GOEXPERIMENT=systemcrypto`.
-`systemcrypto` is unique to the Microsoft build of Go, so if it's present, this confirms that the binary is built by the Microsoft build of Go.
-If this string isn't present, we can't confirm which Go toolset was used; however, we do know that it doesn't meet Microsoft internal crypto policy.
+Then, look for a line that contains one of these values:
 
-If you have a `go` toolset but are unsure which distribution it is, first run `go env GOROOT` to find the root directory of the toolset.
+* `microsoft_systemcrypto=1`
+* `GOEXPERIMENT=systemcrypto`
+
+`systemcrypto` is unique to the Microsoft build of Go, so if either of these strings is present, it confirms that the binary is built by the Microsoft build of Go.
+
+If `GOEXPERIMENT=nosystemcrypto` is present (note the `no` prefix), it confirms that the binary was built with the Microsoft build of Go, but `systemcrypto` was explicitly disabled.
+
+If none of the above are present, we can't confirm which build of Go was used.
+However, we do know that the application doesn't meet Microsoft internal crypto policy.
+
+If you are able to run `go` commands but aren't sure which distribution it is, first run `go env GOROOT` to find the root directory of the toolset.
 The path may be enough to identify what it is.
 If not, examine the `go.env` file in the `GOROOT` directory.
 The Microsoft build of Go `go.env` file includes `GOTOOLCHAIN=local`, and the comment above that line mentions the Microsoft build of Go.
