@@ -111,35 +111,18 @@ See the above sections for [`GoTool@0`](#the-gotool0-azure-pipelines-step) and [
 ### Direct download of the Go `tar.gz` or `zip` file
 
 If you currently download an archived binary release of Go directly, you can switch to [Microsoft build of Go binary archives](https://github.com/microsoft/go/blob/microsoft/main/eng/doc/Downloads.md).
-That page provides both `aka.ms` links that redirect to the latest version and immutable links to specific releases.
+That page provides links that redirect to the latest version and also immutable links to specific releases.
 
 ## Testing
 
 Make sure pipelines that run `go test` also use the Microsoft build of Go.
-It's important that tests exercise the same runtime behavior as a build.
+It's important that tests exercise the same runtime behavior as a build that is eventually deployed or shipped.
 
 We recommend that in addition to your normal tests, you [examine your final binary](./MicrosoftToolsetIdentification.md#examining-go-binaries) to confirm that it was built with the Microsoft build of Go.
 
 ### Common build issues
 
 After switching to the Microsoft build of Go, you may encounter new build errors.
-
-Build errors have a small preamble including the file in the standard library that emitted the error:
-
-```
-# crypto
-[...]go/src/crypto/systemcrypto_nocgo.go:10:2: `
-```
-
-There is also a trailing last line:
-
-```
-        ` (untyped string constant "\n\tUsing a crypto backend requires CGO_ENABLED=1.\n\t\n\tFor more i...) is not used
-```
-
-The preamble and trailing line of an error message can both be ignored.
-They are a side effect of the mechanism the Microsoft build of Go uses to show error messages.
-The sections below leave out these parts of the error messages for clarity.
 
 #### Cgo is not enabled
 
@@ -150,10 +133,13 @@ The sections below leave out these parts of the error messages for clarity.
 ```
 
 When targeting Linux, `systemcrypto` requires cgo.
-Cgo is disabled by default on some platforms, and sometimes manually disabled by build scripts.
+Cgo is disabled by default on some platforms or when a C compiler is not detected
+Sometimes a project's build scripts might explicitly disable cgo.
 There are good reasons to disable cgo, but unfortunately, cgo is currently necessary to use `systemcrypto` on Linux.
 
-In this case, you must set the `CGO_ENABLED` environment variable to `1` or [otherwise enable cgo](https://pkg.go.dev/cmd/cgo).
+In this case, you should first try to install a C compiler, like `gcc`.
+
+You may also need to set the `CGO_ENABLED` environment variable to `1` or [otherwise enable cgo](https://pkg.go.dev/cmd/cgo).
 
 If this isn't feasible, see [migration to `systemcrypto`](#migration-to-systemcrypto).
 
@@ -161,86 +147,146 @@ If this isn't feasible, see [migration to `systemcrypto`](#migration-to-systemcr
 > The macOS `systemcrytpo` implementation also requires cgo.
 > macOS support is in preview, and the dependency on cgo may be removed before we fully support this build configuration.
 
+#### No C compiler is installed
+
+```
+# runtime/cgo
+cgo: C compiler "gcc" not found: exec: "gcc": executable file not found in $PATH
+```
+
+If this isn't feasible, see [migration to `systemcrypto`](#migration-to-systemcrypto).
+
+#### Missing C toolchain and dependencies
+
+A C toolchain is required to build programs that use `systemcrypto` on Linux.
+The errors shown with a partially missing C toolchain can be unintuitive, so some errors and corresponding missing packages with the names they have on Azure Linux 3 are listed below.
+
+```
+_cgo_export.c:3:10: fatal error: stdlib.h: No such file or directory
+    3 | #include <stdlib.h>
+      |          ^~~~~~~~~~
+```
+
+`glibc-devel`
+
+```
+gcc: fatal error: cannot execute ‘as’: execvp: No such file or directory
+```
+
+`binutils`
+
+```
+In file included from /usr/include/errno.h:28,
+                 from cgo-gcc-prolog:32:
+/usr/include/bits/errno.h:26:11: fatal error: linux/errno.h: No such file or directory
+   26 | # include <linux/errno.h>
+      |           ^~~~~~~~~~~~~~~
+```
+
+`kernel-headers`
+
+If you're using Azure Linux 3, you can run this command to make sure all required C toolchain packages are installed:
+
+```
+sudo tdnf install gcc glibc-devel binutils kernel-headers
+```
+
+Alternatively, the `build-essential` package contains all of these packages and more.
+
+If this isn't feasible, see [migration to `systemcrypto`](#migration-to-systemcrypto).
+
 ### Common test or runtime issues
 
-### Missing OpenSSL and SymCrypt dependencies in Azure Linux 3
+#### Missing OpenSSL or SymCrypt dependencies
 
-`TODO`: How does this appear to the user?
-The solution is to add the required packages.
-Required packages are:
+```
+panic: opensslcrypto: can't initialize OpenSSL libcrypto.so: openssl: can't load libcrypto.so: libcrypto.so: cannot open shared object file: No such file or directory
+```
+
+You may be missing a required runtime dependency.
+Required OpenSSL packages on Azure Linux 3 are:
 
 - `openssl`
 - `symcrypt` `>=` 103.6.0-1
 - `symcrypt-openssl` (SCOSSL) `>=` 1.6.1-1
 
-You may need to run `tdnf install -y openssl symcrypt symcrypt-openssl` or otherwise identify why these packages are not present.
+You may need to run `tdnf install -y openssl symcrypt symcrypt-openssl`.
+Otherwise, identify why these packages are not present.
 
-### Panic: "crypto backend not available"
-- **Cause:** Missing required crypto libraries or incompatible versions
-- **Solution:** Install required crypto packages for your platform
-- **Linux:** Install `openssl`, `symcrypt`, `symcrypt-openssl` packages
-- **Azure Linux 3:** Ensure minimum versions SymCrypt-103.6.0-1, SymCrypt-OpenSSL-1.6.1-1
+If your system has a `libcrypto.so[...]` file that doesn't follow [the expected naming conventions, you can set the `GO_OPENSSL_VERSION_OVERRIDE` environment variable](fips/README.md#runtime-openssl-version-override) to make your Go program look for a specific suffix.
 
-### Panic: "FIPS mode required but not enabled"
-- **Cause:** Application built with `requirefips` tag but system not in FIPS mode
-- **Solution:** Enable system FIPS mode or remove `requirefips` build constraint
+If this isn't feasible, see [migration to `systemcrypto`](#migration-to-systemcrypto).
 
-### "No such file or directory" when loading libcrypto
-- **Cause:** OpenSSL not installed or not in library search path
-- **Solution:** Install OpenSSL package or set `LD_LIBRARY_PATH`
-- **Override:** Use `GO_OPENSSL_VERSION_OVERRIDE` environment variable
+#### FIPS mode requested but not available
 
-`TODO`: take another pass at last three sections in general.
+```
+panic: opensslcrypto: FIPS mode requested (environment variable GODEBUG=fips140=on) but not available: OpenSSL 3.3.3 11 Feb 2025
+```
 
-### Performance seems significantly worse
+```
+panic: opensslcrypto: FIPS mode requested (requirefips tag set) but not available: OpenSSL 3.3.3 11 Feb 2025
+```
+
+```
+panic: opensslcrypto: FIPS mode requested (system FIPS mode) but not available: OpenSSL 3.3.3 11 Feb 2025
+```
+
+These error messages indicate that the program is attempting to run in FIPS mode, but FIPS mode isn't available on the current system.
+The message in parentheses indicates why the Go program has requested FIPS mode.
+
+On Azure Linux 3, this may be caused by [missing OpenSSL or SymCrypt dependencies](#missing-openssl-or-symcrypt-dependencies).
+
+#### Performance seems significantly worse
 
 We expect performance to be comparable to standard Go.
 Some patterns of using `crypto` may be more particularly impacted than others.
 
 Please [contact us](/SUPPORT.md) for help with specific performance problems.
 
-### Long path errors on Windows
+#### Long path errors on Windows
 
 Removing the use of undocumented Windows APIs unfortunately removed a feature that allows long paths to work by default for Go programs.
+Long paths do work in many scenarios, because the Go standard library uses the `\\?\` prefix when possible.
+However, some use of long paths, in particular outside of the `os` package, may fail.
 
-`TODO`: example
-`TODO`: solution
+See [the upstream proposal golang/go#66560](https://github.com/golang/go/issues/66560) for more information on this limitation and why the official Go distribution uses the undocumented API.
 
-### glibc resolution failure
+Application code and libraries that use Windows paths may need to be updated to [use the `\\?\` prefix to exceed the long path limit](https://learn.microsoft.com/en-us/windows/win32/fileio/naming-a-file#win32-file-namespaces).
 
-**glibc version incompatibility**
-- **Error:** "version 'GLIBC_X.XX' not found"
-- **Cause:** Binary built on newer glibc trying to run on older system
-- **Solution:** Rebuild on target system or older glibc version
+#### glibc resolution failure on Linux
 
-The Microsoft build of Go uses cgo to integrate with system crypto libraries, which introduces dependencies on the build system's glibc version.
-This creates important compatibility considerations:
+```
+./app: /lib/x86_64-linux-gnu/libc.so.6: version `GLIBC_2.32' not found (required by ./app)
+./app: /lib/x86_64-linux-gnu/libc.so.6: version `GLIBC_2.34' not found (required by ./app)
+```
 
-**glibc Dependency:** Cgo introduces a dependency on the build system's version of glibc.
-This may make the program incompatible with a different Linux distribution if it has a lower version of glibc.
+When building a program with cgo on Linux (required when using `systemcrypto`), the system's glibc version is linked into the binary.
+When the program runs on a different system with an older version of glibc, it may fail to start with an error like the above.
 
-**Deployment Strategies:**
-- **Recommended:** Build and deploy using the same OS distribution and version
-- **Cross-distribution:** Build on the oldest possible OS version for broader compatibility
-- **Advanced:** Manually target an older version of glibc during compilation
+There are several approaches to resolve this problem:
 
-**Container Considerations:**
-- Programs built with system crypto cannot run in `scratch` containers
-- Minimal containers need OpenSSL and SymCrypt packages installed
-- Use Microsoft build of Go container images for pre-configured environments
+- **Always build on the same platform as the target system.** This may be feasible for services, but it makes shipping an application that can run on a variety of Linux systems difficult to manage.
+- **Build on the oldest possible Linux distribution.** This is a common approach, and often works well. However, it may pose a challenge for maintenance, because you need to keep an older system available for builds, and the upgrade window is narrow: you need to upgrade to avoid Linux distro EOL, but not too far in advance to break your compatibility goal.
+- **Use a rootfs that links against an old version of glibc.** This is very effective and also allows cross-compilation, but it requires more complicated setup.
+    - For more information about how to implement this approach, see [microsoft/go#1866](https://github.com/microsoft/go/issues/1866).
 
-`TODO`: examples of what failures look like to easily ctrl-f.
-`TODO`: take another pass at section in general.
+On Alpine Linux, `glibc` isn't present at all.
+It uses `musl` instead of `glibc`.
+Try installing the `gcompat` or `libc6-compat` Alpine packages to use a `glibc` compatibility layer.
+Gathering more information about behavior on Alpine is tracked by [microsoft/go#1867](https://github.com/microsoft/go/issues/1867).
 
-### Cryptography package failures while in FIPS mode
+If this isn't feasible, see [migration to `systemcrypto`](#migration-to-systemcrypto).
+
+#### Cryptography package failures while in FIPS mode
 
 While in FIPS mode:
 
-- Some crypto algorithms may be restricted
-- TLS connections use FIPS-approved ciphers only
-- Some legacy crypto operations may not be available
+- Some crypto algorithms may be restricted.
+- TLS connections use FIPS-approved ciphers only.
+- Some legacy crypto operations may not be available.
 
-`TODO`: examples of what failures look like to easily ctrl-f. Link to FIPS doc with more description.
+If you encounter an unexpected failure while using a `crypto` package, find the function in the [FIPS User Guide](fips/UserGuide.md) to see any known limitations.
+A summary of compatible algorithms for each supported platform can be found at [Cross-Platform Cryptography in the Microsoft build of Go](CrossPlatformCryptography.md).
 
 ## Review project for FIPS compliance
 
