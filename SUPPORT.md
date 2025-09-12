@@ -2,6 +2,8 @@
 
 For help and questions about the Go programming language and tools, visit the official website: <https://go.dev/>.
 
+Take a look at the [Migration Guide](eng/doc/MigrationGuide.md) for more information about migrating from the official build of Go to the Microsoft build of Go, specifically.
+
 ## How to file issues and get help
 
 This project uses GitHub Issues to track bugs and feature requests. Please search the existing

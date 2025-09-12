@@ -147,19 +147,17 @@ If this isn't feasible, see [migration to `systemcrypto`](#migration-to-systemcr
 > The macOS `systemcrytpo` implementation also requires cgo.
 > macOS support is in preview, and the dependency on cgo may be removed before we fully support this build configuration.
 
-#### No C compiler is installed
+#### Missing C toolchain and dependencies
+
+A C toolchain is required to build programs that use `systemcrypto` on Linux.
+The errors shown with a partially missing C toolchain can be unintuitive, so some errors and corresponding missing packages with the names they have on Azure Linux 3 are listed below.
 
 ```
 # runtime/cgo
 cgo: C compiler "gcc" not found: exec: "gcc": executable file not found in $PATH
 ```
 
-If this isn't feasible, see [migration to `systemcrypto`](#migration-to-systemcrypto).
-
-#### Missing C toolchain and dependencies
-
-A C toolchain is required to build programs that use `systemcrypto` on Linux.
-The errors shown with a partially missing C toolchain can be unintuitive, so some errors and corresponding missing packages with the names they have on Azure Linux 3 are listed below.
+`gcc`
 
 ```
 _cgo_export.c:3:10: fatal error: stdlib.h: No such file or directory
