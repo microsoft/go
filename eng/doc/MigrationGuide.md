@@ -127,9 +127,9 @@ After switching to the Microsoft build of Go, you may encounter new build errors
 #### Cgo is not enabled
 
 ```
-        Using a crypto backend requires CGO_ENABLED=1.
+Using a crypto backend requires CGO_ENABLED=1.
 
-        For more information, visit https://github.com/microsoft/go/tree/microsoft/main/eng/doc/fips
+For more information, visit https://github.com/microsoft/go/tree/microsoft/main/eng/doc/fips
 ```
 
 When targeting Linux, `systemcrypto` requires cgo.
@@ -187,7 +187,7 @@ In file included from /usr/include/errno.h:28,
 
 If you're using Azure Linux 3, you can run this command to make sure all required C toolchain packages are installed:
 
-```
+```bash
 sudo tdnf install gcc glibc-devel binutils kernel-headers
 ```
 
