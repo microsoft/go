@@ -71,7 +71,11 @@ cross-compilation may be necessary.
 * `linux_arm64`
 * `windows_amd64`
 
-The following sections list the ways to get a build of the Microsoft fork of Go.
+For guidance about how we recommend migrating existing Go projects to use the
+Microsoft build of Go, visit the [Migration Guide](eng/doc/MigrationGuide.md).
+This guide also helps resolve commonly encountered issues.
+
+The following sections list the ways to get the Microsoft build of Go.
 
 > [!NOTE]
 > Don't see an option that works for you? Let us know!  
