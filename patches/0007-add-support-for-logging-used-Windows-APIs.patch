@@ -6,18 +6,18 @@ Subject: [PATCH] add support for logging used Windows APIs
 ---
  src/runtime/os_windows.go                    |   1 +
  src/runtime/syscalltrace_generate_windows.go |  50 +++++++
- src/runtime/syscalltrace_windows.go          | 133 +++++++++++++++++++
+ src/runtime/syscalltrace_windows.go          | 136 +++++++++++++++++++
  src/runtime/syscalltrace_windows_test.go     |  81 +++++++++++
  src/runtime/zsyscalltrace_windows.go         |  59 ++++++++
  src/syscall/dll_windows.go                   |   4 +
- 6 files changed, 328 insertions(+)
+ 6 files changed, 331 insertions(+)
  create mode 100644 src/runtime/syscalltrace_generate_windows.go
  create mode 100644 src/runtime/syscalltrace_windows.go
  create mode 100644 src/runtime/syscalltrace_windows_test.go
  create mode 100644 src/runtime/zsyscalltrace_windows.go
 
 diff --git a/src/runtime/os_windows.go b/src/runtime/os_windows.go
-index ab4e165baecfb0..608ee8bc962a0c 100644
+index f47419cf7dfe0d..f08a01b0801fd7 100644
 --- a/src/runtime/os_windows.go
 +++ b/src/runtime/os_windows.go
 @@ -220,6 +220,7 @@ func windowsFindfunc(lib uintptr, name []byte) stdFunction {
@@ -86,10 +86,10 @@ index 00000000000000..17fb696be88776
 +}
 diff --git a/src/runtime/syscalltrace_windows.go b/src/runtime/syscalltrace_windows.go
 new file mode 100644
-index 00000000000000..11187541b1153f
+index 00000000000000..a3a0bf6d15721d
 --- /dev/null
 +++ b/src/runtime/syscalltrace_windows.go
-@@ -0,0 +1,133 @@
+@@ -0,0 +1,136 @@
 +// Copyright 2024 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -98,7 +98,10 @@ index 00000000000000..11187541b1153f
 +
 +package runtime
 +
-+import "unsafe"
++import (
++	"internal/runtime/syscall/windows"
++	"unsafe"
++)
 +
 +//go:cgo_import_dynamic runtime._CreateFileW CreateFileW%7 "kernel32.dll"
 +//go:cgo_import_dynamic runtime._GetEnvironmentVariableW GetEnvironmentVariableW%3 "kernel32.dll"
@@ -125,7 +128,7 @@ index 00000000000000..11187541b1153f
 +//
 +//go:linkname syscallTrace
 +func syscallTrace(modHandle uintptr, procName *byte) {
-+	if syscallTraceFileHandle == _INVALID_HANDLE_VALUE {
++	if syscallTraceFileHandle == windows.INVALID_HANDLE_VALUE {
 +		return
 +	}
 +	if syscallTraceFileHandle == 0 {
@@ -185,7 +188,7 @@ index 00000000000000..11187541b1153f
 +	var file [_MAX_PATH + 1]uint16
 +	if stdcall(_GetEnvironmentVariableW, uintptr(unsafe.Pointer(&envName[0])), uintptr(unsafe.Pointer(&file[0])), uintptr(len(file))) == 0 {
 +		// Disable syscall tracing.
-+		syscallTraceFileHandle = _INVALID_HANDLE_VALUE
++		syscallTraceFileHandle = windows.INVALID_HANDLE_VALUE
 +		return false
 +	}
 +	const (
@@ -199,7 +202,7 @@ index 00000000000000..11187541b1153f
 +	// Create the file with FILE_APPEND_DATA access to ensure that
 +	// writes are atomic.
 +	syscallTraceFileHandle = stdcall(_CreateFileW, uintptr(unsafe.Pointer(&file[0])), FILE_APPEND_DATA, FILE_SHARE_READ|FILE_SHARE_WRITE|FILE_SHARE_DELETE, 0, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, 0)
-+	if syscallTraceFileHandle == _INVALID_HANDLE_VALUE {
++	if syscallTraceFileHandle == windows.INVALID_HANDLE_VALUE {
 +		println("runtime: CreateFileA failed; errno=", getlasterror())
 +		throw("failed to create syscall trace file")
 +	}
