@@ -14,12 +14,12 @@ See [the Data Collection policy for the Microsoft build of Go](/README.md#data-c
 
 To comply with Microsoft internal policy for the use of Go, most projects need to:
 
-1. Use the Microsoft build of Go **for CI (Continuous Integration) and build environments.**
+1. [Use the Microsoft build of Go **for CI (Continuous Integration) and build environments.**](#migration-steps)
     - If you use a version of Go prior to 1.25, you must enable `systemcrypto`. Starting with 1.25, `systemcrypto` is enabled by default.
     - If your build targets a preview platform (such as macOS), [additional configuration](fips/README.md#configuration-overview) may be required to enable `systemcrypto`.
-1. **Test** your program.
+1. [**Test** your program.](#testing)
     - It's important to test on all target platforms. The changes to runtime behavior are platform-specific.
-1. Consider **whether your project must be FIPS compliant** and if so, review your project.
+1. [Consider **whether your project must be FIPS compliant** and if so, review your project](#review-project-for-fips-compliance).
     - `systemcrypto` may be sufficient, however, you must review your project for compliant use of cryptography and a compliant environment.
     - For example, FedRAMP approval generally requires FIPS compliance.
 
