@@ -95,6 +95,10 @@ includes builds of this Go fork.
 * In Azure Linux 2.0, the package `msft-golang` installs this fork.
 * In Azure Linux 3.0, the `golang` package installs this fork.
 
+For more information about how to manage the `systemcrypto` migration from 1.24
+to 1.25 in Azure Linux 3, see
+[the `systemcrypto` section of the Migration Guide](eng/doc/MigrationGuide.md#migration-to-systemcrypto).
+
 ### Ubuntu
 
 To install the Microsoft build of Go using an Ubuntu package, first set up the [Linux package repository for Microsoft Products](https://learn.microsoft.com/en-us/linux/packages).

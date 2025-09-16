@@ -307,13 +307,39 @@ If the change requires further planning and if it's acceptable for your project 
 
 To do so, set the `GOEXPERIMENT` environment variable to `nosystemcrypto`.
 If you have already set `GOEXPERIMENT`, append `,nosystemcrypto` to the existing value.
+After that, build commands won't encounter errors related to `systemcrypto`, and the resulting program won't attempt to use system-provided cryptography at runtime.
 
-If you experienced an unexpected auto-update to 1.25 that broke your project, you should downgrade to the latest version of 1.24.
+Alternatively, if you experienced an unexpected auto-update to 1.25 that broke your project, you should downgrade to the latest version of 1.24.
 This will disable `systemcrypto` by default and give you time to plan the migration.
-You can choose to upgrade at your own pace: as of writing, 1.24 will be supported until February 2025.
-Like any major version of Go, there may be more breaking changes that you need to evaluate before upgrading, not only `systemcrypto`.
+You can choose to upgrade at your own pace, as long as you complete the migration before 1.24 reaches EOL (End of Life).
+**1.24 EOL is expected in February 2025.**
+
+For most installation methods, specify 1.24, and you will get the latest, most secure version of 1.24.
+
+> [!TIP]
+> To update to the latest version of 1.24 in Azure Linux 3, use this command:
+>
+> ```bash
+> sudo tdnf install -y 'golang < 1.25'
+> ```
+>
+> Using the constraint `< 1.25` rather than a specific version ensures that you get the latest, most secure version of Go 1.24.
+>
+> Some care may be needed: the above command installs, downgrades, or updates `golang`, but it doesn't lock the version to 1.24.
+> `golang` will be updated to the latest version of 1.25 the next time you run `tdnf update`.
+> This command may only be suitable for some situations, such as CI, and may need to be run just before any steps that use `go`.
+>
+> `dnf` has `versionlock` capabilities, but it doesn't enable upgrades to newer patches within the major version.
+> It will only lock to a specific version.
+
+If you're unable to complete migration to `systemcrypto` right away, we recommend using `nosystemcrypto` with 1.25 rather than using 1.24, if possible.
+This approach lets you benefit from other changes in 1.25.
+It also avoids setting the migration deadline of 1.24 EOL.
 
 More information about exceptions to the Microsoft cryptography policy can be found at [Microsoft.Security.Cryptography.10010 on the Liquid Microsoft-internal site.][msc10010]
+
+> [!NOTE]
+> Like any major version of Go, there may be more breaking changes that you need to evaluate before upgrading, not only `systemcrypto`.
 
 > [!NOTE]
 > The Microsoft build of Go does apply [other changes](#whats-different) to the official Go distribution, but `systemcrypto` is the most impactful, and the only one that adds additional dependencies.
