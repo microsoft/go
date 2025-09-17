@@ -17,15 +17,15 @@ BSD-style license found in the LICENSE file.
 
 ## Why does this fork exist?
 
-This repository produces a modified version of Go that can be used to build FIPS
-140-2 compliant applications. Our goal is to share this implementation with
-others in the Go community who have the same requirement, and to merge this
-capability into upstream Go as soon as possible. See
-[eng/doc/fips](eng/doc/fips) for more information about this feature and the
-history of FIPS 140-2 compliance in Go.
+This repository produces a modified version of Go that:
 
-The binaries produced by this repository are also intended for general use
-within Microsoft instead of the official binary distribution of Go.
+* Builds programs that are compliant with internal Microsoft policies by default.
+* Can be used to build FIPS 140 compliant applications.
+  * See [eng/doc/fips](eng/doc/fips) for more information about this feature and the history of FIPS 140 compliance in Go.
+
+We submit changes to the upstream Go project rather than patching it, when
+possible. Our goals are to avoid breaking compatibility and to minimize the
+number of changes we maintain in this fork.
 
 We call this repository a fork even though it isn't a traditional Git fork. Its
 branches do not share Git ancestry with the Go repository. However, the
@@ -71,9 +71,9 @@ cross-compilation may be necessary.
 * `linux_arm64`
 * `windows_amd64`
 
-For guidance about how we recommend migrating existing Go projects to use the
-Microsoft build of Go, visit the [Migration Guide](eng/doc/MigrationGuide.md).
-This guide also helps resolve commonly encountered issues.
+Visit the [Migration Guide](eng/doc/MigrationGuide.md) for guidance about how we
+recommend migrating existing Go projects to use the Microsoft build of Go. This
+guide also helps resolve commonly encountered issues.
 
 The following sections list the ways to get the Microsoft build of Go.
 
@@ -90,10 +90,7 @@ documents container images that are available on Microsoft Artifact Registry.
 ### Azure Linux
 
 The **[Azure Linux](https://github.com/microsoft/azurelinux)** distribution
-includes builds of this Go fork.
-
-* In Azure Linux 2.0, the package `msft-golang` installs this fork.
-* In Azure Linux 3.0, the `golang` package installs this fork.
+includes the `golang` package, a build of this fork of Go.
 
 For more information about how to manage the `systemcrypto` migration from 1.24
 to 1.25 in Azure Linux 3, see
