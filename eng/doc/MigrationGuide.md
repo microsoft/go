@@ -1,6 +1,6 @@
 # Migration Guide: Microsoft build of Go
 
-This guide provides high-level guidance to help migrate from the [official Go distribution](https://go.dev/) to the [Microsoft build of Go](https://github.com/microsoft/go).
+This guide provides high-level guidance to help migrate from the [official Go distribution](https://go.dev/) to the [Microsoft build of Go](https://github.com/microsoft/go), comply with Microsoft internal cryptography policy, and (in some cases) build a FIPS compliant Go program.
 It's intended for developers who work on a Go project at Microsoft.
 
 The Microsoft build of Go is designed to be a drop-in replacement for official Go.
@@ -14,14 +14,16 @@ See [the Data Collection policy for the Microsoft build of Go](/README.md#data-c
 
 To comply with Microsoft internal policy for the use of Go, most projects need to:
 
-1. [Use the Microsoft build of Go **for CI (Continuous Integration) and build environments.**](#migration-steps)
-    - If you use a version of Go prior to 1.25, you must enable `systemcrypto`. Starting with 1.25, `systemcrypto` is enabled by default.
+1. [Use the Microsoft build of Go **for CI (Continuous Integration) and build environments.**](#ci-and-build-environment-migration-steps)
+    - See [Microsoft Toolset Identification](./MicrosoftToolsetIdentification.md) if it's not clear which distribution of Go you're currently using.
+1. If you use a version of Go prior to 1.25, [enable `systemcrypto`](#enable-systemcrypto).
+    - Starting with 1.25, `systemcrypto` is enabled by default, and no action is required.
     - If your build targets a preview platform (such as macOS), [additional configuration](fips/README.md#configuration-overview) may be required to enable `systemcrypto`.
 1. [**Test** your program.](#testing)
     - It's important to test on all target platforms. The changes to runtime behavior are platform-specific.
-1. [Consider **whether your project must be FIPS compliant** and if so, review your project](#review-project-for-fips-compliance).
-    - `systemcrypto` may be sufficient, however, you must review your project for compliant use of cryptography and a compliant environment.
+1. Consider **whether your project must be FIPS compliant** and if so, [**review your project**](#review-project-for-fips-compliance).
     - For example, FedRAMP approval generally requires FIPS compliance.
+    - Using `systemcrypto` is not sufficient to claim FIPS compliance. A specific review is necessary.
 
 For local development, it's not required to use the Microsoft build of Go.
 Consider [installing the toolset](/README.md#download-and-install) on a developer machine if you need to use it to debug behavior that's specific to the Microsoft build.
@@ -48,33 +50,32 @@ The Microsoft build of Go includes [patches](/patches/) that:
 The patches directory at each Git tag specifies the exact code changes we have made to the official Go toolchain of that version.
 If it's critical to you to understand the exact set of changes we've made, please review the patch files.
 
-## Migration steps
+## CI and build environment migration steps
 
-This section describes some migration scenarios we know about and what path we recommend following for each one.
+This section describes some migration scenarios we know about and the path we recommend following for each one.
 
-Note that any method of installing the Microsoft build of Go specified [in the project README file](/README.md#download-and-install) is valid.
-If you see a good fit, go ahead and use it.
-The scenarios in the following sections simply offer targeted guidance to help find the easiest approach.
-
-If it's not clear which distribution of Go is currently in use, see [Microsoft Toolset Identification](./MicrosoftToolsetIdentification.md).
+> [!NOTE]
+> Any method of installing the Microsoft build of Go specified [in the project README file](/README.md#download-and-install) is valid.
+> If you see a good fit, go ahead and use it.
+>
+> The scenarios in the following sections simply offer targeted guidance to help find the easiest approach.
 
 ### The `GoTool@0` Azure Pipelines step
 
 The `GoTool@0` step doesn't currently support the Microsoft build of Go, and there is no equivalent step.
 (See [microsoft/go#483](https://github.com/microsoft/go/issues/483).)
 
-The most direct replacement is to use a `script` step to run [the cross-platform `go-install.ps1` script](/README.md#the-go-installps1-script).
+The most universal replacement is to use a `script` step to run [the cross-platform `go-install.ps1` script](/README.md#the-go-installps1-script).
 
 ### A `go` toolset that happens to be on my build agent
 
 Some build agents (VMs, containers, etc.) have `go` conveniently pre-installed, but it's the official distribution of Go rather than the Microsoft build.
-There is no universal migration. You may be able to:
+A universal migration is to use [the cross-platform `go-install.ps1` script](/README.md#the-go-installps1-script).
+However, we recommend looking at these options first:
 
 * Request that your agent provider includes the Microsoft build of Go.
 * Pick a different agent.
-* Use a [Microsoft build of Go container image](https://github.com/microsoft/go-images/blob/microsoft/main/README.md) on the agent.
-
-Otherwise, you need to find a suitable way to install it manually, such as [the cross-platform `go-install.ps1` script](/README.md#the-go-installps1-script).
+* Run a [container job that uses Microsoft build of Go container image](#an-azure-pipelines-container-job-referring-to-the-official-golang-container-image).
 
 ### An Azure Pipelines container job referring to the official `golang` container image
 
@@ -106,12 +107,23 @@ Install instructions [are in the project README file](/README.md#ubuntu).
 ### A OneBranch Azure Pipeline
 
 We are not aware of an enhanced migration path for OneBranch pipelines that should be preferred over the Azure Pipelines migrations mentioned above.
-See the above sections for [`GoTool@0`](#the-gotool0-azure-pipelines-step) and [container jobs](#azure-pipelines-container-jobs-using-the-official-golang-image) to find the best fit for your project.
+See the above sections for [`GoTool@0`](#the-gotool0-azure-pipelines-step) and [container jobs](#an-azure-pipelines-container-job-referring-to-the-official-golang-container-image) to find the best fit for your project.
 
 ### Direct download of the Go `tar.gz` or `zip` file
 
 If you currently download an archived binary release of Go directly, you can switch to [Microsoft build of Go binary archives](https://github.com/microsoft/go/blob/microsoft/main/eng/doc/Downloads.md).
 That page provides links that redirect to the latest version and also immutable links to specific releases.
+
+## Enable `systemcrypto`
+
+These instructions are for projects using versions of Go prior to 1.25.
+Starting with 1.25, `systemcrypto` is enabled by default.
+
+To comply with Microsoft internal cryptography policy, enable the `systemcrypto` feature in your build environment before building your project.
+This is done by setting the `GOEXPERIMENT` environment variable to `systemcrypto`.
+
+See [the FIPS documentation sections about build configuration](fips/README.md#usage-common-configurations) for more detailed instructions.
+Even if you don't need FIPS compliance, the `GOEXPERIMENT` instructions are located in that document.
 
 ## Testing
 
