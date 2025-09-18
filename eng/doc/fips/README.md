@@ -369,8 +369,8 @@ For example, `go build -tags=goexperiment.systemcrypto` command will enable the 
 > Experiments can't be disabled by a build tag.
 > For example, `go build -tags=goexperiment.nosystemcrypto` has no effect.
 >
-> We plan to implement a compatibility improvement that will facilitate using experiments specific to the Microsoft build of Go without reducing build command compatibility with the official Go distribution.
-> See [microsoft/go#TODO]().
+> We plan to implement a compatibility improvement that allows using `nosystemcrypto` without reducing build command compatibility with the official Go distribution.
+> See [microsoft/go#1880](https://github.com/microsoft/go/issues/1880).
 
 ### Conditional behavior if a crypto backend is enabled
 

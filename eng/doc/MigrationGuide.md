@@ -249,8 +249,8 @@ See [`cmd/go` documentation](https://pkg.go.dev/cmd/go#hdr-Environment_variables
 > In this case, we recommend only using the Microsoft build of Go in CI, and setting `GOEXPERIMENT=nosystemcrypto` in those specific CI pipelines.
 
 > [!NOTE]
-> We plan to implement a compatibility improvement that will facilitate using experiments specific to the Microsoft build of Go without reducing build command compatibility with the official Go distribution.
-> See [microsoft/go#TODO]().
+> We plan to implement a compatibility improvement that allows using `nosystemcrypto` without reducing build command compatibility with the official Go distribution.
+> See [microsoft/go#1880](https://github.com/microsoft/go/issues/1880).
 
 ### Common test or runtime issues
 
