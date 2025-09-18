@@ -246,7 +246,7 @@ See [`cmd/go` documentation](https://pkg.go.dev/cmd/go#hdr-Environment_variables
 > Unfortunately, `nosystemcrypto` can't be specified as a build tag.
 > If you need to disable `systemcrypto` and maintain build command compatibility with the official Go distribution, you must use `GOEXPERIMENT=nosystemcrypto` selectively, or use 1.24.
 >
-> In this case, we recommend only using the Microsoft build of Go in CI, and setting `GOEXPERIMENT=nosystemcrypto` in those specific CI pipelines.
+> For example, we would recommend setting `GOEXPERIMENT=nosystemcrypto` in specific CI pipelines and only using the Microsoft build of Go in those pipelines.
 
 > [!NOTE]
 > We plan to implement a compatibility improvement that allows using `nosystemcrypto` without reducing build command compatibility with the official Go distribution.
