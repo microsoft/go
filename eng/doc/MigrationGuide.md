@@ -205,6 +205,53 @@ Alternatively, the `build-essential` package contains all of these packages and 
 
 If this isn't feasible, see [migration to `systemcrypto`](#migration-to-systemcrypto).
 
+#### Unknown GOEXPERIMENT systemcrypto
+
+```
+go: unknown GOEXPERIMENT systemcrypto
+```
+
+```
+go.exe: unknown GOEXPERIMENT systemcrypto
+```
+
+This error indicates you aren't using the Microsoft build of Go.
+It happens when the `GOEXPERIMENT` environment variable includes `systemcrypto` (or `nosystemcrypto`) and the Go toolset doesn't recognize it.
+
+If you're trying to migrate to the Microsoft build of Go, check your build environment to ensure that the `go` command is the Microsoft build of Go.
+See [Microsoft Toolset Identification](./MicrosoftToolsetIdentification.md).
+
+If you're trying to make a build command compliant with Microsoft crypto policy but still compatible with **both the Microsoft build of Go and the official Go distribution**, this is possible:
+
+- If you're using Go 1.25 or later, remove `systemcrypto` from `GOEXPERIMENT`. Starting in 1.25, `systemcrypto` is enabled by default.
+  - If `GOEXPERIMENT` only contains `systemcrypto`, delete the assignment entirely.
+  - If it's not possible to find the `GOEXPERIMENT` setting in your build scripts and remove `systemcrypto`, reassign `GOEXPERIMENT` to remove `systemcrypto` just before your build commands.
+- If you're using Go 1.24 or earlier, or want to use both 1.24 and 1.25, use build tags instead of `GOEXPERIMENT`.
+  - Manually enabling `systemcrypto` in the Microsoft build of Go 1.25 is unnecessary, but harmless.
+
+**Build tags** (also known as build constraints) are more flexible than `GOEXPERIMENT`: build tag names are not verified against the list of known experiments.
+You can pass build tags to a `go build` command using the `-tags` flag:
+
+```
+go build -tags=goexperiment.systemcrypto .
+```
+
+See [Build Tags](fips/README.md#build-tags) in the FIPS README documentation for more information about using build tags with `systemcrypto`.
+
+If passing additional arguments to `go build` is undesirable, you can alternatively set up the `GOFLAGS` environment variable to include `-tags=goexperiment.systemcrypto`.
+This makes all subsequent `go` commands automatically use that build tag.
+See [`cmd/go` documentation](https://pkg.go.dev/cmd/go#hdr-Environment_variables) and [the FIPS readme](fips/README.md#assign-goflags-environment-variable-to-automatically-pass--tags-to-go-build) for more information about using GOFLAGS.
+
+> [!WARNING]
+> Unfortunately, `nosystemcrypto` can't be specified as a build tag.
+> If you need to disable `systemcrypto` and maintain build command compatibility with the official Go distribution, you must use `GOEXPERIMENT=nosystemcrypto` selectively, or use 1.24.
+>
+> For example, we would recommend setting `GOEXPERIMENT=nosystemcrypto` in specific CI pipelines and only using the Microsoft build of Go in those pipelines.
+
+> [!NOTE]
+> We plan to implement a compatibility improvement that allows using `nosystemcrypto` without reducing build command compatibility with the official Go distribution.
+> See [microsoft/go#1880](https://github.com/microsoft/go/issues/1880).
+
 ### Common test or runtime issues
 
 #### Missing OpenSSL or SymCrypt dependencies

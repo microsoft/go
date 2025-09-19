@@ -365,6 +365,13 @@ Selecting most `GOEXPERIMENT`s can also be done by setting the corresponding `go
 
 For example, `go build -tags=goexperiment.systemcrypto` command will enable the same backend as setting `GOEXPERIMENT=systemcrypto` then running the build command.
 
+> [!NOTE]
+> Experiments can't be disabled by a build tag.
+> For example, `go build -tags=goexperiment.nosystemcrypto` has no effect.
+>
+> We plan to implement a compatibility improvement that allows using `nosystemcrypto` without reducing build command compatibility with the official Go distribution.
+> See [microsoft/go#1880](https://github.com/microsoft/go/issues/1880).
+
 ### Conditional behavior if a crypto backend is enabled
 
 Normally this is not necessary, but a shared package may need to change its implementation when compiled with a crypto backend rather than the ordinary Go backend. For example, the library may need to remove use of cryptographic algorithms that would not be permitted by FIPS, in a way that will still allow the library to function. This is done using [build constraints](https://pkg.go.dev/go/build#hdr-Build_Constraints), also known as build tags.
