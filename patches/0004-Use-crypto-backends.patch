@@ -39,10 +39,10 @@ Subject: [PATCH] Use crypto backends
  src/crypto/hmac/hmac.go                       |   2 +-
  src/crypto/hmac/hmac_test.go                  |   2 +-
  src/crypto/internal/cryptotest/allocations.go |   6 -
+ src/crypto/internal/cryptotest/fips140.go     |   8 +
  src/crypto/internal/cryptotest/hash.go        |   3 +-
  .../internal/cryptotest/implementations.go    |   2 +-
  src/crypto/internal/fips140test/acvp_test.go  |   6 +
- src/crypto/internal/fips140test/check_test.go |  16 ++
  src/crypto/internal/fips140test/fips_test.go  |   2 +-
  src/crypto/md5/md5.go                         |  10 +
  src/crypto/md5/md5_test.go                    |  18 +-
@@ -91,7 +91,7 @@ Subject: [PATCH] Use crypto backends
  src/net/lookup_test.go                        |   3 +
  src/os/exec/exec_test.go                      |   9 +
  src/runtime/pprof/vminfo_darwin_test.go       |   6 +
- 87 files changed, 1170 insertions(+), 116 deletions(-)
+ 87 files changed, 1162 insertions(+), 116 deletions(-)
  create mode 100644 src/crypto/dsa/boring.go
  create mode 100644 src/crypto/dsa/notboring.go
  create mode 100644 src/crypto/ecdsa/badlinkname.go
@@ -1334,6 +1334,32 @@ index 70055af70b42ec..21528faa0d6145 100644
  	// The sanitizers sometimes cause allocations.
  	if race.Enabled || msan.Enabled || asan.Enabled {
  		t.Skip("skipping allocations test with sanitizers")
+diff --git a/src/crypto/internal/cryptotest/fips140.go b/src/crypto/internal/cryptotest/fips140.go
+index c24622ce5ac3c2..bdc5a63e204922 100644
+--- a/src/crypto/internal/cryptotest/fips140.go
++++ b/src/crypto/internal/cryptotest/fips140.go
+@@ -5,13 +5,21 @@
+ package cryptotest
+ 
+ import (
++	boring "crypto/internal/backend"
++	bfips140 "crypto/internal/backend/fips140"
+ 	"crypto/internal/fips140"
+ 	"testing"
+ )
+ 
+ func MustSupportFIPS140(t *testing.T) {
+ 	t.Helper()
++	if !boring.Enabled {
++		t.Skip("skipping: boring not enabled")
++	}
+ 	if err := fips140.Supported(); err != nil {
+ 		t.Skipf("test requires FIPS 140 mode: %v", err)
+ 	}
++	if !bfips140.Enabled() {
++		t.Skipf("skipping: FIPS is not enabled")
++	}
+ }
 diff --git a/src/crypto/internal/cryptotest/hash.go b/src/crypto/internal/cryptotest/hash.go
 index f00e9c80d3c86a..e24b6cbbd00f68 100644
 --- a/src/crypto/internal/cryptotest/hash.go
@@ -1392,56 +1418,6 @@ index 5871bde8be4b2b..3ebefad8898bf2 100644
  	const (
  		bsslModule    = "boringssl.googlesource.com/boringssl.git"
  		bsslVersion   = "v0.0.0-20250207174145-0bb19f6126cb"
-diff --git a/src/crypto/internal/fips140test/check_test.go b/src/crypto/internal/fips140test/check_test.go
-index 2ceef6dd883d0a..cee315a1ffb047 100644
---- a/src/crypto/internal/fips140test/check_test.go
-+++ b/src/crypto/internal/fips140test/check_test.go
-@@ -6,6 +6,8 @@ package fipstest
- 
- import (
- 	"bytes"
-+	boring "crypto/internal/backend"
-+	bfips140 "crypto/internal/backend/fips140"
- 	"crypto/internal/cryptotest"
- 	. "crypto/internal/fips140/check"
- 	"crypto/internal/fips140/check/checktest"
-@@ -31,8 +33,16 @@ func TestIntegrityCheck(t *testing.T) {
- 		t.Fatalf("GODEBUG=fips140=on but verification did not run")
- 	}
- 
-+	if !boring.Enabled {
-+		t.Skip("skipping: boring not enabled")
-+	}
-+
- 	cryptotest.MustSupportFIPS140(t)
- 
-+	if !bfips140.Enabled() {
-+		t.Skipf("skipping: FIPS is not enabled")
-+	}
-+
- 	cmd := testenv.Command(t, testenv.Executable(t), "-test.v", "-test.run=^TestIntegrityCheck$")
- 	cmd.Env = append(cmd.Environ(), "GODEBUG=fips140=on")
- 	out, err := cmd.CombinedOutput()
-@@ -45,6 +55,9 @@ func TestIntegrityCheck(t *testing.T) {
- func TestIntegrityCheckFailure(t *testing.T) {
- 	moduleStatus(t)
- 	testenv.MustHaveExec(t)
-+	if !boring.Enabled {
-+		t.Skip("skipping: boring not enabled")
-+	}
- 	cryptotest.MustSupportFIPS140(t)
- 
- 	bin, err := os.ReadFile(os.Args[0])
-@@ -86,6 +99,9 @@ func TestIntegrityCheckFailure(t *testing.T) {
- }
- 
- func TestIntegrityCheckInfo(t *testing.T) {
-+	if !boring.Enabled {
-+		t.Skip("skipping: boring not enabled")
-+	}
- 	cryptotest.MustSupportFIPS140(t)
- 
- 	// Check that the checktest symbols are initialized properly.
 diff --git a/src/crypto/internal/fips140test/fips_test.go b/src/crypto/internal/fips140test/fips_test.go
 index 08d60933ef38b8..8840db05bde791 100644
 --- a/src/crypto/internal/fips140test/fips_test.go
