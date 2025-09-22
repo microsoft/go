@@ -344,7 +344,9 @@ The `opensslcrypto` Go runtime automatically loads the OpenSSL shared library `l
 The `libcrypto` shared library file name varies among different platforms, so a best effort is done to find and load the right file:
 
 - The base name is always `libcrypto.so.`
-- Well-known version strings are appended to the base name in this order: `3` -> `1.1` -> `11` -> `111` -> `1.0.2` -> `1.0.0`.
+- Well-known version strings are appended to the base name in this order:
+  - Since Go 1.25: `3` -> `1.1` -> `11` -> `111`.
+  - Prior to Go 1.25: `3` -> `1.1` -> `11` -> `111` -> `1.0.2` -> `1.0.0`.
 - This may find multiple libraries installed on the machine, so to pick one:
   - A matching library with FIPS mode on by default (e.g. set by system configuration) is chosen immediately.
   - If none have FIPS mode on by default, the first match is used.
@@ -399,7 +401,8 @@ The `opensslcrypto` Go runtime supports multiple OpenSSL versions. It discovers 
 Not all OpenSSL versions are supported. OpenSSL does not maintain ABI compatibility between different releases, even if only the patch version is increased, it needs specific attention to implement support. The relative importance of each version also results in a different amount of automated testing that has been implemented for various supported version. These are supported versions and the amount of automated validation for each one:
 
 - OpenSSL 1.1.1: the Microsoft CI builds official releases and runs the Go toolset test suite with this version.
-- OpenSSL 1.0.2, 1.1.0, 1.1.1, and 3.0.2: the [golang-fips/openssl] and [go-crypto-openssl] repository CI tests basic operation, but not the integration with the Go runtime.
+- OpenSSL 1.1.0, 1.1.1, and 3.0.2: the [golang-fips/openssl] and [go-crypto-openssl] repository CI tests basic operation, but not the integration with the Go runtime.
+  - Prior to Go 1.25, this list includes 1.0.2.
 
 Versions not listed above are not supported at all.
 
@@ -466,6 +469,8 @@ This list of major changes is intended for quick reference and for access to his
 - `GOEXPERIMENT=boringcrypto` has been removed.
 
 - `GOEXPERIMENT=allowcryptofallback` has been removed. Instead, if it's necessary to opt out from using a system crypto backend, use `GOEXPERIMENT=nosystemcrypto`. This is an internal mechanism that is not intended for use when building a Go application. This document has always recommended against using it, so we anticipate that this change won't affect users of the Microsoft build of Go. Please [contact the maintainers of the Microsoft build of Go](https://github.com/microsoft/go/blob/microsoft/main/SUPPORT.md) if you need to use it so we can understand the scenario and help find a safer alternative.
+
+- The OpenSSL backend [no longer supports OpenSSL 1.0](https://github.com/golang-fips/openssl/issues/244). The supported versions are now OpenSSL 1.1.0, 1.1.1, and 3.x.
 
 ### Go 1.24 (Feb 2025)
 
