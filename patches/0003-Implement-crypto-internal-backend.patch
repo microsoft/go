@@ -44,7 +44,7 @@ desired goexperiments and build tags.
  .../fips140/requirefips_nosystemcrypto.go     |  15 +
  .../backend/fips140/skipfipscheck_off.go      |   9 +
  .../backend/fips140/skipfipscheck_on.go       |   9 +
- .../internal/opensslsetup/opensslsetup.go     |  70 ++++
+ .../internal/opensslsetup/opensslsetup.go     |  68 ++++
  .../opensslsetup/opensslsetup_test.go         |  92 +++++
  .../backend/internal/opensslsetup/stub.go     |   8 +
  src/crypto/internal/backend/nobackend.go      | 251 ++++++++++++
@@ -55,7 +55,7 @@ desired goexperiments and build tags.
  src/internal/buildcfg/exp.go                  |  54 +++
  src/runtime/runtime_boring.go                 |   5 +
  src/syscall/exec_linux_test.go                |   2 +-
- 46 files changed, 2310 insertions(+), 22 deletions(-)
+ 46 files changed, 2308 insertions(+), 22 deletions(-)
  create mode 100644 src/cmd/go/systemcrypto_test.go
  create mode 100644 src/crypto/internal/backend/backend_test.go
  create mode 100644 src/crypto/internal/backend/bbig/big.go
@@ -160,7 +160,7 @@ index 0e32e0769ee2e2..eda2d576acc6c6 100644
  	if doReplacement {
  		if testCompiler == "" {
 diff --git a/src/cmd/dist/build.go b/src/cmd/dist/build.go
-index 9a7951726f6f04..a09cdd9550cbab 100644
+index fb70047dd0e81c..bb7ff4a68764da 100644
 --- a/src/cmd/dist/build.go
 +++ b/src/cmd/dist/build.go
 @@ -1387,6 +1387,80 @@ func toolenv() []string {
@@ -261,7 +261,7 @@ index 9a7951726f6f04..a09cdd9550cbab 100644
  	if debug {
  		run("", ShowOutput|CheckExit, pathf("%s/compile", tooldir), "-V=full")
 diff --git a/src/cmd/dist/test.go b/src/cmd/dist/test.go
-index 7c26d001bce4e1..e0baef4c294907 100644
+index ec4ff649b3815d..6ec763259efee6 100644
 --- a/src/cmd/dist/test.go
 +++ b/src/cmd/dist/test.go
 @@ -156,10 +156,12 @@ func (t *tester) run() {
@@ -667,7 +667,7 @@ index 2f46a6b44bffe1..69071289e2de81 100644
  
  ! go build -o $devnull cmd/buildid
 diff --git a/src/cmd/internal/testdir/testdir_test.go b/src/cmd/internal/testdir/testdir_test.go
-index c5aa91ba4732e7..9e838fa785af46 100644
+index 5781276afadba7..f684b73098954c 100644
 --- a/src/cmd/internal/testdir/testdir_test.go
 +++ b/src/cmd/internal/testdir/testdir_test.go
 @@ -118,6 +118,13 @@ func Test(t *testing.T) {
@@ -717,7 +717,7 @@ index d913953944bc43..daa8aa3d964ed0 100644
  	addstrdata1(ctxt, "runtime.buildVersion="+buildVersion)
  
 diff --git a/src/cmd/link/link_test.go b/src/cmd/link/link_test.go
-index 0125ba8e0f56be..2bc0b65f1035ed 100644
+index a87d452ed39446..c03aba6e415873 100644
 --- a/src/cmd/link/link_test.go
 +++ b/src/cmd/link/link_test.go
 @@ -9,6 +9,7 @@ import (
@@ -1971,10 +1971,10 @@ index 00000000000000..d3d39fd77f98db
 +const isSkipFIPSCheck = true
 diff --git a/src/crypto/internal/backend/internal/opensslsetup/opensslsetup.go b/src/crypto/internal/backend/internal/opensslsetup/opensslsetup.go
 new file mode 100644
-index 00000000000000..c6c1f53e7452ab
+index 00000000000000..d816f1be17b6a1
 --- /dev/null
 +++ b/src/crypto/internal/backend/internal/opensslsetup/opensslsetup.go
-@@ -0,0 +1,70 @@
+@@ -0,0 +1,68 @@
 +// Copyright 2025 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -1995,9 +1995,7 @@ index 00000000000000..c6c1f53e7452ab
 +// knownVersions is a list of supported and well-known libcrypto.so suffixes in decreasing version order.
 +// FreeBSD library version numbering does not directly align to the version of OpenSSL.
 +// Its preferred search order is 11 -> 111.
-+// Some distributions use 1.0.0 and others (such as Debian) 1.0.2 to refer to the same OpenSSL 1.0.2 version.
-+// Fedora derived distros use different naming for the version 1.0.x.
-+var knownVersions = [...]string{"3", "1.1", "11", "111", "1.0.2", "1.0.0", "10"}
++var knownVersions = [...]string{"3", "1.1", "11", "111"}
 +
 +const lcryptoPrefix = "libcrypto.so."
 +
@@ -2862,7 +2860,7 @@ index bc85bf170eb2eb..51ea2b8f994d4a 100644
  	< crypto/rand
  	< crypto/ed25519 # depends on crypto/rand.Reader
 diff --git a/src/internal/buildcfg/exp.go b/src/internal/buildcfg/exp.go
-index 91b4a71e1ee836..9ea95a9df726d1 100644
+index 16a25b602b6966..57067754466b0a 100644
 --- a/src/internal/buildcfg/exp.go
 +++ b/src/internal/buildcfg/exp.go
 @@ -5,11 +5,14 @@
@@ -2880,7 +2878,7 @@ index 91b4a71e1ee836..9ea95a9df726d1 100644
  )
  
  // ExperimentFlags represents a set of GOEXPERIMENT flags relative to a baseline
-@@ -178,6 +181,57 @@ func ParseGOEXPERIMENT(goos, goarch, goexp string) (*ExperimentFlags, error) {
+@@ -177,6 +180,57 @@ func ParseGOEXPERIMENT(goos, goarch, goexp string) (*ExperimentFlags, error) {
  	if flags.BoringCrypto {
  		return nil, fmt.Errorf("GOEXPERIMENT boringcrypto is not supported in the Microsoft build of Go")
  	}
