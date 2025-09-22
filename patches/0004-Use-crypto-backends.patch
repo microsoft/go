@@ -5,7 +5,7 @@ Subject: [PATCH] Use crypto backends
 
 ---
  src/cmd/api/boring_test.go                    |   2 +-
- src/cmd/dist/test.go                          |  10 +-
+ src/cmd/dist/test.go                          |  11 +-
  src/cmd/go/go_boring_test.go                  |  11 +-
  src/cmd/go/script_test.go                     |   2 +
  src/cmd/go/testdata/script/darwin_no_cgo.txt  |   2 +
@@ -91,7 +91,7 @@ Subject: [PATCH] Use crypto backends
  src/net/lookup_test.go                        |   3 +
  src/os/exec/exec_test.go                      |   9 +
  src/runtime/pprof/vminfo_darwin_test.go       |   6 +
- 87 files changed, 1162 insertions(+), 116 deletions(-)
+ 87 files changed, 1163 insertions(+), 116 deletions(-)
  create mode 100644 src/crypto/dsa/boring.go
  create mode 100644 src/crypto/dsa/notboring.go
  create mode 100644 src/crypto/ecdsa/badlinkname.go
@@ -117,10 +117,18 @@ index f0e3575637c62a..9eab3b4e66e60b 100644
  package main
  
 diff --git a/src/cmd/dist/test.go b/src/cmd/dist/test.go
-index e0baef4c294907..76b33346995ff6 100644
+index e0baef4c294907..f2faf8fd8f7c08 100644
 --- a/src/cmd/dist/test.go
 +++ b/src/cmd/dist/test.go
-@@ -719,7 +719,7 @@ func (t *tester) registerTests() {
+@@ -707,6 +707,7 @@ func (t *tester) registerTests() {
+ 				timeout: 300 * time.Second,
+ 				tags:    []string{"purego"},
+ 				pkg:     "hash/maphash",
++				env:     []string{"GODEBUG=fips140=off"}, // purego is not supported in FIPS mode
+ 			})
+ 	}
+ 
+@@ -719,7 +720,7 @@ func (t *tester) registerTests() {
  	})
  
  	// Check that all crypto packages compile (and test correctly, in longmode) with fips.
@@ -129,7 +137,7 @@ index e0baef4c294907..76b33346995ff6 100644
  		// Test standard crypto packages with fips140=on.
  		t.registerTest("GOFIPS140=latest go test crypto/...", &goTest{
  			variant: "gofips140",
-@@ -1211,6 +1211,11 @@ func (t *tester) internalLink() bool {
+@@ -1211,6 +1212,11 @@ func (t *tester) internalLink() bool {
  	if goos == "windows" && goarch == "arm64" {
  		return false
  	}
@@ -141,7 +149,7 @@ index e0baef4c294907..76b33346995ff6 100644
  	// Internally linking cgo is incomplete on some architectures.
  	// https://golang.org/issue/10373
  	// https://golang.org/issue/14449
-@@ -1374,12 +1379,11 @@ func (t *tester) registerCgoTests(heading string) {
+@@ -1374,12 +1380,11 @@ func (t *tester) registerCgoTests(heading string) {
  			// a C linker warning on Linux.
  			// in function `bio_ip_and_port_to_socket_and_addr':
  			// warning: Using 'getaddrinfo' in statically linked applications requires at runtime the shared libraries from the glibc version used for linking
