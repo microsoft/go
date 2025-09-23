@@ -5,7 +5,7 @@ Subject: [PATCH] Use crypto backends
 
 ---
  src/cmd/api/boring_test.go                    |   2 +-
- src/cmd/dist/test.go                          |  11 +-
+ src/cmd/dist/test.go                          |  10 +-
  src/cmd/go/go_boring_test.go                  |  11 +-
  src/cmd/go/script_test.go                     |   2 +
  src/cmd/go/testdata/script/darwin_no_cgo.txt  |   2 +
@@ -91,7 +91,7 @@ Subject: [PATCH] Use crypto backends
  src/net/lookup_test.go                        |   3 +
  src/os/exec/exec_test.go                      |   9 +
  src/runtime/pprof/vminfo_darwin_test.go       |   6 +
- 87 files changed, 1163 insertions(+), 116 deletions(-)
+ 87 files changed, 1162 insertions(+), 116 deletions(-)
  create mode 100644 src/crypto/dsa/boring.go
  create mode 100644 src/crypto/dsa/notboring.go
  create mode 100644 src/crypto/ecdsa/badlinkname.go
@@ -117,18 +117,10 @@ index f0e3575637c62a..9eab3b4e66e60b 100644
  package main
  
 diff --git a/src/cmd/dist/test.go b/src/cmd/dist/test.go
-index e0baef4c294907..f2faf8fd8f7c08 100644
+index 8cf96bd906ea36..41377c1e002ae6 100644
 --- a/src/cmd/dist/test.go
 +++ b/src/cmd/dist/test.go
-@@ -707,6 +707,7 @@ func (t *tester) registerTests() {
- 				timeout: 300 * time.Second,
- 				tags:    []string{"purego"},
- 				pkg:     "hash/maphash",
-+				env:     []string{"GODEBUG=fips140=off"}, // purego is not supported in FIPS mode
- 			})
- 	}
- 
-@@ -719,7 +720,7 @@ func (t *tester) registerTests() {
+@@ -720,7 +720,7 @@ func (t *tester) registerTests() {
  	})
  
  	// Check that all crypto packages compile (and test correctly, in longmode) with fips.
@@ -137,7 +129,7 @@ index e0baef4c294907..f2faf8fd8f7c08 100644
  		// Test standard crypto packages with fips140=on.
  		t.registerTest("GOFIPS140=latest go test crypto/...", &goTest{
  			variant: "gofips140",
-@@ -1211,6 +1212,11 @@ func (t *tester) internalLink() bool {
+@@ -1212,6 +1212,11 @@ func (t *tester) internalLink() bool {
  	if goos == "windows" && goarch == "arm64" {
  		return false
  	}
@@ -149,7 +141,7 @@ index e0baef4c294907..f2faf8fd8f7c08 100644
  	// Internally linking cgo is incomplete on some architectures.
  	// https://golang.org/issue/10373
  	// https://golang.org/issue/14449
-@@ -1374,12 +1380,11 @@ func (t *tester) registerCgoTests(heading string) {
+@@ -1375,12 +1380,11 @@ func (t *tester) registerCgoTests(heading string) {
  			// a C linker warning on Linux.
  			// in function `bio_ip_and_port_to_socket_and_addr':
  			// warning: Using 'getaddrinfo' in statically linked applications requires at runtime the shared libraries from the glibc version used for linking
@@ -1650,7 +1642,7 @@ index 22ccb8a35334c9..832910da482f44 100644
  }
  
 diff --git a/src/crypto/rc4/rc4.go b/src/crypto/rc4/rc4.go
-index 90943a0935befb..09ebdfd733e5d6 100644
+index eebc1c04cbfedb..a402b7760f917d 100644
 --- a/src/crypto/rc4/rc4.go
 +++ b/src/crypto/rc4/rc4.go
 @@ -10,6 +10,7 @@
@@ -1692,10 +1684,10 @@ index 90943a0935befb..09ebdfd733e5d6 100644
 +		c.boring.Reset()
 +		return
 +	}
- 	for i := range c.s {
- 		c.s[i] = 0
- 	}
-@@ -64,6 +78,10 @@ func (c *Cipher) Reset() {
+ 	clear(c.s[:])
+ 	c.i, c.j = 0, 0
+ }
+@@ -62,6 +76,10 @@ func (c *Cipher) Reset() {
  // XORKeyStream sets dst to the result of XORing src with the key stream.
  // Dst and src must overlap entirely or not at all.
  func (c *Cipher) XORKeyStream(dst, src []byte) {
