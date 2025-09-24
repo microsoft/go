@@ -13,7 +13,7 @@ The warnings use CI-specific formats:
 - Azure DevOps: ##vso[task.logissue type=warning] command
 
 Warnings are only emitted when:
-1. Running in a detected CI environment
+1. Building in a detected CI environment
 2. The deprecated backend was explicitly specified by the user
    (not auto-selected by systemcrypto)
 
@@ -21,178 +21,106 @@ This helps users migrate away from the specific backend experiments without
 breaking existing tooling that might parse stdout/stderr, and avoids
 warning when systemcrypto automatically selects a backend.
 ---
- src/crypto/internal/backend/cng_windows.go    |  4 +
- src/crypto/internal/backend/darwin_darwin.go  |  4 +
- .../backend/deprecation/deprecation.go        | 96 +++++++++++++++++++
- .../internal/opensslsetup/opensslsetup.go     |  4 +
- 4 files changed, 108 insertions(+)
- create mode 100644 src/crypto/internal/backend/deprecation/deprecation.go
+ src/cmd/go/main.go           |  3 ++
+ src/internal/buildcfg/exp.go | 67 ++++++++++++++++++++++++++++++++++++
+ 2 files changed, 70 insertions(+)
 
-diff --git a/src/crypto/internal/backend/cng_windows.go b/src/crypto/internal/backend/cng_windows.go
-index c5bffa7b6c3949..5ed99891b74c67 100644
---- a/src/crypto/internal/backend/cng_windows.go
-+++ b/src/crypto/internal/backend/cng_windows.go
-@@ -12,6 +12,7 @@ package backend
- import (
- 	"crypto"
- 	"crypto/cipher"
-+	"crypto/internal/backend/deprecation"
- 	"crypto/internal/backend/fips140"
- 	"crypto/internal/boring/sig"
- 	"hash"
-@@ -21,6 +22,9 @@ import (
- )
+diff --git a/src/cmd/go/main.go b/src/cmd/go/main.go
+index 67dbcb2e7a3cb9..1730261a3b1ba6 100644
+--- a/src/cmd/go/main.go
++++ b/src/cmd/go/main.go
+@@ -305,6 +305,9 @@ func invoke(cmd *base.Command, args []string) {
+ 		}
+ 	}
  
- func init() {
-+	// Emit deprecation warning in CI environments
-+	deprecation.WarnCryptoBackendDeprecated("cngcrypto")
++	// Check for deprecated crypto backends and emit warnings in CI environments
++	buildcfg.CheckDeprecatedCryptoBackends()
 +
- 	fn := func() bool {
- 		enabled, err := cng.FIPS()
- 		if err != nil {
-diff --git a/src/crypto/internal/backend/darwin_darwin.go b/src/crypto/internal/backend/darwin_darwin.go
-index fea0f284de2439..3b8da177cf3c40 100644
---- a/src/crypto/internal/backend/darwin_darwin.go
-+++ b/src/crypto/internal/backend/darwin_darwin.go
-@@ -12,6 +12,7 @@ package backend
+ 	// Set environment (GOOS, GOARCH, etc) explicitly.
+ 	// In theory all the commands we invoke should have
+ 	// the same default computation of these as we do,
+diff --git a/src/internal/buildcfg/exp.go b/src/internal/buildcfg/exp.go
+index 9ea95a9df726d1..2a96ad274329f9 100644
+--- a/src/internal/buildcfg/exp.go
++++ b/src/internal/buildcfg/exp.go
+@@ -7,6 +7,7 @@ package buildcfg
  import (
- 	"crypto"
- 	"crypto/cipher"
-+	"crypto/internal/backend/deprecation"
- 	"crypto/internal/backend/fips140"
- 	"crypto/internal/boring/sig"
- 	"crypto/internal/fips140/nistec"
-@@ -23,6 +24,9 @@ import (
- )
- 
- func init() {
-+	// Emit deprecation warning in CI environments
-+	deprecation.WarnCryptoBackendDeprecated("darwincrypto")
-+
- 	// Darwin is considered FIPS compliant.
- 	if err := fips140.Check(func() bool { return true }); err != nil {
- 		panic("darwincrypto: " + err.Error())
-diff --git a/src/crypto/internal/backend/deprecation/deprecation.go b/src/crypto/internal/backend/deprecation/deprecation.go
-new file mode 100644
-index 00000000000000..0e02fcad6bffa1
---- /dev/null
-+++ b/src/crypto/internal/backend/deprecation/deprecation.go
-@@ -0,0 +1,96 @@
-+// Package deprecation provides utilities for emitting deprecation warnings
-+// in CI environments without affecting normal program output.
-+
-+package deprecation
-+
-+import (
-+	"fmt"
+ 	"errors"
+ 	"fmt"
 +	"os"
-+	"syscall"
-+)
-+
-+// WarnCryptoBackendDeprecated emits a deprecation warning for specific crypto backends
-+// in CI environments using their respective warning formats, but only if the user
-+// explicitly specified that backend (not if systemcrypto auto-selected it).
-+func WarnCryptoBackendDeprecated(backend string) {
-+	// Don't warn if this backend was auto-selected by systemcrypto
-+	if isBackendAutoSelected(backend) {
+ 	"reflect"
+ 	"slices"
+ 	"strings"
+@@ -235,6 +236,72 @@ func ParseGOEXPERIMENT(goos, goarch, goexp string) (*ExperimentFlags, error) {
+ 	return flags, nil
+ }
+ 
++// CheckDeprecatedCryptoBackends emits deprecation warnings for specific crypto backends
++// in CI environments when the user explicitly specified those backends.
++// This should be called once at the start of the go command.
++func CheckDeprecatedCryptoBackends() {
++	goexp := os.Getenv("GOEXPERIMENT")
++	if goexp == "" {
++		// No explicit GOEXPERIMENT set, so systemcrypto is the default
++		// No need to warn about auto-selection
 +		return
 +	}
 +
-+	if isGitHubActions() {
-+		emitGitHubActionsWarning(backend)
-+	} else if isAzureDevOps() {
-+		emitAzureDevOpsWarning(backend)
++	// Check each deprecated backend that might be explicitly specified
++	deprecatedBackends := []string{"opensslcrypto", "cngcrypto", "darwincrypto"}
++
++	for _, backend := range deprecatedBackends {
++		if isBackendExplicitlySpecified(backend, goexp) {
++			emitDeprecationWarning(backend)
++		}
 +	}
-+	// For other environments, we don't emit warnings to avoid breaking
-+	// users who might be parsing stdout/stderr
-+}
-+
-+// isBackendAutoSelected checks if the backend was auto-selected by systemcrypto
-+// rather than explicitly chosen by the user
-+func isBackendAutoSelected(backend string) bool {
-+	goexperiment, _ := syscall.Getenv("GOEXPERIMENT")
-+
-+	// If GOEXPERIMENT is empty, systemcrypto is the default in Go 1.25+
-+	if goexperiment == "" {
-+		return true
-+	}
-+
-+	// Check if the user explicitly specified this deprecated backend
-+	return !isBackendExplicitlySpecified(backend, goexperiment)
 +}
 +
 +// isBackendExplicitlySpecified checks if the specific backend was explicitly
 +// specified in the GOEXPERIMENT string
 +func isBackendExplicitlySpecified(backend, goexperiment string) bool {
 +	// Parse the comma-separated GOEXPERIMENT string
-+	for i := 0; i < len(goexperiment); {
-+		// Find the start of the next experiment name
-+		start := i
-+		for i < len(goexperiment) && goexperiment[i] != ',' {
-+			i++
-+		}
-+		experiment := goexperiment[start:i]
-+		if experiment == backend {
++	for f := range strings.SplitSeq(goexperiment, ",") {
++		if f == backend {
 +			return true
-+		}
-+		if i < len(goexperiment) {
-+			i++ // skip the comma
 +		}
 +	}
 +	return false
 +}
 +
++// emitDeprecationWarning outputs a deprecation warning in CI environments
++func emitDeprecationWarning(backend string) {
++	if isGitHubActions() {
++		fmt.Fprintf(os.Stderr,
++			"::warning title=GOEXPERIMENT_DEPRECATED::GOEXPERIMENT=%s is deprecated. Use GOEXPERIMENT=systemcrypto instead, or remove GOEXPERIMENT entirely as systemcrypto is now the default.\n",
++			backend)
++	} else if isAzureDevOps() {
++		fmt.Fprintf(os.Stderr,
++			"##vso[task.logissue type=warning;code=GOEXPERIMENT_DEPRECATED;]GOEXPERIMENT=%s is deprecated. Use GOEXPERIMENT=systemcrypto instead, or remove GOEXPERIMENT entirely as systemcrypto is now the default.\n",
++			backend)
++	}
++	// For other environments, we don't emit warnings to avoid breaking
++	// users who might be parsing stdout/stderr
++}
++
 +// isGitHubActions detects if we're running in GitHub Actions
 +func isGitHubActions() bool {
-+	githubActions, _ := syscall.Getenv("GITHUB_ACTIONS")
-+	return githubActions == "true"
++	return os.Getenv("GITHUB_ACTIONS") == "true"
 +}
 +
 +// isAzureDevOps detects if we're running in Azure DevOps
 +func isAzureDevOps() bool {
 +	// Azure DevOps sets TF_BUILD=True
-+	tfBuild, _ := syscall.Getenv("TF_BUILD")
++	tfBuild := os.Getenv("TF_BUILD")
 +	if tfBuild == "True" || tfBuild == "true" {
 +		return true
 +	}
 +
 +	// Also check for SYSTEM_TEAMFOUNDATIONCOLLECTIONURI which is commonly set
-+	tfsUri, exists := syscall.Getenv("SYSTEM_TEAMFOUNDATIONCOLLECTIONURI")
-+	return exists && tfsUri != ""
++	tfsUri := os.Getenv("SYSTEM_TEAMFOUNDATIONCOLLECTIONURI")
++	return tfsUri != ""
 +}
 +
-+// emitGitHubActionsWarning outputs a GitHub Actions warning
-+func emitGitHubActionsWarning(backend string) {
-+	fmt.Fprintf(os.Stderr,
-+		"::warning title=GOEXPERIMENT_DEPRECATED::GOEXPERIMENT=%s is deprecated. Use GOEXPERIMENT=systemcrypto instead, or remove GOEXPERIMENT entirely as systemcrypto is now the default.\n",
-+		backend)
-+}
-+
-+// emitAzureDevOpsWarning outputs an Azure DevOps warning
-+func emitAzureDevOpsWarning(backend string) {
-+	fmt.Fprintf(os.Stderr,
-+		"##vso[task.logissue type=warning;code=GOEXPERIMENT_DEPRECATED;]GOEXPERIMENT=%s is deprecated. Use GOEXPERIMENT=systemcrypto instead, or remove GOEXPERIMENT entirely as systemcrypto is now the default.\n",
-+		backend)
-+}
-diff --git a/src/crypto/internal/backend/internal/opensslsetup/opensslsetup.go b/src/crypto/internal/backend/internal/opensslsetup/opensslsetup.go
-index d816f1be17b6a1..31c48b8d2036c7 100644
---- a/src/crypto/internal/backend/internal/opensslsetup/opensslsetup.go
-+++ b/src/crypto/internal/backend/internal/opensslsetup/opensslsetup.go
-@@ -10,6 +10,7 @@
- package opensslsetup
- 
- import (
-+	"crypto/internal/backend/deprecation"
- 	"syscall"
- 
- 	"github.com/golang-fips/openssl/v2"
-@@ -23,6 +24,9 @@ var knownVersions = [...]string{"3", "1.1", "11", "111"}
- const lcryptoPrefix = "libcrypto.so."
- 
- func init() {
-+	// Emit deprecation warning in CI environments
-+	deprecation.WarnCryptoBackendDeprecated("opensslcrypto")
-+
- 	lib := library()
- 	if err := openssl.Init(lib); err != nil {
- 		panic("opensslcrypto: can't initialize OpenSSL " + lib + ": " + err.Error())
+ // String returns the canonical GOEXPERIMENT string to enable this experiment
+ // configuration. (Experiments in the same state as in the baseline are elided.)
+ func (exp *ExperimentFlags) String() string {
