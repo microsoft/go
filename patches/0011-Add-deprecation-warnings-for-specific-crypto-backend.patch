@@ -1,8 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: bot-for-go[bot] <199222863+bot-for-go[bot]@users.noreply.github.com>
 Date: Wed, 24 Sep 2025 12:46:04 +0100
-Subject: [PATCH] crypto/internal/backend: add deprecation warnings for
- specific crypto backends
+Subject: [PATCH] Add deprecation warnings for specific crypto backends
 
 Add deprecation warnings for opensslcrypto, cngcrypto, and darwincrypto
 GOEXPERIMENT values in CI environments (GitHub Actions and Azure DevOps).
@@ -24,9 +23,9 @@ warning when systemcrypto automatically selects a backend.
 ---
  src/crypto/internal/backend/cng_windows.go    |  4 +
  src/crypto/internal/backend/darwin_darwin.go  |  4 +
- .../backend/deprecation/deprecation.go        | 89 +++++++++++++++++++
+ .../backend/deprecation/deprecation.go        | 96 +++++++++++++++++++
  .../internal/opensslsetup/opensslsetup.go     |  4 +
- 4 files changed, 101 insertions(+)
+ 4 files changed, 108 insertions(+)
  create mode 100644 src/crypto/internal/backend/deprecation/deprecation.go
 
 diff --git a/src/crypto/internal/backend/cng_windows.go b/src/crypto/internal/backend/cng_windows.go
@@ -75,10 +74,10 @@ index fea0f284de2439..3b8da177cf3c40 100644
  		panic("darwincrypto: " + err.Error())
 diff --git a/src/crypto/internal/backend/deprecation/deprecation.go b/src/crypto/internal/backend/deprecation/deprecation.go
 new file mode 100644
-index 00000000000000..dd19b51a8112f1
+index 00000000000000..0e02fcad6bffa1
 --- /dev/null
 +++ b/src/crypto/internal/backend/deprecation/deprecation.go
-@@ -0,0 +1,89 @@
+@@ -0,0 +1,96 @@
 +// Package deprecation provides utilities for emitting deprecation warnings
 +// in CI environments without affecting normal program output.
 +
@@ -113,15 +112,19 @@ index 00000000000000..dd19b51a8112f1
 +func isBackendAutoSelected(backend string) bool {
 +	goexperiment, _ := syscall.Getenv("GOEXPERIMENT")
 +
-+	// If GOEXPERIMENT contains "systemcrypto", then any specific backend
-+	// that gets loaded was auto-selected, not explicitly chosen
-+	if goexperiment == "systemcrypto" ||
-+		goexperiment == "" { // systemcrypto is default in Go 1.25+
++	// If GOEXPERIMENT is empty, systemcrypto is the default in Go 1.25+
++	if goexperiment == "" {
 +		return true
 +	}
 +
-+	// Check if systemcrypto is in a comma-separated list
-+	// (though this is less common, systemcrypto usually stands alone)
++	// Check if the user explicitly specified this deprecated backend
++	return !isBackendExplicitlySpecified(backend, goexperiment)
++}
++
++// isBackendExplicitlySpecified checks if the specific backend was explicitly
++// specified in the GOEXPERIMENT string
++func isBackendExplicitlySpecified(backend, goexperiment string) bool {
++	// Parse the comma-separated GOEXPERIMENT string
 +	for i := 0; i < len(goexperiment); {
 +		// Find the start of the next experiment name
 +		start := i
@@ -129,14 +132,13 @@ index 00000000000000..dd19b51a8112f1
 +			i++
 +		}
 +		experiment := goexperiment[start:i]
-+		if experiment == "systemcrypto" {
++		if experiment == backend {
 +			return true
 +		}
 +		if i < len(goexperiment) {
 +			i++ // skip the comma
 +		}
 +	}
-+
 +	return false
 +}
 +
@@ -161,12 +163,16 @@ index 00000000000000..dd19b51a8112f1
 +
 +// emitGitHubActionsWarning outputs a GitHub Actions warning
 +func emitGitHubActionsWarning(backend string) {
-+	fmt.Fprintf(os.Stderr, "::warning::GOEXPERIMENT=%s is deprecated. Use GOEXPERIMENT=systemcrypto instead, or remove GOEXPERIMENT entirely as systemcrypto is now the default.\n", backend)
++	fmt.Fprintf(os.Stderr,
++		"::warning title=GOEXPERIMENT_DEPRECATED::GOEXPERIMENT=%s is deprecated. Use GOEXPERIMENT=systemcrypto instead, or remove GOEXPERIMENT entirely as systemcrypto is now the default.\n",
++		backend)
 +}
 +
 +// emitAzureDevOpsWarning outputs an Azure DevOps warning
 +func emitAzureDevOpsWarning(backend string) {
-+	fmt.Fprintf(os.Stderr, "##vso[task.logissue type=warning]GOEXPERIMENT=%s is deprecated. Use GOEXPERIMENT=systemcrypto instead, or remove GOEXPERIMENT entirely as systemcrypto is now the default.\n", backend)
++	fmt.Fprintf(os.Stderr,
++		"##vso[task.logissue type=warning;code=GOEXPERIMENT_DEPRECATED;]GOEXPERIMENT=%s is deprecated. Use GOEXPERIMENT=systemcrypto instead, or remove GOEXPERIMENT entirely as systemcrypto is now the default.\n",
++		backend)
 +}
 diff --git a/src/crypto/internal/backend/internal/opensslsetup/opensslsetup.go b/src/crypto/internal/backend/internal/opensslsetup/opensslsetup.go
 index d816f1be17b6a1..31c48b8d2036c7 100644
