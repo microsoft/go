@@ -243,14 +243,9 @@ This makes all subsequent `go` commands automatically use that build tag.
 See [`cmd/go` documentation](https://pkg.go.dev/cmd/go#hdr-Environment_variables) and [the FIPS readme](fips/README.md#assign-goflags-environment-variable-to-automatically-pass--tags-to-go-build) for more information about using GOFLAGS.
 
 > [!WARNING]
-> Unfortunately, `nosystemcrypto` can't be specified as a build tag.
-> If you need to disable `systemcrypto` and maintain build command compatibility with the official Go distribution, you must use `GOEXPERIMENT=nosystemcrypto` selectively, or use 1.24.
->
-> For example, we would recommend setting `GOEXPERIMENT=nosystemcrypto` in specific CI pipelines and only using the Microsoft build of Go in those pipelines.
+> `nosystemcrypto` can't be specified as a build tag.
 
-> [!NOTE]
-> We plan to implement a compatibility improvement that allows using `nosystemcrypto` without reducing build command compatibility with the official Go distribution.
-> See [microsoft/go#1880](https://github.com/microsoft/go/issues/1880).
+See [Disabling `systemcrypto`](#disabling-systemcrypto) for information about how to disable `systemcrypto` if you need to temporarily avoid migrating to it.
 
 ### Common test or runtime issues
 
@@ -359,13 +354,13 @@ For specific guidance within Microsoft:
 - Read [Microsoft.Security.Cryptography.10010 on the Liquid Microsoft-internal site.][msc10010]
 - Contact the crypto board
 
-## Migration to `systemcrypto`
+## Disabling `systemcrypto`
 
 The difficulty of migrating to using `systemcrypto` can vary significantly depending on the Go project.
 If the change requires further planning and if it's acceptable for your project to be temporarily out of compliance with Microsoft cryptography policy, you can disable `systemcrypto`.
 
-To do so, set the `GOEXPERIMENT` environment variable to `nosystemcrypto`.
-If you have already set `GOEXPERIMENT`, append `,nosystemcrypto` to the existing value.
+To do so, set the `MS_GO_NOSYSTEMCRYPTO` environment variable to `1` if using Go 1.25.2 or later, else set the `GOEXPERIMENT` environment variable to `nosystemcrypto`.
+In the latter case, if you have already set `GOEXPERIMENT`, append `,nosystemcrypto` to the existing value.
 After that, build commands won't encounter errors related to `systemcrypto`, and the resulting program won't attempt to use system-provided cryptography at runtime.
 
 Alternatively, if you experienced an unexpected auto-update to 1.25 that broke your project, you should downgrade to the latest version of 1.24.
@@ -391,7 +386,7 @@ For most installation methods, specify 1.24, and you will get the latest, most s
 > `dnf` has `versionlock` capabilities, but it doesn't enable upgrades to newer patches within the major version.
 > It will only lock to a specific version.
 
-If you're unable to complete migration to `systemcrypto` right away, we recommend using `nosystemcrypto` with 1.25 rather than using 1.24, if possible.
+If you're unable to complete migration to `systemcrypto` right away, we recommend disabling systemcrypto with 1.25 rather than using 1.24, if possible.
 This approach lets you benefit from other changes in 1.25.
 It also avoids setting the migration deadline of 1.24 EOL.
 
