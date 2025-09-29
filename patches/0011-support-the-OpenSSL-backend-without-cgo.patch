@@ -4,6 +4,7 @@ Date: Mon, 29 Sep 2025 10:17:37 +0200
 Subject: [PATCH] support the OpenSSL backend without cgo
 
 ---
+ src/cmd/internal/moddeps/moddeps_test.go      |    4 +
  src/cmd/link/internal/ld/lib.go               |    2 +
  .../internal/backend/bbig/big_openssl.go      |    2 +-
  .../backend/bbig/big_openssl_nocgo.go         |   12 +
@@ -13,7 +14,8 @@ Subject: [PATCH] support the OpenSSL backend without cgo
  .../internal/backend/openssl_linux_nocgo.go   |  332 ++
  src/crypto/systemcrypto_nocgo.go              |    2 +-
  src/go.mod                                    |    3 +
- src/go/build/deps_test.go                     |   10 +-
+ src/go/build/deps_test.go                     |   11 +-
+ src/go/build/vendor_test.go                   |    1 +
  .../exp_systemcryptoallownocgo_off.go         |    8 +
  .../exp_systemcryptoallownocgo_on.go          |    8 +
  src/internal/goexperiment/flags.go            |    4 +
@@ -97,7 +99,7 @@ Subject: [PATCH] support the OpenSSL backend without cgo
  .../microsoft/go/pkg/openssl/tls1prf.go       |  158 +
  .../microsoft/go/pkg/openssl/zaes.go          |   86 +
  src/vendor/modules.txt                        |    7 +
- 93 files changed, 15960 insertions(+), 10 deletions(-)
+ 95 files changed, 15966 insertions(+), 10 deletions(-)
  create mode 100644 src/crypto/internal/backend/bbig/big_openssl_nocgo.go
  create mode 100644 src/crypto/internal/backend/internal/opensslsetup/opensslsetup_nocgo.go
  create mode 100644 src/crypto/internal/backend/openssl_linux_nocgo.go
@@ -183,6 +185,21 @@ Subject: [PATCH] support the OpenSSL backend without cgo
  create mode 100644 src/vendor/github.com/microsoft/go/pkg/openssl/tls1prf.go
  create mode 100644 src/vendor/github.com/microsoft/go/pkg/openssl/zaes.go
 
+diff --git a/src/cmd/internal/moddeps/moddeps_test.go b/src/cmd/internal/moddeps/moddeps_test.go
+index 0467b0ebbf000c..f3fbd3150ab040 100644
+--- a/src/cmd/internal/moddeps/moddeps_test.go
++++ b/src/cmd/internal/moddeps/moddeps_test.go
+@@ -392,6 +392,10 @@ func TestDependencyVersionsConsistent(t *testing.T) {
+ 					//
+ 					// Fortunately, we do not currently use filesystem-local replacements
+ 					// in GOROOT modules.
++					if strings.Contains(line, "github.com/microsoft/go/pkg") {
++						// We check module consistency in a dedicated CI test.
++						continue
++					}
+ 					t.Errorf("cannot check consistency for filesystem-local replacement in module %s (%s):\n%s", m.Path, m.Dir, line)
+ 				}
+ 
 diff --git a/src/cmd/link/internal/ld/lib.go b/src/cmd/link/internal/ld/lib.go
 index bc452a7f597baf..fdf74d80db5480 100644
 --- a/src/cmd/link/internal/ld/lib.go
@@ -387,7 +404,7 @@ index 00000000000000..2ce990446c2b00
 +}
 diff --git a/src/crypto/internal/backend/openssl_linux_nocgo.go b/src/crypto/internal/backend/openssl_linux_nocgo.go
 new file mode 100644
-index 00000000000000..e8c25a5e3f4af7
+index 00000000000000..9294e32f6302f1
 --- /dev/null
 +++ b/src/crypto/internal/backend/openssl_linux_nocgo.go
 @@ -0,0 +1,332 @@
@@ -395,7 +412,7 @@ index 00000000000000..e8c25a5e3f4af7
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
 +
-+//go:build goexperiment.opensslcrypto && linux && !cgo
++//go:build goexperiment.opensslcrypto && linux && (arm64 || amd64) && !cgo
 +
 +// Package openssl provides access to OpenSSLCrypto implementation functions.
 +// Check the variable Enabled to find out whether OpenSSLCrypto is available.
@@ -749,19 +766,20 @@ index d5505e8b8871b4..deb9b5d7baae5d 100644
 +
 +replace github.com/microsoft/go/pkg/openssl => ../../pkg/openssl
 diff --git a/src/go/build/deps_test.go b/src/go/build/deps_test.go
-index c0bfad417f0dfa..4ee6adfc184daa 100644
+index c0bfad417f0dfa..641e89ac7edecc 100644
 --- a/src/go/build/deps_test.go
 +++ b/src/go/build/deps_test.go
-@@ -530,6 +530,8 @@ var depsRules = `
+@@ -530,6 +530,9 @@ var depsRules = `
  	crypto/subtle,
  	hash,
  	crypto/cipher
++	< github.com/microsoft/go/pkg/openssl/internal/fakecgo
 +	< github.com/microsoft/go/pkg/openssl/internal/ossl
 +	< github.com/microsoft/go/pkg/openssl
  	< github.com/golang-fips/openssl/v2/internal/ossl
  	< github.com/golang-fips/openssl/v2
  	< github.com/microsoft/go-crypto-darwin/internal/cryptokit
-@@ -540,7 +542,8 @@ var depsRules = `
+@@ -540,7 +543,8 @@ var depsRules = `
  	< github.com/microsoft/go-crypto-winnative/cng;
  
  	syscall,
@@ -771,7 +789,7 @@ index c0bfad417f0dfa..4ee6adfc184daa 100644
  	< crypto/internal/backend/internal/opensslsetup
  	< crypto/internal/backend/fips140;
  
-@@ -560,6 +563,7 @@ var depsRules = `
+@@ -560,6 +564,7 @@ var depsRules = `
  
  	crypto/internal/boring/sig,
  	crypto/internal/backend/fips140,
@@ -779,7 +797,7 @@ index c0bfad417f0dfa..4ee6adfc184daa 100644
  	github.com/golang-fips/openssl/v2,
  	github.com/microsoft/go-crypto-darwin/xcrypto,
  	github.com/microsoft/go-crypto-winnative/cng
-@@ -595,6 +599,7 @@ var depsRules = `
+@@ -595,6 +600,7 @@ var depsRules = `
  
  	# CRYPTO-MATH is crypto that exposes math/big APIs - no cgo, net; fmt now ok.
  
@@ -787,7 +805,7 @@ index c0bfad417f0dfa..4ee6adfc184daa 100644
  	math/big, github.com/golang-fips/openssl/v2 < github.com/golang-fips/openssl/v2/bbig;
  	math/big, github.com/microsoft/go-crypto-darwin/xcrypto < github.com/microsoft/go-crypto-darwin/bbig;
  	math/big, github.com/microsoft/go-crypto-winnative/cng < github.com/microsoft/go-crypto-winnative/cng/bbig;
-@@ -603,6 +608,7 @@ var depsRules = `
+@@ -603,6 +609,7 @@ var depsRules = `
  	< crypto/internal/boring/bbig;
  
  	CRYPTO, FMT, math/big,
@@ -795,7 +813,7 @@ index c0bfad417f0dfa..4ee6adfc184daa 100644
  	github.com/golang-fips/openssl/v2/bbig,
  	github.com/microsoft/go-crypto-darwin/bbig,
  	github.com/microsoft/go-crypto-winnative/cng/bbig
-@@ -949,7 +955,7 @@ func findImports(pkg string) ([]string, error) {
+@@ -949,7 +956,7 @@ func findImports(pkg string) ([]string, error) {
  	}
  	var imports []string
  	var haveImport = map[string]bool{}
@@ -804,6 +822,18 @@ index c0bfad417f0dfa..4ee6adfc184daa 100644
  		haveImport["C"] = true // kludge: prevent C from appearing in crypto/internal/boring imports
  	}
  	fset := token.NewFileSet()
+diff --git a/src/go/build/vendor_test.go b/src/go/build/vendor_test.go
+index 8f68bc361081f1..5b9de8e0a7e88f 100644
+--- a/src/go/build/vendor_test.go
++++ b/src/go/build/vendor_test.go
+@@ -23,6 +23,7 @@ var allowedPackagePrefixes = []string{
+ 	"github.com/ianlancetaylor/demangle",
+ 	"rsc.io/markdown",
+ 	"github.com/golang-fips/openssl",
++	"github.com/microsoft/go/pkg",
+ 	"github.com/microsoft/go-crypto-winnative",
+ 	"github.com/microsoft/go-crypto-darwin",
+ 	"github.com/microsoft/go-infra/telemetry",
 diff --git a/src/internal/goexperiment/exp_systemcryptoallownocgo_off.go b/src/internal/goexperiment/exp_systemcryptoallownocgo_off.go
 new file mode 100644
 index 00000000000000..9e915fe94ca9e6
