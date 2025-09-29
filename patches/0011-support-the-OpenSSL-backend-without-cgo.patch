@@ -4,18 +4,19 @@ Date: Mon, 29 Sep 2025 10:17:37 +0200
 Subject: [PATCH] support the OpenSSL backend without cgo
 
 ---
- src/cmd/dist/test.go                          |    4 +-
  src/cmd/link/internal/ld/lib.go               |    2 +
  .../internal/backend/bbig/big_openssl.go      |    2 +-
  .../backend/bbig/big_openssl_nocgo.go         |   12 +
  src/crypto/internal/backend/deps_ignore.go    |    3 +
- .../internal/backend/fips140/openssl_nocgo.go |   56 +-
+ .../internal/backend/fips140/openssl_nocgo.go |   54 +-
  .../opensslsetup/opensslsetup_nocgo.go        |   68 +
  .../internal/backend/openssl_linux_nocgo.go   |  332 ++
  src/crypto/systemcrypto_nocgo.go              |    2 +-
  src/go.mod                                    |    3 +
  src/go/build/deps_test.go                     |   10 +-
- src/syscall/exec_linux_test.go                |    2 +-
+ .../exp_opensslcryptonocgo_off.go             |    8 +
+ .../goexperiment/exp_opensslcryptonocgo_on.go |    8 +
+ src/internal/goexperiment/flags.go            |    4 +
  .../microsoft/go/pkg/openssl/LICENSE          |   20 +
  .../microsoft/go/pkg/openssl/README.md        |   66 +
  .../microsoft/go/pkg/openssl/aes.go           |  145 +
@@ -96,10 +97,12 @@ Subject: [PATCH] support the OpenSSL backend without cgo
  .../microsoft/go/pkg/openssl/tls1prf.go       |  158 +
  .../microsoft/go/pkg/openssl/zaes.go          |   86 +
  src/vendor/modules.txt                        |    7 +
- 92 files changed, 15944 insertions(+), 14 deletions(-)
+ 93 files changed, 15960 insertions(+), 10 deletions(-)
  create mode 100644 src/crypto/internal/backend/bbig/big_openssl_nocgo.go
  create mode 100644 src/crypto/internal/backend/internal/opensslsetup/opensslsetup_nocgo.go
  create mode 100644 src/crypto/internal/backend/openssl_linux_nocgo.go
+ create mode 100644 src/internal/goexperiment/exp_opensslcryptonocgo_off.go
+ create mode 100644 src/internal/goexperiment/exp_opensslcryptonocgo_on.go
  create mode 100644 src/vendor/github.com/microsoft/go/pkg/openssl/LICENSE
  create mode 100644 src/vendor/github.com/microsoft/go/pkg/openssl/README.md
  create mode 100644 src/vendor/github.com/microsoft/go/pkg/openssl/aes.go
@@ -180,21 +183,6 @@ Subject: [PATCH] support the OpenSSL backend without cgo
  create mode 100644 src/vendor/github.com/microsoft/go/pkg/openssl/tls1prf.go
  create mode 100644 src/vendor/github.com/microsoft/go/pkg/openssl/zaes.go
 
-diff --git a/src/cmd/dist/test.go b/src/cmd/dist/test.go
-index 41377c1e002ae6..243b05168115c6 100644
---- a/src/cmd/dist/test.go
-+++ b/src/cmd/dist/test.go
-@@ -874,8 +874,8 @@ func (t *tester) registerTests() {
- 	// Test internal linking of PIE binaries where it is supported.
- 	if t.internalLinkPIE() && !disablePIE {
- 		var tags, env []string
--		if goos != "windows" {
--			// Linux and macOS don't support systemcrypto with CGO_ENABLED=0.
-+		if goos == "darwin" {
-+			// Darwincrypto don't support systemcrypto with CGO_ENABLED=0.
- 			tags = append(tags, "ms_skipfipscheck")
- 			env = append(env, "GOEXPERIMENT=nosystemcrypto")
- 		}
 diff --git a/src/cmd/link/internal/ld/lib.go b/src/cmd/link/internal/ld/lib.go
 index bc452a7f597baf..fdf74d80db5480 100644
 --- a/src/cmd/link/internal/ld/lib.go
@@ -254,7 +242,7 @@ index ae4055d2d71303..6bbd7ca152e05c 100644
  	_ "github.com/golang-fips/openssl/v2/bbig"
  
 diff --git a/src/crypto/internal/backend/fips140/openssl_nocgo.go b/src/crypto/internal/backend/fips140/openssl_nocgo.go
-index a8ff666b6d182e..c646a4f1d83055 100644
+index a8ff666b6d182e..c3f341fa4ab587 100644
 --- a/src/crypto/internal/backend/fips140/openssl_nocgo.go
 +++ b/src/crypto/internal/backend/fips140/openssl_nocgo.go
 @@ -1,17 +1,59 @@
@@ -263,13 +251,12 @@ index a8ff666b6d182e..c646a4f1d83055 100644
  // Use of this source code is governed by a BSD-style
  // license that can be found in the LICENSE file.
  
--//go:build goexperiment.opensslcrypto && !cgo
--
+ //go:build goexperiment.opensslcrypto && !cgo
+ 
 -// The opensslcrypto experiment can be used even when cgo
 -// is disabled. The OpenSSL backend can't be imported
 -// without cgo, so we use a stub systemFIPSMode implementation.
-+//go:build goexperiment.opensslcrypto && cgo
- 
+-
  package fips140
  
 +import (
@@ -737,7 +724,7 @@ index 00000000000000..e8c25a5e3f4af7
 +	return openssl.VerifyDSA(pub, hashed, sig)
 +}
 diff --git a/src/crypto/systemcrypto_nocgo.go b/src/crypto/systemcrypto_nocgo.go
-index 13782a8241b99a..98f04a06a07e2a 100644
+index 13782a8241b99a..423e477c0f6a2d 100644
 --- a/src/crypto/systemcrypto_nocgo.go
 +++ b/src/crypto/systemcrypto_nocgo.go
 @@ -2,7 +2,7 @@
@@ -745,7 +732,7 @@ index 13782a8241b99a..98f04a06a07e2a 100644
  // license that can be found in the LICENSE file.
  
 -//go:build !cgo && (goexperiment.opensslcrypto || goexperiment.darwincrypto)
-+//go:build !cgo && goexperiment.darwincrypto
++//go:build !cgo && ((goexperiment.opensslcrypto && !goexperiment.opensslcryptonocgo) || goexperiment.darwincrypto)
  
  package crypto
  
@@ -817,19 +804,49 @@ index c0bfad417f0dfa..4ee6adfc184daa 100644
  		haveImport["C"] = true // kludge: prevent C from appearing in crypto/internal/boring imports
  	}
  	fset := token.NewFileSet()
-diff --git a/src/syscall/exec_linux_test.go b/src/syscall/exec_linux_test.go
-index e6d344ff67a8aa..69d49169446d1c 100644
---- a/src/syscall/exec_linux_test.go
-+++ b/src/syscall/exec_linux_test.go
-@@ -300,7 +300,7 @@ func TestUnshareMountNameSpaceChroot(t *testing.T) {
- 	})
+diff --git a/src/internal/goexperiment/exp_opensslcryptonocgo_off.go b/src/internal/goexperiment/exp_opensslcryptonocgo_off.go
+new file mode 100644
+index 00000000000000..c2d5c780b70d45
+--- /dev/null
++++ b/src/internal/goexperiment/exp_opensslcryptonocgo_off.go
+@@ -0,0 +1,8 @@
++// Code generated by mkconsts.go. DO NOT EDIT.
++
++//go:build !goexperiment.opensslcryptonocgo
++
++package goexperiment
++
++const OpenSSLCryptoNoCgo = false
++const OpenSSLCryptoNoCgoInt = 0
+diff --git a/src/internal/goexperiment/exp_opensslcryptonocgo_on.go b/src/internal/goexperiment/exp_opensslcryptonocgo_on.go
+new file mode 100644
+index 00000000000000..522508ad3134d8
+--- /dev/null
++++ b/src/internal/goexperiment/exp_opensslcryptonocgo_on.go
+@@ -0,0 +1,8 @@
++// Code generated by mkconsts.go. DO NOT EDIT.
++
++//go:build goexperiment.opensslcryptonocgo
++
++package goexperiment
++
++const OpenSSLCryptoNoCgo = true
++const OpenSSLCryptoNoCgoInt = 1
+diff --git a/src/internal/goexperiment/flags.go b/src/internal/goexperiment/flags.go
+index 7fef3145b3be87..0f10e8f665dfe4 100644
+--- a/src/internal/goexperiment/flags.go
++++ b/src/internal/goexperiment/flags.go
+@@ -63,6 +63,10 @@ type Flags struct {
+ 	CNGCrypto         bool
+ 	DarwinCrypto      bool
  
- 	cmd := testenv.Command(t, testenv.GoToolPath(t), "test", "-c", "-o", x, "syscall")
--	cmd.Env = append(cmd.Environ(), "CGO_ENABLED=0", "GOEXPERIMENT=nosystemcrypto")
-+	cmd.Env = append(cmd.Environ(), "CGO_ENABLED=0")
- 	if o, err := cmd.CombinedOutput(); err != nil {
- 		t.Fatalf("%v: %v\n%s", cmd, err, o)
- 	}
++	// OpenSSLCryptoNoCgo enables the OpenSSL crypto experiment
++	// without requiring cgo.
++	OpenSSLCryptoNoCgo bool
++
+ 	// SystemCrypto enables the OpenSSL, CNG or Darwin crypto experiment depending on
+ 	// which one is appropriate on the target GOOS.
+ 	//
 diff --git a/src/vendor/github.com/microsoft/go/pkg/openssl/LICENSE b/src/vendor/github.com/microsoft/go/pkg/openssl/LICENSE
 new file mode 100644
 index 00000000000000..3f7c31a95e6117
