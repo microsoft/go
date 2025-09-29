@@ -153,7 +153,7 @@ In this case, you should first try to install a C compiler, like `gcc`.
 
 You may also need to set the `CGO_ENABLED` environment variable to `1` or [otherwise enable cgo](https://pkg.go.dev/cmd/cgo).
 
-If this isn't feasible, see [migration to `systemcrypto`](#migration-to-systemcrypto).
+If this isn't feasible, see [disabling systemcrypto](#disabling-systemcrypto).
 
 > [!NOTE]
 > The macOS `systemcrytpo` implementation also requires cgo.
@@ -203,7 +203,7 @@ sudo tdnf install gcc glibc-devel binutils kernel-headers
 
 Alternatively, the `build-essential` package contains all of these packages and more.
 
-If this isn't feasible, see [migration to `systemcrypto`](#migration-to-systemcrypto).
+If this isn't feasible, see [disabling systemcrypto](#disabling-systemcrypto).
 
 #### Unknown GOEXPERIMENT systemcrypto
 
@@ -267,7 +267,7 @@ Otherwise, identify why these packages are not present.
 
 If your system has a `libcrypto.so[...]` file that doesn't follow [the expected naming conventions, you can set the `GO_OPENSSL_VERSION_OVERRIDE` environment variable](fips/README.md#runtime-openssl-version-override) to make your Go program look for a specific suffix.
 
-If this isn't feasible, see [migration to `systemcrypto`](#migration-to-systemcrypto).
+If this isn't feasible, see [disabling systemcrypto](#disabling-systemcrypto).
 
 #### FIPS mode requested but not available
 
@@ -327,7 +327,7 @@ It uses `musl` instead of `glibc`.
 Try installing the `gcompat` or `libc6-compat` Alpine packages to use a `glibc` compatibility layer.
 Gathering more information about behavior on Alpine is tracked by [microsoft/go#1867](https://github.com/microsoft/go/issues/1867).
 
-If this isn't feasible, see [migration to `systemcrypto`](#migration-to-systemcrypto).
+If this isn't feasible, see [disabling systemcrypto](#disabling-systemcrypto).
 
 #### Cryptography package failures while in FIPS mode
 
@@ -359,8 +359,12 @@ For specific guidance within Microsoft:
 The difficulty of migrating to using `systemcrypto` can vary significantly depending on the Go project.
 If the change requires further planning and if it's acceptable for your project to be temporarily out of compliance with Microsoft cryptography policy, you can disable `systemcrypto`.
 
-To do so, set the `MS_GO_NOSYSTEMCRYPTO` environment variable to `1` if using Go 1.25.2 or later, else set the `GOEXPERIMENT` environment variable to `nosystemcrypto`.
-In the latter case, if you have already set `GOEXPERIMENT`, append `,nosystemcrypto` to the existing value.
+If the change requires further planning and if it's acceptable for your project to be temporarily out of compliance with Microsoft cryptography policy, you can disable `systemcrypto` by following these instructions:
+
+- If you're using Go 1.25.2 or later, set the `MS_GO_NOSYSTEMCRYPTO` environment variable to 1.
+- Otherwise, set the `GOEXPERIMENT` environment variable to `nosystemcrypto`.
+  - If you have already set `GOEXPERIMENT`, append `,nosystemcrypto` to the existing value.
+
 After that, build commands won't encounter errors related to `systemcrypto`, and the resulting program won't attempt to use system-provided cryptography at runtime.
 
 Alternatively, if you experienced an unexpected auto-update to 1.25 that broke your project, you should downgrade to the latest version of 1.24.
