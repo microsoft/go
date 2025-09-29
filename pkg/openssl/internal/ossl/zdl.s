@@ -3,24 +3,49 @@
 //go:build !cgo && (unix)
 
 #include "textflag.h"
- 
+
+
+#ifndef GOARCH_amd64
+#ifndef GOARCH_arm64
+#ifndef GOARCH_riscv64
+#ifndef GOARCH_loong64
+#ifndef GOARCH_mips64
+#ifndef GOARCH_mips64le
+#ifndef GOARCH_ppc64
+#ifndef GOARCH_ppc64le
+#ifndef GOARCH_sparc64
+#define _GOPTRSIZE 4
+#endif
+#endif
+#endif
+#endif
+#endif
+#endif
+#endif
+#endif
+#endif
+
+
+#ifndef _GOPTRSIZE
+#define _GOPTRSIZE 8
+#endif
 TEXT _mkcgo_dlclose_trampoline<>(SB),NOSPLIT,$0-0
     JMP _mkcgo_dlclose(SB)
-GLOBL   ·_mkcgo_dlclose_trampoline_addr(SB), RODATA, $8
-DATA    ·_mkcgo_dlclose_trampoline_addr(SB)/8, $_mkcgo_dlclose_trampoline<>(SB)
+GLOBL   ·_mkcgo_dlclose_trampoline_addr(SB), RODATA, $_GOPTRSIZE
+DATA    ·_mkcgo_dlclose_trampoline_addr(SB)/_GOPTRSIZE, $_mkcgo_dlclose_trampoline<>(SB)
 
 TEXT _mkcgo_dlerror_trampoline<>(SB),NOSPLIT,$0-0
     JMP _mkcgo_dlerror(SB)
-GLOBL   ·_mkcgo_dlerror_trampoline_addr(SB), RODATA, $8
-DATA    ·_mkcgo_dlerror_trampoline_addr(SB)/8, $_mkcgo_dlerror_trampoline<>(SB)
+GLOBL   ·_mkcgo_dlerror_trampoline_addr(SB), RODATA, $_GOPTRSIZE
+DATA    ·_mkcgo_dlerror_trampoline_addr(SB)/_GOPTRSIZE, $_mkcgo_dlerror_trampoline<>(SB)
 
 TEXT _mkcgo_dlopen_trampoline<>(SB),NOSPLIT,$0-0
     JMP _mkcgo_dlopen(SB)
-GLOBL   ·_mkcgo_dlopen_trampoline_addr(SB), RODATA, $8
-DATA    ·_mkcgo_dlopen_trampoline_addr(SB)/8, $_mkcgo_dlopen_trampoline<>(SB)
+GLOBL   ·_mkcgo_dlopen_trampoline_addr(SB), RODATA, $_GOPTRSIZE
+DATA    ·_mkcgo_dlopen_trampoline_addr(SB)/_GOPTRSIZE, $_mkcgo_dlopen_trampoline<>(SB)
 
 TEXT _mkcgo_dlsym_trampoline<>(SB),NOSPLIT,$0-0
     JMP _mkcgo_dlsym(SB)
-GLOBL   ·_mkcgo_dlsym_trampoline_addr(SB), RODATA, $8
-DATA    ·_mkcgo_dlsym_trampoline_addr(SB)/8, $_mkcgo_dlsym_trampoline<>(SB)
+GLOBL   ·_mkcgo_dlsym_trampoline_addr(SB), RODATA, $_GOPTRSIZE
+DATA    ·_mkcgo_dlsym_trampoline_addr(SB)/_GOPTRSIZE, $_mkcgo_dlsym_trampoline<>(SB)
 
