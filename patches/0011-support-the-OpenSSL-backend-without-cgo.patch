@@ -48,11 +48,9 @@ Subject: [PATCH] support the OpenSSL backend without cgo
  .../pkg/openssl/internal/fakecgo/asm_arm64.s  |   36 +
  .../pkg/openssl/internal/fakecgo/callbacks.go |   93 +
  .../go/pkg/openssl/internal/fakecgo/doc.go    |   32 +
- .../internal/fakecgo/go_darwin_amd64.go       |   73 +
- .../internal/fakecgo/go_darwin_arm64.go       |   88 +
+ .../pkg/openssl/internal/fakecgo/go_darwin.go |   73 +
  .../openssl/internal/fakecgo/go_libinit.go    |   72 +
- .../internal/fakecgo/go_linux_amd64.go        |   95 +
- .../internal/fakecgo/go_linux_arm64.go        |   98 +
+ .../pkg/openssl/internal/fakecgo/go_linux.go  |   95 +
  .../pkg/openssl/internal/fakecgo/go_setenv.go |   18 +
  .../pkg/openssl/internal/fakecgo/go_util.go   |   37 +
  .../go/pkg/openssl/internal/fakecgo/iscgo.go  |   19 +
@@ -99,7 +97,7 @@ Subject: [PATCH] support the OpenSSL backend without cgo
  .../microsoft/go/pkg/openssl/tls1prf.go       |  158 +
  .../microsoft/go/pkg/openssl/zaes.go          |   86 +
  src/vendor/modules.txt                        |    7 +
- 95 files changed, 15966 insertions(+), 10 deletions(-)
+ 93 files changed, 15780 insertions(+), 10 deletions(-)
  create mode 100644 src/crypto/internal/backend/bbig/big_openssl_nocgo.go
  create mode 100644 src/crypto/internal/backend/internal/opensslsetup/opensslsetup_nocgo.go
  create mode 100644 src/crypto/internal/backend/openssl_linux_nocgo.go
@@ -134,11 +132,9 @@ Subject: [PATCH] support the OpenSSL backend without cgo
  create mode 100644 src/vendor/github.com/microsoft/go/pkg/openssl/internal/fakecgo/asm_arm64.s
  create mode 100644 src/vendor/github.com/microsoft/go/pkg/openssl/internal/fakecgo/callbacks.go
  create mode 100644 src/vendor/github.com/microsoft/go/pkg/openssl/internal/fakecgo/doc.go
- create mode 100644 src/vendor/github.com/microsoft/go/pkg/openssl/internal/fakecgo/go_darwin_amd64.go
- create mode 100644 src/vendor/github.com/microsoft/go/pkg/openssl/internal/fakecgo/go_darwin_arm64.go
+ create mode 100644 src/vendor/github.com/microsoft/go/pkg/openssl/internal/fakecgo/go_darwin.go
  create mode 100644 src/vendor/github.com/microsoft/go/pkg/openssl/internal/fakecgo/go_libinit.go
- create mode 100644 src/vendor/github.com/microsoft/go/pkg/openssl/internal/fakecgo/go_linux_amd64.go
- create mode 100644 src/vendor/github.com/microsoft/go/pkg/openssl/internal/fakecgo/go_linux_arm64.go
+ create mode 100644 src/vendor/github.com/microsoft/go/pkg/openssl/internal/fakecgo/go_linux.go
  create mode 100644 src/vendor/github.com/microsoft/go/pkg/openssl/internal/fakecgo/go_setenv.go
  create mode 100644 src/vendor/github.com/microsoft/go/pkg/openssl/internal/fakecgo/go_util.go
  create mode 100644 src/vendor/github.com/microsoft/go/pkg/openssl/internal/fakecgo/iscgo.go
@@ -5636,11 +5632,11 @@ index 00000000000000..ef0c28b3009422
 +package fakecgo
 +
 +//go:generate go run gen.go
-diff --git a/src/vendor/github.com/microsoft/go/pkg/openssl/internal/fakecgo/go_darwin_amd64.go b/src/vendor/github.com/microsoft/go/pkg/openssl/internal/fakecgo/go_darwin_amd64.go
+diff --git a/src/vendor/github.com/microsoft/go/pkg/openssl/internal/fakecgo/go_darwin.go b/src/vendor/github.com/microsoft/go/pkg/openssl/internal/fakecgo/go_darwin.go
 new file mode 100644
 index 00000000000000..e9852c91d768a5
 --- /dev/null
-+++ b/src/vendor/github.com/microsoft/go/pkg/openssl/internal/fakecgo/go_darwin_amd64.go
++++ b/src/vendor/github.com/microsoft/go/pkg/openssl/internal/fakecgo/go_darwin.go
 @@ -0,0 +1,73 @@
 +// Copyright 2011 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
@@ -5714,100 +5710,6 @@ index 00000000000000..e9852c91d768a5
 +
 +	size = pthread_get_stacksize_np(pthread_self())
 +	g.stacklo = uintptr(unsafe.Add(unsafe.Pointer(&size), -size+4096))
-+}
-diff --git a/src/vendor/github.com/microsoft/go/pkg/openssl/internal/fakecgo/go_darwin_arm64.go b/src/vendor/github.com/microsoft/go/pkg/openssl/internal/fakecgo/go_darwin_arm64.go
-new file mode 100644
-index 00000000000000..0e125bd897a725
---- /dev/null
-+++ b/src/vendor/github.com/microsoft/go/pkg/openssl/internal/fakecgo/go_darwin_arm64.go
-@@ -0,0 +1,88 @@
-+// Copyright 2011 The Go Authors. All rights reserved.
-+// Use of this source code is governed by a BSD-style
-+// license that can be found in the LICENSE file.
-+
-+//go:build !cgo
-+
-+package fakecgo
-+
-+import "unsafe"
-+
-+//go:nosplit
-+//go:norace
-+func _cgo_sys_thread_start(ts *ThreadStart) {
-+	var attr pthread_attr_t
-+	var ign, oset sigset_t
-+	var p pthread_t
-+	var size size_t
-+	var err int
-+
-+	sigfillset(&ign)
-+	pthread_sigmask(SIG_SETMASK, &ign, &oset)
-+
-+	size = pthread_get_stacksize_np(pthread_self())
-+	pthread_attr_init(&attr)
-+	pthread_attr_setstacksize(&attr, size)
-+	// Leave stacklo=0 and set stackhi=size; mstart will do the rest.
-+	ts.g.stackhi = uintptr(size)
-+
-+	err = _cgo_try_pthread_create(&p, &attr, unsafe.Pointer(threadentry_trampolineABI0), ts)
-+
-+	pthread_sigmask(SIG_SETMASK, &oset, nil)
-+
-+	if err != 0 {
-+		print("fakecgo: pthread_create failed: ")
-+		println(err)
-+		abort()
-+	}
-+}
-+
-+// threadentry_trampolineABI0 maps the C ABI to Go ABI then calls the Go function
-+//
-+//go:linkname x_threadentry_trampoline threadentry_trampoline
-+var x_threadentry_trampoline byte
-+var threadentry_trampolineABI0 = &x_threadentry_trampoline
-+
-+//go:nosplit
-+//go:norace
-+func threadentry(v unsafe.Pointer) unsafe.Pointer {
-+	ts := *(*ThreadStart)(v)
-+	free(v)
-+
-+	// TODO: support ios
-+	//#if TARGET_OS_IPHONE
-+	//	darwin_arm_init_thread_exception_port();
-+	//#endif
-+	setg_trampoline(setg_func, uintptr(unsafe.Pointer(ts.g)))
-+
-+	// faking funcs in go is a bit a... involved - but the following works :)
-+	fn := uintptr(unsafe.Pointer(&ts.fn))
-+	(*(*func())(unsafe.Pointer(&fn)))()
-+
-+	return nil
-+}
-+
-+// here we will store a pointer to the provided setg func
-+var setg_func uintptr
-+
-+// x_cgo_init(G *g, void (*setg)(void*)) (runtime/cgo/gcc_linux_amd64.c)
-+// This get's called during startup, adjusts stacklo, and provides a pointer to setg_gcc for us
-+// Additionally, if we set _cgo_init to non-null, go won't do it's own TLS setup
-+// This function can't be go:systemstack since go is not in a state where the systemcheck would work.
-+//
-+//go:nosplit
-+//go:norace
-+func x_cgo_init(g *G, setg uintptr) {
-+	var size size_t
-+
-+	setg_func = setg
-+	size = pthread_get_stacksize_np(pthread_self())
-+	g.stacklo = uintptr(unsafe.Add(unsafe.Pointer(&size), -size+4096))
-+
-+	//TODO: support ios
-+	//#if TARGET_OS_IPHONE
-+	//	darwin_arm_init_mach_exception_handler();
-+	//	darwin_arm_init_thread_exception_port();
-+	//	init_working_dir();
-+	//#endif
 +}
 diff --git a/src/vendor/github.com/microsoft/go/pkg/openssl/internal/fakecgo/go_libinit.go b/src/vendor/github.com/microsoft/go/pkg/openssl/internal/fakecgo/go_libinit.go
 new file mode 100644
@@ -5887,11 +5789,11 @@ index 00000000000000..c33d4c0d0abebc
 +	}
 +	return int(syscall.EAGAIN)
 +}
-diff --git a/src/vendor/github.com/microsoft/go/pkg/openssl/internal/fakecgo/go_linux_amd64.go b/src/vendor/github.com/microsoft/go/pkg/openssl/internal/fakecgo/go_linux_amd64.go
+diff --git a/src/vendor/github.com/microsoft/go/pkg/openssl/internal/fakecgo/go_linux.go b/src/vendor/github.com/microsoft/go/pkg/openssl/internal/fakecgo/go_linux.go
 new file mode 100644
 index 00000000000000..15348b3dd68458
 --- /dev/null
-+++ b/src/vendor/github.com/microsoft/go/pkg/openssl/internal/fakecgo/go_linux_amd64.go
++++ b/src/vendor/github.com/microsoft/go/pkg/openssl/internal/fakecgo/go_linux.go
 @@ -0,0 +1,95 @@
 +// Copyright 2011 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
@@ -5984,110 +5886,6 @@ index 00000000000000..15348b3dd68458
 +	pthread_attr_getstacksize(attr, &size)
 +	// runtime/cgo uses __builtin_frame_address(0) instead of `uintptr(unsafe.Pointer(&size))`
 +	// but this should be OK since we are taking the address of the first variable in this function.
-+	g.stacklo = uintptr(unsafe.Pointer(&size)) - uintptr(size) + 4096
-+	pthread_attr_destroy(attr)
-+	free(unsafe.Pointer(attr))
-+}
-diff --git a/src/vendor/github.com/microsoft/go/pkg/openssl/internal/fakecgo/go_linux_arm64.go b/src/vendor/github.com/microsoft/go/pkg/openssl/internal/fakecgo/go_linux_arm64.go
-new file mode 100644
-index 00000000000000..c3f48f7cf0e37d
---- /dev/null
-+++ b/src/vendor/github.com/microsoft/go/pkg/openssl/internal/fakecgo/go_linux_arm64.go
-@@ -0,0 +1,98 @@
-+// Copyright 2011 The Go Authors. All rights reserved.
-+// Use of this source code is governed by a BSD-style
-+// license that can be found in the LICENSE file.
-+
-+//go:build !cgo
-+
-+package fakecgo
-+
-+import "unsafe"
-+
-+//go:nosplit
-+func _cgo_sys_thread_start(ts *ThreadStart) {
-+	var attr pthread_attr_t
-+	var ign, oset sigset_t
-+	var p pthread_t
-+	var size size_t
-+	var err int
-+
-+	//fprintf(stderr, "runtime/cgo: _cgo_sys_thread_start: fn=%p, g=%p\n", ts->fn, ts->g); // debug
-+	sigfillset(&ign)
-+	pthread_sigmask(SIG_SETMASK, &ign, &oset)
-+
-+	pthread_attr_init(&attr)
-+	pthread_attr_getstacksize(&attr, &size)
-+	// Leave stacklo=0 and set stackhi=size; mstart will do the rest.
-+	ts.g.stackhi = uintptr(size)
-+
-+	err = _cgo_try_pthread_create(&p, &attr, unsafe.Pointer(threadentry_trampolineABI0), ts)
-+
-+	pthread_sigmask(SIG_SETMASK, &oset, nil)
-+
-+	if err != 0 {
-+		print("fakecgo: pthread_create failed: ")
-+		println(err)
-+		abort()
-+	}
-+}
-+
-+// threadentry_trampolineABI0 maps the C ABI to Go ABI then calls the Go function
-+//
-+//go:linkname x_threadentry_trampoline threadentry_trampoline
-+var x_threadentry_trampoline byte
-+var threadentry_trampolineABI0 = &x_threadentry_trampoline
-+
-+//go:nosplit
-+func threadentry(v unsafe.Pointer) unsafe.Pointer {
-+	ts := *(*ThreadStart)(v)
-+	free(v)
-+
-+	setg_trampoline(setg_func, uintptr(unsafe.Pointer(ts.g)))
-+
-+	// faking funcs in go is a bit a... involved - but the following works :)
-+	fn := uintptr(unsafe.Pointer(&ts.fn))
-+	(*(*func())(unsafe.Pointer(&fn)))()
-+
-+	return nil
-+}
-+
-+// here we will store a pointer to the provided setg func
-+var setg_func uintptr
-+
-+// x_cgo_init(G *g, void (*setg)(void*)) (runtime/cgo/gcc_linux_amd64.c)
-+// This get's called during startup, adjusts stacklo, and provides a pointer to setg_gcc for us
-+// Additionally, if we set _cgo_init to non-null, go won't do it's own TLS setup
-+// This function can't be go:systemstack since go is not in a state where the systemcheck would work.
-+//
-+//go:nosplit
-+func x_cgo_init(g *G, setg uintptr) {
-+	var size size_t
-+	var attr *pthread_attr_t
-+
-+	/* The memory sanitizer distributed with versions of clang
-+	   before 3.8 has a bug: if you call mmap before malloc, mmap
-+	   may return an address that is later overwritten by the msan
-+	   library.  Avoid this problem by forcing a call to malloc
-+	   here, before we ever call malloc.
-+
-+	   This is only required for the memory sanitizer, so it's
-+	   unfortunate that we always run it.  It should be possible
-+	   to remove this when we no longer care about versions of
-+	   clang before 3.8.  The test for this is
-+	   misc/cgo/testsanitizers.
-+
-+	   GCC works hard to eliminate a seemingly unnecessary call to
-+	   malloc, so we actually use the memory we allocate.  */
-+
-+	setg_func = setg
-+	attr = (*pthread_attr_t)(malloc(unsafe.Sizeof(*attr)))
-+	if attr == nil {
-+		println("fakecgo: malloc failed")
-+		abort()
-+	}
-+	pthread_attr_init(attr)
-+	pthread_attr_getstacksize(attr, &size)
 +	g.stacklo = uintptr(unsafe.Pointer(&size)) - uintptr(size) + 4096
 +	pthread_attr_destroy(attr)
 +	free(unsafe.Pointer(attr))
@@ -8003,13 +7801,13 @@ index 00000000000000..3713914215d033
 +}
 diff --git a/src/vendor/github.com/microsoft/go/pkg/openssl/internal/ossl/zdl.s b/src/vendor/github.com/microsoft/go/pkg/openssl/internal/ossl/zdl.s
 new file mode 100644
-index 00000000000000..014c5157f5248e
+index 00000000000000..13987f3a03e5f4
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go/pkg/openssl/internal/ossl/zdl.s
 @@ -0,0 +1,26 @@
 +// Code generated by mkcgo. DO NOT EDIT.
 +
-+//go:build !cgo
++//go:build !cgo && (unix)
 +
 +#include "textflag.h"
 + 
@@ -8035,7 +7833,7 @@ index 00000000000000..014c5157f5248e
 +
 diff --git a/src/vendor/github.com/microsoft/go/pkg/openssl/internal/ossl/zdl_nocgo.go b/src/vendor/github.com/microsoft/go/pkg/openssl/internal/ossl/zdl_nocgo.go
 new file mode 100644
-index 00000000000000..3b7633f3c858b8
+index 00000000000000..a6271a6909fdb3
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go/pkg/openssl/internal/ossl/zdl_nocgo.go
 @@ -0,0 +1,45 @@
@@ -10153,7 +9951,7 @@ index 00000000000000..1444f551331fb6
 +
 diff --git a/src/vendor/github.com/microsoft/go/pkg/openssl/internal/ossl/zossl.go b/src/vendor/github.com/microsoft/go/pkg/openssl/internal/ossl/zossl.go
 new file mode 100644
-index 00000000000000..373cdf0016f7bc
+index 00000000000000..31c043aeb2d449
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go/pkg/openssl/internal/ossl/zossl.go
 @@ -0,0 +1,1329 @@
@@ -11874,7 +11672,7 @@ index 00000000000000..ae64d2f7ee9990
 +import "C"
 diff --git a/src/vendor/github.com/microsoft/go/pkg/openssl/internal/ossl/zossl_nocgo.go b/src/vendor/github.com/microsoft/go/pkg/openssl/internal/ossl/zossl_nocgo.go
 new file mode 100644
-index 00000000000000..2ef54e2953b378
+index 00000000000000..611f2684c3185d
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go/pkg/openssl/internal/ossl/zossl_nocgo.go
 @@ -0,0 +1,2906 @@
