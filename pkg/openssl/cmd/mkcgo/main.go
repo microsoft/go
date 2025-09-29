@@ -70,14 +70,6 @@ func main() {
 	})
 
 	if *nocgo {
-		// Determine if this is a zdl file for special handling
-		baseNameForCheck := *fileName
-		if baseNameForCheck == "" {
-			baseNameForCheck = "mkcgo"
-		} else {
-			baseNameForCheck = strings.TrimSuffix(baseNameForCheck, ".go")
-		}
-
 		// Generate nocgo mode files
 		var nocgoGoBuffer, assemblyBuffer bytes.Buffer
 		generateNocgoGo(&src, &nocgoGoBuffer)
