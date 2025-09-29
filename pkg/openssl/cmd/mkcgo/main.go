@@ -83,7 +83,7 @@ func main() {
 		generateNocgoGo(&src, &nocgoGoBuffer)
 
 		// Only generate assembly if needed (i.e., not all functions are static)
-		needsAsm := needsAssembly(&src)
+		needsAsm := needsAssembly()
 		if needsAsm {
 			generateAssembly(&src, &assemblyBuffer)
 		}
