@@ -357,8 +357,6 @@ For specific guidance within Microsoft:
 ## Disabling `systemcrypto`
 
 The difficulty of migrating to using `systemcrypto` can vary significantly depending on the Go project.
-If the change requires further planning and if it's acceptable for your project to be temporarily out of compliance with Microsoft cryptography policy, you can disable `systemcrypto`.
-
 If the change requires further planning and if it's acceptable for your project to be temporarily out of compliance with Microsoft cryptography policy, you can disable `systemcrypto` by following these instructions:
 
 - If you're using Go 1.25.2 or later, set the `MS_GO_NOSYSTEMCRYPTO` environment variable to 1.
