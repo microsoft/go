@@ -95,7 +95,7 @@ The `GOEXPERIMENT` environment variable is used at build time to select a crypto
 
 - `systemcrypto` automatically selects the suggested crypto backend for the target platform
    - Prior to Go 1.21, this experiment is not available and the backend must be selected manually
-   - Since Go 1.25, this experiment is enabled automatically on Windows and Linux. To disable it, see [Disabling `systemcrypto`](../MigrationGuide.md#disabling-systemcrypto).
+   - Since Go 1.25, this experiment is enabled automatically on Windows and Linux. It can be disabled like any other `GOEXPERIMENT`: setting `GOEXPERIMENT=nosystemcrypto`
 - `opensslcrypto` selects OpenSSL, for Linux
 - `cngcrypto` selects CNG, for Windows
 - Since 1.24, `darwincrypto` selects CommonCrypto & CryptoKit for macOS
