@@ -49,6 +49,10 @@ func threadentry(v unsafe.Pointer) unsafe.Pointer {
 	ts := *(*ThreadStart)(v)
 	free(v)
 
+	// TODO: support ios
+	//#if TARGET_OS_IPHONE
+	//	darwin_arm_init_thread_exception_port();
+	//#endif
 	setg_trampoline(setg_func, uintptr(unsafe.Pointer(ts.g)))
 
 	// faking funcs in go is a bit a... involved - but the following works :)
@@ -61,13 +65,24 @@ func threadentry(v unsafe.Pointer) unsafe.Pointer {
 // here we will store a pointer to the provided setg func
 var setg_func uintptr
 
+// x_cgo_init(G *g, void (*setg)(void*)) (runtime/cgo/gcc_linux_amd64.c)
+// This get's called during startup, adjusts stacklo, and provides a pointer to setg_gcc for us
+// Additionally, if we set _cgo_init to non-null, go won't do it's own TLS setup
+// This function can't be go:systemstack since go is not in a state where the systemcheck would work.
+//
 //go:nosplit
 //go:norace
 func x_cgo_init(g *G, setg uintptr) {
 	var size size_t
 
 	setg_func = setg
-
 	size = pthread_get_stacksize_np(pthread_self())
 	g.stacklo = uintptr(unsafe.Add(unsafe.Pointer(&size), -size+4096))
+
+	//TODO: support ios
+	//#if TARGET_OS_IPHONE
+	//	darwin_arm_init_mach_exception_handler();
+	//	darwin_arm_init_thread_exception_port();
+	//	init_working_dir();
+	//#endif
 }
