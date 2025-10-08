@@ -55,7 +55,7 @@ desired goexperiments and build tags.
  src/internal/buildcfg/exp.go                  |  54 +++
  src/runtime/runtime_boring.go                 |   5 +
  src/syscall/exec_linux_test.go                |   2 +-
- 46 files changed, 2318 insertions(+), 22 deletions(-)
+ 46 files changed, 2317 insertions(+), 23 deletions(-)
  create mode 100644 src/cmd/go/systemcrypto_test.go
  create mode 100644 src/crypto/internal/backend/backend_test.go
  create mode 100644 src/crypto/internal/backend/bbig/big.go
@@ -160,7 +160,7 @@ index 0e32e0769ee2e2..eda2d576acc6c6 100644
  	if doReplacement {
  		if testCompiler == "" {
 diff --git a/src/cmd/dist/build.go b/src/cmd/dist/build.go
-index 9a7951726f6f04..a09cdd9550cbab 100644
+index 024050c2dd70c4..f91bf0a7c4ad1c 100644
 --- a/src/cmd/dist/build.go
 +++ b/src/cmd/dist/build.go
 @@ -1387,6 +1387,80 @@ func toolenv() []string {
@@ -261,7 +261,7 @@ index 9a7951726f6f04..a09cdd9550cbab 100644
  	if debug {
  		run("", ShowOutput|CheckExit, pathf("%s/compile", tooldir), "-V=full")
 diff --git a/src/cmd/dist/test.go b/src/cmd/dist/test.go
-index 1e74438f48db39..6c31b623897048 100644
+index aa09d1eba34be8..c6926516f485f4 100644
 --- a/src/cmd/dist/test.go
 +++ b/src/cmd/dist/test.go
 @@ -156,10 +156,12 @@ func (t *tester) run() {
@@ -291,7 +291,7 @@ index 1e74438f48db39..6c31b623897048 100644
  		}
  	}
  
-@@ -750,11 +752,18 @@ func (t *tester) registerTests() {
+@@ -749,11 +751,18 @@ func (t *tester) registerTests() {
  			variant: "jsonv2",
  			env:     []string{"GOEXPERIMENT=jsonv2"},
  			pkg:     "encoding/json/...",
@@ -311,7 +311,7 @@ index 1e74438f48db39..6c31b623897048 100644
  		t.registerTest("GOOS=ios on darwin/amd64",
  			&goTest{
  				variant:  "amd64ios",
-@@ -864,14 +873,21 @@ func (t *tester) registerTests() {
+@@ -863,14 +872,21 @@ func (t *tester) registerTests() {
  
  	// Test internal linking of PIE binaries where it is supported.
  	if t.internalLinkPIE() && !disablePIE {
@@ -334,7 +334,7 @@ index 1e74438f48db39..6c31b623897048 100644
  			})
  		t.registerTest("internal linking, -buildmode=pie",
  			&goTest{
-@@ -879,9 +895,10 @@ func (t *tester) registerTests() {
+@@ -878,9 +894,10 @@ func (t *tester) registerTests() {
  				timeout:   60 * time.Second,
  				buildmode: "pie",
  				ldflags:   "-linkmode=internal",
@@ -346,7 +346,7 @@ index 1e74438f48db39..6c31b623897048 100644
  			})
  		// Also test a cgo package.
  		if t.cgoEnabled && t.internalLink() && !disablePIE {
-@@ -898,15 +915,22 @@ func (t *tester) registerTests() {
+@@ -897,15 +914,22 @@ func (t *tester) registerTests() {
  
  	if t.extLink() && !t.compileOnly {
  		if goos != "android" { // Android does not support non-PIE linking
@@ -370,7 +370,7 @@ index 1e74438f48db39..6c31b623897048 100644
  				})
  		}
  		if t.externalLinkPIE() && !disablePIE {
-@@ -985,7 +1009,9 @@ func (t *tester) registerTests() {
+@@ -984,7 +1008,9 @@ func (t *tester) registerTests() {
  		t.registerRaceTests()
  	}
  
@@ -382,10 +382,10 @@ index 1e74438f48db39..6c31b623897048 100644
  		// where they get distributed to multiple machines.
  		// See issues 20141 and 31834.
 diff --git a/src/cmd/go/go_test.go b/src/cmd/go/go_test.go
-index e4ee9bd1e8d2ec..3bdb6b4d31fe46 100644
+index 3e691abe41f702..b799031d598892 100644
 --- a/src/cmd/go/go_test.go
 +++ b/src/cmd/go/go_test.go
-@@ -13,6 +13,7 @@ import (
+@@ -14,6 +14,7 @@ import (
  	"fmt"
  	"go/format"
  	"internal/godebug"
@@ -393,7 +393,7 @@ index e4ee9bd1e8d2ec..3bdb6b4d31fe46 100644
  	"internal/platform"
  	"internal/testenv"
  	"io"
-@@ -110,6 +111,13 @@ func TestMain(m *testing.M) {
+@@ -111,6 +112,13 @@ func TestMain(m *testing.M) {
  		if v := os.Getenv("TESTGO_TOOLCHAIN_VERSION"); v != "" {
  			work.ToolchainVersion = v
  		}
@@ -407,7 +407,7 @@ index e4ee9bd1e8d2ec..3bdb6b4d31fe46 100644
  
  		if testGOROOT := os.Getenv("TESTGO_GOROOT"); testGOROOT != "" {
  			// Disallow installs to the GOROOT from which testgo was built.
-@@ -1860,6 +1868,9 @@ func TestGenerateUsesBuildContext(t *testing.T) {
+@@ -1861,6 +1869,9 @@ func TestGenerateUsesBuildContext(t *testing.T) {
  }
  
  func TestGoEnv(t *testing.T) {
@@ -677,7 +677,7 @@ index 2f46a6b44bffe1..69071289e2de81 100644
  
  ! go build -o $devnull cmd/buildid
 diff --git a/src/cmd/internal/testdir/testdir_test.go b/src/cmd/internal/testdir/testdir_test.go
-index c5aa91ba4732e7..9e838fa785af46 100644
+index 483a9ec33c6798..fad922e3f844ab 100644
 --- a/src/cmd/internal/testdir/testdir_test.go
 +++ b/src/cmd/internal/testdir/testdir_test.go
 @@ -118,6 +118,13 @@ func Test(t *testing.T) {
@@ -695,7 +695,7 @@ index c5aa91ba4732e7..9e838fa785af46 100644
  		gorootTestDir: filepath.Join(testenv.GOROOT(t), "test"),
  		runoutputGate: make(chan bool, *runoutputLimit),
 diff --git a/src/cmd/link/internal/ld/main.go b/src/cmd/link/internal/ld/main.go
-index d913953944bc43..daa8aa3d964ed0 100644
+index 6a684890be0a03..09554a60b23471 100644
 --- a/src/cmd/link/internal/ld/main.go
 +++ b/src/cmd/link/internal/ld/main.go
 @@ -44,6 +44,7 @@ import (
@@ -706,7 +706,7 @@ index d913953944bc43..daa8aa3d964ed0 100644
  	"strconv"
  	"strings"
  )
-@@ -188,7 +189,18 @@ func Main(arch *sys.Arch, theArch Arch) {
+@@ -187,7 +188,18 @@ func Main(arch *sys.Arch, theArch Arch) {
  
  	buildVersion := buildcfg.Version
  	if goexperiment := buildcfg.Experiment.String(); goexperiment != "" {
@@ -727,7 +727,7 @@ index d913953944bc43..daa8aa3d964ed0 100644
  	addstrdata1(ctxt, "runtime.buildVersion="+buildVersion)
  
 diff --git a/src/cmd/link/link_test.go b/src/cmd/link/link_test.go
-index 0125ba8e0f56be..2bc0b65f1035ed 100644
+index 2fe32600f1d6c7..f84cbdc5ee25f0 100644
 --- a/src/cmd/link/link_test.go
 +++ b/src/cmd/link/link_test.go
 @@ -9,6 +9,7 @@ import (
@@ -2798,10 +2798,10 @@ index 00000000000000..13782a8241b99a
 +	`
 +}
 diff --git a/src/go/build/deps_test.go b/src/go/build/deps_test.go
-index 9b7613a62b5a31..1997d90f2f20ba 100644
+index 9bfef9e125e8d3..ba601c2d1d0c6e 100644
 --- a/src/go/build/deps_test.go
 +++ b/src/go/build/deps_test.go
-@@ -350,7 +350,7 @@ var depsRules = `
+@@ -353,7 +353,7 @@ var depsRules = `
  	math/big, go/token
  	< go/constant;
  
@@ -2856,12 +2856,12 @@ index 9b7613a62b5a31..1997d90f2f20ba 100644
  	math/big, github.com/microsoft/go-crypto-darwin/xcrypto < github.com/microsoft/go-crypto-darwin/bbig;
  	math/big, github.com/microsoft/go-crypto-winnative/cng < github.com/microsoft/go-crypto-winnative/cng/bbig;
  
--	CRYPTO, FMT, math/big
+-	CRYPTO, FMT, math/big, internal/saferio
 -	< crypto/internal/boring/bbig
 +	FMT, math/big, crypto/internal/boring
 +	< crypto/internal/boring/bbig;
 +
-+	CRYPTO, FMT, math/big,
++	CRYPTO, FMT, math/big, internal/saferio,
 +	github.com/golang-fips/openssl/v2/bbig,
 +	github.com/microsoft/go-crypto-darwin/bbig,
 +	github.com/microsoft/go-crypto-winnative/cng/bbig
@@ -2870,7 +2870,7 @@ index 9b7613a62b5a31..1997d90f2f20ba 100644
  	< crypto/rand
  	< crypto/ed25519 # depends on crypto/rand.Reader
 diff --git a/src/internal/buildcfg/exp.go b/src/internal/buildcfg/exp.go
-index 6eab28497a3f2e..81296762c7e231 100644
+index 4a26d623ad1424..e110f465ef8812 100644
 --- a/src/internal/buildcfg/exp.go
 +++ b/src/internal/buildcfg/exp.go
 @@ -5,12 +5,15 @@
@@ -2889,7 +2889,7 @@ index 6eab28497a3f2e..81296762c7e231 100644
  )
  
  // ExperimentFlags represents a set of GOEXPERIMENT flags relative to a baseline
-@@ -192,6 +195,57 @@ func ParseGOEXPERIMENT(goos, goarch, goexp string) (*ExperimentFlags, error) {
+@@ -194,6 +197,57 @@ func ParseGOEXPERIMENT(goos, goarch, goexp string) (*ExperimentFlags, error) {
  	if flags.BoringCrypto {
  		return nil, fmt.Errorf("GOEXPERIMENT boringcrypto is not supported in the Microsoft build of Go")
  	}

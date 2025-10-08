@@ -39,7 +39,7 @@ Subject: [PATCH] Use crypto backends
  src/crypto/hmac/hmac.go                       |   2 +-
  src/crypto/hmac/hmac_test.go                  |   2 +-
  src/crypto/internal/cryptotest/allocations.go |   6 -
- src/crypto/internal/cryptotest/hash.go        |   3 +-
+ src/crypto/internal/cryptotest/hash.go        |   3 -
  .../internal/cryptotest/implementations.go    |   2 +-
  src/crypto/internal/fips140test/acvp_test.go  |   6 +
  src/crypto/internal/fips140test/check_test.go |  16 ++
@@ -91,7 +91,7 @@ Subject: [PATCH] Use crypto backends
  src/net/lookup_test.go                        |   3 +
  src/os/exec/exec_test.go                      |   9 +
  src/runtime/pprof/vminfo_darwin_test.go       |   6 +
- 87 files changed, 1186 insertions(+), 116 deletions(-)
+ 87 files changed, 1185 insertions(+), 115 deletions(-)
  create mode 100644 src/crypto/dsa/boring.go
  create mode 100644 src/crypto/dsa/notboring.go
  create mode 100644 src/crypto/ecdsa/badlinkname.go
@@ -117,7 +117,7 @@ index f0e3575637c62a..9eab3b4e66e60b 100644
  package main
  
 diff --git a/src/cmd/dist/test.go b/src/cmd/dist/test.go
-index c3f3a8324c507c..aedd8cd2902f27 100644
+index c6926516f485f4..67184718701b81 100644
 --- a/src/cmd/dist/test.go
 +++ b/src/cmd/dist/test.go
 @@ -719,7 +719,7 @@ func (t *tester) registerTests() {
@@ -1338,7 +1338,7 @@ index 70055af70b42ec..21528faa0d6145 100644
  	if race.Enabled || msan.Enabled || asan.Enabled {
  		t.Skip("skipping allocations test with sanitizers")
 diff --git a/src/crypto/internal/cryptotest/hash.go b/src/crypto/internal/cryptotest/hash.go
-index f00e9c80d3c86a..e24b6cbbd00f68 100644
+index f0dd6f7aa09c3b..6d4b190831d57d 100644
 --- a/src/crypto/internal/cryptotest/hash.go
 +++ b/src/crypto/internal/cryptotest/hash.go
 @@ -5,7 +5,6 @@
@@ -1349,15 +1349,15 @@ index f00e9c80d3c86a..e24b6cbbd00f68 100644
  	"crypto/internal/fips140"
  	"hash"
  	"internal/testhash"
-@@ -20,7 +19,7 @@ type MakeHash func() hash.Hash
- // TestHash performs a set of tests on hash.Hash implementations, checking the
- // documented requirements of Write, Sum, Reset, Size, and BlockSize.
- func TestHash(t *testing.T, mh MakeHash) {
--	if boring.Enabled || fips140.Version() == "v1.0" {
-+	if fips140.Version() == "v1.0" {
- 		testhash.TestHashWithoutClone(t, testhash.MakeHash(mh))
- 		return
- 	}
+-@@ -20,7 +19,7 @@ type MakeHash func() hash.Hash
+- // TestHash performs a set of tests on hash.Hash implementations, checking the
+- // documented requirements of Write, Sum, Reset, Size, and BlockSize.
+- func TestHash(t *testing.T, mh MakeHash) {
+--      if boring.Enabled || fips140.Version() == "v1.0.0" {
+-+      if fips140.Version() == "v1.0.0" {
+-               testhash.TestHashWithoutClone(t, testhash.MakeHash(mh))
+-               return
+-       }
 diff --git a/src/crypto/internal/cryptotest/implementations.go b/src/crypto/internal/cryptotest/implementations.go
 index f0ba665403e4e2..e1869abd3ccc4b 100644
 --- a/src/crypto/internal/cryptotest/implementations.go
@@ -1372,7 +1372,7 @@ index f0ba665403e4e2..e1869abd3ccc4b 100644
  	"internal/goarch"
  	"internal/goos"
 diff --git a/src/crypto/internal/fips140test/acvp_test.go b/src/crypto/internal/fips140test/acvp_test.go
-index 5871bde8be4b2b..3ebefad8898bf2 100644
+index 47a42cce1bcc22..7e04972a68b570 100644
 --- a/src/crypto/internal/fips140test/acvp_test.go
 +++ b/src/crypto/internal/fips140test/acvp_test.go
 @@ -22,6 +22,8 @@ import (
@@ -1448,7 +1448,7 @@ index c4f6a95e3ecbe5..4cca9bcfaf905a 100644
  		t.Skipf("skipping: %v", err)
  	}
 diff --git a/src/crypto/internal/fips140test/fips_test.go b/src/crypto/internal/fips140test/fips_test.go
-index 08d60933ef38b8..8840db05bde791 100644
+index 52fc9d34886003..9afaf522df475c 100644
 --- a/src/crypto/internal/fips140test/fips_test.go
 +++ b/src/crypto/internal/fips140test/fips_test.go
 @@ -15,7 +15,7 @@ package fipstest
@@ -2588,7 +2588,7 @@ index 7018bb2336b8f3..d5e02272d7afe1 100644
  	"hash"
  	"slices"
 diff --git a/src/crypto/tls/handshake_server.go b/src/crypto/tls/handshake_server.go
-index 1e0b5f06672d15..9f72e2376e42ce 100644
+index 088c66fadb2a44..ca33ba92665d44 100644
 --- a/src/crypto/tls/handshake_server.go
 +++ b/src/crypto/tls/handshake_server.go
 @@ -63,7 +63,15 @@ func (c *Conn) serverHandshake(ctx context.Context) error {
@@ -2962,10 +2962,10 @@ index e7369542a73270..ff52175e4ac636 100644
  	}
  }
 diff --git a/src/go/build/deps_test.go b/src/go/build/deps_test.go
-index 1997d90f2f20ba..f69862c628eea4 100644
+index ba601c2d1d0c6e..9d57ff6d2e87fa 100644
 --- a/src/go/build/deps_test.go
 +++ b/src/go/build/deps_test.go
-@@ -517,7 +517,7 @@ var depsRules = `
+@@ -519,7 +519,7 @@ var depsRules = `
  	< crypto/internal/fips140/edwards25519
  	< crypto/internal/fips140/ed25519
  	< crypto/internal/fips140/rsa
@@ -2974,7 +2974,7 @@ index 1997d90f2f20ba..f69862c628eea4 100644
  
  	FIPS, hash < crypto/internal/fips140only;
  	crypto/internal/fips140/subtle,	hash < crypto;
-@@ -542,6 +542,8 @@ var depsRules = `
+@@ -544,6 +544,8 @@ var depsRules = `
  	< crypto/internal/backend/internal/opensslsetup
  	< crypto/internal/backend/fips140;
  
@@ -2983,7 +2983,7 @@ index 1997d90f2f20ba..f69862c628eea4 100644
  	crypto !< FIPS;
  
  	# CRYPTO is core crypto algorithms - no cgo, fmt, net.
-@@ -584,6 +586,7 @@ var depsRules = `
+@@ -586,6 +588,7 @@ var depsRules = `
  	  crypto/pbkdf2,
  	  crypto/ecdh,
  	  crypto/mlkem
