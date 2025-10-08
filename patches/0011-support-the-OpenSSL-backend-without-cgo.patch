@@ -51,22 +51,26 @@ Subject: [PATCH] support the OpenSSL backend without cgo
  .../pkg/openssl/internal/fakecgo/asm_arm64.s  |   36 +
  .../pkg/openssl/internal/fakecgo/callbacks.go |   93 +
  .../go/pkg/openssl/internal/fakecgo/doc.go    |   32 +
- .../pkg/openssl/internal/fakecgo/go_darwin.go |   73 +
+ .../pkg/openssl/internal/fakecgo/fakecgo.go   |   27 +
+ .../pkg/openssl/internal/fakecgo/go_darwin.go |   88 +
  .../openssl/internal/fakecgo/go_libinit.go    |   72 +
- .../pkg/openssl/internal/fakecgo/go_linux.go  |   95 +
+ .../pkg/openssl/internal/fakecgo/go_linux.go  |  100 +
  .../pkg/openssl/internal/fakecgo/go_setenv.go |   18 +
  .../pkg/openssl/internal/fakecgo/go_util.go   |   37 +
  .../go/pkg/openssl/internal/fakecgo/iscgo.go  |   19 +
  .../go/pkg/openssl/internal/fakecgo/libcgo.go |   38 +
  .../openssl/internal/fakecgo/libcgo_darwin.go |   26 +
  .../openssl/internal/fakecgo/libcgo_linux.go  |   20 +
+ .../go/pkg/openssl/internal/fakecgo/linux.go  |   34 +
  .../go/pkg/openssl/internal/fakecgo/setenv.go |   19 +
- .../pkg/openssl/internal/fakecgo/symbols.go   |  231 ++
+ .../pkg/openssl/internal/fakecgo/symbols.go   |  225 ++
  .../internal/fakecgo/symbols_darwin.go        |   30 +
- .../openssl/internal/fakecgo/symbols_linux.go |   30 +
+ .../openssl/internal/fakecgo/symbols_linux.go |  277 ++
  .../internal/fakecgo/trampolines_amd64.s      |  104 +
  .../internal/fakecgo/trampolines_arm64.s      |   72 +
  .../internal/fakecgo/trampolines_stubs.s      |   94 +
+ .../fakecgo/ztrampolines_linux_amd64.s        |  103 +
+ .../fakecgo/ztrampolines_linux_arm64.s        |  103 +
  .../go/pkg/openssl/internal/ossl/asm_amd64.s  |   73 +
  .../go/pkg/openssl/internal/ossl/asm_arm64.s  |   83 +
  .../go/pkg/openssl/internal/ossl/dl.h         |   12 +
@@ -100,7 +104,7 @@ Subject: [PATCH] support the OpenSSL backend without cgo
  .../microsoft/go/pkg/openssl/tls1prf.go       |  158 +
  .../microsoft/go/pkg/openssl/zaes.go          |   86 +
  src/vendor/modules.txt                        |    7 +
- 96 files changed, 15808 insertions(+), 13 deletions(-)
+ 100 files changed, 16336 insertions(+), 13 deletions(-)
  create mode 100644 src/crypto/internal/backend/bbig/big_openssl_nocgo.go
  create mode 100644 src/crypto/internal/backend/internal/opensslsetup/opensslsetup_nocgo.go
  create mode 100644 src/crypto/internal/backend/openssl_linux_nocgo.go
@@ -135,6 +139,7 @@ Subject: [PATCH] support the OpenSSL backend without cgo
  create mode 100644 src/vendor/github.com/microsoft/go/pkg/openssl/internal/fakecgo/asm_arm64.s
  create mode 100644 src/vendor/github.com/microsoft/go/pkg/openssl/internal/fakecgo/callbacks.go
  create mode 100644 src/vendor/github.com/microsoft/go/pkg/openssl/internal/fakecgo/doc.go
+ create mode 100644 src/vendor/github.com/microsoft/go/pkg/openssl/internal/fakecgo/fakecgo.go
  create mode 100644 src/vendor/github.com/microsoft/go/pkg/openssl/internal/fakecgo/go_darwin.go
  create mode 100644 src/vendor/github.com/microsoft/go/pkg/openssl/internal/fakecgo/go_libinit.go
  create mode 100644 src/vendor/github.com/microsoft/go/pkg/openssl/internal/fakecgo/go_linux.go
@@ -144,6 +149,7 @@ Subject: [PATCH] support the OpenSSL backend without cgo
  create mode 100644 src/vendor/github.com/microsoft/go/pkg/openssl/internal/fakecgo/libcgo.go
  create mode 100644 src/vendor/github.com/microsoft/go/pkg/openssl/internal/fakecgo/libcgo_darwin.go
  create mode 100644 src/vendor/github.com/microsoft/go/pkg/openssl/internal/fakecgo/libcgo_linux.go
+ create mode 100644 src/vendor/github.com/microsoft/go/pkg/openssl/internal/fakecgo/linux.go
  create mode 100644 src/vendor/github.com/microsoft/go/pkg/openssl/internal/fakecgo/setenv.go
  create mode 100644 src/vendor/github.com/microsoft/go/pkg/openssl/internal/fakecgo/symbols.go
  create mode 100644 src/vendor/github.com/microsoft/go/pkg/openssl/internal/fakecgo/symbols_darwin.go
@@ -151,6 +157,8 @@ Subject: [PATCH] support the OpenSSL backend without cgo
  create mode 100644 src/vendor/github.com/microsoft/go/pkg/openssl/internal/fakecgo/trampolines_amd64.s
  create mode 100644 src/vendor/github.com/microsoft/go/pkg/openssl/internal/fakecgo/trampolines_arm64.s
  create mode 100644 src/vendor/github.com/microsoft/go/pkg/openssl/internal/fakecgo/trampolines_stubs.s
+ create mode 100644 src/vendor/github.com/microsoft/go/pkg/openssl/internal/fakecgo/ztrampolines_linux_amd64.s
+ create mode 100644 src/vendor/github.com/microsoft/go/pkg/openssl/internal/fakecgo/ztrampolines_linux_arm64.s
  create mode 100644 src/vendor/github.com/microsoft/go/pkg/openssl/internal/ossl/asm_amd64.s
  create mode 100644 src/vendor/github.com/microsoft/go/pkg/openssl/internal/ossl/asm_arm64.s
  create mode 100644 src/vendor/github.com/microsoft/go/pkg/openssl/internal/ossl/dl.h
@@ -5674,12 +5682,45 @@ index 00000000000000..ef0c28b3009422
 +package fakecgo
 +
 +//go:generate go run gen.go
+diff --git a/src/vendor/github.com/microsoft/go/pkg/openssl/internal/fakecgo/fakecgo.go b/src/vendor/github.com/microsoft/go/pkg/openssl/internal/fakecgo/fakecgo.go
+new file mode 100644
+index 00000000000000..27b253e3d02897
+--- /dev/null
++++ b/src/vendor/github.com/microsoft/go/pkg/openssl/internal/fakecgo/fakecgo.go
+@@ -0,0 +1,27 @@
++// SPDX-License-Identifier: Apache-2.0
++// SPDX-FileCopyrightText: 2022 The Ebitengine Authors
++
++//go:build !cgo && (darwin || linux)
++
++package fakecgo
++
++import "unsafe"
++
++// setg_trampoline calls setg with the G provided
++func setg_trampoline(setg uintptr, G uintptr)
++
++// call5 takes fn the C function and 5 arguments and calls the function with those arguments
++func call5(fn, a1, a2, a3, a4, a5 uintptr) uintptr
++
++// argset matches runtime/cgocall.go:argset.
++type argset struct {
++	args   *uintptr
++	retval uintptr
++}
++
++//go:nosplit
++//go:norace
++func (a *argset) arg(i int) unsafe.Pointer {
++	// this indirection is to avoid go vet complaining about possible misuse of unsafe.Pointer
++	return *(*unsafe.Pointer)(unsafe.Add(unsafe.Pointer(a.args), uintptr(i)*unsafe.Sizeof(uintptr(0))))
++}
 diff --git a/src/vendor/github.com/microsoft/go/pkg/openssl/internal/fakecgo/go_darwin.go b/src/vendor/github.com/microsoft/go/pkg/openssl/internal/fakecgo/go_darwin.go
 new file mode 100644
-index 00000000000000..e9852c91d768a5
+index 00000000000000..0e125bd897a725
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go/pkg/openssl/internal/fakecgo/go_darwin.go
-@@ -0,0 +1,73 @@
+@@ -0,0 +1,88 @@
 +// Copyright 2011 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -5731,6 +5772,10 @@ index 00000000000000..e9852c91d768a5
 +	ts := *(*ThreadStart)(v)
 +	free(v)
 +
++	// TODO: support ios
++	//#if TARGET_OS_IPHONE
++	//	darwin_arm_init_thread_exception_port();
++	//#endif
 +	setg_trampoline(setg_func, uintptr(unsafe.Pointer(ts.g)))
 +
 +	// faking funcs in go is a bit a... involved - but the following works :)
@@ -5743,15 +5788,26 @@ index 00000000000000..e9852c91d768a5
 +// here we will store a pointer to the provided setg func
 +var setg_func uintptr
 +
++// x_cgo_init(G *g, void (*setg)(void*)) (runtime/cgo/gcc_linux_amd64.c)
++// This get's called during startup, adjusts stacklo, and provides a pointer to setg_gcc for us
++// Additionally, if we set _cgo_init to non-null, go won't do it's own TLS setup
++// This function can't be go:systemstack since go is not in a state where the systemcheck would work.
++//
 +//go:nosplit
 +//go:norace
 +func x_cgo_init(g *G, setg uintptr) {
 +	var size size_t
 +
 +	setg_func = setg
-+
 +	size = pthread_get_stacksize_np(pthread_self())
 +	g.stacklo = uintptr(unsafe.Add(unsafe.Pointer(&size), -size+4096))
++
++	//TODO: support ios
++	//#if TARGET_OS_IPHONE
++	//	darwin_arm_init_mach_exception_handler();
++	//	darwin_arm_init_thread_exception_port();
++	//	init_working_dir();
++	//#endif
 +}
 diff --git a/src/vendor/github.com/microsoft/go/pkg/openssl/internal/fakecgo/go_libinit.go b/src/vendor/github.com/microsoft/go/pkg/openssl/internal/fakecgo/go_libinit.go
 new file mode 100644
@@ -5833,10 +5889,10 @@ index 00000000000000..c33d4c0d0abebc
 +}
 diff --git a/src/vendor/github.com/microsoft/go/pkg/openssl/internal/fakecgo/go_linux.go b/src/vendor/github.com/microsoft/go/pkg/openssl/internal/fakecgo/go_linux.go
 new file mode 100644
-index 00000000000000..15348b3dd68458
+index 00000000000000..eac8019a10c8a7
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go/pkg/openssl/internal/fakecgo/go_linux.go
-@@ -0,0 +1,95 @@
+@@ -0,0 +1,100 @@
 +// Copyright 2011 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -5898,6 +5954,11 @@ index 00000000000000..15348b3dd68458
 +// here we will store a pointer to the provided setg func
 +var setg_func uintptr
 +
++// x_cgo_init(G *g, void (*setg)(void*)) (runtime/cgo/gcc_linux_amd64.c)
++// This get's called during startup, adjusts stacklo, and provides a pointer to setg_gcc for us
++// Additionally, if we set _cgo_init to non-null, go won't do it's own TLS setup
++// This function can't be go:systemstack since go is not in a state where the systemcheck would work.
++//
 +//go:nosplit
 +func x_cgo_init(g *G, setg uintptr) {
 +	var size size_t
@@ -6126,6 +6187,46 @@ index 00000000000000..61948af552dde1
 +type stack_t struct {
 +	/* not implemented */
 +}
+diff --git a/src/vendor/github.com/microsoft/go/pkg/openssl/internal/fakecgo/linux.go b/src/vendor/github.com/microsoft/go/pkg/openssl/internal/fakecgo/linux.go
+new file mode 100644
+index 00000000000000..4d596c167288f0
+--- /dev/null
++++ b/src/vendor/github.com/microsoft/go/pkg/openssl/internal/fakecgo/linux.go
+@@ -0,0 +1,34 @@
++// SPDX-License-Identifier: Apache-2.0
++// SPDX-FileCopyrightText: 2022 The Ebitengine Authors
++
++//go:build !cgo && linux
++
++package fakecgo
++
++import "unsafe"
++
++//go:linkname _cgo_libc_setegid syscall.cgo_libc_setegid
++//go:linkname _cgo_libc_seteuid syscall.cgo_libc_seteuid
++//go:linkname _cgo_libc_setgid syscall.cgo_libc_setgid
++//go:linkname _cgo_libc_setregid syscall.cgo_libc_setregid
++//go:linkname _cgo_libc_setresgid syscall.cgo_libc_setresgid
++//go:linkname _cgo_libc_setresuid syscall.cgo_libc_setresuid
++//go:linkname _cgo_libc_setreuid syscall.cgo_libc_setreuid
++//go:linkname _cgo_libc_setuid syscall.cgo_libc_setuid
++//go:linkname _cgo_libc_setgroups syscall.cgo_libc_setgroups
++
++var _cgo_libc_setegid = &_cgo_purego_setegid_trampoline
++var _cgo_libc_seteuid = &_cgo_purego_seteuid_trampoline
++var _cgo_libc_setgid = &_cgo_purego_setgid_trampoline
++var _cgo_libc_setregid = &_cgo_purego_setregid_trampoline
++var _cgo_libc_setresgid = &_cgo_purego_setresgid_trampoline
++var _cgo_libc_setresuid = &_cgo_purego_setresuid_trampoline
++var _cgo_libc_setreuid = &_cgo_purego_setreuid_trampoline
++var _cgo_libc_setuid = &_cgo_purego_setuid_trampoline
++var _cgo_libc_setgroups = &_cgo_purego_setgroups_trampoline
++
++func errno() int32 {
++	// this indirection is to avoid go vet complaining about possible misuse of unsafe.Pointer
++	loc := __errno_location()
++	return **(**int32)(unsafe.Pointer(&loc))
++}
 diff --git a/src/vendor/github.com/microsoft/go/pkg/openssl/internal/fakecgo/setenv.go b/src/vendor/github.com/microsoft/go/pkg/openssl/internal/fakecgo/setenv.go
 new file mode 100644
 index 00000000000000..abb69e74a01437
@@ -6153,10 +6254,10 @@ index 00000000000000..abb69e74a01437
 +var _cgo_unsetenv = &x_cgo_unsetenv_trampoline
 diff --git a/src/vendor/github.com/microsoft/go/pkg/openssl/internal/fakecgo/symbols.go b/src/vendor/github.com/microsoft/go/pkg/openssl/internal/fakecgo/symbols.go
 new file mode 100644
-index 00000000000000..74db9a393e03fc
+index 00000000000000..b951ea7a54dc95
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go/pkg/openssl/internal/fakecgo/symbols.go
-@@ -0,0 +1,231 @@
+@@ -0,0 +1,225 @@
 +// Code generated by 'go generate' with gen.go. DO NOT EDIT.
 +
 +// SPDX-License-Identifier: Apache-2.0
@@ -6170,12 +6271,6 @@ index 00000000000000..74db9a393e03fc
 +	"syscall"
 +	"unsafe"
 +)
-+
-+// setg_trampoline calls setg with the G provided
-+func setg_trampoline(setg uintptr, G uintptr)
-+
-+// call5 takes fn the C function and 5 arguments and calls the function with those arguments
-+func call5(fn, a1, a2, a3, a4, a5 uintptr) uintptr
 +
 +//go:nosplit
 +//go:norace
@@ -6426,10 +6521,10 @@ index 00000000000000..fa97ae55cc2110
 +//go:cgo_import_dynamic purego_pthread_setspecific pthread_setspecific "/usr/lib/libSystem.B.dylib"
 diff --git a/src/vendor/github.com/microsoft/go/pkg/openssl/internal/fakecgo/symbols_linux.go b/src/vendor/github.com/microsoft/go/pkg/openssl/internal/fakecgo/symbols_linux.go
 new file mode 100644
-index 00000000000000..dcac8e464f1adf
+index 00000000000000..c0561d0b57c92e
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go/pkg/openssl/internal/fakecgo/symbols_linux.go
-@@ -0,0 +1,30 @@
+@@ -0,0 +1,277 @@
 +// Code generated by 'go generate' with gen.go. DO NOT EDIT.
 +
 +// SPDX-License-Identifier: Apache-2.0
@@ -6439,6 +6534,8 @@ index 00000000000000..dcac8e464f1adf
 +
 +package fakecgo
 +
++import "unsafe"
++
 +//go:cgo_import_dynamic purego_malloc malloc "libc.so.6"
 +//go:cgo_import_dynamic purego_free free "libc.so.6"
 +//go:cgo_import_dynamic purego_setenv setenv "libc.so.6"
@@ -6447,6 +6544,16 @@ index 00000000000000..dcac8e464f1adf
 +//go:cgo_import_dynamic purego_nanosleep nanosleep "libc.so.6"
 +//go:cgo_import_dynamic purego_abort abort "libc.so.6"
 +//go:cgo_import_dynamic purego_sigaltstack sigaltstack "libc.so.6"
++//go:cgo_import_dynamic purego___errno_location __errno_location "libc.so.6"
++//go:cgo_import_dynamic purego_setegid setegid "libc.so.6"
++//go:cgo_import_dynamic purego_seteuid seteuid "libc.so.6"
++//go:cgo_import_dynamic purego_setgid setgid "libc.so.6"
++//go:cgo_import_dynamic purego_setregid setregid "libc.so.6"
++//go:cgo_import_dynamic purego_setresgid setresgid "libc.so.6"
++//go:cgo_import_dynamic purego_setresuid setresuid "libc.so.6"
++//go:cgo_import_dynamic purego_setreuid setreuid "libc.so.6"
++//go:cgo_import_dynamic purego_setuid setuid "libc.so.6"
++//go:cgo_import_dynamic purego_setgroups setgroups "libc.so.6"
 +//go:cgo_import_dynamic purego_pthread_attr_init pthread_attr_init "libpthread.so.0"
 +//go:cgo_import_dynamic purego_pthread_create pthread_create "libpthread.so.0"
 +//go:cgo_import_dynamic purego_pthread_detach pthread_detach "libpthread.so.0"
@@ -6460,6 +6567,241 @@ index 00000000000000..dcac8e464f1adf
 +//go:cgo_import_dynamic purego_pthread_mutex_unlock pthread_mutex_unlock "libpthread.so.0"
 +//go:cgo_import_dynamic purego_pthread_cond_broadcast pthread_cond_broadcast "libpthread.so.0"
 +//go:cgo_import_dynamic purego_pthread_setspecific pthread_setspecific "libpthread.so.0"
++
++//go:nosplit
++//go:norace
++func __errno_location() uintptr {
++	return uintptr(call5(__errno_locationABI0, 0, 0, 0, 0, 0))
++}
++
++//go:nosplit
++//go:norace
++func setegid(egid int) int32 {
++	return int32(call5(setegidABI0, uintptr(egid), 0, 0, 0, 0))
++}
++
++//go:nosplit
++//go:norace
++func seteuid(euid int) int32 {
++	return int32(call5(seteuidABI0, uintptr(euid), 0, 0, 0, 0))
++}
++
++//go:nosplit
++//go:norace
++func setgid(gid int) int32 {
++	return int32(call5(setgidABI0, uintptr(gid), 0, 0, 0, 0))
++}
++
++//go:nosplit
++//go:norace
++func setregid(rgid int, egid int) int32 {
++	return int32(call5(setregidABI0, uintptr(rgid), uintptr(egid), 0, 0, 0))
++}
++
++//go:nosplit
++//go:norace
++func setresgid(rgid int, egid int, sgid int) int32 {
++	return int32(call5(setresgidABI0, uintptr(rgid), uintptr(egid), uintptr(sgid), 0, 0))
++}
++
++//go:nosplit
++//go:norace
++func setresuid(ruid int, euid int, suid int) int32 {
++	return int32(call5(setresuidABI0, uintptr(ruid), uintptr(euid), uintptr(suid), 0, 0))
++}
++
++//go:nosplit
++//go:norace
++func setreuid(ruid int, euid int) int32 {
++	return int32(call5(setreuidABI0, uintptr(ruid), uintptr(euid), 0, 0, 0))
++}
++
++//go:nosplit
++//go:norace
++func setuid(uid int) int32 {
++	return int32(call5(setuidABI0, uintptr(uid), 0, 0, 0, 0))
++}
++
++//go:nosplit
++//go:norace
++func setgroups(ngid int, gidset *int) int32 {
++	return int32(call5(setgroupsABI0, uintptr(ngid), uintptr(unsafe.Pointer(gidset)), 0, 0, 0))
++}
++
++//go:linkname ___errno_location ___errno_location
++var ___errno_location uint8
++var __errno_locationABI0 = uintptr(unsafe.Pointer(&___errno_location))
++
++//go:linkname _setegid _setegid
++var _setegid uint8
++var setegidABI0 = uintptr(unsafe.Pointer(&_setegid))
++
++//go:linkname _seteuid _seteuid
++var _seteuid uint8
++var seteuidABI0 = uintptr(unsafe.Pointer(&_seteuid))
++
++//go:linkname _setgid _setgid
++var _setgid uint8
++var setgidABI0 = uintptr(unsafe.Pointer(&_setgid))
++
++//go:linkname _setregid _setregid
++var _setregid uint8
++var setregidABI0 = uintptr(unsafe.Pointer(&_setregid))
++
++//go:linkname _setresgid _setresgid
++var _setresgid uint8
++var setresgidABI0 = uintptr(unsafe.Pointer(&_setresgid))
++
++//go:linkname _setresuid _setresuid
++var _setresuid uint8
++var setresuidABI0 = uintptr(unsafe.Pointer(&_setresuid))
++
++//go:linkname _setreuid _setreuid
++var _setreuid uint8
++var setreuidABI0 = uintptr(unsafe.Pointer(&_setreuid))
++
++//go:linkname _setuid _setuid
++var _setuid uint8
++var setuidABI0 = uintptr(unsafe.Pointer(&_setuid))
++
++//go:linkname _setgroups _setgroups
++var _setgroups uint8
++var setgroupsABI0 = uintptr(unsafe.Pointer(&_setgroups))
++
++//go:linkname _cgo_purego_setegid_trampoline _cgo_purego_setegid_trampoline
++var _cgo_purego_setegid_trampoline byte
++var x_cgo_purego_setegid_call = x_cgo_purego_setegid
++
++//go:nosplit
++//go:norace
++func x_cgo_purego_setegid(c *argset) {
++	ret := setegid(int(uintptr(c.arg(0))))
++	if ret == -1 {
++		c.retval = uintptr(errno())
++	} else {
++		c.retval = uintptr(ret)
++	}
++}
++
++//go:linkname _cgo_purego_seteuid_trampoline _cgo_purego_seteuid_trampoline
++var _cgo_purego_seteuid_trampoline byte
++var x_cgo_purego_seteuid_call = x_cgo_purego_seteuid
++
++//go:nosplit
++//go:norace
++func x_cgo_purego_seteuid(c *argset) {
++	ret := seteuid(int(uintptr(c.arg(0))))
++	if ret == -1 {
++		c.retval = uintptr(errno())
++	} else {
++		c.retval = uintptr(ret)
++	}
++}
++
++//go:linkname _cgo_purego_setgid_trampoline _cgo_purego_setgid_trampoline
++var _cgo_purego_setgid_trampoline byte
++var x_cgo_purego_setgid_call = x_cgo_purego_setgid
++
++//go:nosplit
++//go:norace
++func x_cgo_purego_setgid(c *argset) {
++	ret := setgid(int(uintptr(c.arg(0))))
++	if ret == -1 {
++		c.retval = uintptr(errno())
++	} else {
++		c.retval = uintptr(ret)
++	}
++}
++
++//go:linkname _cgo_purego_setregid_trampoline _cgo_purego_setregid_trampoline
++var _cgo_purego_setregid_trampoline byte
++var x_cgo_purego_setregid_call = x_cgo_purego_setregid
++
++//go:nosplit
++//go:norace
++func x_cgo_purego_setregid(c *argset) {
++	ret := setregid(int(uintptr(c.arg(0))), int(uintptr(c.arg(1))))
++	if ret == -1 {
++		c.retval = uintptr(errno())
++	} else {
++		c.retval = uintptr(ret)
++	}
++}
++
++//go:linkname _cgo_purego_setresgid_trampoline _cgo_purego_setresgid_trampoline
++var _cgo_purego_setresgid_trampoline byte
++var x_cgo_purego_setresgid_call = x_cgo_purego_setresgid
++
++//go:nosplit
++//go:norace
++func x_cgo_purego_setresgid(c *argset) {
++	ret := setresgid(int(uintptr(c.arg(0))), int(uintptr(c.arg(1))), int(uintptr(c.arg(2))))
++	if ret == -1 {
++		c.retval = uintptr(errno())
++	} else {
++		c.retval = uintptr(ret)
++	}
++}
++
++//go:linkname _cgo_purego_setresuid_trampoline _cgo_purego_setresuid_trampoline
++var _cgo_purego_setresuid_trampoline byte
++var x_cgo_purego_setresuid_call = x_cgo_purego_setresuid
++
++//go:nosplit
++//go:norace
++func x_cgo_purego_setresuid(c *argset) {
++	ret := setresuid(int(uintptr(c.arg(0))), int(uintptr(c.arg(1))), int(uintptr(c.arg(2))))
++	if ret == -1 {
++		c.retval = uintptr(errno())
++	} else {
++		c.retval = uintptr(ret)
++	}
++}
++
++//go:linkname _cgo_purego_setreuid_trampoline _cgo_purego_setreuid_trampoline
++var _cgo_purego_setreuid_trampoline byte
++var x_cgo_purego_setreuid_call = x_cgo_purego_setreuid
++
++//go:nosplit
++//go:norace
++func x_cgo_purego_setreuid(c *argset) {
++	ret := setreuid(int(uintptr(c.arg(0))), int(uintptr(c.arg(1))))
++	if ret == -1 {
++		c.retval = uintptr(errno())
++	} else {
++		c.retval = uintptr(ret)
++	}
++}
++
++//go:linkname _cgo_purego_setuid_trampoline _cgo_purego_setuid_trampoline
++var _cgo_purego_setuid_trampoline byte
++var x_cgo_purego_setuid_call = x_cgo_purego_setuid
++
++//go:nosplit
++//go:norace
++func x_cgo_purego_setuid(c *argset) {
++	ret := setuid(int(uintptr(c.arg(0))))
++	if ret == -1 {
++		c.retval = uintptr(errno())
++	} else {
++		c.retval = uintptr(ret)
++	}
++}
++
++//go:linkname _cgo_purego_setgroups_trampoline _cgo_purego_setgroups_trampoline
++var _cgo_purego_setgroups_trampoline byte
++var x_cgo_purego_setgroups_call = x_cgo_purego_setgroups
++
++//go:nosplit
++//go:norace
++func x_cgo_purego_setgroups(c *argset) {
++	ret := setgroups(int(uintptr(c.arg(0))), (*int)(c.arg(1)))
++	if ret == -1 {
++		c.retval = uintptr(errno())
++	} else {
++		c.retval = uintptr(ret)
++	}
++}
 diff --git a/src/vendor/github.com/microsoft/go/pkg/openssl/internal/fakecgo/trampolines_amd64.s b/src/vendor/github.com/microsoft/go/pkg/openssl/internal/fakecgo/trampolines_amd64.s
 new file mode 100644
 index 00000000000000..89157868204e87
@@ -6748,6 +7090,224 @@ index 00000000000000..3cb26f4dfbae0e
 +TEXT _pthread_setspecific(SB), NOSPLIT|NOFRAME, $0-0
 +	JMP purego_pthread_setspecific(SB)
 +	RET
+diff --git a/src/vendor/github.com/microsoft/go/pkg/openssl/internal/fakecgo/ztrampolines_linux_amd64.s b/src/vendor/github.com/microsoft/go/pkg/openssl/internal/fakecgo/ztrampolines_linux_amd64.s
+new file mode 100644
+index 00000000000000..9dc9b336c70fa5
+--- /dev/null
++++ b/src/vendor/github.com/microsoft/go/pkg/openssl/internal/fakecgo/ztrampolines_linux_amd64.s
+@@ -0,0 +1,103 @@
++// Code generated by 'go generate' with gen.go. DO NOT EDIT.
++
++// SPDX-License-Identifier: Apache-2.0
++// SPDX-FileCopyrightText: 2022 The Ebitengine Authors
++
++//go:build !cgo
++
++#include "textflag.h"
++
++
++TEXT ___errno_location(SB), NOSPLIT, $0-0
++	JMP purego___errno_location(SB)
++
++TEXT _cgo_purego_setegid_trampoline(SB), NOSPLIT, $8
++	MOVQ	DI, AX
++	MOVQ	·x_cgo_purego_setegid_call(SB), DX
++	MOVQ	(DX), CX
++	CALL	CX
++	RET
++
++TEXT _setegid(SB), NOSPLIT, $0-0
++	JMP purego_setegid(SB)
++
++TEXT _cgo_purego_seteuid_trampoline(SB), NOSPLIT, $8
++	MOVQ	DI, AX
++	MOVQ	·x_cgo_purego_seteuid_call(SB), DX
++	MOVQ	(DX), CX
++	CALL	CX
++	RET
++
++TEXT _seteuid(SB), NOSPLIT, $0-0
++	JMP purego_seteuid(SB)
++
++TEXT _cgo_purego_setgid_trampoline(SB), NOSPLIT, $8
++	MOVQ	DI, AX
++	MOVQ	·x_cgo_purego_setgid_call(SB), DX
++	MOVQ	(DX), CX
++	CALL	CX
++	RET
++
++TEXT _setgid(SB), NOSPLIT, $0-0
++	JMP purego_setgid(SB)
++
++TEXT _cgo_purego_setregid_trampoline(SB), NOSPLIT, $8
++	MOVQ	DI, AX
++	MOVQ	·x_cgo_purego_setregid_call(SB), DX
++	MOVQ	(DX), CX
++	CALL	CX
++	RET
++
++TEXT _setregid(SB), NOSPLIT, $0-0
++	JMP purego_setregid(SB)
++
++TEXT _cgo_purego_setresgid_trampoline(SB), NOSPLIT, $8
++	MOVQ	DI, AX
++	MOVQ	·x_cgo_purego_setresgid_call(SB), DX
++	MOVQ	(DX), CX
++	CALL	CX
++	RET
++
++TEXT _setresgid(SB), NOSPLIT, $0-0
++	JMP purego_setresgid(SB)
++
++TEXT _cgo_purego_setresuid_trampoline(SB), NOSPLIT, $8
++	MOVQ	DI, AX
++	MOVQ	·x_cgo_purego_setresuid_call(SB), DX
++	MOVQ	(DX), CX
++	CALL	CX
++	RET
++
++TEXT _setresuid(SB), NOSPLIT, $0-0
++	JMP purego_setresuid(SB)
++
++TEXT _cgo_purego_setreuid_trampoline(SB), NOSPLIT, $8
++	MOVQ	DI, AX
++	MOVQ	·x_cgo_purego_setreuid_call(SB), DX
++	MOVQ	(DX), CX
++	CALL	CX
++	RET
++
++TEXT _setreuid(SB), NOSPLIT, $0-0
++	JMP purego_setreuid(SB)
++
++TEXT _cgo_purego_setuid_trampoline(SB), NOSPLIT, $8
++	MOVQ	DI, AX
++	MOVQ	·x_cgo_purego_setuid_call(SB), DX
++	MOVQ	(DX), CX
++	CALL	CX
++	RET
++
++TEXT _setuid(SB), NOSPLIT, $0-0
++	JMP purego_setuid(SB)
++
++TEXT _cgo_purego_setgroups_trampoline(SB), NOSPLIT, $8
++	MOVQ	DI, AX
++	MOVQ	·x_cgo_purego_setgroups_call(SB), DX
++	MOVQ	(DX), CX
++	CALL	CX
++	RET
++
++TEXT _setgroups(SB), NOSPLIT, $0-0
++	JMP purego_setgroups(SB)
++
+diff --git a/src/vendor/github.com/microsoft/go/pkg/openssl/internal/fakecgo/ztrampolines_linux_arm64.s b/src/vendor/github.com/microsoft/go/pkg/openssl/internal/fakecgo/ztrampolines_linux_arm64.s
+new file mode 100644
+index 00000000000000..ea7ace336ecb2b
+--- /dev/null
++++ b/src/vendor/github.com/microsoft/go/pkg/openssl/internal/fakecgo/ztrampolines_linux_arm64.s
+@@ -0,0 +1,103 @@
++// Code generated by 'go generate' with gen.go. DO NOT EDIT.
++
++// SPDX-License-Identifier: Apache-2.0
++// SPDX-FileCopyrightText: 2022 The Ebitengine Authors
++
++//go:build !cgo
++
++#include "textflag.h"
++
++
++TEXT ___errno_location(SB), NOSPLIT, $0-0
++	JMP purego___errno_location(SB)
++
++TEXT _cgo_purego_setegid_trampoline(SB), NOSPLIT, $0
++	MOVD	R0, 8(RSP)
++	MOVD	·x_cgo_purego_setegid_call(SB), R26
++	MOVD	(R26), R2
++	CALL	(R2)
++	RET
++
++TEXT _setegid(SB), NOSPLIT, $0-0
++	JMP purego_setegid(SB)
++
++TEXT _cgo_purego_seteuid_trampoline(SB), NOSPLIT, $0
++	MOVD	R0, 8(RSP)
++	MOVD	·x_cgo_purego_seteuid_call(SB), R26
++	MOVD	(R26), R2
++	CALL	(R2)
++	RET
++
++TEXT _seteuid(SB), NOSPLIT, $0-0
++	JMP purego_seteuid(SB)
++
++TEXT _cgo_purego_setgid_trampoline(SB), NOSPLIT, $0
++	MOVD	R0, 8(RSP)
++	MOVD	·x_cgo_purego_setgid_call(SB), R26
++	MOVD	(R26), R2
++	CALL	(R2)
++	RET
++
++TEXT _setgid(SB), NOSPLIT, $0-0
++	JMP purego_setgid(SB)
++
++TEXT _cgo_purego_setregid_trampoline(SB), NOSPLIT, $0
++	MOVD	R0, 8(RSP)
++	MOVD	·x_cgo_purego_setregid_call(SB), R26
++	MOVD	(R26), R2
++	CALL	(R2)
++	RET
++
++TEXT _setregid(SB), NOSPLIT, $0-0
++	JMP purego_setregid(SB)
++
++TEXT _cgo_purego_setresgid_trampoline(SB), NOSPLIT, $0
++	MOVD	R0, 8(RSP)
++	MOVD	·x_cgo_purego_setresgid_call(SB), R26
++	MOVD	(R26), R2
++	CALL	(R2)
++	RET
++
++TEXT _setresgid(SB), NOSPLIT, $0-0
++	JMP purego_setresgid(SB)
++
++TEXT _cgo_purego_setresuid_trampoline(SB), NOSPLIT, $0
++	MOVD	R0, 8(RSP)
++	MOVD	·x_cgo_purego_setresuid_call(SB), R26
++	MOVD	(R26), R2
++	CALL	(R2)
++	RET
++
++TEXT _setresuid(SB), NOSPLIT, $0-0
++	JMP purego_setresuid(SB)
++
++TEXT _cgo_purego_setreuid_trampoline(SB), NOSPLIT, $0
++	MOVD	R0, 8(RSP)
++	MOVD	·x_cgo_purego_setreuid_call(SB), R26
++	MOVD	(R26), R2
++	CALL	(R2)
++	RET
++
++TEXT _setreuid(SB), NOSPLIT, $0-0
++	JMP purego_setreuid(SB)
++
++TEXT _cgo_purego_setuid_trampoline(SB), NOSPLIT, $0
++	MOVD	R0, 8(RSP)
++	MOVD	·x_cgo_purego_setuid_call(SB), R26
++	MOVD	(R26), R2
++	CALL	(R2)
++	RET
++
++TEXT _setuid(SB), NOSPLIT, $0-0
++	JMP purego_setuid(SB)
++
++TEXT _cgo_purego_setgroups_trampoline(SB), NOSPLIT, $0
++	MOVD	R0, 8(RSP)
++	MOVD	·x_cgo_purego_setgroups_call(SB), R26
++	MOVD	(R26), R2
++	CALL	(R2)
++	RET
++
++TEXT _setgroups(SB), NOSPLIT, $0-0
++	JMP purego_setgroups(SB)
++
 diff --git a/src/vendor/github.com/microsoft/go/pkg/openssl/internal/ossl/asm_amd64.s b/src/vendor/github.com/microsoft/go/pkg/openssl/internal/ossl/asm_amd64.s
 new file mode 100644
 index 00000000000000..f8ceb8c75e2734
@@ -7843,7 +8403,7 @@ index 00000000000000..3713914215d033
 +}
 diff --git a/src/vendor/github.com/microsoft/go/pkg/openssl/internal/ossl/zdl.s b/src/vendor/github.com/microsoft/go/pkg/openssl/internal/ossl/zdl.s
 new file mode 100644
-index 00000000000000..58f4736b20fbb2
+index 00000000000000..69176d66ad160c
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go/pkg/openssl/internal/ossl/zdl.s
 @@ -0,0 +1,51 @@
@@ -7900,7 +8460,7 @@ index 00000000000000..58f4736b20fbb2
 +
 diff --git a/src/vendor/github.com/microsoft/go/pkg/openssl/internal/ossl/zdl_nocgo.go b/src/vendor/github.com/microsoft/go/pkg/openssl/internal/ossl/zdl_nocgo.go
 new file mode 100644
-index 00000000000000..a6271a6909fdb3
+index 00000000000000..3b7633f3c858b8
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go/pkg/openssl/internal/ossl/zdl_nocgo.go
 @@ -0,0 +1,45 @@
@@ -7951,7 +8511,7 @@ index 00000000000000..a6271a6909fdb3
 +}
 diff --git a/src/vendor/github.com/microsoft/go/pkg/openssl/internal/ossl/zossl.c b/src/vendor/github.com/microsoft/go/pkg/openssl/internal/ossl/zossl.c
 new file mode 100644
-index 00000000000000..1444f551331fb6
+index 00000000000000..c12519e69ed0fb
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go/pkg/openssl/internal/ossl/zossl.c
 @@ -0,0 +1,2061 @@
@@ -10018,7 +10578,7 @@ index 00000000000000..1444f551331fb6
 +
 diff --git a/src/vendor/github.com/microsoft/go/pkg/openssl/internal/ossl/zossl.go b/src/vendor/github.com/microsoft/go/pkg/openssl/internal/ossl/zossl.go
 new file mode 100644
-index 00000000000000..31c043aeb2d449
+index 00000000000000..373cdf0016f7bc
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go/pkg/openssl/internal/ossl/zossl.go
 @@ -0,0 +1,1329 @@
@@ -11353,7 +11913,7 @@ index 00000000000000..31c043aeb2d449
 +}
 diff --git a/src/vendor/github.com/microsoft/go/pkg/openssl/internal/ossl/zossl.h b/src/vendor/github.com/microsoft/go/pkg/openssl/internal/ossl/zossl.h
 new file mode 100644
-index 00000000000000..ea01eed750a1c5
+index 00000000000000..e23e972d5f1c7a
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go/pkg/openssl/internal/ossl/zossl.h
 @@ -0,0 +1,337 @@
@@ -11696,7 +12256,7 @@ index 00000000000000..ea01eed750a1c5
 +#endif // MKCGO_H
 diff --git a/src/vendor/github.com/microsoft/go/pkg/openssl/internal/ossl/zossl_go124.go b/src/vendor/github.com/microsoft/go/pkg/openssl/internal/ossl/zossl_go124.go
 new file mode 100644
-index 00000000000000..ae64d2f7ee9990
+index 00000000000000..1ae07d3e237ca9
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go/pkg/openssl/internal/ossl/zossl_go124.go
 @@ -0,0 +1,37 @@
@@ -11739,7 +12299,7 @@ index 00000000000000..ae64d2f7ee9990
 +import "C"
 diff --git a/src/vendor/github.com/microsoft/go/pkg/openssl/internal/ossl/zossl_nocgo.go b/src/vendor/github.com/microsoft/go/pkg/openssl/internal/ossl/zossl_nocgo.go
 new file mode 100644
-index 00000000000000..611f2684c3185d
+index 00000000000000..2ef54e2953b378
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go/pkg/openssl/internal/ossl/zossl_nocgo.go
 @@ -0,0 +1,2906 @@
@@ -16582,7 +17142,7 @@ index 00000000000000..fee79406401cc5
 +}
 diff --git a/src/vendor/github.com/microsoft/go/pkg/openssl/zaes.go b/src/vendor/github.com/microsoft/go/pkg/openssl/zaes.go
 new file mode 100644
-index 00000000000000..4d945290e3bdff
+index 00000000000000..6a6094f1e9cee4
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go/pkg/openssl/zaes.go
 @@ -0,0 +1,86 @@
