@@ -50,12 +50,13 @@ desired goexperiments and build tags.
  src/crypto/internal/backend/nobackend.go      | 251 ++++++++++++
  src/crypto/internal/backend/openssl_linux.go  | 332 ++++++++++++++++
  src/crypto/internal/backend/stub.s            |  10 +
- src/crypto/systemcrypto_nocgo.go              |  15 +
+ src/crypto/systemcrypto_nocgo_darwin.go       |  15 +
+ src/crypto/systemcrypto_nocgo_linux.go        |  15 +
  src/go/build/deps_test.go                     |  32 +-
- src/internal/buildcfg/exp.go                  |  54 +++
+ src/internal/buildcfg/exp.go                  |  59 ++-
  src/runtime/runtime_boring.go                 |   5 +
  src/syscall/exec_linux_test.go                |   2 +-
- 46 files changed, 2318 insertions(+), 22 deletions(-)
+ 47 files changed, 2337 insertions(+), 23 deletions(-)
  create mode 100644 src/cmd/go/systemcrypto_test.go
  create mode 100644 src/crypto/internal/backend/backend_test.go
  create mode 100644 src/crypto/internal/backend/bbig/big.go
@@ -82,7 +83,8 @@ desired goexperiments and build tags.
  create mode 100644 src/crypto/internal/backend/nobackend.go
  create mode 100644 src/crypto/internal/backend/openssl_linux.go
  create mode 100644 src/crypto/internal/backend/stub.s
- create mode 100644 src/crypto/systemcrypto_nocgo.go
+ create mode 100644 src/crypto/systemcrypto_nocgo_darwin.go
+ create mode 100644 src/crypto/systemcrypto_nocgo_linux.go
 
 diff --git a/.gitignore b/.gitignore
 index c6512e64a4ef39..b3b01db73b009d 100644
@@ -160,7 +162,7 @@ index 0e32e0769ee2e2..eda2d576acc6c6 100644
  	if doReplacement {
  		if testCompiler == "" {
 diff --git a/src/cmd/dist/build.go b/src/cmd/dist/build.go
-index 9a7951726f6f04..a09cdd9550cbab 100644
+index 9a7951726f6f04..53a2da17665ecc 100644
 --- a/src/cmd/dist/build.go
 +++ b/src/cmd/dist/build.go
 @@ -1387,6 +1387,80 @@ func toolenv() []string {
@@ -211,7 +213,7 @@ index 9a7951726f6f04..a09cdd9550cbab 100644
 +		}
 +		goexp := strings.Split(value, ",")
 +		goexp = slices.DeleteFunc(goexp, func(s string) bool {
-+			return s == "systemcrypto" || s == "nosystemcrypto"
++			return s == "systemcrypto" || s == "nosystemcrypto" || s == "ms_nocgo_opensslcrypto"
 +		})
 +		goexp = append(goexp, "nosystemcrypto")
 +		return strings.Join(goexp, ",")
@@ -695,7 +697,7 @@ index c5aa91ba4732e7..9e838fa785af46 100644
  		gorootTestDir: filepath.Join(testenv.GOROOT(t), "test"),
  		runoutputGate: make(chan bool, *runoutputLimit),
 diff --git a/src/cmd/link/internal/ld/main.go b/src/cmd/link/internal/ld/main.go
-index d913953944bc43..daa8aa3d964ed0 100644
+index d913953944bc43..3349e53cd07809 100644
 --- a/src/cmd/link/internal/ld/main.go
 +++ b/src/cmd/link/internal/ld/main.go
 @@ -44,6 +44,7 @@ import (
@@ -718,7 +720,7 @@ index d913953944bc43..daa8aa3d964ed0 100644
 +		// the buildVersion string, and many code out there, e.g. the standard library
 +		// go/version package, doesn't expect the version to contain experiments.
 +		goexperiment = strings.Join(slices.DeleteFunc(strings.Split(goexperiment, ","), func(s string) bool {
-+			return s == "nosystemcrypto"
++			return s == "nosystemcrypto" || s == "ms_nocgo_opensslcrypto"
 +		}), ",")
 +		if goexperiment != "" {
 +			buildVersion += " X:" + goexperiment
@@ -1842,7 +1844,7 @@ index 00000000000000..289d6594eac54b
 +}
 diff --git a/src/crypto/internal/backend/fips140/openssl_cgo.go b/src/crypto/internal/backend/fips140/openssl_cgo.go
 new file mode 100644
-index 00000000000000..a24db78572f528
+index 00000000000000..9bf15a24d3a4f4
 --- /dev/null
 +++ b/src/crypto/internal/backend/fips140/openssl_cgo.go
 @@ -0,0 +1,59 @@
@@ -1850,7 +1852,7 @@ index 00000000000000..a24db78572f528
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
 +
-+//go:build goexperiment.opensslcrypto && cgo
++//go:build goexperiment.opensslcrypto && (cgo || goexperiment.ms_nocgo_opensslcrypto)
 +
 +package fips140
 +
@@ -1907,7 +1909,7 @@ index 00000000000000..a24db78572f528
 +}
 diff --git a/src/crypto/internal/backend/fips140/openssl_nocgo.go b/src/crypto/internal/backend/fips140/openssl_nocgo.go
 new file mode 100644
-index 00000000000000..a8ff666b6d182e
+index 00000000000000..dc9ec673131f6d
 --- /dev/null
 +++ b/src/crypto/internal/backend/fips140/openssl_nocgo.go
 @@ -0,0 +1,17 @@
@@ -1915,7 +1917,7 @@ index 00000000000000..a8ff666b6d182e
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
 +
-+//go:build goexperiment.opensslcrypto && !cgo
++//go:build goexperiment.opensslcrypto && !cgo && !goexperiment.ms_nocgo_opensslcrypto
 +
 +// The opensslcrypto experiment can be used even when cgo
 +// is disabled. The OpenSSL backend can't be imported
@@ -1981,7 +1983,7 @@ index 00000000000000..d3d39fd77f98db
 +const isSkipFIPSCheck = true
 diff --git a/src/crypto/internal/backend/internal/opensslsetup/opensslsetup.go b/src/crypto/internal/backend/internal/opensslsetup/opensslsetup.go
 new file mode 100644
-index 00000000000000..d816f1be17b6a1
+index 00000000000000..eda4bde128ae46
 --- /dev/null
 +++ b/src/crypto/internal/backend/internal/opensslsetup/opensslsetup.go
 @@ -0,0 +1,68 @@
@@ -1989,7 +1991,7 @@ index 00000000000000..d816f1be17b6a1
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
 +
-+//go:build goexperiment.opensslcrypto && cgo
++//go:build goexperiment.opensslcrypto && (cgo || goexperiment.ms_nocgo_opensslcrypto)
 +
 +// opensslsetup is a package that initializes the OpenSSL library.
 +// It doesn't export any symbol, but blank importing it has the
@@ -2167,7 +2169,7 @@ index 00000000000000..3b92bfc5fbabf6
 +package opensslsetup
 diff --git a/src/crypto/internal/backend/nobackend.go b/src/crypto/internal/backend/nobackend.go
 new file mode 100644
-index 00000000000000..ce267825dc6ddc
+index 00000000000000..c2a49aa1230def
 --- /dev/null
 +++ b/src/crypto/internal/backend/nobackend.go
 @@ -0,0 +1,251 @@
@@ -2175,7 +2177,7 @@ index 00000000000000..ce267825dc6ddc
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
 +
-+//go:build !goexperiment.systemcrypto || ((goexperiment.opensslcrypto || goexperiment.darwincrypto) && !cgo)
++//go:build !goexperiment.systemcrypto || (goexperiment.opensslcrypto && (cgo || goexperiment.ms_nocgo_opensslcrypto)) || (goexperiment.darwincrypto && !cgo)
 +
 +package backend
 +
@@ -2424,7 +2426,7 @@ index 00000000000000..ce267825dc6ddc
 +}
 diff --git a/src/crypto/internal/backend/openssl_linux.go b/src/crypto/internal/backend/openssl_linux.go
 new file mode 100644
-index 00000000000000..02c3c67f822ae2
+index 00000000000000..882b1e5340a570
 --- /dev/null
 +++ b/src/crypto/internal/backend/openssl_linux.go
 @@ -0,0 +1,332 @@
@@ -2432,7 +2434,7 @@ index 00000000000000..02c3c67f822ae2
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
 +
-+//go:build goexperiment.opensslcrypto && linux && cgo
++//go:build goexperiment.opensslcrypto && linux && (cgo || goexperiment.ms_nocgo_opensslcrypto)
 +
 +// Package openssl provides access to OpenSSLCrypto implementation functions.
 +// Check the variable Enabled to find out whether OpenSSLCrypto is available.
@@ -2776,29 +2778,50 @@ index 00000000000000..5e4b436554d44d
 +// Having this assembly file keeps the go command
 +// from complaining about the missing body
 +// (because the implementation might be here).
-diff --git a/src/crypto/systemcrypto_nocgo.go b/src/crypto/systemcrypto_nocgo.go
+diff --git a/src/crypto/systemcrypto_nocgo_darwin.go b/src/crypto/systemcrypto_nocgo_darwin.go
 new file mode 100644
-index 00000000000000..13782a8241b99a
+index 00000000000000..aed8fc5e152405
 --- /dev/null
-+++ b/src/crypto/systemcrypto_nocgo.go
++++ b/src/crypto/systemcrypto_nocgo_darwin.go
 @@ -0,0 +1,15 @@
 +// Copyright 2025 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
 +
-+//go:build !cgo && (goexperiment.opensslcrypto || goexperiment.darwincrypto)
++//go:build goexperiment.darwincrypto && !cgo
 +
 +package crypto
 +
 +func init() {
 +	`
-+	Using a crypto backend requires CGO_ENABLED=1.
++	Using GOEXPERIMENT=systemcrypto on Darwin requires CGO_ENABLED=1.
++	
++	For more information, visit https://github.com/microsoft/go/tree/microsoft/main/eng/doc/fips
++	`
++}
+diff --git a/src/crypto/systemcrypto_nocgo_linux.go b/src/crypto/systemcrypto_nocgo_linux.go
+new file mode 100644
+index 00000000000000..b67ebc0a941cc0
+--- /dev/null
++++ b/src/crypto/systemcrypto_nocgo_linux.go
+@@ -0,0 +1,15 @@
++// Copyright 2025 The Go Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style
++// license that can be found in the LICENSE file.
++
++//go:build goexperiment.opensslcrypto && !cgo && !goexperiment.ms_nocgo_opensslcrypto && !amd64 && !arm64
++
++package crypto
++
++func init() {
++	`
++	Using GOEXPERIMENT=systemcrypto on Linux requires CGO_ENABLED=1.
 +	
 +	For more information, visit https://github.com/microsoft/go/tree/microsoft/main/eng/doc/fips
 +	`
 +}
 diff --git a/src/go/build/deps_test.go b/src/go/build/deps_test.go
-index 7981fbcb6dd57d..e1dd6331d96052 100644
+index 3d726ec66b3c10..ed59db7bb24722 100644
 --- a/src/go/build/deps_test.go
 +++ b/src/go/build/deps_test.go
 @@ -355,7 +355,7 @@ var depsRules = `
@@ -2810,7 +2833,7 @@ index 7981fbcb6dd57d..e1dd6331d96052 100644
  	< internal/buildcfg;
  
  	container/heap, go/constant, go/parser, internal/buildcfg, internal/goversion, internal/types/errors
-@@ -546,6 +546,11 @@ var depsRules = `
+@@ -547,6 +547,11 @@ var depsRules = `
  	< github.com/microsoft/go-crypto-winnative/internal/bcrypt
  	< github.com/microsoft/go-crypto-winnative/cng;
  
@@ -2822,7 +2845,7 @@ index 7981fbcb6dd57d..e1dd6331d96052 100644
  	crypto !< FIPS;
  
  	# CRYPTO is core crypto algorithms - no cgo, fmt, net.
-@@ -554,16 +559,27 @@ var depsRules = `
+@@ -555,16 +560,27 @@ var depsRules = `
  	NONE < crypto/internal/boring/sig, crypto/internal/boring/syso;
  	sync/atomic < crypto/internal/boring/bcache;
  
@@ -2852,7 +2875,7 @@ index 7981fbcb6dd57d..e1dd6331d96052 100644
  	< crypto/boring
  	< crypto/aes,
  	  crypto/des,
-@@ -587,8 +603,14 @@ var depsRules = `
+@@ -588,8 +604,14 @@ var depsRules = `
  	math/big, github.com/microsoft/go-crypto-darwin/xcrypto < github.com/microsoft/go-crypto-darwin/bbig;
  	math/big, github.com/microsoft/go-crypto-winnative/cng < github.com/microsoft/go-crypto-winnative/cng/bbig;
  
@@ -2870,7 +2893,7 @@ index 7981fbcb6dd57d..e1dd6331d96052 100644
  	< crypto/rand
  	< crypto/ed25519 # depends on crypto/rand.Reader
 diff --git a/src/internal/buildcfg/exp.go b/src/internal/buildcfg/exp.go
-index 2c0995a449694a..19027a6be32850 100644
+index 2c0995a449694a..a753a6847d1a8d 100644
 --- a/src/internal/buildcfg/exp.go
 +++ b/src/internal/buildcfg/exp.go
 @@ -5,12 +5,15 @@
@@ -2889,7 +2912,16 @@ index 2c0995a449694a..19027a6be32850 100644
  )
  
  // ExperimentFlags represents a set of GOEXPERIMENT flags relative to a baseline
-@@ -199,6 +202,57 @@ func ParseGOEXPERIMENT(goos, goarch, goexp string) (*ExperimentFlags, error) {
+@@ -116,7 +119,7 @@ func ParseGOEXPERIMENT(goos, goarch, goexp string) (*ExperimentFlags, error) {
+ 		RandomizedHeapBase64:  true,
+ 		SizeSpecializedMalloc: true,
+ 		GreenTeaGC:            greenTeaGCSupported,
+-		SystemCrypto:         systemCryptoSupported,
++		SystemCrypto:          systemCryptoSupported,
+ 	}
+ 
+ 	// Start with the statically enabled set of experiments.
+@@ -199,6 +202,60 @@ func ParseGOEXPERIMENT(goos, goarch, goexp string) (*ExperimentFlags, error) {
  	if flags.BoringCrypto {
  		return nil, fmt.Errorf("GOEXPERIMENT boringcrypto is not supported in the Microsoft build of Go")
  	}
@@ -2939,6 +2971,9 @@ index 2c0995a449694a..19027a6be32850 100644
 +					backend.name, backend2.name))
 +			}
 +		}
++	}
++	if flags.MS_Nocgo_OpenSSLCrypto && !flags.OpenSSLCrypto {
++		errs = append(errs, "GOEXPERIMENT ms_nocgo_opensslcrypto requires opensslcrypto")
 +	}
 +	if len(errs) > 0 {
 +		errs = append(errs, "For more information, visit https://github.com/microsoft/go/tree/microsoft/main/eng/doc/fips")
