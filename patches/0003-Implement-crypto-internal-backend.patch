@@ -452,7 +452,7 @@ index a4edd854f1d35a..10ee92536b96cd 100644
  	// This will also update the BuildContext's tool tags to include the new
  	// experiment tags.
 diff --git a/src/cmd/go/internal/load/pkg.go b/src/cmd/go/internal/load/pkg.go
-index 1f791546f90088..d20890b4e70fae 100644
+index 135d7579d65dff..687a781693b779 100644
 --- a/src/cmd/go/internal/load/pkg.go
 +++ b/src/cmd/go/internal/load/pkg.go
 @@ -2412,6 +2412,9 @@ func (p *Package) setBuildInfo(ctx context.Context, autoVCS bool) {
@@ -466,7 +466,7 @@ index 1f791546f90088..d20890b4e70fae 100644
  	appendSetting("-compiler", cfg.BuildContext.Compiler)
  	if gccgoflags := BuildGccgoflags.String(); gccgoflags != "" && cfg.BuildContext.Compiler == "gccgo" {
 diff --git a/src/cmd/go/internal/tool/tool.go b/src/cmd/go/internal/tool/tool.go
-index 120ef5339bede0..b7b145fdfc9972 100644
+index e25c06a8f046bd..6192880b654cb5 100644
 --- a/src/cmd/go/internal/tool/tool.go
 +++ b/src/cmd/go/internal/tool/tool.go
 @@ -304,6 +304,10 @@ func buildAndRunBuiltinTool(ctx context.Context, toolName, tool string, args []s
@@ -481,7 +481,7 @@ index 120ef5339bede0..b7b145fdfc9972 100644
  	// Ignore go.mod and go.work: we don't need them, and we want to be able
  	// to run the tool even if there's an issue with the module or workspace the
 @@ -311,8 +315,11 @@ func buildAndRunBuiltinTool(ctx context.Context, toolName, tool string, args []s
- 	modload.RootMode = modload.NoRoot
+ 	modload.LoaderState.RootMode = modload.NoRoot
  
  	runFunc := func(b *work.Builder, ctx context.Context, a *work.Action) error {
 +		// Now that the tool is built, revert the GOEXPERIMENT
@@ -2798,10 +2798,10 @@ index 00000000000000..13782a8241b99a
 +	`
 +}
 diff --git a/src/go/build/deps_test.go b/src/go/build/deps_test.go
-index bc85bf170eb2eb..51ea2b8f994d4a 100644
+index 7981fbcb6dd57d..e1dd6331d96052 100644
 --- a/src/go/build/deps_test.go
 +++ b/src/go/build/deps_test.go
-@@ -350,7 +350,7 @@ var depsRules = `
+@@ -355,7 +355,7 @@ var depsRules = `
  	math/big, go/token
  	< go/constant;
  
@@ -2810,7 +2810,7 @@ index bc85bf170eb2eb..51ea2b8f994d4a 100644
  	< internal/buildcfg;
  
  	container/heap, go/constant, go/parser, internal/buildcfg, internal/goversion, internal/types/errors
-@@ -539,6 +539,11 @@ var depsRules = `
+@@ -546,6 +546,11 @@ var depsRules = `
  	< github.com/microsoft/go-crypto-winnative/internal/bcrypt
  	< github.com/microsoft/go-crypto-winnative/cng;
  
@@ -2822,7 +2822,7 @@ index bc85bf170eb2eb..51ea2b8f994d4a 100644
  	crypto !< FIPS;
  
  	# CRYPTO is core crypto algorithms - no cgo, fmt, net.
-@@ -547,16 +552,27 @@ var depsRules = `
+@@ -554,16 +559,27 @@ var depsRules = `
  	NONE < crypto/internal/boring/sig, crypto/internal/boring/syso;
  	sync/atomic < crypto/internal/boring/bcache;
  
@@ -2852,16 +2852,16 @@ index bc85bf170eb2eb..51ea2b8f994d4a 100644
  	< crypto/boring
  	< crypto/aes,
  	  crypto/des,
-@@ -580,8 +596,14 @@ var depsRules = `
+@@ -587,8 +603,14 @@ var depsRules = `
  	math/big, github.com/microsoft/go-crypto-darwin/xcrypto < github.com/microsoft/go-crypto-darwin/bbig;
  	math/big, github.com/microsoft/go-crypto-winnative/cng < github.com/microsoft/go-crypto-winnative/cng/bbig;
  
--	CRYPTO, FMT, math/big
+-	CRYPTO, FMT, math/big, internal/saferio
 -	< crypto/internal/boring/bbig
 +	FMT, math/big, crypto/internal/boring
 +	< crypto/internal/boring/bbig;
 +
-+	CRYPTO, FMT, math/big,
++	CRYPTO, FMT, math/big, internal/saferio,
 +	github.com/golang-fips/openssl/v2/bbig,
 +	github.com/microsoft/go-crypto-darwin/bbig,
 +	github.com/microsoft/go-crypto-winnative/cng/bbig
@@ -2870,7 +2870,7 @@ index bc85bf170eb2eb..51ea2b8f994d4a 100644
  	< crypto/rand
  	< crypto/ed25519 # depends on crypto/rand.Reader
 diff --git a/src/internal/buildcfg/exp.go b/src/internal/buildcfg/exp.go
-index 6eab28497a3f2e..81296762c7e231 100644
+index 2c0995a449694a..19027a6be32850 100644
 --- a/src/internal/buildcfg/exp.go
 +++ b/src/internal/buildcfg/exp.go
 @@ -5,12 +5,15 @@
@@ -2889,7 +2889,7 @@ index 6eab28497a3f2e..81296762c7e231 100644
  )
  
  // ExperimentFlags represents a set of GOEXPERIMENT flags relative to a baseline
-@@ -192,6 +195,57 @@ func ParseGOEXPERIMENT(goos, goarch, goexp string) (*ExperimentFlags, error) {
+@@ -199,6 +202,57 @@ func ParseGOEXPERIMENT(goos, goarch, goexp string) (*ExperimentFlags, error) {
  	if flags.BoringCrypto {
  		return nil, fmt.Errorf("GOEXPERIMENT boringcrypto is not supported in the Microsoft build of Go")
  	}
