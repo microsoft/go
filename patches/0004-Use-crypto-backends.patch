@@ -66,7 +66,7 @@ Subject: [PATCH] Use crypto backends
  src/crypto/sha1/sha1.go                       |   8 +-
  src/crypto/sha1/sha1_test.go                  |  11 +-
  src/crypto/sha256/sha256.go                   |   6 +-
- src/crypto/sha256/sha256_test.go              |  35 +++-
+ src/crypto/sha256/sha256_test.go              |  44 ++--
  src/crypto/sha512/sha512.go                   |   2 +-
  src/crypto/sha512/sha512_test.go              |  32 ++-
  src/crypto/tls/auth_test.go                   |   7 +
@@ -93,7 +93,7 @@ Subject: [PATCH] Use crypto backends
  src/net/lookup_test.go                        |   3 +
  src/os/exec/exec_test.go                      |   9 +
  src/runtime/pprof/vminfo_darwin_test.go       |   6 +
- 89 files changed, 1164 insertions(+), 117 deletions(-)
+ 89 files changed, 1172 insertions(+), 119 deletions(-)
  create mode 100644 src/crypto/dsa/boring.go
  create mode 100644 src/crypto/dsa/notboring.go
  create mode 100644 src/crypto/ecdsa/badlinkname.go
@@ -256,10 +256,10 @@ index 802fb35aee4e65..4416731b69ec26 100644
  			*mode = BuildModePIE
  		default:
 diff --git a/src/cmd/link/internal/ld/lib.go b/src/cmd/link/internal/ld/lib.go
-index 5f5ebfc1d9855c..5272a7aed714df 100644
+index 2c861129b52f9a..851e6ad02dc722 100644
 --- a/src/cmd/link/internal/ld/lib.go
 +++ b/src/cmd/link/internal/ld/lib.go
-@@ -1180,6 +1180,8 @@ var hostobj []Hostobj
+@@ -1176,6 +1176,8 @@ var hostobj []Hostobj
  // These packages can use internal linking mode.
  // Others trigger external mode.
  var internalpkg = []string{
@@ -2203,10 +2203,10 @@ index 069938a22dbc5a..8d0e06b86f4359 100644
  	}
  	h := New224()
 diff --git a/src/crypto/sha256/sha256_test.go b/src/crypto/sha256/sha256_test.go
-index 11b24db7d6b0a0..837ace4f7200fb 100644
+index a18a536ba2896f..7b3b37c3b0c10d 100644
 --- a/src/crypto/sha256/sha256_test.go
 +++ b/src/crypto/sha256/sha256_test.go
-@@ -8,8 +8,10 @@ package sha256
+@@ -8,10 +8,13 @@ package sha256
  
  import (
  	"bytes"
@@ -2216,8 +2216,11 @@ index 11b24db7d6b0a0..837ace4f7200fb 100644
 +	"errors"
  	"fmt"
  	"hash"
++	"internal/goexperiment"
  	"io"
-@@ -163,6 +165,9 @@ func testGoldenMarshal(t *testing.T) {
+ 	"testing"
+ )
+@@ -163,6 +166,9 @@ func testGoldenMarshal(t *testing.T) {
  
  				state, err := h.(encoding.BinaryMarshaler).MarshalBinary()
  				if err != nil {
@@ -2227,7 +2230,7 @@ index 11b24db7d6b0a0..837ace4f7200fb 100644
  					t.Errorf("could not marshal: %v", err)
  					continue
  				}
-@@ -256,6 +261,9 @@ func TestMarshalTypeMismatch(t *testing.T) {
+@@ -256,6 +262,9 @@ func TestMarshalTypeMismatch(t *testing.T) {
  
  	state1, err := h1.(encoding.BinaryMarshaler).MarshalBinary()
  	if err != nil {
@@ -2237,7 +2240,7 @@ index 11b24db7d6b0a0..837ace4f7200fb 100644
  		t.Errorf("could not marshal: %v", err)
  	}
  
-@@ -325,10 +333,18 @@ func safeSum(h hash.Hash) (sum []byte, err error) {
+@@ -325,10 +334,18 @@ func safeSum(h hash.Hash) (sum []byte, err error) {
  	return h.Sum(nil), nil
  }
  func TestLargeHashes(t *testing.T) {
@@ -2256,7 +2259,7 @@ index 11b24db7d6b0a0..837ace4f7200fb 100644
  			t.Errorf("test %d could not unmarshal: %v", i, err)
  			continue
  		}
-@@ -347,6 +363,10 @@ func TestLargeHashes(t *testing.T) {
+@@ -347,6 +364,10 @@ func TestLargeHashes(t *testing.T) {
  
  func TestAllocations(t *testing.T) {
  	cryptotest.SkipTestAllocations(t)
@@ -2267,7 +2270,7 @@ index 11b24db7d6b0a0..837ace4f7200fb 100644
  	if n := testing.AllocsPerRun(10, func() {
  		in := []byte("hello, world!")
  		out := make([]byte, 0, Size)
-@@ -357,17 +377,10 @@ func TestAllocations(t *testing.T) {
+@@ -357,17 +378,10 @@ func TestAllocations(t *testing.T) {
  			h.Write(in)
  			out = h.Sum(out[:0])
  		}
@@ -2287,7 +2290,7 @@ index 11b24db7d6b0a0..837ace4f7200fb 100644
  	}
  }
  
-@@ -404,13 +417,13 @@ func TestExtraMethods(t *testing.T) {
+@@ -404,13 +418,13 @@ func TestExtraMethods(t *testing.T) {
  	t.Run("SHA-224", func(t *testing.T) {
  		cryptotest.TestAllImplementations(t, "sha256", func(t *testing.T) {
  			h := maybeCloner(New224())
@@ -2302,6 +2305,20 @@ index 11b24db7d6b0a0..837ace4f7200fb 100644
 +			cryptotest.NoExtraMethods(t, &h, "MarshalBinary", "UnmarshalBinary", "AppendBinary", "WriteByte", "WriteString", "Clone")
  		})
  	})
+ }
+@@ -481,7 +495,11 @@ func TestAllocatonsWithTypeAsserts(t *testing.T) {
+ 		marshaled, _ = h.(encoding.BinaryAppender).AppendBinary(marshaled[:0])
+ 		h.(encoding.BinaryUnmarshaler).UnmarshalBinary(marshaled)
+ 	})
+-	if allocs != 0 {
+-		t.Fatalf("allocs = %v; want = 0", allocs)
++	maxAllocs := 0
++	if goexperiment.SystemCrypto {
++		maxAllocs = 2
++	}
++	if allocs > float64(maxAllocs) {
++		t.Fatalf("allocs = %v; want <= %v", allocs, maxAllocs)
+ 	}
  }
 diff --git a/src/crypto/sha512/sha512.go b/src/crypto/sha512/sha512.go
 index 1435eac1f5b5dc..17e8501154762a 100644
@@ -2936,10 +2953,10 @@ index 5595f99ea5e43a..e1a87fa839033a 100644
  
  	var dsaPriv dsa.PrivateKey
 diff --git a/src/go/build/deps_test.go b/src/go/build/deps_test.go
-index 31eb47ae249a0e..6f6b0aa62485ac 100644
+index e1dd6331d96052..1cfca2f1634837 100644
 --- a/src/go/build/deps_test.go
 +++ b/src/go/build/deps_test.go
-@@ -524,7 +524,7 @@ var depsRules = `
+@@ -526,7 +526,7 @@ var depsRules = `
  	< crypto/internal/fips140/edwards25519
  	< crypto/internal/fips140/ed25519
  	< crypto/internal/fips140/rsa
@@ -2948,7 +2965,7 @@ index 31eb47ae249a0e..6f6b0aa62485ac 100644
  
  	FIPS, hash < crypto/internal/fips140only;
  	crypto/internal/fips140/subtle,	hash < crypto;
-@@ -549,6 +549,8 @@ var depsRules = `
+@@ -551,6 +551,8 @@ var depsRules = `
  	< crypto/internal/backend/internal/opensslsetup
  	< crypto/internal/backend/fips140;
  
@@ -2957,7 +2974,7 @@ index 31eb47ae249a0e..6f6b0aa62485ac 100644
  	crypto !< FIPS;
  
  	# CRYPTO is core crypto algorithms - no cgo, fmt, net.
-@@ -591,6 +593,7 @@ var depsRules = `
+@@ -593,6 +595,7 @@ var depsRules = `
  	  crypto/pbkdf2,
  	  crypto/ecdh,
  	  crypto/mlkem
