@@ -14,7 +14,7 @@ desired goexperiments and build tags.
  .../compile/internal/ssa/stmtlines_test.go    |   1 -
  src/cmd/compile/script_test.go                |   8 +
  src/cmd/dist/build.go                         |  80 +++-
- src/cmd/dist/test.go                          |  44 ++-
+ src/cmd/dist/test.go                          |  47 ++-
  src/cmd/go/go_test.go                         |  11 +
  src/cmd/go/internal/cfg/cfg.go                |  16 +
  src/cmd/go/internal/load/pkg.go               |   3 +
@@ -56,7 +56,7 @@ desired goexperiments and build tags.
  src/internal/buildcfg/exp.go                  |  57 +++
  src/runtime/runtime_boring.go                 |   5 +
  src/syscall/exec_linux_test.go                |   4 +
- 47 files changed, 2382 insertions(+), 21 deletions(-)
+ 47 files changed, 2384 insertions(+), 22 deletions(-)
  create mode 100644 src/cmd/go/systemcrypto_test.go
  create mode 100644 src/crypto/internal/backend/backend_test.go
  create mode 100644 src/crypto/internal/backend/bbig/big.go
@@ -263,7 +263,7 @@ index 2fcdb2d3915b9b..c04c50e69e4070 100644
  	if debug {
  		run("", ShowOutput|CheckExit, pathf("%s/compile", tooldir), "-V=full")
 diff --git a/src/cmd/dist/test.go b/src/cmd/dist/test.go
-index 1e74438f48db39..53e2bc09d4ee6d 100644
+index 1e74438f48db39..1e9844174dbb5c 100644
 --- a/src/cmd/dist/test.go
 +++ b/src/cmd/dist/test.go
 @@ -156,10 +156,12 @@ func (t *tester) run() {
@@ -293,15 +293,21 @@ index 1e74438f48db39..53e2bc09d4ee6d 100644
  		}
  	}
  
-@@ -750,11 +752,18 @@ func (t *tester) registerTests() {
+@@ -746,15 +748,23 @@ func (t *tester) registerTests() {
+ 
+ 	// Test GOEXPERIMENT=jsonv2.
+ 	if !strings.Contains(goexperiment, "jsonv2") {
++		// Don't override existing GOEXPERIMENTs.
++		goexperiment := goexperiment
++		if goexperiment != "" {
++			goexperiment += ","
++		}
++		goexperiment += "jsonv2"
+ 		t.registerTest("GOEXPERIMENT=jsonv2 go test encoding/json/...", &goTest{
  			variant: "jsonv2",
- 			env:     []string{"GOEXPERIMENT=jsonv2"},
+-			env:     []string{"GOEXPERIMENT=jsonv2"},
++			env:     []string{"GOEXPERIMENT=" + goexperiment},
  			pkg:     "encoding/json/...",
-+			// Skip FIPS checks. The test overrides GOEXPERIMENT,
-+			// so if we have been executed with GOEXPERIMENT=systemcrypto
-+			// and FIPS mode is required, then the test will fail because
-+			// the systemcrypto package will not be available.
-+			tags: []string{"ms_skipfipscheck"},
  		})
  	}
  
@@ -313,7 +319,7 @@ index 1e74438f48db39..53e2bc09d4ee6d 100644
  		t.registerTest("GOOS=ios on darwin/amd64",
  			&goTest{
  				variant:  "amd64ios",
-@@ -864,14 +873,21 @@ func (t *tester) registerTests() {
+@@ -864,14 +874,21 @@ func (t *tester) registerTests() {
  
  	// Test internal linking of PIE binaries where it is supported.
  	if t.internalLinkPIE() && !disablePIE {
@@ -336,7 +342,7 @@ index 1e74438f48db39..53e2bc09d4ee6d 100644
  			})
  		t.registerTest("internal linking, -buildmode=pie",
  			&goTest{
-@@ -879,9 +895,10 @@ func (t *tester) registerTests() {
+@@ -879,9 +896,10 @@ func (t *tester) registerTests() {
  				timeout:   60 * time.Second,
  				buildmode: "pie",
  				ldflags:   "-linkmode=internal",
@@ -348,7 +354,7 @@ index 1e74438f48db39..53e2bc09d4ee6d 100644
  			})
  		// Also test a cgo package.
  		if t.cgoEnabled && t.internalLink() && !disablePIE {
-@@ -898,15 +915,22 @@ func (t *tester) registerTests() {
+@@ -898,15 +916,22 @@ func (t *tester) registerTests() {
  
  	if t.extLink() && !t.compileOnly {
  		if goos != "android" { // Android does not support non-PIE linking
@@ -372,7 +378,7 @@ index 1e74438f48db39..53e2bc09d4ee6d 100644
  				})
  		}
  		if t.externalLinkPIE() && !disablePIE {
-@@ -985,7 +1009,9 @@ func (t *tester) registerTests() {
+@@ -985,7 +1010,9 @@ func (t *tester) registerTests() {
  		t.registerRaceTests()
  	}
  
