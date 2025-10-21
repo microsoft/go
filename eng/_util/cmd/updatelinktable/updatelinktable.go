@@ -23,22 +23,7 @@ This command updates the table in ` + docPath + ` and data in ` + jsonPath + `.
 
 var supported = []version{
 	{
-		Number:       "1.25",
-		LatestStable: true,
-		Platforms: map[string]struct{}{
-			"darwin-amd64":  {},
-			"darwin-arm64":  {},
-			"linux-amd64":   {},
-			"linux-arm64":   {},
-			"linux-armv6l":  {},
-			"windows-amd64": {},
-			"src":           {},
-			"assets":        {},
-		},
-	},
-	{
-		Number:         "1.24",
-		PreviousStable: true,
+		Number: ".0main",
 		Platforms: map[string]struct{}{
 			"darwin-amd64":  {},
 			"darwin-arm64":  {},
@@ -138,7 +123,7 @@ const (
 	signatureMsg    = "Signature<sup>1</sup>"
 )
 
-const baseURL = "https://aka.ms/golang/release/latest/"
+const baseURL = "https://aka.ms/golang/release/cgoless/latest/"
 
 var (
 	docPath  = filepath.Join("eng", "doc", "Downloads.md")
