@@ -5,13 +5,13 @@ Subject: [PATCH] Use crypto backends
 
 ---
  src/cmd/api/boring_test.go                    |   2 +-
- src/cmd/dist/test.go                          |  10 +-
- src/cmd/go/go_boring_test.go                  |  11 +-
+ src/cmd/dist/test.go                          |   5 +-
+ src/cmd/go/go_boring_test.go                  |   6 +-
  src/cmd/go/script_test.go                     |   2 +
  src/cmd/go/testdata/script/darwin_no_cgo.txt  |   2 +
  .../go/testdata/script/gopath_std_vendor.txt  |   9 +
  src/cmd/link/internal/ld/config.go            |   8 +
- src/cmd/link/internal/ld/lib.go               |   2 +
+ src/cmd/link/internal/ld/lib.go               |   5 +
  src/crypto/aes/aes.go                         |   2 +-
  src/crypto/aes/aes_test.go                    |   2 +-
  src/crypto/boring/boring.go                   |   4 +-
@@ -92,8 +92,7 @@ Subject: [PATCH] Use crypto backends
  src/hash/notboring_test.go                    |   9 +
  src/net/lookup_test.go                        |   3 +
  src/os/exec/exec_test.go                      |   9 +
- src/runtime/pprof/vminfo_darwin_test.go       |   6 +
- 89 files changed, 1172 insertions(+), 119 deletions(-)
+ 88 files changed, 1159 insertions(+), 119 deletions(-)
  create mode 100644 src/crypto/dsa/boring.go
  create mode 100644 src/crypto/dsa/notboring.go
  create mode 100644 src/crypto/ecdsa/badlinkname.go
@@ -119,7 +118,7 @@ index f0e3575637c62a..9eab3b4e66e60b 100644
  package main
  
 diff --git a/src/cmd/dist/test.go b/src/cmd/dist/test.go
-index 6c31b623897048..6db889494bae8e 100644
+index 34c41a7099e1e6..86eec2c9eec8dd 100644
 --- a/src/cmd/dist/test.go
 +++ b/src/cmd/dist/test.go
 @@ -720,7 +720,7 @@ func (t *tester) registerTests() {
@@ -131,19 +130,7 @@ index 6c31b623897048..6db889494bae8e 100644
  		// Test standard crypto packages with fips140=on.
  		t.registerTest("GOFIPS140=latest go test crypto/...", &goTest{
  			variant: "gofips140",
-@@ -1212,6 +1212,11 @@ func (t *tester) internalLink() bool {
- 	if goos == "windows" && goarch == "arm64" {
- 		return false
- 	}
-+	if goos == "darwin" && (strings.Contains(goexperiment, "systemcrypto") || strings.Contains(goexperiment, "darwincrypto")) {
-+		// linkmode=internal isn't supported with system/darwin crypto.
-+		// see https://github.com/microsoft/go-crypto-darwin/issues/33
-+		return false
-+	}
- 	// Internally linking cgo is incomplete on some architectures.
- 	// https://golang.org/issue/10373
- 	// https://golang.org/issue/14449
-@@ -1375,12 +1380,11 @@ func (t *tester) registerCgoTests(heading string) {
+@@ -1365,12 +1365,11 @@ func (t *tester) registerCgoTests(heading string) {
  			// a C linker warning on Linux.
  			// in function `bio_ip_and_port_to_socket_and_addr':
  			// warning: Using 'getaddrinfo' in statically linked applications requires at runtime the shared libraries from the glibc version used for linking
@@ -158,10 +145,10 @@ index 6c31b623897048..6db889494bae8e 100644
  			if goos != "android" && p != "netbsd/arm" && !t.msan && !t.asan {
  				// TODO(#56629): Why does this fail on netbsd-arm?
 diff --git a/src/cmd/go/go_boring_test.go b/src/cmd/go/go_boring_test.go
-index ed0fbf3d53d75b..8111b143a1295b 100644
+index ed0fbf3d53d75b..a2f74c8095d449 100644
 --- a/src/cmd/go/go_boring_test.go
 +++ b/src/cmd/go/go_boring_test.go
-@@ -2,13 +2,20 @@
+@@ -2,11 +2,13 @@
  // Use of this source code is governed by a BSD-style
  // license that can be found in the LICENSE file.
  
@@ -172,18 +159,11 @@ index ed0fbf3d53d75b..8111b143a1295b 100644
  
 -import "testing"
 +import (
-+	"internal/goexperiment"
 +	"testing"
 +)
  
  func TestBoringInternalLink(t *testing.T) {
-+	if goexperiment.DarwinCrypto {
-+		// https://github.com/microsoft/go-crypto-darwin/issues/33
-+		t.Skip("skipping on Darwin")
-+	}
  	tg := testgo(t)
- 	defer tg.cleanup()
- 	tg.parallel()
 diff --git a/src/cmd/go/script_test.go b/src/cmd/go/script_test.go
 index 390a36723787f4..0576ea8add72af 100644
 --- a/src/cmd/go/script_test.go
@@ -256,13 +236,16 @@ index 802fb35aee4e65..4416731b69ec26 100644
  			*mode = BuildModePIE
  		default:
 diff --git a/src/cmd/link/internal/ld/lib.go b/src/cmd/link/internal/ld/lib.go
-index 2c861129b52f9a..851e6ad02dc722 100644
+index 2c861129b52f9a..c889aef01e6cb6 100644
 --- a/src/cmd/link/internal/ld/lib.go
 +++ b/src/cmd/link/internal/ld/lib.go
-@@ -1176,6 +1176,8 @@ var hostobj []Hostobj
+@@ -1176,6 +1176,11 @@ var hostobj []Hostobj
  // These packages can use internal linking mode.
  // Others trigger external mode.
  var internalpkg = []string{
++	"vendor/github.com/microsoft/go-crypto-darwin/internal/cryptokit",
++	"vendor/github.com/microsoft/go-crypto-darwin/internal/commoncrypto",
++	"vendor/github.com/microsoft/go-crypto-darwin/internal/security",
 +	"vendor/github.com/golang-fips/openssl/v2/internal/ossl",
 +	"vendor/github.com/golang-fips/openssl/v2",
  	"crypto/internal/boring",
@@ -317,7 +300,7 @@ index 097c37e343fdb8..a5d603896d3890 100644
  // Enabled reports whether BoringCrypto handles supported crypto operations.
  func Enabled() bool {
 diff --git a/src/crypto/cipher/ctr_aes_test.go b/src/crypto/cipher/ctr_aes_test.go
-index 33942467784ad3..0282ffa9fa23c8 100644
+index 9b7d30e2164422..b08132d1c7568a 100644
 --- a/src/crypto/cipher/ctr_aes_test.go
 +++ b/src/crypto/cipher/ctr_aes_test.go
 @@ -14,7 +14,7 @@ import (
@@ -2051,7 +2034,7 @@ index b6b94a79bbca51..32abaf174bfb5b 100644
  	"crypto/internal/fips140/rsa"
  	"crypto/internal/fips140only"
 diff --git a/src/crypto/rsa/rsa_test.go b/src/crypto/rsa/rsa_test.go
-index 0d5b6e08f0e223..b4d4c819fe3deb 100644
+index b9e85bd8ff8f37..5014ae3965c252 100644
 --- a/src/crypto/rsa/rsa_test.go
 +++ b/src/crypto/rsa/rsa_test.go
 @@ -8,7 +8,7 @@ import (
@@ -2075,7 +2058,7 @@ index 0d5b6e08f0e223..b4d4c819fe3deb 100644
  
  	msg := []byte("hi!")
  	enc, err := EncryptPKCS1v15(rand.Reader, &priv.PublicKey, msg)
-@@ -232,6 +237,11 @@ func testEverything(t *testing.T, priv *PrivateKey) {
+@@ -231,6 +236,11 @@ func testEverything(t *testing.T, priv *PrivateKey) {
  	if validateErr != nil && len(priv.Primes) >= 2 {
  		t.Errorf("Validate() failed: %s", validateErr)
  	}
@@ -2087,7 +2070,7 @@ index 0d5b6e08f0e223..b4d4c819fe3deb 100644
  
  	msg := []byte("test")
  	enc, err := EncryptPKCS1v15(rand.Reader, &priv.PublicKey, msg)
-@@ -940,6 +950,9 @@ func TestDecryptOAEP(t *testing.T) {
+@@ -939,6 +949,9 @@ func TestDecryptOAEP(t *testing.T) {
  }
  
  func Test2DecryptOAEP(t *testing.T) {
@@ -2586,7 +2569,7 @@ index 7018bb2336b8f3..d5e02272d7afe1 100644
  	"hash"
  	"slices"
 diff --git a/src/crypto/tls/handshake_server.go b/src/crypto/tls/handshake_server.go
-index 088c66fadb2a44..ca33ba92665d44 100644
+index a2cf176a86c0d8..b2edd0246016a1 100644
 --- a/src/crypto/tls/handshake_server.go
 +++ b/src/crypto/tls/handshake_server.go
 @@ -63,7 +63,15 @@ func (c *Conn) serverHandshake(ctx context.Context) error {
@@ -2940,7 +2923,7 @@ index e7369542a73270..ff52175e4ac636 100644
  	}
  }
 diff --git a/src/crypto/x509/verify_test.go b/src/crypto/x509/verify_test.go
-index 5595f99ea5e43a..e1a87fa839033a 100644
+index 60a4cea9146adf..0961c5b376bab9 100644
 --- a/src/crypto/x509/verify_test.go
 +++ b/src/crypto/x509/verify_test.go
 @@ -3119,7 +3119,7 @@ func dsaSelfSignedCNX(t *testing.T) []byte {
@@ -2953,7 +2936,7 @@ index 5595f99ea5e43a..e1a87fa839033a 100644
  
  	var dsaPriv dsa.PrivateKey
 diff --git a/src/go/build/deps_test.go b/src/go/build/deps_test.go
-index e1dd6331d96052..1cfca2f1634837 100644
+index 1f245d570092a3..b3d1383b925161 100644
 --- a/src/go/build/deps_test.go
 +++ b/src/go/build/deps_test.go
 @@ -526,7 +526,7 @@ var depsRules = `
@@ -2965,7 +2948,7 @@ index e1dd6331d96052..1cfca2f1634837 100644
  
  	FIPS, hash < crypto/internal/fips140only;
  	crypto/internal/fips140/subtle,	hash < crypto;
-@@ -551,6 +551,8 @@ var depsRules = `
+@@ -554,6 +554,8 @@ var depsRules = `
  	< crypto/internal/backend/internal/opensslsetup
  	< crypto/internal/backend/fips140;
  
@@ -2974,7 +2957,7 @@ index e1dd6331d96052..1cfca2f1634837 100644
  	crypto !< FIPS;
  
  	# CRYPTO is core crypto algorithms - no cgo, fmt, net.
-@@ -593,6 +595,7 @@ var depsRules = `
+@@ -596,6 +598,7 @@ var depsRules = `
  	  crypto/pbkdf2,
  	  crypto/ecdh,
  	  crypto/mlkem
@@ -3048,10 +3031,10 @@ index 00000000000000..11dc691600b110
 +
 +const boringEnabled = false
 diff --git a/src/net/lookup_test.go b/src/net/lookup_test.go
-index 514cbd098ae772..8ec689416dde1d 100644
+index 2a774100a8ec67..a0cabb42b19484 100644
 --- a/src/net/lookup_test.go
 +++ b/src/net/lookup_test.go
-@@ -1501,6 +1501,9 @@ func TestLookupPortIPNetworkString(t *testing.T) {
+@@ -1499,6 +1499,9 @@ func TestLookupPortIPNetworkString(t *testing.T) {
  }
  
  func TestLookupNoSuchHost(t *testing.T) {
@@ -3062,7 +3045,7 @@ index 514cbd098ae772..8ec689416dde1d 100644
  
  	const testNXDOMAIN = "invalid.invalid."
 diff --git a/src/os/exec/exec_test.go b/src/os/exec/exec_test.go
-index 3bded3dea604fb..64fa1960ae9891 100644
+index 1decebdc222d23..c095fa280b2f83 100644
 --- a/src/os/exec/exec_test.go
 +++ b/src/os/exec/exec_test.go
 @@ -14,6 +14,7 @@ import (
@@ -3088,27 +3071,3 @@ index 3bded3dea604fb..64fa1960ae9891 100644
  	// Force network usage, to verify the epoll (or whatever) fd
  	// doesn't leak to the child,
  	ln, err := net.Listen("tcp", "127.0.0.1:0")
-diff --git a/src/runtime/pprof/vminfo_darwin_test.go b/src/runtime/pprof/vminfo_darwin_test.go
-index 6d375c5d53368a..39154b000ddc67 100644
---- a/src/runtime/pprof/vminfo_darwin_test.go
-+++ b/src/runtime/pprof/vminfo_darwin_test.go
-@@ -11,6 +11,7 @@ import (
- 	"bytes"
- 	"fmt"
- 	"internal/abi"
-+	"internal/goexperiment"
- 	"internal/testenv"
- 	"os"
- 	"os/exec"
-@@ -21,6 +22,11 @@ import (
- )
- 
- func TestVMInfo(t *testing.T) {
-+	if goexperiment.DarwinCrypto {
-+		// Fails on macOS when using system crypto.
-+		// https://github.com/microsoft/go/issues/1466
-+		t.Skip("skipping on Darwin")
-+	}
- 	var begin, end, offset uint64
- 	var filename string
- 	first := true

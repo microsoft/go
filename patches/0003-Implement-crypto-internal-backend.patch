@@ -14,7 +14,7 @@ desired goexperiments and build tags.
  .../compile/internal/ssa/stmtlines_test.go    |   3 +-
  src/cmd/compile/script_test.go                |   8 +
  src/cmd/dist/build.go                         |  80 +++-
- src/cmd/dist/test.go                          |  47 ++-
+ src/cmd/dist/test.go                          |  43 +-
  src/cmd/go/go_test.go                         |  11 +
  src/cmd/go/internal/cfg/cfg.go                |  16 +
  src/cmd/go/internal/load/pkg.go               |   3 +
@@ -50,13 +50,12 @@ desired goexperiments and build tags.
  src/crypto/internal/backend/nobackend.go      | 251 ++++++++++++
  src/crypto/internal/backend/openssl_linux.go  | 332 ++++++++++++++++
  src/crypto/internal/backend/stub.s            |  10 +
- src/crypto/systemcrypto_nocgo_darwin.go       |  15 +
  src/crypto/systemcrypto_nocgo_linux.go        |  15 +
  src/go/build/deps_test.go                     |  32 +-
  src/internal/buildcfg/exp.go                  |  57 +++
  src/runtime/runtime_boring.go                 |   5 +
  src/syscall/exec_linux_test.go                |   4 +
- 47 files changed, 2385 insertions(+), 23 deletions(-)
+ 46 files changed, 2367 insertions(+), 22 deletions(-)
  create mode 100644 src/cmd/go/systemcrypto_test.go
  create mode 100644 src/crypto/internal/backend/backend_test.go
  create mode 100644 src/crypto/internal/backend/bbig/big.go
@@ -83,7 +82,6 @@ desired goexperiments and build tags.
  create mode 100644 src/crypto/internal/backend/nobackend.go
  create mode 100644 src/crypto/internal/backend/openssl_linux.go
  create mode 100644 src/crypto/internal/backend/stub.s
- create mode 100644 src/crypto/systemcrypto_nocgo_darwin.go
  create mode 100644 src/crypto/systemcrypto_nocgo_linux.go
 
 diff --git a/.gitignore b/.gitignore
@@ -272,7 +270,7 @@ index 2fcdb2d3915b9b..c04c50e69e4070 100644
  	if debug {
  		run("", ShowOutput|CheckExit, pathf("%s/compile", tooldir), "-V=full")
 diff --git a/src/cmd/dist/test.go b/src/cmd/dist/test.go
-index 1e74438f48db39..1e9844174dbb5c 100644
+index 1e74438f48db39..c4b80436db2e85 100644
 --- a/src/cmd/dist/test.go
 +++ b/src/cmd/dist/test.go
 @@ -156,10 +156,12 @@ func (t *tester) run() {
@@ -333,8 +331,8 @@ index 1e74438f48db39..1e9844174dbb5c 100644
  	// Test internal linking of PIE binaries where it is supported.
  	if t.internalLinkPIE() && !disablePIE {
 +		var tags, env []string
-+		if goos == "darwin" || (goos == "linux" && !strings.Contains(goexperiment, "ms_nocgo_opensslcrypto")) {
-+			// Linux and macOS don't support systemcrypto with CGO_ENABLED=0.
++		if goos == "linux" && !strings.Contains(goexperiment, "ms_nocgo_opensslcrypto") {
++			// Linux doesn't support systemcrypto with CGO_ENABLED=0.
 +			tags = append(tags, "ms_skipfipscheck")
 +			env = append(env, "MS_GO_NOSYSTEMCRYPTO=1")
 +		}
@@ -363,31 +361,7 @@ index 1e74438f48db39..1e9844174dbb5c 100644
  			})
  		// Also test a cgo package.
  		if t.cgoEnabled && t.internalLink() && !disablePIE {
-@@ -898,15 +916,22 @@ func (t *tester) registerTests() {
- 
- 	if t.extLink() && !t.compileOnly {
- 		if goos != "android" { // Android does not support non-PIE linking
-+			var tags, env []string
-+			if goos == "darwin" {
-+				// Darwincrypto doesn't support external linking.
-+				tags = append(tags, "ms_skipfipscheck")
-+				env = append(env, "MS_GO_NOSYSTEMCRYPTO=1")
-+			}
- 			t.registerTest("external linking, -buildmode=exe",
- 				&goTest{
- 					variant:   "exe_external",
- 					timeout:   60 * time.Second,
- 					buildmode: "exe",
- 					ldflags:   "-linkmode=external",
--					env:       []string{"CGO_ENABLED=1"},
-+					env:       append([]string{"CGO_ENABLED=1"}, env...),
- 					pkg:       "crypto/internal/fips140test",
- 					runTests:  "TestFIPSCheck",
-+					tags:      tags,
- 				})
- 		}
- 		if t.externalLinkPIE() && !disablePIE {
-@@ -985,7 +1010,9 @@ func (t *tester) registerTests() {
+@@ -985,7 +1003,9 @@ func (t *tester) registerTests() {
  		t.registerRaceTests()
  	}
  
@@ -398,6 +372,18 @@ index 1e74438f48db39..1e9844174dbb5c 100644
  		// Only start multiple test dir shards on builders,
  		// where they get distributed to multiple machines.
  		// See issues 20141 and 31834.
+@@ -1186,6 +1206,11 @@ func (t *tester) internalLink() bool {
+ 	if goos == "windows" && goarch == "arm64" {
+ 		return false
+ 	}
++	if goos == "darwin" && t.cgoEnabled && (strings.Contains(goexperiment, "systemcrypto") || strings.Contains(goexperiment, "darwincrypto")) {
++		// linkmode=internal isn't supported with system/darwin crypto.
++		// see https://github.com/microsoft/go-crypto-darwin/issues/33
++		return false
++	}
+ 	// Internally linking cgo is incomplete on some architectures.
+ 	// https://golang.org/issue/10373
+ 	// https://golang.org/issue/14449
 diff --git a/src/cmd/go/go_test.go b/src/cmd/go/go_test.go
 index e4ee9bd1e8d2ec..3bdb6b4d31fe46 100644
 --- a/src/cmd/go/go_test.go
@@ -512,7 +498,7 @@ index 75a8fab78ad31b..57f1d79e89f36e 100644
  	buildAndRunTool(loaderstate, ctx, tool, args, runFunc)
 diff --git a/src/cmd/go/systemcrypto_test.go b/src/cmd/go/systemcrypto_test.go
 new file mode 100644
-index 00000000000000..c4129cd74ee73d
+index 00000000000000..7335b47c237fd9
 --- /dev/null
 +++ b/src/cmd/go/systemcrypto_test.go
 @@ -0,0 +1,197 @@
@@ -608,9 +594,9 @@ index 00000000000000..c4129cd74ee73d
 +		{"linux", "arm", "ms_nocgo_cngcrypto", false},         // cgoless OpenSSL not supported on linux/arm
 +		{"linux", "amd64", "ms_nocgo_opensslcrypto", true},
 +		{"linux", "arm64", "ms_nocgo_opensslcrypto", true},
-+		{"darwin", "amd64", "", false}, // cgoless system crypto not supported on darwin/amd64
-+		{"darwin", "arm64", "", false}, // cgoless system crypto not supported on darwin/arm64
-+		{"windows", "386", "", false},  // cgoless system crypto not supported on windows/386
++		{"darwin", "amd64", "", true}, // cgoless system crypto not supported on darwin/amd64
++		{"darwin", "arm64", "", true}, // cgoless system crypto not supported on darwin/arm64
++		{"windows", "386", "", false}, // cgoless system crypto not supported on windows/386
 +		{"windows", "amd64", "", true},
 +		{"windows", "arm64", "", true},
 +	}
@@ -857,7 +843,7 @@ index 00000000000000..c2c06d3bff8c74
 +}
 diff --git a/src/crypto/internal/backend/bbig/big.go b/src/crypto/internal/backend/bbig/big.go
 new file mode 100644
-index 00000000000000..ab3f30825dcfa1
+index 00000000000000..20251a290dc2e0
 --- /dev/null
 +++ b/src/crypto/internal/backend/bbig/big.go
 @@ -0,0 +1,17 @@
@@ -865,7 +851,7 @@ index 00000000000000..ab3f30825dcfa1
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
 +
-+//go:build !goexperiment.systemcrypto || (goexperiment.darwincrypto && !cgo)
++//go:build !goexperiment.systemcrypto
 +
 +package bbig
 +
@@ -898,7 +884,7 @@ index 00000000000000..92623031fd87d0
 +var Dec = bbig.Dec
 diff --git a/src/crypto/internal/backend/bbig/big_darwin.go b/src/crypto/internal/backend/bbig/big_darwin.go
 new file mode 100644
-index 00000000000000..77f3ca5d262769
+index 00000000000000..4ff10194a06e86
 --- /dev/null
 +++ b/src/crypto/internal/backend/bbig/big_darwin.go
 @@ -0,0 +1,12 @@
@@ -906,7 +892,7 @@ index 00000000000000..77f3ca5d262769
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
 +
-+//go:build goexperiment.darwincrypto && cgo
++//go:build goexperiment.darwincrypto
 +
 +package bbig
 +
@@ -1337,7 +1323,7 @@ index 00000000000000..a9682181ffa154
 +}
 diff --git a/src/crypto/internal/backend/darwin_darwin.go b/src/crypto/internal/backend/darwin_darwin.go
 new file mode 100644
-index 00000000000000..fea0f284de2439
+index 00000000000000..aeed096c193d9f
 --- /dev/null
 +++ b/src/crypto/internal/backend/darwin_darwin.go
 @@ -0,0 +1,372 @@
@@ -1345,7 +1331,7 @@ index 00000000000000..fea0f284de2439
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
 +
-+//go:build goexperiment.darwincrypto && darwin && cgo
++//go:build goexperiment.darwincrypto && darwin
 +
 +// Package darwin provides access to DarwinCrypto implementation functions.
 +// Check the variable Enabled to find out whether DarwinCrypto is available.
@@ -2227,7 +2213,7 @@ index 00000000000000..3b92bfc5fbabf6
 +package opensslsetup
 diff --git a/src/crypto/internal/backend/nobackend.go b/src/crypto/internal/backend/nobackend.go
 new file mode 100644
-index 00000000000000..a59c6cc736c6da
+index 00000000000000..fbd649dd105b8b
 --- /dev/null
 +++ b/src/crypto/internal/backend/nobackend.go
 @@ -0,0 +1,251 @@
@@ -2235,7 +2221,7 @@ index 00000000000000..a59c6cc736c6da
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
 +
-+//go:build !goexperiment.systemcrypto || (goexperiment.opensslcrypto && !(cgo || goexperiment.ms_nocgo_opensslcrypto)) || (goexperiment.darwincrypto && !cgo)
++//go:build !goexperiment.systemcrypto || (goexperiment.opensslcrypto && !(cgo || goexperiment.ms_nocgo_opensslcrypto))
 +
 +package backend
 +
@@ -2836,27 +2822,6 @@ index 00000000000000..5e4b436554d44d
 +// Having this assembly file keeps the go command
 +// from complaining about the missing body
 +// (because the implementation might be here).
-diff --git a/src/crypto/systemcrypto_nocgo_darwin.go b/src/crypto/systemcrypto_nocgo_darwin.go
-new file mode 100644
-index 00000000000000..aed8fc5e152405
---- /dev/null
-+++ b/src/crypto/systemcrypto_nocgo_darwin.go
-@@ -0,0 +1,15 @@
-+// Copyright 2025 The Go Authors. All rights reserved.
-+// Use of this source code is governed by a BSD-style
-+// license that can be found in the LICENSE file.
-+
-+//go:build goexperiment.darwincrypto && !cgo
-+
-+package crypto
-+
-+func init() {
-+	`
-+	Using GOEXPERIMENT=systemcrypto on Darwin requires CGO_ENABLED=1.
-+	
-+	For more information, visit https://github.com/microsoft/go/tree/microsoft/main/eng/doc/fips
-+	`
-+}
 diff --git a/src/crypto/systemcrypto_nocgo_linux.go b/src/crypto/systemcrypto_nocgo_linux.go
 new file mode 100644
 index 00000000000000..b79491c6cb7c08
@@ -2879,7 +2844,7 @@ index 00000000000000..b79491c6cb7c08
 +	`
 +}
 diff --git a/src/go/build/deps_test.go b/src/go/build/deps_test.go
-index db5e6ba6d64978..569a7084c46f11 100644
+index 373efd8319c675..1f245d570092a3 100644
 --- a/src/go/build/deps_test.go
 +++ b/src/go/build/deps_test.go
 @@ -355,7 +355,7 @@ var depsRules = `
@@ -2891,7 +2856,7 @@ index db5e6ba6d64978..569a7084c46f11 100644
  	< internal/buildcfg;
  
  	container/heap, go/constant, go/parser, internal/buildcfg, internal/goversion, internal/types/errors
-@@ -547,6 +547,11 @@ var depsRules = `
+@@ -549,6 +549,11 @@ var depsRules = `
  	< github.com/microsoft/go-crypto-winnative/internal/bcrypt
  	< github.com/microsoft/go-crypto-winnative/cng;
  
@@ -2903,7 +2868,7 @@ index db5e6ba6d64978..569a7084c46f11 100644
  	crypto !< FIPS;
  
  	# CRYPTO is core crypto algorithms - no cgo, fmt, net.
-@@ -555,16 +560,27 @@ var depsRules = `
+@@ -557,16 +562,27 @@ var depsRules = `
  	NONE < crypto/internal/boring/sig, crypto/internal/boring/syso;
  	sync/atomic < crypto/internal/boring/bcache;
  
@@ -2933,7 +2898,7 @@ index db5e6ba6d64978..569a7084c46f11 100644
  	< crypto/boring
  	< crypto/aes,
  	  crypto/des,
-@@ -588,8 +604,14 @@ var depsRules = `
+@@ -590,8 +606,14 @@ var depsRules = `
  	math/big, github.com/microsoft/go-crypto-darwin/xcrypto < github.com/microsoft/go-crypto-darwin/bbig;
  	math/big, github.com/microsoft/go-crypto-winnative/cng < github.com/microsoft/go-crypto-winnative/cng/bbig;
  
