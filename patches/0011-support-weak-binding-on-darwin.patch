@@ -1,0 +1,91 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: bot-for-go[bot] <199222863+bot-for-go[bot]@users.noreply.github.com>
+Date: Fri, 24 Oct 2025 13:03:01 +0200
+Subject: [PATCH] support weak binding on darwin
+
+Remove once https://go-review.googlesource.com/c/go/+/713760 is merged.
+
+---
+ src/cmd/link/internal/ld/macho.go          |  8 +++++++-
+ src/cmd/link/internal/loader/loader.go     | 13 +++++++++++++
+ src/cmd/link/internal/loadmacho/ldmacho.go |  3 +++
+ 3 files changed, 23 insertions(+), 1 deletion(-)
+
+diff --git a/src/cmd/link/internal/ld/macho.go b/src/cmd/link/internal/ld/macho.go
+index 8e059f299ffa73..1aa9042dc7a20f 100644
+--- a/src/cmd/link/internal/ld/macho.go
++++ b/src/cmd/link/internal/ld/macho.go
+@@ -180,6 +180,8 @@ const (
+ 	BIND_SPECIAL_DYLIB_FLAT_LOOKUP     = -2
+ 	BIND_SPECIAL_DYLIB_WEAK_LOOKUP     = -3
+ 
++	BIND_SYMBOL_FLAGS_WEAK_IMPORT = 0x1
++
+ 	BIND_OPCODE_MASK                                         = 0xF0
+ 	BIND_IMMEDIATE_MASK                                      = 0x0F
+ 	BIND_OPCODE_DONE                                         = 0x00
+@@ -1429,7 +1431,11 @@ func machoDyldInfo(ctxt *Link) {
+ 			bind.AddUint8(BIND_OPCODE_SET_DYLIB_SPECIAL_IMM | uint8(d)&0xf)
+ 		}
+ 
+-		bind.AddUint8(BIND_OPCODE_SET_SYMBOL_TRAILING_FLAGS_IMM)
++		flags := uint8(0)
++		if ldr.SymWeakBinding(r.targ) {
++			flags |= BIND_SYMBOL_FLAGS_WEAK_IMPORT
++		}
++		bind.AddUint8(BIND_OPCODE_SET_SYMBOL_TRAILING_FLAGS_IMM | flags)
+ 		// target symbol name as a C string, with _ prefix
+ 		bind.AddUint8('_')
+ 		bind.Addstring(ldr.SymExtname(r.targ))
+diff --git a/src/cmd/link/internal/loader/loader.go b/src/cmd/link/internal/loader/loader.go
+index cef17fae781798..90661cb6cc7be5 100644
+--- a/src/cmd/link/internal/loader/loader.go
++++ b/src/cmd/link/internal/loader/loader.go
+@@ -241,6 +241,7 @@ type Loader struct {
+ 	plt         map[Sym]int32       // stores dynimport for pe objects
+ 	got         map[Sym]int32       // stores got for pe objects
+ 	dynid       map[Sym]int32       // stores Dynid for symbol
++	weakBinding map[Sym]bool        // stores whether a symbol has a weak binding
+ 
+ 	relocVariant map[relocId]sym.RelocVariant // stores variant relocs
+ 
+@@ -326,6 +327,7 @@ func NewLoader(flags uint32, reporter *ErrorReporter) *Loader {
+ 		plt:                  make(map[Sym]int32),
+ 		got:                  make(map[Sym]int32),
+ 		dynid:                make(map[Sym]int32),
++		weakBinding:          make(map[Sym]bool),
+ 		attrCgoExportDynamic: make(map[Sym]struct{}),
+ 		attrCgoExportStatic:  make(map[Sym]struct{}),
+ 		deferReturnTramp:     make(map[Sym]bool),
+@@ -1450,6 +1452,17 @@ func (l *Loader) SetSymExtname(i Sym, value string) {
+ 	}
+ }
+ 
++func (l *Loader) SymWeakBinding(i Sym) bool {
++	return l.weakBinding[i]
++}
++func (l *Loader) SetSymWeakBinding(i Sym, v bool) {
++	// reject bad symbols
++	if i >= Sym(len(l.objSyms)) || i == 0 {
++		panic("bad symbol index in SetSymWeakBinding")
++	}
++	l.weakBinding[i] = v
++}
++
+ // SymElfType returns the previously recorded ELF type for a symbol
+ // (used only for symbols read from shared libraries by ldshlibsyms).
+ // It is not set for symbols defined by the packages being linked or
+diff --git a/src/cmd/link/internal/loadmacho/ldmacho.go b/src/cmd/link/internal/loadmacho/ldmacho.go
+index 5e8022ce69bb36..dcb0fd92c1f357 100644
+--- a/src/cmd/link/internal/loadmacho/ldmacho.go
++++ b/src/cmd/link/internal/loadmacho/ldmacho.go
+@@ -613,6 +613,9 @@ func Load(l *loader.Loader, arch *sys.Arch, localSymVersion int, f *bio.Reader,
+ 		}
+ 		if machsym.desc&(N_WEAK_REF|N_WEAK_DEF) != 0 {
+ 			l.SetAttrDuplicateOK(s, true)
++			if machsym.desc&N_WEAK_REF != 0 {
++				l.SetSymWeakBinding(s, true)
++			}
+ 		}
+ 		machsym.sym = s
+ 		if machsym.sectnum == 0 { // undefined
