@@ -14,7 +14,7 @@ desired goexperiments and build tags.
  .../compile/internal/ssa/stmtlines_test.go    |   3 +-
  src/cmd/compile/script_test.go                |   8 +
  src/cmd/dist/build.go                         |  80 +++-
- src/cmd/dist/test.go                          |  38 +-
+ src/cmd/dist/test.go                          |  43 +-
  src/cmd/go/go_test.go                         |  11 +
  src/cmd/go/internal/cfg/cfg.go                |  16 +
  src/cmd/go/internal/load/pkg.go               |   3 +
@@ -55,7 +55,7 @@ desired goexperiments and build tags.
  src/internal/buildcfg/exp.go                  |  57 +++
  src/runtime/runtime_boring.go                 |   5 +
  src/syscall/exec_linux_test.go                |   4 +
- 46 files changed, 2362 insertions(+), 22 deletions(-)
+ 46 files changed, 2367 insertions(+), 22 deletions(-)
  create mode 100644 src/cmd/go/systemcrypto_test.go
  create mode 100644 src/crypto/internal/backend/backend_test.go
  create mode 100644 src/crypto/internal/backend/bbig/big.go
@@ -270,7 +270,7 @@ index 2fcdb2d3915b9b..c04c50e69e4070 100644
  	if debug {
  		run("", ShowOutput|CheckExit, pathf("%s/compile", tooldir), "-V=full")
 diff --git a/src/cmd/dist/test.go b/src/cmd/dist/test.go
-index 1e74438f48db39..372306e655a516 100644
+index 1e74438f48db39..ffaea9fb1e54f7 100644
 --- a/src/cmd/dist/test.go
 +++ b/src/cmd/dist/test.go
 @@ -156,10 +156,12 @@ func (t *tester) run() {
@@ -372,6 +372,18 @@ index 1e74438f48db39..372306e655a516 100644
  		// Only start multiple test dir shards on builders,
  		// where they get distributed to multiple machines.
  		// See issues 20141 and 31834.
+@@ -1186,6 +1206,11 @@ func (t *tester) internalLink() bool {
+ 	if goos == "windows" && goarch == "arm64" {
+ 		return false
+ 	}
++	if goos == "darwin" && (strings.Contains(goexperiment, "systemcrypto") || strings.Contains(goexperiment, "darwincrypto")) {
++		// linkmode=internal isn't supported with system/darwin crypto.
++		// see https://github.com/microsoft/go-crypto-darwin/issues/33
++		return false
++	}
+ 	// Internally linking cgo is incomplete on some architectures.
+ 	// https://golang.org/issue/10373
+ 	// https://golang.org/issue/14449
 diff --git a/src/cmd/go/go_test.go b/src/cmd/go/go_test.go
 index e4ee9bd1e8d2ec..3bdb6b4d31fe46 100644
 --- a/src/cmd/go/go_test.go
