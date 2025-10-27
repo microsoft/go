@@ -47,11 +47,11 @@ The tool handles Go download and setup.
 To use it, insert these commands steps in your existing build or pipeline:
 
 ```
-go install github.com/microsoft/go-infra/dev-dl-experiment/dl/msgo1.26.0preview2@417d3fa14958d73e02dbcc4de2681cdd32777f37
-msgo1.26.0preview2 download
+go install github.com/microsoft/go-infra/dl/msgo1.26.0preview3@c4c8b9359d9985d719473528fc8a4d7b23b4abb3
+msgo1.26.0preview3 download
 ```
 
-Then, change `go` in your "go build" and "go test" comamnds (for example) to `msgo1.26.0preview2` to use the downloaded Go.
+Then, change `go` in your "go build" and "go test" comamnds (for example) to `msgo1.26.0preview3` to use the downloaded Go.
 
 ## Downloading a specific version
 
