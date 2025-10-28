@@ -31,6 +31,23 @@ It is **not supported** on other platforms including Windows, macOS, or other Li
 
 ## Prerequisites
 
+### Install Microsoft Build of Go with ms_nocgo_opensslcrypto support
+
+There are two ways to get them:
+
+#### Using godl
+
+```
+go install github.com/microsoft/go-infra/dl/msgo1.26.0preview3@dev-dl-experiment
+msgo1.26.0preview3 download
+
+// And then use the msgo1.26.0preview3 command as if it were your normal go command.
+```
+
+#### Manually downloading prebuilt binaries
+
+You can download prebuilt binaries from the [Microsoft Go download page](https://github.com/microsoft/go/blob/dev/preview-link-table/eng/doc/Downloads.md).
+
 ### Runtime Requirements
 
 There are no additional runtime requirements when using this experiment compared to the cgo-enabled OpenSSL support.
