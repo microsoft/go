@@ -19,7 +19,7 @@ desired goexperiments and build tags.
  src/cmd/go/internal/cfg/cfg.go                |  16 +
  src/cmd/go/internal/load/pkg.go               |   3 +
  src/cmd/go/internal/tool/tool.go              |   9 +-
- src/cmd/go/systemcrypto_test.go               | 197 ++++++++++
+ src/cmd/go/systemcrypto_test.go               | 249 ++++++++++++
  .../go/testdata/script/env_cross_build.txt    |   2 +
  .../script/test_android_issue62123.txt        |   2 +
  src/cmd/internal/testdir/testdir_test.go      |   7 +
@@ -55,7 +55,7 @@ desired goexperiments and build tags.
  src/internal/buildcfg/exp.go                  |  57 +++
  src/runtime/runtime_boring.go                 |   5 +
  src/syscall/exec_linux_test.go                |   4 +
- 46 files changed, 2367 insertions(+), 22 deletions(-)
+ 46 files changed, 2419 insertions(+), 22 deletions(-)
  create mode 100644 src/cmd/go/systemcrypto_test.go
  create mode 100644 src/crypto/internal/backend/backend_test.go
  create mode 100644 src/crypto/internal/backend/bbig/big.go
@@ -455,7 +455,7 @@ index a4edd854f1d35a..10ee92536b96cd 100644
  	// This will also update the BuildContext's tool tags to include the new
  	// experiment tags.
 diff --git a/src/cmd/go/internal/load/pkg.go b/src/cmd/go/internal/load/pkg.go
-index 554963240049e4..2a2647fde9ce91 100644
+index 3b8bbdc91b8191..53a58e23f8b05c 100644
 --- a/src/cmd/go/internal/load/pkg.go
 +++ b/src/cmd/go/internal/load/pkg.go
 @@ -2412,6 +2412,9 @@ func (p *Package) setBuildInfo(ctx context.Context, autoVCS bool) {
@@ -469,10 +469,10 @@ index 554963240049e4..2a2647fde9ce91 100644
  	appendSetting("-compiler", cfg.BuildContext.Compiler)
  	if gccgoflags := BuildGccgoflags.String(); gccgoflags != "" && cfg.BuildContext.Compiler == "gccgo" {
 diff --git a/src/cmd/go/internal/tool/tool.go b/src/cmd/go/internal/tool/tool.go
-index 75a8fab78ad31b..57f1d79e89f36e 100644
+index e283c7354f5a34..ad56d64a29f684 100644
 --- a/src/cmd/go/internal/tool/tool.go
 +++ b/src/cmd/go/internal/tool/tool.go
-@@ -304,6 +304,10 @@ func buildAndRunBuiltinTool(loaderstate *modload.State, ctx context.Context, too
+@@ -305,6 +305,10 @@ func buildAndRunBuiltinTool(loaderstate *modload.State, ctx context.Context, too
  	// Override GOOS and GOARCH for the build to build the tool using
  	// the same GOOS and GOARCH as this go command.
  	cfg.ForceHost()
@@ -483,7 +483,7 @@ index 75a8fab78ad31b..57f1d79e89f36e 100644
  
  	// Ignore go.mod and go.work: we don't need them, and we want to be able
  	// to run the tool even if there's an issue with the module or workspace the
-@@ -311,8 +315,11 @@ func buildAndRunBuiltinTool(loaderstate *modload.State, ctx context.Context, too
+@@ -312,8 +316,11 @@ func buildAndRunBuiltinTool(loaderstate *modload.State, ctx context.Context, too
  	loaderstate.RootMode = modload.NoRoot
  
  	runFunc := func(b *work.Builder, ctx context.Context, a *work.Action) error {
@@ -498,10 +498,10 @@ index 75a8fab78ad31b..57f1d79e89f36e 100644
  	buildAndRunTool(loaderstate, ctx, tool, args, runFunc)
 diff --git a/src/cmd/go/systemcrypto_test.go b/src/cmd/go/systemcrypto_test.go
 new file mode 100644
-index 00000000000000..7335b47c237fd9
+index 00000000000000..b6ba8158598a6c
 --- /dev/null
 +++ b/src/cmd/go/systemcrypto_test.go
-@@ -0,0 +1,197 @@
+@@ -0,0 +1,249 @@
 +// Copyright 2025 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -509,10 +509,12 @@ index 00000000000000..7335b47c237fd9
 +package main_test
 +
 +import (
++	"fmt"
 +	"internal/testenv"
 +	"os"
 +	"path/filepath"
 +	"runtime"
++	"slices"
 +	"strings"
 +	"testing"
 +)
@@ -594,8 +596,8 @@ index 00000000000000..7335b47c237fd9
 +		{"linux", "arm", "ms_nocgo_cngcrypto", false},         // cgoless OpenSSL not supported on linux/arm
 +		{"linux", "amd64", "ms_nocgo_opensslcrypto", true},
 +		{"linux", "arm64", "ms_nocgo_opensslcrypto", true},
-+		{"darwin", "amd64", "", true}, // cgoless system crypto not supported on darwin/amd64
-+		{"darwin", "arm64", "", true}, // cgoless system crypto not supported on darwin/arm64
++		{"darwin", "amd64", "", true},
++		{"darwin", "arm64", "", true},
 +		{"windows", "386", "", false}, // cgoless system crypto not supported on windows/386
 +		{"windows", "amd64", "", true},
 +		{"windows", "arm64", "", true},
@@ -608,7 +610,7 @@ index 00000000000000..7335b47c237fd9
 +			} else {
 +				tc.goexp += ",systemcrypto"
 +			}
-+			env := []string{"CGO_ENABLED=0", "GOOS=" + tc.goos, "GOARCH=" + tc.goarch, "GOEXPERIMENT=" + tc.goexp}
++			env := []string{"CGO_ENABLED=0", "GOOS=" + tc.goos, "GOARCH=" + tc.goarch, "GOEXPERIMENT=" + tc.goexp, "MS_GO_NOSYSTEMCRYPTO=0"}
 +			if out, ok := execGoTool(t, true, env, "build", "-o", outPath(t), cryptoFile); ok != tc.succeed {
 +				if tc.succeed {
 +					t.Fatalf("expected success, got failure: %s", out)
@@ -642,6 +644,48 @@ index 00000000000000..7335b47c237fd9
 +	// because while the toolchain was built with ms_skipfipscheck, the
 +	// target program was not. Failure depends on system crypto mode
 +	// and presence of system-provided crypto, and it can't be tested here.
++}
++
++func TestSystemCryptoDefault(t *testing.T) {
++	t.Parallel()
++	cryptoFile := writeFile(t, fileWithCrypto)
++
++	// Add here all the OS/ARCH combinations that enable systemcrypto by default.
++	type testCase struct {
++		goos   string
++		goarch string
++	}
++	test := []testCase{
++		{"linux", "amd64"},
++		{"linux", "arm64"},
++		{"darwin", "amd64"},
++		{"darwin", "arm64"},
++		{"windows", "amd64"},
++		{"windows", "arm64"},
++	}
++	for _, tt := range test {
++		t.Run(fmt.Sprintf("%s_%s", tt.goos, tt.goarch), func(t *testing.T) {
++			t.Parallel()
++			out := outPath(t)
++			env := []string{"CGO_ENABLED=0", "GOOS=" + tt.goos, "GOARCH=" + tt.goarch, "MS_GO_NOSYSTEMCRYPTO=0"}
++			if tt.goos == "linux" {
++				// On linux, set ms_nocgo_opensslcrypto to allow cross-compilation without cgo.
++				env = append(env, "GOEXPERIMENT=ms_nocgo_opensslcrypto")
++			} else {
++				// Set a goexperiment in case the Go toolchain has been built with GOEXPERIMENT=nosystemcrypto.
++				// In that case, systemcrypto will not be enabled by default unless we pass an explicit GOEXPERIMENT.
++				env = append(env, "GOEXPERIMENT=regabi")
++
++			}
++			execGoTool(t, false, env, "build", "-o", out, cryptoFile)
++			// Check that the binary has the correct settings.
++			settings, _ := execGoTool(t, false, nil, "version", "-m", out)
++			if !strings.Contains(settings, "microsoft_systemcrypto=1") {
++				t.Errorf("expected microsoft_systemcrypto=1 in settings, got %v", settings)
++			}
++		})
++	}
++
 +}
 +
 +func TestSystemCryptoSetting(t *testing.T) {
@@ -682,6 +726,14 @@ index 00000000000000..7335b47c237fd9
 +			t.Parallel()
 +			out := outPath(t)
 +
++			if !slices.ContainsFunc(tt.env, func(r string) bool {
++				return strings.HasPrefix(r, "MS_GO_NOSYSTEMCRYPTO=")
++			}) {
++				// Ensure MS_GO_NOSYSTEMCRYPTO is set to 0 if not specified
++				// to avoid interference from the environment.
++				tt.env = append(tt.env, "MS_GO_NOSYSTEMCRYPTO=0")
++			}
++
 +			// Build the binary with the specified GOEXPERIMENT.
 +			_, ok := execGoTool(t, true, tt.env, "build", "-o", out, file)
 +			if !ok {
@@ -690,10 +742,10 @@ index 00000000000000..7335b47c237fd9
 +
 +			// Check that the binary has the correct settings.
 +			settings, _ := execGoTool(t, false, nil, "version", "-m", out)
-+			hashSetting := strings.Contains(settings, "microsoft_systemcrypto=1")
-+			if tt.enabled && !hashSetting {
++			hasSetting := strings.Contains(settings, "microsoft_systemcrypto=1")
++			if tt.enabled && !hasSetting {
 +				t.Errorf("expected microsoft_systemcrypto=1 in settings, got %v", settings)
-+			} else if !tt.enabled && hashSetting {
++			} else if !tt.enabled && hasSetting {
 +				t.Errorf("expected microsoft_systemcrypto=1 not to be in settings, got %v", settings)
 +			}
 +		})
@@ -2916,7 +2968,7 @@ index 373efd8319c675..1f245d570092a3 100644
  	< crypto/rand
  	< crypto/ed25519 # depends on crypto/rand.Reader
 diff --git a/src/internal/buildcfg/exp.go b/src/internal/buildcfg/exp.go
-index 0d1e9dd6d1171c..adf26041b0cf89 100644
+index 14ca07c56683f1..64c37df9e9fced 100644
 --- a/src/internal/buildcfg/exp.go
 +++ b/src/internal/buildcfg/exp.go
 @@ -5,12 +5,15 @@
@@ -2935,7 +2987,7 @@ index 0d1e9dd6d1171c..adf26041b0cf89 100644
  )
  
  // ExperimentFlags represents a set of GOEXPERIMENT flags relative to a baseline
-@@ -194,6 +197,60 @@ func ParseGOEXPERIMENT(goos, goarch, goexp string) (*ExperimentFlags, error) {
+@@ -195,6 +198,60 @@ func ParseGOEXPERIMENT(goos, goarch, goexp string) (*ExperimentFlags, error) {
  	if flags.BoringCrypto {
  		return nil, fmt.Errorf("GOEXPERIMENT boringcrypto is not supported in the Microsoft build of Go")
  	}
