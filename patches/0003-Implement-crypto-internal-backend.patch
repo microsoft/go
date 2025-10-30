@@ -11,7 +11,7 @@ desired goexperiments and build tags.
 ---
  .gitignore                                    |   2 +
  .../compile/internal/logopt/logopt_test.go    |   6 +-
- .../compile/internal/ssa/stmtlines_test.go    |   3 +-
+ .../compile/internal/ssa/stmtlines_test.go    |   2 +-
  src/cmd/compile/script_test.go                |   8 +
  src/cmd/dist/build.go                         |  80 +++-
  src/cmd/dist/test.go                          |  43 +-
@@ -55,7 +55,7 @@ desired goexperiments and build tags.
  src/internal/buildcfg/exp.go                  |  57 +++
  src/runtime/runtime_boring.go                 |   5 +
  src/syscall/exec_linux_test.go                |   4 +
- 46 files changed, 2419 insertions(+), 22 deletions(-)
+ 46 files changed, 2419 insertions(+), 21 deletions(-)
  create mode 100644 src/cmd/go/systemcrypto_test.go
  create mode 100644 src/crypto/internal/backend/backend_test.go
  create mode 100644 src/crypto/internal/backend/bbig/big.go
@@ -122,26 +122,18 @@ index 1edabf9fb7ff04..026f8cb0278ab6 100644
  		}
  
 diff --git a/src/cmd/compile/internal/ssa/stmtlines_test.go b/src/cmd/compile/internal/ssa/stmtlines_test.go
-index d0f09da86ffce2..10d3e5d8d41eb1 100644
+index 2bdd6c80b2d66c..8f7b7bc9726d1f 100644
 --- a/src/cmd/compile/internal/ssa/stmtlines_test.go
 +++ b/src/cmd/compile/internal/ssa/stmtlines_test.go
-@@ -113,7 +113,6 @@ func TestStmtLines(t *testing.T) {
- 		must(err)
- 
- 		var le dwarf.LineEntry
--
- 		for {
- 			err := lrdr.Next(&le)
- 			if err == io.EOF {
-@@ -139,7 +138,7 @@ func TestStmtLines(t *testing.T) {
- 
+@@ -140,7 +140,7 @@ func TestStmtLines(t *testing.T) {
  	var m float64
- 	if runtime.GOARCH == "amd64" {
--		m = 0.011 // > 98.9% obtained on amd64, no backsliding
+ 	switch runtime.GOARCH {
+ 	case "amd64":
+-		m = 0.0111 // > 98.89% obtained on amd64, no backsliding
 +		m = 0.012 // > 98.8% obtained on amd64, no backsliding
- 	} else if runtime.GOARCH == "riscv64" {
+ 	case "riscv64":
  		m = 0.03 // XXX temporary update threshold to 97% for regabi
- 	} else {
+ 	default:
 diff --git a/src/cmd/compile/script_test.go b/src/cmd/compile/script_test.go
 index 0e32e0769ee2e2..eda2d576acc6c6 100644
 --- a/src/cmd/compile/script_test.go
@@ -169,10 +161,10 @@ index 0e32e0769ee2e2..eda2d576acc6c6 100644
  	if doReplacement {
  		if testCompiler == "" {
 diff --git a/src/cmd/dist/build.go b/src/cmd/dist/build.go
-index 2fcdb2d3915b9b..c04c50e69e4070 100644
+index 2b382a1c025649..25b555dace9a6f 100644
 --- a/src/cmd/dist/build.go
 +++ b/src/cmd/dist/build.go
-@@ -1387,6 +1387,80 @@ func toolenv() []string {
+@@ -1382,6 +1382,80 @@ func toolenv() []string {
  		// still have full paths for stack traces for compiler crashes and the like.
  		env = append(env, "GOFLAGS=-trimpath -ldflags=-w -gcflags=cmd/...=-dwarf=false")
  	}
@@ -253,7 +245,7 @@ index 2fcdb2d3915b9b..c04c50e69e4070 100644
  	return env
  }
  
-@@ -1629,12 +1703,12 @@ func cmdbootstrap() {
+@@ -1624,12 +1698,12 @@ func cmdbootstrap() {
  		os.Setenv("CC", compilerEnvLookup("CC", defaultcc, goos, goarch))
  		xprintf("Building packages and commands for target, %s/%s.\n", goos, goarch)
  	}
@@ -270,7 +262,7 @@ index 2fcdb2d3915b9b..c04c50e69e4070 100644
  	if debug {
  		run("", ShowOutput|CheckExit, pathf("%s/compile", tooldir), "-V=full")
 diff --git a/src/cmd/dist/test.go b/src/cmd/dist/test.go
-index 1e74438f48db39..c4b80436db2e85 100644
+index 9c9e1b85f0cd76..cbf0d77c4d19f0 100644
 --- a/src/cmd/dist/test.go
 +++ b/src/cmd/dist/test.go
 @@ -156,10 +156,12 @@ func (t *tester) run() {
@@ -372,8 +364,8 @@ index 1e74438f48db39..c4b80436db2e85 100644
  		// Only start multiple test dir shards on builders,
  		// where they get distributed to multiple machines.
  		// See issues 20141 and 31834.
-@@ -1186,6 +1206,11 @@ func (t *tester) internalLink() bool {
- 	if goos == "windows" && goarch == "arm64" {
+@@ -1183,6 +1203,11 @@ func (t *tester) internalLink() bool {
+ 	if goos == "ios" {
  		return false
  	}
 +	if goos == "darwin" && t.cgoEnabled && (strings.Contains(goexperiment, "systemcrypto") || strings.Contains(goexperiment, "darwincrypto")) {
