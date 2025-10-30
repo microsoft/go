@@ -70,6 +70,8 @@ cross-compilation may be necessary.
 * `linux_armv6l`
 * `linux_arm64`
 * `windows_amd64`
+* `darwin_amd64`
+* `darwin_arm64`
 
 Visit the [Migration Guide](eng/doc/MigrationGuide.md) for guidance about how we
 recommend migrating existing Go projects to use the Microsoft build of Go. This
