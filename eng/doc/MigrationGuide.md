@@ -115,7 +115,7 @@ That page provides links that redirect to the latest version and also immutable 
 
 ## Enable `systemcrypto`
 
-These instructions are for projects using versions of Go prior to 1.25.
+These instructions are for projects using versions of Go that don't enable `systemcrypto` by default.
 Starting with 1.25 (Linux and Windows) and 1.26 (macOS), `systemcrypto` is enabled by default.
 
 To comply with Microsoft internal cryptography policy, enable the `systemcrypto` feature in your build environment before building your project.
@@ -142,9 +142,6 @@ Using a crypto backend requires CGO_ENABLED=1.
 
 For more information, visit https://github.com/microsoft/go/tree/microsoft/main/eng/doc/fips
 ```
-
-> [!NOTE]
-> A workaround is available using our CGO-less backend which uses the `ms_nocgo_opensslcrypto` experiment, but this is not supported in production yet. This will also only be available in Go 1.26.
 
 When targeting Linux, `systemcrypto` requires cgo.
 Cgo is disabled by default on some platforms or when a C compiler is not detected

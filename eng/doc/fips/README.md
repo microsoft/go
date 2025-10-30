@@ -454,6 +454,7 @@ This list of major changes is intended for quick reference and for access to his
 ### Go 1.26 (Feb 2026)
 
 - The `systemcrypto` goexperiment is now enabled by default on macOS.
+- The macOS backend is no longer "preview" and is now fully supported.
 - `systemcrypto` can be disabled at build time using `MS_GO_DISABLE_SYSTEMCRYPTO=1`. This is now the preferred way to disable `systemcrypto` when necessary.
 
 ### Go 1.25.2 (Oct 2025)
