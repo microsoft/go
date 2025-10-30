@@ -68,7 +68,7 @@ There are typically two goals that lead to this document. Creating a FIPS compli
 > 1.24 introduces `GODEBUG=fips140=on` as the preferred way to enable FIPS mode. See also [the Go 1.24 changelog](#go-124-feb-2025).
 
 > [!NOTE]
-> Since Go 1.25, `systemcrypto` is enabled by default on Linux and Windows. There is no need to manually enable using OpenSSL/CNG under the hood anymore. See also [the Go 1.25 changelog](#go-125-aug-2025).
+> Since Go 1.25, `systemcrypto` is enabled by default on Linux and Windows. There is no need to manually enable using OpenSSL/CNG under the hood anymore. See also [the Go 1.25 changelog](#go-125-aug-2025). Since Go 1.26, `systemcrypto` is also enabled by default on macOS.
 
 | Build-time config | Runtime config | Internal Microsoft crypto policy | FIPS behavior |
 | --- | --- | --- | --- |
@@ -453,6 +453,7 @@ This list of major changes is intended for quick reference and for access to his
 
 ### Go 1.26 (Feb 2026)
 
+- The `systemcrypto` goexperiment is now enabled by default on Darwin.
 - `systemcrypto` can be disabled at build time using `MS_GO_DISABLE_SYSTEMCRYPTO=1`. This is now the preferred way to disable `systemcrypto` when necessary.
 
 ### Go 1.25.2 (Oct 2025)
