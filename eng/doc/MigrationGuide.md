@@ -17,8 +17,7 @@ To comply with Microsoft internal policy for the use of Go, most projects need t
 1. [Use the Microsoft build of Go **for CI (Continuous Integration) and build environments.**](#ci-and-build-environment-migration-steps)
     - See [Microsoft Toolset Identification](./MicrosoftToolsetIdentification.md) if it's not clear which distribution of Go you're currently using.
 1. If you use a version of Go prior to 1.25, [enable `systemcrypto`](#enable-systemcrypto).
-    - Starting with 1.25, `systemcrypto` is enabled by default, and no action is required.
-    - If your build targets a preview platform (such as macOS), [additional configuration](fips/README.md#configuration-overview) may be required to enable `systemcrypto`.
+    - Starting with 1.25 (Linux and Windows) and 1.26 (macOS), `systemcrypto` is enabled by default, and no action is required.
 1. [**Test** your program.](#testing)
     - It's important to test on all target platforms. The changes to runtime behavior are platform-specific.
 1. Consider **whether your project must be FIPS compliant** and if so, [**review your project**](#review-project-for-fips-compliance).
@@ -40,7 +39,7 @@ However, we recognize that pinning increases maintenance burden when there are n
 
 The Microsoft build of Go includes [patches](/patches/) that:
 
-- **Integrate `crypto` packages with system-provided cryptographic engines** on Linux and Windows. A macOS implementation is in preview.
+- **Integrate `crypto` packages with system-provided cryptographic engines** on Linux, Windows and macOS.
 - **Enable FIPS compliance** in a way compatible with Microsoft internal crypto policy: using system-provided engines.
 - **Enhance FIPS mode runtime behavior** for scenarios we have encountered in Microsoft's and others' Go applications.
 - **Add [toolset telemetry](https://devblogs.microsoft.com/go/microsoft-go-telemetry/)**, enabled by default.
@@ -117,7 +116,7 @@ That page provides links that redirect to the latest version and also immutable 
 ## Enable `systemcrypto`
 
 These instructions are for projects using versions of Go prior to 1.25.
-Starting with 1.25, `systemcrypto` is enabled by default.
+Starting with 1.25 (Linux and Windows) and 1.26 (macOS), `systemcrypto` is enabled by default.
 
 To comply with Microsoft internal cryptography policy, enable the `systemcrypto` feature in your build environment before building your project.
 This is done by setting the `GOEXPERIMENT` environment variable to `systemcrypto`.
@@ -144,6 +143,9 @@ Using a crypto backend requires CGO_ENABLED=1.
 For more information, visit https://github.com/microsoft/go/tree/microsoft/main/eng/doc/fips
 ```
 
+> [!NOTE]
+> A workaround is available using our CGO-less backend which uses the `ms_nocgo_opensslcrypto` experiment, but this is not supported in production yet. This will also only be available in Go 1.26.
+
 When targeting Linux, `systemcrypto` requires cgo.
 Cgo is disabled by default on some platforms or when a C compiler is not detected
 Sometimes a project's build scripts might explicitly disable cgo.
@@ -154,10 +156,6 @@ In this case, you should first try to install a C compiler, like `gcc`.
 You may also need to set the `CGO_ENABLED` environment variable to `1` or [otherwise enable cgo](https://pkg.go.dev/cmd/cgo).
 
 If this isn't feasible, see [disabling systemcrypto](#disabling-systemcrypto).
-
-> [!NOTE]
-> The macOS `systemcrytpo` implementation also requires cgo.
-> macOS support is in preview, and the dependency on cgo may be removed before we fully support this build configuration.
 
 #### Missing C toolchain and dependencies
 
