@@ -90,19 +90,19 @@ This section includes the following packages:
 - [crypto/des](https://pkg.go.dev/crypto/des)
 - [crypto/rc4](https://pkg.go.dev/crypto/rc4)
 
-| Cipher + Mode | Windows | Linux          | macOS |
-| ------------- | ------- | -------------- | ----- |
-| AES-ECB       | ✔️      | ✔️             | ✔️    |
-| AES-CBC       | ✔️      | ✔️             | ✔️    |
-| AES-CTR       | ❌      | ✔️             | ❌    |
-| AES-CFB       | ❌      | ❌             | ❌    |
-| AES-OFB       | ❌      | ❌             | ❌    |
-| AES-GCM<sup>2</sup>       | ✔️      | ✔️             | ✔️    |
-| DES-CBC       | ✔️      | ⚠️<sup>1</sup> | ✔️    |
-| DES-ECB       | ✔️      | ⚠️<sup>1</sup> | ✔️    |
-| 3DES-ECB      | ✔️      | ✔️             | ✔️    |
-| 3DES-CBC      | ✔️      | ✔️             | ✔️    |
-| RC4           | ✔️      | ⚠️<sup>1</sup> | ✔️    |
+| Cipher + Mode       | Windows | Linux          | macOS |
+| ------------------- | ------- | -------------- | ----- |
+| AES-ECB             | ✔️      | ✔️             | ✔️    |
+| AES-CBC             | ✔️      | ✔️             | ✔️    |
+| AES-CTR             | ❌      | ✔️             | ❌    |
+| AES-CFB             | ❌      | ❌             | ❌    |
+| AES-OFB             | ❌      | ❌             | ❌    |
+| AES-GCM<sup>2</sup> | ✔️      | ✔️             | ✔️    |
+| DES-CBC             | ✔️      | ⚠️<sup>1</sup> | ✔️    |
+| DES-ECB             | ✔️      | ⚠️<sup>1</sup> | ✔️    |
+| 3DES-ECB            | ✔️      | ✔️             | ✔️    |
+| 3DES-CBC            | ✔️      | ✔️             | ✔️    |
+| RC4                 | ✔️      | ⚠️<sup>1</sup> | ✔️    |
 
 <sup>1</sup>When using OpenSSL 3, requires the legacy provider to be enabled.
 
@@ -152,9 +152,9 @@ Operations that require random numbers (rand io.Reader) only support [rand.Reade
 | OAEP (SHA-1)                           | ✔️             | ✔️             | ✔️<sup>5</sup> |
 | OAEP (SHA-2)<sup>1</sup>               | ✔️             | ✔️             | ✔️<sup>5</sup> |
 | OAEP (SHA-3)                           | ❌             | ❌             | ❌             |
-| PSS (MD5)                              | ✔️<sup>3</sup>             | ✔️             | ❌             |
-| PSS (SHA-1)                            | ✔️<sup>3</sup>             | ✔️             | ✔️<sup>4</sup>             |
-| PSS (SHA-2)<sup>1</sup>                | ✔️<sup>3</sup>             | ✔️             | ✔️<sup>4</sup>             |
+| PSS (MD5)                              | ✔️<sup>3</sup> | ✔️             | ❌             |
+| PSS (SHA-1)                            | ✔️<sup>3</sup> | ✔️             | ✔️<sup>4</sup> |
+| PSS (SHA-2)<sup>1</sup>                | ✔️<sup>3</sup> | ✔️             | ✔️<sup>4</sup> |
 | PSS (SHA-3)                            | ❌             | ❌             | ❌             |
 | PKCS1v15 Signature (Unhashed)          | ✔️             | ✔️             | ✔️             |
 | PKCS1v15 Signature (RIPMED160)         | ❌             | ✔️<sup>2</sup> | ❌             |
@@ -250,10 +250,16 @@ This section includes the following packages:
 
 - [crypto/mlkem](https://pkg.go.dev/crypto/mlkem)
 
-| Parameters | Windows | Linux | macOS |
-| ---------- | ------- | ----- | ----- |
-| 768        | ❌      | ❌    | ❌    |
-| 1024       | ❌      | ❌    | ❌    |
+ML-KEM is available starting from the Microsoft build of Go 1.26.
+
+| Parameters | Windows | Linux           | macOS           |
+| ---------- | ------- | --------------- | --------------- |
+| 768        | ❌      | ✔️ <sup>1</sup> | ✔️ <sup>2</sup> |
+| 1024       | ❌      | ✔️ <sup>1</sup> | ✔️ <sup>2</sup> |
+
+<sup>1</sup>Requires OpenSSL 3.5.0 or later.
+
+<sup>2</sup>Requires macOS 26 (Tahoe) or later.
 
 ## TLS
 
