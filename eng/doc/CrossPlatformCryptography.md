@@ -250,10 +250,14 @@ This section includes the following packages:
 
 - [crypto/mlkem](https://pkg.go.dev/crypto/mlkem)
 
+ML-KEM is available starting from the Microsoft build of Go 1.26.
+
 | Parameters | Windows | Linux | macOS |
 | ---------- | ------- | ----- | ----- |
-| 768        | ❌      | ❌    | ❌    |
-| 1024       | ❌      | ❌    | ❌    |
+| 768        | ❌      | ✔️    | ✔️ <sup>1</sup>    |
+| 1024       | ❌      | ✔️    | ✔️ <sup>1</sup>    |
+
+<sup>1</sup>Requires macOS 26 (Tahoe) or later.
 
 ## TLS
 
