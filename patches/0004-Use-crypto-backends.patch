@@ -69,6 +69,8 @@ Subject: [PATCH] Use crypto backends
  src/crypto/sha1/sha1_test.go                  |  11 +-
  src/crypto/sha256/sha256.go                   |   6 +-
  src/crypto/sha256/sha256_test.go              |  44 ++--
+ src/crypto/sha3/sha3.go                       |  25 +++
+ src/crypto/sha3/sha3_test.go                  |   9 +-
  src/crypto/sha512/sha512.go                   |   2 +-
  src/crypto/sha512/sha512_test.go              |  32 ++-
  src/crypto/tls/auth_test.go                   |   7 +
@@ -94,7 +96,7 @@ Subject: [PATCH] Use crypto backends
  src/hash/notboring_test.go                    |   9 +
  src/net/lookup_test.go                        |   3 +
  src/os/exec/exec_test.go                      |   9 +
- 90 files changed, 1266 insertions(+), 133 deletions(-)
+ 92 files changed, 1298 insertions(+), 135 deletions(-)
  create mode 100644 src/crypto/dsa/boring.go
  create mode 100644 src/crypto/dsa/notboring.go
  create mode 100644 src/crypto/ecdsa/badlinkname.go
@@ -2606,6 +2608,126 @@ index a18a536ba2896f..7b3b37c3b0c10d 100644
 +		t.Fatalf("allocs = %v; want <= %v", allocs, maxAllocs)
  	}
  }
+diff --git a/src/crypto/sha3/sha3.go b/src/crypto/sha3/sha3.go
+index 2a1b3ca7008f5e..0ec8be417a29be 100644
+--- a/src/crypto/sha3/sha3.go
++++ b/src/crypto/sha3/sha3.go
+@@ -8,6 +8,7 @@ package sha3
+ 
+ import (
+ 	"crypto"
++	boring "crypto/internal/backend"
+ 	"crypto/internal/fips140/sha3"
+ 	"hash"
+ 	_ "unsafe"
+@@ -22,6 +23,9 @@ func init() {
+ 
+ // Sum224 returns the SHA3-224 hash of data.
+ func Sum224(data []byte) [28]byte {
++	if boring.Enabled && boring.SupportsHash(crypto.SHA3_224) {
++		return boring.SumSHA3_224(data)
++	}
+ 	var out [28]byte
+ 	h := sha3.New224()
+ 	h.Write(data)
+@@ -31,6 +35,9 @@ func Sum224(data []byte) [28]byte {
+ 
+ // Sum256 returns the SHA3-256 hash of data.
+ func Sum256(data []byte) [32]byte {
++	if boring.Enabled && boring.SupportsHash(crypto.SHA3_256) {
++		return boring.SumSHA3_256(data)
++	}
+ 	var out [32]byte
+ 	h := sha3.New256()
+ 	h.Write(data)
+@@ -40,6 +47,9 @@ func Sum256(data []byte) [32]byte {
+ 
+ // Sum384 returns the SHA3-384 hash of data.
+ func Sum384(data []byte) [48]byte {
++	if boring.Enabled && boring.SupportsHash(crypto.SHA3_384) {
++		return boring.SumSHA3_384(data)
++	}
+ 	var out [48]byte
+ 	h := sha3.New384()
+ 	h.Write(data)
+@@ -49,6 +59,9 @@ func Sum384(data []byte) [48]byte {
+ 
+ // Sum512 returns the SHA3-512 hash of data.
+ func Sum512(data []byte) [64]byte {
++	if boring.Enabled && boring.SupportsHash(crypto.SHA3_512) {
++		return boring.SumSHA3_512(data)
++	}
+ 	var out [64]byte
+ 	h := sha3.New512()
+ 	h.Write(data)
+@@ -108,21 +121,33 @@ func fips140hash_sha3Unwrap(sha3 *SHA3) *sha3.Digest {
+ 
+ // New224 creates a new SHA3-224 hash.
+ func New224() *SHA3 {
++	if boring.Enabled && boring.SupportsHash(crypto.SHA3_224) {
++		return &SHA3{*sha3.New224()}
++	}
+ 	return &SHA3{*sha3.New224()}
+ }
+ 
+ // New256 creates a new SHA3-256 hash.
+ func New256() *SHA3 {
++	if boring.Enabled && boring.SupportsHash(crypto.SHA3_256) {
++		return &SHA3{*sha3.New256()}
++	}
+ 	return &SHA3{*sha3.New256()}
+ }
+ 
+ // New384 creates a new SHA3-384 hash.
+ func New384() *SHA3 {
++	if boring.Enabled && boring.SupportsHash(crypto.SHA3_384) {
++		return &SHA3{*sha3.New384()}
++	}
+ 	return &SHA3{*sha3.New384()}
+ }
+ 
+ // New512 creates a new SHA3-512 hash.
+ func New512() *SHA3 {
++	if boring.Enabled && boring.SupportsHash(crypto.SHA3_512) {
++		return &SHA3{*sha3.New512()}
++	}
+ 	return &SHA3{*sha3.New512()}
+ }
+ 
+diff --git a/src/crypto/sha3/sha3_test.go b/src/crypto/sha3/sha3_test.go
+index 15ee877236e195..26f4b89e57b7f9 100644
+--- a/src/crypto/sha3/sha3_test.go
++++ b/src/crypto/sha3/sha3_test.go
+@@ -6,6 +6,7 @@ package sha3_test
+ 
+ import (
+ 	"bytes"
++	boring "crypto/internal/backend"
+ 	"crypto/internal/cryptotest"
+ 	. "crypto/sha3"
+ 	"encoding/hex"
+@@ -223,6 +224,10 @@ var sinkSHA3 byte
+ 
+ func TestAllocations(t *testing.T) {
+ 	cryptotest.SkipTestAllocations(t)
++	expectedAllocations := 0.0
++	if boring.Enabled {
++		expectedAllocations = 1
++	}
+ 	t.Run("New", func(t *testing.T) {
+ 		if allocs := testing.AllocsPerRun(10, func() {
+ 			h := New256()
+@@ -231,8 +236,8 @@ func TestAllocations(t *testing.T) {
+ 			out := make([]byte, 0, 32)
+ 			out = h.Sum(out)
+ 			sinkSHA3 ^= out[0]
+-		}); allocs > 0 {
+-			t.Errorf("expected zero allocations, got %0.1f", allocs)
++		}); allocs > expectedAllocations {
++			t.Errorf("expected zero allocations, got %0.1f", expectedAllocations)
+ 		}
+ 	})
+ 	t.Run("NewSHAKE", func(t *testing.T) {
 diff --git a/src/crypto/sha512/sha512.go b/src/crypto/sha512/sha512.go
 index 1435eac1f5b5dc..17e8501154762a 100644
 --- a/src/crypto/sha512/sha512.go
