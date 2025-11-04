@@ -17,6 +17,8 @@ const description = `
 This command runs the _util self-tests using the stage 0 Go toolchain.
 `
 
+var count = flag.Int("count", -1, "Pass '[...] -count={count}' to test runner. Use '1' to force re-run. Does nothing if negative.")
+
 func main() {
 	help := flag.Bool("h", false, "Print this help message.")
 
@@ -44,9 +46,14 @@ func run() error {
 		return fmt.Errorf("STAGE_0_GOROOT not set")
 	}
 
+	args := []string{"test", "./..."}
+	if *count >= 0 {
+		args = append(args, fmt.Sprintf("-count=%d", *count))
+	}
+
 	return executil.Run(executil.Dir(
 		filepath.Join("eng", "_util"),
 		filepath.Join(stage0Goroot, "bin", "go"),
-		"test", "./...",
+		args...,
 	))
 }
