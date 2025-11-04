@@ -47,8 +47,8 @@ Subject: [PATCH] Use crypto backends
  src/crypto/internal/fips140test/fips_test.go  |   2 +-
  src/crypto/md5/md5.go                         |  10 +
  src/crypto/md5/md5_test.go                    |  18 +-
- src/crypto/mlkem/mlkem.go                     | 162 +++++++++++++--
- src/crypto/mlkem/mlkem_test.go                |  16 +-
+ src/crypto/mlkem/mlkem.go                     | 113 ++++++++--
+ src/crypto/mlkem/mlkem_test.go                |  12 +-
  src/crypto/pbkdf2/pbkdf2.go                   |   7 +
  src/crypto/pbkdf2/pbkdf2_test.go              |   6 +-
  src/crypto/purego_test.go                     |   2 +-
@@ -94,7 +94,7 @@ Subject: [PATCH] Use crypto backends
  src/hash/notboring_test.go                    |   9 +
  src/net/lookup_test.go                        |   3 +
  src/os/exec/exec_test.go                      |   9 +
- 90 files changed, 1311 insertions(+), 145 deletions(-)
+ 90 files changed, 1268 insertions(+), 135 deletions(-)
  create mode 100644 src/crypto/dsa/boring.go
  create mode 100644 src/crypto/dsa/notboring.go
  create mode 100644 src/crypto/ecdsa/badlinkname.go
@@ -1538,7 +1538,7 @@ index 403ff2881f4b68..5417556a86700e 100644
  
  func maybeCloner(h hash.Hash) any {
 diff --git a/src/crypto/mlkem/mlkem.go b/src/crypto/mlkem/mlkem.go
-index 69c0bc571f95a9..0447a7527da2cc 100644
+index 69c0bc571f95a9..f56ce4401c9a9d 100644
 --- a/src/crypto/mlkem/mlkem.go
 +++ b/src/crypto/mlkem/mlkem.go
 @@ -11,7 +11,10 @@
@@ -1553,7 +1553,7 @@ index 69c0bc571f95a9..0447a7527da2cc 100644
  
  const (
  	// SharedKeySize is the size of a shared key produced by ML-KEM.
-@@ -33,39 +36,63 @@ const (
+@@ -33,38 +36,58 @@ const (
  	EncapsulationKeySize1024 = 1568
  )
  
@@ -1562,9 +1562,8 @@ index 69c0bc571f95a9..0447a7527da2cc 100644
  // from a ciphertext. It includes various precomputed values.
  type DecapsulationKey768 struct {
 -	key *mlkem.DecapsulationKey768
-+	// One of these will be set depending on the backend
-+	fipsKey    *mlkem.DecapsulationKey768
-+	backendKey interface{} // boring.DecapsulationKeyMLKEM768 when enabled
++	key       *mlkem.DecapsulationKey768
++	boringKey boring.DecapsulationKeyMLKEM768
  }
  
  // GenerateKey768 generates a new decapsulation key, drawing random bytes from
@@ -1575,7 +1574,7 @@ index 69c0bc571f95a9..0447a7527da2cc 100644
 +		if err != nil {
 +			return nil, err
 +		}
-+		return &DecapsulationKey768{backendKey: key}, nil
++		return &DecapsulationKey768{boringKey: key}, nil
 +	}
 +
  	key, err := mlkem.GenerateKey768()
@@ -1584,7 +1583,7 @@ index 69c0bc571f95a9..0447a7527da2cc 100644
  	}
  
 -	return &DecapsulationKey768{key}, nil
-+	return &DecapsulationKey768{fipsKey: key}, nil
++	return &DecapsulationKey768{key: key}, nil
  }
  
  // NewDecapsulationKey768 expands a decapsulation key from a 64-byte seed in the
@@ -1595,7 +1594,7 @@ index 69c0bc571f95a9..0447a7527da2cc 100644
 +		if err != nil {
 +			return nil, err
 +		}
-+		return &DecapsulationKey768{backendKey: key}, nil
++		return &DecapsulationKey768{boringKey: key}, nil
 +	}
 +
  	key, err := mlkem.NewDecapsulationKey768(seed)
@@ -1604,58 +1603,45 @@ index 69c0bc571f95a9..0447a7527da2cc 100644
  	}
  
 -	return &DecapsulationKey768{key}, nil
-+	return &DecapsulationKey768{fipsKey: key}, nil
++	return &DecapsulationKey768{key: key}, nil
  }
  
  // Bytes returns the decapsulation key as a 64-byte seed in the "d || z" form.
  //
  // The decapsulation key must be kept secret.
  func (dk *DecapsulationKey768) Bytes() []byte {
--	return dk.key.Bytes()
-+	if dk.fipsKey != nil {
-+		return dk.fipsKey.Bytes()
++	if boring.Enabled && boring.SupportsMLKEM768() {
++		return dk.boringKey.Bytes()
 +	}
-+	if dk.backendKey != nil {
-+		return boring.DecapsulationKeyMLKEM768Bytes(dk.backendKey.(boring.DecapsulationKeyMLKEM768))
-+	}
-+	panic("mlkem: key not initialized")
+ 	return dk.key.Bytes()
  }
  
- // Decapsulate generates a shared key from a ciphertext and a decapsulation
-@@ -73,35 +100,63 @@ func (dk *DecapsulationKey768) Bytes() []byte {
+@@ -73,34 +96,52 @@ func (dk *DecapsulationKey768) Bytes() []byte {
  //
  // The shared key must be kept secret.
  func (dk *DecapsulationKey768) Decapsulate(ciphertext []byte) (sharedKey []byte, err error) {
--	return dk.key.Decapsulate(ciphertext)
-+	if dk.fipsKey != nil {
-+		return dk.fipsKey.Decapsulate(ciphertext)
++	if boring.Enabled && boring.SupportsMLKEM768() {
++		return dk.boringKey.Decapsulate(ciphertext)
 +	}
-+	if dk.backendKey != nil {
-+		return boring.DecapsulationKeyMLKEM768Decapsulate(dk.backendKey.(boring.DecapsulationKeyMLKEM768), ciphertext)
-+	}
-+	panic("mlkem: key not initialized")
+ 	return dk.key.Decapsulate(ciphertext)
  }
  
  // EncapsulationKey returns the public encapsulation key necessary to produce
  // ciphertexts.
  func (dk *DecapsulationKey768) EncapsulationKey() *EncapsulationKey768 {
 -	return &EncapsulationKey768{dk.key.EncapsulationKey()}
-+	if dk.fipsKey != nil {
-+		return &EncapsulationKey768{fipsKey: dk.fipsKey.EncapsulationKey()}
++	if boring.Enabled && boring.SupportsMLKEM768() {
++		return &EncapsulationKey768{boringKey: dk.boringKey.EncapsulationKey()}
 +	}
-+	if dk.backendKey != nil {
-+		return &EncapsulationKey768{backendKey: boring.DecapsulationKeyMLKEM768EncapsulationKey(dk.backendKey.(boring.DecapsulationKeyMLKEM768))}
-+	}
-+	panic("mlkem: key not initialized")
++	return &EncapsulationKey768{key: dk.key.EncapsulationKey()}
  }
  
  // An EncapsulationKey768 is the public key used to produce ciphertexts to be
  // decapsulated by the corresponding DecapsulationKey768.
  type EncapsulationKey768 struct {
 -	key *mlkem.EncapsulationKey768
-+	// One of these will be set depending on the backend
-+	fipsKey    *mlkem.EncapsulationKey768
-+	backendKey interface{} // boring.EncapsulationKeyMLKEM768 when enabled
++	key       *mlkem.EncapsulationKey768
++	boringKey boring.EncapsulationKeyMLKEM768
  }
  
  // NewEncapsulationKey768 parses an encapsulation key from its encoded form. If
@@ -1666,7 +1652,7 @@ index 69c0bc571f95a9..0447a7527da2cc 100644
 +		if err != nil {
 +			return nil, err
 +		}
-+		return &EncapsulationKey768{backendKey: key}, nil
++		return &EncapsulationKey768{boringKey: key}, nil
 +	}
 +
  	key, err := mlkem.NewEncapsulationKey768(encapsulationKey)
@@ -1675,43 +1661,33 @@ index 69c0bc571f95a9..0447a7527da2cc 100644
  	}
  
 -	return &EncapsulationKey768{key}, nil
-+	return &EncapsulationKey768{fipsKey: key}, nil
++	return &EncapsulationKey768{key: key}, nil
  }
  
  // Bytes returns the encapsulation key as a byte slice.
  func (ek *EncapsulationKey768) Bytes() []byte {
--	return ek.key.Bytes()
-+	if ek.fipsKey != nil {
-+		return ek.fipsKey.Bytes()
++	if boring.Enabled && boring.SupportsMLKEM768() {
++		return ek.boringKey.Bytes()
 +	}
-+	if ek.backendKey != nil {
-+		return boring.EncapsulationKeyMLKEM768Bytes(ek.backendKey.(boring.EncapsulationKeyMLKEM768))
-+	}
-+	panic("mlkem: key not initialized")
+ 	return ek.key.Bytes()
  }
  
- // Encapsulate generates a shared key and an associated ciphertext from an
-@@ -109,42 +164,72 @@ func (ek *EncapsulationKey768) Bytes() []byte {
+@@ -109,41 +150,64 @@ func (ek *EncapsulationKey768) Bytes() []byte {
  //
  // The shared key must be kept secret.
  func (ek *EncapsulationKey768) Encapsulate() (sharedKey, ciphertext []byte) {
--	return ek.key.Encapsulate()
-+	if ek.fipsKey != nil {
-+		return ek.fipsKey.Encapsulate()
++	if boring.Enabled && boring.SupportsMLKEM768() {
++		return ek.boringKey.Encapsulate()
 +	}
-+	if ek.backendKey != nil {
-+		return boring.EncapsulationKeyMLKEM768Encapsulate(ek.backendKey.(boring.EncapsulationKeyMLKEM768))
-+	}
-+	panic("mlkem: key not initialized")
+ 	return ek.key.Encapsulate()
  }
  
  // DecapsulationKey1024 is the secret key used to decapsulate a shared key
  // from a ciphertext. It includes various precomputed values.
  type DecapsulationKey1024 struct {
 -	key *mlkem.DecapsulationKey1024
-+	// One of these will be set depending on the backend
-+	fipsKey    *mlkem.DecapsulationKey1024
-+	backendKey interface{} // boring.DecapsulationKeyMLKEM1024 when enabled
++	key       *mlkem.DecapsulationKey1024
++	boringKey boring.DecapsulationKeyMLKEM1024
  }
  
  // GenerateKey1024 generates a new decapsulation key, drawing random bytes from
@@ -1722,7 +1698,7 @@ index 69c0bc571f95a9..0447a7527da2cc 100644
 +		if err != nil {
 +			return nil, err
 +		}
-+		return &DecapsulationKey1024{backendKey: key}, nil
++		return &DecapsulationKey1024{boringKey: key}, nil
 +	}
 +
  	key, err := mlkem.GenerateKey1024()
@@ -1731,7 +1707,7 @@ index 69c0bc571f95a9..0447a7527da2cc 100644
  	}
  
 -	return &DecapsulationKey1024{key}, nil
-+	return &DecapsulationKey1024{fipsKey: key}, nil
++	return &DecapsulationKey1024{key: key}, nil
  }
  
  // NewDecapsulationKey1024 expands a decapsulation key from a 64-byte seed in the
@@ -1742,7 +1718,7 @@ index 69c0bc571f95a9..0447a7527da2cc 100644
 +		if err != nil {
 +			return nil, err
 +		}
-+		return &DecapsulationKey1024{backendKey: key}, nil
++		return &DecapsulationKey1024{boringKey: key}, nil
 +	}
 +
  	key, err := mlkem.NewDecapsulationKey1024(seed)
@@ -1751,57 +1727,45 @@ index 69c0bc571f95a9..0447a7527da2cc 100644
  	}
  
 -	return &DecapsulationKey1024{key}, nil
-+	return &DecapsulationKey1024{fipsKey: key}, nil
++	return &DecapsulationKey1024{key: key}, nil
  }
  
  // Bytes returns the decapsulation key as a 64-byte seed in the "d || z" form.
  //
  // The decapsulation key must be kept secret.
  func (dk *DecapsulationKey1024) Bytes() []byte {
--	return dk.key.Bytes()
-+	if dk.fipsKey != nil {
-+		return dk.fipsKey.Bytes()
++	if boring.Enabled && boring.SupportsMLKEM1024() {
++		return dk.boringKey.Bytes()
 +	}
-+	if dk.backendKey != nil {
-+		return boring.DecapsulationKeyMLKEM1024Bytes(dk.backendKey.(boring.DecapsulationKeyMLKEM1024))
-+	}
-+	panic("mlkem: key not initialized")
+ 	return dk.key.Bytes()
  }
  
- // Decapsulate generates a shared key from a ciphertext and a decapsulation
-@@ -152,35 +237,62 @@ func (dk *DecapsulationKey1024) Bytes() []byte {
+@@ -152,34 +216,52 @@ func (dk *DecapsulationKey1024) Bytes() []byte {
  //
  // The shared key must be kept secret.
  func (dk *DecapsulationKey1024) Decapsulate(ciphertext []byte) (sharedKey []byte, err error) {
--	return dk.key.Decapsulate(ciphertext)
-+	if dk.fipsKey != nil {
-+		return dk.fipsKey.Decapsulate(ciphertext)
++	if boring.Enabled && boring.SupportsMLKEM1024() {
++		return dk.boringKey.Decapsulate(ciphertext)
 +	}
-+	if dk.backendKey != nil {
-+		return boring.DecapsulationKeyMLKEM1024Decapsulate(dk.backendKey.(boring.DecapsulationKeyMLKEM1024), ciphertext)
-+	}
-+	panic("mlkem: key not initialized")
+ 	return dk.key.Decapsulate(ciphertext)
  }
  
  // EncapsulationKey returns the public encapsulation key necessary to produce
  // ciphertexts.
  func (dk *DecapsulationKey1024) EncapsulationKey() *EncapsulationKey1024 {
 -	return &EncapsulationKey1024{dk.key.EncapsulationKey()}
-+	if dk.fipsKey != nil {
-+		return &EncapsulationKey1024{fipsKey: dk.fipsKey.EncapsulationKey()}
++	if boring.Enabled && boring.SupportsMLKEM1024() {
++		return &EncapsulationKey1024{boringKey: dk.boringKey.EncapsulationKey()}
 +	}
-+	if dk.backendKey != nil {
-+		return &EncapsulationKey1024{backendKey: boring.DecapsulationKeyMLKEM1024EncapsulationKey(dk.backendKey.(boring.DecapsulationKeyMLKEM1024))}
-+	}
-+	panic("mlkem: key not initialized")
++	return &EncapsulationKey1024{key: dk.key.EncapsulationKey()}
  }
  
  // An EncapsulationKey1024 is the public key used to produce ciphertexts to be
  // decapsulated by the corresponding DecapsulationKey1024.
  type EncapsulationKey1024 struct {
 -	key *mlkem.EncapsulationKey1024
-+	fipsKey    *mlkem.EncapsulationKey1024
-+	backendKey interface{} // boring.EncapsulationKeyMLKEM1024 when enabled
++	key       *mlkem.EncapsulationKey1024
++	boringKey boring.EncapsulationKeyMLKEM1024
  }
  
  // NewEncapsulationKey1024 parses an encapsulation key from its encoded form. If
@@ -1812,7 +1776,7 @@ index 69c0bc571f95a9..0447a7527da2cc 100644
 +		if err != nil {
 +			return nil, err
 +		}
-+		return &EncapsulationKey1024{backendKey: key}, nil
++		return &EncapsulationKey1024{boringKey: key}, nil
 +	}
 +
  	key, err := mlkem.NewEncapsulationKey1024(encapsulationKey)
@@ -1821,37 +1785,28 @@ index 69c0bc571f95a9..0447a7527da2cc 100644
  	}
  
 -	return &EncapsulationKey1024{key}, nil
-+	return &EncapsulationKey1024{fipsKey: key}, nil
++	return &EncapsulationKey1024{key: key}, nil
  }
  
  // Bytes returns the encapsulation key as a byte slice.
  func (ek *EncapsulationKey1024) Bytes() []byte {
--	return ek.key.Bytes()
-+	if ek.fipsKey != nil {
-+		return ek.fipsKey.Bytes()
++	if boring.Enabled && boring.SupportsMLKEM1024() {
++		return ek.boringKey.Bytes()
 +	}
-+	if ek.backendKey != nil {
-+		return boring.EncapsulationKeyMLKEM1024Bytes(ek.backendKey.(boring.EncapsulationKeyMLKEM1024))
-+	}
-+	panic("mlkem: key not initialized")
+ 	return ek.key.Bytes()
  }
  
- // Encapsulate generates a shared key and an associated ciphertext from an
-@@ -188,5 +300,11 @@ func (ek *EncapsulationKey1024) Bytes() []byte {
+@@ -188,5 +270,8 @@ func (ek *EncapsulationKey1024) Bytes() []byte {
  //
  // The shared key must be kept secret.
  func (ek *EncapsulationKey1024) Encapsulate() (sharedKey, ciphertext []byte) {
--	return ek.key.Encapsulate()
-+	if ek.fipsKey != nil {
-+		return ek.fipsKey.Encapsulate()
++	if boring.Enabled && boring.SupportsMLKEM1024() {
++		return ek.boringKey.Encapsulate()
 +	}
-+	if ek.backendKey != nil {
-+		return boring.EncapsulationKeyMLKEM1024Encapsulate(ek.backendKey.(boring.EncapsulationKeyMLKEM1024))
-+	}
-+	panic("mlkem: key not initialized")
+ 	return ek.key.Encapsulate()
  }
 diff --git a/src/crypto/mlkem/mlkem_test.go b/src/crypto/mlkem/mlkem_test.go
-index 207d6d48c3cb0b..e40bb0a6251f72 100644
+index 207d6d48c3cb0b..67a1b616b34c29 100644
 --- a/src/crypto/mlkem/mlkem_test.go
 +++ b/src/crypto/mlkem/mlkem_test.go
 @@ -6,6 +6,7 @@ package mlkem
@@ -1873,15 +1828,6 @@ index 207d6d48c3cb0b..e40bb0a6251f72 100644
  	n := 10000
  	expected := "8a518cc63da366322a8e7a818c7a0d63483cb3528d34a4cf42f35d5ad73f22fc"
  	if testing.Short() {
-@@ -189,7 +194,7 @@ func TestAccumulated(t *testing.T) {
- 		o.Write(ek.Bytes())
- 
- 		s.Read(msg[:])
--		k, ct := ek.key.EncapsulateInternal(&msg)
-+		k, ct := ek.fipsKey.EncapsulateInternal(&msg)
- 		o.Write(ct)
- 		o.Write(k)
- 
 @@ -229,6 +234,9 @@ func BenchmarkKeyGen(b *testing.B) {
  }
  
@@ -1892,7 +1838,7 @@ index 207d6d48c3cb0b..e40bb0a6251f72 100644
  	seed := make([]byte, SeedSize)
  	rand.Read(seed)
  	var m [32]byte
-@@ -237,14 +245,14 @@ func BenchmarkEncaps(b *testing.B) {
+@@ -237,10 +245,10 @@ func BenchmarkEncaps(b *testing.B) {
  	if err != nil {
  		b.Fatal(err)
  	}
@@ -1905,11 +1851,6 @@ index 207d6d48c3cb0b..e40bb0a6251f72 100644
  		if err != nil {
  			b.Fatal(err)
  		}
--		K, c := ek.key.EncapsulateInternal(&m)
-+		K, c := ek.fipsKey.EncapsulateInternal(&m)
- 		sink ^= c[0] ^ K[0]
- 	}
- }
 diff --git a/src/crypto/pbkdf2/pbkdf2.go b/src/crypto/pbkdf2/pbkdf2.go
 index 01fd12e40e341e..38ffac92a36221 100644
 --- a/src/crypto/pbkdf2/pbkdf2.go
