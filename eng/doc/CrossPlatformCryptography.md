@@ -55,25 +55,25 @@ This section includes the following packages:
 - [crypto/sha3](https://pkg.go.dev/golang.org/x/crypto/sha3)
 - [crypto/hmac](https://pkg.go.dev/crypto/hmac)
 
-| Algorithm              | Windows | Linux             | macOS           |
-| ---------------------- | ------- | ----------------- | --------------- |
-| MD5                    | ✔️      | ✔️                | ✔️              |
-| SHA-1                  | ✔️      | ✔️                | ✔️              |
-| SHA-2-224              | ❌      | ✔️                | ✔️              |
-| SHA-2-256              | ✔️      | ✔️                | ✔️              |
-| SHA-2-384              | ✔️      | ✔️                | ✔️              |
-| SHA-2-512              | ✔️      | ✔️                | ✔️              |
-| SHA-2-512_224          | ❌      | ✔️<sup>1, 2</sup> | ❌              |
-| SHA-2-512_256          | ❌      | ✔️<sup>1, 2</sup> | ❌              |
-| SHA-3-224 <sup>3</sup> | ❌      | ✔️ <sup>2</sup>   | ❌              |
-| SHA-3-256 <sup>3</sup> | ✔️      | ✔️ <sup>2</sup>   | ✔️ <sup>4</sup> |
-| SHA-3-384 <sup>3</sup> | ✔️      | ✔️ <sup>2</sup>   | ✔️ <sup>4</sup> |
-| SHA-3-512 <sup>3</sup> | ✔️      | ✔️ <sup>2</sup>   | ✔️ <sup>4</sup> |
-| SHAKE-128              | ❌      | ❌                | ❌              |
-| SHAKE-256              | ❌      | ❌                | ❌              |
-| CSHAKE-128             | ❌      | ❌                | ❌              |
-| CSHAKE-256             | ❌      | ❌                | ❌              |
-| HMAC<sup>5</sup>       | ✔️      | ✔️                | ✔️              |
+| Algorithm              | Windows         | Linux             | macOS           |
+| ---------------------- | --------------- | ----------------- | --------------- |
+| MD5                    | ✔️              | ✔️                | ✔️              |
+| SHA-1                  | ✔️              | ✔️                | ✔️              |
+| SHA-2-224              | ❌              | ✔️                | ✔️              |
+| SHA-2-256              | ✔️              | ✔️                | ✔️              |
+| SHA-2-384              | ✔️              | ✔️                | ✔️              |
+| SHA-2-512              | ✔️              | ✔️                | ✔️              |
+| SHA-2-512_224          | ❌              | ✔️<sup>1, 2</sup> | ❌              |
+| SHA-2-512_256          | ❌              | ✔️<sup>1, 2</sup> | ❌              |
+| SHA-3-224 <sup>3</sup> | ❌              | ✔️ <sup>2</sup>   | ❌              |
+| SHA-3-256 <sup>3</sup> | ✔️ <sup>4</sup> | ✔️ <sup>2</sup>   | ✔️ <sup>5</sup> |
+| SHA-3-384 <sup>3</sup> | ✔️ <sup>4</sup> | ✔️ <sup>2</sup>   | ✔️ <sup>5</sup> |
+| SHA-3-512 <sup>3</sup> | ✔️ <sup>4</sup> | ✔️ <sup>2</sup>   | ✔️ <sup>5</sup> |
+| SHAKE-128              | ❌              | ❌                | ❌              |
+| SHAKE-256              | ❌              | ❌                | ❌              |
+| CSHAKE-128             | ❌              | ❌                | ❌              |
+| CSHAKE-256             | ❌              | ❌                | ❌              |
+| HMAC<sup>6</sup>       | ✔️              | ✔️                | ✔️              |
 
 <sup>1</sup>Available starting in the Microsoft build of Go 1.24.
 
@@ -81,9 +81,11 @@ This section includes the following packages:
 
 <sup>3</sup>Available starting in the Microsoft build of Go 1.26.
 
-<sup>4</sup>Available starting in macOS 26 (Tahoe).
+<sup>4</sup>Available in Windows 11, version 24H2 or later.
 
-<sup>5</sup>Supports only hash algorithms that are supported as standalone hash functions.
+<sup>5</sup>Available starting in macOS 26 (Tahoe).
+
+<sup>6</sup>Supports only hash algorithms that are supported as standalone hash functions.
 
 ## Symmetric encryption
 
