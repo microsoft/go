@@ -14,7 +14,7 @@ desired goexperiments and build tags.
  .../compile/internal/ssa/stmtlines_test.go    |   2 +-
  src/cmd/compile/script_test.go                |   8 +
  src/cmd/dist/build.go                         |  80 +++-
- src/cmd/dist/test.go                          |  43 +-
+ src/cmd/dist/test.go                          |  38 +-
  src/cmd/go/go_test.go                         |  11 +
  src/cmd/go/internal/cfg/cfg.go                |  16 +
  src/cmd/go/internal/load/pkg.go               |   3 +
@@ -55,7 +55,7 @@ desired goexperiments and build tags.
  src/internal/buildcfg/exp.go                  |  57 +++
  src/runtime/runtime_boring.go                 |   5 +
  src/syscall/exec_linux_test.go                |   4 +
- 46 files changed, 2701 insertions(+), 21 deletions(-)
+ 46 files changed, 2696 insertions(+), 21 deletions(-)
  create mode 100644 src/cmd/go/systemcrypto_test.go
  create mode 100644 src/crypto/internal/backend/backend_test.go
  create mode 100644 src/crypto/internal/backend/bbig/big.go
@@ -262,7 +262,7 @@ index 2b382a1c025649..25b555dace9a6f 100644
  	if debug {
  		run("", ShowOutput|CheckExit, pathf("%s/compile", tooldir), "-V=full")
 diff --git a/src/cmd/dist/test.go b/src/cmd/dist/test.go
-index 9c9e1b85f0cd76..cbf0d77c4d19f0 100644
+index 9c9e1b85f0cd76..54274e7fad8de3 100644
 --- a/src/cmd/dist/test.go
 +++ b/src/cmd/dist/test.go
 @@ -156,10 +156,12 @@ func (t *tester) run() {
@@ -364,18 +364,6 @@ index 9c9e1b85f0cd76..cbf0d77c4d19f0 100644
  		// Only start multiple test dir shards on builders,
  		// where they get distributed to multiple machines.
  		// See issues 20141 and 31834.
-@@ -1183,6 +1203,11 @@ func (t *tester) internalLink() bool {
- 	if goos == "ios" {
- 		return false
- 	}
-+	if goos == "darwin" && t.cgoEnabled && (strings.Contains(goexperiment, "systemcrypto") || strings.Contains(goexperiment, "darwincrypto")) {
-+		// linkmode=internal isn't supported with system/darwin crypto.
-+		// see https://github.com/microsoft/go-crypto-darwin/issues/33
-+		return false
-+	}
- 	// Internally linking cgo is incomplete on some architectures.
- 	// https://golang.org/issue/10373
- 	// https://golang.org/issue/14449
 diff --git a/src/cmd/go/go_test.go b/src/cmd/go/go_test.go
 index e4ee9bd1e8d2ec..3bdb6b4d31fe46 100644
 --- a/src/cmd/go/go_test.go
@@ -461,7 +449,7 @@ index 3b8bbdc91b8191..53a58e23f8b05c 100644
  	appendSetting("-compiler", cfg.BuildContext.Compiler)
  	if gccgoflags := BuildGccgoflags.String(); gccgoflags != "" && cfg.BuildContext.Compiler == "gccgo" {
 diff --git a/src/cmd/go/internal/tool/tool.go b/src/cmd/go/internal/tool/tool.go
-index e283c7354f5a34..ad56d64a29f684 100644
+index 92e8a803105f8d..95d47b625c28a7 100644
 --- a/src/cmd/go/internal/tool/tool.go
 +++ b/src/cmd/go/internal/tool/tool.go
 @@ -305,6 +305,10 @@ func buildAndRunBuiltinTool(loaderstate *modload.State, ctx context.Context, too
