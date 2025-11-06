@@ -184,7 +184,7 @@ Use a 'go' that was recently built by the current branch to ensure stable result
  .../go-crypto-winnative/cng/bbig/big.go       |   31 +
  .../microsoft/go-crypto-winnative/cng/big.go  |   30 +
  .../go-crypto-winnative/cng/cipher.go         |   52 +
- .../microsoft/go-crypto-winnative/cng/cng.go  |  131 +
+ .../microsoft/go-crypto-winnative/cng/cng.go  |  140 +
  .../microsoft/go-crypto-winnative/cng/des.go  |  106 +
  .../microsoft/go-crypto-winnative/cng/dsa.go  |  465 ++++
  .../microsoft/go-crypto-winnative/cng/ecdh.go |  255 ++
@@ -207,7 +207,7 @@ Use a 'go' that was recently built by the current branch to ensure stable result
  .../internal/subtle/aliasing.go               |   32 +
  .../internal/sysdll/sys_windows.go            |   55 +
  src/vendor/modules.txt                        |   20 +
- 199 files changed, 27453 insertions(+), 7 deletions(-)
+ 199 files changed, 27462 insertions(+), 7 deletions(-)
  create mode 100644 src/cmd/internal/telemetry/counter/deps_ignore.go
  create mode 100644 src/cmd/vendor/github.com/microsoft/go-infra/telemetry/LICENSE
  create mode 100644 src/cmd/vendor/github.com/microsoft/go-infra/telemetry/README.md
@@ -2060,7 +2060,7 @@ index 00000000000000..ae4055d2d71303
 +// that are used by the backend package. This allows to track
 +// their versions in a single patch file.
 diff --git a/src/go.mod b/src/go.mod
-index c5e901b9ef22e8..a9c633e51c01e5 100644
+index c5e901b9ef22e8..4f68035a87dab7 100644
 --- a/src/go.mod
 +++ b/src/go.mod
 @@ -11,3 +11,9 @@ require (
@@ -2071,10 +2071,10 @@ index c5e901b9ef22e8..a9c633e51c01e5 100644
 +require (
 +	github.com/golang-fips/openssl/v2 v2.0.4-0.20251105131405-55875790d6fc
 +	github.com/microsoft/go-crypto-darwin v0.0.3-0.20251105130527-ff5ef844ed63
-+	github.com/microsoft/go-crypto-winnative v0.0.0-20251105125448-449d0fd06b0f
++	github.com/microsoft/go-crypto-winnative v0.0.0-20251106082534-b696521f99d4
 +)
 diff --git a/src/go.sum b/src/go.sum
-index 4a52682161fc23..5b9cffcf783ef1 100644
+index 4a52682161fc23..85f3b5ff59025e 100644
 --- a/src/go.sum
 +++ b/src/go.sum
 @@ -1,3 +1,9 @@
@@ -2082,8 +2082,8 @@ index 4a52682161fc23..5b9cffcf783ef1 100644
 +github.com/golang-fips/openssl/v2 v2.0.4-0.20251105131405-55875790d6fc/go.mod h1:EtVnMfLGkB4pihGOH+tXEV0WlXxewWdT1n3GLJEHvpw=
 +github.com/microsoft/go-crypto-darwin v0.0.3-0.20251105130527-ff5ef844ed63 h1:7Z5bSr2MzWPoASu3XODe/kAgr1Yhx5wA+giZWIFL9a8=
 +github.com/microsoft/go-crypto-darwin v0.0.3-0.20251105130527-ff5ef844ed63/go.mod h1:MTii5PQwRlfUjYpGoF8CPLGwXSHTbLHGRN9FVNML5N0=
-+github.com/microsoft/go-crypto-winnative v0.0.0-20251105125448-449d0fd06b0f h1:hf1kiFWxDHgdM0DJnQSkYVEDNZfChc6eBE4IwL+aCsw=
-+github.com/microsoft/go-crypto-winnative v0.0.0-20251105125448-449d0fd06b0f/go.mod h1:JkxQeL8dGcyCuKjn1Etz4NmQrOMImMy4BA9hptEfVFA=
++github.com/microsoft/go-crypto-winnative v0.0.0-20251106082534-b696521f99d4 h1:w1En0lvCsQ+H17nOf/TaBxTRhxMkN4AjUT5glfUs58k=
++github.com/microsoft/go-crypto-winnative v0.0.0-20251106082534-b696521f99d4/go.mod h1:JkxQeL8dGcyCuKjn1Etz4NmQrOMImMy4BA9hptEfVFA=
  golang.org/x/crypto v0.43.0 h1:dduJYIi3A3KOfdGOHX8AVZ/jGiyPa3IbBozJ5kNuE04=
  golang.org/x/crypto v0.43.0/go.mod h1:BFbav4mRNlXJL4wNeejLpWxB7wMbc79PdRGhWKncxR0=
  golang.org/x/net v0.46.0 h1:giFlY12I07fugqwPuWJi68oOnpfqFnJIJzaIIm2JVV4=
@@ -26677,10 +26677,10 @@ index 00000000000000..c1365f8d399d21
 +}
 diff --git a/src/vendor/github.com/microsoft/go-crypto-winnative/cng/cng.go b/src/vendor/github.com/microsoft/go-crypto-winnative/cng/cng.go
 new file mode 100644
-index 00000000000000..d1916f94a0a76d
+index 00000000000000..a9e247e82b8a63
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go-crypto-winnative/cng/cng.go
-@@ -0,0 +1,131 @@
+@@ -0,0 +1,140 @@
 +// Copyright (c) Microsoft Corporation.
 +// Licensed under the MIT License.
 +
@@ -26729,25 +26729,34 @@ index 00000000000000..d1916f94a0a76d
 +		mode  string
 +	}{id, flags, mode}
 +
++	type entryResult[T any] struct {
++		value T
++		err   error
++	}
++
++	// Try to load the algorithm from the cache.
 +	if v, ok := algCache.Load(entryKey); ok {
-+		return v.(T), nil
++		ret := v.(entryResult[T])
++		return ret.value, ret.err
 +	}
++
++	// Not found in cache, create a new one.
++	var ret entryResult[T]
 +	var h bcrypt.ALG_HANDLE
-+	err := bcrypt.OpenAlgorithmProvider(&h, utf16PtrFromString(id), nil, flags)
-+	if err != nil {
-+		return *new(T), err
++	if ret.err = bcrypt.OpenAlgorithmProvider(&h, utf16PtrFromString(id), nil, flags); ret.err == nil {
++		ret.value, ret.err = fn(h)
++		if ret.err != nil {
++			bcrypt.CloseAlgorithmProvider(h, 0)
++		}
 +	}
-+	v, err := fn(h)
-+	if err != nil {
++
++	// Store the result in the cache.
++	if existing, loaded := algCache.LoadOrStore(entryKey, ret); loaded {
++		// Another goroutine stored it first concurrently, so use that one instead.
 +		bcrypt.CloseAlgorithmProvider(h, 0)
-+		return *new(T), err
++		ret = existing.(entryResult[T])
 +	}
-+	if existing, loaded := algCache.LoadOrStore(entryKey, v); loaded {
-+		// We can safely use a provider that has already been cached in another concurrent goroutine.
-+		bcrypt.CloseAlgorithmProvider(h, 0)
-+		v = existing.(T)
-+	}
-+	return v, nil
++	return ret.value, ret.err
 +}
 +
 +func utf16PtrFromString(s string) *uint16 {
@@ -30473,7 +30482,7 @@ index 00000000000000..1722410e5af193
 +	return getSystemDirectory() + "\\" + dll
 +}
 diff --git a/src/vendor/modules.txt b/src/vendor/modules.txt
-index f1e33686ed0626..68cb4835ff0cba 100644
+index f1e33686ed0626..3bc9dd533f9ab0 100644
 --- a/src/vendor/modules.txt
 +++ b/src/vendor/modules.txt
 @@ -1,3 +1,23 @@
@@ -30490,7 +30499,7 @@ index f1e33686ed0626..68cb4835ff0cba 100644
 +github.com/microsoft/go-crypto-darwin/internal/cryptokit
 +github.com/microsoft/go-crypto-darwin/internal/security
 +github.com/microsoft/go-crypto-darwin/xcrypto
-+# github.com/microsoft/go-crypto-winnative v0.0.0-20251105125448-449d0fd06b0f
++# github.com/microsoft/go-crypto-winnative v0.0.0-20251106082534-b696521f99d4
 +## explicit; go 1.22
 +github.com/microsoft/go-crypto-winnative/cng
 +github.com/microsoft/go-crypto-winnative/cng/bbig
