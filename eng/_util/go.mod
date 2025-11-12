@@ -10,8 +10,8 @@ require (
 	github.com/golang-jwt/jwt/v5 v5.3.0
 	github.com/microsoft/go-infra v0.0.7
 	github.com/microsoft/go-infra/goinstallscript v1.1.0
-	golang.org/x/net v0.46.0
-	golang.org/x/sys v0.37.0
+	golang.org/x/net v0.47.0
+	golang.org/x/sys v0.38.0
 )
 
 require (
@@ -20,5 +20,5 @@ require (
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/microsoft/azure-devops-go-api/azuredevops v1.0.0-b5 // indirect
 	golang.org/x/oauth2 v0.32.0 // indirect
-	golang.org/x/text v0.30.0 // indirect
+	golang.org/x/text v0.31.0 // indirect
 )
