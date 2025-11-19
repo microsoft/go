@@ -8,7 +8,7 @@ go 1.24.0
 
 require (
 	github.com/golang-jwt/jwt/v5 v5.3.0
-	github.com/microsoft/go-infra v0.0.7
+	github.com/microsoft/go-infra v0.0.8
 	github.com/microsoft/go-infra/goinstallscript v1.1.0
 	golang.org/x/net v0.47.0
 	golang.org/x/sys v0.38.0
@@ -28,9 +28,9 @@ require (
 	github.com/mitchellh/reflectwalk v1.0.2 // indirect
 	github.com/shopspring/decimal v1.4.0 // indirect
 	github.com/spf13/cast v1.7.0 // indirect
-	go.yaml.in/yaml/v4 v4.0.0-rc.2 // indirect
+	go.yaml.in/yaml/v4 v4.0.0-rc.3 // indirect
 	golang.org/x/crypto v0.44.0 // indirect
-	golang.org/x/oauth2 v0.32.0 // indirect
+	golang.org/x/oauth2 v0.33.0 // indirect
 	golang.org/x/text v0.31.0 // indirect
 )
 
