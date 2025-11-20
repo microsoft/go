@@ -19,20 +19,20 @@ desired goexperiments and build tags.
  src/cmd/go/internal/cfg/cfg.go                |  16 +
  src/cmd/go/internal/load/pkg.go               |   3 +
  src/cmd/go/internal/tool/tool.go              |   9 +-
- src/cmd/go/systemcrypto_test.go               | 249 ++++++++++
+ src/cmd/go/systemcrypto_test.go               | 249 +++++++++++
  .../go/testdata/script/env_cross_build.txt    |   2 +
  .../script/test_android_issue62123.txt        |   2 +
  src/cmd/internal/testdir/testdir_test.go      |   7 +
- src/cmd/link/internal/ld/main.go              |  14 +-
+ src/cmd/link/internal/ld/main.go              |  20 +-
  src/cmd/link/link_test.go                     |   8 +
  src/crypto/internal/backend/backend_test.go   |  30 ++
  src/crypto/internal/backend/bbig/big.go       |  17 +
  src/crypto/internal/backend/bbig/big_cng.go   |  12 +
  .../internal/backend/bbig/big_darwin.go       |  12 +
  .../internal/backend/bbig/big_openssl.go      |  12 +
- src/crypto/internal/backend/cng_windows.go    | 433 ++++++++++++++++++
+ src/crypto/internal/backend/cng_windows.go    | 393 ++++++++++++++++
  src/crypto/internal/backend/common.go         |  46 ++
- src/crypto/internal/backend/darwin_darwin.go  | 420 +++++++++++++++++
+ src/crypto/internal/backend/darwin_darwin.go  | 420 ++++++++++++++++++
  src/crypto/internal/backend/fips140/cng.go    |  35 ++
  src/crypto/internal/backend/fips140/darwin.go |  13 +
  .../internal/backend/fips140/fips140.go       |  70 +++
@@ -47,15 +47,15 @@ desired goexperiments and build tags.
  .../internal/opensslsetup/opensslsetup.go     |  68 +++
  .../opensslsetup/opensslsetup_test.go         |  92 ++++
  .../backend/internal/opensslsetup/stub.go     |   8 +
- src/crypto/internal/backend/nobackend.go      | 349 ++++++++++++++
- src/crypto/internal/backend/openssl_linux.go  | 380 +++++++++++++++
+ src/crypto/internal/backend/nobackend.go      | 349 +++++++++++++++
+ src/crypto/internal/backend/openssl_linux.go  | 380 ++++++++++++++++
  src/crypto/internal/backend/stub.s            |  10 +
  src/crypto/systemcrypto_nocgo_linux.go        |  15 +
  src/go/build/deps_test.go                     |  32 +-
  src/internal/buildcfg/exp.go                  |  57 +++
  src/runtime/runtime_boring.go                 |   5 +
  src/syscall/exec_linux_test.go                |   4 +
- 46 files changed, 2701 insertions(+), 21 deletions(-)
+ 46 files changed, 2664 insertions(+), 24 deletions(-)
  create mode 100644 src/cmd/go/systemcrypto_test.go
  create mode 100644 src/crypto/internal/backend/backend_test.go
  create mode 100644 src/crypto/internal/backend/bbig/big.go
@@ -85,10 +85,10 @@ desired goexperiments and build tags.
  create mode 100644 src/crypto/systemcrypto_nocgo_linux.go
 
 diff --git a/.gitignore b/.gitignore
-index c6512e64a4ef39..b3b01db73b009d 100644
+index 344b31f7ac1c1d..b4583113d5aa15 100644
 --- a/.gitignore
 +++ b/.gitignore
-@@ -46,6 +46,8 @@ _testmain.go
+@@ -47,6 +47,8 @@ _testmain.go
  /test/run.out
  /test/times.out
  
@@ -262,7 +262,7 @@ index 2b382a1c025649..25b555dace9a6f 100644
  	if debug {
  		run("", ShowOutput|CheckExit, pathf("%s/compile", tooldir), "-V=full")
 diff --git a/src/cmd/dist/test.go b/src/cmd/dist/test.go
-index 9c9e1b85f0cd76..cbf0d77c4d19f0 100644
+index 15cfcccec38329..713cb4f2a42668 100644
 --- a/src/cmd/dist/test.go
 +++ b/src/cmd/dist/test.go
 @@ -156,10 +156,12 @@ func (t *tester) run() {
@@ -377,7 +377,7 @@ index 9c9e1b85f0cd76..cbf0d77c4d19f0 100644
  	// https://golang.org/issue/10373
  	// https://golang.org/issue/14449
 diff --git a/src/cmd/go/go_test.go b/src/cmd/go/go_test.go
-index e4ee9bd1e8d2ec..3bdb6b4d31fe46 100644
+index 1722f1a2c34428..ba7740bf8cd31e 100644
 --- a/src/cmd/go/go_test.go
 +++ b/src/cmd/go/go_test.go
 @@ -13,6 +13,7 @@ import (
@@ -402,7 +402,7 @@ index e4ee9bd1e8d2ec..3bdb6b4d31fe46 100644
  
  		if testGOROOT := os.Getenv("TESTGO_GOROOT"); testGOROOT != "" {
  			// Disallow installs to the GOROOT from which testgo was built.
-@@ -1860,6 +1868,9 @@ func TestGenerateUsesBuildContext(t *testing.T) {
+@@ -1862,6 +1870,9 @@ func TestGenerateUsesBuildContext(t *testing.T) {
  }
  
  func TestGoEnv(t *testing.T) {
@@ -461,7 +461,7 @@ index 3b8bbdc91b8191..53a58e23f8b05c 100644
  	appendSetting("-compiler", cfg.BuildContext.Compiler)
  	if gccgoflags := BuildGccgoflags.String(); gccgoflags != "" && cfg.BuildContext.Compiler == "gccgo" {
 diff --git a/src/cmd/go/internal/tool/tool.go b/src/cmd/go/internal/tool/tool.go
-index e283c7354f5a34..ad56d64a29f684 100644
+index 92e8a803105f8d..95d47b625c28a7 100644
 --- a/src/cmd/go/internal/tool/tool.go
 +++ b/src/cmd/go/internal/tool/tool.go
 @@ -305,6 +305,10 @@ func buildAndRunBuiltinTool(loaderstate *modload.State, ctx context.Context, too
@@ -785,7 +785,7 @@ index 30e66c428dc470..ed061d7fbf4684 100644
  		gorootTestDir: filepath.Join(testenv.GOROOT(t), "test"),
  		runoutputGate: make(chan bool, *runoutputLimit),
 diff --git a/src/cmd/link/internal/ld/main.go b/src/cmd/link/internal/ld/main.go
-index d913953944bc43..3349e53cd07809 100644
+index a4b3a0422f2f41..ce290ab4617cfd 100644
 --- a/src/cmd/link/internal/ld/main.go
 +++ b/src/cmd/link/internal/ld/main.go
 @@ -44,6 +44,7 @@ import (
@@ -796,11 +796,13 @@ index d913953944bc43..3349e53cd07809 100644
  	"strconv"
  	"strings"
  )
-@@ -188,7 +189,18 @@ func Main(arch *sys.Arch, theArch Arch) {
+@@ -188,11 +189,22 @@ func Main(arch *sys.Arch, theArch Arch) {
  
  	buildVersion := buildcfg.Version
  	if goexperiment := buildcfg.Experiment.String(); goexperiment != "" {
--		buildVersion += " X:" + goexperiment
+-		sep := " "
+-		if !strings.Contains(buildVersion, "-") { // See go.dev/issue/75953.
+-			sep = "-"
 +		// buildVersion is intended to contain non-default experiment flags.
 +		// The Microsoft build of Go default behavior is to set the
 +		// nosystemcrypto experiments, so we don't include it in the buildVersion string.
@@ -811,13 +813,18 @@ index d913953944bc43..3349e53cd07809 100644
 +			return s == "nosystemcrypto" || s == "ms_nocgo_opensslcrypto"
 +		}), ",")
 +		if goexperiment != "" {
-+			buildVersion += " X:" + goexperiment
-+		}
++			sep := " "
++			if !strings.Contains(buildVersion, "-") { // See go.dev/issue/75953.
++				sep = "-"
++			}
++			buildVersion += sep + "X:" + goexperiment
+ 		}
+-		buildVersion += sep + "X:" + goexperiment
  	}
  	addstrdata1(ctxt, "runtime.buildVersion="+buildVersion)
  
 diff --git a/src/cmd/link/link_test.go b/src/cmd/link/link_test.go
-index 31822d21f39d31..71d23e76f91e1b 100644
+index 6ab1246c814dfb..db61e625c6aadf 100644
 --- a/src/cmd/link/link_test.go
 +++ b/src/cmd/link/link_test.go
 @@ -9,6 +9,7 @@ import (
@@ -964,10 +971,10 @@ index 00000000000000..e6695dd66b1d02
 +var Dec = bbig.Dec
 diff --git a/src/crypto/internal/backend/cng_windows.go b/src/crypto/internal/backend/cng_windows.go
 new file mode 100644
-index 00000000000000..62acef2f8e14d8
+index 00000000000000..fdcc48ddb28c12
 --- /dev/null
 +++ b/src/crypto/internal/backend/cng_windows.go
-@@ -0,0 +1,433 @@
+@@ -0,0 +1,393 @@
 +// Copyright 2017 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -1325,81 +1332,41 @@ index 00000000000000..62acef2f8e14d8
 +}
 +
 +func SupportsMLKEM768() bool {
-+	return false
++	return cng.SupportsMLKEM()
 +}
 +
 +func SupportsMLKEM1024() bool {
-+	return false
++	return cng.SupportsMLKEM()
 +}
 +
-+type DecapsulationKeyMLKEM768 struct{}
-+type EncapsulationKeyMLKEM768 struct{}
++type DecapsulationKeyMLKEM768 = cng.DecapsulationKeyMLKEM768
++type EncapsulationKeyMLKEM768 = cng.EncapsulationKeyMLKEM768
 +
 +func GenerateKeyMLKEM768() (DecapsulationKeyMLKEM768, error) {
-+	panic("cngcrypto: not available")
++	return cng.GenerateKeyMLKEM768()
 +}
 +
 +func NewDecapsulationKeyMLKEM768(seed []byte) (DecapsulationKeyMLKEM768, error) {
-+	panic("cngcrypto: not available")
++	return cng.NewDecapsulationKeyMLKEM768(seed)
 +}
 +
 +func NewEncapsulationKeyMLKEM768(encapsulationKey []byte) (EncapsulationKeyMLKEM768, error) {
-+	panic("cngcrypto: not available")
++	return cng.NewEncapsulationKeyMLKEM768(encapsulationKey)
 +}
 +
-+func (dk DecapsulationKeyMLKEM768) Bytes() []byte {
-+	panic("cngcrypto: not available")
-+}
-+
-+func (dk DecapsulationKeyMLKEM768) Decapsulate(ciphertext []byte) (sharedKey []byte, err error) {
-+	panic("cngcrypto: not available")
-+}
-+
-+func (dk DecapsulationKeyMLKEM768) EncapsulationKey() EncapsulationKeyMLKEM768 {
-+	panic("cngcrypto: not available")
-+}
-+
-+func (ek EncapsulationKeyMLKEM768) Bytes() []byte {
-+	panic("cngcrypto: not available")
-+}
-+
-+func (ek EncapsulationKeyMLKEM768) Encapsulate() (sharedKey, ciphertext []byte) {
-+	panic("cngcrypto: not available")
-+}
-+
-+type DecapsulationKeyMLKEM1024 struct{}
-+type EncapsulationKeyMLKEM1024 struct{}
++type DecapsulationKeyMLKEM1024 = cng.DecapsulationKeyMLKEM1024
++type EncapsulationKeyMLKEM1024 = cng.EncapsulationKeyMLKEM1024
 +
 +func GenerateKeyMLKEM1024() (DecapsulationKeyMLKEM1024, error) {
-+	panic("cngcrypto: not available")
++	return cng.GenerateKeyMLKEM1024()
 +}
 +
 +func NewDecapsulationKeyMLKEM1024(seed []byte) (DecapsulationKeyMLKEM1024, error) {
-+	panic("cngcrypto: not available")
++	return cng.NewDecapsulationKeyMLKEM1024(seed)
 +}
 +
 +func NewEncapsulationKeyMLKEM1024(encapsulationKey []byte) (EncapsulationKeyMLKEM1024, error) {
-+	panic("cngcrypto: not available")
-+}
-+
-+func (dk DecapsulationKeyMLKEM1024) Bytes() []byte {
-+	panic("cngcrypto: not available")
-+}
-+
-+func (dk DecapsulationKeyMLKEM1024) Decapsulate(ciphertext []byte) (sharedKey []byte, err error) {
-+	panic("cngcrypto: not available")
-+}
-+
-+func (dk DecapsulationKeyMLKEM1024) EncapsulationKey() EncapsulationKeyMLKEM1024 {
-+	panic("cngcrypto: not available")
-+}
-+
-+func (ek EncapsulationKeyMLKEM1024) Bytes() []byte {
-+	panic("cngcrypto: not available")
-+}
-+
-+func (ek EncapsulationKeyMLKEM1024) Encapsulate() (sharedKey, ciphertext []byte) {
-+	panic("cngcrypto: not available")
++	return cng.NewEncapsulationKeyMLKEM1024(encapsulationKey)
 +}
 diff --git a/src/crypto/internal/backend/common.go b/src/crypto/internal/backend/common.go
 new file mode 100644
@@ -3242,7 +3209,7 @@ index 6a8dbe7e3712a3..f3980616aabac1 100644
  	< crypto/rand
  	< crypto/ed25519 # depends on crypto/rand.Reader
 diff --git a/src/internal/buildcfg/exp.go b/src/internal/buildcfg/exp.go
-index 14ca07c56683f1..64c37df9e9fced 100644
+index 31ec5a1a4ec140..b28387a100c554 100644
 --- a/src/internal/buildcfg/exp.go
 +++ b/src/internal/buildcfg/exp.go
 @@ -5,12 +5,15 @@
@@ -3261,7 +3228,7 @@ index 14ca07c56683f1..64c37df9e9fced 100644
  )
  
  // ExperimentFlags represents a set of GOEXPERIMENT flags relative to a baseline
-@@ -195,6 +198,60 @@ func ParseGOEXPERIMENT(goos, goarch, goexp string) (*ExperimentFlags, error) {
+@@ -194,6 +197,60 @@ func ParseGOEXPERIMENT(goos, goarch, goexp string) (*ExperimentFlags, error) {
  	if flags.BoringCrypto {
  		return nil, fmt.Errorf("GOEXPERIMENT boringcrypto is not supported in the Microsoft build of Go")
  	}

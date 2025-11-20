@@ -195,19 +195,20 @@ Use a 'go' that was recently built by the current branch to ensure stable result
  .../microsoft/go-crypto-winnative/cng/hkdf.go |  128 +
  .../microsoft/go-crypto-winnative/cng/hmac.go |   70 +
  .../microsoft/go-crypto-winnative/cng/keys.go |  220 ++
+ .../go-crypto-winnative/cng/mlkem.go          |  405 +++
  .../go-crypto-winnative/cng/pbkdf2.go         |   70 +
  .../microsoft/go-crypto-winnative/cng/rand.go |   28 +
  .../microsoft/go-crypto-winnative/cng/rc4.go  |   65 +
  .../microsoft/go-crypto-winnative/cng/rsa.go  |  396 +++
  .../microsoft/go-crypto-winnative/cng/sha3.go |  203 ++
  .../go-crypto-winnative/cng/tls1prf.go        |   89 +
- .../internal/bcrypt/bcrypt_windows.go         |  368 +++
+ .../internal/bcrypt/bcrypt_windows.go         |  394 +++
  .../internal/bcrypt/ntstatus_windows.go       |   45 +
- .../internal/bcrypt/zsyscall_windows.go       |  412 +++
+ .../internal/bcrypt/zsyscall_windows.go       |  446 ++++
  .../internal/subtle/aliasing.go               |   32 +
  .../internal/sysdll/sys_windows.go            |   55 +
  src/vendor/modules.txt                        |   20 +
- 199 files changed, 27462 insertions(+), 7 deletions(-)
+ 200 files changed, 27927 insertions(+), 7 deletions(-)
  create mode 100644 src/cmd/internal/telemetry/counter/deps_ignore.go
  create mode 100644 src/cmd/vendor/github.com/microsoft/go-infra/telemetry/LICENSE
  create mode 100644 src/cmd/vendor/github.com/microsoft/go-infra/telemetry/README.md
@@ -388,6 +389,7 @@ Use a 'go' that was recently built by the current branch to ensure stable result
  create mode 100644 src/vendor/github.com/microsoft/go-crypto-winnative/cng/hkdf.go
  create mode 100644 src/vendor/github.com/microsoft/go-crypto-winnative/cng/hmac.go
  create mode 100644 src/vendor/github.com/microsoft/go-crypto-winnative/cng/keys.go
+ create mode 100644 src/vendor/github.com/microsoft/go-crypto-winnative/cng/mlkem.go
  create mode 100644 src/vendor/github.com/microsoft/go-crypto-winnative/cng/pbkdf2.go
  create mode 100644 src/vendor/github.com/microsoft/go-crypto-winnative/cng/rand.go
  create mode 100644 src/vendor/github.com/microsoft/go-crypto-winnative/cng/rc4.go
@@ -401,7 +403,7 @@ Use a 'go' that was recently built by the current branch to ensure stable result
  create mode 100644 src/vendor/github.com/microsoft/go-crypto-winnative/internal/sysdll/sys_windows.go
 
 diff --git a/src/cmd/go.mod b/src/cmd/go.mod
-index 42d510c34fe6b4..7fd4153f448200 100644
+index 090b2c943f3f4c..f959fe9960b60f 100644
 --- a/src/cmd/go.mod
 +++ b/src/cmd/go.mod
 @@ -4,6 +4,8 @@ go 1.26
@@ -412,9 +414,9 @@ index 42d510c34fe6b4..7fd4153f448200 100644
 +	github.com/microsoft/go-infra/telemetry/config v0.0.0-20251104173356-501791671457
  	golang.org/x/arch v0.22.1-0.20251016010524-fea4a9ec4938
  	golang.org/x/build v0.0.0-20250806225920-b7c66c047964
- 	golang.org/x/mod v0.29.0
+ 	golang.org/x/mod v0.30.1-0.20251114215501-3f03020ad526
 diff --git a/src/cmd/go.sum b/src/cmd/go.sum
-index 0a09e6e401a926..1e2286021ae3a2 100644
+index e4955f224b405c..c99821e84b2bcd 100644
 --- a/src/cmd/go.sum
 +++ b/src/cmd/go.sum
 @@ -4,6 +4,10 @@ github.com/google/pprof v0.0.0-20250630185457-6e76a2b096b5 h1:xhMrHhTJ6zxu3gA4en
@@ -2010,7 +2012,7 @@ index 00000000000000..d592037b570130
 +	return ok
 +}
 diff --git a/src/cmd/vendor/modules.txt b/src/cmd/vendor/modules.txt
-index e92804a90d3f59..16ee1b9770d2e4 100644
+index 80b23723bc780d..6c8c537761bc38 100644
 --- a/src/cmd/vendor/modules.txt
 +++ b/src/cmd/vendor/modules.txt
 @@ -16,6 +16,17 @@ github.com/google/pprof/third_party/svgpan
@@ -2060,21 +2062,21 @@ index 00000000000000..ae4055d2d71303
 +// that are used by the backend package. This allows to track
 +// their versions in a single patch file.
 diff --git a/src/go.mod b/src/go.mod
-index c5e901b9ef22e8..4f68035a87dab7 100644
+index e6cb3d5b43dbd3..76c7f59f356b5c 100644
 --- a/src/go.mod
 +++ b/src/go.mod
 @@ -11,3 +11,9 @@ require (
- 	golang.org/x/sys v0.37.0 // indirect
+ 	golang.org/x/sys v0.38.0 // indirect
  	golang.org/x/text v0.30.0 // indirect
  )
 +
 +require (
 +	github.com/golang-fips/openssl/v2 v2.0.4-0.20251105131405-55875790d6fc
 +	github.com/microsoft/go-crypto-darwin v0.0.3-0.20251105130527-ff5ef844ed63
-+	github.com/microsoft/go-crypto-winnative v0.0.0-20251106082534-b696521f99d4
++	github.com/microsoft/go-crypto-winnative v0.0.0-20251120113838-5f60d7cdabeb
 +)
 diff --git a/src/go.sum b/src/go.sum
-index 4a52682161fc23..85f3b5ff59025e 100644
+index fe184a864718af..656a2e6529fc92 100644
 --- a/src/go.sum
 +++ b/src/go.sum
 @@ -1,3 +1,9 @@
@@ -2082,8 +2084,8 @@ index 4a52682161fc23..85f3b5ff59025e 100644
 +github.com/golang-fips/openssl/v2 v2.0.4-0.20251105131405-55875790d6fc/go.mod h1:EtVnMfLGkB4pihGOH+tXEV0WlXxewWdT1n3GLJEHvpw=
 +github.com/microsoft/go-crypto-darwin v0.0.3-0.20251105130527-ff5ef844ed63 h1:7Z5bSr2MzWPoASu3XODe/kAgr1Yhx5wA+giZWIFL9a8=
 +github.com/microsoft/go-crypto-darwin v0.0.3-0.20251105130527-ff5ef844ed63/go.mod h1:MTii5PQwRlfUjYpGoF8CPLGwXSHTbLHGRN9FVNML5N0=
-+github.com/microsoft/go-crypto-winnative v0.0.0-20251106082534-b696521f99d4 h1:w1En0lvCsQ+H17nOf/TaBxTRhxMkN4AjUT5glfUs58k=
-+github.com/microsoft/go-crypto-winnative v0.0.0-20251106082534-b696521f99d4/go.mod h1:JkxQeL8dGcyCuKjn1Etz4NmQrOMImMy4BA9hptEfVFA=
++github.com/microsoft/go-crypto-winnative v0.0.0-20251120113838-5f60d7cdabeb h1:XUJ4meHNXQV+5otrnLH5KLyWDlbobNH5arjRkT/tngE=
++github.com/microsoft/go-crypto-winnative v0.0.0-20251120113838-5f60d7cdabeb/go.mod h1:gD686525Li/blRSYwSzFJ6/LJQVFJp7Y0MKp+dmqFbc=
  golang.org/x/crypto v0.43.0 h1:dduJYIi3A3KOfdGOHX8AVZ/jGiyPa3IbBozJ5kNuE04=
  golang.org/x/crypto v0.43.0/go.mod h1:BFbav4mRNlXJL4wNeejLpWxB7wMbc79PdRGhWKncxR0=
  golang.org/x/net v0.46.0 h1:giFlY12I07fugqwPuWJi68oOnpfqFnJIJzaIIm2JVV4=
@@ -28652,6 +28654,417 @@ index 00000000000000..bc150a7bd39272
 +	}
 +	return nil
 +}
+diff --git a/src/vendor/github.com/microsoft/go-crypto-winnative/cng/mlkem.go b/src/vendor/github.com/microsoft/go-crypto-winnative/cng/mlkem.go
+new file mode 100644
+index 00000000000000..f220e1d9d29794
+--- /dev/null
++++ b/src/vendor/github.com/microsoft/go-crypto-winnative/cng/mlkem.go
+@@ -0,0 +1,405 @@
++// Copyright (c) Microsoft Corporation.
++// Licensed under the MIT License.
++
++//go:build windows
++// +build windows
++
++package cng
++
++import (
++	"errors"
++
++	"github.com/microsoft/go-crypto-winnative/internal/bcrypt"
++)
++
++const (
++	// sharedKeySizeMLKEM is the size of a shared key produced by ML-KEM.
++	sharedKeySizeMLKEM = 32
++
++	// seedSizeMLKEM is the size of a seed used to generate a decapsulation key.
++	seedSizeMLKEM = 64
++
++	// ciphertextSizeMLKEM768 is the size of a ciphertext produced by ML-KEM-768.
++	ciphertextSizeMLKEM768 = 1088
++
++	// encapsulationKeySizeMLKEM768 is the size of an ML-KEM-768 encapsulation key (raw key material).
++	encapsulationKeySizeMLKEM768 = 1184
++
++	// ciphertextSizeMLKEM1024 is the size of a ciphertext produced by ML-KEM-1024.
++	ciphertextSizeMLKEM1024 = 1568
++
++	// encapsulationKeySizeMLKEM1024 is the size of an ML-KEM-1024 encapsulation key (raw key material).
++	encapsulationKeySizeMLKEM1024 = 1568
++)
++
++const (
++	sizeOfPrivateSeedMLKEM1024 = 4 + 4 + 4 + 10 + seedSizeMLKEM                 // dwMagic (4) + cbParameterSet (4) + cbKey (4) + ParameterSet (10 "1024\0") + Key (64)
++	sizeOfPublicKeyMLKEM1024   = 4 + 4 + 4 + 10 + encapsulationKeySizeMLKEM1024 // dwMagic (4) + cbParameterSet (4) + cbKey (4) + ParameterSet (10 "1024\0") + Key (1568)
++)
++
++// putUint32LE puts a uint32 in little-endian byte order.
++func putUint32LE(b []byte, v uint32) {
++	b[0] = byte(v)
++	b[1] = byte(v >> 8)
++	b[2] = byte(v >> 16)
++	b[3] = byte(v >> 24)
++}
++
++// getUint32LE reads a uint32 in little-endian byte order.
++func getUint32LE(b []byte) uint32 {
++	return uint32(b[0]) | uint32(b[1])<<8 | uint32(b[2])<<16 | uint32(b[3])<<24
++}
++
++// putUint16LE puts a uint16 in little-endian byte order.
++func putUint16LE(b []byte, v uint16) {
++	b[0] = byte(v)
++	b[1] = byte(v >> 8)
++}
++
++type mlkemAlgorithm struct {
++	handle bcrypt.ALG_HANDLE
++}
++
++func loadMLKEM() (mlkemAlgorithm, error) {
++	return loadOrStoreAlg(bcrypt.MLKEM_ALGORITHM, 0, "", func(h bcrypt.ALG_HANDLE) (mlkemAlgorithm, error) {
++		return mlkemAlgorithm{handle: h}, nil
++	})
++}
++
++// SupportsMLKEM returns true if ML-KEM is supported on this platform.
++// ML-KEM is supported on Windows 11 24H2/25H2 and Windows Server 2025 and later.
++func SupportsMLKEM() bool {
++	_, err := loadMLKEM()
++	return err == nil
++}
++
++// generateMLKEMKey generates a new ML-KEM key pair with the specified parameter set
++// and writes the raw key bytes (not the blob) into dst.
++func generateMLKEMKey(paramSet string, dst []byte) error {
++	alg, err := loadMLKEM()
++	if err != nil {
++		return err
++	}
++
++	var hKey bcrypt.KEY_HANDLE
++	err = bcrypt.GenerateKeyPair(alg.handle, &hKey, 0, 0)
++	if err != nil {
++		return err
++	}
++	defer bcrypt.DestroyKey(hKey)
++
++	// Set the parameter set
++	if err := setString(bcrypt.HANDLE(hKey), bcrypt.PARAMETER_SET_NAME, paramSet); err != nil {
++		return err
++	}
++
++	err = bcrypt.FinalizeKeyPair(hKey, 0)
++	if err != nil {
++		return err
++	}
++
++	// Export the private key blob
++	blob := make([]byte, sizeOfPrivateSeedMLKEM1024) // use the larger size to be safe and avoid an allocation
++	var size uint32
++	err = bcrypt.ExportKey(hKey, 0, utf16PtrFromString(bcrypt.MLKEM_PRIVATE_SEED_BLOB), blob, &size, 0)
++	if err != nil {
++		return err
++	}
++
++	// Extract raw key bytes into destination
++	return extractMLKEMKeyBytes(dst, blob[:size])
++}
++
++// newMLKEMKeyBlob creates a key blob from raw key bytes.
++func newMLKEMKeyBlob(dst []byte, paramSet string, keyBytes []byte, magic bcrypt.KeyBlobMagicNumber) error {
++	paramSetUTF16 := utf16FromString(paramSet)
++	paramSetByteLen := len(paramSetUTF16) * 2
++
++	if len(dst) < 12+paramSetByteLen+len(keyBytes) {
++		return errors.New("mlkem: destination blob too small")
++	}
++	putUint32LE(dst[0:4], uint32(magic))
++	putUint32LE(dst[4:8], uint32(paramSetByteLen)) // cbParameterSet
++	putUint32LE(dst[8:12], uint32(len(keyBytes)))  // cbKey
++	for i, v := range paramSetUTF16 {
++		putUint16LE(dst[12+i*2:], v)
++	}
++	copy(dst[12+paramSetByteLen:], keyBytes)
++
++	return nil
++}
++
++// extractMLKEMKeyBytes extracts the raw key bytes from a blob into the provided destination slice.
++func extractMLKEMKeyBytes(dst, blob []byte) error {
++	if len(blob) < 12 {
++		return errors.New("mlkem: blob too small")
++	}
++	cbParameterSet := getUint32LE(blob[4:8])
++	cbKey := getUint32LE(blob[8:12])
++	headerSize := 12 + int(cbParameterSet)
++	if len(blob) < headerSize+int(cbKey) {
++		return errors.New("mlkem: invalid blob size")
++	}
++	if len(dst) != int(cbKey) {
++		return errors.New("mlkem: destination size mismatch")
++	}
++	copy(dst, blob[headerSize:headerSize+int(cbKey)])
++	return nil
++}
++
++// mlkemDecapsulate is a shared helper for decapsulating with ML-KEM keys.
++func mlkemDecapsulate(paramSet string, seed []byte, ciphertext []byte, expectedCiphertextSize int) ([]byte, error) {
++	if len(ciphertext) != expectedCiphertextSize {
++		return nil, errors.New("mlkem: invalid ciphertext size")
++	}
++
++	alg, err := loadMLKEM()
++	if err != nil {
++		return nil, err
++	}
++
++	// Construct blob from seed
++	blob := make([]byte, sizeOfPrivateSeedMLKEM1024) // use the larger size to be safe and avoid an allocation
++	err = newMLKEMKeyBlob(blob, paramSet, seed, bcrypt.MLKEM_PRIVATE_SEED_MAGIC)
++	if err != nil {
++		return nil, err
++	}
++
++	var hKey bcrypt.KEY_HANDLE
++	err = bcrypt.ImportKeyPair(alg.handle, 0, utf16PtrFromString(bcrypt.MLKEM_PRIVATE_SEED_BLOB), &hKey, blob, 0)
++	if err != nil {
++		return nil, err
++	}
++	defer bcrypt.DestroyKey(hKey)
++
++	sharedKey := make([]byte, sharedKeySizeMLKEM)
++	var cbResult uint32
++
++	err = bcrypt.Decapsulate(hKey, ciphertext, sharedKey, &cbResult, 0)
++	if err != nil {
++		return nil, err
++	}
++	return sharedKey[:cbResult], nil
++}
++
++// mlkemEncapsulationKey is a shared helper for extracting the encapsulation key from a decapsulation key.
++func mlkemEncapsulationKey(paramSet string, seed []byte, dst []byte) {
++	alg, err := loadMLKEM()
++	if err != nil {
++		panic(err)
++	}
++
++	// Construct blob from seed
++	blob := make([]byte, sizeOfPrivateSeedMLKEM1024) // use the larger size to be safe and avoid an allocation
++	err = newMLKEMKeyBlob(blob, paramSet, seed, bcrypt.MLKEM_PRIVATE_SEED_MAGIC)
++	if err != nil {
++		panic(err)
++	}
++
++	var hKey bcrypt.KEY_HANDLE
++	err = bcrypt.ImportKeyPair(alg.handle, 0, utf16PtrFromString(bcrypt.MLKEM_PRIVATE_SEED_BLOB), &hKey, blob, 0)
++	if err != nil {
++		panic(err)
++	}
++	defer bcrypt.DestroyKey(hKey)
++
++	// Export the public key blob
++	pubBlob := make([]byte, sizeOfPublicKeyMLKEM1024) // use the larger size to be safe and avoid an allocation
++	var size uint32
++	err = bcrypt.ExportKey(hKey, 0, utf16PtrFromString(bcrypt.MLKEM_PUBLIC_BLOB), pubBlob, &size, 0)
++	if err != nil {
++		panic(err)
++	}
++	// Extract raw public key bytes from blob
++	if err := extractMLKEMKeyBytes(dst, pubBlob[:size]); err != nil {
++		panic(err)
++	}
++}
++
++// mlkemEncapsulate is a shared helper for encapsulating with ML-KEM keys.
++func mlkemEncapsulate(paramSet string, keyBytes []byte, expectedCiphertextSize int) ([]byte, []byte) {
++	alg, err := loadMLKEM()
++	if err != nil {
++		panic(err)
++	}
++
++	// Construct blob from raw key bytes
++	blob := make([]byte, sizeOfPublicKeyMLKEM1024) // use the larger size to be safe and avoid an allocation
++	err = newMLKEMKeyBlob(blob, paramSet, keyBytes, bcrypt.MLKEM_PUBLIC_MAGIC)
++	if err != nil {
++		panic(err)
++	}
++
++	var hKey bcrypt.KEY_HANDLE
++	err = bcrypt.ImportKeyPair(alg.handle, 0, utf16PtrFromString(bcrypt.MLKEM_PUBLIC_BLOB), &hKey, blob, 0)
++	if err != nil {
++		panic(err)
++	}
++	defer bcrypt.DestroyKey(hKey)
++
++	sharedKey := make([]byte, sharedKeySizeMLKEM)
++	var cbResult uint32
++	ciphertext := make([]byte, expectedCiphertextSize)
++	var cbCiphertextResult uint32
++
++	err = bcrypt.Encapsulate(hKey, sharedKey, &cbResult, ciphertext, &cbCiphertextResult, 0)
++	if err != nil {
++		panic(err)
++	}
++
++	return sharedKey[:cbResult], ciphertext[:cbCiphertextResult]
++}
++
++// DecapsulationKeyMLKEM768 is the secret key used to decapsulate a shared key
++// from a ciphertext. It includes various precomputed values.
++type DecapsulationKeyMLKEM768 [seedSizeMLKEM]byte
++
++// GenerateKeyMLKEM768 generates a new decapsulation key, drawing random bytes from
++// the default crypto/rand source. The decapsulation key must be kept secret.
++func GenerateKeyMLKEM768() (DecapsulationKeyMLKEM768, error) {
++	var dk DecapsulationKeyMLKEM768
++	if err := generateMLKEMKey(bcrypt.MLKEM_PARAMETER_SET_768, dk[:]); err != nil {
++		return DecapsulationKeyMLKEM768{}, err
++	}
++	return dk, nil
++}
++
++// NewDecapsulationKeyMLKEM768 constructs a decapsulation key from its serialized form.
++func NewDecapsulationKeyMLKEM768(seed []byte) (DecapsulationKeyMLKEM768, error) {
++	if len(seed) != seedSizeMLKEM {
++		return DecapsulationKeyMLKEM768{}, errors.New("mlkem: invalid decapsulation key size")
++	}
++
++	var dk DecapsulationKeyMLKEM768
++	copy(dk[:], seed)
++	return dk, nil
++}
++
++// Bytes returns the decapsulation key in its serialized form.
++//
++// The decapsulation key must be kept secret.
++func (dk DecapsulationKeyMLKEM768) Bytes() []byte {
++	return dk[:]
++}
++
++// Decapsulate generates a shared key from a ciphertext and a decapsulation
++// key. If the ciphertext is not valid, Decapsulate returns an error.
++//
++// The shared key must be kept secret.
++func (dk DecapsulationKeyMLKEM768) Decapsulate(ciphertext []byte) (sharedKey []byte, err error) {
++	return mlkemDecapsulate(bcrypt.MLKEM_PARAMETER_SET_768, dk[:], ciphertext, ciphertextSizeMLKEM768)
++}
++
++// EncapsulationKey returns the public encapsulation key necessary to produce
++// ciphertexts.
++func (dk DecapsulationKeyMLKEM768) EncapsulationKey() EncapsulationKeyMLKEM768 {
++	var ek EncapsulationKeyMLKEM768
++	mlkemEncapsulationKey(bcrypt.MLKEM_PARAMETER_SET_768, dk[:], ek[:])
++	return ek
++}
++
++// An EncapsulationKeyMLKEM768 is the public key used to produce ciphertexts to be
++// decapsulated by the corresponding DecapsulationKeyMLKEM768.
++type EncapsulationKeyMLKEM768 [encapsulationKeySizeMLKEM768]byte
++
++// NewEncapsulationKeyMLKEM768 parses an encapsulation key from its encoded form. If
++// the encapsulation key is not valid, NewEncapsulationKeyMLKEM768 returns an error.
++func NewEncapsulationKeyMLKEM768(encapsulationKey []byte) (EncapsulationKeyMLKEM768, error) {
++	if len(encapsulationKey) != encapsulationKeySizeMLKEM768 {
++		return EncapsulationKeyMLKEM768{}, errors.New("mlkem: invalid encapsulation key size")
++	}
++
++	var ek EncapsulationKeyMLKEM768
++	copy(ek[:], encapsulationKey)
++	return ek, nil
++}
++
++// Bytes returns the encapsulation key as a byte slice.
++func (ek EncapsulationKeyMLKEM768) Bytes() []byte {
++	return ek[:]
++}
++
++// Encapsulate generates a shared key and an associated ciphertext from an
++// encapsulation key, drawing random bytes from the default crypto/rand source.
++//
++// The shared key must be kept secret.
++func (ek EncapsulationKeyMLKEM768) Encapsulate() (sharedKey, ciphertext []byte) {
++	return mlkemEncapsulate(bcrypt.MLKEM_PARAMETER_SET_768, ek[:], ciphertextSizeMLKEM768)
++}
++
++// DecapsulationKeyMLKEM1024 is the secret key used to decapsulate a shared key
++// from a ciphertext. It includes various precomputed values.
++type DecapsulationKeyMLKEM1024 [seedSizeMLKEM]byte
++
++// GenerateKeyMLKEM1024 generates a new decapsulation key, drawing random bytes from
++// the default crypto/rand source. The decapsulation key must be kept secret.
++func GenerateKeyMLKEM1024() (DecapsulationKeyMLKEM1024, error) {
++	var dk DecapsulationKeyMLKEM1024
++	if err := generateMLKEMKey(bcrypt.MLKEM_PARAMETER_SET_1024, dk[:]); err != nil {
++		return DecapsulationKeyMLKEM1024{}, err
++	}
++	return dk, nil
++}
++
++// NewDecapsulationKeyMLKEM1024 constructs a decapsulation key from its serialized form.
++func NewDecapsulationKeyMLKEM1024(seed []byte) (DecapsulationKeyMLKEM1024, error) {
++	if len(seed) != seedSizeMLKEM {
++		return DecapsulationKeyMLKEM1024{}, errors.New("mlkem: invalid decapsulation key size")
++	}
++
++	var dk DecapsulationKeyMLKEM1024
++	copy(dk[:], seed)
++	return dk, nil
++}
++
++// Bytes returns the decapsulation key in its serialized form.
++//
++// The decapsulation key must be kept secret.
++func (dk DecapsulationKeyMLKEM1024) Bytes() []byte {
++	return dk[:]
++}
++
++// Decapsulate generates a shared key from a ciphertext and a decapsulation
++// key. If the ciphertext is not valid, Decapsulate returns an error.
++//
++// The shared key must be kept secret.
++func (dk DecapsulationKeyMLKEM1024) Decapsulate(ciphertext []byte) (sharedKey []byte, err error) {
++	return mlkemDecapsulate(bcrypt.MLKEM_PARAMETER_SET_1024, dk[:], ciphertext, ciphertextSizeMLKEM1024)
++}
++
++// EncapsulationKey returns the public encapsulation key necessary to produce
++// ciphertexts.
++func (dk DecapsulationKeyMLKEM1024) EncapsulationKey() EncapsulationKeyMLKEM1024 {
++	var ek EncapsulationKeyMLKEM1024
++	mlkemEncapsulationKey(bcrypt.MLKEM_PARAMETER_SET_1024, dk[:], ek[:])
++	return ek
++}
++
++// An EncapsulationKeyMLKEM1024 is the public key used to produce ciphertexts to be
++// decapsulated by the corresponding DecapsulationKeyMLKEM1024.
++type EncapsulationKeyMLKEM1024 [encapsulationKeySizeMLKEM1024]byte
++
++// NewEncapsulationKeyMLKEM1024 parses an encapsulation key from its encoded form. If
++// the encapsulation key is not valid, NewEncapsulationKeyMLKEM1024 returns an error.
++func NewEncapsulationKeyMLKEM1024(encapsulationKey []byte) (EncapsulationKeyMLKEM1024, error) {
++	if len(encapsulationKey) != encapsulationKeySizeMLKEM1024 {
++		return EncapsulationKeyMLKEM1024{}, errors.New("mlkem: invalid encapsulation key size")
++	}
++
++	var ek EncapsulationKeyMLKEM1024
++	copy(ek[:], encapsulationKey)
++	return ek, nil
++}
++
++// Bytes returns the encapsulation key as a byte slice.
++func (ek EncapsulationKeyMLKEM1024) Bytes() []byte {
++	return ek[:]
++}
++
++// Encapsulate generates a shared key and an associated ciphertext from an
++// encapsulation key, drawing random bytes from the default crypto/rand source.
++//
++// The shared key must be kept secret.
++func (ek EncapsulationKeyMLKEM1024) Encapsulate() (sharedKey, ciphertext []byte) {
++	return mlkemEncapsulate(bcrypt.MLKEM_PARAMETER_SET_1024, ek[:], ciphertextSizeMLKEM1024)
++}
 diff --git a/src/vendor/github.com/microsoft/go-crypto-winnative/cng/pbkdf2.go b/src/vendor/github.com/microsoft/go-crypto-winnative/cng/pbkdf2.go
 new file mode 100644
 index 00000000000000..5466b180e60e5a
@@ -29541,10 +29954,10 @@ index 00000000000000..56131a6bc93d3f
 +}
 diff --git a/src/vendor/github.com/microsoft/go-crypto-winnative/internal/bcrypt/bcrypt_windows.go b/src/vendor/github.com/microsoft/go-crypto-winnative/internal/bcrypt/bcrypt_windows.go
 new file mode 100644
-index 00000000000000..2a57d5e6e93b4f
+index 00000000000000..69269495c96d0d
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go-crypto-winnative/internal/bcrypt/bcrypt_windows.go
-@@ -0,0 +1,368 @@
+@@ -0,0 +1,394 @@
 +// Copyright (c) Microsoft Corporation.
 +// Licensed under the MIT License.
 +
@@ -29585,6 +29998,7 @@ index 00000000000000..2a57d5e6e93b4f
 +	TLS1_1_KDF_ALGORITHM = "TLS1_1_KDF"
 +	TLS1_2_KDF_ALGORITHM = "TLS1_2_KDF"
 +	DSA_ALGORITHM        = "DSA"
++	MLKEM_ALGORITHM      = "ML-KEM"
 +)
 +
 +const (
@@ -29612,12 +30026,14 @@ index 00000000000000..2a57d5e6e93b4f
 +)
 +
 +const (
-+	RSAPUBLIC_KEY_BLOB  = "RSAPUBLICBLOB"
-+	RSAFULLPRIVATE_BLOB = "RSAFULLPRIVATEBLOB"
-+	ECCPUBLIC_BLOB      = "ECCPUBLICBLOB"
-+	ECCPRIVATE_BLOB     = "ECCPRIVATEBLOB"
-+	DSA_PUBLIC_BLOB     = "DSAPUBLICBLOB"
-+	DSA_PRIVATE_BLOB    = "DSAPRIVATEBLOB"
++	RSAPUBLIC_KEY_BLOB      = "RSAPUBLICBLOB"
++	RSAFULLPRIVATE_BLOB     = "RSAFULLPRIVATEBLOB"
++	ECCPUBLIC_BLOB          = "ECCPUBLICBLOB"
++	ECCPRIVATE_BLOB         = "ECCPRIVATEBLOB"
++	DSA_PUBLIC_BLOB         = "DSAPUBLICBLOB"
++	DSA_PRIVATE_BLOB        = "DSAPRIVATEBLOB"
++	MLKEM_PUBLIC_BLOB       = "MLKEMPUBLICBLOB"
++	MLKEM_PRIVATE_SEED_BLOB = "MLKEMPRIVATESEEDBLOB"
 +)
 +
 +const (
@@ -29675,6 +30091,13 @@ index 00000000000000..2a57d5e6e93b4f
 +
 +const (
 +	DSA_PARAMETERS = "DSAParameters"
++)
++
++const (
++	// ML-KEM related properties and constants
++	PARAMETER_SET_NAME       = "ParameterSetName"
++	MLKEM_PARAMETER_SET_768  = "768"
++	MLKEM_PARAMETER_SET_1024 = "1024"
 +)
 +
 +type HASHALGORITHM_ENUM uint32
@@ -29748,6 +30171,10 @@ index 00000000000000..2a57d5e6e93b4f
 +	DSA_PARAMETERS_MAGIC_V2 KeyBlobMagicNumber = 0x324d5044
 +	DSA_PUBLIC_MAGIC_V2     KeyBlobMagicNumber = 0x32425044
 +	DSA_PRIVATE_MAGIC_V2    KeyBlobMagicNumber = 0x32565044
++
++	MLKEM_PUBLIC_MAGIC       KeyBlobMagicNumber = 0x504B4C4D
++	MLKEM_PRIVATE_MAGIC      KeyBlobMagicNumber = 0x524B4C4D
++	MLKEM_PRIVATE_SEED_MAGIC KeyBlobMagicNumber = 0x534B4C4D
 +)
 +
 +type (
@@ -29854,6 +30281,11 @@ index 00000000000000..2a57d5e6e93b4f
 +	Count           [4]uint8
 +}
 +
++// https://learn.microsoft.com/en-us/windows/win32/seccng/cng-mlkem
++type MLKEM_KEY_BLOB struct {
++	Magic KeyBlobMagicNumber
++}
++
 +func Encrypt(hKey KEY_HANDLE, plaintext []byte, pPaddingInfo unsafe.Pointer, pbIV []byte, pbOutput []byte, pcbResult *uint32, dwFlags PadMode) (ntstatus error) {
 +	var pInput *byte
 +	if len(plaintext) > 0 {
@@ -29903,6 +30335,13 @@ index 00000000000000..2a57d5e6e93b4f
 +//sys   DeriveKey(hSharedSecret SECRET_HANDLE, pwszKDF *uint16, pParameterList *BufferDesc, pbDerivedKey []byte, pcbResult *uint32, dwFlags uint32) (ntstatus error) = bcrypt.BCryptDeriveKey
 +//sys   KeyDerivation(hKey KEY_HANDLE, pParameterList *BufferDesc, pbDerivedKey []byte, pcbResult *uint32, dwFlags uint32) (ntstatus error) = bcrypt.BCryptKeyDerivation
 +//sys   DestroySecret(hSecret SECRET_HANDLE) (ntstatus error) = bcrypt.BCryptDestroySecret
++
++// ML-KEM uses standard BCrypt functions
++// BCryptGenerateKeyPair, BCryptSetProperty, BCryptFinalizeKeyPair, BCryptExportKey, BCryptImportKeyPair
++// BCryptEncapsulate, BCryptDecapsulate
++
++//sys   Encapsulate(hKey KEY_HANDLE, pbSecret []byte, pcbResult *uint32, pbCiphertext []byte, pcbCiphertext *uint32, dwFlags uint32) (ntstatus error) = bcrypt.BCryptEncapsulate
++//sys   Decapsulate(hKey KEY_HANDLE, pbCiphertext []byte, pbSecret []byte, pcbResult *uint32, dwFlags uint32) (ntstatus error) = bcrypt.BCryptDecapsulate
 +
 +func GenerateSymmetricKey(hAlgorithm ALG_HANDLE, phKey *KEY_HANDLE, pbKeyObject []byte, pbSecret []byte, dwFlags uint32) error {
 +	cbLen := uint32(len(pbSecret))
@@ -29966,10 +30405,10 @@ index 00000000000000..ec2eb01aa3cd8a
 +//sys	formatMessage(flags uint32, msgsrc uintptr, msgid uint32, langid uint32, buf []uint16, args *byte) (n uint32, err error) = FormatMessageW
 diff --git a/src/vendor/github.com/microsoft/go-crypto-winnative/internal/bcrypt/zsyscall_windows.go b/src/vendor/github.com/microsoft/go-crypto-winnative/internal/bcrypt/zsyscall_windows.go
 new file mode 100644
-index 00000000000000..5c9d3a978baa27
+index 00000000000000..af29330ca347e2
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go-crypto-winnative/internal/bcrypt/zsyscall_windows.go
-@@ -0,0 +1,412 @@
+@@ -0,0 +1,446 @@
 +// Code generated by 'go generate'; DO NOT EDIT.
 +
 +package bcrypt
@@ -30015,12 +30454,14 @@ index 00000000000000..5c9d3a978baa27
 +
 +	procBCryptCloseAlgorithmProvider = modbcrypt.NewProc("BCryptCloseAlgorithmProvider")
 +	procBCryptCreateHash             = modbcrypt.NewProc("BCryptCreateHash")
++	procBCryptDecapsulate            = modbcrypt.NewProc("BCryptDecapsulate")
 +	procBCryptDecrypt                = modbcrypt.NewProc("BCryptDecrypt")
 +	procBCryptDeriveKey              = modbcrypt.NewProc("BCryptDeriveKey")
 +	procBCryptDestroyHash            = modbcrypt.NewProc("BCryptDestroyHash")
 +	procBCryptDestroyKey             = modbcrypt.NewProc("BCryptDestroyKey")
 +	procBCryptDestroySecret          = modbcrypt.NewProc("BCryptDestroySecret")
 +	procBCryptDuplicateHash          = modbcrypt.NewProc("BCryptDuplicateHash")
++	procBCryptEncapsulate            = modbcrypt.NewProc("BCryptEncapsulate")
 +	procBCryptEncrypt                = modbcrypt.NewProc("BCryptEncrypt")
 +	procBCryptExportKey              = modbcrypt.NewProc("BCryptExportKey")
 +	procBCryptFinalizeKeyPair        = modbcrypt.NewProc("BCryptFinalizeKeyPair")
@@ -30061,6 +30502,22 @@ index 00000000000000..5c9d3a978baa27
 +		_p1 = &pbSecret[0]
 +	}
 +	r0, _, _ := syscall.SyscallN(procBCryptCreateHash.Addr(), uintptr(hAlgorithm), uintptr(unsafe.Pointer(phHash)), uintptr(unsafe.Pointer(_p0)), uintptr(len(pbHashObject)), uintptr(unsafe.Pointer(_p1)), uintptr(len(pbSecret)), uintptr(dwFlags))
++	if r0 != 0 {
++		ntstatus = NTStatus(r0)
++	}
++	return
++}
++
++func Decapsulate(hKey KEY_HANDLE, pbCiphertext []byte, pbSecret []byte, pcbResult *uint32, dwFlags uint32) (ntstatus error) {
++	var _p0 *byte
++	if len(pbCiphertext) > 0 {
++		_p0 = &pbCiphertext[0]
++	}
++	var _p1 *byte
++	if len(pbSecret) > 0 {
++		_p1 = &pbSecret[0]
++	}
++	r0, _, _ := syscall.SyscallN(procBCryptDecapsulate.Addr(), uintptr(hKey), uintptr(unsafe.Pointer(_p0)), uintptr(len(pbCiphertext)), uintptr(unsafe.Pointer(_p1)), uintptr(len(pbSecret)), uintptr(unsafe.Pointer(pcbResult)), uintptr(dwFlags))
 +	if r0 != 0 {
 +		ntstatus = NTStatus(r0)
 +	}
@@ -30129,6 +30586,22 @@ index 00000000000000..5c9d3a978baa27
 +		_p0 = &pbHashObject[0]
 +	}
 +	r0, _, _ := syscall.SyscallN(procBCryptDuplicateHash.Addr(), uintptr(hHash), uintptr(unsafe.Pointer(phNewHash)), uintptr(unsafe.Pointer(_p0)), uintptr(len(pbHashObject)), uintptr(dwFlags))
++	if r0 != 0 {
++		ntstatus = NTStatus(r0)
++	}
++	return
++}
++
++func Encapsulate(hKey KEY_HANDLE, pbSecret []byte, pcbResult *uint32, pbCiphertext []byte, pcbCiphertext *uint32, dwFlags uint32) (ntstatus error) {
++	var _p0 *byte
++	if len(pbSecret) > 0 {
++		_p0 = &pbSecret[0]
++	}
++	var _p1 *byte
++	if len(pbCiphertext) > 0 {
++		_p1 = &pbCiphertext[0]
++	}
++	r0, _, _ := syscall.SyscallN(procBCryptEncapsulate.Addr(), uintptr(hKey), uintptr(unsafe.Pointer(_p0)), uintptr(len(pbSecret)), uintptr(unsafe.Pointer(pcbResult)), uintptr(unsafe.Pointer(_p1)), uintptr(len(pbCiphertext)), uintptr(unsafe.Pointer(pcbCiphertext)), uintptr(dwFlags))
 +	if r0 != 0 {
 +		ntstatus = NTStatus(r0)
 +	}
@@ -30482,7 +30955,7 @@ index 00000000000000..1722410e5af193
 +	return getSystemDirectory() + "\\" + dll
 +}
 diff --git a/src/vendor/modules.txt b/src/vendor/modules.txt
-index f1e33686ed0626..3bc9dd533f9ab0 100644
+index bf7a797966088f..d8c9b5a065054e 100644
 --- a/src/vendor/modules.txt
 +++ b/src/vendor/modules.txt
 @@ -1,3 +1,23 @@
@@ -30499,8 +30972,8 @@ index f1e33686ed0626..3bc9dd533f9ab0 100644
 +github.com/microsoft/go-crypto-darwin/internal/cryptokit
 +github.com/microsoft/go-crypto-darwin/internal/security
 +github.com/microsoft/go-crypto-darwin/xcrypto
-+# github.com/microsoft/go-crypto-winnative v0.0.0-20251106082534-b696521f99d4
-+## explicit; go 1.22
++# github.com/microsoft/go-crypto-winnative v0.0.0-20251120113838-5f60d7cdabeb
++## explicit; go 1.24
 +github.com/microsoft/go-crypto-winnative/cng
 +github.com/microsoft/go-crypto-winnative/cng/bbig
 +github.com/microsoft/go-crypto-winnative/internal/bcrypt

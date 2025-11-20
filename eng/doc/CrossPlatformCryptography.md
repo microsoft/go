@@ -258,14 +258,16 @@ This section includes the following packages:
 
 ML-KEM is available starting from the Microsoft build of Go 1.26.
 
-| Parameters | Windows | Linux           | macOS           |
-| ---------- | ------- | --------------- | --------------- |
-| 768        | ❌      | ✔️ <sup>1</sup> | ✔️ <sup>2</sup> |
-| 1024       | ❌      | ✔️ <sup>1</sup> | ✔️ <sup>2</sup> |
+| Parameters | Windows         | Linux           | macOS           |
+| ---------- | --------------- | --------------- | --------------- |
+| 768        | ✔️ <sup>1</sup> | ✔️ <sup>2</sup> | ✔️ <sup>3</sup> |
+| 1024       | ✔️ <sup>1</sup> | ✔️ <sup>2</sup> | ✔️ <sup>3</sup> |
 
-<sup>1</sup>Requires OpenSSL 3.5.0 or later.
+<sup>1</sup>Requires Windows Server 2025 or Windows 11 (24H2, 25H2) or later.
 
-<sup>2</sup>Requires macOS 26 (Tahoe) or later.
+<sup>2</sup>Requires OpenSSL 3.5.0 or later.
+
+<sup>3</sup>Requires macOS 26 (Tahoe) or later.
 
 ## TLS
 
