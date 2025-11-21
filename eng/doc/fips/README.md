@@ -77,7 +77,7 @@ There are typically two goals that lead to this document. Creating a FIPS compli
 | `GOEXPERIMENT=systemcrypto` | `GODEBUG=fips140=on` or `GOFIPS=1` | Compliant | Can be used to create a compliant app. Depending on platform, the app enables FIPS mode, ensures it is already enabled, or doesn't do any additional checks. The app panics if there is a problem. See [Usage: Runtime](#usage-runtime). |
 | `GOEXPERIMENT=systemcrypto` | `GO_OPENSSL_VERSION_OVERRIDE=1.1.1k-fips` | Compliant | Can be used to create a compliant app. If the app is built for Linux, `systemcrypto` chooses `opensslcrypto`, and the environment variable causes it to load `libcrypto.so.1.1.1k-fips` instead of using the automatic search behavior. This environment variable has no effect with `cngcrypto`. |
 | `GOEXPERIMENT=systemcrypto` and `-tags=requirefips` | Default | Compliant | Can be used to create a compliant app. The behavior is the same as `GODEBUG=fips140=on` and `GOFIPS=1`, but no runtime configuration is necessary. See [the `requirefips` section](#build-option-to-require-fips-mode) for more information on when this "locked-in" approach may be useful rather than the flexible approach. |
-| `MS_GO_DISABLE_SYSTEMCRYPTO=1` (since Go 1.25.2) or `GOEXPERIMENT=nosystemcrypto` | Default | Not compliant | Crypto usage is not FIPS compliant. |
+| `MS_GO_NOSYSTEMCRYPTO=1` (since Go 1.25.2) or `GOEXPERIMENT=nosystemcrypto` | Default | Not compliant | Crypto usage is not FIPS compliant. |
 
 A [Docker base image](#dockerfile-base-image) is available that includes suitable build-time config in the environment.
 
@@ -455,11 +455,11 @@ This list of major changes is intended for quick reference and for access to his
 
 - The `systemcrypto` goexperiment is now enabled by default on macOS.
 - The macOS backend is no longer "preview" and is now fully supported.
-- `systemcrypto` can be disabled at build time using `MS_GO_DISABLE_SYSTEMCRYPTO=1`. This is now the preferred way to disable `systemcrypto` when necessary.
+- `systemcrypto` can be disabled at build time using `MS_GO_NOSYSTEMCRYPTO=1`. This is now the preferred way to disable `systemcrypto` when necessary.
 
 ### Go 1.25.2 (Oct 2025)
 
-- `systemcrypto` can be disabled at build time using `MS_GO_DISABLE_SYSTEMCRYPTO=1`. This is now the preferred way to disable `systemcrypto` when necessary.
+- `systemcrypto` can be disabled at build time using `MS_GO_NOSYSTEMCRYPTO=1`. This is now the preferred way to disable `systemcrypto` when necessary.
 
 ### Go 1.25 (Aug 2025)
 
