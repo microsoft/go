@@ -47,7 +47,7 @@ Subject: [PATCH] Use crypto backends
  src/crypto/internal/fips140test/fips_test.go  |   2 +-
  src/crypto/md5/md5.go                         |  10 +
  src/crypto/md5/md5_test.go                    |  18 +-
- src/crypto/mlkem/mlkem.go                     | 113 ++++++++--
+ src/crypto/mlkem/mlkem.go                     | 109 ++++++++--
  src/crypto/mlkem/mlkem_test.go                |   8 +
  src/crypto/pbkdf2/pbkdf2.go                   |   7 +
  src/crypto/pbkdf2/pbkdf2_test.go              |   6 +-
@@ -96,7 +96,7 @@ Subject: [PATCH] Use crypto backends
  src/hash/notboring_test.go                    |   9 +
  src/net/lookup_test.go                        |   3 +
  src/os/exec/exec_test.go                      |   9 +
- 92 files changed, 1337 insertions(+), 140 deletions(-)
+ 92 files changed, 1334 insertions(+), 139 deletions(-)
  create mode 100644 src/crypto/dsa/boring.go
  create mode 100644 src/crypto/dsa/notboring.go
  create mode 100644 src/crypto/ecdsa/badlinkname.go
@@ -771,7 +771,7 @@ index 00000000000000..cd02ff5a00c3dc
 +	panic("boringcrypto: not available")
 +}
 diff --git a/src/crypto/ecdh/ecdh.go b/src/crypto/ecdh/ecdh.go
-index 231f1ea04c1010..cfa113e2345816 100644
+index 82daacf4736a69..0458d9535c1e1a 100644
 --- a/src/crypto/ecdh/ecdh.go
 +++ b/src/crypto/ecdh/ecdh.go
 @@ -8,7 +8,7 @@ package ecdh
@@ -1540,22 +1540,18 @@ index 403ff2881f4b68..5417556a86700e 100644
  
  func maybeCloner(h hash.Hash) any {
 diff --git a/src/crypto/mlkem/mlkem.go b/src/crypto/mlkem/mlkem.go
-index cb44bede20b72c..745121515b42cf 100644
+index 176b79673b0851..1c0008e948c215 100644
 --- a/src/crypto/mlkem/mlkem.go
 +++ b/src/crypto/mlkem/mlkem.go
-@@ -11,7 +11,10 @@
- // [NIST FIPS 203]: https://doi.org/10.6028/NIST.FIPS.203
- package mlkem
+@@ -13,6 +13,7 @@ package mlkem
  
--import "crypto/internal/fips140/mlkem"
-+import (
+ import (
+ 	"crypto"
 +	boring "crypto/internal/backend"
-+	"crypto/internal/fips140/mlkem"
-+)
+ 	"crypto/internal/fips140/mlkem"
+ )
  
- const (
- 	// SharedKeySize is the size of a shared key produced by ML-KEM.
-@@ -33,38 +36,58 @@ const (
+@@ -36,38 +37,58 @@ const (
  	EncapsulationKeySize1024 = 1568
  )
  
@@ -1618,7 +1614,7 @@ index cb44bede20b72c..745121515b42cf 100644
  	return dk.key.Bytes()
  }
  
-@@ -73,34 +96,52 @@ func (dk *DecapsulationKey768) Bytes() []byte {
+@@ -76,13 +97,19 @@ func (dk *DecapsulationKey768) Bytes() []byte {
  //
  // The shared key must be kept secret.
  func (dk *DecapsulationKey768) Decapsulate(ciphertext []byte) (sharedKey []byte, err error) {
@@ -1638,6 +1634,8 @@ index cb44bede20b72c..745121515b42cf 100644
 +	return &EncapsulationKey768{key: dk.key.EncapsulationKey()}
  }
  
+ // Encapsulator returns the encapsulation key, like
+@@ -98,22 +125,34 @@ var _ crypto.Decapsulator = (*DecapsulationKey768)(nil)
  // An EncapsulationKey768 is the public key used to produce ciphertexts to be
  // decapsulated by the corresponding DecapsulationKey768.
  type EncapsulationKey768 struct {
@@ -1674,7 +1672,7 @@ index cb44bede20b72c..745121515b42cf 100644
  	return ek.key.Bytes()
  }
  
-@@ -112,41 +153,64 @@ func (ek *EncapsulationKey768) Bytes() []byte {
+@@ -125,41 +164,64 @@ func (ek *EncapsulationKey768) Bytes() []byte {
  // For testing, derandomized encapsulation is provided by the
  // [crypto/mlkem/mlkemtest] package.
  func (ek *EncapsulationKey768) Encapsulate() (sharedKey, ciphertext []byte) {
@@ -1742,7 +1740,7 @@ index cb44bede20b72c..745121515b42cf 100644
  	return dk.key.Bytes()
  }
  
-@@ -155,34 +219,52 @@ func (dk *DecapsulationKey1024) Bytes() []byte {
+@@ -168,13 +230,19 @@ func (dk *DecapsulationKey1024) Bytes() []byte {
  //
  // The shared key must be kept secret.
  func (dk *DecapsulationKey1024) Decapsulate(ciphertext []byte) (sharedKey []byte, err error) {
@@ -1762,6 +1760,8 @@ index cb44bede20b72c..745121515b42cf 100644
 +	return &EncapsulationKey1024{key: dk.key.EncapsulationKey()}
  }
  
+ // Encapsulator returns the encapsulation key, like
+@@ -190,22 +258,34 @@ var _ crypto.Decapsulator = (*DecapsulationKey1024)(nil)
  // An EncapsulationKey1024 is the public key used to produce ciphertexts to be
  // decapsulated by the corresponding DecapsulationKey1024.
  type EncapsulationKey1024 struct {
@@ -1798,7 +1798,7 @@ index cb44bede20b72c..745121515b42cf 100644
  	return ek.key.Bytes()
  }
  
-@@ -194,5 +276,8 @@ func (ek *EncapsulationKey1024) Bytes() []byte {
+@@ -217,5 +297,8 @@ func (ek *EncapsulationKey1024) Bytes() []byte {
  // For testing, derandomized encapsulation is provided by the
  // [crypto/mlkem/mlkemtest] package.
  func (ek *EncapsulationKey1024) Encapsulate() (sharedKey, ciphertext []byte) {
