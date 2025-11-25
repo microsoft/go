@@ -69,7 +69,7 @@ Subject: [PATCH] Use crypto backends
  src/crypto/sha1/sha1_test.go                  |  11 +-
  src/crypto/sha256/sha256.go                   |   6 +-
  src/crypto/sha256/sha256_test.go              |  44 ++--
- src/crypto/sha3/sha3.go                       |  67 +++++-
+ src/crypto/sha3/sha3.go                       |  66 +++++-
  src/crypto/sha3/sha3_test.go                  |  11 +-
  src/crypto/sha512/sha512.go                   |   2 +-
  src/crypto/sha512/sha512_test.go              |  32 ++-
@@ -96,7 +96,7 @@ Subject: [PATCH] Use crypto backends
  src/hash/notboring_test.go                    |   9 +
  src/net/lookup_test.go                        |   3 +
  src/os/exec/exec_test.go                      |   9 +
- 92 files changed, 1334 insertions(+), 139 deletions(-)
+ 92 files changed, 1334 insertions(+), 138 deletions(-)
  create mode 100644 src/crypto/dsa/boring.go
  create mode 100644 src/crypto/dsa/notboring.go
  create mode 100644 src/crypto/ecdsa/badlinkname.go
@@ -1384,7 +1384,7 @@ index 2b6cf4b75fc6b7..3a1b9e5cc67ecc 100644
  	"internal/goarch"
  	"internal/goos"
 diff --git a/src/crypto/internal/fips140test/acvp_test.go b/src/crypto/internal/fips140test/acvp_test.go
-index 3e1c0cb06a1cbd..4708cbd8518285 100644
+index 5affb8ce2b6022..91ac24e9c82de0 100644
 --- a/src/crypto/internal/fips140test/acvp_test.go
 +++ b/src/crypto/internal/fips140test/acvp_test.go
 @@ -22,6 +22,8 @@ import (
@@ -1406,12 +1406,12 @@ index 3e1c0cb06a1cbd..4708cbd8518285 100644
 +
  	const (
  		bsslModule    = "boringssl.googlesource.com/boringssl.git"
- 		bsslVersion   = "v0.0.0-20250207174145-0bb19f6126cb"
+ 		bsslVersion   = "v0.0.0-20251111011041-baaf868e6e8f"
 diff --git a/src/crypto/internal/fips140test/cast_test.go b/src/crypto/internal/fips140test/cast_test.go
-index 5bbc964b617b2b..4b95749788027c 100644
+index 1978356ea5d8e3..be2b3ef3a2ce57 100644
 --- a/src/crypto/internal/fips140test/cast_test.go
 +++ b/src/crypto/internal/fips140test/cast_test.go
-@@ -148,6 +148,7 @@ func TestConditionals(t *testing.T) {
+@@ -160,6 +160,7 @@ func TestConditionals(t *testing.T) {
  }
  
  func TestCASTPasses(t *testing.T) {
@@ -1419,7 +1419,7 @@ index 5bbc964b617b2b..4b95749788027c 100644
  	moduleStatus(t)
  	testenv.MustHaveExec(t)
  	cryptotest.MustSupportFIPS140(t)
-@@ -172,6 +173,7 @@ func TestCASTPasses(t *testing.T) {
+@@ -184,6 +185,7 @@ func TestCASTPasses(t *testing.T) {
  }
  
  func TestCASTFailures(t *testing.T) {
@@ -2609,7 +2609,7 @@ index a18a536ba2896f..7b3b37c3b0c10d 100644
  	}
  }
 diff --git a/src/crypto/sha3/sha3.go b/src/crypto/sha3/sha3.go
-index 2a1b3ca7008f5e..225cd524895a6c 100644
+index 48c67e9fe11005..80fafcd87b82d9 100644
 --- a/src/crypto/sha3/sha3.go
 +++ b/src/crypto/sha3/sha3.go
 @@ -8,6 +8,7 @@ package sha3
@@ -2660,9 +2660,9 @@ index 2a1b3ca7008f5e..225cd524895a6c 100644
  	var out [64]byte
  	h := sha3.New512()
  	h.Write(data)
-@@ -98,7 +111,9 @@ func sumSHAKE256(out, data []byte, length int) []byte {
- 
+@@ -99,7 +112,9 @@ func sumSHAKE256(out, data []byte, length int) []byte {
  // SHA3 is an instance of a SHA-3 hash. It implements [hash.Hash].
+ // The zero value is a usable SHA3-256 hash.
  type SHA3 struct {
 -	s sha3.Digest
 +	s         sha3.Digest
@@ -2671,7 +2671,7 @@ index 2a1b3ca7008f5e..225cd524895a6c 100644
  }
  
  //go:linkname fips140hash_sha3Unwrap crypto/internal/fips140hash.sha3Unwrap
-@@ -108,66 +123,106 @@ func fips140hash_sha3Unwrap(sha3 *SHA3) *sha3.Digest {
+@@ -109,22 +124,34 @@ func fips140hash_sha3Unwrap(sha3 *SHA3) *sha3.Digest {
  
  // New224 creates a new SHA3-224 hash.
  func New224() *SHA3 {
@@ -2709,8 +2709,11 @@ index 2a1b3ca7008f5e..225cd524895a6c 100644
 +	return &SHA3{s: *sha3.New512()}
  }
  
+ func (s *SHA3) init() {
+@@ -136,12 +163,18 @@ func (s *SHA3) init() {
  // Write absorbs more data into the hash's state.
  func (s *SHA3) Write(p []byte) (n int, err error) {
+ 	s.init()
 +	if boring.Enabled && s.supported {
 +		return s.boringS.Write(p)
 +	}
@@ -2719,15 +2722,17 @@ index 2a1b3ca7008f5e..225cd524895a6c 100644
  
  // Sum appends the current hash to b and returns the resulting slice.
  func (s *SHA3) Sum(b []byte) []byte {
+ 	s.init()
 +	if boring.Enabled && s.supported {
 +		return s.boringS.Sum(b)
 +	}
  	return s.s.Sum(b)
  }
  
- // Reset resets the hash to its initial state.
+@@ -149,40 +182,63 @@ func (s *SHA3) Sum(b []byte) []byte {
  func (s *SHA3) Reset() {
--	s.s.Reset()
+ 	s.init()
+ 	s.s.Reset()
 +	if boring.Enabled && s.supported {
 +		s.boringS.Reset()
 +	} else {
@@ -2737,6 +2742,7 @@ index 2a1b3ca7008f5e..225cd524895a6c 100644
  
  // Size returns the number of bytes Sum will produce.
  func (s *SHA3) Size() int {
+ 	s.init()
 +	if boring.Enabled && s.supported {
 +		return s.boringS.Size()
 +	}
@@ -2745,6 +2751,7 @@ index 2a1b3ca7008f5e..225cd524895a6c 100644
  
  // BlockSize returns the hash's rate.
  func (s *SHA3) BlockSize() int {
+ 	s.init()
 +	if boring.Enabled && s.supported {
 +		return s.boringS.BlockSize()
 +	}
@@ -2753,6 +2760,7 @@ index 2a1b3ca7008f5e..225cd524895a6c 100644
  
  // MarshalBinary implements [encoding.BinaryMarshaler].
  func (s *SHA3) MarshalBinary() ([]byte, error) {
+ 	s.init()
 +	if boring.Enabled && s.supported {
 +		return s.boringS.MarshalBinary()
 +	}
@@ -2761,6 +2769,7 @@ index 2a1b3ca7008f5e..225cd524895a6c 100644
  
  // AppendBinary implements [encoding.BinaryAppender].
  func (s *SHA3) AppendBinary(p []byte) ([]byte, error) {
+ 	s.init()
 +	if boring.Enabled && s.supported {
 +		return s.boringS.AppendBinary(p)
 +	}
@@ -2769,6 +2778,7 @@ index 2a1b3ca7008f5e..225cd524895a6c 100644
  
  // UnmarshalBinary implements [encoding.BinaryUnmarshaler].
  func (s *SHA3) UnmarshalBinary(data []byte) error {
+ 	s.init()
 +	if boring.Enabled && s.supported {
 +		return s.boringS.UnmarshalBinary(data)
 +	}
@@ -2784,7 +2794,7 @@ index 2a1b3ca7008f5e..225cd524895a6c 100644
  	return &r, nil
  }
 diff --git a/src/crypto/sha3/sha3_test.go b/src/crypto/sha3/sha3_test.go
-index 15ee877236e195..ea30f8ae6f69b1 100644
+index 3973e0afd1b935..ca66d008ef649f 100644
 --- a/src/crypto/sha3/sha3_test.go
 +++ b/src/crypto/sha3/sha3_test.go
 @@ -6,9 +6,11 @@ package sha3_test
@@ -2799,7 +2809,7 @@ index 15ee877236e195..ea30f8ae6f69b1 100644
  	"hash"
  	"io"
  	"math/rand"
-@@ -223,6 +225,10 @@ var sinkSHA3 byte
+@@ -225,6 +227,10 @@ var sinkSHA3 byte
  
  func TestAllocations(t *testing.T) {
  	cryptotest.SkipTestAllocations(t)
@@ -2810,7 +2820,7 @@ index 15ee877236e195..ea30f8ae6f69b1 100644
  	t.Run("New", func(t *testing.T) {
  		if allocs := testing.AllocsPerRun(10, func() {
  			h := New256()
-@@ -231,7 +237,7 @@ func TestAllocations(t *testing.T) {
+@@ -233,7 +239,7 @@ func TestAllocations(t *testing.T) {
  			out := make([]byte, 0, 32)
  			out = h.Sum(out)
  			sinkSHA3 ^= out[0]
@@ -2819,7 +2829,7 @@ index 15ee877236e195..ea30f8ae6f69b1 100644
  			t.Errorf("expected zero allocations, got %0.1f", allocs)
  		}
  	})
-@@ -411,6 +417,9 @@ func testMarshalUnmarshal(t *testing.T, h *SHA3) {
+@@ -413,6 +419,9 @@ func testMarshalUnmarshal(t *testing.T, h *SHA3) {
  	h.Write(buf[:n])
  	b, err := h.MarshalBinary()
  	if err != nil {
@@ -3046,7 +3056,7 @@ index 027bc22c33c921..eba08da985f832 100644
  package fipsonly
  
 diff --git a/src/crypto/tls/handshake_client.go b/src/crypto/tls/handshake_client.go
-index 90c5bdacd82318..c4ca03ddfb4de0 100644
+index 47cf88323d802e..4fb5ca9104f34d 100644
 --- a/src/crypto/tls/handshake_client.go
 +++ b/src/crypto/tls/handshake_client.go
 @@ -11,11 +11,11 @@ import (
@@ -3062,7 +3072,7 @@ index 90c5bdacd82318..c4ca03ddfb4de0 100644
  	"crypto/x509"
  	"errors"
  	"fmt"
-@@ -542,7 +542,15 @@ func (c *Conn) pickTLSVersion(serverHello *serverHelloMsg) error {
+@@ -537,7 +537,15 @@ func (c *Conn) pickTLSVersion(serverHello *serverHelloMsg) error {
  
  // Does the handshake, either a full one or resumes old session. Requires hs.c,
  // hs.hello, hs.serverHello, and, optionally, hs.session to be set.
@@ -3462,10 +3472,10 @@ index 17e7aaf897ab56..569346899ba445 100644
  
  	var dsaPriv dsa.PrivateKey
 diff --git a/src/go/build/deps_test.go b/src/go/build/deps_test.go
-index 55b937aa415483..ea109b13cc7b54 100644
+index 235d15859473cd..f84d593f6c4d46 100644
 --- a/src/go/build/deps_test.go
 +++ b/src/go/build/deps_test.go
-@@ -530,7 +530,7 @@ var depsRules = `
+@@ -531,7 +531,7 @@ var depsRules = `
  	< crypto/internal/fips140/edwards25519
  	< crypto/internal/fips140/ed25519
  	< crypto/internal/fips140/rsa
@@ -3474,7 +3484,7 @@ index 55b937aa415483..ea109b13cc7b54 100644
  
  	FIPS, hash < crypto/internal/fips140only;
  	crypto/internal/fips140/subtle,	hash < crypto;
-@@ -558,6 +558,8 @@ var depsRules = `
+@@ -559,6 +559,8 @@ var depsRules = `
  	< crypto/internal/backend/internal/opensslsetup
  	< crypto/internal/backend/fips140;
  
@@ -3483,7 +3493,7 @@ index 55b937aa415483..ea109b13cc7b54 100644
  	crypto !< FIPS;
  
  	# CRYPTO is core crypto algorithms - no cgo, fmt, net.
-@@ -600,6 +602,7 @@ var depsRules = `
+@@ -601,6 +603,7 @@ var depsRules = `
  	  crypto/pbkdf2,
  	  crypto/ecdh,
  	  crypto/mlkem
