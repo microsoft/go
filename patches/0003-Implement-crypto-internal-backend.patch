@@ -29,12 +29,12 @@ desired goexperiments and build tags.
  src/crypto/internal/backend/bbig/big_cng.go   |  12 +
  .../internal/backend/bbig/big_darwin.go       |  12 +
  .../internal/backend/bbig/big_openssl.go      |  12 +
- src/crypto/internal/backend/cng_windows.go    | 393 ++++++++++++++++
+ src/crypto/internal/backend/cng_windows.go    | 393 +++++++++++++++++
  src/crypto/internal/backend/common.go         |  46 ++
- src/crypto/internal/backend/darwin_darwin.go  | 420 ++++++++++++++++++
+ src/crypto/internal/backend/darwin_darwin.go  | 395 ++++++++++++++++++
  src/crypto/internal/backend/fips140/cng.go    |  35 ++
  src/crypto/internal/backend/fips140/darwin.go |  13 +
- .../internal/backend/fips140/fips140.go       |  70 +++
+ .../internal/backend/fips140/fips140.go       |  70 ++++
  .../internal/backend/fips140/isrequirefips.go |   9 +
  .../internal/backend/fips140/norequirefips.go |   9 +
  .../backend/fips140/nosystemcrypto.go         |  13 +
@@ -46,15 +46,15 @@ desired goexperiments and build tags.
  .../internal/opensslsetup/opensslsetup.go     |  68 +++
  .../opensslsetup/opensslsetup_test.go         |  92 ++++
  .../backend/internal/opensslsetup/stub.go     |   8 +
- src/crypto/internal/backend/nobackend.go      | 349 +++++++++++++++
- src/crypto/internal/backend/openssl_linux.go  | 380 ++++++++++++++++
+ src/crypto/internal/backend/nobackend.go      | 349 ++++++++++++++++
+ src/crypto/internal/backend/openssl_linux.go  | 380 +++++++++++++++++
  src/crypto/internal/backend/stub.s            |  10 +
  src/crypto/systemcrypto_nocgo_linux.go        |  15 +
  src/go/build/deps_test.go                     |  32 +-
  src/internal/buildcfg/exp.go                  |  57 +++
  src/runtime/runtime_boring.go                 |   5 +
  src/syscall/exec_linux_test.go                |   4 +
- 45 files changed, 2663 insertions(+), 23 deletions(-)
+ 46 files changed, 2639 insertions(+), 24 deletions(-)
  create mode 100644 src/cmd/go/systemcrypto_test.go
  create mode 100644 src/crypto/internal/backend/backend_test.go
  create mode 100644 src/crypto/internal/backend/bbig/big.go
@@ -1408,10 +1408,10 @@ index 00000000000000..a9682181ffa154
 +}
 diff --git a/src/crypto/internal/backend/darwin_darwin.go b/src/crypto/internal/backend/darwin_darwin.go
 new file mode 100644
-index 00000000000000..e6abf96b2e7711
+index 00000000000000..36002e9e4dbbd8
 --- /dev/null
 +++ b/src/crypto/internal/backend/darwin_darwin.go
-@@ -0,0 +1,420 @@
+@@ -0,0 +1,395 @@
 +// Copyright 2017 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -1428,8 +1428,6 @@ index 00000000000000..e6abf96b2e7711
 +	"crypto/cipher"
 +	"crypto/internal/backend/fips140"
 +	"crypto/internal/boring/sig"
-+	"crypto/internal/fips140/nistec"
-+	"errors"
 +	"hash"
 +	_ "unsafe"
 +
@@ -1645,30 +1643,7 @@ index 00000000000000..e6abf96b2e7711
 +}
 +
 +func NewPrivateKeyECDH(curve string, bytes []byte) (*xcrypto.PrivateKeyECDH, error) {
-+	var key []byte
-+	switch curve {
-+	case "P-256":
-+		p, err := nistec.NewP256Point().ScalarBaseMult(bytes)
-+		if err != nil {
-+			return nil, err
-+		}
-+		key = p.Bytes()
-+	case "P-384":
-+		p, err := nistec.NewP384Point().ScalarBaseMult(bytes)
-+		if err != nil {
-+			return nil, err
-+		}
-+		key = p.Bytes()
-+	case "P-521":
-+		p, err := nistec.NewP521Point().ScalarBaseMult(bytes)
-+		if err != nil {
-+			return nil, err
-+		}
-+		key = p.Bytes()
-+	default:
-+		return nil, errors.New("NewPrivateKeyECDH: unsupported curve: " + curve)
-+	}
-+	return xcrypto.NewPrivateKeyECDH(curve, key, bytes)
++	return xcrypto.NewPrivateKeyECDH(curve, bytes)
 +}
 +
 +func NewPublicKeyECDH(curve string, bytes []byte) (*xcrypto.PublicKeyECDH, error) {
@@ -3123,7 +3098,7 @@ index 00000000000000..b79491c6cb7c08
 +	`
 +}
 diff --git a/src/go/build/deps_test.go b/src/go/build/deps_test.go
-index 00f53f3a181855..235d15859473cd 100644
+index 30ed09b5f755ac..55b937aa415483 100644
 --- a/src/go/build/deps_test.go
 +++ b/src/go/build/deps_test.go
 @@ -356,7 +356,7 @@ var depsRules = `
@@ -3135,7 +3110,7 @@ index 00f53f3a181855..235d15859473cd 100644
  	< internal/buildcfg;
  
  	container/heap, go/constant, go/parser, internal/buildcfg, internal/goversion, internal/types/errors
-@@ -554,6 +554,11 @@ var depsRules = `
+@@ -553,6 +553,11 @@ var depsRules = `
  	< github.com/microsoft/go-crypto-winnative/internal/bcrypt
  	< github.com/microsoft/go-crypto-winnative/cng;
  
@@ -3147,7 +3122,7 @@ index 00f53f3a181855..235d15859473cd 100644
  	crypto !< FIPS;
  
  	# CRYPTO is core crypto algorithms - no cgo, fmt, net.
-@@ -562,16 +567,27 @@ var depsRules = `
+@@ -561,16 +566,27 @@ var depsRules = `
  	NONE < crypto/internal/boring/sig, crypto/internal/boring/syso;
  	sync/atomic < crypto/internal/boring/bcache;
  
@@ -3177,7 +3152,7 @@ index 00f53f3a181855..235d15859473cd 100644
  	< crypto/boring
  	< crypto/aes,
  	  crypto/des,
-@@ -595,8 +611,14 @@ var depsRules = `
+@@ -594,8 +610,14 @@ var depsRules = `
  	math/big, github.com/microsoft/go-crypto-darwin/xcrypto < github.com/microsoft/go-crypto-darwin/bbig;
  	math/big, github.com/microsoft/go-crypto-winnative/cng < github.com/microsoft/go-crypto-winnative/cng/bbig;
  
