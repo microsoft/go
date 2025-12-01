@@ -69,7 +69,7 @@ Subject: [PATCH] Use crypto backends
  src/crypto/sha1/sha1_test.go                  |  11 +-
  src/crypto/sha256/sha256.go                   |   6 +-
  src/crypto/sha256/sha256_test.go              |  44 ++--
- src/crypto/sha3/sha3.go                       |  66 +++++-
+ src/crypto/sha3/sha3.go                       |  68 +++++-
  src/crypto/sha3/sha3_test.go                  |  11 +-
  src/crypto/sha512/sha512.go                   |   2 +-
  src/crypto/sha512/sha512_test.go              |  32 ++-
@@ -96,7 +96,7 @@ Subject: [PATCH] Use crypto backends
  src/hash/notboring_test.go                    |   9 +
  src/net/lookup_test.go                        |   3 +
  src/os/exec/exec_test.go                      |   9 +
- 92 files changed, 1334 insertions(+), 138 deletions(-)
+ 92 files changed, 1335 insertions(+), 139 deletions(-)
  create mode 100644 src/crypto/dsa/boring.go
  create mode 100644 src/crypto/dsa/notboring.go
  create mode 100644 src/crypto/ecdsa/badlinkname.go
@@ -2609,7 +2609,7 @@ index a18a536ba2896f..7b3b37c3b0c10d 100644
  	}
  }
 diff --git a/src/crypto/sha3/sha3.go b/src/crypto/sha3/sha3.go
-index 48c67e9fe11005..80fafcd87b82d9 100644
+index 48c67e9fe11005..937b42af2b61a1 100644
 --- a/src/crypto/sha3/sha3.go
 +++ b/src/crypto/sha3/sha3.go
 @@ -8,6 +8,7 @@ package sha3
@@ -2671,7 +2671,7 @@ index 48c67e9fe11005..80fafcd87b82d9 100644
  }
  
  //go:linkname fips140hash_sha3Unwrap crypto/internal/fips140hash.sha3Unwrap
-@@ -109,22 +124,34 @@ func fips140hash_sha3Unwrap(sha3 *SHA3) *sha3.Digest {
+@@ -109,26 +124,38 @@ func fips140hash_sha3Unwrap(sha3 *SHA3) *sha3.Digest {
  
  // New224 creates a new SHA3-224 hash.
  func New224() *SHA3 {
@@ -2710,6 +2710,11 @@ index 48c67e9fe11005..80fafcd87b82d9 100644
  }
  
  func (s *SHA3) init() {
+-	if s.s.Size() == 0 {
++	if s.s.Size() == 0 && s.boringS == nil {
+ 		*s = *New256()
+ 	}
+ }
 @@ -136,12 +163,18 @@ func (s *SHA3) init() {
  // Write absorbs more data into the hash's state.
  func (s *SHA3) Write(p []byte) (n int, err error) {
