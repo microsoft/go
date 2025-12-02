@@ -81,10 +81,12 @@ Subject: [PATCH] Use crypto backends
  src/crypto/tls/fipsonly/fipsonly.go           |   2 +-
  src/crypto/tls/fipsonly/fipsonly_test.go      |   2 +-
  src/crypto/tls/handshake_client.go            |  12 +-
+ src/crypto/tls/handshake_client_tls13.go      |   2 +-
  src/crypto/tls/handshake_server.go            |  10 +-
- src/crypto/tls/handshake_server_tls13.go      |   3 -
+ src/crypto/tls/handshake_server_tls13.go      |   5 +-
  src/crypto/tls/internal/tls13/doc.go          |  18 ++
  src/crypto/tls/internal/tls13/tls13.go        | 195 ++++++++++++++++++
+ src/crypto/tls/key_schedule.go                |   2 +-
  src/crypto/tls/prf.go                         |  41 ++++
  src/crypto/x509/verify_test.go                |   2 +-
  src/go/build/deps_test.go                     |   5 +-
@@ -94,7 +96,7 @@ Subject: [PATCH] Use crypto backends
  src/hash/notboring_test.go                    |   9 +
  src/net/lookup_test.go                        |   3 +
  src/os/exec/exec_test.go                      |   9 +
- 90 files changed, 1332 insertions(+), 136 deletions(-)
+ 92 files changed, 1335 insertions(+), 139 deletions(-)
  create mode 100644 src/crypto/dsa/boring.go
  create mode 100644 src/crypto/dsa/notboring.go
  create mode 100644 src/crypto/ecdsa/badlinkname.go
@@ -3093,6 +3095,21 @@ index c2b1b7037a46cf..4f89d96ec5de28 100644
  	c := hs.c
  
  	// If we did not load a session (hs.session == nil), but we did set a
+diff --git a/src/crypto/tls/handshake_client_tls13.go b/src/crypto/tls/handshake_client_tls13.go
+index e696bd3a13dcb1..c9e94783260860 100644
+--- a/src/crypto/tls/handshake_client_tls13.go
++++ b/src/crypto/tls/handshake_client_tls13.go
+@@ -10,9 +10,9 @@ import (
+ 	"crypto"
+ 	"crypto/hkdf"
+ 	"crypto/hmac"
+-	"crypto/internal/fips140/tls13"
+ 	"crypto/rsa"
+ 	"crypto/subtle"
++	"crypto/tls/internal/tls13"
+ 	"errors"
+ 	"hash"
+ 	"slices"
 diff --git a/src/crypto/tls/handshake_server.go b/src/crypto/tls/handshake_server.go
 index efdaeae6f7e39a..491c6d5a0e5d56 100644
 --- a/src/crypto/tls/handshake_server.go
@@ -3115,9 +3132,20 @@ index efdaeae6f7e39a..491c6d5a0e5d56 100644
  
  	if err := hs.processClientHello(); err != nil {
 diff --git a/src/crypto/tls/handshake_server_tls13.go b/src/crypto/tls/handshake_server_tls13.go
-index 3bed1359a3c851..1eef5231639752 100644
+index 3bed1359a3c851..dffdc345845748 100644
 --- a/src/crypto/tls/handshake_server_tls13.go
 +++ b/src/crypto/tls/handshake_server_tls13.go
+@@ -11,9 +11,9 @@ import (
+ 	"crypto/hkdf"
+ 	"crypto/hmac"
+ 	"crypto/hpke"
+-	"crypto/internal/fips140/tls13"
+ 	"crypto/rsa"
+ 	"crypto/tls/internal/fips140tls"
++	"crypto/tls/internal/tls13"
+ 	"errors"
+ 	"fmt"
+ 	"hash"
 @@ -445,9 +445,6 @@ func cloneHash(in hash.Hash, h crypto.Hash) hash.Hash {
  		UnmarshalBinary(data []byte) error
  	}
@@ -3353,6 +3381,20 @@ index 00000000000000..579aaedabb188a
 +	h.Write(context)
 +	return ExpandLabel(s.hash, secret, "exporter", h.Sum(nil), length)
 +}
+diff --git a/src/crypto/tls/key_schedule.go b/src/crypto/tls/key_schedule.go
+index bfa22449c87178..08cda456579f64 100644
+--- a/src/crypto/tls/key_schedule.go
++++ b/src/crypto/tls/key_schedule.go
+@@ -8,8 +8,8 @@ import (
+ 	"crypto"
+ 	"crypto/ecdh"
+ 	"crypto/hmac"
+-	"crypto/internal/fips140/tls13"
+ 	"crypto/mlkem"
++	"crypto/tls/internal/tls13"
+ 	"errors"
+ 	"hash"
+ 	"io"
 diff --git a/src/crypto/tls/prf.go b/src/crypto/tls/prf.go
 index 19f80ac2c91c20..1502dd121c0361 100644
 --- a/src/crypto/tls/prf.go
