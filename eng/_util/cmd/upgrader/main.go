@@ -55,7 +55,7 @@ Known dependencies are:
 ` + strings.Join(deps, " ") + `
 
 For example, to upgrade all crypto backends, run:
-	go run eng/_util/cmd/upgradedeps/main.go openssl windows darwin
+	go run eng/_util/cmd/upgrader/main.go openssl windows darwin
 `
 }
 
@@ -63,7 +63,7 @@ func main() {
 	help := flag.Bool("h", false, "Print this help message.")
 
 	flag.Usage = func() {
-		fmt.Fprintf(flag.CommandLine.Output(), "Usage of upgradedeps:\n")
+		fmt.Fprintf(flag.CommandLine.Output(), "Usage of upgrader:\n")
 		flag.PrintDefaults()
 		fmt.Fprintf(flag.CommandLine.Output(), "%s\n", description())
 	}
