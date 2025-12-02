@@ -45,6 +45,9 @@ Subject: [PATCH] Use crypto backends
  src/crypto/internal/fips140test/acvp_test.go  |   6 +
  src/crypto/internal/fips140test/cast_test.go  |   2 +
  src/crypto/internal/fips140test/fips_test.go  |   2 +-
+ src/crypto/internal/rand/rand.go              |  23 ---
+ src/crypto/internal/rand/rand_boring.go       |  19 ++
+ src/crypto/internal/rand/rand_notboring.go    |  35 ++++
  src/crypto/md5/md5.go                         |  10 +
  src/crypto/md5/md5_test.go                    |  18 +-
  src/crypto/mlkem/mlkem.go                     | 109 ++++++++--
@@ -96,12 +99,14 @@ Subject: [PATCH] Use crypto backends
  src/hash/notboring_test.go                    |   9 +
  src/net/lookup_test.go                        |   3 +
  src/os/exec/exec_test.go                      |   9 +
- 92 files changed, 1335 insertions(+), 139 deletions(-)
+ 95 files changed, 1389 insertions(+), 162 deletions(-)
  create mode 100644 src/crypto/dsa/boring.go
  create mode 100644 src/crypto/dsa/notboring.go
  create mode 100644 src/crypto/ecdsa/badlinkname.go
  create mode 100644 src/crypto/ed25519/boring.go
  create mode 100644 src/crypto/ed25519/notboring.go
+ create mode 100644 src/crypto/internal/rand/rand_boring.go
+ create mode 100644 src/crypto/internal/rand/rand_notboring.go
  create mode 100644 src/crypto/rsa/darwin.go
  create mode 100644 src/crypto/tls/internal/tls13/doc.go
  create mode 100644 src/crypto/tls/internal/tls13/tls13.go
@@ -1442,6 +1447,113 @@ index 52fc9d34886003..9afaf522df475c 100644
  	"crypto/internal/fips140"
  	"crypto/internal/fips140/aes"
  	"crypto/internal/fips140/aes/gcm"
+diff --git a/src/crypto/internal/rand/rand.go b/src/crypto/internal/rand/rand.go
+index 3a780952e705e5..834d468704d68f 100644
+--- a/src/crypto/internal/rand/rand.go
++++ b/src/crypto/internal/rand/rand.go
+@@ -5,7 +5,6 @@
+ package rand
+ 
+ import (
+-	"crypto/internal/boring"
+ 	"crypto/internal/fips140/drbg"
+ 	"crypto/internal/randutil"
+ 	"internal/godebug"
+@@ -13,28 +12,6 @@ import (
+ 	_ "unsafe"
+ )
+ 
+-type reader struct {
+-	drbg.DefaultReader
+-}
+-
+-func (r reader) Read(b []byte) (n int, err error) {
+-	if boring.Enabled {
+-		if _, err := boring.RandReader.Read(b); err != nil {
+-			panic("crypto/rand: boring RandReader failed: " + err.Error())
+-		}
+-		return len(b), nil
+-	}
+-	drbg.Read(b)
+-	return len(b), nil
+-}
+-
+-// Reader is an io.Reader that calls [drbg.Read].
+-//
+-// It should be used internally instead of [crypto/rand.Reader], because the
+-// latter can be set by applications outside of tests. These applications then
+-// risk breaking between Go releases, if the way the Reader is used changes.
+-var Reader io.Reader = reader{}
+-
+ // SetTestingReader overrides all calls to [drbg.Read]. The Read method of
+ // r must never return an error or return short.
+ //
+diff --git a/src/crypto/internal/rand/rand_boring.go b/src/crypto/internal/rand/rand_boring.go
+new file mode 100644
+index 00000000000000..e7ebcdfe102a43
+--- /dev/null
++++ b/src/crypto/internal/rand/rand_boring.go
+@@ -0,0 +1,19 @@
++// Copyright 2025 The Go Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style
++// license that can be found in the LICENSE file.
++
++//go:build goexperiment.systemcrypto
++
++package rand
++
++import (
++	boring "crypto/internal/backend"
++	"io"
++)
++
++// Reader is an io.Reader that calls [drbg.Read].
++//
++// It should be used internally instead of [crypto/rand.Reader], because the
++// latter can be set by applications outside of tests. These applications then
++// risk breaking between Go releases, if the way the Reader is used changes.
++var Reader io.Reader = boring.RandReader
+diff --git a/src/crypto/internal/rand/rand_notboring.go b/src/crypto/internal/rand/rand_notboring.go
+new file mode 100644
+index 00000000000000..c24a29571d7bfc
+--- /dev/null
++++ b/src/crypto/internal/rand/rand_notboring.go
+@@ -0,0 +1,35 @@
++// Copyright 2025 The Go Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style
++// license that can be found in the LICENSE file.
++
++//go:build !goexperiment.systemcrypto
++
++package rand
++
++import (
++	"crypto/internal/boring"
++	"crypto/internal/fips140/drbg"
++	"io"
++)
++
++type reader struct {
++	drbg.DefaultReader
++}
++
++func (r reader) Read(b []byte) (n int, err error) {
++	if boring.Enabled {
++		if _, err := boring.RandReader.Read(b); err != nil {
++			panic("crypto/rand: boring RandReader failed: " + err.Error())
++		}
++		return len(b), nil
++	}
++	drbg.Read(b)
++	return len(b), nil
++}
++
++// Reader is an io.Reader that calls [drbg.Read].
++//
++// It should be used internally instead of [crypto/rand.Reader], because the
++// latter can be set by applications outside of tests. These applications then
++// risk breaking between Go releases, if the way the Reader is used changes.
++var Reader io.Reader = reader{}
 diff --git a/src/crypto/md5/md5.go b/src/crypto/md5/md5.go
 index f1287887ff5e25..b2e26308349566 100644
 --- a/src/crypto/md5/md5.go
