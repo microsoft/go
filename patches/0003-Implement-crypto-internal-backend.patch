@@ -38,8 +38,7 @@ desired goexperiments and build tags.
  .../internal/backend/fips140/isrequirefips.go |   9 +
  .../internal/backend/fips140/norequirefips.go |   9 +
  .../backend/fips140/nosystemcrypto.go         |  13 +
- .../internal/backend/fips140/openssl_cgo.go   |  59 +++
- .../internal/backend/fips140/openssl_nocgo.go |  17 +
+ .../internal/backend/fips140/openssl.go       |  59 +++
  .../fips140/requirefips_nosystemcrypto.go     |  15 +
  .../backend/fips140/skipfipscheck_off.go      |   9 +
  .../backend/fips140/skipfipscheck_on.go       |   9 +
@@ -54,7 +53,7 @@ desired goexperiments and build tags.
  src/internal/buildcfg/exp.go                  |  57 +++
  src/runtime/runtime_boring.go                 |   5 +
  src/syscall/exec_linux_test.go                |   4 +
- 45 files changed, 2638 insertions(+), 22 deletions(-)
+ 44 files changed, 2621 insertions(+), 22 deletions(-)
  create mode 100644 src/cmd/go/systemcrypto_test.go
  create mode 100644 src/crypto/internal/backend/backend_test.go
  create mode 100644 src/crypto/internal/backend/bbig/big.go
@@ -70,8 +69,7 @@ desired goexperiments and build tags.
  create mode 100644 src/crypto/internal/backend/fips140/isrequirefips.go
  create mode 100644 src/crypto/internal/backend/fips140/norequirefips.go
  create mode 100644 src/crypto/internal/backend/fips140/nosystemcrypto.go
- create mode 100644 src/crypto/internal/backend/fips140/openssl_cgo.go
- create mode 100644 src/crypto/internal/backend/fips140/openssl_nocgo.go
+ create mode 100644 src/crypto/internal/backend/fips140/openssl.go
  create mode 100644 src/crypto/internal/backend/fips140/requirefips_nosystemcrypto.go
  create mode 100644 src/crypto/internal/backend/fips140/skipfipscheck_off.go
  create mode 100644 src/crypto/internal/backend/fips140/skipfipscheck_on.go
@@ -1996,11 +1994,11 @@ index 00000000000000..289d6594eac54b
 +func systemFIPSMode() bool {
 +	return false
 +}
-diff --git a/src/crypto/internal/backend/fips140/openssl_cgo.go b/src/crypto/internal/backend/fips140/openssl_cgo.go
+diff --git a/src/crypto/internal/backend/fips140/openssl.go b/src/crypto/internal/backend/fips140/openssl.go
 new file mode 100644
-index 00000000000000..9bf15a24d3a4f4
+index 00000000000000..8da484e3ffb9b7
 --- /dev/null
-+++ b/src/crypto/internal/backend/fips140/openssl_cgo.go
++++ b/src/crypto/internal/backend/fips140/openssl.go
 @@ -0,0 +1,59 @@
 +// Copyright 2024 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
@@ -2014,7 +2012,7 @@ index 00000000000000..9bf15a24d3a4f4
 +	_ "crypto/internal/backend/internal/opensslsetup"
 +	"syscall"
 +
-+	"github.com/golang-fips/openssl/v2"
++	"github.com/golang-fips/openssl/v2/osslsetup"
 +)
 +
 +const backendEnabled = true
@@ -2026,7 +2024,7 @@ index 00000000000000..9bf15a24d3a4f4
 +	if kernelFIPSMode() {
 +		return true
 +	}
-+	return openssl.FIPS()
++	return osslsetup.FIPS()
 +}
 +
 +// kernelFIPSMode reports whether the kernel is in FIPS mode.
@@ -2060,29 +2058,6 @@ index 00000000000000..9bf15a24d3a4f4
 +	}
 +	// fips_enabled can be either '0' or '1'.
 +	return tmp[0] == '1'
-+}
-diff --git a/src/crypto/internal/backend/fips140/openssl_nocgo.go b/src/crypto/internal/backend/fips140/openssl_nocgo.go
-new file mode 100644
-index 00000000000000..ae8274aa38579f
---- /dev/null
-+++ b/src/crypto/internal/backend/fips140/openssl_nocgo.go
-@@ -0,0 +1,17 @@
-+// Copyright 2025 The Go Authors. All rights reserved.
-+// Use of this source code is governed by a BSD-style
-+// license that can be found in the LICENSE file.
-+
-+//go:build goexperiment.opensslcrypto && !(cgo || goexperiment.ms_nocgo_opensslcrypto)
-+
-+// The opensslcrypto experiment can be used even when cgo
-+// is disabled. The OpenSSL backend can't be imported
-+// without cgo, so we use a stub systemFIPSMode implementation.
-+
-+package fips140
-+
-+const backendEnabled = true
-+
-+func systemFIPSMode() bool {
-+	return false
 +}
 diff --git a/src/crypto/internal/backend/fips140/requirefips_nosystemcrypto.go b/src/crypto/internal/backend/fips140/requirefips_nosystemcrypto.go
 new file mode 100644
@@ -2137,7 +2112,7 @@ index 00000000000000..d3d39fd77f98db
 +const isSkipFIPSCheck = true
 diff --git a/src/crypto/internal/backend/internal/opensslsetup/opensslsetup.go b/src/crypto/internal/backend/internal/opensslsetup/opensslsetup.go
 new file mode 100644
-index 00000000000000..eda4bde128ae46
+index 00000000000000..14b217a6e2eb21
 --- /dev/null
 +++ b/src/crypto/internal/backend/internal/opensslsetup/opensslsetup.go
 @@ -0,0 +1,68 @@
@@ -2155,11 +2130,11 @@ index 00000000000000..eda4bde128ae46
 +import (
 +	"syscall"
 +
-+	"github.com/golang-fips/openssl/v2"
++	"github.com/golang-fips/openssl/v2/osslsetup"
 +)
 +
 +// knownVersions is a list of supported and well-known libcrypto.so suffixes in decreasing version order.
-+// FreeBSD library version numbering does not directly align to the version of OpenSSL.
++// FreeBSD library version numbering does not directly align to the version of osslsetup.
 +// Its preferred search order is 11 -> 111.
 +var knownVersions = [...]string{"3", "1.1", "11", "111"}
 +
@@ -2167,7 +2142,7 @@ index 00000000000000..eda4bde128ae46
 +
 +func init() {
 +	lib := library()
-+	if err := openssl.Init(lib); err != nil {
++	if err := osslsetup.Init(lib); err != nil {
 +		panic("opensslcrypto: can't initialize OpenSSL " + lib + ": " + err.Error())
 +	}
 +}
@@ -2186,9 +2161,9 @@ index 00000000000000..eda4bde128ae46
 +	return lcryptoPrefix[:len(lcryptoPrefix)-1] // no version found, try without version suffix
 +}
 +
-+// checkVersion is a variable that holds the openssl.CheckVersion function.
++// checkVersion is a variable that holds the osslsetup.CheckVersion function.
 +// It is initialized in the init function to allow overriding in tests.
-+var checkVersion = openssl.CheckVersion
++var checkVersion = osslsetup.CheckVersion
 +
 +// searchKnownLibrary returns the name of the highest available FIPS-enabled version of OpenSSL
 +// using the known library suffixes.
@@ -3100,7 +3075,7 @@ index 00000000000000..b79491c6cb7c08
 +	`
 +}
 diff --git a/src/go/build/deps_test.go b/src/go/build/deps_test.go
-index bbd53b99006c3f..2a0589ead089a5 100644
+index 63571c59f5b9f0..4d637814cffbda 100644
 --- a/src/go/build/deps_test.go
 +++ b/src/go/build/deps_test.go
 @@ -363,7 +363,7 @@ var depsRules = `
@@ -3112,7 +3087,7 @@ index bbd53b99006c3f..2a0589ead089a5 100644
  	< internal/buildcfg;
  
  	container/heap, go/constant, go/parser, internal/buildcfg, internal/goversion, internal/types/errors
-@@ -561,6 +561,11 @@ var depsRules = `
+@@ -562,6 +562,11 @@ var depsRules = `
  	< github.com/microsoft/go-crypto-winnative/internal/bcrypt
  	< github.com/microsoft/go-crypto-winnative/cng;
  
@@ -3124,7 +3099,7 @@ index bbd53b99006c3f..2a0589ead089a5 100644
  	crypto !< FIPS;
  
  	# CRYPTO is core crypto algorithms - no cgo, fmt, net.
-@@ -569,6 +574,17 @@ var depsRules = `
+@@ -570,6 +575,17 @@ var depsRules = `
  	NONE < crypto/internal/boring/sig, crypto/internal/boring/syso;
  	sync/atomic < crypto/internal/boring/bcache;
  
@@ -3142,7 +3117,7 @@ index bbd53b99006c3f..2a0589ead089a5 100644
  	FIPS, internal/godebug, embed,
  	crypto/internal/boring/sig,
  	crypto/internal/boring/syso,
-@@ -576,9 +592,10 @@ var depsRules = `
+@@ -577,9 +593,10 @@ var depsRules = `
  	crypto/internal/fips140only,
  	crypto,
  	crypto/cipher
@@ -3154,7 +3129,7 @@ index bbd53b99006c3f..2a0589ead089a5 100644
  	< crypto/boring
  	< crypto/internal/rand
  	< crypto/aes,
-@@ -603,8 +620,14 @@ var depsRules = `
+@@ -604,8 +621,14 @@ var depsRules = `
  	math/big, github.com/microsoft/go-crypto-darwin/xcrypto < github.com/microsoft/go-crypto-darwin/bbig;
  	math/big, github.com/microsoft/go-crypto-winnative/cng < github.com/microsoft/go-crypto-winnative/cng/bbig;
  
