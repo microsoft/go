@@ -50,11 +50,11 @@ desired goexperiments and build tags.
  src/crypto/internal/backend/openssl_linux.go  | 380 +++++++++++++++++
  src/crypto/internal/backend/stub.s            |  10 +
  src/crypto/systemcrypto_nocgo_linux.go        |  15 +
- src/go/build/deps_test.go                     |  32 +-
+ src/go/build/deps_test.go                     |  31 +-
  src/internal/buildcfg/exp.go                  |  57 +++
  src/runtime/runtime_boring.go                 |   5 +
  src/syscall/exec_linux_test.go                |   4 +
- 46 files changed, 2639 insertions(+), 24 deletions(-)
+ 45 files changed, 2638 insertions(+), 22 deletions(-)
  create mode 100644 src/cmd/go/systemcrypto_test.go
  create mode 100644 src/crypto/internal/backend/backend_test.go
  create mode 100644 src/crypto/internal/backend/bbig/big.go
@@ -147,7 +147,7 @@ index 0e32e0769ee2e2..eda2d576acc6c6 100644
  	if doReplacement {
  		if testCompiler == "" {
 diff --git a/src/cmd/dist/build.go b/src/cmd/dist/build.go
-index 2b382a1c025649..25b555dace9a6f 100644
+index e4250e12de8975..917f682fd4bfaf 100644
 --- a/src/cmd/dist/build.go
 +++ b/src/cmd/dist/build.go
 @@ -1382,6 +1382,80 @@ func toolenv() []string {
@@ -248,7 +248,7 @@ index 2b382a1c025649..25b555dace9a6f 100644
  	if debug {
  		run("", ShowOutput|CheckExit, pathf("%s/compile", tooldir), "-V=full")
 diff --git a/src/cmd/dist/test.go b/src/cmd/dist/test.go
-index 15cfcccec38329..713cb4f2a42668 100644
+index f8d19ac34c562f..1314403a56cad0 100644
 --- a/src/cmd/dist/test.go
 +++ b/src/cmd/dist/test.go
 @@ -156,10 +156,12 @@ func (t *tester) run() {
@@ -278,7 +278,7 @@ index 15cfcccec38329..713cb4f2a42668 100644
  		}
  	}
  
-@@ -746,15 +748,23 @@ func (t *tester) registerTests() {
+@@ -746,9 +748,15 @@ func (t *tester) registerTests() {
  
  	// Test GOEXPERIMENT=jsonv2.
  	if !strings.Contains(goexperiment, "jsonv2") {
@@ -295,6 +295,8 @@ index 15cfcccec38329..713cb4f2a42668 100644
  			pkg:     "encoding/json/...",
  		})
  	}
+@@ -763,7 +771,9 @@ func (t *tester) registerTests() {
+ 	}
  
  	// Test ios/amd64 for the iOS simulator.
 -	if goos == "darwin" && goarch == "amd64" && t.cgoEnabled {
@@ -304,7 +306,7 @@ index 15cfcccec38329..713cb4f2a42668 100644
  		t.registerTest("GOOS=ios on darwin/amd64",
  			&goTest{
  				variant:  "amd64ios",
-@@ -864,14 +874,21 @@ func (t *tester) registerTests() {
+@@ -873,14 +883,21 @@ func (t *tester) registerTests() {
  
  	// Test internal linking of PIE binaries where it is supported.
  	if t.internalLinkPIE() && !disablePIE {
@@ -327,7 +329,7 @@ index 15cfcccec38329..713cb4f2a42668 100644
  			})
  		t.registerTest("internal linking, -buildmode=pie",
  			&goTest{
-@@ -879,9 +896,10 @@ func (t *tester) registerTests() {
+@@ -888,9 +905,10 @@ func (t *tester) registerTests() {
  				timeout:   60 * time.Second,
  				buildmode: "pie",
  				ldflags:   "-linkmode=internal",
@@ -339,7 +341,7 @@ index 15cfcccec38329..713cb4f2a42668 100644
  			})
  		// Also test a cgo package.
  		if t.cgoEnabled && t.internalLink() && !disablePIE {
-@@ -985,7 +1003,9 @@ func (t *tester) registerTests() {
+@@ -996,7 +1014,9 @@ func (t *tester) registerTests() {
  		t.registerRaceTests()
  	}
  
@@ -350,7 +352,7 @@ index 15cfcccec38329..713cb4f2a42668 100644
  		// Only start multiple test dir shards on builders,
  		// where they get distributed to multiple machines.
  		// See issues 20141 and 31834.
-@@ -1183,6 +1203,11 @@ func (t *tester) internalLink() bool {
+@@ -1194,6 +1214,11 @@ func (t *tester) internalLink() bool {
  	if goos == "ios" {
  		return false
  	}
@@ -433,10 +435,10 @@ index a4edd854f1d35a..10ee92536b96cd 100644
  	// This will also update the BuildContext's tool tags to include the new
  	// experiment tags.
 diff --git a/src/cmd/go/internal/load/pkg.go b/src/cmd/go/internal/load/pkg.go
-index 3b8bbdc91b8191..53a58e23f8b05c 100644
+index e2a77d7d7df85b..aaa3106e5a0e6e 100644
 --- a/src/cmd/go/internal/load/pkg.go
 +++ b/src/cmd/go/internal/load/pkg.go
-@@ -2412,6 +2412,9 @@ func (p *Package) setBuildInfo(ctx context.Context, autoVCS bool) {
+@@ -2413,6 +2413,9 @@ func (p *Package) setBuildInfo(ctx context.Context, f *modfetch.Fetcher, autoVCS
  			buildmode = "archive"
  		}
  	}
@@ -753,7 +755,7 @@ index 2f46a6b44bffe1..69071289e2de81 100644
  
  ! go build -o $devnull cmd/buildid
 diff --git a/src/cmd/internal/testdir/testdir_test.go b/src/cmd/internal/testdir/testdir_test.go
-index 30e66c428dc470..ed061d7fbf4684 100644
+index c7060898778c88..47de9e25baa759 100644
 --- a/src/cmd/internal/testdir/testdir_test.go
 +++ b/src/cmd/internal/testdir/testdir_test.go
 @@ -118,6 +118,13 @@ func Test(t *testing.T) {
@@ -810,18 +812,18 @@ index a4b3a0422f2f41..ce290ab4617cfd 100644
  	addstrdata1(ctxt, "runtime.buildVersion="+buildVersion)
  
 diff --git a/src/cmd/link/link_test.go b/src/cmd/link/link_test.go
-index 6ab1246c814dfb..db61e625c6aadf 100644
+index 0c4cde0399fbd5..196bc4ada5db93 100644
 --- a/src/cmd/link/link_test.go
 +++ b/src/cmd/link/link_test.go
-@@ -9,6 +9,7 @@ import (
- 	"bytes"
- 	"debug/macho"
+@@ -12,6 +12,7 @@ import (
+ 	"debug/pe"
  	"errors"
+ 	"internal/abi"
 +	"internal/goexperiment"
  	"internal/platform"
  	"internal/testenv"
- 	"os"
-@@ -280,6 +281,9 @@ func TestBuildForTvOS(t *testing.T) {
+ 	"internal/xcoff"
+@@ -367,6 +368,9 @@ func TestBuildForTvOS(t *testing.T) {
  	if runtime.GOOS != "darwin" {
  		t.Skip("skipping on non-darwin platform")
  	}
@@ -831,7 +833,7 @@ index 6ab1246c814dfb..db61e625c6aadf 100644
  	if testing.Short() && testenv.Builder() == "" {
  		t.Skip("skipping in -short mode with $GO_BUILDER_NAME empty")
  	}
-@@ -512,6 +516,10 @@ func TestIssue34788Android386TLSSequence(t *testing.T) {
+@@ -599,6 +603,10 @@ func TestIssue34788Android386TLSSequence(t *testing.T) {
  		t.Skip("skipping on non-{linux,darwin}/amd64 platform")
  	}
  
@@ -3098,10 +3100,10 @@ index 00000000000000..b79491c6cb7c08
 +	`
 +}
 diff --git a/src/go/build/deps_test.go b/src/go/build/deps_test.go
-index 30ed09b5f755ac..55b937aa415483 100644
+index bbd53b99006c3f..2a0589ead089a5 100644
 --- a/src/go/build/deps_test.go
 +++ b/src/go/build/deps_test.go
-@@ -356,7 +356,7 @@ var depsRules = `
+@@ -363,7 +363,7 @@ var depsRules = `
  	math/big, go/token
  	< go/constant;
  
@@ -3110,7 +3112,7 @@ index 30ed09b5f755ac..55b937aa415483 100644
  	< internal/buildcfg;
  
  	container/heap, go/constant, go/parser, internal/buildcfg, internal/goversion, internal/types/errors
-@@ -553,6 +553,11 @@ var depsRules = `
+@@ -561,6 +561,11 @@ var depsRules = `
  	< github.com/microsoft/go-crypto-winnative/internal/bcrypt
  	< github.com/microsoft/go-crypto-winnative/cng;
  
@@ -3122,7 +3124,7 @@ index 30ed09b5f755ac..55b937aa415483 100644
  	crypto !< FIPS;
  
  	# CRYPTO is core crypto algorithms - no cgo, fmt, net.
-@@ -561,16 +566,27 @@ var depsRules = `
+@@ -569,6 +574,17 @@ var depsRules = `
  	NONE < crypto/internal/boring/sig, crypto/internal/boring/syso;
  	sync/atomic < crypto/internal/boring/bcache;
  
@@ -3140,19 +3142,19 @@ index 30ed09b5f755ac..55b937aa415483 100644
  	FIPS, internal/godebug, embed,
  	crypto/internal/boring/sig,
  	crypto/internal/boring/syso,
- 	crypto/internal/boring/bcache,
+@@ -576,9 +592,10 @@ var depsRules = `
  	crypto/internal/fips140only,
  	crypto,
--	crypto/cipher
+ 	crypto/cipher
 +	crypto/cipher,
 +	crypto/internal/backend
  	< crypto/sha3
  	< crypto/internal/fips140hash
 -	< crypto/internal/boring
  	< crypto/boring
+ 	< crypto/internal/rand
  	< crypto/aes,
- 	  crypto/des,
-@@ -594,8 +610,14 @@ var depsRules = `
+@@ -603,8 +620,14 @@ var depsRules = `
  	math/big, github.com/microsoft/go-crypto-darwin/xcrypto < github.com/microsoft/go-crypto-darwin/bbig;
  	math/big, github.com/microsoft/go-crypto-winnative/cng < github.com/microsoft/go-crypto-winnative/cng/bbig;
  
@@ -3170,7 +3172,7 @@ index 30ed09b5f755ac..55b937aa415483 100644
  	< crypto/rand
  	< crypto/ed25519 # depends on crypto/rand.Reader
 diff --git a/src/internal/buildcfg/exp.go b/src/internal/buildcfg/exp.go
-index 31ec5a1a4ec140..b28387a100c554 100644
+index 0c25f3cce97202..4bcb62b7c63fe6 100644
 --- a/src/internal/buildcfg/exp.go
 +++ b/src/internal/buildcfg/exp.go
 @@ -5,12 +5,15 @@
