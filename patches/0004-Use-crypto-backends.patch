@@ -47,7 +47,7 @@ Subject: [PATCH] Use crypto backends
  src/crypto/internal/fips140test/fips_test.go  |   2 +-
  src/crypto/internal/rand/rand.go              |  23 ---
  src/crypto/internal/rand/rand_boring.go       |  19 ++
- src/crypto/internal/rand/rand_notboring.go    |  35 ++++
+ src/crypto/internal/rand/rand_notboring.go    |  28 +++
  src/crypto/md5/md5.go                         |  10 +
  src/crypto/md5/md5_test.go                    |  18 +-
  src/crypto/mlkem/mlkem.go                     | 109 ++++++++--
@@ -92,14 +92,14 @@ Subject: [PATCH] Use crypto backends
  src/crypto/tls/key_schedule.go                |   2 +-
  src/crypto/tls/prf.go                         |  41 ++++
  src/crypto/x509/verify_test.go                |   2 +-
- src/go/build/deps_test.go                     |   5 +-
+ src/go/build/deps_test.go                     |  13 +-
  src/hash/boring_test.go                       |   9 +
  src/hash/example_test.go                      |   2 +
  src/hash/marshal_test.go                      |   4 +
  src/hash/notboring_test.go                    |   9 +
  src/net/lookup_test.go                        |   3 +
  src/os/exec/exec_test.go                      |   9 +
- 95 files changed, 1389 insertions(+), 162 deletions(-)
+ 95 files changed, 1388 insertions(+), 164 deletions(-)
  create mode 100644 src/crypto/dsa/boring.go
  create mode 100644 src/crypto/dsa/notboring.go
  create mode 100644 src/crypto/ecdsa/badlinkname.go
@@ -1515,10 +1515,10 @@ index 00000000000000..e7ebcdfe102a43
 +var Reader io.Reader = boring.RandReader
 diff --git a/src/crypto/internal/rand/rand_notboring.go b/src/crypto/internal/rand/rand_notboring.go
 new file mode 100644
-index 00000000000000..c24a29571d7bfc
+index 00000000000000..8130a9eac934d6
 --- /dev/null
 +++ b/src/crypto/internal/rand/rand_notboring.go
-@@ -0,0 +1,35 @@
+@@ -0,0 +1,28 @@
 +// Copyright 2025 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -1528,7 +1528,6 @@ index 00000000000000..c24a29571d7bfc
 +package rand
 +
 +import (
-+	"crypto/internal/boring"
 +	"crypto/internal/fips140/drbg"
 +	"io"
 +)
@@ -1538,12 +1537,6 @@ index 00000000000000..c24a29571d7bfc
 +}
 +
 +func (r reader) Read(b []byte) (n int, err error) {
-+	if boring.Enabled {
-+		if _, err := boring.RandReader.Read(b); err != nil {
-+			panic("crypto/rand: boring RandReader failed: " + err.Error())
-+		}
-+		return len(b), nil
-+	}
 +	drbg.Read(b)
 +	return len(b), nil
 +}
@@ -3590,7 +3583,7 @@ index 6dadba3a566f5e..a84b8cdeb42471 100644
  
  	var dsaPriv dsa.PrivateKey
 diff --git a/src/go/build/deps_test.go b/src/go/build/deps_test.go
-index 2a0589ead089a5..19f4ea8a8c3546 100644
+index b581b443d6429b..e989e2394ce3ed 100644
 --- a/src/go/build/deps_test.go
 +++ b/src/go/build/deps_test.go
 @@ -538,7 +538,7 @@ var depsRules = `
@@ -3600,18 +3593,33 @@ index 2a0589ead089a5..19f4ea8a8c3546 100644
 -	< crypto/fips140 < FIPS;
 +	< FIPS;
  
- 	FIPS, hash < crypto/internal/fips140only;
- 	crypto/internal/fips140/subtle,	hash < crypto;
-@@ -566,6 +566,8 @@ var depsRules = `
+ 	crypto !< FIPS;
+ 
+@@ -567,7 +567,12 @@ var depsRules = `
  	< crypto/internal/backend/internal/opensslsetup
  	< crypto/internal/backend/fips140;
  
-+	FIPS, crypto/internal/backend/fips140 < crypto/fips140;
+-	FIPS, internal/godebug, embed
++	internal/godebug, crypto/internal/fips140, crypto/internal/fips140/check,
++	crypto/internal/backend/fips140
++	< crypto/fips140;
 +
- 	crypto !< FIPS;
- 
- 	# CRYPTO is core crypto algorithms - no cgo, fmt, net.
-@@ -610,6 +612,7 @@ var depsRules = `
++	FIPS, internal/godebug, embed,
++	crypto/fips140
+ 	< crypto/internal/fips140only
+ 	< crypto
+ 	< crypto/subtle
+@@ -601,7 +606,8 @@ var depsRules = `
+ 	crypto/internal/fips140only,
+ 	crypto,
+ 	crypto/subtle,
+-	crypto/cipher
++	crypto/cipher,
++	crypto/internal/backend
+ 	< crypto/sha3
+ 	< crypto/internal/fips140hash
+ 	< crypto/internal/boring
+@@ -619,6 +625,7 @@ var depsRules = `
  	  crypto/pbkdf2,
  	  crypto/ecdh,
  	  crypto/mlkem
