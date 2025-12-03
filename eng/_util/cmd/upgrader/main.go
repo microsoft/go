@@ -1,3 +1,7 @@
+// Copyright (c) Microsoft Corporation.
+// Use of this source code is governed by a BSD-style
+// license that can be found in the LICENSE file.
+
 package main
 
 import (
@@ -7,13 +11,17 @@ import (
 	"maps"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
+	"sync"
 	"unicode"
 )
 
 type depsInfo struct {
 	url string // Repository URL
+	ref string // Reference (branch, tag, or commit)
 	mod string // Module name
 	wd  string // Relative working directory from repo root
 }
@@ -23,26 +31,31 @@ var infos = map[string]depsInfo{
 		url: "https://github.com/golang-fips/openssl",
 		mod: "github.com/golang-fips/openssl/v2",
 		wd:  "./go/src",
+		ref: "v2",
 	},
 	"windows": {
 		url: "https://github.com/microsoft/go-crypto-winnative",
 		mod: "github.com/microsoft/go-crypto-winnative",
 		wd:  "./go/src",
+		ref: "main",
 	},
 	"darwin": {
 		url: "https://github.com/microsoft/go-crypto-darwin",
 		mod: "github.com/microsoft/go-crypto-darwin",
 		wd:  "./go/src",
+		ref: "main",
 	},
 	"telemetry": {
 		url: "https://github.com/microsoft/go-infra",
 		mod: "github.com/microsoft/go-infra/telemetry",
 		wd:  "./go/src/cmd",
+		ref: "main",
 	},
 	"telemetryconfig": {
 		url: "https://github.com/microsoft/go-infra",
 		mod: "github.com/microsoft/go-infra/telemetry/config",
 		wd:  "./go/src/cmd",
+		ref: "main",
 	},
 }
 
@@ -56,6 +69,8 @@ Known dependencies are:
 
 For example, to upgrade all crypto backends, run:
 	go run eng/_util/cmd/upgrader/main.go openssl windows darwin
+
+Always run this tool using "go run", do not install it, else it may not pick up the latest configurations.
 `
 }
 
@@ -102,7 +117,7 @@ func upgradeDependency(info *depsInfo) error {
 	log.Printf("Upgrading dependency: %s\n", info.mod)
 
 	// Fetch latest commit from default branch
-	out, err := exec.Command("git", "ls-remote", info.url, "HEAD").CombinedOutput()
+	out, err := exec.Command("git", "ls-remote", info.url, info.ref).CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("failed to fetch latest commit: %v, output: %s", err, out)
 	}
@@ -114,24 +129,37 @@ func upgradeDependency(info *depsInfo) error {
 	log.Printf("Latest commit for %s: %s\n", info.mod, sha)
 
 	// Update the dependency to the latest commit
-	cmd := exec.Command("go", "get", fmt.Sprintf("%s@%s", info.mod, sha))
-	cmd.Dir = info.wd
-	if out, err = cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("failed to update dependency: %v, output: %s", err, out)
+	if err := runGoCmd(info.wd, "get", fmt.Sprintf("%s@%s", info.mod, sha)); err != nil {
+		return fmt.Errorf("failed to update dependency: %v", err)
 	}
 
 	// Tidy-up go.mod
-	cmd = exec.Command("go", "mod", "tidy")
-	cmd.Dir = info.wd
-	if out, err = cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("failed to tidy go.mod: %v, output: %s", err, out)
+	if err := runGoCmd(info.wd, "mod", "tidy"); err != nil {
+		return fmt.Errorf("failed to tidy go.mod: %v", err)
 	}
 
 	// Vendor dependencies
-	cmd = exec.Command("go", "mod", "vendor")
-	cmd.Dir = info.wd
-	if out, err = cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("failed to vendor dependencies: %v, output: %s", err, out)
+	if err := runGoCmd(info.wd, "mod", "vendor"); err != nil {
+		return fmt.Errorf("failed to vendor dependencies: %v", err)
+	}
+	return nil
+}
+
+var goBinary = sync.OnceValue(func() string {
+	path := filepath.Join(runtime.GOROOT(), "bin", "go")
+	if runtime.GOOS == "windows" {
+		path += ".exe"
+	}
+	log.Printf("Using %s\n", path)
+	return path
+})
+
+func runGoCmd(wd string, args ...string) error {
+	cmd := exec.Command(goBinary(), args...)
+	cmd.Dir = wd
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("%q failed: %v: %s", cmd, err, out)
 	}
 	return nil
 }
