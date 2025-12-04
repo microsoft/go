@@ -24,13 +24,13 @@ Subject: [PATCH] Use crypto backends
  src/crypto/dsa/notboring.go                   |  16 ++
  src/crypto/ecdh/ecdh.go                       |   2 +-
  src/crypto/ecdh/ecdh_test.go                  |   4 +
- src/crypto/ecdh/nist.go                       |   2 +-
+ src/crypto/ecdh/nist.go                       |   4 +-
  src/crypto/ecdsa/badlinkname.go               |  19 ++
  src/crypto/ecdsa/boring.go                    |   6 +-
  src/crypto/ecdsa/ecdsa.go                     |  10 +-
  src/crypto/ecdsa/notboring.go                 |   4 +-
  src/crypto/ed25519/boring.go                  |  71 +++++++
- src/crypto/ed25519/ed25519.go                 |  70 +++++++
+ src/crypto/ed25519/ed25519.go                 |  73 ++++++-
  src/crypto/ed25519/ed25519_test.go            |  13 +-
  src/crypto/ed25519/notboring.go               |  16 ++
  src/crypto/fips140/fips140.go                 |   3 +-
@@ -45,9 +45,7 @@ Subject: [PATCH] Use crypto backends
  src/crypto/internal/fips140test/acvp_test.go  |   6 +
  src/crypto/internal/fips140test/cast_test.go  |   2 +
  src/crypto/internal/fips140test/fips_test.go  |   2 +-
- src/crypto/internal/rand/rand.go              |  23 ---
- src/crypto/internal/rand/rand_boring.go       |  19 ++
- src/crypto/internal/rand/rand_notboring.go    |  28 +++
+ src/crypto/internal/rand/rand.go              |  12 +-
  src/crypto/md5/md5.go                         |  10 +
  src/crypto/md5/md5_test.go                    |  18 +-
  src/crypto/mlkem/mlkem.go                     | 109 ++++++++--
@@ -55,18 +53,18 @@ Subject: [PATCH] Use crypto backends
  src/crypto/pbkdf2/pbkdf2.go                   |   7 +
  src/crypto/pbkdf2/pbkdf2_test.go              |   6 +-
  src/crypto/purego_test.go                     |   2 +-
- src/crypto/rand/rand.go                       |   2 +-
+ src/crypto/rand/rand.go                       |  21 +-
  src/crypto/rand/rand_test.go                  |   9 +-
  src/crypto/rc4/rc4.go                         |  18 ++
  src/crypto/rsa/boring.go                      |  12 +-
  src/crypto/rsa/boring_test.go                 |   2 +-
  src/crypto/rsa/darwin.go                      |  71 +++++++
- src/crypto/rsa/fips.go                        |  14 +-
+ src/crypto/rsa/fips.go                        |  25 +--
  src/crypto/rsa/notboring.go                   |   4 +-
- src/crypto/rsa/pkcs1v15.go                    |   6 +-
+ src/crypto/rsa/pkcs1v15.go                    |   8 +-
  src/crypto/rsa/pkcs1v15_test.go               |   5 +
  src/crypto/rsa/pss_test.go                    |  13 +-
- src/crypto/rsa/rsa.go                         |   4 +-
+ src/crypto/rsa/rsa.go                         |   6 +-
  src/crypto/rsa/rsa_test.go                    |  15 +-
  src/crypto/sha1/sha1.go                       |   8 +-
  src/crypto/sha1/sha1_test.go                  |  11 +-
@@ -99,14 +97,12 @@ Subject: [PATCH] Use crypto backends
  src/hash/notboring_test.go                    |   9 +
  src/net/lookup_test.go                        |   3 +
  src/os/exec/exec_test.go                      |   9 +
- 95 files changed, 1388 insertions(+), 164 deletions(-)
+ 93 files changed, 1368 insertions(+), 165 deletions(-)
  create mode 100644 src/crypto/dsa/boring.go
  create mode 100644 src/crypto/dsa/notboring.go
  create mode 100644 src/crypto/ecdsa/badlinkname.go
  create mode 100644 src/crypto/ed25519/boring.go
  create mode 100644 src/crypto/ed25519/notboring.go
- create mode 100644 src/crypto/internal/rand/rand_boring.go
- create mode 100644 src/crypto/internal/rand/rand_notboring.go
  create mode 100644 src/crypto/rsa/darwin.go
  create mode 100644 src/crypto/tls/internal/tls13/doc.go
  create mode 100644 src/crypto/tls/internal/tls13/tls13.go
@@ -811,7 +807,7 @@ index 8a3eb87061ad8c..a09a9fc8148039 100644
  		for _, input := range invalidPrivateKeys[curve] {
  			k, err := curve.NewPrivateKey(hexDecode(t, input))
 diff --git a/src/crypto/ecdh/nist.go b/src/crypto/ecdh/nist.go
-index de7348d9232349..011270049df613 100644
+index de7348d9232349..3521c3bbd03959 100644
 --- a/src/crypto/ecdh/nist.go
 +++ b/src/crypto/ecdh/nist.go
 @@ -6,7 +6,7 @@ package ecdh
@@ -823,6 +819,15 @@ index de7348d9232349..011270049df613 100644
  	"crypto/internal/fips140/ecdh"
  	"crypto/internal/fips140only"
  	"crypto/internal/rand"
+@@ -27,7 +27,7 @@ func (c *nistCurve) String() string {
+ }
+ 
+ func (c *nistCurve) GenerateKey(r io.Reader) (*PrivateKey, error) {
+-	if boring.Enabled && r == boring.RandReader {
++	if boring.Enabled && rand.IsDefaultReader(r) {
+ 		key, bytes, err := boring.GenerateKeyECDH(c.name)
+ 		if err != nil {
+ 			return nil, err
 diff --git a/src/crypto/ecdsa/badlinkname.go b/src/crypto/ecdsa/badlinkname.go
 new file mode 100644
 index 00000000000000..168efdb820c85b
@@ -870,7 +875,7 @@ index 275c60b4de49eb..ff8bddf28c4545 100644
  	"math/big"
  )
 diff --git a/src/crypto/ecdsa/ecdsa.go b/src/crypto/ecdsa/ecdsa.go
-index aee15b92838543..10101c88ac0ea4 100644
+index aee15b92838543..1eb2604505e229 100644
 --- a/src/crypto/ecdsa/ecdsa.go
 +++ b/src/crypto/ecdsa/ecdsa.go
 @@ -20,8 +20,8 @@ import (
@@ -889,7 +894,7 @@ index aee15b92838543..10101c88ac0ea4 100644
  // in a future Go release. Instead, use [testing/cryptotest.SetGlobalRandom].
  func GenerateKey(c elliptic.Curve, r io.Reader) (*PrivateKey, error) {
 -	if boring.Enabled && r == boring.RandReader {
-+	if boring.Enabled && r == boring.RandReader && boring.SupportsCurve(c.Params().Name) {
++	if boring.Enabled && rand.IsDefaultReader(r) && boring.SupportsCurve(c.Params().Name) {
  		x, y, d, err := boring.GenerateKeyECDSA(c.Params().Name)
  		if err != nil {
  			return nil, err
@@ -898,7 +903,7 @@ index aee15b92838543..10101c88ac0ea4 100644
  // [testing/cryptotest.SetGlobalRandom].
  func SignASN1(r io.Reader, priv *PrivateKey, hash []byte) ([]byte, error) {
 -	if boring.Enabled && r == boring.RandReader {
-+	if boring.Enabled && r == boring.RandReader && boring.SupportsCurve(priv.Curve.Params().Name) {
++	if boring.Enabled && rand.IsDefaultReader(r) && boring.SupportsCurve(priv.Curve.Params().Name) {
  		b, err := boringPrivateKey(priv)
  		if err != nil {
  			return nil, err
@@ -1007,18 +1012,19 @@ index 00000000000000..4e18cdfbaad4fd
 +	return key, nil
 +}
 diff --git a/src/crypto/ed25519/ed25519.go b/src/crypto/ed25519/ed25519.go
-index f09dabe23e875d..281468eca9b1fa 100644
+index f09dabe23e875d..00752fce1bae07 100644
 --- a/src/crypto/ed25519/ed25519.go
 +++ b/src/crypto/ed25519/ed25519.go
-@@ -17,6 +17,7 @@ package ed25519
+@@ -17,7 +17,7 @@ package ed25519
  
  import (
  	"crypto"
+-	"crypto/internal/fips140/drbg"
 +	boring "crypto/internal/backend"
- 	"crypto/internal/fips140/drbg"
  	"crypto/internal/fips140/ed25519"
  	"crypto/internal/fips140cache"
-@@ -28,6 +29,7 @@ import (
+ 	"crypto/internal/fips140only"
+@@ -28,6 +28,7 @@ import (
  	"internal/godebug"
  	"io"
  	"strconv"
@@ -1026,11 +1032,19 @@ index f09dabe23e875d..281468eca9b1fa 100644
  )
  
  const (
-@@ -160,6 +162,19 @@ func GenerateKey(random io.Reader) (PublicKey, PrivateKey, error) {
+@@ -153,13 +154,26 @@ func GenerateKey(random io.Reader) (PublicKey, PrivateKey, error) {
+ 	if random == nil {
+ 		if cryptocustomrand.Value() == "1" {
+ 			random = cryptorand.Reader
+-			if _, ok := random.(drbg.DefaultReader); !ok {
++			if !rand.IsDefaultReader(random) {
+ 				cryptocustomrand.IncNonDefault()
+ 			}
+ 		} else {
  			random = rand.Reader
  		}
  	}
-+	if boring.Enabled && random == boring.RandReader && boring.SupportsEd25519() {
++	if boring.Enabled && rand.IsDefaultReader(random) && boring.SupportsEd25519() {
 +		priv, err := boring.GenerateKeyEd25519()
 +		if err != nil {
 +			return nil, nil, err
@@ -1046,7 +1060,7 @@ index f09dabe23e875d..281468eca9b1fa 100644
  
  	seed := make([]byte, SeedSize)
  	if _, err := io.ReadFull(random, seed); err != nil {
-@@ -176,6 +191,17 @@ func GenerateKey(random io.Reader) (PublicKey, PrivateKey, error) {
+@@ -176,6 +190,17 @@ func GenerateKey(random io.Reader) (PublicKey, PrivateKey, error) {
  // with RFC 8032. RFC 8032's private keys correspond to seeds in this
  // package.
  func NewKeyFromSeed(seed []byte) PrivateKey {
@@ -1064,7 +1078,7 @@ index f09dabe23e875d..281468eca9b1fa 100644
  	// Outline the function body so that the returned key can be stack-allocated.
  	privateKey := make([]byte, PrivateKeySize)
  	newKeyFromSeed(privateKey, seed)
-@@ -194,6 +220,17 @@ func newKeyFromSeed(privateKey, seed []byte) {
+@@ -194,6 +219,17 @@ func newKeyFromSeed(privateKey, seed []byte) {
  // Sign signs the message with privateKey and returns a signature. It will
  // panic if len(privateKey) is not [PrivateKeySize].
  func Sign(privateKey PrivateKey, message []byte) []byte {
@@ -1082,7 +1096,7 @@ index f09dabe23e875d..281468eca9b1fa 100644
  	// Outline the function body so that the returned signature can be
  	// stack-allocated.
  	signature := make([]byte, SignatureSize)
-@@ -223,6 +260,32 @@ func Verify(publicKey PublicKey, message, sig []byte) bool {
+@@ -223,6 +259,32 @@ func Verify(publicKey PublicKey, message, sig []byte) bool {
  	return VerifyWithOptions(publicKey, message, sig, &Options{Hash: crypto.Hash(0)}) == nil
  }
  
@@ -1115,7 +1129,7 @@ index f09dabe23e875d..281468eca9b1fa 100644
  // VerifyWithOptions reports whether sig is a valid signature of message by
  // publicKey. A valid signature is indicated by returning a nil error. It will
  // panic if len(publicKey) is not [PublicKeySize].
-@@ -251,6 +314,13 @@ func VerifyWithOptions(publicKey PublicKey, message, sig []byte, opts *Options)
+@@ -251,6 +313,13 @@ func VerifyWithOptions(publicKey PublicKey, message, sig []byte, opts *Options)
  		}
  		return ed25519.VerifyCtx(k, message, sig, opts.Context)
  	case opts.Hash == crypto.Hash(0): // Ed25519
@@ -1448,105 +1462,39 @@ index 52fc9d34886003..9afaf522df475c 100644
  	"crypto/internal/fips140/aes"
  	"crypto/internal/fips140/aes/gcm"
 diff --git a/src/crypto/internal/rand/rand.go b/src/crypto/internal/rand/rand.go
-index 3a780952e705e5..834d468704d68f 100644
+index 3a780952e705e5..b3113a3ee2e1fa 100644
 --- a/src/crypto/internal/rand/rand.go
 +++ b/src/crypto/internal/rand/rand.go
-@@ -5,7 +5,6 @@
+@@ -5,7 +5,7 @@
  package rand
  
  import (
 -	"crypto/internal/boring"
++	boring "crypto/internal/backend"
  	"crypto/internal/fips140/drbg"
  	"crypto/internal/randutil"
  	"internal/godebug"
-@@ -13,28 +12,6 @@ import (
- 	_ "unsafe"
- )
- 
--type reader struct {
--	drbg.DefaultReader
--}
--
--func (r reader) Read(b []byte) (n int, err error) {
--	if boring.Enabled {
--		if _, err := boring.RandReader.Read(b); err != nil {
--			panic("crypto/rand: boring RandReader failed: " + err.Error())
--		}
--		return len(b), nil
--	}
--	drbg.Read(b)
--	return len(b), nil
--}
--
--// Reader is an io.Reader that calls [drbg.Read].
--//
--// It should be used internally instead of [crypto/rand.Reader], because the
--// latter can be set by applications outside of tests. These applications then
--// risk breaking between Go releases, if the way the Reader is used changes.
--var Reader io.Reader = reader{}
--
- // SetTestingReader overrides all calls to [drbg.Read]. The Read method of
- // r must never return an error or return short.
- //
-diff --git a/src/crypto/internal/rand/rand_boring.go b/src/crypto/internal/rand/rand_boring.go
-new file mode 100644
-index 00000000000000..e7ebcdfe102a43
---- /dev/null
-+++ b/src/crypto/internal/rand/rand_boring.go
-@@ -0,0 +1,19 @@
-+// Copyright 2025 The Go Authors. All rights reserved.
-+// Use of this source code is governed by a BSD-style
-+// license that can be found in the LICENSE file.
+@@ -55,7 +55,7 @@ var cryptocustomrand = godebug.New("cryptocustomrand")
+ // If returning a non-default Reader, it calls [randutil.MaybeReadByte] on it.
+ func CustomReader(r io.Reader) io.Reader {
+ 	if cryptocustomrand.Value() == "1" {
+-		if _, ok := r.(drbg.DefaultReader); !ok {
++		if !IsDefaultReader(r) {
+ 			randutil.MaybeReadByte(r)
+ 			cryptocustomrand.IncNonDefault()
+ 		}
+@@ -63,3 +63,11 @@ func CustomReader(r io.Reader) io.Reader {
+ 	}
+ 	return Reader
+ }
 +
-+//go:build goexperiment.systemcrypto
-+
-+package rand
-+
-+import (
-+	boring "crypto/internal/backend"
-+	"io"
-+)
-+
-+// Reader is an io.Reader that calls [drbg.Read].
++// IsDefaultReader reports whether r is the default [crypto/rand.Reader].
 +//
-+// It should be used internally instead of [crypto/rand.Reader], because the
-+// latter can be set by applications outside of tests. These applications then
-+// risk breaking between Go releases, if the way the Reader is used changes.
-+var Reader io.Reader = boring.RandReader
-diff --git a/src/crypto/internal/rand/rand_notboring.go b/src/crypto/internal/rand/rand_notboring.go
-new file mode 100644
-index 00000000000000..8130a9eac934d6
---- /dev/null
-+++ b/src/crypto/internal/rand/rand_notboring.go
-@@ -0,0 +1,28 @@
-+// Copyright 2025 The Go Authors. All rights reserved.
-+// Use of this source code is governed by a BSD-style
-+// license that can be found in the LICENSE file.
-+
-+//go:build !goexperiment.systemcrypto
-+
-+package rand
-+
-+import (
-+	"crypto/internal/fips140/drbg"
-+	"io"
-+)
-+
-+type reader struct {
-+	drbg.DefaultReader
++// If true, the Read method of r can be assumed to call [drbg.Read].
++func IsDefaultReader(r io.Reader) bool {
++	_, ok := r.(drbg.DefaultReader)
++	return ok
 +}
-+
-+func (r reader) Read(b []byte) (n int, err error) {
-+	drbg.Read(b)
-+	return len(b), nil
-+}
-+
-+// Reader is an io.Reader that calls [drbg.Read].
-+//
-+// It should be used internally instead of [crypto/rand.Reader], because the
-+// latter can be set by applications outside of tests. These applications then
-+// risk breaking between Go releases, if the way the Reader is used changes.
-+var Reader io.Reader = reader{}
 diff --git a/src/crypto/md5/md5.go b/src/crypto/md5/md5.go
 index f1287887ff5e25..b2e26308349566 100644
 --- a/src/crypto/md5/md5.go
@@ -2014,7 +1962,7 @@ index 62be347e0c6822..d284b5cf7814a6 100644
  		}
  
 diff --git a/src/crypto/rand/rand.go b/src/crypto/rand/rand.go
-index 004e6b6fedc7fc..be03999fab9693 100644
+index 004e6b6fedc7fc..e2279dbb2881b9 100644
 --- a/src/crypto/rand/rand.go
 +++ b/src/crypto/rand/rand.go
 @@ -7,7 +7,7 @@
@@ -2026,6 +1974,39 @@ index 004e6b6fedc7fc..be03999fab9693 100644
  	"crypto/internal/fips140/drbg"
  	"crypto/internal/rand"
  	"io"
+@@ -31,15 +31,7 @@ import (
+ //
+ // In FIPS 140-3 mode, the output passes through an SP 800-90A Rev. 1
+ // Deterministric Random Bit Generator (DRBG).
+-var Reader io.Reader
+-
+-func init() {
+-	if boring.Enabled {
+-		Reader = boring.RandReader
+-		return
+-	}
+-	Reader = rand.Reader
+-}
++var Reader io.Reader = rand.Reader
+ 
+ // fatal is [runtime.fatal], pushed via linkname.
+ //
+@@ -57,9 +49,12 @@ func Read(b []byte) (n int, err error) {
+ 	// through a potentially overridden Reader, so we special-case the default
+ 	// case which we can keep non-escaping, and in the general case we read into
+ 	// a heap buffer and copy from it.
+-	if _, ok := Reader.(drbg.DefaultReader); ok {
+-		boring.Unreachable()
+-		drbg.Read(b)
++	if rand.IsDefaultReader(Reader) {
++		if boring.Enabled {
++			_, err = boring.RandReader.Read(b)
++		} else {
++			drbg.Read(b)
++		}
+ 	} else {
+ 		bb := make([]byte, len(b))
+ 		_, err = io.ReadFull(Reader, bb)
 diff --git a/src/crypto/rand/rand_test.go b/src/crypto/rand/rand_test.go
 index 22ccb8a35334c9..832910da482f44 100644
 --- a/src/crypto/rand/rand_test.go
@@ -2241,10 +2222,10 @@ index 00000000000000..1b9c63523ee90e
 +	return builder.Bytes()
 +}
 diff --git a/src/crypto/rsa/fips.go b/src/crypto/rsa/fips.go
-index 75aa3d3d725757..071a7c95114bec 100644
+index 75aa3d3d725757..d043bcf0976338 100644
 --- a/src/crypto/rsa/fips.go
 +++ b/src/crypto/rsa/fips.go
-@@ -6,7 +6,7 @@ package rsa
+@@ -6,10 +6,11 @@ package rsa
  
  import (
  	"crypto"
@@ -2253,16 +2234,51 @@ index 75aa3d3d725757..071a7c95114bec 100644
  	"crypto/internal/fips140/rsa"
  	"crypto/internal/fips140hash"
  	"crypto/internal/fips140only"
-@@ -70,7 +70,7 @@ func SignPSS(rand io.Reader, priv *PrivateKey, hash crypto.Hash, digest []byte,
++	"crypto/internal/rand"
+ 	"errors"
+ 	"hash"
+ 	"io"
+@@ -59,9 +60,9 @@ func (opts *PSSOptions) saltLength() int {
+ // used. If opts.Hash is set, it overrides hash.
+ //
+ // The signature is randomized depending on the message, key, and salt size,
+-// using bytes from rand. Most applications should use [crypto/rand.Reader] as
+-// rand.
+-func SignPSS(rand io.Reader, priv *PrivateKey, hash crypto.Hash, digest []byte, opts *PSSOptions) ([]byte, error) {
++// using bytes from random. Most applications should use [crypto/rand.Reader] as
++// random.
++func SignPSS(random io.Reader, priv *PrivateKey, hash crypto.Hash, digest []byte, opts *PSSOptions) ([]byte, error) {
+ 	if err := checkPublicKeySize(&priv.PublicKey); err != nil {
+ 		return nil, err
+ 	}
+@@ -70,7 +71,7 @@ func SignPSS(rand io.Reader, priv *PrivateKey, hash crypto.Hash, digest []byte,
  		hash = opts.Hash
  	}
  
 -	if boring.Enabled && rand == boring.RandReader {
-+	if boring.Enabled && rand == boring.RandReader && boring.SupportsRSASaltLength(true, opts.saltLength()) && boring.SupportsRSAKeyPrimes(len(priv.Primes)) && boring.SupportsHash(hash) {
++	if boring.Enabled && rand.IsDefaultReader(random) && boring.SupportsRSASaltLength(true, opts.saltLength()) && boring.SupportsRSAKeyPrimes(len(priv.Primes)) && boring.SupportsHash(hash) {
  		bkey, err := boringPrivateKey(priv)
  		if err != nil {
  			return nil, err
-@@ -133,7 +133,7 @@ func VerifyPSS(pub *PublicKey, hash crypto.Hash, digest []byte, sig []byte, opts
+@@ -87,7 +88,7 @@ func SignPSS(rand io.Reader, priv *PrivateKey, hash crypto.Hash, digest []byte,
+ 	if fips140only.Enforced() && !fips140only.ApprovedHash(h) {
+ 		return nil, errors.New("crypto/rsa: use of hash functions other than SHA-2 or SHA-3 is not allowed in FIPS 140-only mode")
+ 	}
+-	if fips140only.Enforced() && !fips140only.ApprovedRandomReader(rand) {
++	if fips140only.Enforced() && !fips140only.ApprovedRandomReader(random) {
+ 		return nil, errors.New("crypto/rsa: only crypto/rand.Reader is allowed in FIPS 140-only mode")
+ 	}
+ 
+@@ -116,7 +117,7 @@ func SignPSS(rand io.Reader, priv *PrivateKey, hash crypto.Hash, digest []byte,
+ 		}
+ 	}
+ 
+-	return fipsError2(rsa.SignPSS(rand, k, h, digest, saltLength))
++	return fipsError2(rsa.SignPSS(random, k, h, digest, saltLength))
+ }
+ 
+ // VerifyPSS verifies a PSS signature.
+@@ -133,7 +134,7 @@ func VerifyPSS(pub *PublicKey, hash crypto.Hash, digest []byte, sig []byte, opts
  		return err
  	}
  
@@ -2271,16 +2287,16 @@ index 75aa3d3d725757..071a7c95114bec 100644
  		bkey, err := boringPublicKey(pub)
  		if err != nil {
  			return err
-@@ -216,7 +216,7 @@ func encryptOAEP(hash hash.Hash, mgfHash hash.Hash, random io.Reader, pub *Publi
+@@ -216,7 +217,7 @@ func encryptOAEP(hash hash.Hash, mgfHash hash.Hash, random io.Reader, pub *Publi
  	defer hash.Reset()
  	defer mgfHash.Reset()
  
 -	if boring.Enabled && random == boring.RandReader {
-+	if boring.Enabled && random == boring.RandReader && boring.SupportsRSAOAEPLabel(label) {
++	if boring.Enabled && rand.IsDefaultReader(random) && boring.SupportsRSAOAEPLabel(label) {
  		k := pub.Size()
  		if len(msg) > k-2*hash.Size()-2 {
  			return nil, ErrMessageTooLong
-@@ -268,7 +268,7 @@ func decryptOAEP(hash, mgfHash hash.Hash, priv *PrivateKey, ciphertext []byte, l
+@@ -268,7 +269,7 @@ func decryptOAEP(hash, mgfHash hash.Hash, priv *PrivateKey, ciphertext []byte, l
  		return nil, err
  	}
  
@@ -2289,7 +2305,7 @@ index 75aa3d3d725757..071a7c95114bec 100644
  		k := priv.Size()
  		if len(ciphertext) > k ||
  			k < hash.Size()*2+2 {
-@@ -330,7 +330,7 @@ func SignPKCS1v15(random io.Reader, priv *PrivateKey, hash crypto.Hash, hashed [
+@@ -330,7 +331,7 @@ func SignPKCS1v15(random io.Reader, priv *PrivateKey, hash crypto.Hash, hashed [
  		return nil, err
  	}
  
@@ -2298,7 +2314,7 @@ index 75aa3d3d725757..071a7c95114bec 100644
  		bkey, err := boringPrivateKey(priv)
  		if err != nil {
  			return nil, err
-@@ -373,7 +373,7 @@ func VerifyPKCS1v15(pub *PublicKey, hash crypto.Hash, hashed []byte, sig []byte)
+@@ -373,7 +374,7 @@ func VerifyPKCS1v15(pub *PublicKey, hash crypto.Hash, hashed []byte, sig []byte)
  		return err
  	}
  
@@ -2326,7 +2342,7 @@ index 2abc0436405f8a..3e4d6f3eef61e6 100644
  func boringPublicKey(*PublicKey) (*boring.PublicKeyRSA, error) {
  	panic("boringcrypto: not available")
 diff --git a/src/crypto/rsa/pkcs1v15.go b/src/crypto/rsa/pkcs1v15.go
-index 0f216e0193252c..2b3cdca698fb1d 100644
+index 0f216e0193252c..f1122ce61087bd 100644
 --- a/src/crypto/rsa/pkcs1v15.go
 +++ b/src/crypto/rsa/pkcs1v15.go
 @@ -5,7 +5,7 @@
@@ -2338,6 +2354,15 @@ index 0f216e0193252c..2b3cdca698fb1d 100644
  	"crypto/internal/fips140/rsa"
  	"crypto/internal/fips140only"
  	"crypto/internal/rand"
+@@ -61,7 +61,7 @@ func EncryptPKCS1v15(random io.Reader, pub *PublicKey, msg []byte) ([]byte, erro
+ 		return nil, ErrMessageTooLong
+ 	}
+ 
+-	if boring.Enabled && random == boring.RandReader {
++	if boring.Enabled && rand.IsDefaultReader(random) {
+ 		bkey, err := boringPublicKey(pub)
+ 		if err != nil {
+ 			return nil, err
 @@ -115,7 +115,7 @@ func DecryptPKCS1v15(random io.Reader, priv *PrivateKey, ciphertext []byte) ([]b
  		return nil, err
  	}
@@ -2431,7 +2456,7 @@ index e03f4ab06603c6..cd44f3af23b0d4 100644
  		t.Fatal(err)
  	}
 diff --git a/src/crypto/rsa/rsa.go b/src/crypto/rsa/rsa.go
-index 62f2de30b0b871..0002a53556ad32 100644
+index 62f2de30b0b871..6d49180a9e6756 100644
 --- a/src/crypto/rsa/rsa.go
 +++ b/src/crypto/rsa/rsa.go
 @@ -43,8 +43,8 @@ package rsa
@@ -2445,6 +2470,15 @@ index 62f2de30b0b871..0002a53556ad32 100644
  	"crypto/internal/fips140/bigmod"
  	"crypto/internal/fips140/rsa"
  	"crypto/internal/fips140only"
+@@ -314,7 +314,7 @@ func GenerateKey(random io.Reader, bits int) (*PrivateKey, error) {
+ 		return nil, err
+ 	}
+ 
+-	if boring.Enabled && random == boring.RandReader &&
++	if boring.Enabled && rand.IsDefaultReader(random) &&
+ 		(bits == 2048 || bits == 3072 || bits == 4096) {
+ 		bN, bE, bD, bP, bQ, bDp, bDq, bQinv, err := boring.GenerateKeyRSA(bits)
+ 		if err != nil {
 diff --git a/src/crypto/rsa/rsa_test.go b/src/crypto/rsa/rsa_test.go
 index 5ae4c1dd203874..fc51cb619aa83f 100644
 --- a/src/crypto/rsa/rsa_test.go
