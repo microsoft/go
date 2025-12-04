@@ -5,7 +5,7 @@ Subject: [PATCH] Use crypto backends
 
 ---
  src/cmd/api/boring_test.go                    |   2 +-
- src/cmd/dist/test.go                          |   5 +-
+ src/cmd/dist/test.go                          |  13 +-
  src/cmd/go/go_boring_test.go                  |   6 +-
  src/cmd/go/script_test.go                     |   2 +
  src/cmd/go/testdata/script/darwin_no_cgo.txt  |   2 +
@@ -99,7 +99,7 @@ Subject: [PATCH] Use crypto backends
  src/hash/notboring_test.go                    |   9 +
  src/net/lookup_test.go                        |   3 +
  src/os/exec/exec_test.go                      |   9 +
- 95 files changed, 1381 insertions(+), 173 deletions(-)
+ 95 files changed, 1388 insertions(+), 174 deletions(-)
  create mode 100644 src/crypto/dsa/boring.go
  create mode 100644 src/crypto/dsa/notboring.go
  create mode 100644 src/crypto/ecdsa/badlinkname.go
@@ -125,7 +125,7 @@ index f0e3575637c62a..9eab3b4e66e60b 100644
  package main
  
 diff --git a/src/cmd/dist/test.go b/src/cmd/dist/test.go
-index 1314403a56cad0..72665644edf02a 100644
+index 1314403a56cad0..17387733a3e1a0 100644
 --- a/src/cmd/dist/test.go
 +++ b/src/cmd/dist/test.go
 @@ -720,7 +720,7 @@ func (t *tester) registerTests() {
@@ -137,7 +137,24 @@ index 1314403a56cad0..72665644edf02a 100644
  		// Test standard crypto packages with fips140=on.
  		t.registerTest("GOFIPS140=latest go test crypto/...", &goTest{
  			variant: "gofips140",
-@@ -1382,12 +1382,11 @@ func (t *tester) registerCgoTests(heading string) {
+@@ -763,9 +763,15 @@ func (t *tester) registerTests() {
+ 
+ 	// Test GOEXPERIMENT=runtimesecret.
+ 	if !strings.Contains(goexperiment, "runtimesecret") {
++		// Don't override existing GOEXPERIMENTs.
++		goexperiment := goexperiment
++		if goexperiment != "" {
++			goexperiment += ","
++		}
++		goexperiment += "runtimesecret"
+ 		t.registerTest("GOEXPERIMENT=runtimesecret go test runtime/secret/...", &goTest{
+ 			variant: "runtimesecret",
+-			env:     []string{"GOEXPERIMENT=runtimesecret"},
++			env:     []string{"GOEXPERIMENT=" + goexperiment},
+ 			pkg:     "runtime/secret/...",
+ 		})
+ 	}
+@@ -1382,12 +1388,11 @@ func (t *tester) registerCgoTests(heading string) {
  			// a C linker warning on Linux.
  			// in function `bio_ip_and_port_to_socket_and_addr':
  			// warning: Using 'getaddrinfo' in statically linked applications requires at runtime the shared libraries from the glibc version used for linking
