@@ -146,6 +146,7 @@ func upgradeDependency(info *depsInfo) error {
 }
 
 var goBinary = sync.OnceValue(func() string {
+	//lint:ignore SA1019 we want to know the binary that built us
 	path := filepath.Join(runtime.GOROOT(), "bin", "go")
 	if runtime.GOOS == "windows" {
 		path += ".exe"
