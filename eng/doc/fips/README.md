@@ -223,7 +223,8 @@ The [Go Runtime FIPS mode](#go-runtime-fips-mode) section describes this in more
 
 Go 1.24 also introduces `GODEBUG=fips140=only`.
 It acts as `GODEBUG=fips140=on`, but also makes a best effort to panic if a non-FIPS 140-3 compliant algorithm is used.
-This setting is partially supported in Go 1.24.
+The `only` setting is not yet supported in the Microsoft build of Go.
+(See [microsoft/go#1656 Support `GODEBUG=fips140=only`](https://github.com/microsoft/go/issues/1656).)
 
 ### Linux FIPS mode (OpenSSL)
 
