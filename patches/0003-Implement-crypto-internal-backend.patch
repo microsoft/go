@@ -29,12 +29,12 @@ desired goexperiments and build tags.
  src/crypto/internal/backend/bbig/big_cng.go   |  12 +
  .../internal/backend/bbig/big_darwin.go       |  12 +
  .../internal/backend/bbig/big_openssl.go      |  12 +
- src/crypto/internal/backend/cng_windows.go    | 393 +++++++++++++++++
+ src/crypto/internal/backend/cng_windows.go    | 410 +++++++++++++++++
  src/crypto/internal/backend/common.go         |  46 ++
- src/crypto/internal/backend/darwin_darwin.go  | 395 ++++++++++++++++++
+ src/crypto/internal/backend/darwin_darwin.go  | 416 ++++++++++++++++++
  src/crypto/internal/backend/fips140/cng.go    |  35 ++
  src/crypto/internal/backend/fips140/darwin.go |  13 +
- .../internal/backend/fips140/fips140.go       |  70 ++++
+ .../internal/backend/fips140/fips140.go       |  70 +++
  .../internal/backend/fips140/isrequirefips.go |   9 +
  .../internal/backend/fips140/norequirefips.go |   9 +
  .../backend/fips140/nosystemcrypto.go         |  13 +
@@ -45,15 +45,15 @@ desired goexperiments and build tags.
  .../internal/opensslsetup/opensslsetup.go     |  68 +++
  .../opensslsetup/opensslsetup_test.go         |  92 ++++
  .../backend/internal/opensslsetup/stub.go     |   8 +
- src/crypto/internal/backend/nobackend.go      | 349 ++++++++++++++++
- src/crypto/internal/backend/openssl_linux.go  | 380 +++++++++++++++++
+ src/crypto/internal/backend/nobackend.go      | 366 +++++++++++++++
+ src/crypto/internal/backend/openssl_linux.go  | 397 +++++++++++++++++
  src/crypto/internal/backend/stub.s            |  10 +
  src/crypto/systemcrypto_nocgo_linux.go        |  15 +
  src/go/build/deps_test.go                     |  24 +-
  src/internal/buildcfg/exp.go                  |  57 +++
  src/runtime/runtime_boring.go                 |   5 +
  src/syscall/exec_linux_test.go                |   4 +
- 44 files changed, 2610 insertions(+), 21 deletions(-)
+ 44 files changed, 2682 insertions(+), 21 deletions(-)
  create mode 100644 src/cmd/go/systemcrypto_test.go
  create mode 100644 src/crypto/internal/backend/backend_test.go
  create mode 100644 src/crypto/internal/backend/bbig/big.go
@@ -945,10 +945,10 @@ index 00000000000000..e6695dd66b1d02
 +var Dec = bbig.Dec
 diff --git a/src/crypto/internal/backend/cng_windows.go b/src/crypto/internal/backend/cng_windows.go
 new file mode 100644
-index 00000000000000..fdcc48ddb28c12
+index 00000000000000..26912810eeeaa6
 --- /dev/null
 +++ b/src/crypto/internal/backend/cng_windows.go
-@@ -0,0 +1,393 @@
+@@ -0,0 +1,410 @@
 +// Copyright 2017 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -996,11 +996,20 @@ index 00000000000000..fdcc48ddb28c12
 +	return cng.SupportsHash(h)
 +}
 +
++func SupportsSHAKE(securityBits int) bool {
++	return cng.SupportsSHAKE(securityBits)
++}
++
++func SupportsCSHAKE(securityBits int) bool {
++	return cng.SupportsSHAKE(securityBits)
++}
++
 +func SupportsCurve(curve string) bool            { return true }
 +func SupportsRSAOAEPLabel(label []byte) bool     { return true }
 +func SupportsPKCS1v15Hash(hash crypto.Hash) bool { return true }
 +
 +type Hash = cng.Hash
++type SHAKE = cng.SHAKE
 +
 +func NewMD5() hash.Hash        { return cng.NewMD5() }
 +func NewSHA1() hash.Hash       { return cng.NewSHA1() }
@@ -1015,6 +1024,11 @@ index 00000000000000..fdcc48ddb28c12
 +func NewSHA3_384() *Hash       { return cng.NewSHA3_384() }
 +func NewSHA3_512() *Hash       { return cng.NewSHA3_512() }
 +
++func NewSHAKE128() *SHAKE             { return cng.NewSHAKE128() }
++func NewSHAKE256() *SHAKE             { return cng.NewSHAKE256() }
++func NewCSHAKE128(N, S []byte) *SHAKE { return cng.NewCSHAKE128(N, S) }
++func NewCSHAKE256(N, S []byte) *SHAKE { return cng.NewCSHAKE256(N, S) }
++
 +func MD5(p []byte) (sum [16]byte)         { return cng.MD5(p) }
 +func SHA1(p []byte) (sum [20]byte)        { return cng.SHA1(p) }
 +func SHA224(p []byte) (sum [28]byte)      { panic("cngcrypto: not available") }
@@ -1027,6 +1041,9 @@ index 00000000000000..fdcc48ddb28c12
 +func SumSHA3_256(p []byte) (sum [32]byte) { return cng.SumSHA3_256(p) }
 +func SumSHA3_384(p []byte) (sum [48]byte) { return cng.SumSHA3_384(p) }
 +func SumSHA3_512(p []byte) (sum [64]byte) { return cng.SumSHA3_512(p) }
++
++func SumSHAKE128(data []byte, length int) (sum []byte) { return cng.SumSHAKE128(data, length) }
++func SumSHAKE256(data []byte, length int) (sum []byte) { return cng.SumSHAKE256(data, length) }
 +
 +func NewHMAC(h func() hash.Hash, key []byte) hash.Hash {
 +	return cng.NewHMAC(h, key)
@@ -1396,10 +1413,10 @@ index 00000000000000..a9682181ffa154
 +}
 diff --git a/src/crypto/internal/backend/darwin_darwin.go b/src/crypto/internal/backend/darwin_darwin.go
 new file mode 100644
-index 00000000000000..36002e9e4dbbd8
+index 00000000000000..4d6de2242f0a95
 --- /dev/null
 +++ b/src/crypto/internal/backend/darwin_darwin.go
-@@ -0,0 +1,395 @@
+@@ -0,0 +1,416 @@
 +// Copyright 2017 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -1417,6 +1434,7 @@ index 00000000000000..36002e9e4dbbd8
 +	"crypto/internal/backend/fips140"
 +	"crypto/internal/boring/sig"
 +	"hash"
++	"io"
 +	_ "unsafe"
 +
 +	"github.com/microsoft/go-crypto-darwin/xcrypto"
@@ -1440,6 +1458,9 @@ index 00000000000000..36002e9e4dbbd8
 +func SupportsHash(h crypto.Hash) bool {
 +	return xcrypto.SupportsHash(h)
 +}
++
++func SupportsSHAKE(securityBits int) bool  { return false }
++func SupportsCSHAKE(securityBits int) bool { return false }
 +
 +func SupportsCurve(curve string) bool {
 +	switch curve {
@@ -1465,6 +1486,15 @@ index 00000000000000..36002e9e4dbbd8
 +
 +type Hash = xcrypto.Hash
 +
++type SHAKE struct {
++	io.Reader
++	hash.Hash
++}
++
++func (s *SHAKE) MarshalBinary() ([]byte, error)        { panic("cryptobackend: not available") }
++func (s *SHAKE) AppendBinary(p []byte) ([]byte, error) { panic("cryptobackend: not available") }
++func (s *SHAKE) UnmarshalBinary(data []byte) error     { panic("cryptobackend: not available") }
++
 +func NewMD5() hash.Hash    { return xcrypto.NewMD5() }
 +func NewSHA1() hash.Hash   { return xcrypto.NewSHA1() }
 +func NewSHA224() hash.Hash { panic("cryptobackend: not available") }
@@ -1475,6 +1505,11 @@ index 00000000000000..36002e9e4dbbd8
 +func NewSHA3_256() *Hash   { return xcrypto.NewSHA3_256() }
 +func NewSHA3_384() *Hash   { return xcrypto.NewSHA3_384() }
 +func NewSHA3_512() *Hash   { return xcrypto.NewSHA3_512() }
++
++func NewSHAKE128() *SHAKE             { panic("cryptobackend: not available") }
++func NewSHAKE256() *SHAKE             { panic("cryptobackend: not available") }
++func NewCSHAKE128(N, S []byte) *SHAKE { panic("cryptobackend: not available") }
++func NewCSHAKE256(N, S []byte) *SHAKE { panic("cryptobackend: not available") }
 +
 +func MD5(p []byte) (sum [16]byte)         { return xcrypto.MD5(p) }
 +func SHA1(p []byte) (sum [20]byte)        { return xcrypto.SHA1(p) }
@@ -1488,6 +1523,9 @@ index 00000000000000..36002e9e4dbbd8
 +func SumSHA3_256(p []byte) (sum [32]byte) { return xcrypto.SumSHA3_256(p) }
 +func SumSHA3_384(p []byte) (sum [48]byte) { return xcrypto.SumSHA3_384(p) }
 +func SumSHA3_512(p []byte) (sum [64]byte) { return xcrypto.SumSHA3_512(p) }
++
++func SumSHAKE128(data []byte, length int) (sum []byte) { panic("cryptobackend: not available") }
++func SumSHAKE256(data []byte, length int) (sum []byte) { panic("cryptobackend: not available") }
 +
 +func NewHMAC(h func() hash.Hash, key []byte) hash.Hash {
 +	return xcrypto.NewHMAC(h, key)
@@ -2286,10 +2324,10 @@ index 00000000000000..3b92bfc5fbabf6
 +package opensslsetup
 diff --git a/src/crypto/internal/backend/nobackend.go b/src/crypto/internal/backend/nobackend.go
 new file mode 100644
-index 00000000000000..c729dab02ad1bd
+index 00000000000000..0b1d97211ef7c3
 --- /dev/null
 +++ b/src/crypto/internal/backend/nobackend.go
-@@ -0,0 +1,349 @@
+@@ -0,0 +1,366 @@
 +// Copyright 2017 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -2303,6 +2341,7 @@ index 00000000000000..c729dab02ad1bd
 +	"crypto/cipher"
 +	"crypto/internal/backend/fips140"
 +	"hash"
++	"io"
 +)
 +
 +func init() {
@@ -2323,11 +2362,29 @@ index 00000000000000..c729dab02ad1bd
 +
 +func SupportsHash(h crypto.Hash) bool { panic("cryptobackend: not available") }
 +
++func SupportsSHAKE(securityBits int) bool  { panic("cryptobackend: not available") }
++func SupportsCSHAKE(securityBits int) bool { panic("cryptobackend: not available") }
++
 +func SupportsCurve(curve string) bool            { panic("cryptobackend: not available") }
 +func SupportsRSAOAEPLabel(label []byte) bool     { panic("cryptobackend: not available") }
 +func SupportsPKCS1v15Hash(hash crypto.Hash) bool { panic("cryptobackend: not available") }
 +
-+type Hash struct{}
++type Hash struct {
++	hash.Cloner
++}
++
++func (d *Hash) MarshalBinary() ([]byte, error)        { panic("cryptobackend: not available") }
++func (d *Hash) AppendBinary(p []byte) ([]byte, error) { panic("cryptobackend: not available") }
++func (d *Hash) UnmarshalBinary(data []byte) error     { panic("cryptobackend: not available") }
++
++type SHAKE struct {
++	io.Reader
++	hash.Hash
++}
++
++func (s *SHAKE) MarshalBinary() ([]byte, error)        { panic("cryptobackend: not available") }
++func (s *SHAKE) AppendBinary(p []byte) ([]byte, error) { panic("cryptobackend: not available") }
++func (s *SHAKE) UnmarshalBinary(data []byte) error     { panic("cryptobackend: not available") }
 +
 +func NewMD5() hash.Hash        { panic("cryptobackend: not available") }
 +func NewSHA1() hash.Hash       { panic("cryptobackend: not available") }
@@ -2342,15 +2399,10 @@ index 00000000000000..c729dab02ad1bd
 +func NewSHA3_384() *Hash       { panic("cryptobackend: not available") }
 +func NewSHA3_512() *Hash       { panic("cryptobackend: not available") }
 +
-+func (d *Hash) Write(p []byte) (n int, err error)     { panic("cryptobackend: not available") }
-+func (d *Hash) Sum(b []byte) []byte                   { panic("cryptobackend: not available") }
-+func (d *Hash) Reset()                                { panic("cryptobackend: not available") }
-+func (d *Hash) Size() int                             { panic("cryptobackend: not available") }
-+func (d *Hash) BlockSize() int                        { panic("cryptobackend: not available") }
-+func (d *Hash) MarshalBinary() ([]byte, error)        { panic("cryptobackend: not available") }
-+func (d *Hash) AppendBinary(p []byte) ([]byte, error) { panic("cryptobackend: not available") }
-+func (d *Hash) UnmarshalBinary(data []byte) error     { panic("cryptobackend: not available") }
-+func (d *Hash) Clone() (hash.Cloner, error)           { panic("cryptobackend: not available") }
++func NewSHAKE128() *SHAKE             { panic("cryptobackend: not available") }
++func NewSHAKE256() *SHAKE             { panic("cryptobackend: not available") }
++func NewCSHAKE128(N, S []byte) *SHAKE { panic("cryptobackend: not available") }
++func NewCSHAKE256(N, S []byte) *SHAKE { panic("cryptobackend: not available") }
 +
 +func MD5(p []byte) (sum [16]byte)         { panic("cryptobackend: not available") }
 +func SHA1(p []byte) (sum [20]byte)        { panic("cryptobackend: not available") }
@@ -2364,6 +2416,9 @@ index 00000000000000..c729dab02ad1bd
 +func SumSHA3_256(p []byte) (sum [32]byte) { panic("cryptobackend: not available") }
 +func SumSHA3_384(p []byte) (sum [48]byte) { panic("cryptobackend: not available") }
 +func SumSHA3_512(p []byte) (sum [64]byte) { panic("cryptobackend: not available") }
++
++func SumSHAKE128(data []byte, length int) (sum []byte) { panic("cryptobackend: not available") }
++func SumSHAKE256(data []byte, length int) (sum []byte) { panic("cryptobackend: not available") }
 +
 +func NewHMAC(h func() hash.Hash, key []byte) hash.Hash { panic("cryptobackend: not available") }
 +
@@ -2641,10 +2696,10 @@ index 00000000000000..c729dab02ad1bd
 +}
 diff --git a/src/crypto/internal/backend/openssl_linux.go b/src/crypto/internal/backend/openssl_linux.go
 new file mode 100644
-index 00000000000000..3e99c5961b8891
+index 00000000000000..d39ddbefd3db01
 --- /dev/null
 +++ b/src/crypto/internal/backend/openssl_linux.go
-@@ -0,0 +1,380 @@
+@@ -0,0 +1,397 @@
 +// Copyright 2017 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -2694,11 +2749,20 @@ index 00000000000000..3e99c5961b8891
 +	return openssl.SupportsHash(h)
 +}
 +
++func SupportsSHAKE(securityBits int) bool {
++	return openssl.SupportsSHAKE(securityBits)
++}
++
++func SupportsCSHAKE(securityBits int) bool {
++	return openssl.SupportsCSHAKE(securityBits)
++}
++
 +func SupportsCurve(curve string) bool            { return true }
 +func SupportsRSAOAEPLabel(label []byte) bool     { return true }
 +func SupportsPKCS1v15Hash(hash crypto.Hash) bool { return true }
 +
 +type Hash = openssl.Hash
++type SHAKE = openssl.SHAKE
 +
 +func NewMD5() hash.Hash        { return openssl.NewMD5() }
 +func NewSHA1() hash.Hash       { return openssl.NewSHA1() }
@@ -2713,6 +2777,11 @@ index 00000000000000..3e99c5961b8891
 +func NewSHA3_384() *Hash       { return openssl.NewSHA3_384() }
 +func NewSHA3_512() *Hash       { return openssl.NewSHA3_512() }
 +
++func NewSHAKE128() *SHAKE             { return openssl.NewSHAKE128() }
++func NewSHAKE256() *SHAKE             { return openssl.NewSHAKE256() }
++func NewCSHAKE128(N, S []byte) *SHAKE { return openssl.NewCSHAKE128(N, S) }
++func NewCSHAKE256(N, S []byte) *SHAKE { return openssl.NewCSHAKE256(N, S) }
++
 +func MD5(p []byte) (sum [16]byte)         { return openssl.MD5(p) }
 +func SHA1(p []byte) (sum [20]byte)        { return openssl.SHA1(p) }
 +func SHA224(p []byte) (sum [28]byte)      { return openssl.SHA224(p) }
@@ -2725,6 +2794,9 @@ index 00000000000000..3e99c5961b8891
 +func SumSHA3_256(p []byte) (sum [32]byte) { return openssl.SumSHA3_256(p) }
 +func SumSHA3_384(p []byte) (sum [48]byte) { return openssl.SumSHA3_384(p) }
 +func SumSHA3_512(p []byte) (sum [64]byte) { return openssl.SumSHA3_512(p) }
++
++func SumSHAKE128(data []byte, length int) (sum []byte) { return openssl.SumSHAKE128(data, length) }
++func SumSHAKE256(data []byte, length int) (sum []byte) { return openssl.SumSHAKE256(data, length) }
 +
 +func NewHMAC(h func() hash.Hash, key []byte) hash.Hash { return openssl.NewHMAC(h, key) }
 +

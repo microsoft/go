@@ -69,10 +69,10 @@ This section includes the following packages:
 | SHA-3-256 <sup>3</sup> | ✔️ <sup>4</sup> | ✔️ <sup>2</sup>   | ✔️ <sup>5</sup> |
 | SHA-3-384 <sup>3</sup> | ✔️ <sup>4</sup> | ✔️ <sup>2</sup>   | ✔️ <sup>5</sup> |
 | SHA-3-512 <sup>3</sup> | ✔️ <sup>4</sup> | ✔️ <sup>2</sup>   | ✔️ <sup>5</sup> |
-| SHAKE-128              | ❌              | ❌                | ❌              |
-| SHAKE-256              | ❌              | ❌                | ❌              |
-| CSHAKE-128             | ❌              | ❌                | ❌              |
-| CSHAKE-256             | ❌              | ❌                | ❌              |
+| SHAKE-128              | ✔️              | ✔️ <sup>7</sup>   | ❌              |
+| SHAKE-256              | ✔️              | ✔️ <sup>7</sup>   | ❌              |
+| CSHAKE-128             | ✔️              | ❌                | ❌              |
+| CSHAKE-256             | ✔️              | ❌                | ❌              |
 | HMAC<sup>6</sup>       | ✔️              | ✔️                | ✔️              |
 
 <sup>1</sup>Available starting in the Microsoft build of Go 1.24.
@@ -86,6 +86,8 @@ This section includes the following packages:
 <sup>5</sup>Available starting in macOS 26 (Tahoe).
 
 <sup>6</sup>Supports only hash algorithms that are supported as standalone hash functions.
+
+<sup>7</sup>Requires OpenSSL 3.3 or later.
 
 ## Symmetric encryption
 

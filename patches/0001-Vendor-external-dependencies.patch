@@ -46,7 +46,7 @@ Use a 'go' that was recently built by the current branch to ensure stable result
  .../github.com/golang-fips/openssl/v2/big.go  |   11 +
  .../golang-fips/openssl/v2/cipher.go          |  652 +++++
  .../golang-fips/openssl/v2/const.go           |   90 +
- .../golang-fips/openssl/v2/cshake.go          |  219 ++
+ .../golang-fips/openssl/v2/cshake.go          |  231 ++
  .../github.com/golang-fips/openssl/v2/des.go  |  112 +
  .../github.com/golang-fips/openssl/v2/dsa.go  |  308 +++
  .../github.com/golang-fips/openssl/v2/ec.go   |  136 +
@@ -124,7 +124,7 @@ Use a 'go' that was recently built by the current branch to ensure stable result
  .../openssl/v2/providersymcrypt.go            |  338 +++
  .../github.com/golang-fips/openssl/v2/rand.go |   21 +
  .../github.com/golang-fips/openssl/v2/rc4.go  |   68 +
- .../github.com/golang-fips/openssl/v2/rsa.go  |  365 +++
+ .../github.com/golang-fips/openssl/v2/rsa.go  |  401 +++
  .../golang-fips/openssl/v2/tls1prf.go         |  158 ++
  .../github.com/golang-fips/openssl/v2/zaes.go |   86 +
  .../microsoft/go-crypto-darwin/LICENSE        |   21 +
@@ -213,7 +213,7 @@ Use a 'go' that was recently built by the current branch to ensure stable result
  .../internal/subtle/aliasing.go               |   32 +
  .../internal/sysdll/sys_windows.go            |   55 +
  src/vendor/modules.txt                        |   21 +
- 205 files changed, 28899 insertions(+), 7 deletions(-)
+ 205 files changed, 28947 insertions(+), 7 deletions(-)
  create mode 100644 src/cmd/internal/telemetry/counter/deps_ignore.go
  create mode 100644 src/cmd/vendor/github.com/microsoft/go-infra/telemetry/LICENSE
  create mode 100644 src/cmd/vendor/github.com/microsoft/go-infra/telemetry/README.md
@@ -2072,7 +2072,7 @@ index 00000000000000..ae4055d2d71303
 +// that are used by the backend package. This allows to track
 +// their versions in a single patch file.
 diff --git a/src/go.mod b/src/go.mod
-index f79455c970ecb2..9cc1ba35b713b5 100644
+index f79455c970ecb2..28266d4c27fdd0 100644
 --- a/src/go.mod
 +++ b/src/go.mod
 @@ -11,3 +11,9 @@ require (
@@ -2081,17 +2081,17 @@ index f79455c970ecb2..9cc1ba35b713b5 100644
  )
 +
 +require (
-+	github.com/golang-fips/openssl/v2 v2.0.4-0.20251204120705-9f5b540d3bcf
++	github.com/golang-fips/openssl/v2 v2.0.4-0.20251205103838-300bb5780a83
 +	github.com/microsoft/go-crypto-darwin v0.0.3-0.20251202082849-356ad09993bc
 +	github.com/microsoft/go-crypto-winnative v0.0.0-20251202082756-9cab7d2d4a79
 +)
 diff --git a/src/go.sum b/src/go.sum
-index e2cf9591bc56dc..de83c1a8cb54b2 100644
+index e2cf9591bc56dc..8fdadf30f50da2 100644
 --- a/src/go.sum
 +++ b/src/go.sum
 @@ -1,3 +1,9 @@
-+github.com/golang-fips/openssl/v2 v2.0.4-0.20251204120705-9f5b540d3bcf h1:CeJxZa0X5K7keIgQF79icWif8oiJZJmAwnuNXCYYeh4=
-+github.com/golang-fips/openssl/v2 v2.0.4-0.20251204120705-9f5b540d3bcf/go.mod h1:EtVnMfLGkB4pihGOH+tXEV0WlXxewWdT1n3GLJEHvpw=
++github.com/golang-fips/openssl/v2 v2.0.4-0.20251205103838-300bb5780a83 h1:u3WAHp425YzcHygZORNJa9dkyA959Gtti8bUgGYYuiA=
++github.com/golang-fips/openssl/v2 v2.0.4-0.20251205103838-300bb5780a83/go.mod h1:EtVnMfLGkB4pihGOH+tXEV0WlXxewWdT1n3GLJEHvpw=
 +github.com/microsoft/go-crypto-darwin v0.0.3-0.20251202082849-356ad09993bc h1:bz/6zng2sakr1ETJsKnGoHooH6sBKbQNxk9aeH5tRt0=
 +github.com/microsoft/go-crypto-darwin v0.0.3-0.20251202082849-356ad09993bc/go.mod h1:MTii5PQwRlfUjYpGoF8CPLGwXSHTbLHGRN9FVNML5N0=
 +github.com/microsoft/go-crypto-winnative v0.0.0-20251202082756-9cab7d2d4a79 h1:u3ZftMj7JpCAl4Ku8LUngqfn7pNuQG9mAsNMlSjBvDI=
@@ -3293,10 +3293,10 @@ index 00000000000000..84b85024940f7e
 +)
 diff --git a/src/vendor/github.com/golang-fips/openssl/v2/cshake.go b/src/vendor/github.com/golang-fips/openssl/v2/cshake.go
 new file mode 100644
-index 00000000000000..d744345e0a1c64
+index 00000000000000..a7e923a86979fa
 --- /dev/null
 +++ b/src/vendor/github.com/golang-fips/openssl/v2/cshake.go
-@@ -0,0 +1,219 @@
+@@ -0,0 +1,231 @@
 +//go:build !cmd_go_bootstrap && (cgo || goexperiment.ms_nocgo_opensslcrypto)
 +
 +package openssl
@@ -3478,6 +3478,18 @@ index 00000000000000..d744345e0a1c64
 +// BlockSize returns the rate of the XOF.
 +func (s *SHAKE) BlockSize() int {
 +	return s.alg.blockSize
++}
++
++func (s *SHAKE) MarshalBinary() ([]byte, error) {
++	return nil, errMarshallUnsupported{}
++}
++
++func (s *SHAKE) AppendBinary(b []byte) ([]byte, error) {
++	return nil, errMarshallUnsupported{}
++}
++
++func (s *SHAKE) UnmarshalBinary(data []byte) error {
++	return errMarshallUnsupported{}
 +}
 +
 +type shakeAlgorithm struct {
@@ -18299,10 +18311,10 @@ index 00000000000000..e933228919296d
 +}
 diff --git a/src/vendor/github.com/golang-fips/openssl/v2/rsa.go b/src/vendor/github.com/golang-fips/openssl/v2/rsa.go
 new file mode 100644
-index 00000000000000..2c8c8e85523146
+index 00000000000000..f1cddf8b5103db
 --- /dev/null
 +++ b/src/vendor/github.com/golang-fips/openssl/v2/rsa.go
-@@ -0,0 +1,365 @@
+@@ -0,0 +1,401 @@
 +//go:build !cmd_go_bootstrap && (cgo || goexperiment.ms_nocgo_opensslcrypto)
 +
 +package openssl
@@ -18313,6 +18325,7 @@ index 00000000000000..2c8c8e85523146
 +	"errors"
 +	"hash"
 +	"runtime"
++	"sync"
 +	"unsafe"
 +
 +	"github.com/golang-fips/openssl/v2/internal/ossl"
@@ -18668,6 +18681,41 @@ index 00000000000000..2c8c8e85523146
 +	}
 +	return newEvpFromParams(ossl.EVP_PKEY_RSA, int32(selection), params)
 +}
++
++// SupportsRSAPKCS1Encryption returns true if the RSA PKCS1 v1.5 padding is supported for encryption and decryption.
++var SupportsRSAPKCS1Encryption = sync.OnceValue(func() bool {
++	// Generate a temporary key to check for support.
++	// 2048 bits is a safe default that should be supported by all providers.
++	pkey, err := generateEVPPKey(ossl.EVP_PKEY_RSA, 2048, "")
++	if err != nil {
++		return false
++	}
++	defer ossl.EVP_PKEY_free(pkey)
++
++	ctx, err := ossl.EVP_PKEY_CTX_new(pkey, nil)
++	if err != nil {
++		return false
++	}
++	defer ossl.EVP_PKEY_CTX_free(ctx)
++
++	if _, err := ossl.EVP_PKEY_encrypt_init(ctx); err != nil {
++		return false
++	}
++
++	if _, err := ossl.EVP_PKEY_CTX_ctrl(ctx, ossl.EVP_PKEY_RSA, -1, ossl.EVP_PKEY_CTRL_RSA_PADDING, ossl.RSA_PKCS1_PADDING, nil); err != nil {
++		return false
++	}
++
++	// In FIPS mode, setting the padding might succeed, but the actual encryption will fail.
++	// So we need to try to encrypt something to be sure.
++	in := []byte("test")
++	var outLen int
++	if _, err := ossl.EVP_PKEY_encrypt(ctx, nil, &outLen, &in[0], len(in)); err != nil {
++		return false
++	}
++
++	return true
++})
 diff --git a/src/vendor/github.com/golang-fips/openssl/v2/tls1prf.go b/src/vendor/github.com/golang-fips/openssl/v2/tls1prf.go
 new file mode 100644
 index 00000000000000..5a0aa905f03e43
@@ -32516,11 +32564,11 @@ index 00000000000000..1722410e5af193
 +	return getSystemDirectory() + "\\" + dll
 +}
 diff --git a/src/vendor/modules.txt b/src/vendor/modules.txt
-index 7932adddfaa1c5..f0dd3eafd8e753 100644
+index 7932adddfaa1c5..ca009c3e43044e 100644
 --- a/src/vendor/modules.txt
 +++ b/src/vendor/modules.txt
 @@ -1,3 +1,24 @@
-+# github.com/golang-fips/openssl/v2 v2.0.4-0.20251204120705-9f5b540d3bcf
++# github.com/golang-fips/openssl/v2 v2.0.4-0.20251205103838-300bb5780a83
 +## explicit; go 1.24
 +github.com/golang-fips/openssl/v2
 +github.com/golang-fips/openssl/v2/bbig
