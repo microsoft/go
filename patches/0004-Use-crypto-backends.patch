@@ -71,7 +71,7 @@ Subject: [PATCH] Use crypto backends
  src/crypto/sha1/sha1_test.go                  |  11 +-
  src/crypto/sha256/sha256.go                   |   6 +-
  src/crypto/sha256/sha256_test.go              |  44 ++--
- src/crypto/sha3/sha3.go                       |  68 +++++-
+ src/crypto/sha3/sha3.go                       | 124 +++++++++--
  src/crypto/sha3/sha3_test.go                  |  11 +-
  src/crypto/sha512/sha512.go                   |   2 +-
  src/crypto/sha512/sha512_test.go              |  32 ++-
@@ -99,7 +99,7 @@ Subject: [PATCH] Use crypto backends
  src/hash/notboring_test.go                    |   9 +
  src/net/lookup_test.go                        |   3 +
  src/os/exec/exec_test.go                      |   9 +
- 95 files changed, 1388 insertions(+), 174 deletions(-)
+ 95 files changed, 1436 insertions(+), 182 deletions(-)
  create mode 100644 src/crypto/dsa/boring.go
  create mode 100644 src/crypto/dsa/notboring.go
  create mode 100644 src/crypto/ecdsa/badlinkname.go
@@ -2815,7 +2815,7 @@ index a18a536ba2896f..7b3b37c3b0c10d 100644
  	}
  }
 diff --git a/src/crypto/sha3/sha3.go b/src/crypto/sha3/sha3.go
-index 48c67e9fe11005..937b42af2b61a1 100644
+index 48c67e9fe11005..3fe46309e0fda8 100644
 --- a/src/crypto/sha3/sha3.go
 +++ b/src/crypto/sha3/sha3.go
 @@ -8,6 +8,7 @@ package sha3
@@ -2866,7 +2866,27 @@ index 48c67e9fe11005..937b42af2b61a1 100644
  	var out [64]byte
  	h := sha3.New512()
  	h.Write(data)
-@@ -99,7 +112,9 @@ func sumSHAKE256(out, data []byte, length int) []byte {
+@@ -59,6 +72,9 @@ func Sum512(data []byte) [64]byte {
+ // SumSHAKE128 applies the SHAKE128 extendable output function to data and
+ // returns an output of the given length in bytes.
+ func SumSHAKE128(data []byte, length int) []byte {
++	if boring.Enabled && boring.SupportsSHAKE(128) {
++		return boring.SumSHAKE128(data, length)
++	}
+ 	// Outline the allocation for up to 256 bits of output to the caller's stack.
+ 	out := make([]byte, 32)
+ 	return sumSHAKE128(out, data, length)
+@@ -79,6 +95,9 @@ func sumSHAKE128(out, data []byte, length int) []byte {
+ // SumSHAKE256 applies the SHAKE256 extendable output function to data and
+ // returns an output of the given length in bytes.
+ func SumSHAKE256(data []byte, length int) []byte {
++	if boring.Enabled && boring.SupportsSHAKE(256) {
++		return boring.SumSHAKE256(data, length)
++	}
+ 	// Outline the allocation for up to 512 bits of output to the caller's stack.
+ 	out := make([]byte, 64)
+ 	return sumSHAKE256(out, data, length)
+@@ -99,7 +118,9 @@ func sumSHAKE256(out, data []byte, length int) []byte {
  // SHA3 is an instance of a SHA-3 hash. It implements [hash.Hash].
  // The zero value is a usable SHA3-256 hash.
  type SHA3 struct {
@@ -2877,7 +2897,7 @@ index 48c67e9fe11005..937b42af2b61a1 100644
  }
  
  //go:linkname fips140hash_sha3Unwrap crypto/internal/fips140hash.sha3Unwrap
-@@ -109,26 +124,38 @@ func fips140hash_sha3Unwrap(sha3 *SHA3) *sha3.Digest {
+@@ -109,26 +130,38 @@ func fips140hash_sha3Unwrap(sha3 *SHA3) *sha3.Digest {
  
  // New224 creates a new SHA3-224 hash.
  func New224() *SHA3 {
@@ -2921,7 +2941,7 @@ index 48c67e9fe11005..937b42af2b61a1 100644
  		*s = *New256()
  	}
  }
-@@ -136,12 +163,18 @@ func (s *SHA3) init() {
+@@ -136,53 +169,81 @@ func (s *SHA3) init() {
  // Write absorbs more data into the hash's state.
  func (s *SHA3) Write(p []byte) (n int, err error) {
  	s.init()
@@ -2940,10 +2960,10 @@ index 48c67e9fe11005..937b42af2b61a1 100644
  	return s.s.Sum(b)
  }
  
-@@ -149,40 +182,63 @@ func (s *SHA3) Sum(b []byte) []byte {
+ // Reset resets the hash to its initial state.
  func (s *SHA3) Reset() {
  	s.init()
- 	s.s.Reset()
+-	s.s.Reset()
 +	if boring.Enabled && s.supported {
 +		s.boringS.Reset()
 +	} else {
@@ -3003,6 +3023,131 @@ index 48c67e9fe11005..937b42af2b61a1 100644
 +	}
  	r := *d
  	return &r, nil
+ }
+@@ -190,23 +251,30 @@ func (d *SHA3) Clone() (hash.Cloner, error) {
+ // SHAKE is an instance of a SHAKE extendable output function.
+ // The zero value is a usable SHAKE256 hash.
+ type SHAKE struct {
+-	s sha3.SHAKE
++	s       sha3.SHAKE
++	boringS *boring.SHAKE
+ }
+ 
+ func (s *SHAKE) init() {
+-	if s.s.Size() == 0 {
++	if s.s.Size() == 0 && s.boringS == nil {
+ 		*s = *NewSHAKE256()
+ 	}
+ }
+ 
+ // NewSHAKE128 creates a new SHAKE128 XOF.
+ func NewSHAKE128() *SHAKE {
+-	return &SHAKE{*sha3.NewShake128()}
++	if boring.Enabled && boring.SupportsSHAKE(128) {
++		return &SHAKE{boringS: boring.NewSHAKE128()}
++	}
++	return &SHAKE{s: *sha3.NewShake128()}
+ }
+ 
+ // NewSHAKE256 creates a new SHAKE256 XOF.
+ func NewSHAKE256() *SHAKE {
+-	return &SHAKE{*sha3.NewShake256()}
++	if boring.Enabled && boring.SupportsSHAKE(256) {
++		return &SHAKE{boringS: boring.NewSHAKE256()}
++	}
++	return &SHAKE{s: *sha3.NewShake256()}
+ }
+ 
+ // NewCSHAKE128 creates a new cSHAKE128 XOF.
+@@ -215,7 +283,10 @@ func NewSHAKE256() *SHAKE {
+ // cSHAKE is desired. S is a customization byte string used for domain
+ // separation. When N and S are both empty, this is equivalent to NewSHAKE128.
+ func NewCSHAKE128(N, S []byte) *SHAKE {
+-	return &SHAKE{*sha3.NewCShake128(N, S)}
++	if boring.Enabled && boring.SupportsCSHAKE(128) {
++		return &SHAKE{boringS: boring.NewCSHAKE128(N, S)}
++	}
++	return &SHAKE{s: *sha3.NewCShake128(N, S)}
+ }
+ 
+ // NewCSHAKE256 creates a new cSHAKE256 XOF.
+@@ -224,7 +295,10 @@ func NewCSHAKE128(N, S []byte) *SHAKE {
+ // cSHAKE is desired. S is a customization byte string used for domain
+ // separation. When N and S are both empty, this is equivalent to NewSHAKE256.
+ func NewCSHAKE256(N, S []byte) *SHAKE {
+-	return &SHAKE{*sha3.NewCShake256(N, S)}
++	if boring.Enabled && boring.SupportsCSHAKE(256) {
++		return &SHAKE{boringS: boring.NewCSHAKE256(N, S)}
++	}
++	return &SHAKE{s: *sha3.NewCShake256(N, S)}
+ }
+ 
+ // Write absorbs more data into the XOF's state.
+@@ -232,6 +306,9 @@ func NewCSHAKE256(N, S []byte) *SHAKE {
+ // It panics if any output has already been read.
+ func (s *SHAKE) Write(p []byte) (n int, err error) {
+ 	s.init()
++	if boring.Enabled && s.boringS != nil {
++		return s.boringS.Write(p)
++	}
+ 	return s.s.Write(p)
+ }
+ 
+@@ -240,35 +317,54 @@ func (s *SHAKE) Write(p []byte) (n int, err error) {
+ // Any call to Write after a call to Read will panic.
+ func (s *SHAKE) Read(p []byte) (n int, err error) {
+ 	s.init()
++	if boring.Enabled && s.boringS != nil {
++		return s.boringS.Read(p)
++	}
+ 	return s.s.Read(p)
+ }
+ 
+ // Reset resets the XOF to its initial state.
+ func (s *SHAKE) Reset() {
+ 	s.init()
+-	s.s.Reset()
++	if boring.Enabled && s.boringS != nil {
++		s.boringS.Reset()
++	} else {
++		s.s.Reset()
++	}
+ }
+ 
+ // BlockSize returns the rate of the XOF.
+ func (s *SHAKE) BlockSize() int {
+ 	s.init()
++	if boring.Enabled && s.boringS != nil {
++		return s.boringS.BlockSize()
++	}
+ 	return s.s.BlockSize()
+ }
+ 
+ // MarshalBinary implements [encoding.BinaryMarshaler].
+ func (s *SHAKE) MarshalBinary() ([]byte, error) {
+ 	s.init()
++	if boring.Enabled && s.boringS != nil {
++		return s.boringS.MarshalBinary()
++	}
+ 	return s.s.MarshalBinary()
+ }
+ 
+ // AppendBinary implements [encoding.BinaryAppender].
+ func (s *SHAKE) AppendBinary(p []byte) ([]byte, error) {
+ 	s.init()
++	if boring.Enabled && s.boringS != nil {
++		return s.boringS.AppendBinary(p)
++	}
+ 	return s.s.AppendBinary(p)
+ }
+ 
+ // UnmarshalBinary implements [encoding.BinaryUnmarshaler].
+ func (s *SHAKE) UnmarshalBinary(data []byte) error {
+ 	s.init()
++	if boring.Enabled && s.boringS != nil {
++		return s.boringS.UnmarshalBinary(data)
++	}
+ 	return s.s.UnmarshalBinary(data)
  }
 diff --git a/src/crypto/sha3/sha3_test.go b/src/crypto/sha3/sha3_test.go
 index 3973e0afd1b935..ca66d008ef649f 100644
