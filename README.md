@@ -1,19 +1,11 @@
-# The Go Programming Language
+# The Microsoft build of Go
 
-Go is an open source programming language that makes it easy to build simple,
-reliable, and efficient software.
+Go is an open source programming language that makes it easy to build simple, reliable, and efficient software.
+The Microsoft build of Go, maintained in the [microsoft/go repository](https://github.com/microsoft/go), contains the infrastructure Microsoft uses to build a modified version of the Go toolset.
 
-This repository, [microsoft/go](https://github.com/microsoft/go), contains the
-infrastructure Microsoft uses to build Go. The submodule named `go` contains the
-Go source code. By default, the submodule's remote URL is the official GitHub
-mirror of Go, [golang/go](https://github.com/golang/go).  The canonical Git
-repository for Go source code is located at https://go.googlesource.com/go.
+Unless otherwise noted, the Go source files are distributed under the BSD-style license found in the LICENSE file.
 
-This project is not involved in producing the [official binary distributions
-of Go](https://go.dev/dl/).
-
-Unless otherwise noted, the Go source files are distributed under the
-BSD-style license found in the LICENSE file.
+This project is not involved in producing the [official binary distributions of Go](https://go.dev/dl/).
 
 ## Why does this fork exist?
 
@@ -23,14 +15,16 @@ This repository produces a modified version of Go that:
 * Can be used to build FIPS 140 compliant applications.
   * See [eng/doc/fips](eng/doc/fips) for more information about this feature and the history of FIPS 140 compliance in Go.
 
+For a complete summary of the changes we make, see [the "What's different?" section of the Migration Guide](eng/doc/MigrationGuide.md#whats-different).
+
 We submit changes to the upstream Go project rather than patching it, when
 possible. Our goals are to avoid breaking compatibility and to minimize the
 number of changes we maintain in this fork.
 
-We call this repository a fork even though it isn't a traditional Git fork. Its
-branches do not share Git ancestry with the Go repository. However, the
-repository serves the same purpose as a Git fork: maintaining a modified version
-of the Go source code over time.
+We call this project a fork even though it isn't a traditional Git fork: the Git branches don't share ancestry with the upstream Git repository.
+However, the repository serves the same purpose as a Git fork: to maintain a modified version of the Go source code over time.
+The submodule named `go` contains the Go source code, and the `patches` directory contains our changes.
+The submodule is updated regularly to the latest commit available in both the upstream repository, <https://go.googlesource.com/go>, and the GitHub mirror, <https://github.com/golang/go>.
 
 ## Support
 
@@ -43,14 +37,15 @@ so each Go major version is supported for about one year.
 
 When upstream Go releases a new minor version (1.X.Y), we release a
 corresponding microsoft/go version that may also include fork-specific changes.
-This normally happens once a month. At any time, we may release a new revision
-(1.X.Y-Z) to fix an issue without waiting for the next upstream minor release.
+This normally happens once a month.
+
+At any time, we may release a new revision (1.X.Y-Z) to fix an issue without waiting for the next upstream minor release.
 Revision releases are uncommon.
 
 Each microsoft/go release is announced at the
 [Microsoft for Go Developers](https://devblogs.microsoft.com/go/) blog.
 Check out the upstream [golang-announce mailing list](https://groups.google.com/g/golang-announce)
-for a summary of the changes in each Go version.
+for a summary of the changes in each upstream Go version.
 
 See [SUPPORT.md](SUPPORT.md) for more information about reporting bugs, requesting features, and asking questions.
 
@@ -62,9 +57,7 @@ There are a few additional support resources internal to Microsoft:
 
 ## Download and install
 
-We build the forked Go toolset with this list of OS/Arch combinations. To use a
-prebuilt copy of Go while targeting a platform that is not on this list,
-cross-compilation may be necessary.
+We build the forked Go toolset with the following list of OS/Arch combinations:
 
 * `linux_amd64`
 * `linux_armv6l`
@@ -72,6 +65,12 @@ cross-compilation may be necessary.
 * `windows_amd64`
 * `darwin_amd64`
 * `darwin_arm64`
+
+> [!NOTE]
+> Cross-compilation to Windows is supported.
+> For other OS targets, cgo makes cross-compilation difficult, but it may still be possible.
+>
+> For example, to build a program for `windows_arm64`, you can cross-compile on a `windows_amd64` or `linux_amd64` host.
 
 Visit the [Migration Guide](eng/doc/MigrationGuide.md) for guidance about how we
 recommend migrating existing Go projects to use the Microsoft build of Go. This
@@ -130,16 +129,16 @@ include a source tarball file ending in `.src.tar.gz`. After downloading and
 extracting the tar.gz file, build it using the
 [upstream instructions](https://go.dev/doc/install/source).
 
+> [!NOTE]
+> The `zip` file that GitHub offers for download on the [microsoft/go releases page](https://github.com/microsoft/go/releases) is incomplete: it doesn't include the `go` submodule.
+> Make sure to download the `.src.tar.gz` file instead, or [clone the repository using Git and set up the patched submodule](#clone-and-build).
+
 #### Clone and build
 
-The first step is to clone this repository using Git and check out the desired
-tag or commit. The `zip` file that GitHub offers for download is incomplete: it
-doesn't include the `go` submodule.
+First, clone this repository using Git and check out the desired tag or commit.
 
-If you want to contribute to the Microsoft for Go developers project, read the [Developer
-Guide](eng/doc/DeveloperGuide.md). It lists the steps we recommend to set up a
-Microsoft build of Go development environment, execute your first build, run
-the standard library test suite, and contribute a PR.
+If you want to contribute to the Microsoft build of Go project, read the [Developer Guide](eng/doc/DeveloperGuide.md).
+It lists the steps we recommend to set up a Microsoft build of Go development environment, execute your first build, run the standard library test suite, and contribute a PR.
 
 If you just want to build on your own machine, you may find it more
 convenient to use the tools provided by the `eng/run.ps1` script. We use this
