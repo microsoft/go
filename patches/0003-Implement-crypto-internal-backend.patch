@@ -11,7 +11,6 @@ desired goexperiments and build tags.
 ---
  .gitignore                                    |   2 +
  .../compile/internal/logopt/logopt_test.go    |   6 +-
- .../compile/internal/ssa/stmtlines_test.go    |   2 +-
  src/cmd/compile/script_test.go                |   8 +
  src/cmd/dist/build.go                         |  80 +++-
  src/cmd/dist/test.go                          |  38 +-
@@ -19,43 +18,42 @@ desired goexperiments and build tags.
  src/cmd/go/internal/cfg/cfg.go                |  16 +
  src/cmd/go/internal/load/pkg.go               |   3 +
  src/cmd/go/internal/tool/tool.go              |   9 +-
- src/cmd/go/systemcrypto_test.go               | 249 ++++++++++
+ src/cmd/go/systemcrypto_test.go               | 249 +++++++++++
  .../go/testdata/script/env_cross_build.txt    |   2 +
  .../script/test_android_issue62123.txt        |   2 +
  src/cmd/internal/testdir/testdir_test.go      |   7 +
- src/cmd/link/internal/ld/main.go              |  14 +-
+ src/cmd/link/internal/ld/main.go              |  20 +-
  src/cmd/link/link_test.go                     |   8 +
  src/crypto/internal/backend/backend_test.go   |  30 ++
  src/crypto/internal/backend/bbig/big.go       |  17 +
  src/crypto/internal/backend/bbig/big_cng.go   |  12 +
  .../internal/backend/bbig/big_darwin.go       |  12 +
  .../internal/backend/bbig/big_openssl.go      |  12 +
- src/crypto/internal/backend/cng_windows.go    | 433 ++++++++++++++++++
+ src/crypto/internal/backend/cng_windows.go    | 393 +++++++++++++++++
  src/crypto/internal/backend/common.go         |  46 ++
- src/crypto/internal/backend/darwin_darwin.go  | 420 +++++++++++++++++
+ src/crypto/internal/backend/darwin_darwin.go  | 395 ++++++++++++++++++
  src/crypto/internal/backend/fips140/cng.go    |  35 ++
  src/crypto/internal/backend/fips140/darwin.go |  13 +
- .../internal/backend/fips140/fips140.go       |  70 +++
+ .../internal/backend/fips140/fips140.go       |  70 ++++
  .../internal/backend/fips140/isrequirefips.go |   9 +
  .../internal/backend/fips140/norequirefips.go |   9 +
  .../backend/fips140/nosystemcrypto.go         |  13 +
- .../internal/backend/fips140/openssl_cgo.go   |  59 +++
- .../internal/backend/fips140/openssl_nocgo.go |  17 +
+ .../internal/backend/fips140/openssl.go       |  59 +++
  .../fips140/requirefips_nosystemcrypto.go     |  15 +
  .../backend/fips140/skipfipscheck_off.go      |   9 +
  .../backend/fips140/skipfipscheck_on.go       |   9 +
  .../internal/opensslsetup/opensslsetup.go     |  68 +++
  .../opensslsetup/opensslsetup_test.go         |  92 ++++
  .../backend/internal/opensslsetup/stub.go     |   8 +
- src/crypto/internal/backend/nobackend.go      | 349 ++++++++++++++
- src/crypto/internal/backend/openssl_linux.go  | 380 +++++++++++++++
+ src/crypto/internal/backend/nobackend.go      | 349 ++++++++++++++++
+ src/crypto/internal/backend/openssl_linux.go  | 380 +++++++++++++++++
  src/crypto/internal/backend/stub.s            |  10 +
  src/crypto/systemcrypto_nocgo_linux.go        |  15 +
- src/go/build/deps_test.go                     |  32 +-
+ src/go/build/deps_test.go                     |  24 +-
  src/internal/buildcfg/exp.go                  |  57 +++
  src/runtime/runtime_boring.go                 |   5 +
  src/syscall/exec_linux_test.go                |   4 +
- 46 files changed, 2696 insertions(+), 21 deletions(-)
+ 44 files changed, 2610 insertions(+), 21 deletions(-)
  create mode 100644 src/cmd/go/systemcrypto_test.go
  create mode 100644 src/crypto/internal/backend/backend_test.go
  create mode 100644 src/crypto/internal/backend/bbig/big.go
@@ -71,8 +69,7 @@ desired goexperiments and build tags.
  create mode 100644 src/crypto/internal/backend/fips140/isrequirefips.go
  create mode 100644 src/crypto/internal/backend/fips140/norequirefips.go
  create mode 100644 src/crypto/internal/backend/fips140/nosystemcrypto.go
- create mode 100644 src/crypto/internal/backend/fips140/openssl_cgo.go
- create mode 100644 src/crypto/internal/backend/fips140/openssl_nocgo.go
+ create mode 100644 src/crypto/internal/backend/fips140/openssl.go
  create mode 100644 src/crypto/internal/backend/fips140/requirefips_nosystemcrypto.go
  create mode 100644 src/crypto/internal/backend/fips140/skipfipscheck_off.go
  create mode 100644 src/crypto/internal/backend/fips140/skipfipscheck_on.go
@@ -85,10 +82,10 @@ desired goexperiments and build tags.
  create mode 100644 src/crypto/systemcrypto_nocgo_linux.go
 
 diff --git a/.gitignore b/.gitignore
-index c6512e64a4ef39..b3b01db73b009d 100644
+index 344b31f7ac1c1d..b4583113d5aa15 100644
 --- a/.gitignore
 +++ b/.gitignore
-@@ -46,6 +46,8 @@ _testmain.go
+@@ -47,6 +47,8 @@ _testmain.go
  /test/run.out
  /test/times.out
  
@@ -121,19 +118,6 @@ index 1edabf9fb7ff04..026f8cb0278ab6 100644
  			goos0 = "linux"
  		}
  
-diff --git a/src/cmd/compile/internal/ssa/stmtlines_test.go b/src/cmd/compile/internal/ssa/stmtlines_test.go
-index 2bdd6c80b2d66c..8f7b7bc9726d1f 100644
---- a/src/cmd/compile/internal/ssa/stmtlines_test.go
-+++ b/src/cmd/compile/internal/ssa/stmtlines_test.go
-@@ -140,7 +140,7 @@ func TestStmtLines(t *testing.T) {
- 	var m float64
- 	switch runtime.GOARCH {
- 	case "amd64":
--		m = 0.0111 // > 98.89% obtained on amd64, no backsliding
-+		m = 0.012 // > 98.8% obtained on amd64, no backsliding
- 	case "riscv64":
- 		m = 0.03 // XXX temporary update threshold to 97% for regabi
- 	default:
 diff --git a/src/cmd/compile/script_test.go b/src/cmd/compile/script_test.go
 index 0e32e0769ee2e2..eda2d576acc6c6 100644
 --- a/src/cmd/compile/script_test.go
@@ -161,7 +145,7 @@ index 0e32e0769ee2e2..eda2d576acc6c6 100644
  	if doReplacement {
  		if testCompiler == "" {
 diff --git a/src/cmd/dist/build.go b/src/cmd/dist/build.go
-index 2b382a1c025649..25b555dace9a6f 100644
+index e4250e12de8975..917f682fd4bfaf 100644
 --- a/src/cmd/dist/build.go
 +++ b/src/cmd/dist/build.go
 @@ -1382,6 +1382,80 @@ func toolenv() []string {
@@ -292,7 +276,7 @@ index 9c9e1b85f0cd76..54274e7fad8de3 100644
  		}
  	}
  
-@@ -746,15 +748,23 @@ func (t *tester) registerTests() {
+@@ -746,9 +748,15 @@ func (t *tester) registerTests() {
  
  	// Test GOEXPERIMENT=jsonv2.
  	if !strings.Contains(goexperiment, "jsonv2") {
@@ -309,6 +293,8 @@ index 9c9e1b85f0cd76..54274e7fad8de3 100644
  			pkg:     "encoding/json/...",
  		})
  	}
+@@ -763,7 +771,9 @@ func (t *tester) registerTests() {
+ 	}
  
  	// Test ios/amd64 for the iOS simulator.
 -	if goos == "darwin" && goarch == "amd64" && t.cgoEnabled {
@@ -318,7 +304,7 @@ index 9c9e1b85f0cd76..54274e7fad8de3 100644
  		t.registerTest("GOOS=ios on darwin/amd64",
  			&goTest{
  				variant:  "amd64ios",
-@@ -864,14 +874,21 @@ func (t *tester) registerTests() {
+@@ -873,14 +883,21 @@ func (t *tester) registerTests() {
  
  	// Test internal linking of PIE binaries where it is supported.
  	if t.internalLinkPIE() && !disablePIE {
@@ -341,7 +327,7 @@ index 9c9e1b85f0cd76..54274e7fad8de3 100644
  			})
  		t.registerTest("internal linking, -buildmode=pie",
  			&goTest{
-@@ -879,9 +896,10 @@ func (t *tester) registerTests() {
+@@ -888,9 +905,10 @@ func (t *tester) registerTests() {
  				timeout:   60 * time.Second,
  				buildmode: "pie",
  				ldflags:   "-linkmode=internal",
@@ -353,7 +339,7 @@ index 9c9e1b85f0cd76..54274e7fad8de3 100644
  			})
  		// Also test a cgo package.
  		if t.cgoEnabled && t.internalLink() && !disablePIE {
-@@ -985,7 +1003,9 @@ func (t *tester) registerTests() {
+@@ -996,7 +1014,9 @@ func (t *tester) registerTests() {
  		t.registerRaceTests()
  	}
  
@@ -365,7 +351,7 @@ index 9c9e1b85f0cd76..54274e7fad8de3 100644
  		// where they get distributed to multiple machines.
  		// See issues 20141 and 31834.
 diff --git a/src/cmd/go/go_test.go b/src/cmd/go/go_test.go
-index e4ee9bd1e8d2ec..3bdb6b4d31fe46 100644
+index 1722f1a2c34428..ba7740bf8cd31e 100644
 --- a/src/cmd/go/go_test.go
 +++ b/src/cmd/go/go_test.go
 @@ -13,6 +13,7 @@ import (
@@ -390,7 +376,7 @@ index e4ee9bd1e8d2ec..3bdb6b4d31fe46 100644
  
  		if testGOROOT := os.Getenv("TESTGO_GOROOT"); testGOROOT != "" {
  			// Disallow installs to the GOROOT from which testgo was built.
-@@ -1860,6 +1868,9 @@ func TestGenerateUsesBuildContext(t *testing.T) {
+@@ -1862,6 +1870,9 @@ func TestGenerateUsesBuildContext(t *testing.T) {
  }
  
  func TestGoEnv(t *testing.T) {
@@ -435,10 +421,10 @@ index a4edd854f1d35a..10ee92536b96cd 100644
  	// This will also update the BuildContext's tool tags to include the new
  	// experiment tags.
 diff --git a/src/cmd/go/internal/load/pkg.go b/src/cmd/go/internal/load/pkg.go
-index 3b8bbdc91b8191..53a58e23f8b05c 100644
+index e2a77d7d7df85b..aaa3106e5a0e6e 100644
 --- a/src/cmd/go/internal/load/pkg.go
 +++ b/src/cmd/go/internal/load/pkg.go
-@@ -2412,6 +2412,9 @@ func (p *Package) setBuildInfo(ctx context.Context, autoVCS bool) {
+@@ -2413,6 +2413,9 @@ func (p *Package) setBuildInfo(ctx context.Context, f *modfetch.Fetcher, autoVCS
  			buildmode = "archive"
  		}
  	}
@@ -755,7 +741,7 @@ index 2f46a6b44bffe1..69071289e2de81 100644
  
  ! go build -o $devnull cmd/buildid
 diff --git a/src/cmd/internal/testdir/testdir_test.go b/src/cmd/internal/testdir/testdir_test.go
-index 30e66c428dc470..ed061d7fbf4684 100644
+index c7060898778c88..47de9e25baa759 100644
 --- a/src/cmd/internal/testdir/testdir_test.go
 +++ b/src/cmd/internal/testdir/testdir_test.go
 @@ -118,6 +118,13 @@ func Test(t *testing.T) {
@@ -773,7 +759,7 @@ index 30e66c428dc470..ed061d7fbf4684 100644
  		gorootTestDir: filepath.Join(testenv.GOROOT(t), "test"),
  		runoutputGate: make(chan bool, *runoutputLimit),
 diff --git a/src/cmd/link/internal/ld/main.go b/src/cmd/link/internal/ld/main.go
-index d913953944bc43..3349e53cd07809 100644
+index a4b3a0422f2f41..ce290ab4617cfd 100644
 --- a/src/cmd/link/internal/ld/main.go
 +++ b/src/cmd/link/internal/ld/main.go
 @@ -44,6 +44,7 @@ import (
@@ -784,11 +770,13 @@ index d913953944bc43..3349e53cd07809 100644
  	"strconv"
  	"strings"
  )
-@@ -188,7 +189,18 @@ func Main(arch *sys.Arch, theArch Arch) {
+@@ -188,11 +189,22 @@ func Main(arch *sys.Arch, theArch Arch) {
  
  	buildVersion := buildcfg.Version
  	if goexperiment := buildcfg.Experiment.String(); goexperiment != "" {
--		buildVersion += " X:" + goexperiment
+-		sep := " "
+-		if !strings.Contains(buildVersion, "-") { // See go.dev/issue/75953.
+-			sep = "-"
 +		// buildVersion is intended to contain non-default experiment flags.
 +		// The Microsoft build of Go default behavior is to set the
 +		// nosystemcrypto experiments, so we don't include it in the buildVersion string.
@@ -799,24 +787,29 @@ index d913953944bc43..3349e53cd07809 100644
 +			return s == "nosystemcrypto" || s == "ms_nocgo_opensslcrypto"
 +		}), ",")
 +		if goexperiment != "" {
-+			buildVersion += " X:" + goexperiment
-+		}
++			sep := " "
++			if !strings.Contains(buildVersion, "-") { // See go.dev/issue/75953.
++				sep = "-"
++			}
++			buildVersion += sep + "X:" + goexperiment
+ 		}
+-		buildVersion += sep + "X:" + goexperiment
  	}
  	addstrdata1(ctxt, "runtime.buildVersion="+buildVersion)
  
 diff --git a/src/cmd/link/link_test.go b/src/cmd/link/link_test.go
-index 31822d21f39d31..71d23e76f91e1b 100644
+index 0c4cde0399fbd5..196bc4ada5db93 100644
 --- a/src/cmd/link/link_test.go
 +++ b/src/cmd/link/link_test.go
-@@ -9,6 +9,7 @@ import (
- 	"bytes"
- 	"debug/macho"
+@@ -12,6 +12,7 @@ import (
+ 	"debug/pe"
  	"errors"
+ 	"internal/abi"
 +	"internal/goexperiment"
  	"internal/platform"
  	"internal/testenv"
- 	"os"
-@@ -280,6 +281,9 @@ func TestBuildForTvOS(t *testing.T) {
+ 	"internal/xcoff"
+@@ -367,6 +368,9 @@ func TestBuildForTvOS(t *testing.T) {
  	if runtime.GOOS != "darwin" {
  		t.Skip("skipping on non-darwin platform")
  	}
@@ -826,7 +819,7 @@ index 31822d21f39d31..71d23e76f91e1b 100644
  	if testing.Short() && testenv.Builder() == "" {
  		t.Skip("skipping in -short mode with $GO_BUILDER_NAME empty")
  	}
-@@ -512,6 +516,10 @@ func TestIssue34788Android386TLSSequence(t *testing.T) {
+@@ -599,6 +603,10 @@ func TestIssue34788Android386TLSSequence(t *testing.T) {
  		t.Skip("skipping on non-{linux,darwin}/amd64 platform")
  	}
  
@@ -952,10 +945,10 @@ index 00000000000000..e6695dd66b1d02
 +var Dec = bbig.Dec
 diff --git a/src/crypto/internal/backend/cng_windows.go b/src/crypto/internal/backend/cng_windows.go
 new file mode 100644
-index 00000000000000..62acef2f8e14d8
+index 00000000000000..fdcc48ddb28c12
 --- /dev/null
 +++ b/src/crypto/internal/backend/cng_windows.go
-@@ -0,0 +1,433 @@
+@@ -0,0 +1,393 @@
 +// Copyright 2017 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -1313,81 +1306,41 @@ index 00000000000000..62acef2f8e14d8
 +}
 +
 +func SupportsMLKEM768() bool {
-+	return false
++	return cng.SupportsMLKEM()
 +}
 +
 +func SupportsMLKEM1024() bool {
-+	return false
++	return cng.SupportsMLKEM()
 +}
 +
-+type DecapsulationKeyMLKEM768 struct{}
-+type EncapsulationKeyMLKEM768 struct{}
++type DecapsulationKeyMLKEM768 = cng.DecapsulationKeyMLKEM768
++type EncapsulationKeyMLKEM768 = cng.EncapsulationKeyMLKEM768
 +
 +func GenerateKeyMLKEM768() (DecapsulationKeyMLKEM768, error) {
-+	panic("cngcrypto: not available")
++	return cng.GenerateKeyMLKEM768()
 +}
 +
 +func NewDecapsulationKeyMLKEM768(seed []byte) (DecapsulationKeyMLKEM768, error) {
-+	panic("cngcrypto: not available")
++	return cng.NewDecapsulationKeyMLKEM768(seed)
 +}
 +
 +func NewEncapsulationKeyMLKEM768(encapsulationKey []byte) (EncapsulationKeyMLKEM768, error) {
-+	panic("cngcrypto: not available")
++	return cng.NewEncapsulationKeyMLKEM768(encapsulationKey)
 +}
 +
-+func (dk DecapsulationKeyMLKEM768) Bytes() []byte {
-+	panic("cngcrypto: not available")
-+}
-+
-+func (dk DecapsulationKeyMLKEM768) Decapsulate(ciphertext []byte) (sharedKey []byte, err error) {
-+	panic("cngcrypto: not available")
-+}
-+
-+func (dk DecapsulationKeyMLKEM768) EncapsulationKey() EncapsulationKeyMLKEM768 {
-+	panic("cngcrypto: not available")
-+}
-+
-+func (ek EncapsulationKeyMLKEM768) Bytes() []byte {
-+	panic("cngcrypto: not available")
-+}
-+
-+func (ek EncapsulationKeyMLKEM768) Encapsulate() (sharedKey, ciphertext []byte) {
-+	panic("cngcrypto: not available")
-+}
-+
-+type DecapsulationKeyMLKEM1024 struct{}
-+type EncapsulationKeyMLKEM1024 struct{}
++type DecapsulationKeyMLKEM1024 = cng.DecapsulationKeyMLKEM1024
++type EncapsulationKeyMLKEM1024 = cng.EncapsulationKeyMLKEM1024
 +
 +func GenerateKeyMLKEM1024() (DecapsulationKeyMLKEM1024, error) {
-+	panic("cngcrypto: not available")
++	return cng.GenerateKeyMLKEM1024()
 +}
 +
 +func NewDecapsulationKeyMLKEM1024(seed []byte) (DecapsulationKeyMLKEM1024, error) {
-+	panic("cngcrypto: not available")
++	return cng.NewDecapsulationKeyMLKEM1024(seed)
 +}
 +
 +func NewEncapsulationKeyMLKEM1024(encapsulationKey []byte) (EncapsulationKeyMLKEM1024, error) {
-+	panic("cngcrypto: not available")
-+}
-+
-+func (dk DecapsulationKeyMLKEM1024) Bytes() []byte {
-+	panic("cngcrypto: not available")
-+}
-+
-+func (dk DecapsulationKeyMLKEM1024) Decapsulate(ciphertext []byte) (sharedKey []byte, err error) {
-+	panic("cngcrypto: not available")
-+}
-+
-+func (dk DecapsulationKeyMLKEM1024) EncapsulationKey() EncapsulationKeyMLKEM1024 {
-+	panic("cngcrypto: not available")
-+}
-+
-+func (ek EncapsulationKeyMLKEM1024) Bytes() []byte {
-+	panic("cngcrypto: not available")
-+}
-+
-+func (ek EncapsulationKeyMLKEM1024) Encapsulate() (sharedKey, ciphertext []byte) {
-+	panic("cngcrypto: not available")
++	return cng.NewEncapsulationKeyMLKEM1024(encapsulationKey)
 +}
 diff --git a/src/crypto/internal/backend/common.go b/src/crypto/internal/backend/common.go
 new file mode 100644
@@ -1443,10 +1396,10 @@ index 00000000000000..a9682181ffa154
 +}
 diff --git a/src/crypto/internal/backend/darwin_darwin.go b/src/crypto/internal/backend/darwin_darwin.go
 new file mode 100644
-index 00000000000000..e6abf96b2e7711
+index 00000000000000..36002e9e4dbbd8
 --- /dev/null
 +++ b/src/crypto/internal/backend/darwin_darwin.go
-@@ -0,0 +1,420 @@
+@@ -0,0 +1,395 @@
 +// Copyright 2017 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -1463,8 +1416,6 @@ index 00000000000000..e6abf96b2e7711
 +	"crypto/cipher"
 +	"crypto/internal/backend/fips140"
 +	"crypto/internal/boring/sig"
-+	"crypto/internal/fips140/nistec"
-+	"errors"
 +	"hash"
 +	_ "unsafe"
 +
@@ -1680,30 +1631,7 @@ index 00000000000000..e6abf96b2e7711
 +}
 +
 +func NewPrivateKeyECDH(curve string, bytes []byte) (*xcrypto.PrivateKeyECDH, error) {
-+	var key []byte
-+	switch curve {
-+	case "P-256":
-+		p, err := nistec.NewP256Point().ScalarBaseMult(bytes)
-+		if err != nil {
-+			return nil, err
-+		}
-+		key = p.Bytes()
-+	case "P-384":
-+		p, err := nistec.NewP384Point().ScalarBaseMult(bytes)
-+		if err != nil {
-+			return nil, err
-+		}
-+		key = p.Bytes()
-+	case "P-521":
-+		p, err := nistec.NewP521Point().ScalarBaseMult(bytes)
-+		if err != nil {
-+			return nil, err
-+		}
-+		key = p.Bytes()
-+	default:
-+		return nil, errors.New("NewPrivateKeyECDH: unsupported curve: " + curve)
-+	}
-+	return xcrypto.NewPrivateKeyECDH(curve, key, bytes)
++	return xcrypto.NewPrivateKeyECDH(curve, bytes)
 +}
 +
 +func NewPublicKeyECDH(curve string, bytes []byte) (*xcrypto.PublicKeyECDH, error) {
@@ -2054,11 +1982,11 @@ index 00000000000000..289d6594eac54b
 +func systemFIPSMode() bool {
 +	return false
 +}
-diff --git a/src/crypto/internal/backend/fips140/openssl_cgo.go b/src/crypto/internal/backend/fips140/openssl_cgo.go
+diff --git a/src/crypto/internal/backend/fips140/openssl.go b/src/crypto/internal/backend/fips140/openssl.go
 new file mode 100644
-index 00000000000000..9bf15a24d3a4f4
+index 00000000000000..8da484e3ffb9b7
 --- /dev/null
-+++ b/src/crypto/internal/backend/fips140/openssl_cgo.go
++++ b/src/crypto/internal/backend/fips140/openssl.go
 @@ -0,0 +1,59 @@
 +// Copyright 2024 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
@@ -2072,7 +2000,7 @@ index 00000000000000..9bf15a24d3a4f4
 +	_ "crypto/internal/backend/internal/opensslsetup"
 +	"syscall"
 +
-+	"github.com/golang-fips/openssl/v2"
++	"github.com/golang-fips/openssl/v2/osslsetup"
 +)
 +
 +const backendEnabled = true
@@ -2084,7 +2012,7 @@ index 00000000000000..9bf15a24d3a4f4
 +	if kernelFIPSMode() {
 +		return true
 +	}
-+	return openssl.FIPS()
++	return osslsetup.FIPS()
 +}
 +
 +// kernelFIPSMode reports whether the kernel is in FIPS mode.
@@ -2118,29 +2046,6 @@ index 00000000000000..9bf15a24d3a4f4
 +	}
 +	// fips_enabled can be either '0' or '1'.
 +	return tmp[0] == '1'
-+}
-diff --git a/src/crypto/internal/backend/fips140/openssl_nocgo.go b/src/crypto/internal/backend/fips140/openssl_nocgo.go
-new file mode 100644
-index 00000000000000..ae8274aa38579f
---- /dev/null
-+++ b/src/crypto/internal/backend/fips140/openssl_nocgo.go
-@@ -0,0 +1,17 @@
-+// Copyright 2025 The Go Authors. All rights reserved.
-+// Use of this source code is governed by a BSD-style
-+// license that can be found in the LICENSE file.
-+
-+//go:build goexperiment.opensslcrypto && !(cgo || goexperiment.ms_nocgo_opensslcrypto)
-+
-+// The opensslcrypto experiment can be used even when cgo
-+// is disabled. The OpenSSL backend can't be imported
-+// without cgo, so we use a stub systemFIPSMode implementation.
-+
-+package fips140
-+
-+const backendEnabled = true
-+
-+func systemFIPSMode() bool {
-+	return false
 +}
 diff --git a/src/crypto/internal/backend/fips140/requirefips_nosystemcrypto.go b/src/crypto/internal/backend/fips140/requirefips_nosystemcrypto.go
 new file mode 100644
@@ -2195,7 +2100,7 @@ index 00000000000000..d3d39fd77f98db
 +const isSkipFIPSCheck = true
 diff --git a/src/crypto/internal/backend/internal/opensslsetup/opensslsetup.go b/src/crypto/internal/backend/internal/opensslsetup/opensslsetup.go
 new file mode 100644
-index 00000000000000..eda4bde128ae46
+index 00000000000000..14b217a6e2eb21
 --- /dev/null
 +++ b/src/crypto/internal/backend/internal/opensslsetup/opensslsetup.go
 @@ -0,0 +1,68 @@
@@ -2213,11 +2118,11 @@ index 00000000000000..eda4bde128ae46
 +import (
 +	"syscall"
 +
-+	"github.com/golang-fips/openssl/v2"
++	"github.com/golang-fips/openssl/v2/osslsetup"
 +)
 +
 +// knownVersions is a list of supported and well-known libcrypto.so suffixes in decreasing version order.
-+// FreeBSD library version numbering does not directly align to the version of OpenSSL.
++// FreeBSD library version numbering does not directly align to the version of osslsetup.
 +// Its preferred search order is 11 -> 111.
 +var knownVersions = [...]string{"3", "1.1", "11", "111"}
 +
@@ -2225,7 +2130,7 @@ index 00000000000000..eda4bde128ae46
 +
 +func init() {
 +	lib := library()
-+	if err := openssl.Init(lib); err != nil {
++	if err := osslsetup.Init(lib); err != nil {
 +		panic("opensslcrypto: can't initialize OpenSSL " + lib + ": " + err.Error())
 +	}
 +}
@@ -2244,9 +2149,9 @@ index 00000000000000..eda4bde128ae46
 +	return lcryptoPrefix[:len(lcryptoPrefix)-1] // no version found, try without version suffix
 +}
 +
-+// checkVersion is a variable that holds the openssl.CheckVersion function.
++// checkVersion is a variable that holds the osslsetup.CheckVersion function.
 +// It is initialized in the init function to allow overriding in tests.
-+var checkVersion = openssl.CheckVersion
++var checkVersion = osslsetup.CheckVersion
 +
 +// searchKnownLibrary returns the name of the highest available FIPS-enabled version of OpenSSL
 +// using the known library suffixes.
@@ -3158,10 +3063,10 @@ index 00000000000000..b79491c6cb7c08
 +	`
 +}
 diff --git a/src/go/build/deps_test.go b/src/go/build/deps_test.go
-index 6a8dbe7e3712a3..f3980616aabac1 100644
+index 6be3675bde3e07..b581b443d6429b 100644
 --- a/src/go/build/deps_test.go
 +++ b/src/go/build/deps_test.go
-@@ -355,7 +355,7 @@ var depsRules = `
+@@ -363,7 +363,7 @@ var depsRules = `
  	math/big, go/token
  	< go/constant;
  
@@ -3170,49 +3075,32 @@ index 6a8dbe7e3712a3..f3980616aabac1 100644
  	< internal/buildcfg;
  
  	container/heap, go/constant, go/parser, internal/buildcfg, internal/goversion, internal/types/errors
-@@ -552,6 +552,11 @@ var depsRules = `
- 	< github.com/microsoft/go-crypto-winnative/internal/bcrypt
- 	< github.com/microsoft/go-crypto-winnative/cng;
+@@ -563,6 +563,10 @@ var depsRules = `
+ 	< github.com/microsoft/go-crypto-winnative/internal/sysdll
+ 	< github.com/microsoft/go-crypto-winnative/internal/bcrypt;
  
-+	syscall,
-+	github.com/golang-fips/openssl/v2
++	github.com/golang-fips/openssl/v2/osslsetup
 +	< crypto/internal/backend/internal/opensslsetup
 +	< crypto/internal/backend/fips140;
 +
- 	crypto !< FIPS;
+ 	FIPS, internal/godebug, embed
+ 	< crypto/internal/fips140only
+ 	< crypto
+@@ -583,6 +587,13 @@ var depsRules = `
+ 	github.com/microsoft/go-crypto-winnative/internal/bcrypt
+ 	< github.com/microsoft/go-crypto-winnative/cng;
  
- 	# CRYPTO is core crypto algorithms - no cgo, fmt, net.
-@@ -560,16 +565,27 @@ var depsRules = `
- 	NONE < crypto/internal/boring/sig, crypto/internal/boring/syso;
- 	sync/atomic < crypto/internal/boring/bcache;
- 
-+	crypto,	crypto/cipher,
-+	crypto/internal/boring/sig, crypto/internal/boring/syso
-+	< crypto/internal/boring;
-+
-+	crypto/internal/boring/sig,
-+	crypto/internal/backend/fips140,
 +	github.com/golang-fips/openssl/v2,
++	github.com/microsoft/go-crypto-winnative/cng,
 +	github.com/microsoft/go-crypto-darwin/xcrypto,
-+	github.com/microsoft/go-crypto-winnative/cng
++	crypto/internal/backend/fips140,
++	crypto/internal/boring/sig
 +	< crypto/internal/backend;
 +
  	FIPS, internal/godebug, embed,
  	crypto/internal/boring/sig,
  	crypto/internal/boring/syso,
- 	crypto/internal/boring/bcache,
- 	crypto/internal/fips140only,
- 	crypto,
--	crypto/cipher
-+	crypto/cipher,
-+	crypto/internal/backend
- 	< crypto/sha3
- 	< crypto/internal/fips140hash
--	< crypto/internal/boring
- 	< crypto/boring
- 	< crypto/aes,
- 	  crypto/des,
-@@ -593,8 +609,14 @@ var depsRules = `
+@@ -618,8 +629,15 @@ var depsRules = `
  	math/big, github.com/microsoft/go-crypto-darwin/xcrypto < github.com/microsoft/go-crypto-darwin/bbig;
  	math/big, github.com/microsoft/go-crypto-winnative/cng < github.com/microsoft/go-crypto-winnative/cng/bbig;
  
@@ -3222,6 +3110,7 @@ index 6a8dbe7e3712a3..f3980616aabac1 100644
 +	< crypto/internal/boring/bbig;
 +
 +	CRYPTO, FMT, math/big, internal/saferio,
++	crypto/internal/boring/bbig,
 +	github.com/golang-fips/openssl/v2/bbig,
 +	github.com/microsoft/go-crypto-darwin/bbig,
 +	github.com/microsoft/go-crypto-winnative/cng/bbig
@@ -3230,7 +3119,7 @@ index 6a8dbe7e3712a3..f3980616aabac1 100644
  	< crypto/rand
  	< crypto/ed25519 # depends on crypto/rand.Reader
 diff --git a/src/internal/buildcfg/exp.go b/src/internal/buildcfg/exp.go
-index 14ca07c56683f1..64c37df9e9fced 100644
+index 0c25f3cce97202..4bcb62b7c63fe6 100644
 --- a/src/internal/buildcfg/exp.go
 +++ b/src/internal/buildcfg/exp.go
 @@ -5,12 +5,15 @@
@@ -3249,7 +3138,7 @@ index 14ca07c56683f1..64c37df9e9fced 100644
  )
  
  // ExperimentFlags represents a set of GOEXPERIMENT flags relative to a baseline
-@@ -195,6 +198,60 @@ func ParseGOEXPERIMENT(goos, goarch, goexp string) (*ExperimentFlags, error) {
+@@ -194,6 +197,60 @@ func ParseGOEXPERIMENT(goos, goarch, goexp string) (*ExperimentFlags, error) {
  	if flags.BoringCrypto {
  		return nil, fmt.Errorf("GOEXPERIMENT boringcrypto is not supported in the Microsoft build of Go")
  	}
