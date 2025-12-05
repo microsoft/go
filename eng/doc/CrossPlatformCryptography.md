@@ -218,6 +218,7 @@ X25519 is available starting from the Microsoft build of Go 1.26.
 | X25519 (curve25519)<sup>1</sup> | ✔️      | ✔️<sup>2</sup> | ✔️    |
 
 <sup>1</sup>Available starting in the Microsoft build of Go 1.26.
+
 <sup>2</sup>Requires OpenSSL 1.1.1 or later.
 
 ### Ed25519
@@ -271,7 +272,9 @@ ML-KEM is available starting from the Microsoft build of Go 1.26.
 | 1024       | ✔️ <sup>1</sup> | ✔️ <sup>2</sup> | ✔️ <sup>3</sup> |
 
 <sup>1</sup>Requires Windows Server 2025 or Windows 11 (24H2, 25H2) or later.
+
 <sup>2</sup>Requires OpenSSL 3.5.0 or later.
+
 <sup>3</sup>Requires macOS 26 (Tahoe) or later.
 
 ## TLS
