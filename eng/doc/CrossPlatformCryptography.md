@@ -207,13 +207,19 @@ This section includes the following packages:
 
 Operations that require random numbers (rand io.Reader) only support [rand.Reader](https://pkg.go.dev/crypto/rand#Reader).
 
-| Elliptic Curve         | Windows | Linux | macOS |
-| ---------------------- | ------- | ----- | ----- |
-| NIST P-224 (secp224r1) | ✔️      | ✔️    | ❌    |
-| NIST P-256 (secp256r1) | ✔️      | ✔️    | ✔️    |
-| NIST P-384 (secp384r1) | ✔️      | ✔️    | ✔️    |
-| NIST P-521 (secp521r1) | ✔️      | ✔️    | ✔️    |
-| X25519 (curve25519)    | ❌      | ❌    | ❌    |
+X25519 is available starting from the Microsoft build of Go 1.26.
+
+| Elliptic Curve                  | Windows | Linux           | macOS |
+| ------------------------------- | ------- | --------------- | ----- |
+| NIST P-224 (secp224r1)          | ✔️      | ✔️             | ❌    |
+| NIST P-256 (secp256r1)          | ✔️      | ✔️             | ✔️    |
+| NIST P-384 (secp384r1)          | ✔️      | ✔️             | ✔️    |
+| NIST P-521 (secp521r1)          | ✔️      | ✔️             | ✔️    |
+| X25519 (curve25519)<sup>1</sup> | ✔️      | ✔️<sup>2</sup> | ✔️    |
+
+<sup>1</sup>Available starting in the Microsoft build of Go 1.26.
+
+<sup>2</sup>Requires OpenSSL 1.1.1 or later.
 
 ### Ed25519
 
@@ -337,13 +343,15 @@ On Windows, it is possible to restrict and reorder the cipher suites following t
 
 Below are the supported [`tls.CurveIDs`](https://pkg.go.dev/crypto/tls#CurveID).
 
-| Name           | Windows | Linux | macOS |
-| -------------- | ------- | ----- | ----- |
-| CurveP256      | ✔️      | ✔️    | ✔️    |
-| CurveP384      | ✔️      | ✔️    | ✔️    |
-| CurveP521      | ✔️      | ✔️    | ✔️    |
-| X25519         | ❌      | ❌    | ❌    |
-| X25519MLKEM768 | ❌      | ❌    | ❌    |
+| Name                       | Windows | Linux | macOS |
+| -------------------------- | ------- | ------| ----- |
+| CurveP256                  | ✔️      | ✔️   | ✔️    |
+| CurveP384                  | ✔️      | ✔️   | ✔️    |
+| CurveP521                  | ✔️      | ✔️   | ✔️    |
+| X25519<sup>1</sup>         | ✔️      | ✔️   | ✔️    |
+| X25519MLKEM768<sup>1</sup> | ✔️      | ✔️   | ✔️    |
+
+<sup>1</sup>See the [X25519](#ecdh) and [ML-KEM](#ml-kem) sections for requirements.
 
 ### Signature Schemes
 
