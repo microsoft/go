@@ -244,21 +244,27 @@ Operations that require random numbers (rand io.Reader) only support [rand.Reade
 | L2048N256  | ✔️      | ✔️    | ❌    |
 | L3072N256  | ✔️      | ✔️    | ❌    |
 
-## KDF
+## Key derivation functions (KDFs)
 
 This section includes the following packages:
 
 - [crypto/hkdf](https://pkg.go.dev/crypto/hkdf)
 - [crypto/pbkdf2](https://pkg.go.dev/crypto/pbkdf2)
 
-| Functions | Windows         | Linux           | macOS           |
-| --------- | --------------- | --------------- | --------------- |
+| Functions | Windows         | Linux            | macOS           |
+| --------- | --------------- | ---------------- | --------------- |
 | PBKDF2    | ✔️ <sup>1</sup> | ✔️ <sup>1</sup> | ✔️ <sup>1</sup> |
 | HKDF      | ✔️ <sup>1</sup> | ✔️ <sup>1</sup> | ✔️ <sup>1</sup> |
 
 <sup>1</sup>Supports only hash algorithms that are [supported as standalone hash functions](#hash-and-message-authentication-algorithms).
 
-## ML-KEM
+## Key Encapsulation Mechanisms (KEMs)
+
+This section includes the following subsections:
+
+- [ML-KEM](#ml-kem)
+
+### ML-KEM
 
 This section includes the following packages:
 
@@ -266,8 +272,8 @@ This section includes the following packages:
 
 ML-KEM is available starting from the Microsoft build of Go 1.26.
 
-| Parameters | Windows         | Linux           | macOS           |
-| ---------- | --------------- | --------------- | --------------- |
+| Parameters | Windows         | Linux            | macOS           |
+| ---------- | --------------- | ---------------- | --------------- |
 | 768        | ✔️ <sup>1</sup> | ✔️ <sup>2</sup> | ✔️ <sup>3</sup> |
 | 1024       | ✔️ <sup>1</sup> | ✔️ <sup>2</sup> | ✔️ <sup>3</sup> |
 
@@ -277,20 +283,79 @@ ML-KEM is available starting from the Microsoft build of Go 1.26.
 
 <sup>3</sup>Requires macOS 26 (Tahoe) or later.
 
-## TLS
+## Higher-level protocols
+
+High-level protocols are algorithms that combine multiple cryptographic primitives to provide a specific functionality,
+such as TLS or Hybrid Public Key Encryption (HPKE).
+
+These protocols are implemented using native Go code, but they rely on the underlying OS cryptographic libraries for the cryptographic operations.
+
+This section includes the following subsections:
+
+- [HPKE](#hybrid-public-key-encryption-hpke)
+- [TLS](#tls)
+
+### Hybrid Public Key Encryption (HPKE)
+
+This section includes the following subsections:
+
+- [AEAD Functions](#hpke-authenticated-encryption-with-associated-data-aead-functions)
+- [KDFs](#hpke-key-derivation-functions-kdfs)
+- [KEMs](#hpke-key-encapsulation-mechanisms-kems)
+
+This section includes the following packages:
+
+- [crypto/hpke](https://pkg.go.dev/crypto/hpke)
+
+#### HPKE Authenticated Encryption with Associated Data (AEAD) Functions
+
+| Functions        | Windows | Linux | macOS |
+| ---------------- | ------- | ----- | ------|
+| AES-128-GCM      | ✔️     | ✔️    | ✔️   |
+| AES-256-GCM      | ✔️     | ✔️    | ✔️   |
+| ChaCha20Poly1305 | ❌     | ❌    | ❌   |
+| Export-only      | N/A    | N/A    | N/A  |
+
+#### HPKE Key Derivation Functions (KDFs)
+
+| Functions   | Windows | Linux | macOS |
+| ------------| ------- | ----- | ------|
+| HKDF-SHA256 | ✔️     | ✔️    | ✔️   |
+| HKDF-SHA384 | ✔️     | ✔️    | ✔️   |
+| HKDF-SHA512 | ✔️     | ✔️    | ✔️   |
+
+#### HPKE Key Encapsulation Mechanisms (KEMs)
+
+| Functions                              | Windows | Linux | macOS |
+| ---------------------------------------| ------- | ----- | ------|
+| DHKEM(P-256, HKDF-SHA256)              | ✔️     | ✔️    | ✔️   |
+| DHKEM(P-384, HKDF-SHA384)              | ✔️     | ✔️    | ✔️   |
+| DHKEM(P-521, HKDF-SHA512)              | ✔️     | ✔️    | ✔️   |
+| DHKEM(X25519, HKDF-SHA256)<sup>1</sup> | ✔️     | ✔️    | ✔️   |
+| ML-KEM-768<sup>2</sup>                 | ✔️     | ✔️    | ✔️   |
+| ML-KEM-1024<sup>2</sup>                | ✔️     | ✔️    | ✔️   |
+| MLKEM768-P256<sup>2</sup>              | ✔️     | ✔️    | ✔️   |
+| MLKEM1024-P384<sup>2</sup>             | ✔️     | ✔️    | ✔️   |
+| MLKEM768-X25519<sup>1,2</sup>          | ✔️     | ✔️    | ✔️   |
+
+<sup>1</sup>See the [X25519](#ecdh) section for requirements.
+
+<sup>2</sup>See the [ML-KEM](#ml-kem) section for requirements.
+
+### TLS
 
 This section includes the following subsections:
 
 - [TLS Versions](#tls-versions)
-- [Cipher Suites](#cipher-suites)
-- [Curves and Groups](#curves-and-groups)
-- [Signature Algorithms](#signature-algorithms)
+- [TLS Cipher Suites](#tls-cipher-suites)
+- [TLS Curves and Groups](#tls-curves-and-groups)
+- [TLS Signature Schemes](#tls-signature-schemes)
 
 This section includes the following packages:
 
 - [crypto/tls](https://pkg.go.dev/crypto/tls)
 
-### TLS Versions
+#### TLS Versions
 
 The TLS stack is implemented using native Go code but the crypto primitives are provided by the system cryptographic libraries.
 
@@ -302,7 +367,7 @@ The TLS stack is implemented using native Go code but the crypto primitives are 
 | TLS 1.2 | ✔️      | ✔️    | ✔️    |
 | TLS 1.3 | ✔️      | ✔️    | ✔️    |
 
-### Cipher Suites
+#### TLS Cipher Suites
 
 | Name                                          | Windows | Linux          | macOS |
 | --------------------------------------------- | ------- | -------------- | ----- |
@@ -339,21 +404,25 @@ The TLS stack is implemented using native Go code but the crypto primitives are 
 
 On Windows, it is possible to restrict and reorder the cipher suites following the [Schannel preferences](https://learn.microsoft.com/en-us/windows/win32/secauthn/cipher-suites-in-schannel) by building with the `ms_tls_config_schannel` goexperiment enabled.
 
-### Curves and Groups
+#### TLS Curves and Groups
 
 Below are the supported [`tls.CurveIDs`](https://pkg.go.dev/crypto/tls#CurveID).
 
-| Name                       | Windows | Linux | macOS |
-| -------------------------- | ------- | ------| ----- |
-| CurveP256                  | ✔️      | ✔️   | ✔️    |
-| CurveP384                  | ✔️      | ✔️   | ✔️    |
-| CurveP521                  | ✔️      | ✔️   | ✔️    |
-| X25519<sup>1</sup>         | ✔️      | ✔️   | ✔️    |
-| X25519MLKEM768<sup>1</sup> | ✔️      | ✔️   | ✔️    |
+| Name                           | Windows | Linux | macOS |
+| ------------------------------ | ------- | ------| ----- |
+| CurveP256                      | ✔️      | ✔️   | ✔️    |
+| CurveP384                      | ✔️      | ✔️   | ✔️    |
+| CurveP521                      | ✔️      | ✔️   | ✔️    |
+| X25519<sup>1</sup>             | ✔️      | ✔️   | ✔️    |
+| X25519MLKEM768<sup>1,2</sup>   | ✔️      | ✔️   | ✔️    |
+| SecP256r1MLKEM768<sup>2</sup>  | ✔️      | ✔️   | ✔️    |
+| SecP384r1MLKEM1024<sup>2</sup> | ✔️      | ✔️   | ✔️    |
 
-<sup>1</sup>See the [X25519](#ecdh) and [ML-KEM](#ml-kem) sections for requirements.
+<sup>1</sup>See the [X25519](#ecdh) section for requirements.
 
-### Signature Schemes
+<sup>2</sup>See the [ML-KEM](#ml-kem) section for requirements.
+
+#### TLS Signature Schemes
 
 Below are the supported [`tls.SignatureSchemes`](https://pkg.go.dev/crypto/tls#SignatureScheme).
 
