@@ -11,7 +11,7 @@ require (
 	github.com/microsoft/go-infra v0.0.8
 	github.com/microsoft/go-infra/goinstallscript v1.1.0
 	golang.org/x/net v0.47.0
-	golang.org/x/sys v0.38.0
+	golang.org/x/sys v0.39.0
 )
 
 require (
