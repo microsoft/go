@@ -147,10 +147,13 @@ This section includes the following packages:
 - [crypto/rsa](https://pkg.go.dev/crypto/rsa)
 
 [rsa.GenerateKey](https://pkg.go.dev/crypto/rsa#GenerateKey) only supports the following key sizes (in bits): 2048, 3072, 4096.
+
 Multi-prime RSA keys are not supported.
+
 The RSA key size is subject to the limitations of the underlying cryptographic library.
 For example, on some Windows and SCOSSL configurations, the key size should be multiple of 8.
 Please refer to the documentation of the underlying cryptographic library for the specific limitations.
+
 Operations that require random numbers (rand io.Reader) only support [rand.Reader](https://pkg.go.dev/crypto/rand#Reader).
 
 | Padding Mode                           | Windows        | Linux          | macOS          |
@@ -284,7 +287,10 @@ ML-KEM is available starting from the Microsoft build of Go 1.26.
 
 High-level protocols are algorithms that combine multiple cryptographic primitives to provide a specific functionality,
 such as TLS or Hybrid Public Key Encryption (HPKE).
+
 These protocols are implemented using native Go code, but they rely on the underlying OS cryptographic libraries for the cryptographic operations.
+
+This section includes the following subsections:
 
 - [Hybrid Public Key Encryption (HPKE)](#hybrid-public-key-encryption-hpke)
 - [TLS](#tls)
