@@ -142,16 +142,16 @@ This section includes the following subsections:
 
 ### RSA
 
+This section includes the following packages:
+
+- [crypto/rsa](https://pkg.go.dev/crypto/rsa)
+
 [rsa.GenerateKey](https://pkg.go.dev/crypto/rsa#GenerateKey) only supports the following key sizes (in bits): 2048, 3072, 4096.
 Multi-prime RSA keys are not supported.
 The RSA key size is subject to the limitations of the underlying cryptographic library.
 For example, on some Windows and SCOSSL configurations, the key size should be multiple of 8.
 Please refer to the documentation of the underlying cryptographic library for the specific limitations.
 Operations that require random numbers (rand io.Reader) only support [rand.Reader](https://pkg.go.dev/crypto/rand#Reader).
-
-This section includes the following packages:
-
-- [crypto/rsa](https://pkg.go.dev/crypto/rsa)
 
 | Padding Mode                           | Windows        | Linux          | macOS          |
 | -------------------------------------- | -------------- | -------------- | -------------- |
@@ -184,12 +184,12 @@ This section includes the following packages:
 
 ### ECDSA
 
-Operations that require random numbers (rand io.Reader) only support [rand.Reader](https://pkg.go.dev/crypto/rand#Reader).
-
 This section includes the following packages:
 
 - [crypto/ecdsa](https://pkg.go.dev/crypto/ecdsa)
 - [crypto/elliptic](https://pkg.go.dev/crypto/elliptic)
+
+Operations that require random numbers (rand io.Reader) only support [rand.Reader](https://pkg.go.dev/crypto/rand#Reader).
 
 | Elliptic Curve         | Windows | Linux | macOS |
 | ---------------------- | ------- | ----- | ----- |
@@ -200,12 +200,11 @@ This section includes the following packages:
 
 ### ECDH
 
-Operations that require random numbers (rand io.Reader) only support [rand.Reader](https://pkg.go.dev/crypto/rand#Reader).
-X25519 is available starting from the Microsoft build of Go 1.26.
-
 This section includes the following packages:
 
 - [crypto/ecdh](https://pkg.go.dev/crypto/ecdh)
+
+Operations that require random numbers (rand io.Reader) only support [rand.Reader](https://pkg.go.dev/crypto/rand#Reader).
 
 | Elliptic Curve                  | Windows | Linux          | macOS |
 | ------------------------------- | ------- | -------------- | ----- |
@@ -221,11 +220,11 @@ This section includes the following packages:
 
 ### Ed25519
 
-Operations that require random numbers (rand io.Reader) only support [rand.Reader](https://pkg.go.dev/crypto/rand#Reader).
-
 This section includes the following packages:
 
 - [crypto/ed25519](https://pkg.go.dev/crypto/ed25519)
+
+Operations that require random numbers (rand io.Reader) only support [rand.Reader](https://pkg.go.dev/crypto/rand#Reader).
 
 | Schemes    | Windows | Linux | macOS |
 | ---------- | ------- | ----- | ----- |
@@ -264,11 +263,11 @@ This section includes the following subsections:
 
 ### ML-KEM
 
-ML-KEM is available starting from the Microsoft build of Go 1.26.
-
 This section includes the following packages:
 
 - [crypto/mlkem](https://pkg.go.dev/crypto/mlkem)
+
+ML-KEM is available starting from the Microsoft build of Go 1.26.
 
 | Parameters | Windows        | Linux          | macOS          |
 | ---------- | -------------- | -------------- | -------------- |
@@ -292,15 +291,15 @@ These protocols are implemented using native Go code, but they rely on the under
 
 ### Hybrid Public Key Encryption (HPKE)
 
+This section includes the following packages:
+
+- [crypto/hpke](https://pkg.go.dev/crypto/hpke)
+
 This section includes the following subsections:
 
 - [AEAD Functions](#hpke-authenticated-encryption-with-associated-data-aead-functions)
 - [KDFs](#hpke-key-derivation-functions-kdfs)
 - [KEMs](#hpke-key-encapsulation-mechanisms-kems)
-
-This section includes the following packages:
-
-- [crypto/hpke](https://pkg.go.dev/crypto/hpke)
 
 #### HPKE Authenticated Encryption with Associated Data (AEAD) Functions
 
@@ -339,16 +338,16 @@ This section includes the following packages:
 
 ### TLS
 
+This section includes the following packages:
+
+- [crypto/tls](https://pkg.go.dev/crypto/tls)
+
 This section includes the following subsections:
 
 - [TLS Versions](#tls-versions)
 - [TLS Cipher Suites](#tls-cipher-suites)
 - [TLS Curves and Groups](#tls-curves-and-groups)
 - [TLS Signature Schemes](#tls-signature-schemes)
-
-This section includes the following packages:
-
-- [crypto/tls](https://pkg.go.dev/crypto/tls)
 
 #### TLS Versions
 
@@ -421,7 +420,7 @@ Below are the supported [`tls.CurveIDs`](https://pkg.go.dev/crypto/tls#CurveID).
 
 Below are the supported [`tls.SignatureSchemes`](https://pkg.go.dev/crypto/tls#SignatureScheme).
 
-| Scheme                 | Windows | Linux | macOS |
+| Name                   | Windows | Linux | macOS |
 | ---------------------- | ------- | ----- | ----- |
 | PKCS1WithSHA1          | ✔️      | ✔️    | ✔️    |
 | PKCS1WithSHA256        | ✔️      | ✔️    | ✔️    |

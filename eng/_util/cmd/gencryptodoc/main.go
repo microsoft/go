@@ -32,37 +32,19 @@ type Item struct {
 }
 
 type Section struct {
-	Title       string    `json:"title"`
-	ShortTitle  string    `json:"shortTitle,omitempty"`
-	Packages    []string  `json:"packages,omitempty"`
-	Description string    `json:"description,omitempty"`
-	Items       []Item    `json:"items,omitempty"`
-	Subsections []Section `json:"subsections,omitempty"`
-	Footnotes   []string  `json:"footnotes,omitempty"`
-	Footer      string    `json:"footer,omitempty"`
+	Title        string    `json:"title"`
+	ShortTitle   string    `json:"shortTitle,omitempty"`
+	ColumnHeader string    `json:"columnHeader,omitempty"`
+	Packages     []string  `json:"packages,omitempty"`
+	Description  string    `json:"description,omitempty"`
+	Items        []Item    `json:"items,omitempty"`
+	Subsections  []Section `json:"subsections,omitempty"`
+	Footnotes    []string  `json:"footnotes,omitempty"`
+	Footer       string    `json:"footer,omitempty"`
 }
 
 type Document struct {
 	Sections []Section `json:"sections"`
-}
-
-var columnHeaders = map[string]string{
-	"Hash and Message Authentication Algorithms": "Algorithm",
-	"Symmetric encryption":                       "Cipher + Mode",
-	"RSA":                                        "Padding Mode",
-	"ECDSA":                                      "Elliptic Curve",
-	"ECDH":                                       "Elliptic Curve",
-	"Ed25519":                                    "Schemes",
-	"DSA":                                        "Parameters",
-	"Key derivation functions (KDFs)":            "Functions",
-	"ML-KEM":                                     "Parameters",
-	"HPKE Authenticated Encryption with Associated Data (AEAD) Functions": "Functions",
-	"HPKE Key Derivation Functions (KDFs)":                                "Functions",
-	"HPKE Key Encapsulation Mechanisms (KEMs)":                            "Functions",
-	"TLS Versions":          "Version",
-	"TLS Cipher Suites":     "Name",
-	"TLS Curves and Groups": "Name",
-	"TLS Signature Schemes": "Scheme",
 }
 
 func main() {
@@ -111,6 +93,30 @@ func main() {
 func printSection(section Section, level int) {
 	fmt.Printf("\n%s %s\n\n", strings.Repeat("#", level), section.Title)
 
+	// Filter packages
+	var validPackages []string
+	for _, pkg := range section.Packages {
+		if strings.Contains(pkg, "/") || strings.Contains(pkg, ".") {
+			validPackages = append(validPackages, pkg)
+		}
+	}
+
+	if len(validPackages) > 0 {
+		fmt.Println("This section includes the following packages:")
+		fmt.Println()
+		for _, pkg := range validPackages {
+			if strings.HasPrefix(pkg, "crypto/") {
+				fmt.Printf("- [%s](https://pkg.go.dev/%s)\n", pkg, pkg)
+			} else if strings.HasPrefix(pkg, "golang.org/") {
+				fmt.Printf("- [%s](https://pkg.go.dev/%s)\n", pkg, pkg)
+			} else {
+				// Fallback
+				fmt.Printf("- %s\n", pkg)
+			}
+		}
+		fmt.Println()
+	}
+
 	if section.Description != "" {
 		fmt.Println(section.Description)
 		fmt.Println()
@@ -139,30 +145,6 @@ func printSection(section Section, level int) {
 		fmt.Println()
 	}
 
-	// Filter packages
-	var validPackages []string
-	for _, pkg := range section.Packages {
-		if strings.Contains(pkg, "/") || strings.Contains(pkg, ".") {
-			validPackages = append(validPackages, pkg)
-		}
-	}
-
-	if len(validPackages) > 0 {
-		fmt.Println("This section includes the following packages:")
-		fmt.Println()
-		for _, pkg := range validPackages {
-			if strings.HasPrefix(pkg, "crypto/") {
-				fmt.Printf("- [%s](https://pkg.go.dev/%s)\n", pkg, pkg)
-			} else if strings.HasPrefix(pkg, "golang.org/") {
-				fmt.Printf("- [%s](https://pkg.go.dev/%s)\n", pkg, pkg)
-			} else {
-				// Fallback
-				fmt.Printf("- %s\n", pkg)
-			}
-		}
-		fmt.Println()
-	}
-
 	if len(section.Items) > 0 {
 		printTable(section)
 	}
@@ -178,8 +160,8 @@ func printSection(section Section, level int) {
 }
 
 func printTable(section Section) {
-	colHeader, ok := columnHeaders[section.Title]
-	if !ok {
+	colHeader := section.ColumnHeader
+	if colHeader == "" {
 		colHeader = "Algorithm" // Default
 	}
 
