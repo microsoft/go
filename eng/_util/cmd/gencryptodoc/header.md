@@ -26,7 +26,7 @@ OpenSSL 3 implements all the cryptographic algorithms using [Providers](https://
 The Microsoft build of Go officially supports the built-in providers and [SCOSSL (SymCrypt provider for OpenSSL)](https://github.com/microsoft/SymCrypt-OpenSSL) v1.6.1 or later.
 SCOSSL is expected to be used with the default built-in provider enabled as a fallback (which is the case when using [Azure Linux 3](https://github.com/microsoft/AzureLinux)).
 
-## macOS
+### macOS
 
 On macOS, the Microsoft build of Go uses [CommonCrypto](https://developer.apple.com/library/archive/documentation/System/Conceptual/ManPages_iPhoneOS/man3/Common%20Crypto.3cc.html) and [CryptoKit](https://developer.apple.com/documentation/cryptokit) for cryptographic operations.
 CommonCrypto and CryptoKit are shipped with macOS and don't require any additional installation nor configuration.
