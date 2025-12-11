@@ -21,26 +21,33 @@ import (
 var header string
 
 type PlatformStatus struct {
-	Supported string   `json:"supported"`
-	Notes     []string `json:"notes,omitempty"`
+	Supported         string   `json:"supported"`
+	MinGoVersion      string   `json:"minGoVersion,omitempty"`
+	Notes             []string `json:"notes,omitempty"`
+	MinMacOSVersion   string   `json:"minMacOSVersion,omitempty"`
+	MinOpenSSLVersion string   `json:"minOpenSSLVersion,omitempty"`
 }
 
 type Item struct {
-	Name      string                    `json:"name"`
-	Notes     []string                  `json:"notes,omitempty"`
-	Platforms map[string]PlatformStatus `json:"platforms"`
+	Name         string                    `json:"name"`
+	MinGoVersion string                    `json:"minGoVersion,omitempty"`
+	Notes        []string                  `json:"notes,omitempty"`
+	Platforms    map[string]PlatformStatus `json:"platforms"`
 }
 
 type Section struct {
-	Title        string    `json:"title"`
-	ShortTitle   string    `json:"shortTitle,omitempty"`
-	ColumnHeader string    `json:"columnHeader,omitempty"`
-	Packages     []string  `json:"packages,omitempty"`
-	Description  string    `json:"description,omitempty"`
-	Items        []Item    `json:"items,omitempty"`
-	Subsections  []Section `json:"subsections,omitempty"`
-	Footnotes    []string  `json:"footnotes,omitempty"`
-	Footer       string    `json:"footer,omitempty"`
+	Title             string    `json:"title"`
+	ShortTitle        string    `json:"shortTitle,omitempty"`
+	ColumnHeader      string    `json:"columnHeader,omitempty"`
+	Packages          []string  `json:"packages,omitempty"`
+	Description       string    `json:"description,omitempty"`
+	MinGoVersion      string    `json:"minGoVersion,omitempty"`
+	MinMacOSVersion   string    `json:"minMacOSVersion,omitempty"`
+	MinOpenSSLVersion string    `json:"minOpenSSLVersion,omitempty"`
+	Items             []Item    `json:"items,omitempty"`
+	Subsections       []Section `json:"subsections,omitempty"`
+	Footnotes         []string  `json:"footnotes,omitempty"`
+	Footer            string    `json:"footer,omitempty"`
 }
 
 type Document struct {
@@ -117,6 +124,21 @@ func printSection(section Section, level int) {
 		fmt.Println()
 	}
 
+	// Prepend version requirements to description if present
+	var versionSentences []string
+	if section.MinGoVersion != "" {
+		versionSentences = append(versionSentences, fmt.Sprintf("%s is available starting from the Microsoft build of Go %s.", section.Title, section.MinGoVersion))
+	}
+	if section.MinOpenSSLVersion != "" {
+		versionSentences = append(versionSentences, fmt.Sprintf("%s requires OpenSSL %s or later.", section.Title, section.MinOpenSSLVersion))
+	}
+	if section.MinMacOSVersion != "" {
+		versionSentences = append(versionSentences, fmt.Sprintf("%s is available starting in macOS %s (Tahoe) or later.", section.Title, section.MinMacOSVersion))
+	}
+	if len(versionSentences) > 0 {
+		fmt.Println(strings.Join(versionSentences, " "))
+		fmt.Println()
+	}
 	if section.Description != "" {
 		fmt.Println(section.Description)
 		fmt.Println()
@@ -210,7 +232,14 @@ func printTable(section Section) {
 
 	for _, item := range section.Items {
 		name := item.Name
-		nameNotes := getFootnotes(item.Notes)
+
+		itemNotes := item.Notes
+		if item.MinGoVersion != "" {
+			note := fmt.Sprintf("Available starting in the Microsoft build of Go %s.", item.MinGoVersion)
+			itemNotes = append([]string{note}, itemNotes...)
+		}
+
+		nameNotes := getFootnotes(itemNotes)
 
 		row := []string{name + nameNotes}
 
@@ -228,14 +257,35 @@ func printTable(section Section) {
 				symbol = "❌"
 			}
 
-			notes := getFootnotes(status.Notes)
-			// Space before notes? Original: ✔️<sup>1</sup> or ✔️ <sup>1</sup>
-			// Looking at original: ✔️<sup>1</sup> (no space usually, but sometimes yes)
-			// "✔️ <sup>4</sup>" in SHA-3-256
-			// "✔️<sup>1</sup>" in PBKDF2
-			// I'll use no space for now, or maybe check if I can detect it.
-			// The JSON doesn't store formatting.
-			// I'll use no space as it's cleaner.
+			statusNotes := status.Notes
+			// Prepend version notes in preferred order: minGoVersion, minOpenSSLVersion, minMacOSVersion
+			var versionNotes []string
+			if status.MinGoVersion != "" {
+				versionNotes = append(versionNotes, fmt.Sprintf("Available starting in the Microsoft build of Go %s.", status.MinGoVersion))
+			}
+			if status.MinOpenSSLVersion != "" {
+				versionNotes = append(versionNotes, fmt.Sprintf("Requires OpenSSL %s or later.", status.MinOpenSSLVersion))
+			}
+			if status.MinMacOSVersion != "" {
+				versionNotes = append(versionNotes, fmt.Sprintf("Requires macOS %s or later.", status.MinMacOSVersion))
+			}
+			// Remove duplicates from notes
+			filtered := []string{}
+			for _, n := range statusNotes {
+				duplicate := false
+				for _, vn := range versionNotes {
+					if n == vn {
+						duplicate = true
+						break
+					}
+				}
+				if !duplicate {
+					filtered = append(filtered, n)
+				}
+			}
+			statusNotes = append(versionNotes, filtered...)
+
+			notes := getFootnotes(statusNotes)
 			row = append(row, symbol+notes)
 		}
 
@@ -269,19 +319,23 @@ func validateSection(section Section) error {
 		return fmt.Errorf("section missing title")
 	}
 
-	for _, item := range section.Items {
+	for i := range section.Items {
+		item := &section.Items[i]
 		if item.Name == "" {
 			return fmt.Errorf("item missing name in section %q", section.Title)
 		}
 		if item.Platforms == nil {
-			return fmt.Errorf("item %q missing platforms in section %q", item.Name, section.Title)
+			item.Platforms = make(map[string]PlatformStatus)
 		}
-
 		for _, p := range []string{"windows", "linux", "macos"} {
 			status, ok := item.Platforms[p]
 			if !ok {
-				return fmt.Errorf("item %q missing platform %q in section %q", item.Name, p, section.Title)
+				status = PlatformStatus{}
 			}
+			if status.Supported == "" {
+				status.Supported = "true"
+			}
+			item.Platforms[p] = status
 			switch status.Supported {
 			case "true", "false", "warn", "N/A":
 				// ok

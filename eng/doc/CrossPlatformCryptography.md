@@ -85,7 +85,7 @@ This section includes the following packages:
 
 <sup>4</sup>Available in Windows 11, version 24H2 or later.
 
-<sup>5</sup>Available starting in macOS 26 (Tahoe).
+<sup>5</sup>Requires macOS 26 or later.
 
 <sup>6</sup>Requires OpenSSL 3.3 or later.
 
@@ -281,7 +281,7 @@ ML-KEM is available starting from the Microsoft build of Go 1.26.
 
 <sup>2</sup>Requires OpenSSL 3.5.0 or later.
 
-<sup>3</sup>Requires macOS 26 (Tahoe) or later.
+<sup>3</sup>Requires macOS 26 or later.
 
 ## Higher-level protocols
 
