@@ -1,0 +1,109 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: bot-for-go[bot] <199222863+bot-for-go[bot]@users.noreply.github.com>
+Date: Fri, 12 Dec 2025 16:46:44 +0100
+Subject: [PATCH] align TLS settings with Microsoft policies
+
+---
+ src/crypto/tls/defaults.go     | 12 ++++++++++++
+ src/crypto/tls/tls_test.go     | 24 ++++++++++++++++++++++++
+ src/internal/godebugs/table.go |  1 +
+ src/runtime/metrics/doc.go     |  4 ++++
+ 4 files changed, 41 insertions(+)
+
+diff --git a/src/crypto/tls/defaults.go b/src/crypto/tls/defaults.go
+index 8de8d7e0934b07..1d7f5b6da3354a 100644
+--- a/src/crypto/tls/defaults.go
++++ b/src/crypto/tls/defaults.go
+@@ -15,6 +15,7 @@ import (
+ 
+ var tlsmlkem = godebug.New("tlsmlkem")
+ var tlssecpmlkem = godebug.New("tlssecpmlkem")
++var ms_tlsx25519 = godebug.New("ms_tlsx25519")
+ 
+ // defaultCurvePreferences is the default set of supported key exchanges, as
+ // well as the preference order.
+@@ -22,11 +23,22 @@ func defaultCurvePreferences() []CurveID {
+ 	switch {
+ 	// tlsmlkem=0 restores the pre-Go 1.24 default.
+ 	case tlsmlkem.Value() == "0":
++		if ms_tlsx25519.Value() == "0" {
++			return []CurveID{CurveP256, CurveP384, CurveP521}
++		}
+ 		return []CurveID{X25519, CurveP256, CurveP384, CurveP521}
+ 	// tlssecpmlkem=0 restores the pre-Go 1.26 default.
+ 	case tlssecpmlkem.Value() == "0":
++		if ms_tlsx25519.Value() == "0" {
++			return []CurveID{CurveP256, CurveP384, CurveP521}
++		}
+ 		return []CurveID{X25519MLKEM768, X25519, CurveP256, CurveP384, CurveP521}
+ 	default:
++		if ms_tlsx25519.Value() == "0" {
++			return []CurveID{
++				SecP256r1MLKEM768, SecP384r1MLKEM1024, CurveP256, CurveP384, CurveP521,
++			}
++		}
+ 		return []CurveID{
+ 			X25519MLKEM768, SecP256r1MLKEM768, SecP384r1MLKEM1024,
+ 			X25519, CurveP256, CurveP384, CurveP521,
+diff --git a/src/crypto/tls/tls_test.go b/src/crypto/tls/tls_test.go
+index 5f4a2b9de4fd1f..98726c6e9509d5 100644
+--- a/src/crypto/tls/tls_test.go
++++ b/src/crypto/tls/tls_test.go
+@@ -2113,6 +2113,30 @@ func TestHandshakeMLKEM(t *testing.T) {
+ 			expectClient:   []CurveID{X25519MLKEM768, X25519, CurveP256, CurveP384, CurveP521},
+ 			expectSelected: X25519MLKEM768,
+ 		},
++		{
++			name: "GODEBUG ms_tlsx25519=0",
++			preparation: func(t *testing.T) {
++				t.Setenv("GODEBUG", "ms_tlsx25519=0")
++			},
++			expectClient:   []CurveID{SecP256r1MLKEM768, SecP384r1MLKEM1024, CurveP256, CurveP384, CurveP521},
++			expectSelected: SecP256r1MLKEM768,
++		},
++		{
++			name: "GODEBUG ms_tlsx25519=0 and tlsmlkem=0",
++			preparation: func(t *testing.T) {
++				t.Setenv("GODEBUG", "ms_tlsx25519=0,tlsmlkem=0")
++			},
++			expectClient:   []CurveID{CurveP256, CurveP384, CurveP521},
++			expectSelected: CurveP256,
++		},
++		{
++			name: "GODEBUG ms_tlsx25519=0 and tlssecpmlkem=0",
++			preparation: func(t *testing.T) {
++				t.Setenv("GODEBUG", "ms_tlsx25519=0,tlssecpmlkem=0")
++			},
++			expectClient:   []CurveID{CurveP256, CurveP384, CurveP521},
++			expectSelected: CurveP256,
++		},
+ 	}
+ 
+ 	baseConfig := testConfig.Clone()
+diff --git a/src/internal/godebugs/table.go b/src/internal/godebugs/table.go
+index 8f6d8bbdda656c..1f6fe9cd7db5b1 100644
+--- a/src/internal/godebugs/table.go
++++ b/src/internal/godebugs/table.go
+@@ -49,6 +49,7 @@ var All = []Info{
+ 	{Name: "httpservecontentkeepheaders", Package: "net/http", Changed: 23, Old: "1"},
+ 	{Name: "installgoroot", Package: "go/build"},
+ 	{Name: "jstmpllitinterp", Package: "html/template", Opaque: true}, // bug #66217: remove Opaque
++	{Name: "ms_tlsx25519", Package: "crypto/tls"},
+ 	//{Name: "multipartfiles", Package: "mime/multipart"},
+ 	{Name: "multipartmaxheaders", Package: "mime/multipart"},
+ 	{Name: "multipartmaxparts", Package: "mime/multipart"},
+diff --git a/src/runtime/metrics/doc.go b/src/runtime/metrics/doc.go
+index ca032f51b13533..53a101ac8f84d2 100644
+--- a/src/runtime/metrics/doc.go
++++ b/src/runtime/metrics/doc.go
+@@ -337,6 +337,10 @@ Below is the full list of supported metrics, ordered lexicographically.
+ 		The number of non-default behaviors executed by the go/build
+ 		package due to a non-default GODEBUG=installgoroot=... setting.
+ 
++	/godebug/non-default-behavior/ms_tlsx25519:events
++		The number of non-default behaviors executed by the crypto/tls
++		package due to a non-default GODEBUG=ms_tlsx25519=... setting.
++
+ 	/godebug/non-default-behavior/multipartmaxheaders:events
+ 		The number of non-default behaviors executed by
+ 		the mime/multipart package due to a non-default
