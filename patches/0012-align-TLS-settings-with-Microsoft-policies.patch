@@ -4,17 +4,17 @@ Date: Fri, 12 Dec 2025 16:46:44 +0100
 Subject: [PATCH] align TLS settings with Microsoft policies
 
 ---
- src/crypto/tls/defaults.go     | 12 ++++++++++++
+ src/crypto/tls/defaults.go     | 10 +++++++++-
  src/crypto/tls/tls_test.go     | 24 ++++++++++++++++++++++++
  src/internal/godebugs/table.go |  1 +
  src/runtime/metrics/doc.go     |  4 ++++
- 4 files changed, 41 insertions(+)
+ 4 files changed, 38 insertions(+), 1 deletion(-)
 
 diff --git a/src/crypto/tls/defaults.go b/src/crypto/tls/defaults.go
-index 8de8d7e0934b07..1d7f5b6da3354a 100644
+index 8de8d7e0934b07..0ba8d3ebf0d6e4 100644
 --- a/src/crypto/tls/defaults.go
 +++ b/src/crypto/tls/defaults.go
-@@ -15,6 +15,7 @@ import (
+@@ -15,10 +15,18 @@ import (
  
  var tlsmlkem = godebug.New("tlsmlkem")
  var tlssecpmlkem = godebug.New("tlssecpmlkem")
@@ -22,29 +22,18 @@ index 8de8d7e0934b07..1d7f5b6da3354a 100644
  
  // defaultCurvePreferences is the default set of supported key exchanges, as
  // well as the preference order.
-@@ -22,11 +23,22 @@ func defaultCurvePreferences() []CurveID {
+-func defaultCurvePreferences() []CurveID {
++func defaultCurvePreferences() (groups []CurveID) {
++	defer func() {
++		if ms_tlsx25519.Value() == "0" {
++			groups = slices.DeleteFunc(groups, func(c CurveID) bool {
++				return c == X25519 || c == X25519MLKEM768
++			})
++		}
++	}()
  	switch {
  	// tlsmlkem=0 restores the pre-Go 1.24 default.
  	case tlsmlkem.Value() == "0":
-+		if ms_tlsx25519.Value() == "0" {
-+			return []CurveID{CurveP256, CurveP384, CurveP521}
-+		}
- 		return []CurveID{X25519, CurveP256, CurveP384, CurveP521}
- 	// tlssecpmlkem=0 restores the pre-Go 1.26 default.
- 	case tlssecpmlkem.Value() == "0":
-+		if ms_tlsx25519.Value() == "0" {
-+			return []CurveID{CurveP256, CurveP384, CurveP521}
-+		}
- 		return []CurveID{X25519MLKEM768, X25519, CurveP256, CurveP384, CurveP521}
- 	default:
-+		if ms_tlsx25519.Value() == "0" {
-+			return []CurveID{
-+				SecP256r1MLKEM768, SecP384r1MLKEM1024, CurveP256, CurveP384, CurveP521,
-+			}
-+		}
- 		return []CurveID{
- 			X25519MLKEM768, SecP256r1MLKEM768, SecP384r1MLKEM1024,
- 			X25519, CurveP256, CurveP384, CurveP521,
 diff --git a/src/crypto/tls/tls_test.go b/src/crypto/tls/tls_test.go
 index 5f4a2b9de4fd1f..98726c6e9509d5 100644
 --- a/src/crypto/tls/tls_test.go
