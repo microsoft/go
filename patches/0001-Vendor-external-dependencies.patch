@@ -189,6 +189,7 @@ Use a 'go' that was recently built by the current branch to ensure stable result
  .../go-crypto-darwin/internal/xsyscall/dl.h   |   15 +
  .../internal/xsyscall/syscall_nocgo.go        |   88 +
  .../internal/xsyscall/syscall_nocgo_darwin.go |   25 +
+ .../internal/xsyscall/syscall_nocgo_others.go |   14 +
  .../internal/xsyscall/xsyscall.go             |    6 +
  .../go-crypto-darwin/internal/xsyscall/zdl.s  |   54 +
  .../internal/xsyscall/zdl_nocgo.go            |   48 +
@@ -241,7 +242,7 @@ Use a 'go' that was recently built by the current branch to ensure stable result
  .../internal/subtle/aliasing.go               |   32 +
  .../internal/sysdll/sys_windows.go            |   55 +
  src/vendor/modules.txt                        |   23 +
- 233 files changed, 30516 insertions(+), 7 deletions(-)
+ 234 files changed, 30530 insertions(+), 7 deletions(-)
  create mode 100644 src/cmd/internal/telemetry/counter/deps_ignore.go
  create mode 100644 src/cmd/vendor/github.com/microsoft/go-infra/telemetry/LICENSE
  create mode 100644 src/cmd/vendor/github.com/microsoft/go-infra/telemetry/README.md
@@ -416,6 +417,7 @@ Use a 'go' that was recently built by the current branch to ensure stable result
  create mode 100644 src/vendor/github.com/microsoft/go-crypto-darwin/internal/xsyscall/dl.h
  create mode 100644 src/vendor/github.com/microsoft/go-crypto-darwin/internal/xsyscall/syscall_nocgo.go
  create mode 100644 src/vendor/github.com/microsoft/go-crypto-darwin/internal/xsyscall/syscall_nocgo_darwin.go
+ create mode 100644 src/vendor/github.com/microsoft/go-crypto-darwin/internal/xsyscall/syscall_nocgo_others.go
  create mode 100644 src/vendor/github.com/microsoft/go-crypto-darwin/internal/xsyscall/xsyscall.go
  create mode 100644 src/vendor/github.com/microsoft/go-crypto-darwin/internal/xsyscall/zdl.s
  create mode 100644 src/vendor/github.com/microsoft/go-crypto-darwin/internal/xsyscall/zdl_nocgo.go
@@ -2128,7 +2130,7 @@ index 00000000000000..ae4055d2d71303
 +// that are used by the backend package. This allows to track
 +// their versions in a single patch file.
 diff --git a/src/go.mod b/src/go.mod
-index efc07451b53448..e31efae65705c0 100644
+index efc07451b53448..4e945511073ecc 100644
 --- a/src/go.mod
 +++ b/src/go.mod
 @@ -11,3 +11,9 @@ require (
@@ -2138,18 +2140,18 @@ index efc07451b53448..e31efae65705c0 100644
 +
 +require (
 +	github.com/golang-fips/openssl/v2 v2.0.4-0.20251205103838-300bb5780a83
-+	github.com/microsoft/go-crypto-darwin v0.0.3-0.20251215134426-d7fa8738280f
++	github.com/microsoft/go-crypto-darwin v0.0.3-0.20251215143607-e068212c5cff
 +	github.com/microsoft/go-crypto-winnative v0.0.0-20251202082756-9cab7d2d4a79
 +)
 diff --git a/src/go.sum b/src/go.sum
-index b6b841b44d8e38..472a3410927490 100644
+index b6b841b44d8e38..e42e19781dd7f2 100644
 --- a/src/go.sum
 +++ b/src/go.sum
 @@ -1,3 +1,9 @@
 +github.com/golang-fips/openssl/v2 v2.0.4-0.20251205103838-300bb5780a83 h1:u3WAHp425YzcHygZORNJa9dkyA959Gtti8bUgGYYuiA=
 +github.com/golang-fips/openssl/v2 v2.0.4-0.20251205103838-300bb5780a83/go.mod h1:EtVnMfLGkB4pihGOH+tXEV0WlXxewWdT1n3GLJEHvpw=
-+github.com/microsoft/go-crypto-darwin v0.0.3-0.20251215134426-d7fa8738280f h1:Uj26IA3n2m2NWM/IaYpjyVEoF50KrZmK2wXUDoDsxew=
-+github.com/microsoft/go-crypto-darwin v0.0.3-0.20251215134426-d7fa8738280f/go.mod h1:MTii5PQwRlfUjYpGoF8CPLGwXSHTbLHGRN9FVNML5N0=
++github.com/microsoft/go-crypto-darwin v0.0.3-0.20251215143607-e068212c5cff h1:oerudO/EXeLnT69uP9hbjqwCBZ5RuIwF02vkCOY1nBs=
++github.com/microsoft/go-crypto-darwin v0.0.3-0.20251215143607-e068212c5cff/go.mod h1:MTii5PQwRlfUjYpGoF8CPLGwXSHTbLHGRN9FVNML5N0=
 +github.com/microsoft/go-crypto-winnative v0.0.0-20251202082756-9cab7d2d4a79 h1:u3ZftMj7JpCAl4Ku8LUngqfn7pNuQG9mAsNMlSjBvDI=
 +github.com/microsoft/go-crypto-winnative v0.0.0-20251202082756-9cab7d2d4a79/go.mod h1:gD686525Li/blRSYwSzFJ6/LJQVFJp7Y0MKp+dmqFbc=
  golang.org/x/crypto v0.46.1-0.20251210140736-7dacc380ba00 h1:JgcPM1rzpSOZS8y69FQvnY0xN0ciHlpQqwTXJcuZIA4=
@@ -26620,6 +26622,26 @@ index 00000000000000..c7e683e6790a27
 +	}
 +	return uintptr(r0)
 +}
+diff --git a/src/vendor/github.com/microsoft/go-crypto-darwin/internal/xsyscall/syscall_nocgo_others.go b/src/vendor/github.com/microsoft/go-crypto-darwin/internal/xsyscall/syscall_nocgo_others.go
+new file mode 100644
+index 00000000000000..28dba16a23340e
+--- /dev/null
++++ b/src/vendor/github.com/microsoft/go-crypto-darwin/internal/xsyscall/syscall_nocgo_others.go
+@@ -0,0 +1,14 @@
++// Copyright (c) Microsoft Corporation.
++// Licensed under the MIT License.
++
++//go:build !cgo && !(amd64 || arm64)
++
++package xsyscall
++
++// Implement a mock version of SyscallN for unsupported architectures.
++// This will simply panic to indicate that the syscall is not supported.
++
++//go:nosplit
++func SyscallN(errType uintptr, fn uintptr, args ...uintptr) (r1, r2 uintptr) {
++	panic("SyscallN is not supported on this architecture")
++}
 diff --git a/src/vendor/github.com/microsoft/go-crypto-darwin/internal/xsyscall/xsyscall.go b/src/vendor/github.com/microsoft/go-crypto-darwin/internal/xsyscall/xsyscall.go
 new file mode 100644
 index 00000000000000..458053d55e4541
@@ -34362,7 +34384,7 @@ index 00000000000000..1722410e5af193
 +	return getSystemDirectory() + "\\" + dll
 +}
 diff --git a/src/vendor/modules.txt b/src/vendor/modules.txt
-index b6f6376eac041a..adca7d77fdd0e4 100644
+index b6f6376eac041a..94f52f58126855 100644
 --- a/src/vendor/modules.txt
 +++ b/src/vendor/modules.txt
 @@ -1,3 +1,26 @@
@@ -34373,7 +34395,7 @@ index b6f6376eac041a..adca7d77fdd0e4 100644
 +github.com/golang-fips/openssl/v2/internal/fakecgo
 +github.com/golang-fips/openssl/v2/internal/ossl
 +github.com/golang-fips/openssl/v2/osslsetup
-+# github.com/microsoft/go-crypto-darwin v0.0.3-0.20251215134426-d7fa8738280f
++# github.com/microsoft/go-crypto-darwin v0.0.3-0.20251215143607-e068212c5cff
 +## explicit; go 1.24
 +github.com/microsoft/go-crypto-darwin/bbig
 +github.com/microsoft/go-crypto-darwin/internal/commoncrypto
