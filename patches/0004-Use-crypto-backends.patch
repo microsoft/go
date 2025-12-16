@@ -5,7 +5,7 @@ Subject: [PATCH] Use crypto backends
 
 ---
  src/cmd/api/boring_test.go                    |   2 +-
- src/cmd/dist/test.go                          |  13 +-
+ src/cmd/dist/test.go                          |  21 +-
  src/cmd/go/go_boring_test.go                  |   6 +-
  src/cmd/go/script_test.go                     |   2 +
  src/cmd/go/testdata/script/darwin_no_cgo.txt  |   2 +
@@ -100,7 +100,7 @@ Subject: [PATCH] Use crypto backends
  src/hash/notboring_test.go                    |   9 +
  src/net/lookup_test.go                        |   3 +
  src/os/exec/exec_test.go                      |   9 +
- 96 files changed, 1490 insertions(+), 176 deletions(-)
+ 96 files changed, 1497 insertions(+), 177 deletions(-)
  create mode 100644 src/crypto/dsa/boring.go
  create mode 100644 src/crypto/dsa/notboring.go
  create mode 100644 src/crypto/ecdsa/badlinkname.go
@@ -126,7 +126,7 @@ index f0e3575637c62a..9eab3b4e66e60b 100644
  package main
  
 diff --git a/src/cmd/dist/test.go b/src/cmd/dist/test.go
-index 2cbf77a59e63dd..855c1155c7f05a 100644
+index 287424afb0d734..f2068ce397ace4 100644
 --- a/src/cmd/dist/test.go
 +++ b/src/cmd/dist/test.go
 @@ -720,7 +720,7 @@ func (t *tester) registerTests() {
@@ -138,7 +138,7 @@ index 2cbf77a59e63dd..855c1155c7f05a 100644
  		// Test standard crypto packages with fips140=on.
  		t.registerTest("GOFIPS140=latest go test crypto/...", &goTest{
  			variant: "gofips140",
-@@ -763,9 +763,15 @@ func (t *tester) registerTests() {
+@@ -763,18 +763,30 @@ func (t *tester) registerTests() {
  
  	// Test GOEXPERIMENT=runtimesecret.
  	if !strings.Contains(goexperiment, "runtimesecret") {
@@ -155,7 +155,23 @@ index 2cbf77a59e63dd..855c1155c7f05a 100644
  			pkg:     "runtime/secret/...",
  		})
  	}
-@@ -1377,12 +1383,11 @@ func (t *tester) registerCgoTests(heading string) {
+ 
+ 	// Test GOEXPERIMENT=simd on amd64.
+ 	if goarch == "amd64" && !strings.Contains(goexperiment, "simd") {
++		// Don't override existing GOEXPERIMENTs.
++		goexperiment := goexperiment
++		if goexperiment != "" {
++			goexperiment += ","
++		}
++		goexperiment += "simd"
+ 		t.registerTest("GOEXPERIMENT=simd go test simd/archsimd/...", &goTest{
+ 			variant: "simd",
+-			env:     []string{"GOEXPERIMENT=simd"},
++			env:     []string{"GOEXPERIMENT=" + goexperiment},
+ 			pkg:     "simd/archsimd/...",
+ 		})
+ 	}
+@@ -1386,12 +1398,11 @@ func (t *tester) registerCgoTests(heading string) {
  			// a C linker warning on Linux.
  			// in function `bio_ip_and_port_to_socket_and_addr':
  			// warning: Using 'getaddrinfo' in statically linked applications requires at runtime the shared libraries from the glibc version used for linking
@@ -3905,10 +3921,10 @@ index f9bd313737e21b..04548c961e74a8 100644
  
  	var dsaPriv dsa.PrivateKey
 diff --git a/src/go/build/deps_test.go b/src/go/build/deps_test.go
-index aa7f419a5d74cc..c500e8bf2a0cf5 100644
+index f52b6b1ac71711..f6f962f38b5d00 100644
 --- a/src/go/build/deps_test.go
 +++ b/src/go/build/deps_test.go
-@@ -538,7 +538,7 @@ var depsRules = `
+@@ -545,7 +545,7 @@ var depsRules = `
  	< crypto/internal/fips140/edwards25519
  	< crypto/internal/fips140/ed25519
  	< crypto/internal/fips140/rsa
@@ -3917,7 +3933,7 @@ index aa7f419a5d74cc..c500e8bf2a0cf5 100644
  
  	crypto !< FIPS;
  
-@@ -567,7 +567,12 @@ var depsRules = `
+@@ -569,7 +569,12 @@ var depsRules = `
  	< crypto/internal/backend/internal/opensslsetup
  	< crypto/internal/backend/fips140;
  
@@ -3931,7 +3947,7 @@ index aa7f419a5d74cc..c500e8bf2a0cf5 100644
  	< crypto/internal/fips140only
  	< crypto
  	< crypto/subtle
-@@ -601,7 +606,8 @@ var depsRules = `
+@@ -603,7 +608,8 @@ var depsRules = `
  	crypto/internal/fips140only,
  	crypto,
  	crypto/subtle,
@@ -3941,7 +3957,7 @@ index aa7f419a5d74cc..c500e8bf2a0cf5 100644
  	< crypto/sha3
  	< crypto/internal/fips140hash
  	< crypto/internal/boring
-@@ -619,6 +625,7 @@ var depsRules = `
+@@ -621,6 +627,7 @@ var depsRules = `
  	  crypto/pbkdf2,
  	  crypto/ecdh,
  	  crypto/mlkem
