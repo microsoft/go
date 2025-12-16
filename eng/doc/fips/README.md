@@ -137,6 +137,8 @@ Setting the `goexperiment.<option>` build tag can be used as an alternative to s
 If a crypto backend is selected but isn't supported, the build fails.
 For example, attempting to use the OpenSSL backend without cgo enabled results in a build error.
 
+For more information about disabling the crypto backend, see [build option to use Go crypto](#build-option-to-use-go-crypto-if-the-backend-compatibility-check-fails).
+
 The next sections describe how to select a crypto backend in some common scenarios.
 
 ### Dockerfile base image
@@ -380,6 +382,10 @@ These are other fixes that may be used on a case-by-case basis:
   - With Go 1.25 or later, set `GOEXPERIMENT=nosystemcrypto`.
   - With Go 1.24, either set `GOEXPERIMENT=nosystemcrypto` or remove the `GOEXPERIMENT` setting entirely.
 - Refactor the code to not use a `crypto` package. For example, when computing a hash for non-cryptographic purposes, there are several alternatives in the Go standard library that don't require a crypto backend, such as `hash/fnv` or `hash/maphash`.
+
+> [!NOTE]
+> `MS_GO_NOSYSTEMCRYPTO=1` has precedence over `GOEXPERIMENT` values.
+> For example, setting `MS_GO_NOSYSTEMCRYPTO=1` and `GOEXPERIMENT=systemcrypto` builds a program that uses Go standard library cryptography.
 
 > [!IMPORTANT]
 > Individual crypto calls may fall back to standard Go crypto at runtime if the selected backend doesn't support an API or the arguments used. See the [FIPS User Guide](UserGuide.md) for more information.

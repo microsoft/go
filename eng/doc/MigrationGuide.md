@@ -360,6 +360,8 @@ If the change requires further planning and if it's acceptable for your project 
 
 After that, build commands won't encounter errors related to `systemcrypto`, and the resulting program won't attempt to use system-provided cryptography at runtime.
 
+For more information about these options, see [the "Build option to use Go crypto" section of the FIPS README](fips/README.md#build-option-to-use-go-crypto-if-the-backend-compatibility-check-fails).
+
 Alternatively, if you experienced an unexpected auto-update to 1.25 that broke your project, you should downgrade to the latest version of 1.24.
 This will disable `systemcrypto` by default and give you time to plan the migration.
 You can choose to upgrade at your own pace, as long as you complete the migration before 1.24 reaches EOL (End of Life).
