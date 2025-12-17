@@ -4,17 +4,18 @@ Date: Fri, 12 Dec 2025 16:46:44 +0100
 Subject: [PATCH] align TLS settings with Microsoft policies
 
 ---
- doc/godebug.md                 |  4 ++++
- src/crypto/tls/defaults.go     | 10 +++++++++-
- src/crypto/tls/tls_test.go     | 24 ++++++++++++++++++++++++
- src/internal/godebugs/table.go |  1 +
- 4 files changed, 38 insertions(+), 1 deletion(-)
+ doc/godebug.md                   |   9 ++
+ src/crypto/tls/defaults.go       |  63 ++++++++++-
+ src/crypto/tls/handshake_test.go |   3 +
+ src/crypto/tls/tls_test.go       | 183 +++++++++++++++++++++++++++++++
+ src/internal/godebugs/table.go   |   2 +
+ 5 files changed, 259 insertions(+), 1 deletion(-)
 
 diff --git a/doc/godebug.md b/doc/godebug.md
-index 28a2dc506ef8ff..8be51c6a136df6 100644
+index 28a2dc506ef8ff..4c95ceb09bcbbe 100644
 --- a/doc/godebug.md
 +++ b/doc/godebug.md
-@@ -183,6 +183,10 @@ APIs ignore the random `io.Reader` parameter. For Go 1.26, it defaults
+@@ -183,6 +183,15 @@ APIs ignore the random `io.Reader` parameter. For Go 1.26, it defaults
  to `cryptocustomrand=0`, ignoring the random parameters. Using `cryptocustomrand=1`
  reverts to the pre-Go 1.26 behavior.
  
@@ -22,18 +23,54 @@ index 28a2dc506ef8ff..8be51c6a136df6 100644
 +`crypto/tls` enables the X25519 and X25519MLKEM768 TLS groups by default. Setting
 +`ms_tlsx25519=0` disables these groups. The default value is `ms_tlsx25519=1`.
 +
++Microsoft build of Go 1.26 added a new `ms_tlsprofile` setting that controls the
++`crypto/tls` settings. The possible values are:
++- "default": use the recommended Microsoft TLS settings. This is the default.
++- "off": use the default upstream Go TLS settings.
++
  ### Go 1.25
  
  Go 1.25 added a new `decoratemappings` setting that controls whether the Go
 diff --git a/src/crypto/tls/defaults.go b/src/crypto/tls/defaults.go
-index 8de8d7e0934b07..0ba8d3ebf0d6e4 100644
+index 8de8d7e0934b07..35c2235a499c12 100644
 --- a/src/crypto/tls/defaults.go
 +++ b/src/crypto/tls/defaults.go
-@@ -15,10 +15,18 @@ import (
+@@ -5,6 +5,7 @@
+ package tls
+ 
+ import (
++	boring "crypto/internal/backend"
+ 	"internal/godebug"
+ 	"slices"
+ 	_ "unsafe" // for linkname
+@@ -15,10 +16,70 @@ import (
  
  var tlsmlkem = godebug.New("tlsmlkem")
  var tlssecpmlkem = godebug.New("tlssecpmlkem")
 +var ms_tlsx25519 = godebug.New("ms_tlsx25519")
++var ms_tlsprofile = godebug.New("ms_tlsprofile")
++
++// Support* functions are cached, so calling them multiple times is cheap.
++var supportedGroups = map[CurveID]bool{
++	CurveP256:          true,
++	CurveP384:          true,
++	CurveP521:          true,
++	X25519:             !boring.Enabled || boring.SupportsCurve("X25519"),
++	X25519MLKEM768:     !boring.Enabled || boring.SupportsCurve("X25519") && boring.SupportsMLKEM768(),
++	SecP256r1MLKEM768:  !boring.Enabled || boring.SupportsMLKEM768(),
++	SecP384r1MLKEM1024: !boring.Enabled || boring.SupportsMLKEM1024(),
++}
++
++func init() {
++	switch ms_tlsprofile.Value() {
++	case "default", "":
++		// OK, Microsoft recommended behavior
++	case "off":
++		// OK, upstream behavior
++	default:
++		panic("unknown GODEBUG setting ms_tlsprofile=" + ms_tlsprofile.Value())
++	}
++}
  
  // defaultCurvePreferences is the default set of supported key exchanges, as
  // well as the preference order.
@@ -46,14 +83,267 @@ index 8de8d7e0934b07..0ba8d3ebf0d6e4 100644
 +			})
 +		}
 +	}()
++	if ms_tlsprofile.Value() == "off" {
++		return upstreamCurvePreferences()
++	}
++	// For now we only have two profiles: default Microsoft and upstream (off).
++	defer func() {
++		groups = slices.DeleteFunc(groups, func(c CurveID) bool {
++			supported, found := supportedGroups[c]
++			if !found {
++				panic("unknown curve ID in defaultCurvePreferences: " + c.String())
++			}
++			return !supported
++		})
++	}()
++	switch {
++	case tlsmlkem.Value() == "0":
++		// tlsmlkem=0 restores the pre-Go 1.24 default.
++		return []CurveID{CurveP384, CurveP256, CurveP521, X25519}
++	case tlssecpmlkem.Value() == "0":
++		// tlssecpmlkem=0 restores the pre-Go 1.26 default.
++		return []CurveID{X25519MLKEM768, CurveP384, CurveP256, CurveP521, X25519}
++	default:
++		return []CurveID{
++			X25519MLKEM768, SecP384r1MLKEM1024, SecP256r1MLKEM768,
++			CurveP384, CurveP256, CurveP521, X25519,
++		}
++	}
++}
++
++func upstreamCurvePreferences() []CurveID {
  	switch {
  	// tlsmlkem=0 restores the pre-Go 1.24 default.
  	case tlsmlkem.Value() == "0":
+diff --git a/src/crypto/tls/handshake_test.go b/src/crypto/tls/handshake_test.go
+index 6e15459a9a1809..4f47dbd2030d2a 100644
+--- a/src/crypto/tls/handshake_test.go
++++ b/src/crypto/tls/handshake_test.go
+@@ -452,6 +452,9 @@ func runMain(m *testing.M) int {
+ 	// to use cryptotest.SetGlobalRandom instead.
+ 	os.Setenv("GODEBUG", "cryptocustomrand=1,"+os.Getenv("GODEBUG"))
+ 
++	// Disable Microsoft TLS profile to have consistent test results.
++	os.Setenv("GODEBUG", "ms_tlsprofile=off,"+os.Getenv("GODEBUG"))
++
+ 	testConfig = &Config{
+ 		Time:               func() time.Time { return time.Unix(0, 0) },
+ 		Rand:               zeroSource{},
 diff --git a/src/crypto/tls/tls_test.go b/src/crypto/tls/tls_test.go
-index 5f4a2b9de4fd1f..98726c6e9509d5 100644
+index 5f4a2b9de4fd1f..552cc2ebc56fd2 100644
 --- a/src/crypto/tls/tls_test.go
 +++ b/src/crypto/tls/tls_test.go
-@@ -2113,6 +2113,30 @@ func TestHandshakeMLKEM(t *testing.T) {
+@@ -24,11 +24,13 @@ import (
+ 	"internal/goexperiment"
+ 	"internal/testenv"
+ 	"io"
++	"maps"
+ 	"math"
+ 	"math/big"
+ 	"net"
+ 	"os"
+ 	"reflect"
++	"runtime"
+ 	"slices"
+ 	"strings"
+ 	"testing"
+@@ -1983,10 +1985,50 @@ func testVerifyCertificates(t *testing.T, version uint16) {
+ 	}
+ }
+ 
++func TestGroupSupport(t *testing.T) {
++	supported := slices.Collect(maps.Keys(supportedGroups))
++	slices.Sort(supported)
++	for _, group := range supported {
++		t.Run(group.String(), func(t *testing.T) {
++			if !boring.Enabled {
++				// In non-systemcrypto builds, all groups must be supported.
++				if !supportedGroups[group] {
++					t.Errorf("expected group %v to be supported", group)
++				}
++				return
++			}
++			if !supportedGroups[group] {
++				switch group {
++				case CurveP256, CurveP384, CurveP521:
++					// These curves are always supported.
++					t.Errorf("must be supported")
++				case X25519:
++					// X25519 is always supported on Windows and macOS.
++					if runtime.GOOS != "linux" {
++						t.Skipf("must be supported")
++					}
++				}
++			}
++		})
++	}
++}
++
+ func TestHandshakeMLKEM(t *testing.T) {
+ 	if boring.Enabled && fips140tls.Required() {
+ 		t.Skip("ML-KEM not supported in BoringCrypto FIPS mode")
+ 	}
++
++	// Enable the default Microsoft TLS profile for the duration of the test.
++	savedGODEBUG := os.Getenv("GODEBUG")
++	os.Setenv("GODEBUG", strings.ReplaceAll(savedGODEBUG, "ms_tlsprofile=off", "")+",ms_tlsprofile=default")
++	t.Cleanup(func() {
++		os.Setenv("GODEBUG", savedGODEBUG)
++	})
++
++	defaultMicrosoftWithPQ := []CurveID{X25519MLKEM768, SecP384r1MLKEM1024, SecP256r1MLKEM768,
++		CurveP384, CurveP256, CurveP521, X25519}
++	defaultMicrosoftWithoutPQ := []CurveID{CurveP384, CurveP256, CurveP521, X25519}
++
+ 	defaultWithPQ := []CurveID{X25519MLKEM768, SecP256r1MLKEM768, SecP384r1MLKEM1024,
+ 		X25519, CurveP256, CurveP384, CurveP521}
+ 	defaultWithoutPQ := []CurveID{X25519, CurveP256, CurveP384, CurveP521}
+@@ -2001,8 +2043,16 @@ func TestHandshakeMLKEM(t *testing.T) {
+ 	}{
+ 		{
+ 			name:           "Default",
++			expectClient:   defaultMicrosoftWithPQ,
++			expectSelected: X25519MLKEM768,
++		},
++		{
++			name:           "Default GODEBUG ms_tlsprofile=off",
+ 			expectClient:   defaultWithPQ,
+ 			expectSelected: X25519MLKEM768,
++			preparation: func(t *testing.T) {
++				t.Setenv("GODEBUG", "ms_tlsprofile=off")
++			},
+ 		},
+ 		{
+ 			name: "ClientCurvePreferences",
+@@ -2017,17 +2067,41 @@ func TestHandshakeMLKEM(t *testing.T) {
+ 			serverConfig: func(config *Config) {
+ 				config.CurvePreferences = []CurveID{X25519}
+ 			},
++			expectClient:   defaultMicrosoftWithPQ,
++			expectSelected: X25519,
++			expectHRR:      boring.Enabled && !boring.SupportsMLKEM768(),
++		},
++		{
++			name: "ServerCurvePreferencesX25519 GODEBUG ms_tlsprofile=off",
++			serverConfig: func(config *Config) {
++				config.CurvePreferences = []CurveID{X25519}
++			},
+ 			expectClient:   defaultWithPQ,
+ 			expectSelected: X25519,
++			preparation: func(t *testing.T) {
++				t.Setenv("GODEBUG", "ms_tlsprofile=off")
++			},
+ 		},
+ 		{
+ 			name: "ServerCurvePreferencesHRR",
+ 			serverConfig: func(config *Config) {
+ 				config.CurvePreferences = []CurveID{CurveP256}
+ 			},
++			expectClient:   defaultMicrosoftWithPQ,
++			expectSelected: CurveP256,
++			expectHRR:      true,
++		},
++		{
++			name: "ServerCurvePreferencesHRR GODEBUG ms_tlsprofile=off",
++			serverConfig: func(config *Config) {
++				config.CurvePreferences = []CurveID{CurveP256}
++			},
+ 			expectClient:   defaultWithPQ,
+ 			expectSelected: CurveP256,
+ 			expectHRR:      true,
++			preparation: func(t *testing.T) {
++				t.Setenv("GODEBUG", "ms_tlsprofile=off")
++			},
+ 		},
+ 		{
+ 			name: "SecP256r1MLKEM768-Only",
+@@ -2042,9 +2116,21 @@ func TestHandshakeMLKEM(t *testing.T) {
+ 			serverConfig: func(config *Config) {
+ 				config.CurvePreferences = []CurveID{SecP256r1MLKEM768, CurveP256}
+ 			},
++			expectClient:   defaultMicrosoftWithPQ,
++			expectSelected: SecP256r1MLKEM768,
++			expectHRR:      true,
++		},
++		{
++			name: "SecP256r1MLKEM768-HRR GODEBUG ms_tlsprofile=off",
++			serverConfig: func(config *Config) {
++				config.CurvePreferences = []CurveID{SecP256r1MLKEM768, CurveP256}
++			},
+ 			expectClient:   defaultWithPQ,
+ 			expectSelected: SecP256r1MLKEM768,
+ 			expectHRR:      true,
++			preparation: func(t *testing.T) {
++				t.Setenv("GODEBUG", "ms_tlsprofile=off")
++			},
+ 		},
+ 		{
+ 			name: "SecP384r1MLKEM1024",
+@@ -2086,22 +2172,52 @@ func TestHandshakeMLKEM(t *testing.T) {
+ 			clientConfig: func(config *Config) {
+ 				config.MaxVersion = VersionTLS12
+ 			},
++			expectClient:   defaultMicrosoftWithoutPQ,
++			expectSelected: CurveP384,
++		},
++		{
++			name: "ClientTLSv12 GODEBUG ms_tlsprofile=off",
++			clientConfig: func(config *Config) {
++				config.MaxVersion = VersionTLS12
++			},
+ 			expectClient:   defaultWithoutPQ,
+ 			expectSelected: X25519,
++			preparation: func(t *testing.T) {
++				t.Setenv("GODEBUG", "ms_tlsprofile=off")
++			},
+ 		},
+ 		{
+ 			name: "ServerTLSv12",
+ 			serverConfig: func(config *Config) {
+ 				config.MaxVersion = VersionTLS12
+ 			},
++			expectClient:   defaultMicrosoftWithPQ,
++			expectSelected: CurveP384,
++		},
++		{
++			name: "ServerTLSv12  GODEBUG ms_tlsprofile=off",
++			serverConfig: func(config *Config) {
++				config.MaxVersion = VersionTLS12
++			},
+ 			expectClient:   defaultWithPQ,
+ 			expectSelected: X25519,
++			preparation: func(t *testing.T) {
++				t.Setenv("GODEBUG", "ms_tlsprofile=off")
++			},
+ 		},
+ 		{
+ 			name: "GODEBUG tlsmlkem=0",
+ 			preparation: func(t *testing.T) {
+ 				t.Setenv("GODEBUG", "tlsmlkem=0")
+ 			},
++			expectClient:   defaultMicrosoftWithoutPQ,
++			expectSelected: CurveP384,
++		},
++		{
++			name: "GODEBUG tlsmlkem=0,ms_tlsprofile=off",
++			preparation: func(t *testing.T) {
++				t.Setenv("GODEBUG", "tlsmlkem=0,ms_tlsprofile=off")
++			},
+ 			expectClient:   defaultWithoutPQ,
+ 			expectSelected: X25519,
+ 		},
+@@ -2110,9 +2226,65 @@ func TestHandshakeMLKEM(t *testing.T) {
+ 			preparation: func(t *testing.T) {
+ 				t.Setenv("GODEBUG", "tlssecpmlkem=0")
+ 			},
++			expectClient:   []CurveID{X25519MLKEM768, CurveP384, CurveP256, CurveP521, X25519},
++			expectSelected: X25519MLKEM768,
++		},
++		{
++			name: "GODEBUG tlssecpmlkem=0,ms_tlsprofile=off",
++			preparation: func(t *testing.T) {
++				t.Setenv("GODEBUG", "tlssecpmlkem=0,ms_tlsprofile=off")
++			},
  			expectClient:   []CurveID{X25519MLKEM768, X25519, CurveP256, CurveP384, CurveP521},
  			expectSelected: X25519MLKEM768,
  		},
@@ -62,21 +352,45 @@ index 5f4a2b9de4fd1f..98726c6e9509d5 100644
 +			preparation: func(t *testing.T) {
 +				t.Setenv("GODEBUG", "ms_tlsx25519=0")
 +			},
++			expectClient:   []CurveID{SecP384r1MLKEM1024, SecP256r1MLKEM768, CurveP384, CurveP256, CurveP521},
++			expectSelected: SecP384r1MLKEM1024,
++		},
++		{
++			name: "GODEBUG ms_tlsx25519=0,ms_tlsprofile=off",
++			preparation: func(t *testing.T) {
++				t.Setenv("GODEBUG", "ms_tlsx25519=0,ms_tlsprofile=off")
++			},
 +			expectClient:   []CurveID{SecP256r1MLKEM768, SecP384r1MLKEM1024, CurveP256, CurveP384, CurveP521},
 +			expectSelected: SecP256r1MLKEM768,
 +		},
 +		{
-+			name: "GODEBUG ms_tlsx25519=0 and tlsmlkem=0",
++			name: "GODEBUG ms_tlsx25519=0,tlsmlkem=0",
 +			preparation: func(t *testing.T) {
 +				t.Setenv("GODEBUG", "ms_tlsx25519=0,tlsmlkem=0")
++			},
++			expectClient:   []CurveID{CurveP384, CurveP256, CurveP521},
++			expectSelected: CurveP384,
++		},
++		{
++			name: "GODEBUG ms_tlsx25519=0,tlsmlkem=0,ms_tlsprofile=off",
++			preparation: func(t *testing.T) {
++				t.Setenv("GODEBUG", "ms_tlsx25519=0,tlsmlkem=0,ms_tlsprofile=off")
 +			},
 +			expectClient:   []CurveID{CurveP256, CurveP384, CurveP521},
 +			expectSelected: CurveP256,
 +		},
 +		{
-+			name: "GODEBUG ms_tlsx25519=0 and tlssecpmlkem=0",
++			name: "GODEBUG ms_tlsx25519=0,tlssecpmlkem=0",
 +			preparation: func(t *testing.T) {
 +				t.Setenv("GODEBUG", "ms_tlsx25519=0,tlssecpmlkem=0")
++			},
++			expectClient:   []CurveID{CurveP384, CurveP256, CurveP521},
++			expectSelected: CurveP384,
++		},
++		{
++			name: "GODEBUG ms_tlsx25519=0,tlssecpmlkem=0,ms_tlsprofile=off",
++			preparation: func(t *testing.T) {
++				t.Setenv("GODEBUG", "ms_tlsx25519=0,tlssecpmlkem=0,ms_tlsprofile=off")
 +			},
 +			expectClient:   []CurveID{CurveP256, CurveP384, CurveP521},
 +			expectSelected: CurveP256,
@@ -84,14 +398,36 @@ index 5f4a2b9de4fd1f..98726c6e9509d5 100644
  	}
  
  	baseConfig := testConfig.Clone()
+@@ -2131,9 +2303,20 @@ func TestHandshakeMLKEM(t *testing.T) {
+ 			if test.serverConfig != nil {
+ 				test.serverConfig(serverConfig)
+ 			}
++			x25519Enabled := !strings.Contains(os.Getenv("GODEBUG"), "ms_tlsx25519=0")
++			mstlsprofile := !strings.Contains(os.Getenv("GODEBUG"), "ms_tlsprofile=off")
++			if mstlsprofile && !supportedGroups[test.expectSelected] {
++				t.Skipf("%v not supported", test.expectSelected)
++			}
+ 			serverConfig.GetConfigForClient = func(hello *ClientHelloInfo) (*Config, error) {
+ 				expectClient := slices.Clone(test.expectClient)
+ 				expectClient = slices.DeleteFunc(expectClient, func(c CurveID) bool {
++					if mstlsprofile && !supportedGroups[c] {
++						return true
++					}
++					if !x25519Enabled && (c == X25519MLKEM768 || c == X25519) {
++						return true
++					}
+ 					return fips140tls.Required() && c == X25519
+ 				})
+ 				if !slices.Equal(hello.SupportedCurves, expectClient) {
 diff --git a/src/internal/godebugs/table.go b/src/internal/godebugs/table.go
-index 8f6d8bbdda656c..089d7172d5985b 100644
+index 8f6d8bbdda656c..7a5ea67c7dca33 100644
 --- a/src/internal/godebugs/table.go
 +++ b/src/internal/godebugs/table.go
-@@ -49,6 +49,7 @@ var All = []Info{
+@@ -49,6 +49,8 @@ var All = []Info{
  	{Name: "httpservecontentkeepheaders", Package: "net/http", Changed: 23, Old: "1"},
  	{Name: "installgoroot", Package: "go/build"},
  	{Name: "jstmpllitinterp", Package: "html/template", Opaque: true}, // bug #66217: remove Opaque
++	{Name: "ms_tlsprofile", Package: "crypto/tls", Opaque: true},
 +	{Name: "ms_tlsx25519", Package: "crypto/tls", Opaque: true},
  	//{Name: "multipartfiles", Package: "mime/multipart"},
  	{Name: "multipartmaxheaders", Package: "mime/multipart"},
