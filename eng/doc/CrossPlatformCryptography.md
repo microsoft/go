@@ -61,20 +61,20 @@ This section includes the following packages:
 | --------------------- | -------------- | ---------------- | -------------- |
 | MD5                   | ✔️             | ✔️               | ✔️             |
 | SHA-1                 | ✔️             | ✔️               | ✔️             |
-| SHA-2-224             | ❌             | ✔️               | ✔️             |
+| SHA-2-224             | ❌️             | ✔️               | ✔️             |
 | SHA-2-256             | ✔️             | ✔️               | ✔️             |
 | SHA-2-384             | ✔️             | ✔️               | ✔️             |
 | SHA-2-512             | ✔️             | ✔️               | ✔️             |
-| SHA-2-512_224         | ❌             | ✔️<sup>1,2</sup> | ❌             |
-| SHA-2-512_256         | ❌             | ✔️<sup>1,2</sup> | ❌             |
-| SHA-3-224<sup>3</sup> | ❌             | ✔️<sup>2</sup>   | ❌             |
+| SHA-2-512_224         | ❌️             | ✔️<sup>1,2</sup> | ❌️             |
+| SHA-2-512_256         | ❌️             | ✔️<sup>1,2</sup> | ❌️             |
+| SHA-3-224<sup>3</sup> | ❌️             | ✔️<sup>2</sup>   | ❌️             |
 | SHA-3-256<sup>3</sup> | ✔️<sup>4</sup> | ✔️<sup>2</sup>   | ✔️<sup>5</sup> |
 | SHA-3-384<sup>3</sup> | ✔️<sup>4</sup> | ✔️<sup>2</sup>   | ✔️<sup>5</sup> |
 | SHA-3-512<sup>3</sup> | ✔️<sup>4</sup> | ✔️<sup>2</sup>   | ✔️<sup>5</sup> |
-| SHAKE-128             | ✔️             | ✔️<sup>6</sup>   | ❌             |
-| SHAKE-256             | ✔️             | ✔️<sup>6</sup>   | ❌             |
-| CSHAKE-128            | ✔️             | ❌               | ❌             |
-| CSHAKE-256            | ✔️             | ❌               | ❌             |
+| SHAKE-128             | ✔️             | ✔️<sup>6</sup>   | ❌️             |
+| SHAKE-256             | ✔️             | ✔️<sup>6</sup>   | ❌️             |
+| CSHAKE-128            | ✔️             | ❌️               | ❌️             |
+| CSHAKE-256            | ✔️             | ❌️               | ❌️             |
 | HMAC<sup>7</sup>      | ✔️             | ✔️               | ✔️             |
 
 <sup>1</sup>Available starting in the Microsoft build of Go 1.24.
@@ -104,9 +104,9 @@ This section includes the following packages:
 | ------------------- | ------- | -------------- | ----- |
 | AES-ECB             | ✔️      | ✔️             | ✔️    |
 | AES-CBC             | ✔️      | ✔️             | ✔️    |
-| AES-CTR             | ❌      | ✔️             | ❌    |
-| AES-CFB             | ❌      | ❌             | ❌    |
-| AES-OFB             | ❌      | ❌             | ❌    |
+| AES-CTR             | ❌️      | ✔️             | ❌️    |
+| AES-CFB             | ❌️      | ❌️             | ❌️    |
+| AES-OFB             | ❌️      | ❌️             | ❌️    |
 | AES-GCM<sup>1</sup> | ✔️      | ✔️             | ✔️    |
 | DES-CBC             | ✔️      | ⚠️<sup>2</sup> | ✔️    |
 | DES-ECB             | ✔️      | ⚠️<sup>2</sup> | ✔️    |
@@ -161,19 +161,19 @@ Operations that require random numbers (rand io.Reader) only support [rand.Reade
 | OAEP (MD5)                             | ✔️             | ✔️             | ✔️<sup>1</sup> |
 | OAEP (SHA-1)                           | ✔️             | ✔️             | ✔️<sup>1</sup> |
 | OAEP (SHA-2)<sup>2</sup>               | ✔️             | ✔️             | ✔️<sup>1</sup> |
-| OAEP (SHA-3)                           | ❌             | ❌             | ❌             |
-| PSS (MD5)                              | ✔️<sup>3</sup> | ✔️             | ❌             |
+| OAEP (SHA-3)                           | ❌️             | ❌️             | ❌️             |
+| PSS (MD5)                              | ✔️<sup>3</sup> | ✔️             | ❌️             |
 | PSS (SHA-1)                            | ✔️<sup>3</sup> | ✔️             | ✔️<sup>4</sup> |
 | PSS (SHA-2)<sup>2</sup>                | ✔️<sup>3</sup> | ✔️             | ✔️<sup>4</sup> |
-| PSS (SHA-3)                            | ❌             | ❌             | ❌             |
+| PSS (SHA-3)                            | ❌️             | ❌️             | ❌️             |
 | PKCS1v15 Signature (Unhashed)          | ✔️             | ✔️             | ✔️             |
-| PKCS1v15 Signature (RIPMED160)         | ❌             | ✔️<sup>5</sup> | ❌             |
-| PKCS1v15 Signature (MD4)               | ❌             | ✔️<sup>5</sup> | ❌             |
-| PKCS1v15 Signature (MD5)               | ✔️             | ✔️             | ❌             |
-| PKCS1v15 Signature (MD5-SHA1)          | ✔️<sup>5</sup> | ✔️<sup>5</sup> | ❌             |
+| PKCS1v15 Signature (RIPMED160)         | ❌️             | ✔️<sup>5</sup> | ❌️             |
+| PKCS1v15 Signature (MD4)               | ❌️             | ✔️<sup>5</sup> | ❌️             |
+| PKCS1v15 Signature (MD5)               | ✔️             | ✔️             | ❌️             |
+| PKCS1v15 Signature (MD5-SHA1)          | ✔️<sup>5</sup> | ✔️<sup>5</sup> | ❌️             |
 | PKCS1v15 Signature (SHA-1)             | ✔️             | ✔️             | ✔️             |
 | PKCS1v15 Signature (SHA-2)<sup>2</sup> | ✔️             | ✔️             | ✔️             |
-| PKCS1v15 Signature (SHA-3)             | ❌             | ❌             | ❌             |
+| PKCS1v15 Signature (SHA-3)             | ❌️             | ❌️             | ❌️             |
 
 <sup>1</sup>macOS doesn't support passing a custom label to OAEP functions.
 
@@ -196,7 +196,7 @@ Operations that require random numbers (rand io.Reader) only support [rand.Reade
 
 | Elliptic Curve         | Windows | Linux | macOS |
 | ---------------------- | ------- | ----- | ----- |
-| NIST P-224 (secp224r1) | ✔️      | ✔️    | ❌    |
+| NIST P-224 (secp224r1) | ✔️      | ✔️    | ❌️    |
 | NIST P-256 (secp256r1) | ✔️      | ✔️    | ✔️    |
 | NIST P-384 (secp384r1) | ✔️      | ✔️    | ✔️    |
 | NIST P-521 (secp521r1) | ✔️      | ✔️    | ✔️    |
@@ -211,7 +211,7 @@ Operations that require random numbers (rand io.Reader) only support [rand.Reade
 
 | Elliptic Curve                  | Windows | Linux          | macOS |
 | ------------------------------- | ------- | -------------- | ----- |
-| NIST P-224 (secp224r1)          | ✔️      | ✔️             | ❌    |
+| NIST P-224 (secp224r1)          | ✔️      | ✔️             | ❌️    |
 | NIST P-256 (secp256r1)          | ✔️      | ✔️             | ✔️    |
 | NIST P-384 (secp384r1)          | ✔️      | ✔️             | ✔️    |
 | NIST P-521 (secp521r1)          | ✔️      | ✔️             | ✔️    |
@@ -231,18 +231,18 @@ Operations that require random numbers (rand io.Reader) only support [rand.Reade
 
 | Schemes    | Windows | Linux | macOS |
 | ---------- | ------- | ----- | ----- |
-| Ed25519    | ❌      | ✔️    | ✔️    |
-| Ed25519ctx | ❌      | ❌    | ❌    |
-| Ed25519ph  | ❌      | ❌    | ❌    |
+| Ed25519    | ❌️      | ✔️    | ✔️    |
+| Ed25519ctx | ❌️      | ❌️    | ❌️    |
+| Ed25519ph  | ❌️      | ❌️    | ❌️    |
 
 ### DSA
 
 | Parameters | Windows | Linux | macOS |
 | ---------- | ------- | ----- | ----- |
-| L1024N160  | ✔️      | ✔️    | ❌    |
-| L2048N224  | ❌      | ✔️    | ❌    |
-| L2048N256  | ✔️      | ✔️    | ❌    |
-| L3072N256  | ✔️      | ✔️    | ❌    |
+| L1024N160  | ✔️      | ✔️    | ❌️    |
+| L2048N224  | ❌️      | ✔️    | ❌️    |
+| L2048N256  | ✔️      | ✔️    | ❌️    |
+| L3072N256  | ✔️      | ✔️    | ❌️    |
 
 ## Key derivation functions (KDFs)
 
@@ -313,7 +313,7 @@ This section includes the following subsections:
 | ---------------- | ------- | ----- | ----- |
 | AES-128-GCM      | ✔️      | ✔️    | ✔️    |
 | AES-256-GCM      | ✔️      | ✔️    | ✔️    |
-| ChaCha20Poly1305 | ❌      | ❌    | ❌    |
+| ChaCha20Poly1305 | ❌️      | ❌️    | ❌️    |
 | Export-only      | N/A     | N/A   | N/A   |
 
 #### HPKE Key Derivation Functions (KDFs)
@@ -361,9 +361,9 @@ The TLS stack is implemented using native Go code but the crypto primitives are 
 
 | Version | Windows | Linux | macOS |
 | ------- | ------- | ----- | ----- |
-| SSL 3.0 | ❌      | ❌    | ❌    |
-| TLS 1.0 | ✔️      | ✔️    | ❌    |
-| TLS 1.1 | ✔️      | ✔️    | ❌    |
+| SSL 3.0 | ❌️      | ❌️    | ❌️    |
+| TLS 1.0 | ✔️      | ✔️    | ❌️    |
+| TLS 1.1 | ✔️      | ✔️    | ❌️    |
 | TLS 1.2 | ✔️      | ✔️    | ✔️    |
 | TLS 1.3 | ✔️      | ✔️    | ✔️    |
 
@@ -391,14 +391,14 @@ The TLS stack is implemented using native Go code but the crypto primitives are 
 | TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256       | ✔️      | ✔️             | ✔️    |
 | TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384         | ✔️      | ✔️             | ✔️    |
 | TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384       | ✔️      | ✔️             | ✔️    |
-| TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256   | ❌      | ❌             | ❌    |
-| TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256 | ❌      | ❌             | ❌    |
+| TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256   | ❌️      | ❌️             | ❌️    |
+| TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256 | ❌️      | ❌️             | ❌️    |
 | TLS_AES_128_GCM_SHA256                        | ✔️      | ✔️             | ✔️    |
 | TLS_AES_256_GCM_SHA384                        | ✔️      | ✔️             | ✔️    |
-| TLS_CHACHA20_POLY1305_SHA256                  | ❌      | ❌             | ❌    |
-| TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305          | ❌      | ❌             | ❌    |
-| TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305          | ❌      | ❌             | ❌    |
-| TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305        | ❌      | ❌             | ❌    |
+| TLS_CHACHA20_POLY1305_SHA256                  | ❌️      | ❌️             | ❌️    |
+| TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305          | ❌️      | ❌️             | ❌️    |
+| TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305          | ❌️      | ❌️             | ❌️    |
+| TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305        | ❌️      | ❌️             | ❌️    |
 
 <sup>1</sup>When using OpenSSL 3, requires the legacy provider to be enabled.
 
@@ -439,4 +439,4 @@ Below are the supported [`tls.SignatureSchemes`](https://pkg.go.dev/crypto/tls#S
 | ECDSAWithP256AndSHA256 | ✔️      | ✔️    | ✔️    |
 | ECDSAWithP384AndSHA384 | ✔️      | ✔️    | ✔️    |
 | ECDSAWithP521AndSHA512 | ✔️      | ✔️    | ✔️    |
-| Ed25519                | ❌      | ✔️    | ✔️    |
+| Ed25519                | ❌️      | ✔️    | ✔️    |
