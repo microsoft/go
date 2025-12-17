@@ -5,7 +5,7 @@ Subject: [PATCH] Use crypto backends
 
 ---
  src/cmd/api/boring_test.go                    |   2 +-
- src/cmd/dist/test.go                          |  21 +-
+ src/cmd/dist/test.go                          |   5 +-
  src/cmd/go/go_boring_test.go                  |   6 +-
  src/cmd/go/script_test.go                     |   2 +
  src/cmd/go/testdata/script/darwin_no_cgo.txt  |   2 +
@@ -100,7 +100,7 @@ Subject: [PATCH] Use crypto backends
  src/hash/notboring_test.go                    |   9 +
  src/net/lookup_test.go                        |   3 +
  src/os/exec/exec_test.go                      |   9 +
- 96 files changed, 1497 insertions(+), 177 deletions(-)
+ 96 files changed, 1483 insertions(+), 175 deletions(-)
  create mode 100644 src/crypto/dsa/boring.go
  create mode 100644 src/crypto/dsa/notboring.go
  create mode 100644 src/crypto/ecdsa/badlinkname.go
@@ -126,7 +126,7 @@ index f0e3575637c62a..9eab3b4e66e60b 100644
  package main
  
 diff --git a/src/cmd/dist/test.go b/src/cmd/dist/test.go
-index 287424afb0d734..f2068ce397ace4 100644
+index 3ac500b85e6988..027780a74a7fd3 100644
 --- a/src/cmd/dist/test.go
 +++ b/src/cmd/dist/test.go
 @@ -720,7 +720,7 @@ func (t *tester) registerTests() {
@@ -138,40 +138,7 @@ index 287424afb0d734..f2068ce397ace4 100644
  		// Test standard crypto packages with fips140=on.
  		t.registerTest("GOFIPS140=latest go test crypto/...", &goTest{
  			variant: "gofips140",
-@@ -763,18 +763,30 @@ func (t *tester) registerTests() {
- 
- 	// Test GOEXPERIMENT=runtimesecret.
- 	if !strings.Contains(goexperiment, "runtimesecret") {
-+		// Don't override existing GOEXPERIMENTs.
-+		goexperiment := goexperiment
-+		if goexperiment != "" {
-+			goexperiment += ","
-+		}
-+		goexperiment += "runtimesecret"
- 		t.registerTest("GOEXPERIMENT=runtimesecret go test runtime/secret/...", &goTest{
- 			variant: "runtimesecret",
--			env:     []string{"GOEXPERIMENT=runtimesecret"},
-+			env:     []string{"GOEXPERIMENT=" + goexperiment},
- 			pkg:     "runtime/secret/...",
- 		})
- 	}
- 
- 	// Test GOEXPERIMENT=simd on amd64.
- 	if goarch == "amd64" && !strings.Contains(goexperiment, "simd") {
-+		// Don't override existing GOEXPERIMENTs.
-+		goexperiment := goexperiment
-+		if goexperiment != "" {
-+			goexperiment += ","
-+		}
-+		goexperiment += "simd"
- 		t.registerTest("GOEXPERIMENT=simd go test simd/archsimd/...", &goTest{
- 			variant: "simd",
--			env:     []string{"GOEXPERIMENT=simd"},
-+			env:     []string{"GOEXPERIMENT=" + goexperiment},
- 			pkg:     "simd/archsimd/...",
- 		})
- 	}
-@@ -1386,12 +1398,11 @@ func (t *tester) registerCgoTests(heading string) {
+@@ -1380,12 +1380,11 @@ func (t *tester) registerCgoTests(heading string) {
  			// a C linker warning on Linux.
  			// in function `bio_ip_and_port_to_socket_and_addr':
  			// warning: Using 'getaddrinfo' in statically linked applications requires at runtime the shared libraries from the glibc version used for linking
@@ -277,10 +244,10 @@ index 802fb35aee4e65..4416731b69ec26 100644
  			*mode = BuildModePIE
  		default:
 diff --git a/src/cmd/link/internal/ld/lib.go b/src/cmd/link/internal/ld/lib.go
-index 22ee13dff87eca..4d3f90f6c30080 100644
+index bcad5add4abe19..793932e52f8f0a 100644
 --- a/src/cmd/link/internal/ld/lib.go
 +++ b/src/cmd/link/internal/ld/lib.go
-@@ -1174,6 +1174,12 @@ var hostobj []Hostobj
+@@ -1176,6 +1176,12 @@ var hostobj []Hostobj
  // These packages can use internal linking mode.
  // Others trigger external mode.
  var internalpkg = []string{
@@ -3526,7 +3493,7 @@ index c2b1b7037a46cf..4f89d96ec5de28 100644
  
  	// If we did not load a session (hs.session == nil), but we did set a
 diff --git a/src/crypto/tls/handshake_client_tls13.go b/src/crypto/tls/handshake_client_tls13.go
-index e696bd3a13dcb1..c9e94783260860 100644
+index 77a24b4a78d8fc..84724fac5f951e 100644
 --- a/src/crypto/tls/handshake_client_tls13.go
 +++ b/src/crypto/tls/handshake_client_tls13.go
 @@ -10,9 +10,9 @@ import (
@@ -3562,7 +3529,7 @@ index efdaeae6f7e39a..491c6d5a0e5d56 100644
  
  	if err := hs.processClientHello(); err != nil {
 diff --git a/src/crypto/tls/handshake_server_tls13.go b/src/crypto/tls/handshake_server_tls13.go
-index 3bed1359a3c851..dffdc345845748 100644
+index b066924e291686..c81d0e56598634 100644
 --- a/src/crypto/tls/handshake_server_tls13.go
 +++ b/src/crypto/tls/handshake_server_tls13.go
 @@ -11,9 +11,9 @@ import (
@@ -3576,7 +3543,7 @@ index 3bed1359a3c851..dffdc345845748 100644
  	"errors"
  	"fmt"
  	"hash"
-@@ -445,9 +445,6 @@ func cloneHash(in hash.Hash, h crypto.Hash) hash.Hash {
+@@ -447,9 +447,6 @@ func cloneHash(in hash.Hash, h crypto.Hash) hash.Hash {
  		UnmarshalBinary(data []byte) error
  	}
  	marshaler, ok := in.(binaryMarshaler)
