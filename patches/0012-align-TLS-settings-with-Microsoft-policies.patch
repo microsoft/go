@@ -5,11 +5,11 @@ Subject: [PATCH] align TLS settings with Microsoft policies
 
 ---
  doc/godebug.md                   |   9 ++
- src/crypto/tls/defaults.go       |  63 ++++++++++-
+ src/crypto/tls/defaults.go       |  67 +++++++++-
  src/crypto/tls/handshake_test.go |   3 +
- src/crypto/tls/tls_test.go       | 183 +++++++++++++++++++++++++++++++
+ src/crypto/tls/tls_test.go       | 218 +++++++++++++++++++++++++++++++
  src/internal/godebugs/table.go   |   2 +
- 5 files changed, 259 insertions(+), 1 deletion(-)
+ 5 files changed, 298 insertions(+), 1 deletion(-)
 
 diff --git a/doc/godebug.md b/doc/godebug.md
 index 28a2dc506ef8ff..4c95ceb09bcbbe 100644
@@ -32,7 +32,7 @@ index 28a2dc506ef8ff..4c95ceb09bcbbe 100644
  
  Go 1.25 added a new `decoratemappings` setting that controls whether the Go
 diff --git a/src/crypto/tls/defaults.go b/src/crypto/tls/defaults.go
-index 8de8d7e0934b07..35c2235a499c12 100644
+index 8de8d7e0934b07..3f7c0dc2981ff4 100644
 --- a/src/crypto/tls/defaults.go
 +++ b/src/crypto/tls/defaults.go
 @@ -5,6 +5,7 @@
@@ -43,7 +43,7 @@ index 8de8d7e0934b07..35c2235a499c12 100644
  	"internal/godebug"
  	"slices"
  	_ "unsafe" // for linkname
-@@ -15,10 +16,70 @@ import (
+@@ -15,10 +16,74 @@ import (
  
  var tlsmlkem = godebug.New("tlsmlkem")
  var tlssecpmlkem = godebug.New("tlssecpmlkem")
@@ -88,12 +88,16 @@ index 8de8d7e0934b07..35c2235a499c12 100644
 +	}
 +	// For now we only have two profiles: default Microsoft and upstream (off).
 +	defer func() {
-+		groups = slices.DeleteFunc(groups, func(c CurveID) bool {
-+			supported, found := supportedGroups[c]
-+			if !found {
-+				panic("unknown curve ID in defaultCurvePreferences: " + c.String())
++		// Move unsupported groups to the end while preserving order for supported groups.
++		slices.SortStableFunc(groups, func(a, b CurveID) int {
++			supportedA, supportedB := supportedGroups[a], supportedGroups[b]
++			if supportedA && !supportedB {
++				return -1
 +			}
-+			return !supported
++			if !supportedA && supportedB {
++				return 1
++			}
++			return 0
 +		})
 +	}()
 +	switch {
@@ -130,7 +134,7 @@ index 6e15459a9a1809..4f47dbd2030d2a 100644
  		Time:               func() time.Time { return time.Unix(0, 0) },
  		Rand:               zeroSource{},
 diff --git a/src/crypto/tls/tls_test.go b/src/crypto/tls/tls_test.go
-index 5f4a2b9de4fd1f..552cc2ebc56fd2 100644
+index 5f4a2b9de4fd1f..40806059e1f458 100644
 --- a/src/crypto/tls/tls_test.go
 +++ b/src/crypto/tls/tls_test.go
 @@ -24,11 +24,13 @@ import (
@@ -147,7 +151,7 @@ index 5f4a2b9de4fd1f..552cc2ebc56fd2 100644
  	"slices"
  	"strings"
  	"testing"
-@@ -1983,10 +1985,50 @@ func testVerifyCertificates(t *testing.T, version uint16) {
+@@ -1983,10 +1985,70 @@ func testVerifyCertificates(t *testing.T, version uint16) {
  	}
  }
  
@@ -193,12 +197,32 @@ index 5f4a2b9de4fd1f..552cc2ebc56fd2 100644
 +
 +	defaultMicrosoftWithPQ := []CurveID{X25519MLKEM768, SecP384r1MLKEM1024, SecP256r1MLKEM768,
 +		CurveP384, CurveP256, CurveP521, X25519}
++	if boring.Enabled {
++		// Adjust expectations based on supported groups.
++		// Be explicit about the order to test the preference order under different scenarios.
++		switch {
++		case !boring.SupportsCurve("X25519") && !boring.SupportsMLKEM768() && !boring.SupportsMLKEM1024():
++			defaultMicrosoftWithPQ = []CurveID{CurveP384, CurveP256, CurveP521, X25519MLKEM768, SecP384r1MLKEM1024, SecP256r1MLKEM768, X25519}
++		case !boring.SupportsCurve("X25519") && !boring.SupportsMLKEM768():
++			defaultMicrosoftWithPQ = []CurveID{SecP384r1MLKEM1024, CurveP384, CurveP256, CurveP521, X25519MLKEM768, SecP256r1MLKEM768, X25519}
++		case !boring.SupportsCurve("X25519") && !boring.SupportsMLKEM1024():
++			defaultMicrosoftWithPQ = []CurveID{SecP256r1MLKEM768, CurveP384, CurveP256, CurveP521, X25519MLKEM768, SecP384r1MLKEM1024, X25519}
++		case !boring.SupportsMLKEM768() && !boring.SupportsMLKEM1024():
++			defaultMicrosoftWithPQ = []CurveID{CurveP384, CurveP256, CurveP521, X25519, X25519MLKEM768, SecP384r1MLKEM1024, SecP256r1MLKEM768}
++		case !boring.SupportsCurve("X25519"):
++			defaultMicrosoftWithPQ = []CurveID{SecP384r1MLKEM1024, SecP256r1MLKEM768, CurveP384, CurveP256, CurveP521, X25519MLKEM768, X25519}
++		case !boring.SupportsMLKEM768():
++			defaultMicrosoftWithPQ = []CurveID{SecP384r1MLKEM1024, CurveP384, CurveP256, CurveP521, X25519, X25519MLKEM768, SecP256r1MLKEM768}
++		case !boring.SupportsMLKEM1024():
++			defaultMicrosoftWithPQ = []CurveID{X25519MLKEM768, SecP256r1MLKEM768, CurveP384, CurveP256, CurveP521, X25519, SecP384r1MLKEM1024}
++		}
++	}
 +	defaultMicrosoftWithoutPQ := []CurveID{CurveP384, CurveP256, CurveP521, X25519}
 +
  	defaultWithPQ := []CurveID{X25519MLKEM768, SecP256r1MLKEM768, SecP384r1MLKEM1024,
  		X25519, CurveP256, CurveP384, CurveP521}
  	defaultWithoutPQ := []CurveID{X25519, CurveP256, CurveP384, CurveP521}
-@@ -2001,8 +2043,16 @@ func TestHandshakeMLKEM(t *testing.T) {
+@@ -2001,8 +2063,16 @@ func TestHandshakeMLKEM(t *testing.T) {
  	}{
  		{
  			name:           "Default",
@@ -215,7 +239,7 @@ index 5f4a2b9de4fd1f..552cc2ebc56fd2 100644
  		},
  		{
  			name: "ClientCurvePreferences",
-@@ -2017,17 +2067,41 @@ func TestHandshakeMLKEM(t *testing.T) {
+@@ -2017,17 +2087,41 @@ func TestHandshakeMLKEM(t *testing.T) {
  			serverConfig: func(config *Config) {
  				config.CurvePreferences = []CurveID{X25519}
  			},
@@ -241,7 +265,7 @@ index 5f4a2b9de4fd1f..552cc2ebc56fd2 100644
  			},
 +			expectClient:   defaultMicrosoftWithPQ,
 +			expectSelected: CurveP256,
-+			expectHRR:      true,
++			expectHRR:      defaultMicrosoftWithPQ[0] != SecP256r1MLKEM768 && defaultMicrosoftWithPQ[0] != CurveP256,
 +		},
 +		{
 +			name: "ServerCurvePreferencesHRR GODEBUG ms_tlsprofile=off",
@@ -257,13 +281,13 @@ index 5f4a2b9de4fd1f..552cc2ebc56fd2 100644
  		},
  		{
  			name: "SecP256r1MLKEM768-Only",
-@@ -2042,9 +2116,21 @@ func TestHandshakeMLKEM(t *testing.T) {
+@@ -2042,9 +2136,21 @@ func TestHandshakeMLKEM(t *testing.T) {
  			serverConfig: func(config *Config) {
  				config.CurvePreferences = []CurveID{SecP256r1MLKEM768, CurveP256}
  			},
 +			expectClient:   defaultMicrosoftWithPQ,
 +			expectSelected: SecP256r1MLKEM768,
-+			expectHRR:      true,
++			expectHRR:      defaultMicrosoftWithPQ[0] != SecP256r1MLKEM768,
 +		},
 +		{
 +			name: "SecP256r1MLKEM768-HRR GODEBUG ms_tlsprofile=off",
@@ -279,7 +303,32 @@ index 5f4a2b9de4fd1f..552cc2ebc56fd2 100644
  		},
  		{
  			name: "SecP384r1MLKEM1024",
-@@ -2086,22 +2172,52 @@ func TestHandshakeMLKEM(t *testing.T) {
+@@ -2062,8 +2168,24 @@ func TestHandshakeMLKEM(t *testing.T) {
+ 			serverConfig: func(config *Config) {
+ 				config.CurvePreferences = []CurveID{CurveP256}
+ 			},
++			expectClient: slices.DeleteFunc(slices.Clone(defaultMicrosoftWithPQ), func(c CurveID) bool {
++				return c != SecP256r1MLKEM768 && c != CurveP256
++			}),
++			expectSelected: CurveP256,
++		},
++		{
++			name: "CurveP256NoHRR GODEBUG ms_tlsprofile=off",
++			clientConfig: func(config *Config) {
++				config.CurvePreferences = []CurveID{SecP256r1MLKEM768, CurveP256}
++			},
++			serverConfig: func(config *Config) {
++				config.CurvePreferences = []CurveID{CurveP256}
++			},
+ 			expectClient:   []CurveID{SecP256r1MLKEM768, CurveP256},
+ 			expectSelected: CurveP256,
++			preparation: func(t *testing.T) {
++				t.Setenv("GODEBUG", "ms_tlsprofile=off")
++			},
+ 		},
+ 		{
+ 			name: "ClientMLKEMOnly",
+@@ -2086,22 +2208,52 @@ func TestHandshakeMLKEM(t *testing.T) {
  			clientConfig: func(config *Config) {
  				config.MaxVersion = VersionTLS12
  			},
@@ -332,7 +381,7 @@ index 5f4a2b9de4fd1f..552cc2ebc56fd2 100644
  			expectClient:   defaultWithoutPQ,
  			expectSelected: X25519,
  		},
-@@ -2110,9 +2226,65 @@ func TestHandshakeMLKEM(t *testing.T) {
+@@ -2110,9 +2262,67 @@ func TestHandshakeMLKEM(t *testing.T) {
  			preparation: func(t *testing.T) {
  				t.Setenv("GODEBUG", "tlssecpmlkem=0")
  			},
@@ -352,7 +401,9 @@ index 5f4a2b9de4fd1f..552cc2ebc56fd2 100644
 +			preparation: func(t *testing.T) {
 +				t.Setenv("GODEBUG", "ms_tlsx25519=0")
 +			},
-+			expectClient:   []CurveID{SecP384r1MLKEM1024, SecP256r1MLKEM768, CurveP384, CurveP256, CurveP521},
++			expectClient: slices.DeleteFunc(slices.Clone(defaultMicrosoftWithPQ), func(c CurveID) bool {
++				return c == X25519MLKEM768 || c == X25519
++			}),
 +			expectSelected: SecP384r1MLKEM1024,
 +		},
 +		{
@@ -398,7 +449,7 @@ index 5f4a2b9de4fd1f..552cc2ebc56fd2 100644
  	}
  
  	baseConfig := testConfig.Clone()
-@@ -2131,9 +2303,20 @@ func TestHandshakeMLKEM(t *testing.T) {
+@@ -2131,9 +2341,17 @@ func TestHandshakeMLKEM(t *testing.T) {
  			if test.serverConfig != nil {
  				test.serverConfig(serverConfig)
  			}
@@ -410,9 +461,6 @@ index 5f4a2b9de4fd1f..552cc2ebc56fd2 100644
  			serverConfig.GetConfigForClient = func(hello *ClientHelloInfo) (*Config, error) {
  				expectClient := slices.Clone(test.expectClient)
  				expectClient = slices.DeleteFunc(expectClient, func(c CurveID) bool {
-+					if mstlsprofile && !supportedGroups[c] {
-+						return true
-+					}
 +					if !x25519Enabled && (c == X25519MLKEM768 || c == X25519) {
 +						return true
 +					}
