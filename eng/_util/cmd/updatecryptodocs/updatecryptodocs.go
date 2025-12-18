@@ -322,6 +322,22 @@ func validateSection(section Section) error {
 				return fmt.Errorf("invalid supported status %q for item %q on platform %q", status.Supported, item.Name, p)
 			}
 		}
+
+		// Check for notes common to all platforms
+		noteCounts := make(map[string]int)
+		platforms := []string{"windows", "linux", "macos"}
+		for _, p := range platforms {
+			status := item.Platforms[p]
+			for _, note := range status.Notes {
+				noteCounts[note]++
+			}
+		}
+
+		for note, count := range noteCounts {
+			if count == len(platforms) {
+				return fmt.Errorf("note %q appears in all platforms for item %q; move it to the item level", note, item.Name)
+			}
+		}
 	}
 	for _, sub := range section.Subsections {
 		if err := validateSection(sub); err != nil {

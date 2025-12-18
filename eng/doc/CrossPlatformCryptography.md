@@ -251,10 +251,10 @@ This section includes the following packages:
 - [crypto/hkdf](https://pkg.go.dev/crypto/hkdf)
 - [crypto/pbkdf2](https://pkg.go.dev/crypto/pbkdf2)
 
-| Functions | Windows        | Linux          | macOS          |
-| --------- | -------------- | -------------- | -------------- |
-| PBKDF2    | ✔️<sup>1</sup> | ✔️<sup>1</sup> | ✔️<sup>1</sup> |
-| HKDF      | ✔️<sup>1</sup> | ✔️<sup>1</sup> | ✔️<sup>1</sup> |
+| Functions          | Windows | Linux | macOS |
+| ------------------ | ------- | ----- | ----- |
+| PBKDF2<sup>1</sup> | ✔️      | ✔️    | ✔️    |
+| HKDF<sup>1</sup>   | ✔️      | ✔️    | ✔️    |
 
 <sup>1</sup>Supports only hash algorithms that are [supported as standalone hash functions](#hash-and-message-authentication-algorithms).
 
