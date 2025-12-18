@@ -40,6 +40,7 @@ Subject: [PATCH] Use crypto backends
  src/crypto/hkdf/hkdf_test.go                  |   2 +-
  src/crypto/hmac/hmac.go                       |   2 +-
  src/crypto/hmac/hmac_test.go                  |   2 +-
+ src/crypto/hpke/aead.go                       |  14 +-
  src/crypto/internal/cryptotest/allocations.go |   6 -
  src/crypto/internal/cryptotest/fips140.go     |   8 +
  src/crypto/internal/cryptotest/hash.go        |   3 +-
@@ -77,7 +78,7 @@ Subject: [PATCH] Use crypto backends
  src/crypto/sha512/sha512.go                   |   2 +-
  src/crypto/sha512/sha512_test.go              |  32 ++-
  src/crypto/tls/auth_test.go                   |   7 +
- src/crypto/tls/cipher_suites.go               |   2 +-
+ src/crypto/tls/cipher_suites.go               |  10 +-
  src/crypto/tls/defaults_boring.go             |   2 +-
  src/crypto/tls/defaults_fips140.go            |   2 +-
  src/crypto/tls/fips140_test.go                |   2 +-
@@ -100,7 +101,7 @@ Subject: [PATCH] Use crypto backends
  src/hash/notboring_test.go                    |   9 +
  src/net/lookup_test.go                        |   3 +
  src/os/exec/exec_test.go                      |   9 +
- 96 files changed, 1497 insertions(+), 177 deletions(-)
+ 97 files changed, 1514 insertions(+), 182 deletions(-)
  create mode 100644 src/crypto/dsa/boring.go
  create mode 100644 src/crypto/dsa/notboring.go
  create mode 100644 src/crypto/ecdsa/badlinkname.go
@@ -1522,6 +1523,38 @@ index 4046a9555a8e35..4721a2a7ac04f7 100644
  	"crypto/internal/cryptotest"
  	"crypto/md5"
  	"crypto/sha1"
+diff --git a/src/crypto/hpke/aead.go b/src/crypto/hpke/aead.go
+index fb55c97ddf20c9..fb036863cde2dd 100644
+--- a/src/crypto/hpke/aead.go
++++ b/src/crypto/hpke/aead.go
+@@ -6,6 +6,7 @@ package hpke
+ 
+ import (
+ 	"crypto/cipher"
++	boring "crypto/internal/backend"
+ 	"errors"
+ 	"fmt"
+ 
+@@ -77,10 +78,15 @@ var aes256GCM = &aead{
+ }
+ 
+ var chacha20poly1305AEAD = &aead{
+-	nK:  chacha20poly1305.KeySize,
+-	nN:  chacha20poly1305.NonceSize,
+-	new: chacha20poly1305.New,
+-	id:  0x0003,
++	nK: chacha20poly1305.KeySize,
++	nN: chacha20poly1305.NonceSize,
++	new: func(key []byte) (cipher.AEAD, error) {
++		if boring.Enabled && boring.SupportsChaCha20Poly1305() {
++			return boring.NewChaCha20Poly1305(key)
++		}
++		return chacha20poly1305.New(key)
++	},
++	id: 0x0003,
+ }
+ 
+ func (a *aead) ID() uint16 {
 diff --git a/src/crypto/internal/cryptotest/allocations.go b/src/crypto/internal/cryptotest/allocations.go
 index 70055af70b42ec..21528faa0d6145 100644
 --- a/src/crypto/internal/cryptotest/allocations.go
@@ -3415,7 +3448,7 @@ index 727bdc4df76393..73dee851e1bb4a 100644
  		os.Setenv("GODEBUG", savedGODEBUG+","+test.godebug)
  
 diff --git a/src/crypto/tls/cipher_suites.go b/src/crypto/tls/cipher_suites.go
-index 6ed63ccc2dc1f5..3bc1c16e697b88 100644
+index 6ed63ccc2dc1f5..48f37264e61e71 100644
 --- a/src/crypto/tls/cipher_suites.go
 +++ b/src/crypto/tls/cipher_suites.go
 @@ -10,7 +10,7 @@ import (
@@ -3427,6 +3460,21 @@ index 6ed63ccc2dc1f5..3bc1c16e697b88 100644
  	fipsaes "crypto/internal/fips140/aes"
  	"crypto/internal/fips140/aes/gcm"
  	"crypto/rc4"
+@@ -576,7 +576,13 @@ func aeadChaCha20Poly1305(key, nonceMask []byte) aead {
+ 	if len(nonceMask) != aeadNonceLength {
+ 		panic("tls: internal error: wrong nonce length")
+ 	}
+-	aead, err := chacha20poly1305.New(key)
++	var aead cipher.AEAD
++	var err error
++	if boring.Enabled && boring.SupportsChaCha20Poly1305() {
++		aead, err = boring.NewChaCha20Poly1305(key)
++	} else {
++		aead, err = chacha20poly1305.New(key)
++	}
+ 	if err != nil {
+ 		panic(err)
+ 	}
 diff --git a/src/crypto/tls/defaults_boring.go b/src/crypto/tls/defaults_boring.go
 index e88f05cc505cfb..2067bd9ebc3e50 100644
 --- a/src/crypto/tls/defaults_boring.go
