@@ -797,10 +797,6 @@ var doc = Document{
 									Name:         "TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305",
 									MinGoVersion: "1.26",
 								},
-								{
-									Name:         "TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305",
-									MinGoVersion: "1.26",
-								},
 							},
 						},
 						{

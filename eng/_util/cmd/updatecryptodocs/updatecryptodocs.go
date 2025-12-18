@@ -291,11 +291,18 @@ func validateSection(section Section) error {
 		return fmt.Errorf("section missing title")
 	}
 
+	seenNames := make(map[string]bool)
+
 	for i := range section.Items {
 		item := &section.Items[i]
 		if item.Name == "" {
 			return fmt.Errorf("item missing name in section %q", section.Title)
 		}
+		if seenNames[item.Name] {
+			return fmt.Errorf("duplicate item name %q in section %q", item.Name, section.Title)
+		}
+		seenNames[item.Name] = true
+
 		if item.Platforms == nil {
 			item.Platforms = make(map[string]PlatformStatus)
 		}

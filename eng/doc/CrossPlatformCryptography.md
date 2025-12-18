@@ -400,7 +400,6 @@ The TLS stack is implemented using native Go code but the crypto primitives are 
 | TLS_CHACHA20_POLY1305_SHA256<sup>2</sup>                  | ✔️      | ✔️             | ✔️    |
 | TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305<sup>2</sup>          | ✔️      | ✔️             | ✔️    |
 | TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305<sup>2</sup>        | ✔️      | ✔️             | ✔️    |
-| TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305<sup>2</sup>        | ✔️      | ✔️             | ✔️    |
 
 <sup>1</sup>When using OpenSSL 3, requires the legacy provider to be enabled.
 
