@@ -496,42 +496,14 @@ var doc = Document{
 			Items: []Item{
 				{
 					Name: "PBKDF2",
-					Platforms: map[string]PlatformStatus{
-						"windows": {
-							Notes: []string{
-								"Supports only hash algorithms that are [supported as standalone hash functions](#hash-and-message-authentication-algorithms).",
-							},
-						},
-						"linux": {
-							Notes: []string{
-								"Supports only hash algorithms that are [supported as standalone hash functions](#hash-and-message-authentication-algorithms).",
-							},
-						},
-						"macos": {
-							Notes: []string{
-								"Supports only hash algorithms that are [supported as standalone hash functions](#hash-and-message-authentication-algorithms).",
-							},
-						},
+					Notes: []string{
+						"Supports only hash algorithms that are [supported as standalone hash functions](#hash-and-message-authentication-algorithms).",
 					},
 				},
 				{
 					Name: "HKDF",
-					Platforms: map[string]PlatformStatus{
-						"windows": {
-							Notes: []string{
-								"Supports only hash algorithms that are [supported as standalone hash functions](#hash-and-message-authentication-algorithms).",
-							},
-						},
-						"linux": {
-							Notes: []string{
-								"Supports only hash algorithms that are [supported as standalone hash functions](#hash-and-message-authentication-algorithms).",
-							},
-						},
-						"macos": {
-							Notes: []string{
-								"Supports only hash algorithms that are [supported as standalone hash functions](#hash-and-message-authentication-algorithms).",
-							},
-						},
+					Notes: []string{
+						"Supports only hash algorithms that are [supported as standalone hash functions](#hash-and-message-authentication-algorithms).",
 					},
 				},
 			},
