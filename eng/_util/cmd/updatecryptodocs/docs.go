@@ -591,12 +591,8 @@ var doc = Document{
 								{Name: "AES-128-GCM"},
 								{Name: "AES-256-GCM"},
 								{
-									Name: "ChaCha20Poly1305",
-									Platforms: map[string]PlatformStatus{
-										"windows": {Supported: "false"},
-										"linux":   {Supported: "false"},
-										"macos":   {Supported: "false"},
-									},
+									Name:         "ChaCha20Poly1305",
+									MinGoVersion: "1.26",
 								},
 								{
 									Name: "Export-only",
@@ -780,54 +776,26 @@ var doc = Document{
 								{Name: "TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384"},
 								{Name: "TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384"},
 								{
-									Name: "TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256",
-									Platforms: map[string]PlatformStatus{
-										"windows": {Supported: "false"},
-										"linux":   {Supported: "false"},
-										"macos":   {Supported: "false"},
-									},
+									Name:         "TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256",
+									MinGoVersion: "1.26",
 								},
 								{
-									Name: "TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256",
-									Platforms: map[string]PlatformStatus{
-										"windows": {Supported: "false"},
-										"linux":   {Supported: "false"},
-										"macos":   {Supported: "false"},
-									},
+									Name:         "TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256",
+									MinGoVersion: "1.26",
 								},
 								{Name: "TLS_AES_128_GCM_SHA256"},
 								{Name: "TLS_AES_256_GCM_SHA384"},
 								{
-									Name: "TLS_CHACHA20_POLY1305_SHA256",
-									Platforms: map[string]PlatformStatus{
-										"windows": {Supported: "false"},
-										"linux":   {Supported: "false"},
-										"macos":   {Supported: "false"},
-									},
+									Name:         "TLS_CHACHA20_POLY1305_SHA256",
+									MinGoVersion: "1.26",
 								},
 								{
-									Name: "TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305",
-									Platforms: map[string]PlatformStatus{
-										"windows": {Supported: "false"},
-										"linux":   {Supported: "false"},
-										"macos":   {Supported: "false"},
-									},
+									Name:         "TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305",
+									MinGoVersion: "1.26",
 								},
 								{
-									Name: "TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305",
-									Platforms: map[string]PlatformStatus{
-										"windows": {Supported: "false"},
-										"linux":   {Supported: "false"},
-										"macos":   {Supported: "false"},
-									},
-								},
-								{
-									Name: "TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305",
-									Platforms: map[string]PlatformStatus{
-										"windows": {Supported: "false"},
-										"linux":   {Supported: "false"},
-										"macos":   {Supported: "false"},
-									},
+									Name:         "TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305",
+									MinGoVersion: "1.26",
 								},
 							},
 						},
