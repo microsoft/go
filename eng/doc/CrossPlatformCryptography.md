@@ -161,28 +161,28 @@ Operations that require random numbers (rand io.Reader) only support [rand.Reade
 | OAEP (MD5)                             | ✔️               | ✔️             | ✔️<sup>1</sup> |
 | OAEP (SHA-1)                           | ✔️               | ✔️             | ✔️<sup>1</sup> |
 | OAEP (SHA-2)<sup>2</sup>               | ✔️               | ✔️             | ✔️<sup>1</sup> |
-| OAEP (SHA-3)<sup>2</sup>               | ✔️               | ✔️             | ❌️             |
-| PSS (MD5)                              | ✔️<sup>3</sup>   | ✔️             | ❌️             |
-| PSS (SHA-1)                            | ✔️<sup>3</sup>   | ✔️             | ✔️<sup>4</sup> |
-| PSS (SHA-2)<sup>2</sup>                | ✔️<sup>3</sup>   | ✔️             | ✔️<sup>4</sup> |
-| PSS (SHA-3)<sup>2</sup>                | ✔️<sup>5</sup>   | ✔️             | ❌️             |
+| OAEP (SHA-3)<sup>2,3</sup>             | ✔️               | ✔️             | ❌️             |
+| PSS (MD5)                              | ✔️<sup>4</sup>   | ✔️             | ❌️             |
+| PSS (SHA-1)                            | ✔️<sup>4</sup>   | ✔️             | ✔️<sup>5</sup> |
+| PSS (SHA-2)<sup>2</sup>                | ✔️<sup>4</sup>   | ✔️             | ✔️<sup>5</sup> |
+| PSS (SHA-3)<sup>2</sup>                | ✔️<sup>3</sup>   | ✔️             | ❌️             |
 | PKCS1v15 Signature (Unhashed)          | ✔️               | ✔️             | ✔️             |
 | PKCS1v15 Signature (RIPMED160)         | ❌️               | ✔️<sup>6</sup> | ❌️             |
 | PKCS1v15 Signature (MD5)               | ✔️               | ✔️             | ❌️             |
 | PKCS1v15 Signature (MD5-SHA1)          | ✔️<sup>6</sup>   | ✔️<sup>6</sup> | ❌️             |
 | PKCS1v15 Signature (SHA-1)             | ✔️               | ✔️             | ✔️             |
 | PKCS1v15 Signature (SHA-2)<sup>2</sup> | ✔️               | ✔️             | ✔️             |
-| PKCS1v15 Signature (SHA-3)             | ✔️<sup>5,7</sup> | ✔️<sup>8</sup> | ❌️             |
+| PKCS1v15 Signature (SHA-3)             | ✔️<sup>3,7</sup> | ✔️<sup>8</sup> | ❌️             |
 
 <sup>1</sup>macOS doesn't support passing a custom label to OAEP functions.
 
 <sup>2</sup>Supports only hash algorithms that are [supported as standalone hash functions](#hash-and-message-authentication-algorithms).
 
-<sup>3</sup>Verifying PSS signatures with [rsa.PSSSaltLengthAuto](https://pkg.go.dev/crypto/rsa#pkg-constants) is not supported.
+<sup>3</sup>Available starting in the Microsoft build of Go 1.26.
 
-<sup>4</sup>Custom salt lengths are not supported. PSS always uses the [`rsa.PSSSaltLengthEqualsHash`](https://pkg.go.dev/crypto/rsa#pkg-constants).
+<sup>4</sup>Verifying PSS signatures with [rsa.PSSSaltLengthAuto](https://pkg.go.dev/crypto/rsa#pkg-constants) is not supported.
 
-<sup>5</sup>Available starting in the Microsoft build of Go 1.26.
+<sup>5</sup>Custom salt lengths are not supported. PSS always uses the [`rsa.PSSSaltLengthEqualsHash`](https://pkg.go.dev/crypto/rsa#pkg-constants).
 
 <sup>6</sup>Available starting in the Microsoft build of Go 1.24.
 

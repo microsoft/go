@@ -303,6 +303,7 @@ var doc = Document{
 							Notes: []string{
 								"Supports only hash algorithms that are [supported as standalone hash functions](#hash-and-message-authentication-algorithms).",
 							},
+							MinGoVersion: "1.26",
 							Platforms: Platforms{
 								MacOS: PlatformStatus{Supported: NotSupported},
 							},
