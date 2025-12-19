@@ -9,34 +9,61 @@ import _ "embed"
 //go:embed header.md
 var header string
 
+type SupportStatus int
+
+const (
+	Supported SupportStatus = iota
+	NotSupported
+	Warn
+	N_A
+)
+
 type PlatformStatus struct {
-	Supported         string
-	MinGoVersion      string
-	Notes             []string
-	MinMacOSVersion   string
-	MinOpenSSLVersion string
+	Supported    SupportStatus
+	MinGoVersion string
+	Notes        []string
+	MinVersion   string
 }
 
 type Item struct {
 	Name         string
 	MinGoVersion string
 	Notes        []string
-	Platforms    map[string]PlatformStatus
+	Platforms    Platforms
+}
+
+var SupportedPlatforms = []string{"windows", "linux", "macos"}
+
+type Platforms struct {
+	Windows PlatformStatus
+	Linux   PlatformStatus
+	MacOS   PlatformStatus
+}
+
+func (s Platforms) Get(platform string) PlatformStatus {
+	switch platform {
+	case "windows":
+		return s.Windows
+	case "linux":
+		return s.Linux
+	case "macos":
+		return s.MacOS
+	default:
+		panic("unknown platform: " + platform)
+	}
 }
 
 type Section struct {
-	Title             string
-	ShortTitle        string
-	ColumnHeader      string
-	Packages          []string
-	Description       string
-	MinGoVersion      string
-	MinMacOSVersion   string
-	MinOpenSSLVersion string
-	Items             []Item
-	Subsections       []Section
-	Footnotes         []string
-	Footer            string
+	Title        string
+	ShortTitle   string
+	ColumnHeader string
+	Packages     []string
+	Description  string
+	MinGoVersion string
+	Items        []Item
+	Subsections  []Section
+	Footnotes    []string
+	Footer       string
 }
 
 type Document struct {
@@ -60,8 +87,8 @@ var doc = Document{
 				{Name: "SHA-1"},
 				{
 					Name: "SHA-2-224",
-					Platforms: map[string]PlatformStatus{
-						"windows": {Supported: "false"},
+					Platforms: Platforms{
+						Windows: PlatformStatus{Supported: NotSupported},
 					},
 				},
 				{Name: "SHA-2-256"},
@@ -69,88 +96,82 @@ var doc = Document{
 				{Name: "SHA-2-512"},
 				{
 					Name: "SHA-2-512_224",
-					Platforms: map[string]PlatformStatus{
-						"windows": {Supported: "false"},
-						"linux":   {MinGoVersion: "1.24", MinOpenSSLVersion: "1.1.1"},
-						"macos":   {Supported: "false"},
+					Platforms: Platforms{
+						Windows: PlatformStatus{Supported: NotSupported},
+						Linux:   PlatformStatus{MinGoVersion: "1.24", MinVersion: "1.1.1"},
+						MacOS:   PlatformStatus{Supported: NotSupported},
 					},
 				},
 				{
 					Name: "SHA-2-512_256",
-					Platforms: map[string]PlatformStatus{
-						"windows": {Supported: "false"},
-						"linux":   {MinGoVersion: "1.24", MinOpenSSLVersion: "1.1.1"},
-						"macos":   {Supported: "false"},
+					Platforms: Platforms{
+						Windows: PlatformStatus{Supported: NotSupported},
+						Linux:   PlatformStatus{MinGoVersion: "1.24", MinVersion: "1.1.1"},
+						MacOS:   PlatformStatus{Supported: NotSupported},
 					},
 				},
 				{
 					Name:         "SHA-3-224",
 					MinGoVersion: "1.26",
-					Platforms: map[string]PlatformStatus{
-						"windows": {Supported: "false"},
-						"linux":   {MinOpenSSLVersion: "1.1.1"},
-						"macos":   {Supported: "false"},
+					Platforms: Platforms{
+						Windows: PlatformStatus{Supported: NotSupported},
+						Linux:   PlatformStatus{MinVersion: "1.1.1"},
+						MacOS:   PlatformStatus{Supported: NotSupported},
 					},
 				},
 				{
 					Name:         "SHA-3-256",
 					MinGoVersion: "1.26",
-					Platforms: map[string]PlatformStatus{
-						"windows": {
-							Notes: []string{"Available in Windows 11, version 24H2 or later."},
-						},
-						"linux": {MinOpenSSLVersion: "1.1.1"},
-						"macos": {MinMacOSVersion: "26"},
+					Platforms: Platforms{
+						Windows: PlatformStatus{MinVersion: "11 (24H2)"},
+						Linux:   PlatformStatus{MinVersion: "1.1.1"},
+						MacOS:   PlatformStatus{MinVersion: "26"},
 					},
 				},
 				{
 					Name:         "SHA-3-384",
 					MinGoVersion: "1.26",
-					Platforms: map[string]PlatformStatus{
-						"windows": {
-							Notes: []string{"Available in Windows 11, version 24H2 or later."},
-						},
-						"linux": {MinOpenSSLVersion: "1.1.1"},
-						"macos": {MinMacOSVersion: "26"},
+					Platforms: Platforms{
+						Windows: PlatformStatus{MinVersion: "11 (24H2)"},
+						Linux:   PlatformStatus{MinVersion: "1.1.1"},
+						MacOS:   PlatformStatus{MinVersion: "26"},
 					},
 				},
 				{
 					Name:         "SHA-3-512",
 					MinGoVersion: "1.26",
-					Platforms: map[string]PlatformStatus{
-						"windows": {
-							Notes: []string{"Available in Windows 11, version 24H2 or later."},
-						},
-						"linux": {MinOpenSSLVersion: "1.1.1"},
-						"macos": {MinMacOSVersion: "26"},
+					Platforms: Platforms{
+						Windows: PlatformStatus{MinVersion: "11 (24H2)"},
+						Linux:   PlatformStatus{MinVersion: "1.1.1"},
+						MacOS:   PlatformStatus{MinVersion: "26"},
 					},
 				},
 				{
 					Name: "SHAKE-128",
-					Platforms: map[string]PlatformStatus{
-						"linux": {MinOpenSSLVersion: "3.3"},
-						"macos": {Supported: "false"},
+					Platforms: Platforms{
+						Linux: PlatformStatus{MinVersion: "3.3"},
+						MacOS: PlatformStatus{Supported: NotSupported},
 					},
 				},
 				{
 					Name: "SHAKE-256",
-					Platforms: map[string]PlatformStatus{
-						"linux": {MinOpenSSLVersion: "3.3"},
-						"macos": {Supported: "false"},
+					Platforms: Platforms{
+						Linux: PlatformStatus{MinVersion: "3.3"},
+						MacOS: PlatformStatus{Supported: NotSupported},
 					},
 				},
 				{
 					Name: "CSHAKE-128",
-					Platforms: map[string]PlatformStatus{
-						"linux": {Supported: "false"},
-						"macos": {Supported: "false"},
+					Platforms: Platforms{
+						Linux: PlatformStatus{Supported: NotSupported},
+						MacOS: PlatformStatus{Supported: NotSupported},
 					},
 				},
 				{
 					Name: "CSHAKE-256",
-					Platforms: map[string]PlatformStatus{
-						"linux": {Supported: "false"},
-						"macos": {Supported: "false"},
+					Platforms: Platforms{
+						Linux: PlatformStatus{Supported: NotSupported},
+						MacOS: PlatformStatus{Supported: NotSupported},
 					},
 				},
 				{
@@ -171,25 +192,25 @@ var doc = Document{
 				{Name: "AES-CBC"},
 				{
 					Name: "AES-CTR",
-					Platforms: map[string]PlatformStatus{
-						"windows": {Supported: "false"},
-						"macos":   {Supported: "false"},
+					Platforms: Platforms{
+						Windows: PlatformStatus{Supported: NotSupported},
+						MacOS:   PlatformStatus{Supported: NotSupported},
 					},
 				},
 				{
 					Name: "AES-CFB",
-					Platforms: map[string]PlatformStatus{
-						"windows": {Supported: "false"},
-						"linux":   {Supported: "false"},
-						"macos":   {Supported: "false"},
+					Platforms: Platforms{
+						Windows: PlatformStatus{Supported: NotSupported},
+						Linux:   PlatformStatus{Supported: NotSupported},
+						MacOS:   PlatformStatus{Supported: NotSupported},
 					},
 				},
 				{
 					Name: "AES-OFB",
-					Platforms: map[string]PlatformStatus{
-						"windows": {Supported: "false"},
-						"linux":   {Supported: "false"},
-						"macos":   {Supported: "false"},
+					Platforms: Platforms{
+						Windows: PlatformStatus{Supported: NotSupported},
+						Linux:   PlatformStatus{Supported: NotSupported},
+						MacOS:   PlatformStatus{Supported: NotSupported},
 					},
 				},
 				{
@@ -198,9 +219,9 @@ var doc = Document{
 				},
 				{
 					Name: "DES-CBC",
-					Platforms: map[string]PlatformStatus{
-						"linux": {
-							Supported: "warn",
+					Platforms: Platforms{
+						Linux: PlatformStatus{
+							Supported: Warn,
 							Notes: []string{
 								"When using OpenSSL 3, requires the legacy provider to be enabled.",
 							},
@@ -209,9 +230,9 @@ var doc = Document{
 				},
 				{
 					Name: "DES-ECB",
-					Platforms: map[string]PlatformStatus{
-						"linux": {
-							Supported: "warn",
+					Platforms: Platforms{
+						Linux: PlatformStatus{
+							Supported: Warn,
 							Notes: []string{
 								"When using OpenSSL 3, requires the legacy provider to be enabled.",
 							},
@@ -222,9 +243,9 @@ var doc = Document{
 				{Name: "3DES-CBC"},
 				{
 					Name: "RC4",
-					Platforms: map[string]PlatformStatus{
-						"linux": {
-							Supported: "warn",
+					Platforms: Platforms{
+						Linux: PlatformStatus{
+							Supported: Warn,
 							Notes: []string{
 								"When using OpenSSL 3, requires the legacy provider to be enabled.",
 							},
@@ -246,8 +267,8 @@ var doc = Document{
 					Items: []Item{
 						{
 							Name: "OAEP (MD5)",
-							Platforms: map[string]PlatformStatus{
-								"macos": {
+							Platforms: Platforms{
+								MacOS: PlatformStatus{
 									Notes: []string{
 										"macOS doesn't support passing a custom label to OAEP functions.",
 									},
@@ -256,8 +277,8 @@ var doc = Document{
 						},
 						{
 							Name: "OAEP (SHA-1)",
-							Platforms: map[string]PlatformStatus{
-								"macos": {
+							Platforms: Platforms{
+								MacOS: PlatformStatus{
 									Notes: []string{
 										"macOS doesn't support passing a custom label to OAEP functions.",
 									},
@@ -269,8 +290,8 @@ var doc = Document{
 							Notes: []string{
 								"Supports only hash algorithms that are [supported as standalone hash functions](#hash-and-message-authentication-algorithms).",
 							},
-							Platforms: map[string]PlatformStatus{
-								"macos": {
+							Platforms: Platforms{
+								MacOS: PlatformStatus{
 									Notes: []string{
 										"macOS doesn't support passing a custom label to OAEP functions.",
 									},
@@ -279,34 +300,34 @@ var doc = Document{
 						},
 						{
 							Name: "OAEP (SHA-3)",
-							Platforms: map[string]PlatformStatus{
-								"windows": {Supported: "false"},
-								"linux":   {Supported: "false"},
-								"macos":   {Supported: "false"},
+							Platforms: Platforms{
+								Windows: PlatformStatus{Supported: NotSupported},
+								Linux:   PlatformStatus{Supported: NotSupported},
+								MacOS:   PlatformStatus{Supported: NotSupported},
 							},
 						},
 						{
 							Name: "PSS (MD5)",
-							Platforms: map[string]PlatformStatus{
-								"windows": {
+							Platforms: Platforms{
+								Windows: PlatformStatus{
 									Notes: []string{
-										"On Windows, when verifying a PSS signature, [rsa.PSSSaltLengthAuto](https://pkg.go.dev/crypto/rsa#pkg-constants) is not supported.",
+										"Verifying PSS signatures with [rsa.PSSSaltLengthAuto](https://pkg.go.dev/crypto/rsa#pkg-constants) is not supported.",
 									},
 								},
-								"macos": {Supported: "false"},
+								MacOS: PlatformStatus{Supported: NotSupported},
 							},
 						},
 						{
 							Name: "PSS (SHA-1)",
-							Platforms: map[string]PlatformStatus{
-								"windows": {
+							Platforms: Platforms{
+								Windows: PlatformStatus{
 									Notes: []string{
-										"On Windows, when verifying a PSS signature, [rsa.PSSSaltLengthAuto](https://pkg.go.dev/crypto/rsa#pkg-constants) is not supported.",
+										"Verifying PSS signatures with [rsa.PSSSaltLengthAuto](https://pkg.go.dev/crypto/rsa#pkg-constants) is not supported.",
 									},
 								},
-								"macos": {
+								MacOS: PlatformStatus{
 									Notes: []string{
-										"On macOS, custom salt lengths are not supported. PSS always uses the [`rsa.PSSSaltLengthEqualsHash`](https://pkg.go.dev/crypto/rsa#pkg-constants).",
+										"Custom salt lengths are not supported. PSS always uses the [`rsa.PSSSaltLengthEqualsHash`](https://pkg.go.dev/crypto/rsa#pkg-constants).",
 									},
 								},
 							},
@@ -316,56 +337,56 @@ var doc = Document{
 							Notes: []string{
 								"Supports only hash algorithms that are [supported as standalone hash functions](#hash-and-message-authentication-algorithms).",
 							},
-							Platforms: map[string]PlatformStatus{
-								"windows": {
+							Platforms: Platforms{
+								Windows: PlatformStatus{
 									Notes: []string{
-										"On Windows, when verifying a PSS signature, [rsa.PSSSaltLengthAuto](https://pkg.go.dev/crypto/rsa#pkg-constants) is not supported.",
+										"Verifying PSS signatures with [rsa.PSSSaltLengthAuto](https://pkg.go.dev/crypto/rsa#pkg-constants) is not supported.",
 									},
 								},
-								"macos": {
+								MacOS: PlatformStatus{
 									Notes: []string{
-										"On macOS, custom salt lengths are not supported. PSS always uses the [`rsa.PSSSaltLengthEqualsHash`](https://pkg.go.dev/crypto/rsa#pkg-constants).",
+										"Custom salt lengths are not supported. PSS always uses the [`rsa.PSSSaltLengthEqualsHash`](https://pkg.go.dev/crypto/rsa#pkg-constants).",
 									},
 								},
 							},
 						},
 						{
 							Name: "PSS (SHA-3)",
-							Platforms: map[string]PlatformStatus{
-								"windows": {Supported: "false"},
-								"linux":   {Supported: "false"},
-								"macos":   {Supported: "false"},
+							Platforms: Platforms{
+								Windows: PlatformStatus{Supported: NotSupported},
+								Linux:   PlatformStatus{Supported: NotSupported},
+								MacOS:   PlatformStatus{Supported: NotSupported},
 							},
 						},
 						{Name: "PKCS1v15 Signature (Unhashed)"},
 						{
 							Name: "PKCS1v15 Signature (RIPMED160)",
-							Platforms: map[string]PlatformStatus{
-								"windows": {Supported: "false"},
-								"linux":   {MinGoVersion: "1.24"},
-								"macos":   {Supported: "false"},
+							Platforms: Platforms{
+								Windows: PlatformStatus{Supported: NotSupported},
+								Linux:   PlatformStatus{MinGoVersion: "1.24"},
+								MacOS:   PlatformStatus{Supported: NotSupported},
 							},
 						},
 						{
 							Name: "PKCS1v15 Signature (MD4)",
-							Platforms: map[string]PlatformStatus{
-								"windows": {Supported: "false"},
-								"linux":   {MinGoVersion: "1.24"},
-								"macos":   {Supported: "false"},
+							Platforms: Platforms{
+								Windows: PlatformStatus{Supported: NotSupported},
+								Linux:   PlatformStatus{MinGoVersion: "1.24"},
+								MacOS:   PlatformStatus{Supported: NotSupported},
 							},
 						},
 						{
 							Name: "PKCS1v15 Signature (MD5)",
-							Platforms: map[string]PlatformStatus{
-								"macos": {Supported: "false"},
+							Platforms: Platforms{
+								MacOS: PlatformStatus{Supported: NotSupported},
 							},
 						},
 						{
 							Name: "PKCS1v15 Signature (MD5-SHA1)",
-							Platforms: map[string]PlatformStatus{
-								"windows": {MinGoVersion: "1.24"},
-								"linux":   {MinGoVersion: "1.24"},
-								"macos":   {Supported: "false"},
+							Platforms: Platforms{
+								Windows: PlatformStatus{MinGoVersion: "1.24"},
+								Linux:   PlatformStatus{MinGoVersion: "1.24"},
+								MacOS:   PlatformStatus{Supported: NotSupported},
 							},
 						},
 						{Name: "PKCS1v15 Signature (SHA-1)"},
@@ -377,10 +398,10 @@ var doc = Document{
 						},
 						{
 							Name: "PKCS1v15 Signature (SHA-3)",
-							Platforms: map[string]PlatformStatus{
-								"windows": {Supported: "false"},
-								"linux":   {Supported: "false"},
-								"macos":   {Supported: "false"},
+							Platforms: Platforms{
+								Windows: PlatformStatus{Supported: NotSupported},
+								Linux:   PlatformStatus{Supported: NotSupported},
+								MacOS:   PlatformStatus{Supported: NotSupported},
 							},
 						},
 					},
@@ -393,8 +414,8 @@ var doc = Document{
 					Items: []Item{
 						{
 							Name: "NIST P-224 (secp224r1)",
-							Platforms: map[string]PlatformStatus{
-								"macos": {Supported: "false"},
+							Platforms: Platforms{
+								MacOS: PlatformStatus{Supported: NotSupported},
 							},
 						},
 						{Name: "NIST P-256 (secp256r1)"},
@@ -410,8 +431,8 @@ var doc = Document{
 					Items: []Item{
 						{
 							Name: "NIST P-224 (secp224r1)",
-							Platforms: map[string]PlatformStatus{
-								"macos": {Supported: "false"},
+							Platforms: Platforms{
+								MacOS: PlatformStatus{Supported: NotSupported},
 							},
 						},
 						{Name: "NIST P-256 (secp256r1)"},
@@ -420,8 +441,8 @@ var doc = Document{
 						{
 							Name:         "X25519 (curve25519)",
 							MinGoVersion: "1.26",
-							Platforms: map[string]PlatformStatus{
-								"linux": {MinOpenSSLVersion: "1.1.1"},
+							Platforms: Platforms{
+								Linux: PlatformStatus{MinVersion: "1.1.1"},
 							},
 						},
 					},
@@ -434,24 +455,24 @@ var doc = Document{
 					Items: []Item{
 						{
 							Name: "Ed25519",
-							Platforms: map[string]PlatformStatus{
-								"windows": {Supported: "false"},
+							Platforms: Platforms{
+								Windows: PlatformStatus{Supported: NotSupported},
 							},
 						},
 						{
 							Name: "Ed25519ctx",
-							Platforms: map[string]PlatformStatus{
-								"windows": {Supported: "false"},
-								"linux":   {Supported: "false"},
-								"macos":   {Supported: "false"},
+							Platforms: Platforms{
+								Windows: PlatformStatus{Supported: NotSupported},
+								Linux:   PlatformStatus{Supported: NotSupported},
+								MacOS:   PlatformStatus{Supported: NotSupported},
 							},
 						},
 						{
 							Name: "Ed25519ph",
-							Platforms: map[string]PlatformStatus{
-								"windows": {Supported: "false"},
-								"linux":   {Supported: "false"},
-								"macos":   {Supported: "false"},
+							Platforms: Platforms{
+								Windows: PlatformStatus{Supported: NotSupported},
+								Linux:   PlatformStatus{Supported: NotSupported},
+								MacOS:   PlatformStatus{Supported: NotSupported},
 							},
 						},
 					},
@@ -462,27 +483,27 @@ var doc = Document{
 					Items: []Item{
 						{
 							Name: "L1024N160",
-							Platforms: map[string]PlatformStatus{
-								"macos": {Supported: "false"},
+							Platforms: Platforms{
+								MacOS: PlatformStatus{Supported: NotSupported},
 							},
 						},
 						{
 							Name: "L2048N224",
-							Platforms: map[string]PlatformStatus{
-								"windows": {Supported: "false"},
-								"macos":   {Supported: "false"},
+							Platforms: Platforms{
+								Windows: PlatformStatus{Supported: NotSupported},
+								MacOS:   PlatformStatus{Supported: NotSupported},
 							},
 						},
 						{
 							Name: "L2048N256",
-							Platforms: map[string]PlatformStatus{
-								"macos": {Supported: "false"},
+							Platforms: Platforms{
+								MacOS: PlatformStatus{Supported: NotSupported},
 							},
 						},
 						{
 							Name: "L3072N256",
-							Platforms: map[string]PlatformStatus{
-								"macos": {Supported: "false"},
+							Platforms: Platforms{
+								MacOS: PlatformStatus{Supported: NotSupported},
 							},
 						},
 					},
@@ -520,26 +541,18 @@ var doc = Document{
 					Items: []Item{
 						{
 							Name: "768",
-							Platforms: map[string]PlatformStatus{
-								"windows": {
-									Notes: []string{
-										"Requires Windows Server 2025 or Windows 11 (24H2, 25H2) or later.",
-									},
-								},
-								"linux": {MinOpenSSLVersion: "3.5.0"},
-								"macos": {MinMacOSVersion: "26"},
+							Platforms: Platforms{
+								Windows: PlatformStatus{MinVersion: "11 (24H2)"},
+								Linux:   PlatformStatus{MinVersion: "3.5.0"},
+								MacOS:   PlatformStatus{MinVersion: "26"},
 							},
 						},
 						{
 							Name: "1024",
-							Platforms: map[string]PlatformStatus{
-								"windows": {
-									Notes: []string{
-										"Requires Windows Server 2025 or Windows 11 (24H2, 25H2) or later.",
-									},
-								},
-								"linux": {MinOpenSSLVersion: "3.5.0"},
-								"macos": {MinMacOSVersion: "26"},
+							Platforms: Platforms{
+								Windows: PlatformStatus{MinVersion: "11 (24H2)"},
+								Linux:   PlatformStatus{MinVersion: "3.5.0"},
+								MacOS:   PlatformStatus{MinVersion: "26"},
 							},
 						},
 					},
@@ -568,10 +581,10 @@ var doc = Document{
 								},
 								{
 									Name: "Export-only",
-									Platforms: map[string]PlatformStatus{
-										"windows": {Supported: "N/A"},
-										"linux":   {Supported: "N/A"},
-										"macos":   {Supported: "N/A"},
+									Platforms: Platforms{
+										Windows: PlatformStatus{Supported: N_A},
+										Linux:   PlatformStatus{Supported: N_A},
+										MacOS:   PlatformStatus{Supported: N_A},
 									},
 								},
 							},
@@ -650,22 +663,22 @@ var doc = Document{
 							Items: []Item{
 								{
 									Name: "SSL 3.0",
-									Platforms: map[string]PlatformStatus{
-										"windows": {Supported: "false"},
-										"linux":   {Supported: "false"},
-										"macos":   {Supported: "false"},
+									Platforms: Platforms{
+										Windows: PlatformStatus{Supported: NotSupported},
+										Linux:   PlatformStatus{Supported: NotSupported},
+										MacOS:   PlatformStatus{Supported: NotSupported},
 									},
 								},
 								{
 									Name: "TLS 1.0",
-									Platforms: map[string]PlatformStatus{
-										"macos": {Supported: "false"},
+									Platforms: Platforms{
+										MacOS: PlatformStatus{Supported: NotSupported},
 									},
 								},
 								{
 									Name: "TLS 1.1",
-									Platforms: map[string]PlatformStatus{
-										"macos": {Supported: "false"},
+									Platforms: Platforms{
+										MacOS: PlatformStatus{Supported: NotSupported},
 									},
 								},
 								{Name: "TLS 1.2"},
@@ -679,9 +692,9 @@ var doc = Document{
 							Items: []Item{
 								{
 									Name: "TLS_RSA_WITH_RC4_128_SHA",
-									Platforms: map[string]PlatformStatus{
-										"linux": {
-											Supported: "warn",
+									Platforms: Platforms{
+										Linux: PlatformStatus{
+											Supported: Warn,
 											Notes: []string{
 												"When using OpenSSL 3, requires the legacy provider to be enabled.",
 											},
@@ -690,9 +703,9 @@ var doc = Document{
 								},
 								{
 									Name: "TLS_RSA_WITH_3DES_EDE_CBC_SHA",
-									Platforms: map[string]PlatformStatus{
-										"linux": {
-											Supported: "warn",
+									Platforms: Platforms{
+										Linux: PlatformStatus{
+											Supported: Warn,
 											Notes: []string{
 												"When using OpenSSL 3, requires the legacy provider to be enabled.",
 											},
@@ -706,9 +719,9 @@ var doc = Document{
 								{Name: "TLS_RSA_WITH_AES_256_GCM_SHA384"},
 								{
 									Name: "TLS_ECDHE_ECDSA_WITH_RC4_128_SHA",
-									Platforms: map[string]PlatformStatus{
-										"linux": {
-											Supported: "warn",
+									Platforms: Platforms{
+										Linux: PlatformStatus{
+											Supported: Warn,
 											Notes: []string{
 												"When using OpenSSL 3, requires the legacy provider to be enabled.",
 											},
@@ -719,9 +732,9 @@ var doc = Document{
 								{Name: "TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA"},
 								{
 									Name: "TLS_ECDHE_RSA_WITH_RC4_128_SHA",
-									Platforms: map[string]PlatformStatus{
-										"linux": {
-											Supported: "warn",
+									Platforms: Platforms{
+										Linux: PlatformStatus{
+											Supported: Warn,
 											Notes: []string{
 												"When using OpenSSL 3, requires the legacy provider to be enabled.",
 											},
@@ -730,9 +743,9 @@ var doc = Document{
 								},
 								{
 									Name: "TLS_ECDHE_RSA_WITH_3DES_EDE_CBC_SHA",
-									Platforms: map[string]PlatformStatus{
-										"linux": {
-											Supported: "warn",
+									Platforms: Platforms{
+										Linux: PlatformStatus{
+											Supported: Warn,
 											Notes: []string{
 												"When using OpenSSL 3, requires the legacy provider to be enabled.",
 											},
@@ -822,8 +835,8 @@ var doc = Document{
 								{Name: "ECDSAWithP521AndSHA512"},
 								{
 									Name: "Ed25519",
-									Platforms: map[string]PlatformStatus{
-										"windows": {Supported: "false"},
+									Platforms: Platforms{
+										Windows: PlatformStatus{Supported: NotSupported},
 									},
 								},
 							},

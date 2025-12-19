@@ -15,7 +15,7 @@ import (
 	"text/tabwriter"
 )
 
-var docPath = filepath.Join("eng", "doc", "CrossPlatformCryptography.md")
+var docPath = flag.String("path", filepath.Join("eng", "doc", "CrossPlatformCryptography.md"), "Path to CrossPlatformCryptography.md")
 
 var useStdout = flag.Bool("stdout", false, "Write to stdout instead of file")
 
@@ -47,7 +47,7 @@ func write() error {
 		fmt.Print(s.String())
 		return nil
 	}
-	return os.WriteFile(docPath, []byte(s.String()), 0o644)
+	return os.WriteFile(*docPath, []byte(s.String()), 0o644)
 }
 
 func printSection(w io.Writer, section Section, level int) {
@@ -81,12 +81,6 @@ func printSection(w io.Writer, section Section, level int) {
 	var versionSentences []string
 	if section.MinGoVersion != "" {
 		versionSentences = append(versionSentences, fmt.Sprintf("%s is available starting from the Microsoft build of Go %s.", section.Title, section.MinGoVersion))
-	}
-	if section.MinOpenSSLVersion != "" {
-		versionSentences = append(versionSentences, fmt.Sprintf("%s requires OpenSSL %s or later.", section.Title, section.MinOpenSSLVersion))
-	}
-	if section.MinMacOSVersion != "" {
-		versionSentences = append(versionSentences, fmt.Sprintf("%s is available starting in macOS %s or later.", section.Title, section.MinMacOSVersion))
 	}
 	if len(versionSentences) > 0 {
 		fmt.Fprintln(w, strings.Join(versionSentences, " "))
@@ -140,7 +134,11 @@ func printTable(w io.Writer, section Section) {
 
 	var wipTable strings.Builder
 	tw := tabwriter.NewWriter(&wipTable, 0, 0, 1, ' ', 0)
-	fmt.Fprintf(tw, "|\t%s\t|\tWindows\t|\tLinux\t|\tmacOS\t|\n", colHeader)
+	platforms := strings.Join(SupportedPlatforms, "\t|\t")
+	platforms = strings.Replace(platforms, "windows", "Windows", 1)
+	platforms = strings.Replace(platforms, "linux", "Linux", 1)
+	platforms = strings.Replace(platforms, "macos", "macOS", 1)
+	fmt.Fprintf(tw, "|\t%s\t|\t%s\t|\n", colHeader, platforms)
 
 	// We skip the "| --- | --- | etc." row for now. We need to know the actual
 	// column lengths to put in the proper number of dashes (for raw source
@@ -195,18 +193,21 @@ func printTable(w io.Writer, section Section) {
 
 		row := []string{name + nameNotes}
 
-		for _, platform := range []string{"windows", "linux", "macos"} {
-			status := item.Platforms[platform]
+		for _, platform := range SupportedPlatforms {
+			status := item.Platforms.Get(platform)
 			symbol := ""
 			switch status.Supported {
-			case "N/A":
-				symbol = "N/A"
-			case "true":
+			case Supported:
 				symbol = "✔️"
-			case "warn":
-				symbol = "⚠️"
-			default:
+			case NotSupported:
 				symbol = "❌️"
+			case Warn:
+				symbol = "⚠️"
+			case N_A:
+				symbol = "N/A"
+			default:
+				// Should not happen due to prior validation
+				panic(fmt.Sprintf("unexpected status %q", status.Supported))
 			}
 
 			statusNotes := status.Notes
@@ -215,11 +216,17 @@ func printTable(w io.Writer, section Section) {
 			if status.MinGoVersion != "" {
 				versionNotes = append(versionNotes, fmt.Sprintf("Available starting in the Microsoft build of Go %s.", status.MinGoVersion))
 			}
-			if status.MinOpenSSLVersion != "" {
-				versionNotes = append(versionNotes, fmt.Sprintf("Requires OpenSSL %s or later.", status.MinOpenSSLVersion))
-			}
-			if status.MinMacOSVersion != "" {
-				versionNotes = append(versionNotes, fmt.Sprintf("Requires macOS %s or later.", status.MinMacOSVersion))
+			if status.MinVersion != "" {
+				switch platform {
+				case "windows":
+					versionNotes = append(versionNotes, fmt.Sprintf("Requires Windows %s or later.", status.MinVersion))
+				case "linux":
+					versionNotes = append(versionNotes, fmt.Sprintf("Requires OpenSSL %s or later.", status.MinVersion))
+				case "macos":
+					versionNotes = append(versionNotes, fmt.Sprintf("Requires macOS %s or later.", status.MinVersion))
+				default:
+					panic("unknown platform" + platform)
+				}
 			}
 			// Remove duplicates from notes
 			filtered := []string{}
@@ -302,21 +309,10 @@ func validateSection(section Section) error {
 			return fmt.Errorf("duplicate item name %q in section %q", item.Name, section.Title)
 		}
 		seenNames[item.Name] = true
-
-		if item.Platforms == nil {
-			item.Platforms = make(map[string]PlatformStatus)
-		}
-		for _, p := range []string{"windows", "linux", "macos"} {
-			status, ok := item.Platforms[p]
-			if !ok {
-				status = PlatformStatus{}
-			}
-			if status.Supported == "" {
-				status.Supported = "true"
-			}
-			item.Platforms[p] = status
+		for _, p := range SupportedPlatforms {
+			status := item.Platforms.Get(p)
 			switch status.Supported {
-			case "true", "false", "warn", "N/A":
+			case Supported, NotSupported, Warn, N_A:
 				// ok
 			default:
 				return fmt.Errorf("invalid supported status %q for item %q on platform %q", status.Supported, item.Name, p)
@@ -325,9 +321,9 @@ func validateSection(section Section) error {
 
 		// Check for notes common to all platforms
 		noteCounts := make(map[string]int)
-		platforms := []string{"windows", "linux", "macos"}
+		platforms := SupportedPlatforms
 		for _, p := range platforms {
-			status := item.Platforms[p]
+			status := item.Platforms.Get(p)
 			for _, note := range status.Notes {
 				noteCounts[note]++
 			}

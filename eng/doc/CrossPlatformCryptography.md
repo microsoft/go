@@ -83,7 +83,7 @@ This section includes the following packages:
 
 <sup>3</sup>Available starting in the Microsoft build of Go 1.26.
 
-<sup>4</sup>Available in Windows 11, version 24H2 or later.
+<sup>4</sup>Requires Windows 11 (24H2) or later.
 
 <sup>5</sup>Requires macOS 26 or later.
 
@@ -179,9 +179,9 @@ Operations that require random numbers (rand io.Reader) only support [rand.Reade
 
 <sup>2</sup>Supports only hash algorithms that are [supported as standalone hash functions](#hash-and-message-authentication-algorithms).
 
-<sup>3</sup>On Windows, when verifying a PSS signature, [rsa.PSSSaltLengthAuto](https://pkg.go.dev/crypto/rsa#pkg-constants) is not supported.
+<sup>3</sup>Verifying PSS signatures with [rsa.PSSSaltLengthAuto](https://pkg.go.dev/crypto/rsa#pkg-constants) is not supported.
 
-<sup>4</sup>On macOS, custom salt lengths are not supported. PSS always uses the [`rsa.PSSSaltLengthEqualsHash`](https://pkg.go.dev/crypto/rsa#pkg-constants).
+<sup>4</sup>Custom salt lengths are not supported. PSS always uses the [`rsa.PSSSaltLengthEqualsHash`](https://pkg.go.dev/crypto/rsa#pkg-constants).
 
 <sup>5</sup>Available starting in the Microsoft build of Go 1.24.
 
@@ -277,7 +277,7 @@ ML-KEM is available starting from the Microsoft build of Go 1.26.
 | 768        | ✔️<sup>1</sup> | ✔️<sup>2</sup> | ✔️<sup>3</sup> |
 | 1024       | ✔️<sup>1</sup> | ✔️<sup>2</sup> | ✔️<sup>3</sup> |
 
-<sup>1</sup>Requires Windows Server 2025 or Windows 11 (24H2, 25H2) or later.
+<sup>1</sup>Requires Windows 11 (24H2) or later.
 
 <sup>2</sup>Requires OpenSSL 3.5.0 or later.
 
