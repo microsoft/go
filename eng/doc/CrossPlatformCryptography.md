@@ -77,13 +77,13 @@ This section includes the following packages:
 | CSHAKE-256            | ✔️             | ❌️               | ❌️             |
 | HMAC<sup>7</sup>      | ✔️             | ✔️               | ✔️             |
 
-<sup>1</sup>Available starting in the Microsoft build of Go 1.24.
+<sup>1</sup>Requires the Microsoft build of Go 1.24 or later.
 
 <sup>2</sup>Requires OpenSSL 1.1.1 or later.
 
-<sup>3</sup>Available starting in the Microsoft build of Go 1.26.
+<sup>3</sup>Requires the Microsoft build of Go 1.26 or later.
 
-<sup>4</sup>Available in Windows 11, version 24H2 or later.
+<sup>4</sup>Requires Windows 11 (24H2) or later.
 
 <sup>5</sup>Requires macOS 26 or later.
 
@@ -179,11 +179,11 @@ Operations that require random numbers (rand io.Reader) only support [rand.Reade
 
 <sup>2</sup>Supports only hash algorithms that are [supported as standalone hash functions](#hash-and-message-authentication-algorithms).
 
-<sup>3</sup>On Windows, when verifying a PSS signature, [rsa.PSSSaltLengthAuto](https://pkg.go.dev/crypto/rsa#pkg-constants) is not supported.
+<sup>3</sup>Verifying PSS signatures with [rsa.PSSSaltLengthAuto](https://pkg.go.dev/crypto/rsa#pkg-constants) is not supported.
 
-<sup>4</sup>On macOS, custom salt lengths are not supported. PSS always uses the [`rsa.PSSSaltLengthEqualsHash`](https://pkg.go.dev/crypto/rsa#pkg-constants).
+<sup>4</sup>Custom salt lengths are not supported. PSS always uses the [`rsa.PSSSaltLengthEqualsHash`](https://pkg.go.dev/crypto/rsa#pkg-constants).
 
-<sup>5</sup>Available starting in the Microsoft build of Go 1.24.
+<sup>5</sup>Requires the Microsoft build of Go 1.24 or later.
 
 ### ECDSA
 
@@ -217,7 +217,7 @@ Operations that require random numbers (rand io.Reader) only support [rand.Reade
 | NIST P-521 (secp521r1)          | ✔️      | ✔️             | ✔️    |
 | X25519 (curve25519)<sup>1</sup> | ✔️      | ✔️<sup>2</sup> | ✔️    |
 
-<sup>1</sup>Available starting in the Microsoft build of Go 1.26.
+<sup>1</sup>Requires the Microsoft build of Go 1.26 or later.
 
 <sup>2</sup>Requires OpenSSL 1.1.1 or later.
 
@@ -277,7 +277,7 @@ ML-KEM is available starting from the Microsoft build of Go 1.26.
 | 768        | ✔️<sup>1</sup> | ✔️<sup>2</sup> | ✔️<sup>3</sup> |
 | 1024       | ✔️<sup>1</sup> | ✔️<sup>2</sup> | ✔️<sup>3</sup> |
 
-<sup>1</sup>Requires Windows Server 2025 or Windows 11 (24H2, 25H2) or later.
+<sup>1</sup>Requires Windows 11 (24H2) or later.
 
 <sup>2</sup>Requires OpenSSL 3.5.0 or later.
 
@@ -316,7 +316,7 @@ This section includes the following subsections:
 | ChaCha20Poly1305<sup>1</sup> | ✔️      | ✔️    | ✔️    |
 | Export-only                  | N/A     | N/A   | N/A   |
 
-<sup>1</sup>Available starting in the Microsoft build of Go 1.26.
+<sup>1</sup>Requires the Microsoft build of Go 1.26 or later.
 
 #### HPKE Key Derivation Functions (KDFs)
 
@@ -403,7 +403,7 @@ The TLS stack is implemented using native Go code but the crypto primitives are 
 
 <sup>1</sup>When using OpenSSL 3, requires the legacy provider to be enabled.
 
-<sup>2</sup>Available starting in the Microsoft build of Go 1.26.
+<sup>2</sup>Requires the Microsoft build of Go 1.26 or later.
 
 On Windows, it is possible to restrict and reorder the cipher suites following the [Schannel preferences](https://learn.microsoft.com/en-us/windows/win32/secauthn/cipher-suites-in-schannel) by building with the `ms_tls_config_schannel` goexperiment enabled.
 
