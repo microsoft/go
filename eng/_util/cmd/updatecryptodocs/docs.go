@@ -300,10 +300,11 @@ var doc = Document{
 						},
 						{
 							Name: "OAEP (SHA-3)",
+							Notes: []string{
+								"Supports only hash algorithms that are [supported as standalone hash functions](#hash-and-message-authentication-algorithms).",
+							},
 							Platforms: Platforms{
-								Windows: PlatformStatus{Supported: NotSupported},
-								Linux:   PlatformStatus{Supported: NotSupported},
-								MacOS:   PlatformStatus{Supported: NotSupported},
+								MacOS: PlatformStatus{Supported: NotSupported},
 							},
 						},
 						{
@@ -352,23 +353,17 @@ var doc = Document{
 						},
 						{
 							Name: "PSS (SHA-3)",
+							Notes: []string{
+								"Supports only hash algorithms that are [supported as standalone hash functions](#hash-and-message-authentication-algorithms).",
+							},
 							Platforms: Platforms{
-								Windows: PlatformStatus{Supported: NotSupported},
-								Linux:   PlatformStatus{Supported: NotSupported},
+								Windows: PlatformStatus{MinGoVersion: "1.26"},
 								MacOS:   PlatformStatus{Supported: NotSupported},
 							},
 						},
 						{Name: "PKCS1v15 Signature (Unhashed)"},
 						{
 							Name: "PKCS1v15 Signature (RIPMED160)",
-							Platforms: Platforms{
-								Windows: PlatformStatus{Supported: NotSupported},
-								Linux:   PlatformStatus{MinGoVersion: "1.24"},
-								MacOS:   PlatformStatus{Supported: NotSupported},
-							},
-						},
-						{
-							Name: "PKCS1v15 Signature (MD4)",
 							Platforms: Platforms{
 								Windows: PlatformStatus{Supported: NotSupported},
 								Linux:   PlatformStatus{MinGoVersion: "1.24"},
@@ -399,8 +394,8 @@ var doc = Document{
 						{
 							Name: "PKCS1v15 Signature (SHA-3)",
 							Platforms: Platforms{
-								Windows: PlatformStatus{Supported: NotSupported},
-								Linux:   PlatformStatus{Supported: NotSupported},
+								Windows: PlatformStatus{MinVersion: "11 (24H2)", MinGoVersion: "1.26"},
+								Linux:   PlatformStatus{MinVersion: "1.1.1"},
 								MacOS:   PlatformStatus{Supported: NotSupported},
 							},
 						},
