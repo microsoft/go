@@ -77,11 +77,11 @@ This section includes the following packages:
 | CSHAKE-256            | ✔️             | ❌️               | ❌️             |
 | HMAC<sup>7</sup>      | ✔️             | ✔️               | ✔️             |
 
-<sup>1</sup>Requires the Microsoft build of Go 1.24 or later.
+<sup>1</sup>Available starting in the Microsoft build of Go 1.24.
 
 <sup>2</sup>Requires OpenSSL 1.1.1 or later.
 
-<sup>3</sup>Requires the Microsoft build of Go 1.26 or later.
+<sup>3</sup>Available starting in the Microsoft build of Go 1.26.
 
 <sup>4</sup>Requires Windows 11 (24H2) or later.
 
@@ -183,7 +183,7 @@ Operations that require random numbers (rand io.Reader) only support [rand.Reade
 
 <sup>4</sup>Custom salt lengths are not supported. PSS always uses the [`rsa.PSSSaltLengthEqualsHash`](https://pkg.go.dev/crypto/rsa#pkg-constants).
 
-<sup>5</sup>Requires the Microsoft build of Go 1.24 or later.
+<sup>5</sup>Available starting in the Microsoft build of Go 1.24.
 
 ### ECDSA
 
@@ -217,7 +217,7 @@ Operations that require random numbers (rand io.Reader) only support [rand.Reade
 | NIST P-521 (secp521r1)          | ✔️      | ✔️             | ✔️    |
 | X25519 (curve25519)<sup>1</sup> | ✔️      | ✔️<sup>2</sup> | ✔️    |
 
-<sup>1</sup>Requires the Microsoft build of Go 1.26 or later.
+<sup>1</sup>Available starting in the Microsoft build of Go 1.26.
 
 <sup>2</sup>Requires OpenSSL 1.1.1 or later.
 
@@ -316,7 +316,7 @@ This section includes the following subsections:
 | ChaCha20Poly1305<sup>1</sup> | ✔️      | ✔️    | ✔️    |
 | Export-only                  | N/A     | N/A   | N/A   |
 
-<sup>1</sup>Requires the Microsoft build of Go 1.26 or later.
+<sup>1</sup>Available starting in the Microsoft build of Go 1.26.
 
 #### HPKE Key Derivation Functions (KDFs)
 
@@ -403,7 +403,7 @@ The TLS stack is implemented using native Go code but the crypto primitives are 
 
 <sup>1</sup>When using OpenSSL 3, requires the legacy provider to be enabled.
 
-<sup>2</sup>Requires the Microsoft build of Go 1.26 or later.
+<sup>2</sup>Available starting in the Microsoft build of Go 1.26.
 
 On Windows, it is possible to restrict and reorder the cipher suites following the [Schannel preferences](https://learn.microsoft.com/en-us/windows/win32/secauthn/cipher-suites-in-schannel) by building with the `ms_tls_config_schannel` goexperiment enabled.
 

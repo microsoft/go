@@ -185,7 +185,7 @@ func printTable(w io.Writer, section Section) {
 
 		itemNotes := item.Notes
 		if item.MinGoVersion != "" {
-			note := fmt.Sprintf("Requires the Microsoft build of Go %s or later.", item.MinGoVersion)
+			note := fmt.Sprintf("Available starting in the Microsoft build of Go %s.", item.MinGoVersion)
 			itemNotes = append([]string{note}, itemNotes...)
 		}
 
@@ -214,7 +214,7 @@ func printTable(w io.Writer, section Section) {
 			// Prepend version notes in preferred order: minGoVersion, minOpenSSLVersion, minMacOSVersion
 			var versionNotes []string
 			if status.MinGoVersion != "" {
-				versionNotes = append(versionNotes, fmt.Sprintf("Requires the Microsoft build of Go %s or later.", status.MinGoVersion))
+				versionNotes = append(versionNotes, fmt.Sprintf("Available starting in the Microsoft build of Go %s.", status.MinGoVersion))
 			}
 			if status.MinVersion != "" {
 				switch platform {
