@@ -29,9 +29,9 @@ desired goexperiments and build tags.
  src/crypto/internal/backend/bbig/big_cng.go   |  12 +
  .../internal/backend/bbig/big_darwin.go       |  12 +
  .../internal/backend/bbig/big_openssl.go      |  12 +
- src/crypto/internal/backend/cng_windows.go    | 418 +++++++++++++++++
+ src/crypto/internal/backend/cng_windows.go    | 428 ++++++++++++++++++
  src/crypto/internal/backend/common.go         |  46 ++
- src/crypto/internal/backend/darwin_darwin.go  | 424 ++++++++++++++++++
+ src/crypto/internal/backend/darwin_darwin.go  | 426 +++++++++++++++++
  src/crypto/internal/backend/fips140/cng.go    |  35 ++
  src/crypto/internal/backend/fips140/darwin.go |  13 +
  .../internal/backend/fips140/fips140.go       |  70 +++
@@ -45,15 +45,15 @@ desired goexperiments and build tags.
  .../internal/opensslsetup/opensslsetup.go     |  68 +++
  .../opensslsetup/opensslsetup_test.go         |  92 ++++
  .../backend/internal/opensslsetup/stub.go     |   8 +
- src/crypto/internal/backend/nobackend.go      | 374 +++++++++++++++
- src/crypto/internal/backend/openssl_linux.go  | 408 +++++++++++++++++
+ src/crypto/internal/backend/nobackend.go      | 375 +++++++++++++++
+ src/crypto/internal/backend/openssl_linux.go  | 415 +++++++++++++++++
  src/crypto/internal/backend/stub.s            |  10 +
  src/crypto/systemcrypto_nocgo_linux.go        |  15 +
  src/go/build/deps_test.go                     |  24 +-
  src/internal/buildcfg/exp.go                  |  57 +++
  src/runtime/runtime_boring.go                 |   5 +
  src/syscall/exec_linux_test.go                |   4 +
- 44 files changed, 2710 insertions(+), 21 deletions(-)
+ 44 files changed, 2730 insertions(+), 20 deletions(-)
  create mode 100644 src/cmd/go/systemcrypto_test.go
  create mode 100644 src/crypto/internal/backend/backend_test.go
  create mode 100644 src/crypto/internal/backend/bbig/big.go
@@ -246,7 +246,7 @@ index e4250e12de8975..917f682fd4bfaf 100644
  	if debug {
  		run("", ShowOutput|CheckExit, pathf("%s/compile", tooldir), "-V=full")
 diff --git a/src/cmd/dist/test.go b/src/cmd/dist/test.go
-index 6d3742525c6808..287424afb0d734 100644
+index 48c3aa5efdb008..3ac500b85e6988 100644
 --- a/src/cmd/dist/test.go
 +++ b/src/cmd/dist/test.go
 @@ -156,10 +156,12 @@ func (t *tester) run() {
@@ -310,7 +310,7 @@ index 6d3742525c6808..287424afb0d734 100644
  			})
  		t.registerTest("internal linking, -buildmode=pie",
  			&goTest{
-@@ -897,9 +917,10 @@ func (t *tester) registerTests() {
+@@ -897,9 +908,10 @@ func (t *tester) registerTests() {
  				timeout:   60 * time.Second,
  				buildmode: "pie",
  				ldflags:   "-linkmode=internal",
@@ -322,7 +322,7 @@ index 6d3742525c6808..287424afb0d734 100644
  			})
  		// Also test a cgo package.
  		if t.cgoEnabled && t.internalLink() && !disablePIE {
-@@ -1005,7 +1023,9 @@ func (t *tester) registerTests() {
+@@ -1005,7 +1017,9 @@ func (t *tester) registerTests() {
  		t.registerRaceTests()
  	}
  
@@ -928,10 +928,10 @@ index 00000000000000..e6695dd66b1d02
 +var Dec = bbig.Dec
 diff --git a/src/crypto/internal/backend/cng_windows.go b/src/crypto/internal/backend/cng_windows.go
 new file mode 100644
-index 00000000000000..444bd6ef163689
+index 00000000000000..01e42ef9cec91b
 --- /dev/null
 +++ b/src/crypto/internal/backend/cng_windows.go
-@@ -0,0 +1,418 @@
+@@ -0,0 +1,428 @@
 +// Copyright 2017 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -987,9 +987,19 @@ index 00000000000000..444bd6ef163689
 +	return cng.SupportsSHAKE(securityBits)
 +}
 +
-+func SupportsCurve(curve string) bool            { return true }
-+func SupportsRSAOAEPLabel(label []byte) bool     { return true }
-+func SupportsPKCS1v15Hash(hash crypto.Hash) bool { return true }
++func SupportsCurve(curve string) bool        { return true }
++func SupportsRSAOAEPLabel(label []byte) bool { return true }
++func SupportsRSAPKCS1v15Encryption() bool    { return true }
++
++func SupportsRSAPKCS1v15Signature(hash crypto.Hash) bool {
++	// 0 and MD5SHA1 are special cases that are always supported for PKCS1v15 signatures.
++	switch hash {
++	case 0, crypto.MD5SHA1:
++		return true
++	default:
++		return cng.SupportsHash(hash)
++	}
++}
 +
 +type Hash = cng.Hash
 +type SHAKE = cng.SHAKE
@@ -1404,10 +1414,10 @@ index 00000000000000..a9682181ffa154
 +}
 diff --git a/src/crypto/internal/backend/darwin_darwin.go b/src/crypto/internal/backend/darwin_darwin.go
 new file mode 100644
-index 00000000000000..b3b6985d41fbd2
+index 00000000000000..1ac8f2fd8b6339
 --- /dev/null
 +++ b/src/crypto/internal/backend/darwin_darwin.go
-@@ -0,0 +1,424 @@
+@@ -0,0 +1,426 @@
 +// Copyright 2017 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -1467,7 +1477,9 @@ index 00000000000000..b3b6985d41fbd2
 +	return len(label) == 0
 +}
 +
-+func SupportsPKCS1v15Hash(hash crypto.Hash) bool {
++func SupportsRSAPKCS1v15Encryption() bool { return true }
++
++func SupportsRSAPKCS1v15Signature(hash crypto.Hash) bool {
 +	switch hash {
 +	case crypto.SHA1, crypto.SHA224, crypto.SHA256, crypto.SHA384, crypto.SHA512, 0:
 +		return true
@@ -2323,10 +2335,10 @@ index 00000000000000..3b92bfc5fbabf6
 +package opensslsetup
 diff --git a/src/crypto/internal/backend/nobackend.go b/src/crypto/internal/backend/nobackend.go
 new file mode 100644
-index 00000000000000..5292d7860c5bce
+index 00000000000000..1c49ff66dc1a2f
 --- /dev/null
 +++ b/src/crypto/internal/backend/nobackend.go
-@@ -0,0 +1,374 @@
+@@ -0,0 +1,375 @@
 +// Copyright 2017 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -2364,9 +2376,10 @@ index 00000000000000..5292d7860c5bce
 +func SupportsSHAKE(securityBits int) bool  { panic("cryptobackend: not available") }
 +func SupportsCSHAKE(securityBits int) bool { panic("cryptobackend: not available") }
 +
-+func SupportsCurve(curve string) bool            { panic("cryptobackend: not available") }
-+func SupportsRSAOAEPLabel(label []byte) bool     { panic("cryptobackend: not available") }
-+func SupportsPKCS1v15Hash(hash crypto.Hash) bool { panic("cryptobackend: not available") }
++func SupportsCurve(curve string) bool                    { panic("cryptobackend: not available") }
++func SupportsRSAOAEPLabel(label []byte) bool             { panic("cryptobackend: not available") }
++func SupportsRSAPKCS1v15Encryption() bool                { panic("cryptobackend: not available") }
++func SupportsRSAPKCS1v15Signature(hash crypto.Hash) bool { panic("cryptobackend: not available") }
 +
 +type Hash struct {
 +	hash.Cloner
@@ -2703,10 +2716,10 @@ index 00000000000000..5292d7860c5bce
 +}
 diff --git a/src/crypto/internal/backend/openssl_linux.go b/src/crypto/internal/backend/openssl_linux.go
 new file mode 100644
-index 00000000000000..a95e112053ff08
+index 00000000000000..71d258d86412d2
 --- /dev/null
 +++ b/src/crypto/internal/backend/openssl_linux.go
-@@ -0,0 +1,408 @@
+@@ -0,0 +1,415 @@
 +// Copyright 2017 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -2768,8 +2781,15 @@ index 00000000000000..a95e112053ff08
 +	return openssl.SupportsCurve(curve)
 +}
 +
-+func SupportsRSAOAEPLabel(label []byte) bool     { return true }
-+func SupportsPKCS1v15Hash(hash crypto.Hash) bool { return true }
++func SupportsRSAOAEPLabel(label []byte) bool { return true }
++
++func SupportsRSAPKCS1v15Encryption() bool {
++	return openssl.SupportsRSAPKCS1v15Encryption()
++}
++
++func SupportsRSAPKCS1v15Signature(hash crypto.Hash) bool {
++	return openssl.SupportsRSAPKCS1v15Signature(hash)
++}
 +
 +type Hash = openssl.Hash
 +type SHAKE = openssl.SHAKE
