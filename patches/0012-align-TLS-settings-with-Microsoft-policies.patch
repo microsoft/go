@@ -7,9 +7,10 @@ Subject: [PATCH] align TLS settings with Microsoft policies
  doc/godebug.md                   |   9 +
  src/crypto/tls/defaults.go       |  67 ++++++-
  src/crypto/tls/handshake_test.go |   3 +
- src/crypto/tls/microsoft_test.go | 299 +++++++++++++++++++++++++++++++
+ src/crypto/tls/microsoft_test.go | 296 +++++++++++++++++++++++++++++++
+ src/crypto/tls/tls_test.go       |   5 +-
  src/internal/godebugs/table.go   |   2 +
- 5 files changed, 379 insertions(+), 1 deletion(-)
+ 6 files changed, 379 insertions(+), 3 deletions(-)
  create mode 100644 src/crypto/tls/microsoft_test.go
 
 diff --git a/doc/godebug.md b/doc/godebug.md
@@ -136,10 +137,10 @@ index 9cea8182d04154..0e5b421f52dc95 100644
  		Rand:               zeroSource{},
 diff --git a/src/crypto/tls/microsoft_test.go b/src/crypto/tls/microsoft_test.go
 new file mode 100644
-index 00000000000000..795b90db52767b
+index 00000000000000..ee08efb548c90d
 --- /dev/null
 +++ b/src/crypto/tls/microsoft_test.go
-@@ -0,0 +1,299 @@
+@@ -0,0 +1,296 @@
 +// Copyright 2025 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -190,11 +191,8 @@ index 00000000000000..795b90db52767b
 +	// and behavior during the handshake. It is based on TestHandshakeMLKEM.
 +
 +	// Enable the default Microsoft TLS profile for the duration of the test.
++	t.Setenv("GODEBUG", strings.ReplaceAll(os.Getenv("GODEBUG"), "ms_tlsprofile=off", "")+",ms_tlsprofile=default")
 +	savedGODEBUG := os.Getenv("GODEBUG")
-+	os.Setenv("GODEBUG", strings.ReplaceAll(savedGODEBUG, "ms_tlsprofile=off", "")+",ms_tlsprofile=default")
-+	t.Cleanup(func() {
-+		os.Setenv("GODEBUG", savedGODEBUG)
-+	})
 +
 +	defaultWithPQ := []CurveID{X25519MLKEM768, SecP384r1MLKEM1024, SecP256r1MLKEM768,
 +		CurveP384, CurveP256, CurveP521, X25519}
@@ -333,7 +331,7 @@ index 00000000000000..795b90db52767b
 +		{
 +			name: "GODEBUG tlsmlkem=0",
 +			preparation: func(t *testing.T) {
-+				t.Setenv("GODEBUG", "tlsmlkem=0")
++				t.Setenv("GODEBUG", savedGODEBUG+","+"tlsmlkem=0")
 +			},
 +			expectClient:   defaultWithoutPQ,
 +			expectSelected: CurveP384,
@@ -341,7 +339,7 @@ index 00000000000000..795b90db52767b
 +		{
 +			name: "GODEBUG tlssecpmlkem=0",
 +			preparation: func(t *testing.T) {
-+				t.Setenv("GODEBUG", "tlssecpmlkem=0")
++				t.Setenv("GODEBUG", savedGODEBUG+","+"tlssecpmlkem=0")
 +			},
 +			expectClient:   []CurveID{X25519MLKEM768, CurveP384, CurveP256, CurveP521, X25519},
 +			expectSelected: X25519MLKEM768,
@@ -349,7 +347,7 @@ index 00000000000000..795b90db52767b
 +		{
 +			name: "GODEBUG ms_tlsx25519=0",
 +			preparation: func(t *testing.T) {
-+				t.Setenv("GODEBUG", "ms_tlsx25519=0")
++				t.Setenv("GODEBUG", savedGODEBUG+","+"ms_tlsx25519=0")
 +			},
 +			expectClient: slices.DeleteFunc(slices.Clone(defaultWithPQ), func(c CurveID) bool {
 +				return c == X25519MLKEM768 || c == X25519
@@ -359,7 +357,7 @@ index 00000000000000..795b90db52767b
 +		{
 +			name: "GODEBUG ms_tlsx25519=0,tlsmlkem=0",
 +			preparation: func(t *testing.T) {
-+				t.Setenv("GODEBUG", "ms_tlsx25519=0,tlsmlkem=0")
++				t.Setenv("GODEBUG", savedGODEBUG+","+"ms_tlsx25519=0,tlsmlkem=0")
 +			},
 +			expectClient:   []CurveID{CurveP384, CurveP256, CurveP521},
 +			expectSelected: CurveP384,
@@ -367,7 +365,7 @@ index 00000000000000..795b90db52767b
 +		{
 +			name: "GODEBUG ms_tlsx25519=0,tlssecpmlkem=0",
 +			preparation: func(t *testing.T) {
-+				t.Setenv("GODEBUG", "ms_tlsx25519=0,tlssecpmlkem=0")
++				t.Setenv("GODEBUG", savedGODEBUG+","+"ms_tlsx25519=0,tlssecpmlkem=0")
 +			},
 +			expectClient:   []CurveID{CurveP384, CurveP256, CurveP521},
 +			expectSelected: CurveP384,
@@ -439,6 +437,36 @@ index 00000000000000..795b90db52767b
 +		})
 +	}
 +}
+diff --git a/src/crypto/tls/tls_test.go b/src/crypto/tls/tls_test.go
+index 5f4a2b9de4fd1f..4f67758ded932d 100644
+--- a/src/crypto/tls/tls_test.go
++++ b/src/crypto/tls/tls_test.go
+@@ -1990,6 +1990,7 @@ func TestHandshakeMLKEM(t *testing.T) {
+ 	defaultWithPQ := []CurveID{X25519MLKEM768, SecP256r1MLKEM768, SecP384r1MLKEM1024,
+ 		X25519, CurveP256, CurveP384, CurveP521}
+ 	defaultWithoutPQ := []CurveID{X25519, CurveP256, CurveP384, CurveP521}
++	savedGODEBUG := os.Getenv("GODEBUG")
+ 	var tests = []struct {
+ 		name           string
+ 		clientConfig   func(*Config)
+@@ -2100,7 +2101,7 @@ func TestHandshakeMLKEM(t *testing.T) {
+ 		{
+ 			name: "GODEBUG tlsmlkem=0",
+ 			preparation: func(t *testing.T) {
+-				t.Setenv("GODEBUG", "tlsmlkem=0")
++				t.Setenv("GODEBUG", savedGODEBUG+","+"tlsmlkem=0")
+ 			},
+ 			expectClient:   defaultWithoutPQ,
+ 			expectSelected: X25519,
+@@ -2108,7 +2109,7 @@ func TestHandshakeMLKEM(t *testing.T) {
+ 		{
+ 			name: "GODEBUG tlssecpmlkem=0",
+ 			preparation: func(t *testing.T) {
+-				t.Setenv("GODEBUG", "tlssecpmlkem=0")
++				t.Setenv("GODEBUG", savedGODEBUG+","+"tlssecpmlkem=0")
+ 			},
+ 			expectClient:   []CurveID{X25519MLKEM768, X25519, CurveP256, CurveP384, CurveP521},
+ 			expectSelected: X25519MLKEM768,
 diff --git a/src/internal/godebugs/table.go b/src/internal/godebugs/table.go
 index 8f6d8bbdda656c..7a5ea67c7dca33 100644
 --- a/src/internal/godebugs/table.go
