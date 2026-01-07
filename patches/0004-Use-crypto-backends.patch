@@ -80,9 +80,6 @@ Subject: [PATCH] Use crypto backends
  src/crypto/sha512/sha512_test.go              |  32 ++-
  src/crypto/tls/auth_test.go                   |   7 +
  src/crypto/tls/cipher_suites.go               |  10 +-
- src/crypto/tls/defaults_boring.go             |   2 +-
- src/crypto/tls/defaults_fips140.go            |   2 +-
- src/crypto/tls/fips140_test.go                |   2 +-
  src/crypto/tls/fipsonly/fipsonly.go           |   2 +-
  src/crypto/tls/fipsonly/fipsonly_test.go      |   2 +-
  src/crypto/tls/handshake_client.go            |  12 +-
@@ -93,7 +90,6 @@ Subject: [PATCH] Use crypto backends
  src/crypto/tls/internal/tls13/tls13.go        | 195 ++++++++++++++++++
  src/crypto/tls/key_schedule.go                |   2 +-
  src/crypto/tls/prf.go                         |  41 ++++
- src/crypto/tls/tls_test.go                    |   2 +-
  src/crypto/x509/verify_test.go                |   2 +-
  src/go/build/deps_test.go                     |  13 +-
  src/hash/boring_test.go                       |   9 +
@@ -102,7 +98,7 @@ Subject: [PATCH] Use crypto backends
  src/hash/notboring_test.go                    |   9 +
  src/net/lookup_test.go                        |   3 +
  src/os/exec/exec_test.go                      |   9 +
- 98 files changed, 1509 insertions(+), 182 deletions(-)
+ 94 files changed, 1505 insertions(+), 178 deletions(-)
  create mode 100644 src/crypto/dsa/boring.go
  create mode 100644 src/crypto/dsa/notboring.go
  create mode 100644 src/crypto/ecdsa/badlinkname.go
@@ -1656,7 +1652,7 @@ index e94bab74fd5774..31a3cee82c5391 100644
  		bsslModule    = "boringssl.googlesource.com/boringssl.git"
  		bsslVersion   = "v0.0.0-20251111011041-baaf868e6e8f"
 diff --git a/src/crypto/internal/fips140test/cast_test.go b/src/crypto/internal/fips140test/cast_test.go
-index 5a80006622c4c2..571f076afa2cbd 100644
+index 817dcb9a35a793..8efc547d0d52fc 100644
 --- a/src/crypto/internal/fips140test/cast_test.go
 +++ b/src/crypto/internal/fips140test/cast_test.go
 @@ -160,6 +160,7 @@ func TestConditionals(t *testing.T) {
@@ -3486,45 +3482,6 @@ index 6ed63ccc2dc1f5..48f37264e61e71 100644
  	if err != nil {
  		panic(err)
  	}
-diff --git a/src/crypto/tls/defaults_boring.go b/src/crypto/tls/defaults_boring.go
-index e88f05cc505cfb..2067bd9ebc3e50 100644
---- a/src/crypto/tls/defaults_boring.go
-+++ b/src/crypto/tls/defaults_boring.go
-@@ -2,7 +2,7 @@
- // Use of this source code is governed by a BSD-style
- // license that can be found in the LICENSE file.
- 
--//go:build boringcrypto
-+//go:build goexperiment.systemcrypto
- 
- package tls
- 
-diff --git a/src/crypto/tls/defaults_fips140.go b/src/crypto/tls/defaults_fips140.go
-index 19132607938a26..ee38190871b7fd 100644
---- a/src/crypto/tls/defaults_fips140.go
-+++ b/src/crypto/tls/defaults_fips140.go
-@@ -2,7 +2,7 @@
- // Use of this source code is governed by a BSD-style
- // license that can be found in the LICENSE file.
- 
--//go:build !boringcrypto
-+//go:build !goexperiment.systemcrypto
- 
- package tls
- 
-diff --git a/src/crypto/tls/fips140_test.go b/src/crypto/tls/fips140_test.go
-index 96273c0fe0ea2f..3bfe7fe20966a6 100644
---- a/src/crypto/tls/fips140_test.go
-+++ b/src/crypto/tls/fips140_test.go
-@@ -7,7 +7,7 @@ package tls
- import (
- 	"crypto/ecdsa"
- 	"crypto/elliptic"
--	"crypto/internal/boring"
-+	boring "crypto/internal/backend"
- 	"crypto/rand"
- 	"crypto/rsa"
- 	"crypto/x509"
 diff --git a/src/crypto/tls/fipsonly/fipsonly.go b/src/crypto/tls/fipsonly/fipsonly.go
 index e702f44e986746..e506a0d8841237 100644
 --- a/src/crypto/tls/fipsonly/fipsonly.go
@@ -3953,19 +3910,6 @@ index 19f80ac2c91c20..1502dd121c0361 100644
  		return tls12.PRF(hashFunc, secret, label, seed, keyLen)
  	}
  }
-diff --git a/src/crypto/tls/tls_test.go b/src/crypto/tls/tls_test.go
-index 39ebb9d2f1edd3..3ab935ab1607f1 100644
---- a/src/crypto/tls/tls_test.go
-+++ b/src/crypto/tls/tls_test.go
-@@ -11,7 +11,7 @@ import (
- 	"crypto/ecdh"
- 	"crypto/ecdsa"
- 	"crypto/elliptic"
--	"crypto/internal/boring"
-+	boring "crypto/internal/backend"
- 	"crypto/rand"
- 	"crypto/tls/internal/fips140tls"
- 	"crypto/x509"
 diff --git a/src/crypto/x509/verify_test.go b/src/crypto/x509/verify_test.go
 index f9bd313737e21b..04548c961e74a8 100644
 --- a/src/crypto/x509/verify_test.go
@@ -4104,7 +4048,7 @@ index 2a774100a8ec67..a0cabb42b19484 100644
  
  	const testNXDOMAIN = "invalid.invalid."
 diff --git a/src/os/exec/exec_test.go b/src/os/exec/exec_test.go
-index 1decebdc222d23..c095fa280b2f83 100644
+index bf2f3da535b8eb..ca66842d0753ac 100644
 --- a/src/os/exec/exec_test.go
 +++ b/src/os/exec/exec_test.go
 @@ -14,6 +14,7 @@ import (
