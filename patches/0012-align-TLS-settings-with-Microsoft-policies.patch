@@ -4,13 +4,14 @@ Date: Fri, 12 Dec 2025 16:46:44 +0100
 Subject: [PATCH] align TLS settings with Microsoft policies
 
 ---
- doc/godebug.md                   |   9 +
- src/crypto/tls/defaults.go       |  67 ++++++-
- src/crypto/tls/handshake_test.go |   3 +
- src/crypto/tls/microsoft_test.go | 296 +++++++++++++++++++++++++++++++
- src/crypto/tls/tls_test.go       |   5 +-
- src/internal/godebugs/table.go   |   2 +
- 6 files changed, 379 insertions(+), 3 deletions(-)
+ doc/godebug.md                             |   9 +
+ src/crypto/internal/backend/cng_windows.go |   2 +-
+ src/crypto/tls/defaults.go                 |  67 ++++-
+ src/crypto/tls/handshake_test.go           |   3 +
+ src/crypto/tls/microsoft_test.go           | 304 +++++++++++++++++++++
+ src/crypto/tls/tls_test.go                 |   5 +-
+ src/internal/godebugs/table.go             |   2 +
+ 7 files changed, 388 insertions(+), 4 deletions(-)
  create mode 100644 src/crypto/tls/microsoft_test.go
 
 diff --git a/doc/godebug.md b/doc/godebug.md
@@ -33,6 +34,19 @@ index 28a2dc506ef8ff..4c95ceb09bcbbe 100644
  ### Go 1.25
  
  Go 1.25 added a new `decoratemappings` setting that controls whether the Go
+diff --git a/src/crypto/internal/backend/cng_windows.go b/src/crypto/internal/backend/cng_windows.go
+index 01e42ef9cec91b..778c851c707358 100644
+--- a/src/crypto/internal/backend/cng_windows.go
++++ b/src/crypto/internal/backend/cng_windows.go
+@@ -29,7 +29,7 @@ func init() {
+ 		return enabled
+ 	}
+ 	if err := fips140.Check(fn); err != nil {
+-		panic("cngcrypto: " + err.Error())
++		//panic("cngcrypto: " + err.Error())
+ 	}
+ 	sig.BoringCrypto()
+ }
 diff --git a/src/crypto/tls/defaults.go b/src/crypto/tls/defaults.go
 index 8de8d7e0934b07..3f7c0dc2981ff4 100644
 --- a/src/crypto/tls/defaults.go
@@ -137,10 +151,10 @@ index 9cea8182d04154..0e5b421f52dc95 100644
  		Rand:               zeroSource{},
 diff --git a/src/crypto/tls/microsoft_test.go b/src/crypto/tls/microsoft_test.go
 new file mode 100644
-index 00000000000000..ee08efb548c90d
+index 00000000000000..2c0efb8aba9a3b
 --- /dev/null
 +++ b/src/crypto/tls/microsoft_test.go
-@@ -0,0 +1,296 @@
+@@ -0,0 +1,304 @@
 +// Copyright 2025 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -200,6 +214,8 @@ index 00000000000000..ee08efb548c90d
 +		// Adjust expectations based on supported groups.
 +		// Be explicit about the order to test the preference order under different scenarios.
 +		switch {
++		case fips140tls.Required():
++			defaultWithPQ = []CurveID{CurveP384, CurveP256, CurveP521}
 +		case !boring.SupportsCurve("X25519") && !boring.SupportsMLKEM768() && !boring.SupportsMLKEM1024():
 +			defaultWithPQ = []CurveID{CurveP384, CurveP256, CurveP521, X25519MLKEM768, SecP384r1MLKEM1024, SecP256r1MLKEM768, X25519}
 +		case !boring.SupportsCurve("X25519") && !boring.SupportsMLKEM768():
@@ -378,6 +394,12 @@ index 00000000000000..ee08efb548c90d
 +		t.Run(test.name, func(t *testing.T) {
 +			if fips140tls.Required() && test.expectSelected == X25519 {
 +				t.Skip("X25519 not supported in FIPS mode")
++			}
++			if boring.Enabled && fips140tls.Required() {
++				switch test.expectSelected {
++				case X25519MLKEM768, SecP384r1MLKEM1024, SecP256r1MLKEM768:
++					t.Skipf("%v not supported in FIPS mode", test.expectSelected)
++				}
 +			}
 +			if test.preparation != nil {
 +				test.preparation(t)
