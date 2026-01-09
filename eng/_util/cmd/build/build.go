@@ -279,6 +279,21 @@ func build(o *options) (err error) {
 		} else {
 			version, _, _ = strings.Cut(string(data), "\n")
 		}
+		// We also need to copy our MICROSOFT_REVISION file in so the toolset can report that it's a
+		// Microsoft build of a specific revision and embed that info into built binaries.
+		microsoftRevisionSrc := filepath.Join(rootDir, "MICROSOFT_REVISION")
+		microsoftRevisionDst := filepath.Join(goRootDir, "MICROSOFT_REVISION")
+		if err := copyFile(microsoftRevisionDst, microsoftRevisionSrc); err != nil {
+			if !errors.Is(err, os.ErrNotExist) {
+				return fmt.Errorf("unable to pack: failed to read MICROSOFT_REVISION file for unexpected reason: %v", err)
+			}
+			// Ok: a main branch build won't have a MICROSOFT_REVISION file.
+		} else {
+			// Best effort: clean up the MICROSOFT_REVISION file when we're done. This is just for
+			// dev workflows: the temp MICROSOFT_REVISION file should never be checked in.
+			defer os.Remove(microsoftRevisionDst)
+		}
+
 		cmd := exec.Command(filepath.Join(goRootDir, "bin", "go"+executableExtension), "tool", "distpack")
 		cmd.Env = append(os.Environ(), "GOROOT="+goRootDir)
 		cmd.Stdout = os.Stdout

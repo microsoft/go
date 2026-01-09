@@ -1,0 +1,311 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: bot-for-go[bot] <199222863+bot-for-go[bot]@users.noreply.github.com>
+Date: Tue, 13 Jan 2026 11:21:36 -0800
+Subject: [PATCH] Add Microsoft version information
+
+Embed a Microsoft marker and the current revision into built Go binaries,
+including the Go toolset itself. This makes it easy to identify the Microsoft
+build of Go toolset through "go version", and if a binary was built by the
+Microsoft build of Go through "go version [...] <program>".
+
+Including revision means that it is also possible to determine whether
+Microsoft-specific fixes have been applied to a given Go binary built by this
+toolset.
+
+Includes compatibility opt out features: "ms_version=0" GODEBUG option to change runtime.Version() behavior, and
+"-ms_embedupstreamversion" ld option if compatibility with external inspection is the concern.
+---
+ doc/godebug.md                    |  7 ++++
+ src/cmd/dist/build.go             | 16 +++++++++
+ src/cmd/dist/buildruntime.go      |  1 +
+ src/cmd/go/internal/cache/hash.go | 17 +++++----
+ src/cmd/link/internal/ld/main.go  | 32 ++++++-----------
+ src/internal/buildcfg/cfg.go      | 58 ++++++++++++++++++++++++++++++-
+ src/internal/godebugs/table.go    |  1 +
+ src/runtime/extern.go             | 10 ++++++
+ src/runtime/runtime1.go           |  4 +++
+ 9 files changed, 118 insertions(+), 28 deletions(-)
+
+diff --git a/doc/godebug.md b/doc/godebug.md
+index 4c95ceb09bcbbe..001304ac49cebb 100644
+--- a/doc/godebug.md
++++ b/doc/godebug.md
+@@ -192,6 +192,13 @@ Microsoft build of Go 1.26 added a new `ms_tlsprofile` setting that controls the
+ - "default": use the recommended Microsoft TLS settings. This is the default.
+ - "off": use the default upstream Go TLS settings.
+ 
++Microsoft build of Go 1.26 added a new `ms_version` setting. It controls whether
++the Go runtime uses a Microsoft-specific version string in the output of
++`runtime.Version()`. This in turn affects the output of `go version`.
++The possible values are:
++- "0": `runtime.Version()` returns the upstream version string, for example: "go1.26.0".
++- "1" (default): `runtime.Version()` returns the Microsoft build of Go version string, for example: "go1.26.0-1_microsoft".
++
+ ### Go 1.25
+ 
+ Go 1.25 added a new `decoratemappings` setting that controls whether the Go
+diff --git a/src/cmd/dist/build.go b/src/cmd/dist/build.go
+index 917f682fd4bfaf..85512e38220de6 100644
+--- a/src/cmd/dist/build.go
++++ b/src/cmd/dist/build.go
+@@ -450,6 +450,22 @@ func findgoversion() string {
+ 	return version
+ }
+ 
++// findmsgorevision returns the Microsoft-specific Go revision string from
++// MICROSOFT_REVISION, or empty string if the file doesn't exist.
++//
++// Enforces that the file content is a valid integer.
++func findmsgorevision() string {
++	path := pathf("%s/MICROSOFT_REVISION", goroot)
++	if isfile(path) {
++		r := chomp(readfile(path))
++		if _, err := strconv.Atoi(r); err != nil {
++			fatalf("MICROSOFT_REVISION content is not an integer: %q", r)
++		}
++		return r
++	}
++	return ""
++}
++
+ // goModVersion returns the go version declared in src/go.mod. This is the
+ // go version to use in the go.mod building go_bootstrap, toolchain2, and toolchain3.
+ // (toolchain1 must be built with requiredBootstrapVersion(goModVersion))
+diff --git a/src/cmd/dist/buildruntime.go b/src/cmd/dist/buildruntime.go
+index 87e88671763996..dccdca982300d7 100644
+--- a/src/cmd/dist/buildruntime.go
++++ b/src/cmd/dist/buildruntime.go
+@@ -64,6 +64,7 @@ func mkbuildcfg(file string) {
+ 	fmt.Fprintf(&buf, "const defaultGO_EXTLINK_ENABLED = `%s`\n", goextlinkenabled)
+ 	fmt.Fprintf(&buf, "const defaultGO_LDSO = `%s`\n", defaultldso)
+ 	fmt.Fprintf(&buf, "const version = `%s`\n", findgoversion())
++	fmt.Fprintf(&buf, "const msVersionRevision = `%s`\n", findmsgorevision())
+ 	fmt.Fprintf(&buf, "const defaultGOOS = runtime.GOOS\n")
+ 	fmt.Fprintf(&buf, "const defaultGOARCH = runtime.GOARCH\n")
+ 	fmt.Fprintf(&buf, "const DefaultGOFIPS140 = `%s`\n", gofips140)
+diff --git a/src/cmd/go/internal/cache/hash.go b/src/cmd/go/internal/cache/hash.go
+index 27d275644a4bd0..d41dbd6b4d4841 100644
+--- a/src/cmd/go/internal/cache/hash.go
++++ b/src/cmd/go/internal/cache/hash.go
+@@ -48,12 +48,17 @@ var hashSalt = []byte(stripExperiment(runtime.Version()))
+ // stripExperiment strips any GOEXPERIMENT configuration from the Go
+ // version string.
+ func stripExperiment(version string) string {
+-	if i := strings.Index(version, " X:"); i >= 0 {
+-		return version[:i]
+-	}
+-	if i := strings.Index(version, "-X:"); i >= 0 {
+-		return version[:i]
+-	}
++	// Microsoft build of Go patch: this function originally only removed one of
++	// the " X:" or "-X:" suffixes, and it looked for " X:" first. This breaks
++	// the gobootstrap cache salt because our version has both "-X:" and " X:"
++	// suffixes. For example, it fails to remove the "-X:" part in this example:
++	//
++	//  go1.26rc1-1_microsoft-X:nodwarf5,nogreenteagc,norandomizedheapbase64,nosizespecializedmalloc X:nodwarf5,nogreenteagc,norandomizedheapbase64,nosizespecializedmalloc
++	//
++	// We patch this function to remove both without an early exit when one of
++	// the suffixes is found.
++	version, _, _ = strings.Cut(version, " X:")
++	version, _, _ = strings.Cut(version, "-X:")
+ 	return version
+ }
+ 
+diff --git a/src/cmd/link/internal/ld/main.go b/src/cmd/link/internal/ld/main.go
+index ce290ab4617cfd..5dbdd13d3957a2 100644
+--- a/src/cmd/link/internal/ld/main.go
++++ b/src/cmd/link/internal/ld/main.go
+@@ -44,7 +44,6 @@ import (
+ 	"os"
+ 	"runtime"
+ 	"runtime/pprof"
+-	"slices"
+ 	"strconv"
+ 	"strings"
+ )
+@@ -187,26 +186,8 @@ func Main(arch *sys.Arch, theArch Arch) {
+ 		addstrdata1(ctxt, "runtime.defaultGOROOT="+buildcfg.GOROOT)
+ 	}
+ 
+-	buildVersion := buildcfg.Version
+-	if goexperiment := buildcfg.Experiment.String(); goexperiment != "" {
+-		// buildVersion is intended to contain non-default experiment flags.
+-		// The Microsoft build of Go default behavior is to set the
+-		// nosystemcrypto experiments, so we don't include it in the buildVersion string.
+-		// This is also important because runtime.Version() gets the value from
+-		// the buildVersion string, and many code out there, e.g. the standard library
+-		// go/version package, doesn't expect the version to contain experiments.
+-		goexperiment = strings.Join(slices.DeleteFunc(strings.Split(goexperiment, ","), func(s string) bool {
+-			return s == "nosystemcrypto" || s == "ms_nocgo_opensslcrypto"
+-		}), ",")
+-		if goexperiment != "" {
+-			sep := " "
+-			if !strings.Contains(buildVersion, "-") { // See go.dev/issue/75953.
+-				sep = "-"
+-			}
+-			buildVersion += sep + "X:" + goexperiment
+-		}
+-	}
+-	addstrdata1(ctxt, "runtime.buildVersion="+buildVersion)
++	// Save upstream build version for use by GODEBUG=ms_version=0 at runtime.
++	addstrdata1(ctxt, "runtime.upstreamBuildVersion="+buildcfg.UpstreamVersion)
+ 
+ 	// TODO(matloob): define these above and then check flag values here
+ 	if ctxt.Arch.Family == sys.AMD64 && buildcfg.GOOS == "plan9" {
+@@ -222,10 +203,19 @@ func Main(arch *sys.Arch, theArch Arch) {
+ 	objabi.Flagfn1("X", "add string value `definition` of the form importpath.name=value", func(s string) { addstrdata1(ctxt, s) })
+ 	objabi.Flagcount("v", "print link trace", &ctxt.Debugvlog)
+ 	objabi.Flagfn1("importcfg", "read import configuration from `file`", ctxt.readImportCfg)
++	msEmbedUpstreamVersionFlag := flag.Bool(
++		"ms_embedupstreamversion", false,
++		"for compatibility, embed the upstream Go version rather than the Microsoft build of Go version")
+ 
+ 	objabi.Flagparse(usage)
+ 	counter.CountFlags("link/flag:", *flag.CommandLine)
+ 
++	if *msEmbedUpstreamVersionFlag {
++		addstrdata1(ctxt, "runtime.buildVersion="+buildcfg.UpstreamVersion)
++	} else {
++		addstrdata1(ctxt, "runtime.buildVersion="+buildcfg.Version)
++	}
++
+ 	if ctxt.Debugvlog > 0 {
+ 		// dump symbol info on crash
+ 		defer func() { ctxt.loader.Dump() }()
+diff --git a/src/internal/buildcfg/cfg.go b/src/internal/buildcfg/cfg.go
+index 89fd74eb823162..ddf9e40366855d 100644
+--- a/src/internal/buildcfg/cfg.go
++++ b/src/internal/buildcfg/cfg.go
+@@ -15,6 +15,7 @@ import (
+ 	"fmt"
+ 	"os"
+ 	"path/filepath"
++	"slices"
+ 	"strconv"
+ 	"strings"
+ )
+@@ -35,9 +36,64 @@ var (
+ 	ToolTags  = toolTags()
+ 	GO_LDSO   = defaultGO_LDSO
+ 	GOFIPS140 = gofips140()
+-	Version   = version
++	Version   = fixDefaultExperimentVersionParts(msVersion())
+ )
+ 
++var (
++	UpstreamVersion = fixDefaultExperimentVersionParts(version)
++)
++
++func msVersion() string {
++	// The "microsoft" mark if no specific revision is set (e.g. a main branch
++	// build) or "{rev}_microsoft" if a revision is set.
++	var marker string
++	if msVersionRevision == "" {
++		marker = "microsoft"
++	} else {
++		marker = msVersionRevision + "_microsoft"
++	}
++	// Gobootstrap has a version like this and we need to insert our marker
++	// before the "-X:...". The -X gets trimmed off when creating the build
++	// cache salt and causes a version mismatch with the final build of the go
++	// cmd, showing up as a stale stdlib when built with gobootstrap vs. go.
++	// Example version:
++	//
++	//   go1.26rc1-X:nodwarf5,nogreenteagc,[...]
++	if before, after, ok := strings.Cut(UpstreamVersion, "-X:"); ok {
++		return before + "-" + marker + "-X:" + after
++	}
++	// Similarly, a dev build's version has some text and a timestamp, and for
++	// better visiblity, we want to insert before the "-devel":
++	//
++	//   go1.26-devel_c16402d15b [timestamp]
++	if before, after, ok := strings.Cut(UpstreamVersion, "-devel"); ok {
++		return before + "-" + marker + "-devel" + after
++	}
++	return UpstreamVersion + "-" + marker
++}
++
++func fixDefaultExperimentVersionParts(buildVersion string) string {
++	if goexperiment := Experiment.String(); goexperiment != "" {
++		// buildVersion is intended to contain non-default experiment flags.
++		// The Microsoft build of Go default behavior is to set the
++		// nosystemcrypto experiments, so we don't include it in the buildVersion string.
++		// This is also important because runtime.Version() gets the value from
++		// the buildVersion string, and many code out there, e.g. the standard library
++		// go/version package, doesn't expect the version to contain experiments.
++		goexperiment = strings.Join(slices.DeleteFunc(strings.Split(goexperiment, ","), func(s string) bool {
++			return s == "nosystemcrypto" || s == "ms_nocgo_opensslcrypto"
++		}), ",")
++		if goexperiment != "" {
++			sep := " "
++			if !strings.Contains(buildVersion, "-") { // See go.dev/issue/75953.
++				sep = "-"
++			}
++			buildVersion += sep + "X:" + goexperiment
++		}
++	}
++	return buildVersion
++}
++
+ // Error is one of the errors found (if any) in the build configuration.
+ var Error error
+ 
+diff --git a/src/internal/godebugs/table.go b/src/internal/godebugs/table.go
+index 7a5ea67c7dca33..d3e5b7b71d528c 100644
+--- a/src/internal/godebugs/table.go
++++ b/src/internal/godebugs/table.go
+@@ -51,6 +51,7 @@ var All = []Info{
+ 	{Name: "jstmpllitinterp", Package: "html/template", Opaque: true}, // bug #66217: remove Opaque
+ 	{Name: "ms_tlsprofile", Package: "crypto/tls", Opaque: true},
+ 	{Name: "ms_tlsx25519", Package: "crypto/tls", Opaque: true},
++	{Name: "ms_version", Package: "runtime", Opaque: true},
+ 	//{Name: "multipartfiles", Package: "mime/multipart"},
+ 	{Name: "multipartmaxheaders", Package: "mime/multipart"},
+ 	{Name: "multipartmaxparts", Package: "mime/multipart"},
+diff --git a/src/runtime/extern.go b/src/runtime/extern.go
+index a9f97a1a045525..d713426f814eed 100644
+--- a/src/runtime/extern.go
++++ b/src/runtime/extern.go
+@@ -367,10 +367,20 @@ func GOROOT() string {
+ // This is accessed by "go version <binary>".
+ var buildVersion string
+ 
++// upstreamBuildVersion is the version string that upstream Go would have
++// assigned at build time. It's used when GODEBUG=ms_version=0 is set for
++// compatibility purposes.
++//
++// This is set by the linker.
++var upstreamBuildVersion string
++
+ // Version returns the Go tree's version string.
+ // It is either the commit hash and date at the time of the build or,
+ // when possible, a release tag like "go1.3".
+ func Version() string {
++	if debug.msversion.Load() == 0 {
++		return upstreamBuildVersion
++	}
+ 	return buildVersion
+ }
+ 
+diff --git a/src/runtime/runtime1.go b/src/runtime/runtime1.go
+index 965ff8ab5167d5..c102c3f3eea087 100644
+--- a/src/runtime/runtime1.go
++++ b/src/runtime/runtime1.go
+@@ -364,6 +364,9 @@ var debug struct {
+ 	// tracebacklabels controls the inclusion of goroutine labels in the
+ 	// goroutine status header line.
+ 	tracebacklabels atomic.Int32
++
++	// msversion controls the return value of [runtime.Version()].
++	msversion atomic.Int32
+ }
+ 
+ var dbgvars = []*dbgVar{
+@@ -401,6 +404,7 @@ var dbgvars = []*dbgVar{
+ 	{name: "tracebacklabels", atomic: &debug.tracebacklabels, def: 0},
+ 	{name: "tracefpunwindoff", value: &debug.tracefpunwindoff},
+ 	{name: "updatemaxprocs", value: &debug.updatemaxprocs, def: 1},
++	{name: "ms_version", atomic: &debug.msversion, def: 1},
+ }
+ 
+ func parseRuntimeDebugVars(godebug string) {
