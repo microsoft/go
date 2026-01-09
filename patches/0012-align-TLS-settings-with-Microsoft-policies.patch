@@ -7,14 +7,16 @@ Subject: [PATCH] align TLS settings with Microsoft policies
  doc/godebug.md                             |   9 +
  src/crypto/internal/backend/cng_windows.go |   2 +-
  src/crypto/tls/cipher_suites.go            |   2 +-
- src/crypto/tls/defaults.go                 |  67 +++-
+ src/crypto/tls/defaults.go                 |  17 +-
+ src/crypto/tls/defaults_microsoft.go       |  64 ++++
  src/crypto/tls/handshake_client.go         |   4 +-
  src/crypto/tls/handshake_server_tls13.go   |   2 +-
  src/crypto/tls/handshake_test.go           |   3 +
  src/crypto/tls/microsoft_test.go           | 420 +++++++++++++++++++++
  src/crypto/tls/tls_test.go                 |   5 +-
  src/internal/godebugs/table.go             |   2 +
- 10 files changed, 508 insertions(+), 8 deletions(-)
+ 11 files changed, 522 insertions(+), 8 deletions(-)
+ create mode 100644 src/crypto/tls/defaults_microsoft.go
  create mode 100644 src/crypto/tls/microsoft_test.go
 
 diff --git a/doc/godebug.md b/doc/godebug.md
@@ -64,22 +66,54 @@ index 48f37264e61e71..d17eb19d5caee3 100644
  	}
  	for _, cID := range ciphers {
 diff --git a/src/crypto/tls/defaults.go b/src/crypto/tls/defaults.go
-index 8de8d7e0934b07..3f7c0dc2981ff4 100644
+index 8de8d7e0934b07..dd9ab351d56473 100644
 --- a/src/crypto/tls/defaults.go
 +++ b/src/crypto/tls/defaults.go
-@@ -5,6 +5,7 @@
- package tls
- 
- import (
-+	boring "crypto/internal/backend"
- 	"internal/godebug"
- 	"slices"
- 	_ "unsafe" // for linkname
-@@ -15,10 +16,74 @@ import (
+@@ -15,10 +15,25 @@ import (
  
  var tlsmlkem = godebug.New("tlsmlkem")
  var tlssecpmlkem = godebug.New("tlssecpmlkem")
 +var ms_tlsx25519 = godebug.New("ms_tlsx25519")
+ 
+ // defaultCurvePreferences is the default set of supported key exchanges, as
+ // well as the preference order.
+-func defaultCurvePreferences() []CurveID {
++func defaultCurvePreferences() (groups []CurveID) {
++	defer func() {
++		if ms_tlsx25519.Value() == "0" {
++			groups = slices.DeleteFunc(groups, func(c CurveID) bool {
++				return c == X25519 || c == X25519MLKEM768
++			})
++		}
++	}()
++	if ms_tlsprofile.Value() == "off" {
++		return upstreamCurvePreferences()
++	}
++	return microsoftCurvePreferences()
++}
++
++func upstreamCurvePreferences() []CurveID {
+ 	switch {
+ 	// tlsmlkem=0 restores the pre-Go 1.24 default.
+ 	case tlsmlkem.Value() == "0":
+diff --git a/src/crypto/tls/defaults_microsoft.go b/src/crypto/tls/defaults_microsoft.go
+new file mode 100644
+index 00000000000000..f01920e58bbb62
+--- /dev/null
++++ b/src/crypto/tls/defaults_microsoft.go
+@@ -0,0 +1,64 @@
++// Copyright 2025 The Go Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style
++// license that can be found in the LICENSE file.
++
++package tls
++
++import (
++	boring "crypto/internal/backend"
++	"internal/godebug"
++	"slices"
++)
++
 +var ms_tlsprofile = godebug.New("ms_tlsprofile")
 +
 +// Support* functions are cached, so calling them multiple times is cheap.
@@ -103,22 +137,8 @@ index 8de8d7e0934b07..3f7c0dc2981ff4 100644
 +		panic("unknown GODEBUG setting ms_tlsprofile=" + ms_tlsprofile.Value())
 +	}
 +}
- 
- // defaultCurvePreferences is the default set of supported key exchanges, as
- // well as the preference order.
--func defaultCurvePreferences() []CurveID {
-+func defaultCurvePreferences() (groups []CurveID) {
-+	defer func() {
-+		if ms_tlsx25519.Value() == "0" {
-+			groups = slices.DeleteFunc(groups, func(c CurveID) bool {
-+				return c == X25519 || c == X25519MLKEM768
-+			})
-+		}
-+	}()
-+	if ms_tlsprofile.Value() == "off" {
-+		return upstreamCurvePreferences()
-+	}
-+	// For now we only have two profiles: default Microsoft and upstream (off).
++
++func microsoftCurvePreferences() (groups []CurveID) {
 +	defer func() {
 +		// Move unsupported groups to the end while preserving order for supported groups.
 +		slices.SortStableFunc(groups, func(a, b CurveID) int {
@@ -146,11 +166,6 @@ index 8de8d7e0934b07..3f7c0dc2981ff4 100644
 +		}
 +	}
 +}
-+
-+func upstreamCurvePreferences() []CurveID {
- 	switch {
- 	// tlsmlkem=0 restores the pre-Go 1.24 default.
- 	case tlsmlkem.Value() == "0":
 diff --git a/src/crypto/tls/handshake_client.go b/src/crypto/tls/handshake_client.go
 index 4f89d96ec5de28..6e48223e720764 100644
 --- a/src/crypto/tls/handshake_client.go
