@@ -6,18 +6,18 @@ Subject: [PATCH] align TLS settings with Microsoft policies
 ---
  doc/godebug.md                             |   9 +
  src/crypto/internal/backend/cng_windows.go |   2 +-
- src/crypto/tls/cipher_suites.go            |   2 +-
- src/crypto/tls/defaults.go                 |  17 +-
- src/crypto/tls/defaults_microsoft.go       |  83 ++++
- src/crypto/tls/handshake_client.go         |  23 +-
+ src/crypto/tls/common.go                   |   9 +-
+ src/crypto/tls/defaults.go                 |  47 +-
+ src/crypto/tls/defaults_microsoft.go       | 153 +++++++
+ src/crypto/tls/handshake_client.go         |  21 +-
  src/crypto/tls/handshake_client_test.go    |  17 +-
  src/crypto/tls/handshake_server_tls13.go   |  22 +-
  src/crypto/tls/handshake_test.go           |   3 +
- src/crypto/tls/microsoft_test.go           | 428 +++++++++++++++++++++
- src/crypto/tls/schannel_windows.go         |   4 +
+ src/crypto/tls/microsoft_test.go           | 483 +++++++++++++++++++++
+ src/crypto/tls/schannel_windows.go         |   7 +
  src/crypto/tls/tls_test.go                 |   5 +-
  src/internal/godebugs/table.go             |   2 +
- 13 files changed, 596 insertions(+), 21 deletions(-)
+ 13 files changed, 753 insertions(+), 27 deletions(-)
  create mode 100644 src/crypto/tls/defaults_microsoft.go
  create mode 100644 src/crypto/tls/microsoft_test.go
 
@@ -54,21 +54,28 @@ index 01e42ef9cec91b..778c851c707358 100644
  	}
  	sig.BoringCrypto()
  }
-diff --git a/src/crypto/tls/cipher_suites.go b/src/crypto/tls/cipher_suites.go
-index 48f37264e61e71..d17eb19d5caee3 100644
---- a/src/crypto/tls/cipher_suites.go
-+++ b/src/crypto/tls/cipher_suites.go
-@@ -391,7 +391,7 @@ var aesgcmCiphers = map[uint16]bool{
- // first known cipher in the peer's preference list is an AES-GCM cipher,
- // implying the peer also has hardware support for it.
- func isAESGCMPreferred(ciphers []uint16) bool {
--	if !hasAESGCMHardwareSupport {
-+	if !hasAESGCMHardwareSupport && ms_tlsprofile.Value() == "off" {
- 		return false
+diff --git a/src/crypto/tls/common.go b/src/crypto/tls/common.go
+index 099a11ca63da75..68cb28f19e320d 100644
+--- a/src/crypto/tls/common.go
++++ b/src/crypto/tls/common.go
+@@ -1179,7 +1179,14 @@ func (c *Config) cipherSuites(aesGCMPreferred bool) []uint16 {
  	}
- 	for _, cID := range ciphers {
+ 	if fips140tls.Required() {
+ 		cipherSuites = slices.DeleteFunc(cipherSuites, func(id uint16) bool {
+-			return !slices.Contains(allowedCipherSuitesFIPS, id)
++			switch ms_tlsprofile.Value() {
++			case "default", "":
++				return !slices.Contains(msAllowedCipherSuitesFIPS, id)
++			case "off":
++				return !slices.Contains(allowedCipherSuitesFIPS, id)
++			default:
++				panic("unreachable")
++			}
+ 		})
+ 	}
+ 	return cipherSuites
 diff --git a/src/crypto/tls/defaults.go b/src/crypto/tls/defaults.go
-index 8de8d7e0934b07..dd9ab351d56473 100644
+index 8de8d7e0934b07..a73737e95c3059 100644
 --- a/src/crypto/tls/defaults.go
 +++ b/src/crypto/tls/defaults.go
 @@ -15,10 +15,25 @@ import (
@@ -98,12 +105,55 @@ index 8de8d7e0934b07..dd9ab351d56473 100644
  	switch {
  	// tlsmlkem=0 restores the pre-Go 1.24 default.
  	case tlsmlkem.Value() == "0":
+@@ -59,19 +74,35 @@ var tlsrsakex = godebug.New("tlsrsakex")
+ var tls3des = godebug.New("tls3des")
+ 
+ func supportedCipherSuites(aesGCMPreferred bool) []uint16 {
+-	if aesGCMPreferred {
+-		return slices.Clone(cipherSuitesPreferenceOrder)
+-	} else {
+-		return slices.Clone(cipherSuitesPreferenceOrderNoAES)
++	switch ms_tlsprofile.Value() {
++	case "default", "":
++		return slices.Clone(msCipherSuitesPreferenceOrder)
++	case "off":
++		if aesGCMPreferred {
++			return slices.Clone(cipherSuitesPreferenceOrder)
++		} else {
++			return slices.Clone(cipherSuitesPreferenceOrderNoAES)
++		}
++	default:
++		panic("unreachable")
+ 	}
+ }
+ 
+ func defaultCipherSuites(aesGCMPreferred bool) []uint16 {
+ 	cipherSuites := supportedCipherSuites(aesGCMPreferred)
+ 	return slices.DeleteFunc(cipherSuites, func(c uint16) bool {
+-		return disabledCipherSuites[c] ||
+-			tlsrsakex.Value() != "1" && rsaKexCiphers[c] ||
+-			tls3des.Value() != "1" && tdesCiphers[c]
++		switch ms_tlsprofile.Value() {
++		case "default", "":
++			return msDisabledCipherSuites[c] ||
++				tlsrsakex.Value() != "1" && rsaKexCiphers[c] ||
++				tls3des.Value() != "1" && tdesCiphers[c]
++		case "off":
++			return disabledCipherSuites[c] ||
++				tlsrsakex.Value() != "1" && rsaKexCiphers[c] ||
++				tls3des.Value() != "1" && tdesCiphers[c]
++		default:
++			panic("unreachable")
++		}
+ 	})
+ }
+ 
 diff --git a/src/crypto/tls/defaults_microsoft.go b/src/crypto/tls/defaults_microsoft.go
 new file mode 100644
-index 00000000000000..d89507f7607e60
+index 00000000000000..6a3dddaf6b0ed1
 --- /dev/null
 +++ b/src/crypto/tls/defaults_microsoft.go
-@@ -0,0 +1,83 @@
+@@ -0,0 +1,153 @@
 +// Copyright 2025 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -187,19 +237,80 @@ index 00000000000000..d89507f7607e60
 +	TLS_AES_256_GCM_SHA384,
 +	TLS_AES_128_GCM_SHA256,
 +}
++
++// msCipherSuitesPreferenceOrder is like [cipherSuitesPreferenceOrder] with
++// the following changes:
++//
++//   - AES-256 comes before AES-128
++//   - CBC_SHA256 comes before CBC_SHA, neither have Lucky13 mitigations when using the crypto backends,
++//     so better pick the stronger one first
++var msCipherSuitesPreferenceOrder = []uint16{
++	// AEADs w/ ECDHE
++	TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384, TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
++	TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256, TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
++	TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256, TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256,
++
++	// CBC w/ ECDHE
++	TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA256, TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA256,
++	TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA, TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA,
++	TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA, TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA,
++
++	// AEADs w/o ECDHE
++	TLS_RSA_WITH_AES_256_GCM_SHA384,
++	TLS_RSA_WITH_AES_128_GCM_SHA256,
++
++	// CBC w/o ECDHE
++	TLS_RSA_WITH_AES_128_CBC_SHA256,
++	TLS_RSA_WITH_AES_256_CBC_SHA,
++	TLS_RSA_WITH_AES_128_CBC_SHA,
++
++	// 3DES
++	TLS_ECDHE_RSA_WITH_3DES_EDE_CBC_SHA,
++	TLS_RSA_WITH_3DES_EDE_CBC_SHA,
++
++	// RC4
++	TLS_ECDHE_ECDSA_WITH_RC4_128_SHA, TLS_ECDHE_RSA_WITH_RC4_128_SHA,
++	TLS_RSA_WITH_RC4_128_SHA,
++}
++
++// msAllowedCipherSuitesFIPS is like [allowedCipherSuitesFIPS] with
++// the following changes:
++//
++//   - AES-256 comes before AES-128
++var msAllowedCipherSuitesFIPS = []uint16{
++	TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
++	TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
++	TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
++	TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
++	TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA256,
++	TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA256,
++}
++
++// msDisabledCipherSuites is like [disabledCipherSuites] with
++// the following changes:
++//
++//   - CBC_SHA is disabled because they lack Lucky13 mitigations when using the crypto backends
++var msDisabledCipherSuites = map[uint16]bool{
++	// CBC_SHA
++	TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA: true,
++	TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA:   true,
++	TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA: true,
++	TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA:   true,
++
++	// CBC_SHA256
++	TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA256: true,
++	TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA256:   true,
++	TLS_RSA_WITH_AES_128_CBC_SHA256:         true,
++
++	// RC4
++	TLS_ECDHE_ECDSA_WITH_RC4_128_SHA: true,
++	TLS_ECDHE_RSA_WITH_RC4_128_SHA:   true,
++	TLS_RSA_WITH_RC4_128_SHA:         true,
++}
 diff --git a/src/crypto/tls/handshake_client.go b/src/crypto/tls/handshake_client.go
-index 4f89d96ec5de28..b9e6188e9241ce 100644
+index 4f89d96ec5de28..7d94bdbcb521ac 100644
 --- a/src/crypto/tls/handshake_client.go
 +++ b/src/crypto/tls/handshake_client.go
-@@ -93,7 +93,7 @@ func (c *Conn) makeClientHello() (*clientHelloMsg, *keySharePrivateKeys, *echCli
- 		hello.secureRenegotiation = c.clientFinished[:]
- 	}
- 
--	hello.cipherSuites = config.cipherSuites(hasAESGCMHardwareSupport)
-+	hello.cipherSuites = config.cipherSuites(hasAESGCMHardwareSupport || ms_tlsprofile.Value() != "off")
- 	// Don't advertise TLS 1.2-only cipher suites unless we're attempting TLS 1.2.
- 	if maxVersion < VersionTLS12 {
- 		hello.cipherSuites = slices.DeleteFunc(hello.cipherSuites, func(id uint16) bool {
 @@ -130,12 +130,21 @@ func (c *Conn) makeClientHello() (*clientHelloMsg, *keySharePrivateKeys, *echCli
  			hello.cipherSuites = nil
  		}
@@ -305,10 +416,10 @@ index 9cea8182d04154..0e5b421f52dc95 100644
  		Rand:               zeroSource{},
 diff --git a/src/crypto/tls/microsoft_test.go b/src/crypto/tls/microsoft_test.go
 new file mode 100644
-index 00000000000000..7e7d8ba37c2df9
+index 00000000000000..e3cec5f2956867
 --- /dev/null
 +++ b/src/crypto/tls/microsoft_test.go
-@@ -0,0 +1,428 @@
+@@ -0,0 +1,483 @@
 +// Copyright 2025 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -734,20 +845,78 @@ index 00000000000000..7e7d8ba37c2df9
 +	testTLS13OnlyClientHelloCipherSuite(t, nil)
 +}
 +
++func TestMicrosoftCipherSuitePreferenceGCM256(t *testing.T) {
++	enableMicrosoftProfile(t)
++
++	testCipherSuitePreferenceOrder(t, VersionTLS12, TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
++		[]uint16{TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256, TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384},
++		nil,
++	)
++}
++
++func TestMicrosoftCipherSuitePreferenceCBCSHA1(t *testing.T) {
++	skipFIPS(t) // CBC_SHA1 cipher suites not supported in FIPS mode
++
++	enableMicrosoftProfile(t)
++
++	testCipherSuitePreferenceOrder(t, VersionTLS12, TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA,
++		[]uint16{TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA, TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA},
++		[]uint16{TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA, TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA},
++	)
++}
++
++func TestMicrosoftCipherSuitePreferenceCBC256(t *testing.T) {
++	enableMicrosoftProfile(t)
++
++	testCipherSuitePreferenceOrder(t, VersionTLS12, TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA256,
++		[]uint16{TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA, TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA, TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA256},
++		[]uint16{TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA, TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA, TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA256},
++	)
++}
++
++func testCipherSuitePreferenceOrder(t *testing.T, maxVersion uint16, expected uint16, client, server []uint16) {
++	serverConfig := &Config{
++		Certificates: testConfig.Certificates,
++		MaxVersion:   maxVersion,
++		CipherSuites: server,
++		GetConfigForClient: func(chi *ClientHelloInfo) (*Config, error) {
++			if chi.CipherSuites[0] != expected {
++				t.Error("the advertised order should not depend on Config.CipherSuites")
++			}
++			return nil, nil
++		},
++	}
++	clientConfig := &Config{
++		CipherSuites:       client,
++		MaxVersion:         maxVersion,
++		InsecureSkipVerify: true,
++	}
++	state, _, err := testHandshake(t, clientConfig, serverConfig)
++	if err != nil {
++		t.Fatalf("handshake failed: %s", err)
++	}
++	if state.CipherSuite != expected {
++		t.Error("the preference order should not depend on Config.CipherSuites")
++	}
++}
++
 +func enableMicrosoftProfile(t *testing.T) {
 +	t.Setenv("GODEBUG", strings.ReplaceAll(os.Getenv("GODEBUG"), "ms_tlsprofile=off", "")+",ms_tlsprofile=default")
 +}
 diff --git a/src/crypto/tls/schannel_windows.go b/src/crypto/tls/schannel_windows.go
-index cccfb8866f88ab..72111aa2a26f22 100644
+index cccfb8866f88ab..b2896e95e74686 100644
 --- a/src/crypto/tls/schannel_windows.go
 +++ b/src/crypto/tls/schannel_windows.go
-@@ -40,6 +40,10 @@ func setSchannelCipherSuites(suites, versions []uint16) {
+@@ -40,6 +40,13 @@ func setSchannelCipherSuites(suites, versions []uint16) {
  	defaultCipherSuitesTLS13 = filterCipherSuites(suites, defaultCipherSuitesTLS13)
  	allowedCipherSuitesTLS13FIPS = filterCipherSuites(suites, allowedCipherSuitesTLS13FIPS)
  
 +	// Update MS-specific variables too.
 +	msDefaultCipherSuitesTLS13 = defaultCipherSuitesTLS13
 +	msAllowedCipherSuitesTLS13FIPS = allowedCipherSuitesTLS13FIPS
++	msCipherSuitesPreferenceOrder = cipherSuitesPreferenceOrder
++	msAllowedCipherSuitesFIPS = allowedCipherSuitesFIPS
++	msDisabledCipherSuites = disabledCipherSuites
 +
  	// Schannel doesn't have a separate preference order without AES.
  	cipherSuitesPreferenceOrderNoAES = cipherSuitesPreferenceOrder
