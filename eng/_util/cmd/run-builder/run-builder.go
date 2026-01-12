@@ -39,7 +39,6 @@ var dryRun = flag.Bool("n", false, "Enable dry run: print the commands that woul
 func main() {
 	builder := flag.String("builder", "", "[Required] Specify a builder to run. Note, this may be destructive!")
 	experiment := flag.String("experiment", "", "Include this string in GOEXPERIMENT.")
-	fipsMode := flag.Bool("fipsmode", false, "Run the Go tests in FIPS mode.")
 	build := flag.Bool("build", false, "Run the build.")
 	test := flag.Bool("test", false, "Run the tests.")
 
@@ -146,18 +145,6 @@ func main() {
 		// Set GOEXPERIMENT in the environment now that we're using the just-built version of Go.
 		if *experiment != "" {
 			buildutil.AppendExperimentEnv(*experiment)
-		}
-
-		if *fipsMode {
-			buildutil.AppendEnv("GODEBUG", "fips140=on", ",")
-			// Enable system-wide FIPS if supported by the host platform.
-			restore, err := enableSystemWideFIPS()
-			if err != nil {
-				log.Fatalf("Unable to enable system-wide FIPS: %v\n", err)
-			}
-			if restore != nil {
-				defer restore()
-			}
 		}
 
 		// The tests read GO_BUILDER_NAME and make decisions based on it. For some configurations,
