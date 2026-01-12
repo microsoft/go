@@ -309,6 +309,9 @@ To enable FIPS mode on Windows, [enable the Windows FIPS policy](https://docs.mi
 
 For testing purposes, Windows FIPS policy can be enabled via the registry key `HKLM\SYSTEM\CurrentControlSet\Control\Lsa\FipsAlgorithmPolicy`, dword value `Enabled` set to `1`.
 
+CNG cryptographic primitives are FIPS compliant by default.
+Since Go 1.26, setting the enabled FIPS preference will not cause a panic on Windows even if the Windows FIPS policy is not enabled.
+
 ### macOS FIPS mode (CommonCrypto/CryptoKit)
 
 A platform-specific FIPS preference is never detected on macOS.
@@ -526,6 +529,7 @@ This list of major changes is intended for quick reference and for access to his
 - The `systemcrypto` goexperiment is now enabled by default on macOS.
 - The macOS backend is no longer "preview" and is now fully supported.
 - `systemcrypto` can be disabled at build time using `MS_GO_NOSYSTEMCRYPTO=1`. This is now the preferred way to disable `systemcrypto` when necessary.
+- Setting the enabled FIPS preference will not cause a panic on Windows even if the Windows FIPS policy is not enabled.
 
 ### Go 1.25.2 (Oct 2025)
 
