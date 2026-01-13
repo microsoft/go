@@ -65,11 +65,11 @@ Subject: [PATCH] Use crypto backends
  src/crypto/rsa/darwin.go                      |  71 +++++++
  src/crypto/rsa/fips.go                        |  22 +-
  src/crypto/rsa/notboring.go                   |   4 +-
- src/crypto/rsa/pkcs1v15.go                    |  11 +-
+ src/crypto/rsa/pkcs1v15.go                    |  10 +-
  src/crypto/rsa/pkcs1v15_test.go               |   5 +
  src/crypto/rsa/pss_test.go                    |  13 +-
- src/crypto/rsa/rsa.go                         |  13 +-
- src/crypto/rsa/rsa_test.go                    |  12 +-
+ src/crypto/rsa/rsa.go                         |  16 +-
+ src/crypto/rsa/rsa_test.go                    |   7 +-
  src/crypto/sha1/sha1.go                       |   8 +-
  src/crypto/sha1/sha1_test.go                  |  11 +-
  src/crypto/sha256/sha256.go                   |   6 +-
@@ -98,7 +98,7 @@ Subject: [PATCH] Use crypto backends
  src/hash/notboring_test.go                    |   9 +
  src/net/lookup_test.go                        |   3 +
  src/os/exec/exec_test.go                      |   9 +
- 94 files changed, 1505 insertions(+), 178 deletions(-)
+ 94 files changed, 1500 insertions(+), 180 deletions(-)
  create mode 100644 src/crypto/dsa/boring.go
  create mode 100644 src/crypto/dsa/notboring.go
  create mode 100644 src/crypto/ecdsa/badlinkname.go
@@ -2391,7 +2391,7 @@ index 00000000000000..1b9c63523ee90e
 +	return builder.Bytes()
 +}
 diff --git a/src/crypto/rsa/fips.go b/src/crypto/rsa/fips.go
-index fb2395886b053b..6b1b6ad96a1366 100644
+index fb2395886b053b..ac0ad4f9490a8b 100644
 --- a/src/crypto/rsa/fips.go
 +++ b/src/crypto/rsa/fips.go
 @@ -6,7 +6,7 @@ package rsa
@@ -2408,7 +2408,7 @@ index fb2395886b053b..6b1b6ad96a1366 100644
  	}
  
 -	if boring.Enabled && rand.IsDefaultReader(random) {
-+	if boring.Enabled && rand.IsDefaultReader(random) && boring.SupportsRSASaltLength(true, opts.saltLength()) && boring.SupportsRSAKeyPrimes(len(priv.Primes)) && boring.SupportsHash(hash) {
++	if boring.Enabled && rand.IsDefaultReader(random) && boring.SupportsRSASaltLength(true, opts.saltLength()) && boring.SupportsRSAPrivateKey(priv.N.BitLen(), len(priv.Primes)) && boring.SupportsHash(hash) {
  		bkey, err := boringPrivateKey(priv)
  		if err != nil {
  			return nil, err
@@ -2417,7 +2417,7 @@ index fb2395886b053b..6b1b6ad96a1366 100644
  	}
  
 -	if boring.Enabled {
-+	if boring.Enabled && boring.SupportsRSASaltLength(false, opts.saltLength()) && boring.SupportsHash(hash) {
++	if boring.Enabled && boring.SupportsRSASaltLength(false, opts.saltLength()) && boring.SupportsRSAPublicKey(pub.N.BitLen()) && boring.SupportsHash(hash) {
  		bkey, err := boringPublicKey(pub)
  		if err != nil {
  			return err
@@ -2442,7 +2442,7 @@ index fb2395886b053b..6b1b6ad96a1366 100644
  	defer mgfHash.Reset()
  
 -	if boring.Enabled && rand.IsDefaultReader(random) {
-+	if boring.Enabled && rand.IsDefaultReader(random) && boring.SupportsRSAOAEPLabel(label) && hash == mgfHash {
++	if boring.Enabled && rand.IsDefaultReader(random) && boring.SupportsRSAPublicKey(pub.N.BitLen()) && boring.SupportsRSAOAEPLabel(label) && hash == mgfHash {
  		k := pub.Size()
  		if len(msg) > k-2*hash.Size()-2 {
  			return nil, ErrMessageTooLong
@@ -2451,7 +2451,7 @@ index fb2395886b053b..6b1b6ad96a1366 100644
  	}
  
 -	if boring.Enabled {
-+	if boring.Enabled && boring.SupportsRSAKeyPrimes(len(priv.Primes)) && boring.SupportsRSAOAEPLabel(label) && hash == mgfHash {
++	if boring.Enabled && boring.SupportsRSAPrivateKey(priv.N.BitLen(), len(priv.Primes)) && boring.SupportsRSAOAEPLabel(label) && hash == mgfHash {
  		k := priv.Size()
  		if len(ciphertext) > k ||
  			k < hash.Size()*2+2 {
@@ -2460,7 +2460,7 @@ index fb2395886b053b..6b1b6ad96a1366 100644
  	}
  
 -	if boring.Enabled {
-+	if boring.Enabled && boring.SupportsRSAKeyPrimes(len(priv.Primes)) && boring.SupportsRSAPKCS1v15Signature(hash) {
++	if boring.Enabled && boring.SupportsRSAPrivateKey(priv.N.BitLen(), len(priv.Primes)) && boring.SupportsRSAPKCS1v15Signature(hash) {
  		bkey, err := boringPrivateKey(priv)
  		if err != nil {
  			return nil, err
@@ -2469,7 +2469,7 @@ index fb2395886b053b..6b1b6ad96a1366 100644
  	}
  
 -	if boring.Enabled {
-+	if boring.Enabled && boring.SupportsRSAPKCS1v15Signature(hash) {
++	if boring.Enabled && boring.SupportsRSAPublicKey(pub.N.BitLen()) && boring.SupportsRSAPKCS1v15Signature(hash) {
  		bkey, err := boringPublicKey(pub)
  		if err != nil {
  			return err
@@ -2492,52 +2492,51 @@ index 2abc0436405f8a..3e4d6f3eef61e6 100644
  func boringPublicKey(*PublicKey) (*boring.PublicKeyRSA, error) {
  	panic("boringcrypto: not available")
 diff --git a/src/crypto/rsa/pkcs1v15.go b/src/crypto/rsa/pkcs1v15.go
-index 5269d7b971bda7..8edad9da73698a 100644
+index 5269d7b971bda7..003030ec762ebf 100644
 --- a/src/crypto/rsa/pkcs1v15.go
 +++ b/src/crypto/rsa/pkcs1v15.go
-@@ -5,7 +5,8 @@
+@@ -5,7 +5,7 @@
  package rsa
  
  import (
 -	"crypto/internal/boring"
-+	"crypto/internal/backend"
 +	boring "crypto/internal/backend"
  	"crypto/internal/fips140/rsa"
  	"crypto/internal/fips140only"
  	"crypto/internal/rand"
-@@ -61,7 +62,7 @@ func EncryptPKCS1v15(random io.Reader, pub *PublicKey, msg []byte) ([]byte, erro
+@@ -61,7 +61,7 @@ func EncryptPKCS1v15(random io.Reader, pub *PublicKey, msg []byte) ([]byte, erro
  		return nil, ErrMessageTooLong
  	}
  
 -	if boring.Enabled && rand.IsDefaultReader(random) {
-+	if boring.Enabled && rand.IsDefaultReader(random) && backend.SupportsRSAPKCS1v15Encryption() {
++	if boring.Enabled && rand.IsDefaultReader(random) && boring.SupportsRSAPublicKey(pub.N.BitLen()) && boring.SupportsRSAPKCS1v15Encryption() {
  		bkey, err := boringPublicKey(pub)
  		if err != nil {
  			return nil, err
-@@ -83,7 +84,7 @@ func EncryptPKCS1v15(random io.Reader, pub *PublicKey, msg []byte) ([]byte, erro
+@@ -83,7 +83,7 @@ func EncryptPKCS1v15(random io.Reader, pub *PublicKey, msg []byte) ([]byte, erro
  	em[len(em)-len(msg)-1] = 0
  	copy(mm, msg)
  
 -	if boring.Enabled {
-+	if boring.Enabled && backend.SupportsRSAPKCS1v15Encryption() {
++	if boring.Enabled && boring.SupportsRSAPublicKey(pub.N.BitLen()) && boring.SupportsRSAPKCS1v15Encryption() {
  		var bkey *boring.PublicKeyRSA
  		bkey, err = boringPublicKey(pub)
  		if err != nil {
-@@ -115,7 +116,7 @@ func DecryptPKCS1v15(random io.Reader, priv *PrivateKey, ciphertext []byte) ([]b
+@@ -115,7 +115,7 @@ func DecryptPKCS1v15(random io.Reader, priv *PrivateKey, ciphertext []byte) ([]b
  		return nil, err
  	}
  
 -	if boring.Enabled {
-+	if boring.Enabled && boring.SupportsRSAKeyPrimes(len(priv.Primes)) && backend.SupportsRSAPKCS1v15Encryption() {
++	if boring.Enabled && boring.SupportsRSAPrivateKey(priv.N.BitLen(), len(priv.Primes)) && boring.SupportsRSAPKCS1v15Encryption() {
  		bkey, err := boringPrivateKey(priv)
  		if err != nil {
  			return nil, err
-@@ -221,7 +222,7 @@ func decryptPKCS1v15(priv *PrivateKey, ciphertext []byte) (valid int, em []byte,
+@@ -221,7 +221,7 @@ func decryptPKCS1v15(priv *PrivateKey, ciphertext []byte) (valid int, em []byte,
  		return 0, nil, 0, err
  	}
  
 -	if boring.Enabled {
-+	if boring.Enabled && boring.SupportsRSAKeyPrimes(len(priv.Primes)) && backend.SupportsRSAPKCS1v15Encryption() {
++	if boring.Enabled && boring.SupportsRSAPrivateKey(priv.N.BitLen(), len(priv.Primes)) && boring.SupportsRSAPKCS1v15Encryption() {
  		var bkey *boring.PrivateKeyRSA
  		bkey, err = boringPrivateKey(priv)
  		if err != nil {
@@ -2616,7 +2615,7 @@ index e03f4ab06603c6..cd44f3af23b0d4 100644
  		t.Fatal(err)
  	}
 diff --git a/src/crypto/rsa/rsa.go b/src/crypto/rsa/rsa.go
-index b94b129867727b..5cbedca4d3888d 100644
+index b94b129867727b..9482325d58fe06 100644
 --- a/src/crypto/rsa/rsa.go
 +++ b/src/crypto/rsa/rsa.go
 @@ -43,8 +43,8 @@ package rsa
@@ -2647,8 +2646,18 @@ index b94b129867727b..5cbedca4d3888d 100644
  
  	case *PKCS1v15DecryptOptions:
  		if l := opts.SessionKeyLen; l > 0 {
+@@ -314,8 +315,7 @@ func GenerateKey(random io.Reader, bits int) (*PrivateKey, error) {
+ 		return nil, err
+ 	}
+ 
+-	if boring.Enabled && rand.IsDefaultReader(random) &&
+-		(bits == 2048 || bits == 3072 || bits == 4096) {
++	if boring.Enabled && rand.IsDefaultReader(random) && boring.SupportsRSAPublicKey(bits) {
+ 		bN, bE, bD, bP, bQ, bDp, bDq, bQinv, err := boring.GenerateKeyRSA(bits)
+ 		if err != nil {
+ 			return nil, err
 diff --git a/src/crypto/rsa/rsa_test.go b/src/crypto/rsa/rsa_test.go
-index 5ae4c1dd203874..678e94ade86af6 100644
+index 124fba1e8a4faa..af6d8e9291af62 100644
 --- a/src/crypto/rsa/rsa_test.go
 +++ b/src/crypto/rsa/rsa_test.go
 @@ -8,7 +8,7 @@ import (
@@ -2660,7 +2669,7 @@ index 5ae4c1dd203874..678e94ade86af6 100644
  	"crypto/internal/cryptotest"
  	"crypto/internal/fips140"
  	"crypto/rand"
-@@ -151,6 +151,11 @@ func testKeyBasics(t *testing.T, priv *PrivateKey) {
+@@ -157,6 +157,11 @@ func testKeyBasics(t *testing.T, priv *PrivateKey) {
  	if priv.D.Cmp(priv.N) > 0 {
  		t.Errorf("private exponent too large")
  	}
@@ -2671,18 +2680,6 @@ index 5ae4c1dd203874..678e94ade86af6 100644
 +	}
  
  	msg := []byte("hi!")
- 	enc, err := EncryptPKCS1v15(rand.Reader, &priv.PublicKey, msg)
-@@ -231,6 +236,11 @@ func testEverything(t *testing.T, priv *PrivateKey) {
- 	if validateErr != nil && len(priv.Primes) >= 2 {
- 		t.Errorf("Validate() failed: %s", validateErr)
- 	}
-+	if boring.Enabled && priv.N.BitLen() < 512 {
-+		// Some crypto backends (e.g. CNG and OpenSSL with SymCrypt) don't support key sizes
-+		// lower than 512 and intentionally fail rather than fall back to Go crypto.
-+		t.Skip("skipping allocations test with BoringCrypto")
-+	}
- 
- 	msg := []byte("test")
  	enc, err := EncryptPKCS1v15(rand.Reader, &priv.PublicKey, msg)
 diff --git a/src/crypto/sha1/sha1.go b/src/crypto/sha1/sha1.go
 index 46e47df1d32cf2..0fb56a3831c8a2 100644
