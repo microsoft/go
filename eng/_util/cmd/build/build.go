@@ -270,7 +270,7 @@ func build(o *options) (err error) {
 				if version, err = writeDevelVersionFile(goRootDir, executableExtension); err != nil {
 					return fmt.Errorf("unable to pack: failed writing development VERSION file: %v", err)
 				}
-				// Best effort: clean up the VERSION file when we're done. This is just for dev
+				// Best effort: clean up the VERSION file when we're done. Clean up for tidier dev
 				// workflows: the temp VERSION file should never be checked in.
 				defer os.Remove(filepath.Join(goRootDir, "VERSION"))
 			} else {
@@ -281,16 +281,15 @@ func build(o *options) (err error) {
 		}
 		// We also need to copy our MICROSOFT_REVISION file in so the toolset can report that it's a
 		// Microsoft build of a specific revision and embed that info into built binaries.
-		microsoftRevisionSrc := filepath.Join(rootDir, "MICROSOFT_REVISION")
 		microsoftRevisionDst := filepath.Join(goRootDir, "MICROSOFT_REVISION")
-		if err := copyFile(microsoftRevisionDst, microsoftRevisionSrc); err != nil {
+		if err := copyFile(microsoftRevisionDst, filepath.Join(rootDir, "MICROSOFT_REVISION")); err != nil {
 			if !errors.Is(err, os.ErrNotExist) {
 				return fmt.Errorf("unable to pack: failed to read MICROSOFT_REVISION file for unexpected reason: %v", err)
 			}
-			// Ok: a main branch build won't have a MICROSOFT_REVISION file.
+			// Ok: a main branch or pre-stable release branch has no MICROSOFT_REVISION file.
 		} else {
-			// Best effort: clean up the MICROSOFT_REVISION file when we're done. This is just for
-			// dev workflows: the temp MICROSOFT_REVISION file should never be checked in.
+			// Best effort: clean up the MICROSOFT_REVISION file when we're done. Clean up for
+			// tidier dev workflows: the temp MICROSOFT_REVISION file should never be checked in.
 			defer os.Remove(microsoftRevisionDst)
 		}
 
