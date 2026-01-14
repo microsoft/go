@@ -82,14 +82,14 @@ Subject: [PATCH] Use crypto backends
  src/crypto/tls/cipher_suites.go               |  10 +-
  src/crypto/tls/fipsonly/fipsonly.go           |   2 +-
  src/crypto/tls/fipsonly/fipsonly_test.go      |   2 +-
- src/crypto/tls/handshake_client.go            |  12 +-
+ src/crypto/tls/handshake_client.go            |  17 +-
  src/crypto/tls/handshake_client_tls13.go      |   2 +-
- src/crypto/tls/handshake_server.go            |  10 +-
+ src/crypto/tls/handshake_server.go            |  15 +-
  src/crypto/tls/handshake_server_tls13.go      |   5 +-
  src/crypto/tls/internal/tls13/doc.go          |  18 ++
  src/crypto/tls/internal/tls13/tls13.go        | 195 ++++++++++++++++++
  src/crypto/tls/key_schedule.go                |   2 +-
- src/crypto/tls/prf.go                         |  41 ++++
+ src/crypto/tls/prf.go                         |  24 +++
  src/crypto/x509/verify_test.go                |   2 +-
  src/go/build/deps_test.go                     |  13 +-
  src/hash/boring_test.go                       |   9 +
@@ -98,7 +98,7 @@ Subject: [PATCH] Use crypto backends
  src/hash/notboring_test.go                    |   9 +
  src/net/lookup_test.go                        |   3 +
  src/os/exec/exec_test.go                      |   9 +
- 94 files changed, 1500 insertions(+), 180 deletions(-)
+ 94 files changed, 1493 insertions(+), 180 deletions(-)
  create mode 100644 src/crypto/dsa/boring.go
  create mode 100644 src/crypto/dsa/notboring.go
  create mode 100644 src/crypto/ecdsa/badlinkname.go
@@ -3506,7 +3506,7 @@ index 027bc22c33c921..eba08da985f832 100644
  package fipsonly
  
 diff --git a/src/crypto/tls/handshake_client.go b/src/crypto/tls/handshake_client.go
-index c2b1b7037a46cf..4f89d96ec5de28 100644
+index c2b1b7037a46cf..f490c3fc5b1cae 100644
 --- a/src/crypto/tls/handshake_client.go
 +++ b/src/crypto/tls/handshake_client.go
 @@ -11,10 +11,10 @@ import (
@@ -3521,17 +3521,22 @@ index c2b1b7037a46cf..4f89d96ec5de28 100644
  	"crypto/x509"
  	"errors"
  	"fmt"
-@@ -514,7 +514,15 @@ func (c *Conn) pickTLSVersion(serverHello *serverHelloMsg) error {
+@@ -514,7 +514,20 @@ func (c *Conn) pickTLSVersion(serverHello *serverHelloMsg) error {
  
  // Does the handshake, either a full one or resumes old session. Requires hs.c,
  // hs.hello, hs.serverHello, and, optionally, hs.session to be set.
 -func (hs *clientHandshakeState) handshake() error {
 +func (hs *clientHandshakeState) handshake() (err error) {
 +	defer func() {
-+		if err == nil {
-+			err = recoverFromBoringPRFError()
-+			if err != nil {
++		if err != nil {
++			return
++		}
++		if p := recover(); p != nil {
++			if err1, ok := p.(boringPRFError); ok {
++				err = err1.err
 +				hs.c.sendAlert(alertInternalError)
++			} else {
++				panic(p)
 +			}
 +		}
 +	}()
@@ -3554,20 +3559,25 @@ index 77a24b4a78d8fc..84724fac5f951e 100644
  	"hash"
  	"slices"
 diff --git a/src/crypto/tls/handshake_server.go b/src/crypto/tls/handshake_server.go
-index efdaeae6f7e39a..491c6d5a0e5d56 100644
+index efdaeae6f7e39a..2bd004ad23ae2e 100644
 --- a/src/crypto/tls/handshake_server.go
 +++ b/src/crypto/tls/handshake_server.go
-@@ -63,7 +63,15 @@ func (c *Conn) serverHandshake(ctx context.Context) error {
+@@ -63,7 +63,20 @@ func (c *Conn) serverHandshake(ctx context.Context) error {
  	return hs.handshake()
  }
  
 -func (hs *serverHandshakeState) handshake() error {
 +func (hs *serverHandshakeState) handshake() (err error) {
 +	defer func() {
-+		if err == nil {
-+			err = recoverFromBoringPRFError()
-+			if err != nil {
++		if err != nil {
++			return
++		}
++		if p := recover(); p != nil {
++			if err1, ok := p.(boringPRFError); ok {
++				err = err1.err
 +				hs.c.sendAlert(alertInternalError)
++			} else {
++				panic(p)
 +			}
 +		}
 +	}()
@@ -3839,7 +3849,7 @@ index bfa22449c87178..08cda456579f64 100644
  	"hash"
  	"io"
 diff --git a/src/crypto/tls/prf.go b/src/crypto/tls/prf.go
-index 19f80ac2c91c20..1502dd121c0361 100644
+index 19f80ac2c91c20..8a64e75d8ad3b1 100644
 --- a/src/crypto/tls/prf.go
 +++ b/src/crypto/tls/prf.go
 @@ -7,6 +7,7 @@ package tls
@@ -3850,10 +3860,12 @@ index 19f80ac2c91c20..1502dd121c0361 100644
  	"crypto/internal/fips140/tls12"
  	"crypto/md5"
  	"crypto/sha1"
-@@ -47,9 +48,42 @@ func pHash(result, secret, seed []byte, hash func() hash.Hash) {
+@@ -47,9 +48,25 @@ func pHash(result, secret, seed []byte, hash func() hash.Hash) {
  	}
  }
  
++// boringPRFError can happen, for example, if the seed is too large. The Go implementation doesn't limit the seed size,
++// as RFC 5705 doesn't specify a limit, but stock OpenSSL restrict it to 1024 and CNG to 256.
 +type boringPRFError struct {
 +	err error
 +}
@@ -3862,45 +3874,26 @@ index 19f80ac2c91c20..1502dd121c0361 100644
 +	return e.err.Error()
 +}
 +
-+// recoverFromBoringPRFError recovers from a panic caused by the boring backend.
-+// It returns the error if it was a boringPRFError, or panics if the panic was
-+// caused by something else.
-+func recoverFromBoringPRFError() error {
-+	if p := recover(); p != nil {
-+		if err, ok := p.(boringPRFError); ok {
-+			// Could happen, for example, if the seed is too large. The Go implementation doesn't limit the seed size,
-+			// as RFC 5705 doesn't specify a limit, but stock OpenSSL restrict it to 1024 and CNG to 256.
-+			return err.err
-+		}
-+		panic(p)
-+	}
-+	return nil
-+}
-+
-+func panicBoringPRFError(err error) {
-+	panic(boringPRFError{err})
-+}
-+
  // prf10 implements the TLS 1.0 pseudo-random function, as defined in RFC 2246, Section 5.
  func prf10(secret []byte, label string, seed []byte, keyLen int) []byte {
  	result := make([]byte, keyLen)
 +	if boring.Enabled && boring.SupportsTLS1PRF() {
 +		if err := boring.TLS1PRF(result, secret, []byte(label), seed, nil); err != nil {
-+			panicBoringPRFError(fmt.Errorf("crypto/tls: prf10: %v", err))
++			panic(boringPRFError{fmt.Errorf("crypto/tls: prf10: %v", err)})
 +		}
 +		return result
 +	}
  	hashSHA1 := sha1.New
  	hashMD5 := md5.New
  
-@@ -72,6 +106,13 @@ func prf10(secret []byte, label string, seed []byte, keyLen int) []byte {
+@@ -72,6 +89,13 @@ func prf10(secret []byte, label string, seed []byte, keyLen int) []byte {
  // prf12 implements the TLS 1.2 pseudo-random function, as defined in RFC 5246, Section 5.
  func prf12(hashFunc func() hash.Hash) prfFunc {
  	return func(secret []byte, label string, seed []byte, keyLen int) []byte {
 +		if boring.Enabled && boring.SupportsTLS1PRF() {
 +			result := make([]byte, keyLen)
 +			if err := boring.TLS1PRF(result, secret, []byte(label), seed, hashFunc); err != nil {
-+				panicBoringPRFError(fmt.Errorf("crypto/tls: prf12: %v", err))
++				panic(boringPRFError{fmt.Errorf("crypto/tls: prf12: %v", err)})
 +			}
 +			return result
 +		}
