@@ -20,12 +20,12 @@ compatibility with external inspection is the concern.
  src/cmd/dist/build.go             | 16 ++++++++++++++
  src/cmd/dist/buildruntime.go      |  1 +
  src/cmd/go/internal/cache/hash.go |  6 ++++++
- src/cmd/link/internal/ld/main.go  | 22 ++++++++++++++++---
+ src/cmd/link/internal/ld/main.go  | 33 +++++++++++++++++++++++------
  src/internal/buildcfg/cfg.go      | 35 ++++++++++++++++++++++++++++++-
  src/internal/godebugs/table.go    |  1 +
  src/runtime/extern.go             | 10 +++++++++
  src/runtime/runtime1.go           |  4 ++++
- 9 files changed, 100 insertions(+), 4 deletions(-)
+ 9 files changed, 108 insertions(+), 7 deletions(-)
 
 diff --git a/doc/godebug.md b/doc/godebug.md
 index 4c95ceb09bcbbe..58b4d513656ff8 100644
@@ -104,31 +104,37 @@ index 27d275644a4bd0..3c40024b4b7ab7 100644
  	}
  	if i := strings.Index(version, "-X:"); i >= 0 {
 diff --git a/src/cmd/link/internal/ld/main.go b/src/cmd/link/internal/ld/main.go
-index ce290ab4617cfd..fef6775b79835d 100644
+index 0140c385e47991..a55738a24d63c1 100644
 --- a/src/cmd/link/internal/ld/main.go
 +++ b/src/cmd/link/internal/ld/main.go
-@@ -187,8 +187,8 @@ func Main(arch *sys.Arch, theArch Arch) {
+@@ -186,15 +186,20 @@ func Main(arch *sys.Arch, theArch Arch) {
  		addstrdata1(ctxt, "runtime.defaultGOROOT="+buildcfg.GOROOT)
  	}
  
 -	buildVersion := buildcfg.Version
--	if goexperiment := buildcfg.Experiment.String(); goexperiment != "" {
-+	goexperiment := buildcfg.Experiment.String()
-+	appendExperimentVersion := func(buildVersion string) string {
- 		// buildVersion is intended to contain non-default experiment flags.
- 		// The Microsoft build of Go default behavior is to set the
- 		// nosystemcrypto experiments, so we don't include it in the buildVersion string.
-@@ -205,8 +205,8 @@ func Main(arch *sys.Arch, theArch Arch) {
- 			}
- 			buildVersion += sep + "X:" + goexperiment
++	// Set up a function that we can apply to both the Microsoft and upstream
++	// versions. This approach is intended to minimize the patch diff and avoid
++	// touching the same lines as earlier patches.
++	appendExperimentVersion := func(buildVersion string) string { return buildVersion }
+ 	if goexperiment := buildcfg.Experiment.MSString(); goexperiment != "" {
+-		sep := " "
+-		if !strings.Contains(buildVersion, "-") { // See go.dev/issue/75953.
+-			sep = "-"
++		appendExperimentVersion = func(buildVersion string) string {
++			sep := " "
++			if !strings.Contains(buildVersion, "-") { // See go.dev/issue/75953.
++				sep = "-"
++			}
++			buildVersion += sep + "X:" + goexperiment
++			return buildVersion
  		}
-+		return buildVersion
+-		buildVersion += sep + "X:" + goexperiment
  	}
 -	addstrdata1(ctxt, "runtime.buildVersion="+buildVersion)
  
  	// TODO(matloob): define these above and then check flag values here
  	if ctxt.Arch.Family == sys.AMD64 && buildcfg.GOOS == "plan9" {
-@@ -222,10 +222,26 @@ func Main(arch *sys.Arch, theArch Arch) {
+@@ -210,10 +215,26 @@ func Main(arch *sys.Arch, theArch Arch) {
  	objabi.Flagfn1("X", "add string value `definition` of the form importpath.name=value", func(s string) { addstrdata1(ctxt, s) })
  	objabi.Flagcount("v", "print link trace", &ctxt.Debugvlog)
  	objabi.Flagfn1("importcfg", "read import configuration from `file`", ctxt.readImportCfg)
