@@ -21,6 +21,7 @@ Subject: [PATCH] Use crypto backends
  src/crypto/des/cipher.go                      |   7 +
  src/crypto/dsa/boring.go                      | 113 ++++++++++
  src/crypto/dsa/dsa.go                         |  88 ++++++++
+ src/crypto/dsa/dsa_test.go                    |   8 +
  src/crypto/dsa/notboring.go                   |  16 ++
  src/crypto/ecdh/ecdh.go                       |   2 +-
  src/crypto/ecdh/ecdh_test.go                  |  17 +-
@@ -98,7 +99,7 @@ Subject: [PATCH] Use crypto backends
  src/hash/notboring_test.go                    |   9 +
  src/net/lookup_test.go                        |   3 +
  src/os/exec/exec_test.go                      |   9 +
- 94 files changed, 1493 insertions(+), 180 deletions(-)
+ 95 files changed, 1501 insertions(+), 180 deletions(-)
  create mode 100644 src/crypto/dsa/boring.go
  create mode 100644 src/crypto/dsa/notboring.go
  create mode 100644 src/crypto/ecdsa/badlinkname.go
@@ -751,6 +752,34 @@ index 6724f861b7f2f0..4bda65558882a2 100644
 +		c.AddBytes(bytes)
 +	})
 +}
+diff --git a/src/crypto/dsa/dsa_test.go b/src/crypto/dsa/dsa_test.go
+index ad85eac0a7f0b1..bf0d5eb077b2b1 100644
+--- a/src/crypto/dsa/dsa_test.go
++++ b/src/crypto/dsa/dsa_test.go
+@@ -5,8 +5,11 @@
+ package dsa
+ 
+ import (
++	"crypto/fips140"
++	boring "crypto/internal/backend"
+ 	"crypto/rand"
+ 	"math/big"
++	"runtime"
+ 	"testing"
+ )
+ 
+@@ -83,6 +86,11 @@ func fromHex(s string) *big.Int {
+ }
+ 
+ func TestSignAndVerify(t *testing.T) {
++	if boring.Enabled && runtime.GOOS == "linux" && fips140.Enabled() {
++		// Some OpenSSL providers don't support DSA signing in FIPS mode.
++		t.Skip("skipping DSA test in FIPS mode")
++	}
++
+ 	priv := PrivateKey{
+ 		PublicKey: PublicKey{
+ 			Parameters: Parameters{
 diff --git a/src/crypto/dsa/notboring.go b/src/crypto/dsa/notboring.go
 new file mode 100644
 index 00000000000000..cd02ff5a00c3dc
