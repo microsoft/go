@@ -138,10 +138,16 @@ After switching to the Microsoft build of Go, you may encounter new build errors
 #### Cgo is not enabled
 
 ```
-Using a crypto backend requires CGO_ENABLED=1.
+Using GOEXPERIMENT=systemcrypto on Linux requires CGO_ENABLED=1.
 
-For more information, visit https://github.com/microsoft/go/tree/microsoft/main/eng/doc/fips
+Consider using our CGO-less experiement by setting GOEXPERIMENT=ms_nocgo_opensslcrypto.
+	
+For more information, visit https://github.com/microsoft/go/blob/microsoft/main/eng/doc/MigrationGuide.md#cgo-is-not-enabled
 ```
+
+> [!NOTE]
+> As of Go 1.26, there is a CGO-less experiment available for Linux: `ms_nocgo_opensslcrypto`.
+> This will allow use of OpenSSL without requiring cgo.
 
 When targeting Linux, `systemcrypto` requires cgo.
 Cgo is disabled by default on some platforms or when a C compiler is not detected
