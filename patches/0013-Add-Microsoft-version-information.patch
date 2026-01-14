@@ -16,16 +16,20 @@ Includes compatibility opt out features: "ms_version=0" GODEBUG option to change
 runtime.Version() behavior, and "-ms_embedupstreamversion" ld option if
 compatibility with external inspection is the concern.
 ---
- doc/godebug.md                    |  9 ++++++++
- src/cmd/dist/build.go             | 16 ++++++++++++++
- src/cmd/dist/buildruntime.go      |  1 +
- src/cmd/go/internal/cache/hash.go |  6 ++++++
- src/cmd/link/internal/ld/main.go  | 33 +++++++++++++++++++++++------
- src/internal/buildcfg/cfg.go      | 35 ++++++++++++++++++++++++++++++-
- src/internal/godebugs/table.go    |  1 +
- src/runtime/extern.go             | 10 +++++++++
- src/runtime/runtime1.go           |  4 ++++
- 9 files changed, 108 insertions(+), 7 deletions(-)
+ doc/godebug.md                                |  9 +++
+ src/cmd/dist/build.go                         | 16 ++++++
+ src/cmd/dist/buildruntime.go                  |  1 +
+ src/cmd/go/internal/cache/hash.go             |  6 ++
+ .../testdata/script/gotoolchain_local_ms.txt  | 46 ++++++++++++++++
+ src/cmd/go/testdata/script/ms_version.txt     | 55 +++++++++++++++++++
+ src/cmd/link/internal/ld/main.go              | 33 +++++++++--
+ src/internal/buildcfg/cfg.go                  | 35 +++++++++++-
+ src/internal/godebugs/table.go                |  1 +
+ src/runtime/extern.go                         | 10 ++++
+ src/runtime/runtime1.go                       |  4 ++
+ 11 files changed, 209 insertions(+), 7 deletions(-)
+ create mode 100644 src/cmd/go/testdata/script/gotoolchain_local_ms.txt
+ create mode 100644 src/cmd/go/testdata/script/ms_version.txt
 
 diff --git a/doc/godebug.md b/doc/godebug.md
 index 4c95ceb09bcbbe..58b4d513656ff8 100644
@@ -103,6 +107,119 @@ index 27d275644a4bd0..3c40024b4b7ab7 100644
  		return version[:i]
  	}
  	if i := strings.Index(version, "-X:"); i >= 0 {
+diff --git a/src/cmd/go/testdata/script/gotoolchain_local_ms.txt b/src/cmd/go/testdata/script/gotoolchain_local_ms.txt
+new file mode 100644
+index 00000000000000..e88d6d070e14ea
+--- /dev/null
++++ b/src/cmd/go/testdata/script/gotoolchain_local_ms.txt
+@@ -0,0 +1,46 @@
++# This test uses the fake toolchain switch support in  cmd/go/internal/toolchain.Switch
++# to exercise version selection logic.
++# It's a trimmed copy of gotoolchain_local.txt that has been modified to use
++# versions just like what the Microsoft build of Go uses.
++
++env TESTGO_VERSION=go1.500
++env TESTGO_VERSION_SWITCH=switch
++
++go mod init m
++
++# GOTOOLCHAIN names can have -suffix
++env GOTOOLCHAIN=go1.800-1_microsoft
++go version
++stdout go1.800-1_microsoft
++
++env GOTOOLCHAIN=auto
++go mod edit -go=1.999 -toolchain=go1.800-1_microsoft
++go version
++stdout go1.999
++
++go mod edit -go=1.777 -toolchain=go1.800-1_microsoft
++go version
++stdout go1.800-1_microsoft
++
++# toolchain built with a custom version should know how it compares to others
++
++env TESTGO_VERSION=go1.500-1_microsoft
++go mod edit -go=1.499 -toolchain=none
++go version
++stdout go1.500-1_microsoft
++
++go mod edit -go=1.499 -toolchain=go1.499
++go version
++stdout go1.500-1_microsoft
++
++go mod edit -go=1.500 -toolchain=none
++go version
++stdout go1.500-1_microsoft
++
++go mod edit -go=1.500 -toolchain=go1.500
++go version
++stdout go1.500-1_microsoft
++
++go mod edit -go=1.501 -toolchain=none
++go version
++stdout go1.501
+diff --git a/src/cmd/go/testdata/script/ms_version.txt b/src/cmd/go/testdata/script/ms_version.txt
+new file mode 100644
+index 00000000000000..bf0fbdc2a3f2ed
+--- /dev/null
++++ b/src/cmd/go/testdata/script/ms_version.txt
+@@ -0,0 +1,55 @@
++# This test checks the Microsoft-specific Go version feature behaviors.
++
++# Test 'go version' itself.
++go version
++stdout '-microsoft'
++
++env GODEBUG=
++go version
++stdout '-microsoft'
++
++env GODEBUG=ms_version=0
++go version
++! stdout '-microsoft'
++
++# Check what's embedded into a built binary.
++go build ./printversion.go
++
++env GODEBUG=
++exec ./printversion
++stdout '-microsoft'
++go version ./printversion
++stdout '-microsoft'
++
++env GODEBUG=ms_version=0
++exec ./printversion
++! stdout '-microsoft'
++go version ./printversion
++stdout '-microsoft' # GODEBUG only affects runtime.Version.
++
++# Use linker flag to embed only the upstream version.
++go build -ldflags=-ms_embedupstreamversion ./printversion.go
++
++env GODEBUG=
++exec ./printversion
++! stdout '-microsoft'
++go version ./printversion
++! stdout '-microsoft'
++
++env GODEBUG=ms_version=0
++exec ./printversion
++! stdout '-microsoft'
++go version ./printversion
++! stdout '-microsoft'
++
++-- printversion.go --
++package main
++
++import (
++    "fmt"
++    "runtime"
++)
++
++func main() {
++    fmt.Println(runtime.Version())
++}
 diff --git a/src/cmd/link/internal/ld/main.go b/src/cmd/link/internal/ld/main.go
 index 0140c385e47991..a55738a24d63c1 100644
 --- a/src/cmd/link/internal/ld/main.go
