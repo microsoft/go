@@ -90,6 +90,7 @@ Use a 'go' that was recently built by the current branch to ensure stable result
  .../v2/internal/fakecgo/ztrampolines_stubs.s  |   58 +
  .../openssl/v2/internal/ossl/asm_amd64.s      |  108 +
  .../openssl/v2/internal/ossl/asm_arm64.s      |   87 +
+ .../openssl/v2/internal/ossl/asm_others.s     |    7 +
  .../golang-fips/openssl/v2/internal/ossl/dl.h |   12 +
  .../openssl/v2/internal/ossl/errors.go        |   34 +
  .../openssl/v2/internal/ossl/errors_cgo.go    |   14 +
@@ -248,7 +249,7 @@ Use a 'go' that was recently built by the current branch to ensure stable result
  .../internal/subtle/aliasing.go               |   32 +
  .../internal/sysdll/sys_windows.go            |   55 +
  src/vendor/modules.txt                        |   23 +
- 240 files changed, 31432 insertions(+), 7 deletions(-)
+ 241 files changed, 31439 insertions(+), 7 deletions(-)
  create mode 100644 src/cmd/internal/telemetry/counter/deps_ignore.go
  create mode 100644 src/cmd/vendor/github.com/microsoft/go-infra/telemetry/LICENSE
  create mode 100644 src/cmd/vendor/github.com/microsoft/go-infra/telemetry/README.md
@@ -324,6 +325,7 @@ Use a 'go' that was recently built by the current branch to ensure stable result
  create mode 100644 src/vendor/github.com/golang-fips/openssl/v2/internal/fakecgo/ztrampolines_stubs.s
  create mode 100644 src/vendor/github.com/golang-fips/openssl/v2/internal/ossl/asm_amd64.s
  create mode 100644 src/vendor/github.com/golang-fips/openssl/v2/internal/ossl/asm_arm64.s
+ create mode 100644 src/vendor/github.com/golang-fips/openssl/v2/internal/ossl/asm_others.s
  create mode 100644 src/vendor/github.com/golang-fips/openssl/v2/internal/ossl/dl.h
  create mode 100644 src/vendor/github.com/golang-fips/openssl/v2/internal/ossl/errors.go
  create mode 100644 src/vendor/github.com/golang-fips/openssl/v2/internal/ossl/errors_cgo.go
@@ -2150,7 +2152,7 @@ index 00000000000000..ae4055d2d71303
 +// that are used by the backend package. This allows to track
 +// their versions in a single patch file.
 diff --git a/src/go.mod b/src/go.mod
-index efc07451b53448..7183aa16a655e6 100644
+index efc07451b53448..4333a7155532dc 100644
 --- a/src/go.mod
 +++ b/src/go.mod
 @@ -11,3 +11,9 @@ require (
@@ -2159,17 +2161,17 @@ index efc07451b53448..7183aa16a655e6 100644
  )
 +
 +require (
-+	github.com/golang-fips/openssl/v2 v2.0.4-0.20260115104635-63db5bc96a83
++	github.com/golang-fips/openssl/v2 v2.0.4-0.20260115115456-4e77131fa055
 +	github.com/microsoft/go-crypto-darwin v0.0.3-0.20260114113743-000278575184
 +	github.com/microsoft/go-crypto-winnative v0.0.0-20260114031524-c493765efc5f
 +)
 diff --git a/src/go.sum b/src/go.sum
-index b6b841b44d8e38..223b1d2797cf87 100644
+index b6b841b44d8e38..126eae60f4b991 100644
 --- a/src/go.sum
 +++ b/src/go.sum
 @@ -1,3 +1,9 @@
-+github.com/golang-fips/openssl/v2 v2.0.4-0.20260115104635-63db5bc96a83 h1:QeGy5Zv6lLfxzG+0PCOh06EVYPrYXI6q0UJhj+YXImU=
-+github.com/golang-fips/openssl/v2 v2.0.4-0.20260115104635-63db5bc96a83/go.mod h1:EtVnMfLGkB4pihGOH+tXEV0WlXxewWdT1n3GLJEHvpw=
++github.com/golang-fips/openssl/v2 v2.0.4-0.20260115115456-4e77131fa055 h1:I6wGxCUkueebFXN3Mn8bPJQV+XkwK9CNNlpgm3nB1O0=
++github.com/golang-fips/openssl/v2 v2.0.4-0.20260115115456-4e77131fa055/go.mod h1:EtVnMfLGkB4pihGOH+tXEV0WlXxewWdT1n3GLJEHvpw=
 +github.com/microsoft/go-crypto-darwin v0.0.3-0.20260114113743-000278575184 h1:b0PQtPdldqXsTg7yLqLo9HFUF+4Qp07Vi+ohWwTBNrU=
 +github.com/microsoft/go-crypto-darwin v0.0.3-0.20260114113743-000278575184/go.mod h1:MTii5PQwRlfUjYpGoF8CPLGwXSHTbLHGRN9FVNML5N0=
 +github.com/microsoft/go-crypto-winnative v0.0.0-20260114031524-c493765efc5f h1:SvZJthaYYoyAxBX87EnmIFn4PmT/UbvKClLiSMhK8uw=
@@ -9286,6 +9288,19 @@ index 00000000000000..025276dffb2aa5
 +	MOVD	R1, libcCallInfo_r2(R3)	// save r2
 +
 +    RET
+diff --git a/src/vendor/github.com/golang-fips/openssl/v2/internal/ossl/asm_others.s b/src/vendor/github.com/golang-fips/openssl/v2/internal/ossl/asm_others.s
+new file mode 100644
+index 00000000000000..dfc38e4106d778
+--- /dev/null
++++ b/src/vendor/github.com/golang-fips/openssl/v2/internal/ossl/asm_others.s
+@@ -0,0 +1,7 @@
++// Copyright 2009 The Go Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style
++// license that can be found in the LICENSE file.
++
++//go:build !cgo && !arm64 && !amd64
++
++// This file silences errors about body-less functions.
 diff --git a/src/vendor/github.com/golang-fips/openssl/v2/internal/ossl/dl.h b/src/vendor/github.com/golang-fips/openssl/v2/internal/ossl/dl.h
 new file mode 100644
 index 00000000000000..e94cca9e27e30a
@@ -35404,11 +35419,11 @@ index 00000000000000..1722410e5af193
 +	return getSystemDirectory() + "\\" + dll
 +}
 diff --git a/src/vendor/modules.txt b/src/vendor/modules.txt
-index b6f6376eac041a..6cb7848a29c00f 100644
+index b6f6376eac041a..42fde54eacaeda 100644
 --- a/src/vendor/modules.txt
 +++ b/src/vendor/modules.txt
 @@ -1,3 +1,26 @@
-+# github.com/golang-fips/openssl/v2 v2.0.4-0.20260115104635-63db5bc96a83
++# github.com/golang-fips/openssl/v2 v2.0.4-0.20260115115456-4e77131fa055
 +## explicit; go 1.24
 +github.com/golang-fips/openssl/v2
 +github.com/golang-fips/openssl/v2/bbig
