@@ -90,7 +90,7 @@ Subject: [PATCH] Use crypto backends
  src/crypto/tls/internal/tls13/doc.go          |  18 ++
  src/crypto/tls/internal/tls13/tls13.go        | 195 ++++++++++++++++++
  src/crypto/tls/key_schedule.go                |   2 +-
- src/crypto/tls/prf.go                         |  24 +++
+ src/crypto/tls/prf.go                         |  28 +++
  src/crypto/x509/verify_test.go                |   2 +-
  src/go/build/deps_test.go                     |  13 +-
  src/hash/boring_test.go                       |   9 +
@@ -99,7 +99,7 @@ Subject: [PATCH] Use crypto backends
  src/hash/notboring_test.go                    |   9 +
  src/net/lookup_test.go                        |   3 +
  src/os/exec/exec_test.go                      |   9 +
- 95 files changed, 1501 insertions(+), 180 deletions(-)
+ 95 files changed, 1505 insertions(+), 180 deletions(-)
  create mode 100644 src/crypto/dsa/boring.go
  create mode 100644 src/crypto/dsa/notboring.go
  create mode 100644 src/crypto/ecdsa/badlinkname.go
@@ -1657,7 +1657,7 @@ index 96df536d56f345..5ed6026962a17c 100644
  		cmd := testenv.Command(t, testenv.Executable(t), "-test.run=^TestFIPS140Only$", "-test.v")
  		cmd.Env = append(cmd.Environ(), "GODEBUG=fips140=only")
 diff --git a/src/crypto/internal/fips140test/acvp_test.go b/src/crypto/internal/fips140test/acvp_test.go
-index e94bab74fd5774..31a3cee82c5391 100644
+index 6a0b46af2bbe40..fbe7ba6992d0ce 100644
 --- a/src/crypto/internal/fips140test/acvp_test.go
 +++ b/src/crypto/internal/fips140test/acvp_test.go
 @@ -22,6 +22,8 @@ import (
@@ -1701,7 +1701,7 @@ index 817dcb9a35a793..8efc547d0d52fc 100644
  	cryptotest.MustSupportFIPS140(t)
  
 diff --git a/src/crypto/internal/fips140test/fips_test.go b/src/crypto/internal/fips140test/fips_test.go
-index 52fc9d34886003..9afaf522df475c 100644
+index 7f2824ca9ac052..f0d3b2a8459871 100644
 --- a/src/crypto/internal/fips140test/fips_test.go
 +++ b/src/crypto/internal/fips140test/fips_test.go
 @@ -15,7 +15,7 @@ package fipstest
@@ -3878,10 +3878,10 @@ index bfa22449c87178..08cda456579f64 100644
  	"hash"
  	"io"
 diff --git a/src/crypto/tls/prf.go b/src/crypto/tls/prf.go
-index 19f80ac2c91c20..8a64e75d8ad3b1 100644
+index 19f80ac2c91c20..65d5c74c5e9251 100644
 --- a/src/crypto/tls/prf.go
 +++ b/src/crypto/tls/prf.go
-@@ -7,6 +7,7 @@ package tls
+@@ -7,11 +7,13 @@ package tls
  import (
  	"crypto"
  	"crypto/hmac"
@@ -3889,7 +3889,13 @@ index 19f80ac2c91c20..8a64e75d8ad3b1 100644
  	"crypto/internal/fips140/tls12"
  	"crypto/md5"
  	"crypto/sha1"
-@@ -47,9 +48,25 @@ func pHash(result, secret, seed []byte, hash func() hash.Hash) {
+ 	"crypto/sha256"
+ 	"crypto/sha512"
++	"crypto/tls/internal/fips140tls"
+ 	"errors"
+ 	"fmt"
+ 	"hash"
+@@ -47,9 +49,28 @@ func pHash(result, secret, seed []byte, hash func() hash.Hash) {
  	}
  }
  
@@ -3906,7 +3912,10 @@ index 19f80ac2c91c20..8a64e75d8ad3b1 100644
  // prf10 implements the TLS 1.0 pseudo-random function, as defined in RFC 2246, Section 5.
  func prf10(secret []byte, label string, seed []byte, keyLen int) []byte {
  	result := make([]byte, keyLen)
-+	if boring.Enabled && boring.SupportsTLS1PRF() {
++	// Some OpenSSL providers, such as the built-in FIPS provider, do not support
++	// the TLS 1.0 PRF. We should only reach here on FIPS mode when running tests
++	// anyway, so fall back to the Go implementation in that case.
++	if boring.Enabled && !fips140tls.Required() && boring.SupportsTLS1PRF() {
 +		if err := boring.TLS1PRF(result, secret, []byte(label), seed, nil); err != nil {
 +			panic(boringPRFError{fmt.Errorf("crypto/tls: prf10: %v", err)})
 +		}
@@ -3915,7 +3924,7 @@ index 19f80ac2c91c20..8a64e75d8ad3b1 100644
  	hashSHA1 := sha1.New
  	hashMD5 := md5.New
  
-@@ -72,6 +89,13 @@ func prf10(secret []byte, label string, seed []byte, keyLen int) []byte {
+@@ -72,6 +93,13 @@ func prf10(secret []byte, label string, seed []byte, keyLen int) []byte {
  // prf12 implements the TLS 1.2 pseudo-random function, as defined in RFC 5246, Section 5.
  func prf12(hashFunc func() hash.Hash) prfFunc {
  	return func(secret []byte, label string, seed []byte, keyLen int) []byte {
@@ -4067,7 +4076,7 @@ index 2a774100a8ec67..a0cabb42b19484 100644
  
  	const testNXDOMAIN = "invalid.invalid."
 diff --git a/src/os/exec/exec_test.go b/src/os/exec/exec_test.go
-index bf2f3da535b8eb..ca66842d0753ac 100644
+index 2746ad8783ab22..448beb50aa7b74 100644
 --- a/src/os/exec/exec_test.go
 +++ b/src/os/exec/exec_test.go
 @@ -14,6 +14,7 @@ import (
