@@ -90,7 +90,8 @@ Subject: [PATCH] Use crypto backends
  src/crypto/tls/internal/tls13/doc.go          |  18 ++
  src/crypto/tls/internal/tls13/tls13.go        | 195 ++++++++++++++++++
  src/crypto/tls/key_schedule.go                |   2 +-
- src/crypto/tls/prf.go                         |  28 +++
+ src/crypto/tls/prf.go                         |  24 +++
+ src/crypto/tls/prf_test.go                    |   9 +
  src/crypto/x509/verify_test.go                |   2 +-
  src/go/build/deps_test.go                     |  13 +-
  src/hash/boring_test.go                       |   9 +
@@ -99,7 +100,7 @@ Subject: [PATCH] Use crypto backends
  src/hash/notboring_test.go                    |   9 +
  src/net/lookup_test.go                        |   3 +
  src/os/exec/exec_test.go                      |   9 +
- 95 files changed, 1505 insertions(+), 180 deletions(-)
+ 96 files changed, 1510 insertions(+), 180 deletions(-)
  create mode 100644 src/crypto/dsa/boring.go
  create mode 100644 src/crypto/dsa/notboring.go
  create mode 100644 src/crypto/ecdsa/badlinkname.go
@@ -3878,10 +3879,10 @@ index bfa22449c87178..08cda456579f64 100644
  	"hash"
  	"io"
 diff --git a/src/crypto/tls/prf.go b/src/crypto/tls/prf.go
-index 19f80ac2c91c20..65d5c74c5e9251 100644
+index 19f80ac2c91c20..8a64e75d8ad3b1 100644
 --- a/src/crypto/tls/prf.go
 +++ b/src/crypto/tls/prf.go
-@@ -7,11 +7,13 @@ package tls
+@@ -7,6 +7,7 @@ package tls
  import (
  	"crypto"
  	"crypto/hmac"
@@ -3889,13 +3890,7 @@ index 19f80ac2c91c20..65d5c74c5e9251 100644
  	"crypto/internal/fips140/tls12"
  	"crypto/md5"
  	"crypto/sha1"
- 	"crypto/sha256"
- 	"crypto/sha512"
-+	"crypto/tls/internal/fips140tls"
- 	"errors"
- 	"fmt"
- 	"hash"
-@@ -47,9 +49,28 @@ func pHash(result, secret, seed []byte, hash func() hash.Hash) {
+@@ -47,9 +48,25 @@ func pHash(result, secret, seed []byte, hash func() hash.Hash) {
  	}
  }
  
@@ -3912,10 +3907,7 @@ index 19f80ac2c91c20..65d5c74c5e9251 100644
  // prf10 implements the TLS 1.0 pseudo-random function, as defined in RFC 2246, Section 5.
  func prf10(secret []byte, label string, seed []byte, keyLen int) []byte {
  	result := make([]byte, keyLen)
-+	// Some OpenSSL providers, such as the built-in FIPS provider, do not support
-+	// the TLS 1.0 PRF. We should only reach here on FIPS mode when running tests
-+	// anyway, so fall back to the Go implementation in that case.
-+	if boring.Enabled && !fips140tls.Required() && boring.SupportsTLS1PRF() {
++	if boring.Enabled && boring.SupportsTLS1PRF() {
 +		if err := boring.TLS1PRF(result, secret, []byte(label), seed, nil); err != nil {
 +			panic(boringPRFError{fmt.Errorf("crypto/tls: prf10: %v", err)})
 +		}
@@ -3924,7 +3916,7 @@ index 19f80ac2c91c20..65d5c74c5e9251 100644
  	hashSHA1 := sha1.New
  	hashMD5 := md5.New
  
-@@ -72,6 +93,13 @@ func prf10(secret []byte, label string, seed []byte, keyLen int) []byte {
+@@ -72,6 +89,13 @@ func prf10(secret []byte, label string, seed []byte, keyLen int) []byte {
  // prf12 implements the TLS 1.2 pseudo-random function, as defined in RFC 5246, Section 5.
  func prf12(hashFunc func() hash.Hash) prfFunc {
  	return func(secret []byte, label string, seed []byte, keyLen int) []byte {
@@ -3938,6 +3930,34 @@ index 19f80ac2c91c20..65d5c74c5e9251 100644
  		return tls12.PRF(hashFunc, secret, label, seed, keyLen)
  	}
  }
+diff --git a/src/crypto/tls/prf_test.go b/src/crypto/tls/prf_test.go
+index 8233985a62bd22..ef1b2bfe02c3b7 100644
+--- a/src/crypto/tls/prf_test.go
++++ b/src/crypto/tls/prf_test.go
+@@ -5,7 +5,10 @@
+ package tls
+ 
+ import (
++	"crypto/fips140"
++	boring "crypto/internal/backend"
+ 	"encoding/hex"
++	"runtime"
+ 	"testing"
+ )
+ 
+@@ -46,6 +49,12 @@ type testKeysFromTest struct {
+ }
+ 
+ func TestKeysFromPreMasterSecret(t *testing.T) {
++	if boring.Enabled && runtime.GOOS == "linux" && fips140.Enabled() {
++		// Some OpenSSL providers don't support TLS 1.0 PRF in FIPS mode.
++		// The public crypto/tls API doesn't support it either, but these tests
++		// use internal functions.
++		t.Skip("Skipping test on systemcrypto FIPS builds")
++	}
+ 	for i, test := range testKeysFromTests {
+ 		in, _ := hex.DecodeString(test.preMasterSecret)
+ 		clientRandom, _ := hex.DecodeString(test.clientRandom)
 diff --git a/src/crypto/x509/verify_test.go b/src/crypto/x509/verify_test.go
 index f9bd313737e21b..04548c961e74a8 100644
 --- a/src/crypto/x509/verify_test.go
