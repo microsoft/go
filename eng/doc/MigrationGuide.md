@@ -140,14 +140,16 @@ After switching to the Microsoft build of Go, you may encounter new build errors
 ```
 Using GOEXPERIMENT=systemcrypto on Linux requires CGO_ENABLED=1.
 
-Consider using our CGO-less experiement by setting GOEXPERIMENT=ms_nocgo_opensslcrypto.
-	
+Consider using our cgo-less experiment by setting GOEXPERIMENT=ms_nocgo_opensslcrypto.
+
 For more information, visit https://github.com/microsoft/go/blob/microsoft/main/eng/doc/MigrationGuide.md#cgo-is-not-enabled
 ```
 
 > [!NOTE]
-> As of Go 1.26, there is a CGO-less experiment available for Linux: `ms_nocgo_opensslcrypto`.
-> This will allow use of OpenSSL without requiring cgo.
+> As of Go 1.26, there is a cgo-less experiment available for Linux: `ms_nocgo_opensslcrypto`.
+> This allows the use of OpenSSL without requiring cgo.
+>
+> While `systemcrypto` is a fully supported `GOEXPERIMENT` value (it is not "experimental"), `ms_nocgo_opensslcrypto` **is** experimental as of Go 1.26 and may have limitations.
 
 When targeting Linux, `systemcrypto` requires cgo.
 Cgo is disabled by default on some platforms or when a C compiler is not detected
