@@ -7,6 +7,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -22,7 +23,10 @@ func TestUpdateCryptoDocsReproducible(t *testing.T) {
 		t.Fatalf("Failed to generate document: %v", err)
 	}
 
-	if string(checkedIn) != generated {
+	// Normalize Git-checked-out line endings to LF for comparison.
+	actual := strings.ReplaceAll(string(checkedIn), "\r\n", "\n")
+
+	if actual != generated {
 		t.Errorf("Generated document does not match checked-in document. Run this command to update:\n  pwsh eng/run.ps1 updatecryptodocs")
 	}
 }
