@@ -91,6 +91,7 @@ Subject: [PATCH] Use crypto backends
  src/crypto/tls/internal/tls13/tls13.go        | 195 ++++++++++++++++++
  src/crypto/tls/key_schedule.go                |   2 +-
  src/crypto/tls/prf.go                         |  24 +++
+ src/crypto/tls/prf_test.go                    |   9 +
  src/crypto/x509/verify_test.go                |   2 +-
  src/go/build/deps_test.go                     |  13 +-
  src/hash/boring_test.go                       |   9 +
@@ -99,7 +100,7 @@ Subject: [PATCH] Use crypto backends
  src/hash/notboring_test.go                    |   9 +
  src/net/lookup_test.go                        |   3 +
  src/os/exec/exec_test.go                      |   9 +
- 95 files changed, 1501 insertions(+), 180 deletions(-)
+ 96 files changed, 1510 insertions(+), 180 deletions(-)
  create mode 100644 src/crypto/dsa/boring.go
  create mode 100644 src/crypto/dsa/notboring.go
  create mode 100644 src/crypto/ecdsa/badlinkname.go
@@ -1657,7 +1658,7 @@ index 96df536d56f345..5ed6026962a17c 100644
  		cmd := testenv.Command(t, testenv.Executable(t), "-test.run=^TestFIPS140Only$", "-test.v")
  		cmd.Env = append(cmd.Environ(), "GODEBUG=fips140=only")
 diff --git a/src/crypto/internal/fips140test/acvp_test.go b/src/crypto/internal/fips140test/acvp_test.go
-index e94bab74fd5774..31a3cee82c5391 100644
+index 6a0b46af2bbe40..fbe7ba6992d0ce 100644
 --- a/src/crypto/internal/fips140test/acvp_test.go
 +++ b/src/crypto/internal/fips140test/acvp_test.go
 @@ -22,6 +22,8 @@ import (
@@ -1701,7 +1702,7 @@ index 817dcb9a35a793..8efc547d0d52fc 100644
  	cryptotest.MustSupportFIPS140(t)
  
 diff --git a/src/crypto/internal/fips140test/fips_test.go b/src/crypto/internal/fips140test/fips_test.go
-index 52fc9d34886003..9afaf522df475c 100644
+index 7f2824ca9ac052..f0d3b2a8459871 100644
 --- a/src/crypto/internal/fips140test/fips_test.go
 +++ b/src/crypto/internal/fips140test/fips_test.go
 @@ -15,7 +15,7 @@ package fipstest
@@ -3929,6 +3930,34 @@ index 19f80ac2c91c20..8a64e75d8ad3b1 100644
  		return tls12.PRF(hashFunc, secret, label, seed, keyLen)
  	}
  }
+diff --git a/src/crypto/tls/prf_test.go b/src/crypto/tls/prf_test.go
+index 8233985a62bd22..ef1b2bfe02c3b7 100644
+--- a/src/crypto/tls/prf_test.go
++++ b/src/crypto/tls/prf_test.go
+@@ -5,7 +5,10 @@
+ package tls
+ 
+ import (
++	"crypto/fips140"
++	boring "crypto/internal/backend"
+ 	"encoding/hex"
++	"runtime"
+ 	"testing"
+ )
+ 
+@@ -46,6 +49,12 @@ type testKeysFromTest struct {
+ }
+ 
+ func TestKeysFromPreMasterSecret(t *testing.T) {
++	if boring.Enabled && runtime.GOOS == "linux" && fips140.Enabled() {
++		// Some OpenSSL providers don't support TLS 1.0 PRF in FIPS mode.
++		// The public crypto/tls API doesn't support it either, but these tests
++		// use internal functions.
++		t.Skip("Skipping test on systemcrypto FIPS builds")
++	}
+ 	for i, test := range testKeysFromTests {
+ 		in, _ := hex.DecodeString(test.preMasterSecret)
+ 		clientRandom, _ := hex.DecodeString(test.clientRandom)
 diff --git a/src/crypto/x509/verify_test.go b/src/crypto/x509/verify_test.go
 index f9bd313737e21b..04548c961e74a8 100644
 --- a/src/crypto/x509/verify_test.go
@@ -4067,7 +4096,7 @@ index 2a774100a8ec67..a0cabb42b19484 100644
  
  	const testNXDOMAIN = "invalid.invalid."
 diff --git a/src/os/exec/exec_test.go b/src/os/exec/exec_test.go
-index bf2f3da535b8eb..ca66842d0753ac 100644
+index 2746ad8783ab22..448beb50aa7b74 100644
 --- a/src/os/exec/exec_test.go
 +++ b/src/os/exec/exec_test.go
 @@ -14,6 +14,7 @@ import (
