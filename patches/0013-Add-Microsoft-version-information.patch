@@ -5,30 +5,28 @@ Subject: [PATCH] Add Microsoft version information
 
 Embed a Microsoft marker and the current revision into built Go binaries,
 including the Go toolset itself. This makes it easy to identify the Microsoft
-build of Go toolset through "go version", and if a binary was built by the
-Microsoft build of Go through "go version [...] <program>".
+build of Go toolset and specific version through buildinfo. For example, the
+buildinfo printed by "go version -m <program>" returns this info.
 
-Including revision means that it is also possible to determine whether
-Microsoft-specific fixes have been applied to a given Go binary built by this
-toolset.
+Includes opt-in linker flag "-ms_upstreamversion" to change the primary version
+to the Microsoft build of Go version, affecting (e.g.) "go version <program>".
 
-Includes compatibility opt out features: "ms_version=0" GODEBUG option to change
-runtime.Version() behavior, and "-ms_embedupstreamversion" ld option if
-compatibility with external inspection is the concern.
+Includes opt-in GODEBUG=ms_version=1 to change runtime.Version() to return the
+Microsoft build of Go version string.
 ---
  doc/godebug.md                                |   9 ++
  src/cmd/dist/build.go                         |  16 ++
  src/cmd/dist/buildruntime.go                  |   1 +
- src/cmd/go/go_ms_test.go                      | 147 ++++++++++++++++++
+ src/cmd/go/go_ms_test.go                      | 149 ++++++++++++++++++
  src/cmd/go/internal/cache/hash.go             |   6 +
  src/cmd/go/internal/load/pkg.go               |   2 +
  .../testdata/script/gotoolchain_local_ms.txt  |  46 ++++++
- src/cmd/link/internal/ld/main.go              |  33 +++-
- src/internal/buildcfg/cfg.go                  |  35 ++++-
+ src/cmd/link/internal/ld/main.go              |  35 +++-
+ src/internal/buildcfg/cfg.go                  |  36 ++++-
  src/internal/godebugs/table.go                |   1 +
- src/runtime/extern.go                         |  10 ++
+ src/runtime/extern.go                         |  25 ++-
  src/runtime/runtime1.go                       |   4 +
- 12 files changed, 303 insertions(+), 7 deletions(-)
+ 12 files changed, 322 insertions(+), 8 deletions(-)
  create mode 100644 src/cmd/go/go_ms_test.go
  create mode 100644 src/cmd/go/testdata/script/gotoolchain_local_ms.txt
 
@@ -93,10 +91,10 @@ index 87e88671763996..dccdca982300d7 100644
  	fmt.Fprintf(&buf, "const DefaultGOFIPS140 = `%s`\n", gofips140)
 diff --git a/src/cmd/go/go_ms_test.go b/src/cmd/go/go_ms_test.go
 new file mode 100644
-index 00000000000000..f7c9df017a35ba
+index 00000000000000..6f431716475ebf
 --- /dev/null
 +++ b/src/cmd/go/go_ms_test.go
-@@ -0,0 +1,147 @@
+@@ -0,0 +1,149 @@
 +// Copyright 2015 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -116,9 +114,9 @@ index 00000000000000..f7c9df017a35ba
 +		ms_version string
 +		wantMarker bool
 +	}{
-+		{"default", "", false}, // If the LD flag default changes, this becomes true.
++		{"default", "", false},
 +		{"0", "0", false},
-+		{"1", "1", false}, // If the LD flag default changes, this becomes true.
++		{"1", "1", true},
 +	}
 +	for _, test := range tt {
 +		t.Run("ms_version="+test.name, func(t *testing.T) {
@@ -159,11 +157,11 @@ index 00000000000000..f7c9df017a35ba
 +		wantMarker bool
 +	}{
 +		{"default", "", false},
-+		{"1", "-ms_upstreamversion=1", false},
-+		{"0", "-ms_upstreamversion=0", true},
++		{"upstream", "-ms_upstreamversion=1", false},
++		{"ms", "-ms_upstreamversion=0", true},
 +	}
 +	for _, test := range tt {
-+		t.Run("ldflag="+test.name, func(t *testing.T) {
++		t.Run(test.name, func(t *testing.T) {
 +			tg := testgo(t)
 +			defer tg.cleanup()
 +
@@ -190,14 +188,16 @@ index 00000000000000..f7c9df017a35ba
 +}
 +
 +func TestMicrosoftRuntimeVersion(t *testing.T) {
++	tooSlow(t, "compiles and links binaries")
++
 +	tt := []struct {
 +		name       string
 +		ms_version string
 +		wantMarker bool
 +	}{
-+		{"default", "", false}, // If the LD flag default changes, this becomes true.
++		{"default", "", false},
 +		{"0", "0", false},
-+		{"1", "1", false}, // If the LD flag default changes, this becomes true.
++		{"1", "1", true},
 +	}
 +	for _, test := range tt {
 +		t.Run("ms_version="+test.name, func(t *testing.T) {
@@ -213,7 +213,7 @@ index 00000000000000..f7c9df017a35ba
 +				func main() { fmt.Println(runtime.Version())}`)
 +
 +			out := tg.path("main" + exeSuffix)
-+			tg.run("build", "-ldflags=ms_upstreamversion=0", "-o", out, tg.path("main.go"))
++			tg.run("build", "-o", out, tg.path("main.go"))
 +			tg.wantExecutable(out, "go build did not create main executable")
 +
 +			cmd := exec.Command(out)
@@ -334,7 +334,7 @@ index 00000000000000..24538695be2cf2
 +go version
 +stdout go1.501
 diff --git a/src/cmd/link/internal/ld/main.go b/src/cmd/link/internal/ld/main.go
-index 0140c385e47991..4c68a80642bca6 100644
+index 0140c385e47991..727a992bdf7a11 100644
 --- a/src/cmd/link/internal/ld/main.go
 +++ b/src/cmd/link/internal/ld/main.go
 @@ -186,15 +186,20 @@ func Main(arch *sys.Arch, theArch Arch) {
@@ -364,7 +364,7 @@ index 0140c385e47991..4c68a80642bca6 100644
  
  	// TODO(matloob): define these above and then check flag values here
  	if ctxt.Arch.Family == sys.AMD64 && buildcfg.GOOS == "plan9" {
-@@ -210,10 +215,26 @@ func Main(arch *sys.Arch, theArch Arch) {
+@@ -210,10 +215,28 @@ func Main(arch *sys.Arch, theArch Arch) {
  	objabi.Flagfn1("X", "add string value `definition` of the form importpath.name=value", func(s string) { addstrdata1(ctxt, s) })
  	objabi.Flagcount("v", "print link trace", &ctxt.Debugvlog)
  	objabi.Flagfn1("importcfg", "read import configuration from `file`", ctxt.readImportCfg)
@@ -384,27 +384,30 @@ index 0140c385e47991..4c68a80642bca6 100644
 +	// Embed build version information. Microsoft build of Go version or
 +	// upstream version depending on ld flag.
 +	addstrdata1(ctxt, "runtime.buildVersion="+buildVersion)
-+	// Always save the upstream build version. This might be used by
-+	// GODEBUG=ms_version=0 at runtime.
++	// Always save the ms and upstream build versions. These are used by
++	// runtime.Version() at runtime, GODEBUG=ms_version=0 or 1 determining which
++	// one is returned.
 +	addstrdata1(ctxt, "runtime.upstreamBuildVersion="+appendExperimentVersion(buildcfg.UpstreamVersion))
++	addstrdata1(ctxt, "runtime.msBuildVersion="+appendExperimentVersion(buildcfg.MSVersion))
 +
  	if ctxt.Debugvlog > 0 {
  		// dump symbol info on crash
  		defer func() { ctxt.loader.Dump() }()
 diff --git a/src/internal/buildcfg/cfg.go b/src/internal/buildcfg/cfg.go
-index 89fd74eb823162..6eb50b4ad24f1e 100644
+index 89fd74eb823162..f6d6a78531fc75 100644
 --- a/src/internal/buildcfg/cfg.go
 +++ b/src/internal/buildcfg/cfg.go
-@@ -35,9 +35,42 @@ var (
+@@ -35,9 +35,43 @@ var (
  	ToolTags  = toolTags()
  	GO_LDSO   = defaultGO_LDSO
  	GOFIPS140 = gofips140()
 -	Version   = version
-+	Version   = msVersion()
++	Version   = MSVersion
  )
  
 +var (
 +	UpstreamVersion = version
++	MSVersion       = msVersion()
 +)
 +
 +func msVersion() string {
@@ -452,16 +455,29 @@ index 7a5ea67c7dca33..d3e5b7b71d528c 100644
  	{Name: "multipartmaxheaders", Package: "mime/multipart"},
  	{Name: "multipartmaxparts", Package: "mime/multipart"},
 diff --git a/src/runtime/extern.go b/src/runtime/extern.go
-index a9f97a1a045525..d713426f814eed 100644
+index a9f97a1a045525..991d5ef22c5df5 100644
 --- a/src/runtime/extern.go
 +++ b/src/runtime/extern.go
-@@ -367,10 +367,20 @@ func GOROOT() string {
+@@ -367,11 +367,34 @@ func GOROOT() string {
  // This is accessed by "go version <binary>".
  var buildVersion string
  
++// msBuildVersion is the Microsoft build of Go version string at build time.
++//
++// This is used when GODEBUG=ms_version=1 is set. It helps clarify what build of
++// Go is being used for diagnosis and support.
++//
++// This may intentionally duplicate buildVersion depending on linker settings.
++//
++// This is set by the linker.
++var msBuildVersion string
++
 +// upstreamBuildVersion is the version string that upstream Go would have
-+// assigned at build time. It's used when GODEBUG=ms_version=0 is set for
-+// compatibility purposes.
++// assigned at build time.
++//
++// This is used when GODEBUG=ms_version=0 is set for compatibility.
++//
++// This may intentionally duplicate buildVersion depending on linker settings.
 +//
 +// This is set by the linker.
 +var upstreamBuildVersion string
@@ -470,12 +486,14 @@ index a9f97a1a045525..d713426f814eed 100644
  // It is either the commit hash and date at the time of the build or,
  // when possible, a release tag like "go1.3".
  func Version() string {
+-	return buildVersion
 +	if debug.msversion.Load() == 0 {
 +		return upstreamBuildVersion
 +	}
- 	return buildVersion
++	return msBuildVersion
  }
  
+ // GOOS is the running program's operating system target:
 diff --git a/src/runtime/runtime1.go b/src/runtime/runtime1.go
 index 965ff8ab5167d5..2674b5d8844b18 100644
 --- a/src/runtime/runtime1.go
