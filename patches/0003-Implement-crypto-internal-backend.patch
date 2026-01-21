@@ -22,7 +22,7 @@ desired goexperiments and build tags.
  .../go/testdata/script/env_cross_build.txt    |   2 +
  .../script/test_android_issue62123.txt        |   2 +
  src/cmd/internal/testdir/testdir_test.go      |   7 +
- src/cmd/link/internal/ld/main.go              |  20 +-
+ src/cmd/link/internal/ld/main.go              |   2 +-
  src/cmd/link/link_test.go                     |   8 +
  src/crypto/internal/backend/backend_test.go   |  56 +++
  src/crypto/internal/backend/bbig/big.go       |  17 +
@@ -50,7 +50,7 @@ desired goexperiments and build tags.
  src/crypto/internal/backend/stub.s            |  10 +
  src/crypto/systemcrypto_nocgo_linux.go        |  17 +
  src/go/build/deps_test.go                     |  24 +-
- src/internal/buildcfg/exp.go                  |  57 +++
+ src/internal/buildcfg/exp.go                  |  77 ++++
  src/runtime/runtime_boring.go                 |   5 +
  src/syscall/exec_linux_test.go                |   4 +
  44 files changed, 2768 insertions(+), 20 deletions(-)
@@ -742,44 +742,18 @@ index c7060898778c88..47de9e25baa759 100644
  		gorootTestDir: filepath.Join(testenv.GOROOT(t), "test"),
  		runoutputGate: make(chan bool, *runoutputLimit),
 diff --git a/src/cmd/link/internal/ld/main.go b/src/cmd/link/internal/ld/main.go
-index a4b3a0422f2f41..ce290ab4617cfd 100644
+index a4b3a0422f2f41..0140c385e47991 100644
 --- a/src/cmd/link/internal/ld/main.go
 +++ b/src/cmd/link/internal/ld/main.go
-@@ -44,6 +44,7 @@ import (
- 	"os"
- 	"runtime"
- 	"runtime/pprof"
-+	"slices"
- 	"strconv"
- 	"strings"
- )
-@@ -188,11 +189,22 @@ func Main(arch *sys.Arch, theArch Arch) {
+@@ -187,7 +187,7 @@ func Main(arch *sys.Arch, theArch Arch) {
+ 	}
  
  	buildVersion := buildcfg.Version
- 	if goexperiment := buildcfg.Experiment.String(); goexperiment != "" {
--		sep := " "
--		if !strings.Contains(buildVersion, "-") { // See go.dev/issue/75953.
--			sep = "-"
-+		// buildVersion is intended to contain non-default experiment flags.
-+		// The Microsoft build of Go default behavior is to set the
-+		// nosystemcrypto experiments, so we don't include it in the buildVersion string.
-+		// This is also important because runtime.Version() gets the value from
-+		// the buildVersion string, and many code out there, e.g. the standard library
-+		// go/version package, doesn't expect the version to contain experiments.
-+		goexperiment = strings.Join(slices.DeleteFunc(strings.Split(goexperiment, ","), func(s string) bool {
-+			return s == "nosystemcrypto" || s == "ms_nocgo_opensslcrypto"
-+		}), ",")
-+		if goexperiment != "" {
-+			sep := " "
-+			if !strings.Contains(buildVersion, "-") { // See go.dev/issue/75953.
-+				sep = "-"
-+			}
-+			buildVersion += sep + "X:" + goexperiment
- 		}
--		buildVersion += sep + "X:" + goexperiment
- 	}
- 	addstrdata1(ctxt, "runtime.buildVersion="+buildVersion)
- 
+-	if goexperiment := buildcfg.Experiment.String(); goexperiment != "" {
++	if goexperiment := buildcfg.Experiment.MSString(); goexperiment != "" {
+ 		sep := " "
+ 		if !strings.Contains(buildVersion, "-") { // See go.dev/issue/75953.
+ 			sep = "-"
 diff --git a/src/cmd/link/link_test.go b/src/cmd/link/link_test.go
 index 036eda13bc8807..33a79409ecc1fe 100644
 --- a/src/cmd/link/link_test.go
@@ -3267,7 +3241,7 @@ index 3f2b2399ec4127..f52b6b1ac71711 100644
  	< crypto/rand
  	< crypto/ed25519 # depends on crypto/rand.Reader
 diff --git a/src/internal/buildcfg/exp.go b/src/internal/buildcfg/exp.go
-index 0c25f3cce97202..4bcb62b7c63fe6 100644
+index 0c25f3cce97202..0ec29033d9de89 100644
 --- a/src/internal/buildcfg/exp.go
 +++ b/src/internal/buildcfg/exp.go
 @@ -5,12 +5,15 @@
@@ -3347,6 +3321,33 @@ index 0c25f3cce97202..4bcb62b7c63fe6 100644
  	return flags, nil
  }
  
+@@ -203,6 +260,26 @@ func (exp *ExperimentFlags) String() string {
+ 	return strings.Join(expList(&exp.Flags, &exp.baseline, false), ",")
+ }
+ 
++// MSString returns the canonical GOEXPERIMENT string to enable this experiment
++// configuration. This is a modified version of what's returned by
++// [ExperimentFlags.String] that ensures experiments that have a different
++// baseline in the Microsoft build of Go are elided.
++//
++// Elision is important because this method is involved in the value of
++// runtime.Version(), and many usages out there, e.g. the standard library
++// go/version package, don't expect the version to contain experiments.
++func (exp *ExperimentFlags) MSString() string {
++	// Parse [String] rather than calling expList directly so that changes to
++	// [String] are reflected in [MSString] without careful tracking.
++	exps := strings.Split(exp.String(), ",")
++	// The Microsoft build of Go default behavior sets a few experiments that we
++	// need to remove from the result.
++	exps = slices.DeleteFunc(exps, func(s string) bool {
++		return s == "nosystemcrypto" || s == "ms_nocgo_opensslcrypto"
++	})
++	return strings.Join(exps, ",")
++}
++
+ // expList returns the list of lower-cased experiment names for
+ // experiments that differ from base. base may be nil to indicate no
+ // experiments. If all is true, then include all experiment flags,
 diff --git a/src/runtime/runtime_boring.go b/src/runtime/runtime_boring.go
 index 831ee67afc952d..d2f00d57c10286 100644
 --- a/src/runtime/runtime_boring.go
