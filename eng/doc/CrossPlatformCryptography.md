@@ -146,8 +146,6 @@ This section includes the following packages:
 
 - [crypto/rsa](https://pkg.go.dev/crypto/rsa)
 
-[rsa.GenerateKey](https://pkg.go.dev/crypto/rsa#GenerateKey) only supports the following key sizes (in bits): 2048, 3072, 4096.
-
 Multi-prime RSA keys are not supported.
 
 The RSA key size is subject to the limitations of the underlying cryptographic library.

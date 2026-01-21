@@ -270,7 +270,7 @@ func build(o *options) (err error) {
 				if version, err = writeDevelVersionFile(goRootDir, executableExtension); err != nil {
 					return fmt.Errorf("unable to pack: failed writing development VERSION file: %v", err)
 				}
-				// Best effort: clean up the VERSION file when we're done. This is just for dev
+				// Best effort: clean up the VERSION file when we're done. Clean up for tidier dev
 				// workflows: the temp VERSION file should never be checked in.
 				defer os.Remove(filepath.Join(goRootDir, "VERSION"))
 			} else {
@@ -279,6 +279,20 @@ func build(o *options) (err error) {
 		} else {
 			version, _, _ = strings.Cut(string(data), "\n")
 		}
+		// We also need to copy our MICROSOFT_REVISION file in so the toolset can report that it's a
+		// Microsoft build of a specific revision and embed that info into built binaries.
+		microsoftRevisionDst := filepath.Join(goRootDir, "MICROSOFT_REVISION")
+		if err := copyFile(microsoftRevisionDst, filepath.Join(rootDir, "MICROSOFT_REVISION")); err != nil {
+			if !errors.Is(err, os.ErrNotExist) {
+				return fmt.Errorf("unable to pack: failed to read MICROSOFT_REVISION file for unexpected reason: %v", err)
+			}
+			// Ok: a main branch or pre-stable release branch has no MICROSOFT_REVISION file.
+		} else {
+			// Best effort: clean up the MICROSOFT_REVISION file when we're done. Clean up for
+			// tidier dev workflows: the temp MICROSOFT_REVISION file should never be checked in.
+			defer os.Remove(microsoftRevisionDst)
+		}
+
 		cmd := exec.Command(filepath.Join(goRootDir, "bin", "go"+executableExtension), "tool", "distpack")
 		cmd.Env = append(os.Environ(), "GOROOT="+goRootDir)
 		cmd.Stdout = os.Stdout

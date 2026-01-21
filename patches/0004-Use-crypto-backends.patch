@@ -21,6 +21,7 @@ Subject: [PATCH] Use crypto backends
  src/crypto/des/cipher.go                      |   7 +
  src/crypto/dsa/boring.go                      | 113 ++++++++++
  src/crypto/dsa/dsa.go                         |  88 ++++++++
+ src/crypto/dsa/dsa_test.go                    |   8 +
  src/crypto/dsa/notboring.go                   |  16 ++
  src/crypto/ecdh/ecdh.go                       |   2 +-
  src/crypto/ecdh/ecdh_test.go                  |  17 +-
@@ -65,11 +66,11 @@ Subject: [PATCH] Use crypto backends
  src/crypto/rsa/darwin.go                      |  71 +++++++
  src/crypto/rsa/fips.go                        |  22 +-
  src/crypto/rsa/notboring.go                   |   4 +-
- src/crypto/rsa/pkcs1v15.go                    |  11 +-
+ src/crypto/rsa/pkcs1v15.go                    |  10 +-
  src/crypto/rsa/pkcs1v15_test.go               |   5 +
  src/crypto/rsa/pss_test.go                    |  13 +-
- src/crypto/rsa/rsa.go                         |  13 +-
- src/crypto/rsa/rsa_test.go                    |  12 +-
+ src/crypto/rsa/rsa.go                         |  16 +-
+ src/crypto/rsa/rsa_test.go                    |   7 +-
  src/crypto/sha1/sha1.go                       |   8 +-
  src/crypto/sha1/sha1_test.go                  |  11 +-
  src/crypto/sha256/sha256.go                   |   6 +-
@@ -78,18 +79,19 @@ Subject: [PATCH] Use crypto backends
  src/crypto/sha3/sha3_test.go                  |  18 +-
  src/crypto/sha512/sha512.go                   |   2 +-
  src/crypto/sha512/sha512_test.go              |  32 ++-
- src/crypto/tls/auth_test.go                   |   7 +
+ src/crypto/tls/auth_test.go                   |   1 +
  src/crypto/tls/cipher_suites.go               |  10 +-
  src/crypto/tls/fipsonly/fipsonly.go           |   2 +-
  src/crypto/tls/fipsonly/fipsonly_test.go      |   2 +-
- src/crypto/tls/handshake_client.go            |  12 +-
+ src/crypto/tls/handshake_client.go            |  17 +-
  src/crypto/tls/handshake_client_tls13.go      |   2 +-
- src/crypto/tls/handshake_server.go            |  10 +-
+ src/crypto/tls/handshake_server.go            |  15 +-
  src/crypto/tls/handshake_server_tls13.go      |   5 +-
  src/crypto/tls/internal/tls13/doc.go          |  18 ++
  src/crypto/tls/internal/tls13/tls13.go        | 195 ++++++++++++++++++
  src/crypto/tls/key_schedule.go                |   2 +-
- src/crypto/tls/prf.go                         |  41 ++++
+ src/crypto/tls/prf.go                         |  24 +++
+ src/crypto/tls/prf_test.go                    |   9 +
  src/crypto/x509/verify_test.go                |   2 +-
  src/go/build/deps_test.go                     |  13 +-
  src/hash/boring_test.go                       |   9 +
@@ -98,7 +100,7 @@ Subject: [PATCH] Use crypto backends
  src/hash/notboring_test.go                    |   9 +
  src/net/lookup_test.go                        |   3 +
  src/os/exec/exec_test.go                      |   9 +
- 94 files changed, 1505 insertions(+), 178 deletions(-)
+ 96 files changed, 1504 insertions(+), 180 deletions(-)
  create mode 100644 src/crypto/dsa/boring.go
  create mode 100644 src/crypto/dsa/notboring.go
  create mode 100644 src/crypto/ecdsa/badlinkname.go
@@ -751,6 +753,34 @@ index 6724f861b7f2f0..4bda65558882a2 100644
 +		c.AddBytes(bytes)
 +	})
 +}
+diff --git a/src/crypto/dsa/dsa_test.go b/src/crypto/dsa/dsa_test.go
+index ad85eac0a7f0b1..bf0d5eb077b2b1 100644
+--- a/src/crypto/dsa/dsa_test.go
++++ b/src/crypto/dsa/dsa_test.go
+@@ -5,8 +5,11 @@
+ package dsa
+ 
+ import (
++	"crypto/fips140"
++	boring "crypto/internal/backend"
+ 	"crypto/rand"
+ 	"math/big"
++	"runtime"
+ 	"testing"
+ )
+ 
+@@ -83,6 +86,11 @@ func fromHex(s string) *big.Int {
+ }
+ 
+ func TestSignAndVerify(t *testing.T) {
++	if boring.Enabled && runtime.GOOS == "linux" && fips140.Enabled() {
++		// Some OpenSSL providers don't support DSA signing in FIPS mode.
++		t.Skip("skipping DSA test in FIPS mode")
++	}
++
+ 	priv := PrivateKey{
+ 		PublicKey: PublicKey{
+ 			Parameters: Parameters{
 diff --git a/src/crypto/dsa/notboring.go b/src/crypto/dsa/notboring.go
 new file mode 100644
 index 00000000000000..cd02ff5a00c3dc
@@ -1628,7 +1658,7 @@ index 96df536d56f345..5ed6026962a17c 100644
  		cmd := testenv.Command(t, testenv.Executable(t), "-test.run=^TestFIPS140Only$", "-test.v")
  		cmd.Env = append(cmd.Environ(), "GODEBUG=fips140=only")
 diff --git a/src/crypto/internal/fips140test/acvp_test.go b/src/crypto/internal/fips140test/acvp_test.go
-index e94bab74fd5774..31a3cee82c5391 100644
+index 6a0b46af2bbe40..fbe7ba6992d0ce 100644
 --- a/src/crypto/internal/fips140test/acvp_test.go
 +++ b/src/crypto/internal/fips140test/acvp_test.go
 @@ -22,6 +22,8 @@ import (
@@ -1672,7 +1702,7 @@ index 817dcb9a35a793..8efc547d0d52fc 100644
  	cryptotest.MustSupportFIPS140(t)
  
 diff --git a/src/crypto/internal/fips140test/fips_test.go b/src/crypto/internal/fips140test/fips_test.go
-index 52fc9d34886003..9afaf522df475c 100644
+index 7f2824ca9ac052..f0d3b2a8459871 100644
 --- a/src/crypto/internal/fips140test/fips_test.go
 +++ b/src/crypto/internal/fips140test/fips_test.go
 @@ -15,7 +15,7 @@ package fipstest
@@ -2391,7 +2421,7 @@ index 00000000000000..1b9c63523ee90e
 +	return builder.Bytes()
 +}
 diff --git a/src/crypto/rsa/fips.go b/src/crypto/rsa/fips.go
-index fb2395886b053b..6b1b6ad96a1366 100644
+index fb2395886b053b..ac0ad4f9490a8b 100644
 --- a/src/crypto/rsa/fips.go
 +++ b/src/crypto/rsa/fips.go
 @@ -6,7 +6,7 @@ package rsa
@@ -2408,7 +2438,7 @@ index fb2395886b053b..6b1b6ad96a1366 100644
  	}
  
 -	if boring.Enabled && rand.IsDefaultReader(random) {
-+	if boring.Enabled && rand.IsDefaultReader(random) && boring.SupportsRSASaltLength(true, opts.saltLength()) && boring.SupportsRSAKeyPrimes(len(priv.Primes)) && boring.SupportsHash(hash) {
++	if boring.Enabled && rand.IsDefaultReader(random) && boring.SupportsRSASaltLength(true, opts.saltLength()) && boring.SupportsRSAPrivateKey(priv.N.BitLen(), len(priv.Primes)) && boring.SupportsHash(hash) {
  		bkey, err := boringPrivateKey(priv)
  		if err != nil {
  			return nil, err
@@ -2417,7 +2447,7 @@ index fb2395886b053b..6b1b6ad96a1366 100644
  	}
  
 -	if boring.Enabled {
-+	if boring.Enabled && boring.SupportsRSASaltLength(false, opts.saltLength()) && boring.SupportsHash(hash) {
++	if boring.Enabled && boring.SupportsRSASaltLength(false, opts.saltLength()) && boring.SupportsRSAPublicKey(pub.N.BitLen()) && boring.SupportsHash(hash) {
  		bkey, err := boringPublicKey(pub)
  		if err != nil {
  			return err
@@ -2442,7 +2472,7 @@ index fb2395886b053b..6b1b6ad96a1366 100644
  	defer mgfHash.Reset()
  
 -	if boring.Enabled && rand.IsDefaultReader(random) {
-+	if boring.Enabled && rand.IsDefaultReader(random) && boring.SupportsRSAOAEPLabel(label) && hash == mgfHash {
++	if boring.Enabled && rand.IsDefaultReader(random) && boring.SupportsRSAPublicKey(pub.N.BitLen()) && boring.SupportsRSAOAEPLabel(label) && hash == mgfHash {
  		k := pub.Size()
  		if len(msg) > k-2*hash.Size()-2 {
  			return nil, ErrMessageTooLong
@@ -2451,7 +2481,7 @@ index fb2395886b053b..6b1b6ad96a1366 100644
  	}
  
 -	if boring.Enabled {
-+	if boring.Enabled && boring.SupportsRSAKeyPrimes(len(priv.Primes)) && boring.SupportsRSAOAEPLabel(label) && hash == mgfHash {
++	if boring.Enabled && boring.SupportsRSAPrivateKey(priv.N.BitLen(), len(priv.Primes)) && boring.SupportsRSAOAEPLabel(label) && hash == mgfHash {
  		k := priv.Size()
  		if len(ciphertext) > k ||
  			k < hash.Size()*2+2 {
@@ -2460,7 +2490,7 @@ index fb2395886b053b..6b1b6ad96a1366 100644
  	}
  
 -	if boring.Enabled {
-+	if boring.Enabled && boring.SupportsRSAKeyPrimes(len(priv.Primes)) && boring.SupportsRSAPKCS1v15Signature(hash) {
++	if boring.Enabled && boring.SupportsRSAPrivateKey(priv.N.BitLen(), len(priv.Primes)) && boring.SupportsRSAPKCS1v15Signature(hash) {
  		bkey, err := boringPrivateKey(priv)
  		if err != nil {
  			return nil, err
@@ -2469,7 +2499,7 @@ index fb2395886b053b..6b1b6ad96a1366 100644
  	}
  
 -	if boring.Enabled {
-+	if boring.Enabled && boring.SupportsRSAPKCS1v15Signature(hash) {
++	if boring.Enabled && boring.SupportsRSAPublicKey(pub.N.BitLen()) && boring.SupportsRSAPKCS1v15Signature(hash) {
  		bkey, err := boringPublicKey(pub)
  		if err != nil {
  			return err
@@ -2492,52 +2522,51 @@ index 2abc0436405f8a..3e4d6f3eef61e6 100644
  func boringPublicKey(*PublicKey) (*boring.PublicKeyRSA, error) {
  	panic("boringcrypto: not available")
 diff --git a/src/crypto/rsa/pkcs1v15.go b/src/crypto/rsa/pkcs1v15.go
-index 5269d7b971bda7..8edad9da73698a 100644
+index 5269d7b971bda7..003030ec762ebf 100644
 --- a/src/crypto/rsa/pkcs1v15.go
 +++ b/src/crypto/rsa/pkcs1v15.go
-@@ -5,7 +5,8 @@
+@@ -5,7 +5,7 @@
  package rsa
  
  import (
 -	"crypto/internal/boring"
-+	"crypto/internal/backend"
 +	boring "crypto/internal/backend"
  	"crypto/internal/fips140/rsa"
  	"crypto/internal/fips140only"
  	"crypto/internal/rand"
-@@ -61,7 +62,7 @@ func EncryptPKCS1v15(random io.Reader, pub *PublicKey, msg []byte) ([]byte, erro
+@@ -61,7 +61,7 @@ func EncryptPKCS1v15(random io.Reader, pub *PublicKey, msg []byte) ([]byte, erro
  		return nil, ErrMessageTooLong
  	}
  
 -	if boring.Enabled && rand.IsDefaultReader(random) {
-+	if boring.Enabled && rand.IsDefaultReader(random) && backend.SupportsRSAPKCS1v15Encryption() {
++	if boring.Enabled && rand.IsDefaultReader(random) && boring.SupportsRSAPublicKey(pub.N.BitLen()) && boring.SupportsRSAPKCS1v15Encryption() {
  		bkey, err := boringPublicKey(pub)
  		if err != nil {
  			return nil, err
-@@ -83,7 +84,7 @@ func EncryptPKCS1v15(random io.Reader, pub *PublicKey, msg []byte) ([]byte, erro
+@@ -83,7 +83,7 @@ func EncryptPKCS1v15(random io.Reader, pub *PublicKey, msg []byte) ([]byte, erro
  	em[len(em)-len(msg)-1] = 0
  	copy(mm, msg)
  
 -	if boring.Enabled {
-+	if boring.Enabled && backend.SupportsRSAPKCS1v15Encryption() {
++	if boring.Enabled && boring.SupportsRSAPublicKey(pub.N.BitLen()) && boring.SupportsRSAPKCS1v15Encryption() {
  		var bkey *boring.PublicKeyRSA
  		bkey, err = boringPublicKey(pub)
  		if err != nil {
-@@ -115,7 +116,7 @@ func DecryptPKCS1v15(random io.Reader, priv *PrivateKey, ciphertext []byte) ([]b
+@@ -115,7 +115,7 @@ func DecryptPKCS1v15(random io.Reader, priv *PrivateKey, ciphertext []byte) ([]b
  		return nil, err
  	}
  
 -	if boring.Enabled {
-+	if boring.Enabled && boring.SupportsRSAKeyPrimes(len(priv.Primes)) && backend.SupportsRSAPKCS1v15Encryption() {
++	if boring.Enabled && boring.SupportsRSAPrivateKey(priv.N.BitLen(), len(priv.Primes)) && boring.SupportsRSAPKCS1v15Encryption() {
  		bkey, err := boringPrivateKey(priv)
  		if err != nil {
  			return nil, err
-@@ -221,7 +222,7 @@ func decryptPKCS1v15(priv *PrivateKey, ciphertext []byte) (valid int, em []byte,
+@@ -221,7 +221,7 @@ func decryptPKCS1v15(priv *PrivateKey, ciphertext []byte) (valid int, em []byte,
  		return 0, nil, 0, err
  	}
  
 -	if boring.Enabled {
-+	if boring.Enabled && boring.SupportsRSAKeyPrimes(len(priv.Primes)) && backend.SupportsRSAPKCS1v15Encryption() {
++	if boring.Enabled && boring.SupportsRSAPrivateKey(priv.N.BitLen(), len(priv.Primes)) && boring.SupportsRSAPKCS1v15Encryption() {
  		var bkey *boring.PrivateKeyRSA
  		bkey, err = boringPrivateKey(priv)
  		if err != nil {
@@ -2616,7 +2645,7 @@ index e03f4ab06603c6..cd44f3af23b0d4 100644
  		t.Fatal(err)
  	}
 diff --git a/src/crypto/rsa/rsa.go b/src/crypto/rsa/rsa.go
-index b94b129867727b..5cbedca4d3888d 100644
+index b94b129867727b..9482325d58fe06 100644
 --- a/src/crypto/rsa/rsa.go
 +++ b/src/crypto/rsa/rsa.go
 @@ -43,8 +43,8 @@ package rsa
@@ -2647,8 +2676,18 @@ index b94b129867727b..5cbedca4d3888d 100644
  
  	case *PKCS1v15DecryptOptions:
  		if l := opts.SessionKeyLen; l > 0 {
+@@ -314,8 +315,7 @@ func GenerateKey(random io.Reader, bits int) (*PrivateKey, error) {
+ 		return nil, err
+ 	}
+ 
+-	if boring.Enabled && rand.IsDefaultReader(random) &&
+-		(bits == 2048 || bits == 3072 || bits == 4096) {
++	if boring.Enabled && rand.IsDefaultReader(random) && boring.SupportsRSAPublicKey(bits) {
+ 		bN, bE, bD, bP, bQ, bDp, bDq, bQinv, err := boring.GenerateKeyRSA(bits)
+ 		if err != nil {
+ 			return nil, err
 diff --git a/src/crypto/rsa/rsa_test.go b/src/crypto/rsa/rsa_test.go
-index 5ae4c1dd203874..678e94ade86af6 100644
+index 124fba1e8a4faa..af6d8e9291af62 100644
 --- a/src/crypto/rsa/rsa_test.go
 +++ b/src/crypto/rsa/rsa_test.go
 @@ -8,7 +8,7 @@ import (
@@ -2660,7 +2699,7 @@ index 5ae4c1dd203874..678e94ade86af6 100644
  	"crypto/internal/cryptotest"
  	"crypto/internal/fips140"
  	"crypto/rand"
-@@ -151,6 +151,11 @@ func testKeyBasics(t *testing.T, priv *PrivateKey) {
+@@ -157,6 +157,11 @@ func testKeyBasics(t *testing.T, priv *PrivateKey) {
  	if priv.D.Cmp(priv.N) > 0 {
  		t.Errorf("private exponent too large")
  	}
@@ -2671,18 +2710,6 @@ index 5ae4c1dd203874..678e94ade86af6 100644
 +	}
  
  	msg := []byte("hi!")
- 	enc, err := EncryptPKCS1v15(rand.Reader, &priv.PublicKey, msg)
-@@ -231,6 +236,11 @@ func testEverything(t *testing.T, priv *PrivateKey) {
- 	if validateErr != nil && len(priv.Primes) >= 2 {
- 		t.Errorf("Validate() failed: %s", validateErr)
- 	}
-+	if boring.Enabled && priv.N.BitLen() < 512 {
-+		// Some crypto backends (e.g. CNG and OpenSSL with SymCrypt) don't support key sizes
-+		// lower than 512 and intentionally fail rather than fall back to Go crypto.
-+		t.Skip("skipping allocations test with BoringCrypto")
-+	}
- 
- 	msg := []byte("test")
  	enc, err := EncryptPKCS1v15(rand.Reader, &priv.PublicKey, msg)
 diff --git a/src/crypto/sha1/sha1.go b/src/crypto/sha1/sha1.go
 index 46e47df1d32cf2..0fb56a3831c8a2 100644
@@ -3437,19 +3464,13 @@ index 080bf694f03652..0c899f5c407ffa 100644
  	})
  }
 diff --git a/src/crypto/tls/auth_test.go b/src/crypto/tls/auth_test.go
-index 727bdc4df76393..73dee851e1bb4a 100644
+index 727bdc4df76393..5a770fcb9e85c9 100644
 --- a/src/crypto/tls/auth_test.go
 +++ b/src/crypto/tls/auth_test.go
-@@ -67,6 +67,13 @@ func TestSignatureSelection(t *testing.T) {
+@@ -67,6 +67,7 @@ func TestSignatureSelection(t *testing.T) {
  			t.Logf("skipping test[%d] - not compatible with TLS FIPS mode", testNo)
  			continue
  		}
-+
-+		if fips140tls.Required() && test.expectedSigAlg == Ed25519 {
-+			// CNG and SymCrypt do not support Ed25519.
-+			t.Logf("skipping test[%d] - Ed25519 is not compatible with Microsoft TLS FIPS mode", testNo)
-+			continue
-+		}
 +
  		savedGODEBUG := os.Getenv("GODEBUG")
  		os.Setenv("GODEBUG", savedGODEBUG+","+test.godebug)
@@ -3509,7 +3530,7 @@ index 027bc22c33c921..eba08da985f832 100644
  package fipsonly
  
 diff --git a/src/crypto/tls/handshake_client.go b/src/crypto/tls/handshake_client.go
-index c2b1b7037a46cf..4f89d96ec5de28 100644
+index c2b1b7037a46cf..f490c3fc5b1cae 100644
 --- a/src/crypto/tls/handshake_client.go
 +++ b/src/crypto/tls/handshake_client.go
 @@ -11,10 +11,10 @@ import (
@@ -3524,17 +3545,22 @@ index c2b1b7037a46cf..4f89d96ec5de28 100644
  	"crypto/x509"
  	"errors"
  	"fmt"
-@@ -514,7 +514,15 @@ func (c *Conn) pickTLSVersion(serverHello *serverHelloMsg) error {
+@@ -514,7 +514,20 @@ func (c *Conn) pickTLSVersion(serverHello *serverHelloMsg) error {
  
  // Does the handshake, either a full one or resumes old session. Requires hs.c,
  // hs.hello, hs.serverHello, and, optionally, hs.session to be set.
 -func (hs *clientHandshakeState) handshake() error {
 +func (hs *clientHandshakeState) handshake() (err error) {
 +	defer func() {
-+		if err == nil {
-+			err = recoverFromBoringPRFError()
-+			if err != nil {
++		if err != nil {
++			return
++		}
++		if p := recover(); p != nil {
++			if err1, ok := p.(boringPRFError); ok {
++				err = err1.err
 +				hs.c.sendAlert(alertInternalError)
++			} else {
++				panic(p)
 +			}
 +		}
 +	}()
@@ -3557,20 +3583,25 @@ index 77a24b4a78d8fc..84724fac5f951e 100644
  	"hash"
  	"slices"
 diff --git a/src/crypto/tls/handshake_server.go b/src/crypto/tls/handshake_server.go
-index efdaeae6f7e39a..491c6d5a0e5d56 100644
+index 06675a8ce9d2a1..9b761f256f4fcf 100644
 --- a/src/crypto/tls/handshake_server.go
 +++ b/src/crypto/tls/handshake_server.go
-@@ -63,7 +63,15 @@ func (c *Conn) serverHandshake(ctx context.Context) error {
+@@ -63,7 +63,20 @@ func (c *Conn) serverHandshake(ctx context.Context) error {
  	return hs.handshake()
  }
  
 -func (hs *serverHandshakeState) handshake() error {
 +func (hs *serverHandshakeState) handshake() (err error) {
 +	defer func() {
-+		if err == nil {
-+			err = recoverFromBoringPRFError()
-+			if err != nil {
++		if err != nil {
++			return
++		}
++		if p := recover(); p != nil {
++			if err1, ok := p.(boringPRFError); ok {
++				err = err1.err
 +				hs.c.sendAlert(alertInternalError)
++			} else {
++				panic(p)
 +			}
 +		}
 +	}()
@@ -3578,7 +3609,7 @@ index efdaeae6f7e39a..491c6d5a0e5d56 100644
  
  	if err := hs.processClientHello(); err != nil {
 diff --git a/src/crypto/tls/handshake_server_tls13.go b/src/crypto/tls/handshake_server_tls13.go
-index b066924e291686..c81d0e56598634 100644
+index 0033164f65da8c..04e995eddcf6c1 100644
 --- a/src/crypto/tls/handshake_server_tls13.go
 +++ b/src/crypto/tls/handshake_server_tls13.go
 @@ -11,9 +11,9 @@ import (
@@ -3592,7 +3623,7 @@ index b066924e291686..c81d0e56598634 100644
  	"errors"
  	"fmt"
  	"hash"
-@@ -447,9 +447,6 @@ func cloneHash(in hash.Hash, h crypto.Hash) hash.Hash {
+@@ -453,9 +453,6 @@ func cloneHash(in hash.Hash, h crypto.Hash) hash.Hash {
  		UnmarshalBinary(data []byte) error
  	}
  	marshaler, ok := in.(binaryMarshaler)
@@ -3842,7 +3873,7 @@ index bfa22449c87178..08cda456579f64 100644
  	"hash"
  	"io"
 diff --git a/src/crypto/tls/prf.go b/src/crypto/tls/prf.go
-index 19f80ac2c91c20..1502dd121c0361 100644
+index 19f80ac2c91c20..8a64e75d8ad3b1 100644
 --- a/src/crypto/tls/prf.go
 +++ b/src/crypto/tls/prf.go
 @@ -7,6 +7,7 @@ package tls
@@ -3853,10 +3884,12 @@ index 19f80ac2c91c20..1502dd121c0361 100644
  	"crypto/internal/fips140/tls12"
  	"crypto/md5"
  	"crypto/sha1"
-@@ -47,9 +48,42 @@ func pHash(result, secret, seed []byte, hash func() hash.Hash) {
+@@ -47,9 +48,25 @@ func pHash(result, secret, seed []byte, hash func() hash.Hash) {
  	}
  }
  
++// boringPRFError can happen, for example, if the seed is too large. The Go implementation doesn't limit the seed size,
++// as RFC 5705 doesn't specify a limit, but stock OpenSSL restrict it to 1024 and CNG to 256.
 +type boringPRFError struct {
 +	err error
 +}
@@ -3865,51 +3898,60 @@ index 19f80ac2c91c20..1502dd121c0361 100644
 +	return e.err.Error()
 +}
 +
-+// recoverFromBoringPRFError recovers from a panic caused by the boring backend.
-+// It returns the error if it was a boringPRFError, or panics if the panic was
-+// caused by something else.
-+func recoverFromBoringPRFError() error {
-+	if p := recover(); p != nil {
-+		if err, ok := p.(boringPRFError); ok {
-+			// Could happen, for example, if the seed is too large. The Go implementation doesn't limit the seed size,
-+			// as RFC 5705 doesn't specify a limit, but stock OpenSSL restrict it to 1024 and CNG to 256.
-+			return err.err
-+		}
-+		panic(p)
-+	}
-+	return nil
-+}
-+
-+func panicBoringPRFError(err error) {
-+	panic(boringPRFError{err})
-+}
-+
  // prf10 implements the TLS 1.0 pseudo-random function, as defined in RFC 2246, Section 5.
  func prf10(secret []byte, label string, seed []byte, keyLen int) []byte {
  	result := make([]byte, keyLen)
 +	if boring.Enabled && boring.SupportsTLS1PRF() {
 +		if err := boring.TLS1PRF(result, secret, []byte(label), seed, nil); err != nil {
-+			panicBoringPRFError(fmt.Errorf("crypto/tls: prf10: %v", err))
++			panic(boringPRFError{fmt.Errorf("crypto/tls: prf10: %v", err)})
 +		}
 +		return result
 +	}
  	hashSHA1 := sha1.New
  	hashMD5 := md5.New
  
-@@ -72,6 +106,13 @@ func prf10(secret []byte, label string, seed []byte, keyLen int) []byte {
+@@ -72,6 +89,13 @@ func prf10(secret []byte, label string, seed []byte, keyLen int) []byte {
  // prf12 implements the TLS 1.2 pseudo-random function, as defined in RFC 5246, Section 5.
  func prf12(hashFunc func() hash.Hash) prfFunc {
  	return func(secret []byte, label string, seed []byte, keyLen int) []byte {
 +		if boring.Enabled && boring.SupportsTLS1PRF() {
 +			result := make([]byte, keyLen)
 +			if err := boring.TLS1PRF(result, secret, []byte(label), seed, hashFunc); err != nil {
-+				panicBoringPRFError(fmt.Errorf("crypto/tls: prf12: %v", err))
++				panic(boringPRFError{fmt.Errorf("crypto/tls: prf12: %v", err)})
 +			}
 +			return result
 +		}
  		return tls12.PRF(hashFunc, secret, label, seed, keyLen)
  	}
  }
+diff --git a/src/crypto/tls/prf_test.go b/src/crypto/tls/prf_test.go
+index 8233985a62bd22..ef1b2bfe02c3b7 100644
+--- a/src/crypto/tls/prf_test.go
++++ b/src/crypto/tls/prf_test.go
+@@ -5,7 +5,10 @@
+ package tls
+ 
+ import (
++	"crypto/fips140"
++	boring "crypto/internal/backend"
+ 	"encoding/hex"
++	"runtime"
+ 	"testing"
+ )
+ 
+@@ -46,6 +49,12 @@ type testKeysFromTest struct {
+ }
+ 
+ func TestKeysFromPreMasterSecret(t *testing.T) {
++	if boring.Enabled && runtime.GOOS == "linux" && fips140.Enabled() {
++		// Some OpenSSL providers don't support TLS 1.0 PRF in FIPS mode.
++		// The public crypto/tls API doesn't support it either, but these tests
++		// use internal functions.
++		t.Skip("Skipping test on systemcrypto FIPS builds")
++	}
+ 	for i, test := range testKeysFromTests {
+ 		in, _ := hex.DecodeString(test.preMasterSecret)
+ 		clientRandom, _ := hex.DecodeString(test.clientRandom)
 diff --git a/src/crypto/x509/verify_test.go b/src/crypto/x509/verify_test.go
 index f9bd313737e21b..04548c961e74a8 100644
 --- a/src/crypto/x509/verify_test.go
@@ -4048,7 +4090,7 @@ index 2a774100a8ec67..a0cabb42b19484 100644
  
  	const testNXDOMAIN = "invalid.invalid."
 diff --git a/src/os/exec/exec_test.go b/src/os/exec/exec_test.go
-index bf2f3da535b8eb..ca66842d0753ac 100644
+index 2746ad8783ab22..448beb50aa7b74 100644
 --- a/src/os/exec/exec_test.go
 +++ b/src/os/exec/exec_test.go
 @@ -14,6 +14,7 @@ import (
