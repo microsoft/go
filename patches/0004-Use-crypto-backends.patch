@@ -79,7 +79,7 @@ Subject: [PATCH] Use crypto backends
  src/crypto/sha3/sha3_test.go                  |  18 +-
  src/crypto/sha512/sha512.go                   |   2 +-
  src/crypto/sha512/sha512_test.go              |  32 ++-
- src/crypto/tls/auth_test.go                   |   7 +
+ src/crypto/tls/auth_test.go                   |   1 +
  src/crypto/tls/cipher_suites.go               |  10 +-
  src/crypto/tls/fipsonly/fipsonly.go           |   2 +-
  src/crypto/tls/fipsonly/fipsonly_test.go      |   2 +-
@@ -100,7 +100,7 @@ Subject: [PATCH] Use crypto backends
  src/hash/notboring_test.go                    |   9 +
  src/net/lookup_test.go                        |   3 +
  src/os/exec/exec_test.go                      |   9 +
- 96 files changed, 1510 insertions(+), 180 deletions(-)
+ 96 files changed, 1504 insertions(+), 180 deletions(-)
  create mode 100644 src/crypto/dsa/boring.go
  create mode 100644 src/crypto/dsa/notboring.go
  create mode 100644 src/crypto/ecdsa/badlinkname.go
@@ -3464,19 +3464,13 @@ index 080bf694f03652..0c899f5c407ffa 100644
  	})
  }
 diff --git a/src/crypto/tls/auth_test.go b/src/crypto/tls/auth_test.go
-index 727bdc4df76393..73dee851e1bb4a 100644
+index 727bdc4df76393..5a770fcb9e85c9 100644
 --- a/src/crypto/tls/auth_test.go
 +++ b/src/crypto/tls/auth_test.go
-@@ -67,6 +67,13 @@ func TestSignatureSelection(t *testing.T) {
+@@ -67,6 +67,7 @@ func TestSignatureSelection(t *testing.T) {
  			t.Logf("skipping test[%d] - not compatible with TLS FIPS mode", testNo)
  			continue
  		}
-+
-+		if fips140tls.Required() && test.expectedSigAlg == Ed25519 {
-+			// CNG and SymCrypt do not support Ed25519.
-+			t.Logf("skipping test[%d] - Ed25519 is not compatible with Microsoft TLS FIPS mode", testNo)
-+			continue
-+		}
 +
  		savedGODEBUG := os.Getenv("GODEBUG")
  		os.Setenv("GODEBUG", savedGODEBUG+","+test.godebug)
@@ -3589,7 +3583,7 @@ index 77a24b4a78d8fc..84724fac5f951e 100644
  	"hash"
  	"slices"
 diff --git a/src/crypto/tls/handshake_server.go b/src/crypto/tls/handshake_server.go
-index efdaeae6f7e39a..2bd004ad23ae2e 100644
+index 06675a8ce9d2a1..9b761f256f4fcf 100644
 --- a/src/crypto/tls/handshake_server.go
 +++ b/src/crypto/tls/handshake_server.go
 @@ -63,7 +63,20 @@ func (c *Conn) serverHandshake(ctx context.Context) error {
@@ -3615,7 +3609,7 @@ index efdaeae6f7e39a..2bd004ad23ae2e 100644
  
  	if err := hs.processClientHello(); err != nil {
 diff --git a/src/crypto/tls/handshake_server_tls13.go b/src/crypto/tls/handshake_server_tls13.go
-index b066924e291686..c81d0e56598634 100644
+index 0033164f65da8c..04e995eddcf6c1 100644
 --- a/src/crypto/tls/handshake_server_tls13.go
 +++ b/src/crypto/tls/handshake_server_tls13.go
 @@ -11,9 +11,9 @@ import (
@@ -3629,7 +3623,7 @@ index b066924e291686..c81d0e56598634 100644
  	"errors"
  	"fmt"
  	"hash"
-@@ -447,9 +447,6 @@ func cloneHash(in hash.Hash, h crypto.Hash) hash.Hash {
+@@ -453,9 +453,6 @@ func cloneHash(in hash.Hash, h crypto.Hash) hash.Hash {
  		UnmarshalBinary(data []byte) error
  	}
  	marshaler, ok := in.(binaryMarshaler)
