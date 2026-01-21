@@ -9,6 +9,7 @@ import (
 	"archive/zip"
 	"cmp"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
@@ -464,27 +465,25 @@ func (a *archive) copyToDestination(ctx context.Context) error {
 }
 
 func consolidateDiagnosticFiles() error {
+	// Do as much as possible, accumulating errors to report to the user.
+	var err error
 	// Signing process logs.
-	if err := copyGlobFilesToDir(
+	err = errors.Join(err, copyGlobFilesToDir(
 		*consolidateDiagDir,
 		filepath.Join(*signingCsprojDir, "*.log"),
 		filepath.Join(*tempDir, "*.binlog"),
 		filepath.Join(*tempDir, "*.props"),
-	); err != nil {
-		return err
-	}
+	))
 	// .NET diag data, for package versions etc.
-	if err := copyGlobFilesToDir(
+	err = errors.Join(err, copyGlobFilesToDir(
 		filepath.Join(*consolidateDiagDir, "obj"),
 		filepath.Join(*signingCsprojDir, "obj", "*"),
-	); err != nil {
-		return err
-	}
+	))
 
 	// Signing working dirs. These contain the files actually sent to sign. Make
 	// it clear that they're not production-ready files through the filename.
 	cleanTempDir := filepath.Clean(*tempDir)
-	if err := withTarGzCreate(
+	err = errors.Join(err, withTarGzCreate(
 		filepath.Join(*consolidateDiagDir, "sign-work-archives.nonproduction.tar.gz"),
 		func(tw *tar.Writer) error {
 			if err := filepath.WalkDir(cleanTempDir, func(path string, d fs.DirEntry, err error) error {
@@ -531,9 +530,6 @@ func consolidateDiagnosticFiles() error {
 			}
 			return nil
 		},
-	); err != nil {
-		return err
-	}
-
-	return nil
+	))
+	return err
 }

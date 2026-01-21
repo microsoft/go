@@ -7,6 +7,7 @@ package main
 import (
 	"context"
 	"crypto/sha256"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -74,7 +75,7 @@ func main() {
 	}
 }
 
-func run() error {
+func run() (err error) {
 	// A context for timeout. This timeout is mainly here to make sure child MSBuild processes are
 	// terminated. There are some ctx.Err() checks sprinkled into the Go code, but canceling
 	// quickly during the packaging/repackaging work in Go is not currently important: the Go work
@@ -87,6 +88,14 @@ func run() error {
 		ctx, cancel = context.WithDeadline(context.Background(), time.Now().Add(*timeout))
 		defer cancel()
 	}
+
+	defer func() {
+		log.Println("Consolidating diagnostic files")
+		log.Printf("Consolidated diagnostic directory: %q", *consolidateDiagDir)
+
+		consolidateErr := consolidateDiagnosticFiles()
+		err = errors.Join(err, consolidateErr)
+	}()
 
 	archives, err := findArchives(ctx, *filesGlob)
 	if err != nil {
@@ -172,13 +181,6 @@ func run() error {
 		if err := checksum.WriteSHA256ChecksumFile(filepath.Join(*destinationDir, a.name)); err != nil {
 			return err
 		}
-	}
-
-	log.Println("Consolidating diagnostic files")
-	log.Printf("Consolidated diagnostic directory: %q", *consolidateDiagDir)
-
-	if err := consolidateDiagnosticFiles(); err != nil {
-		return err
 	}
 
 	return nil
