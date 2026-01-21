@@ -465,7 +465,7 @@ func (a *archive) copyToDestination(ctx context.Context) error {
 }
 
 func consolidateDiagnosticFiles() error {
-	// Do as much as possible, accumlating errors to report to the user.
+	// Do as much as possible, accumulating errors to report to the user.
 	var err error
 	// Signing process logs.
 	err = errors.Join(err, copyGlobFilesToDir(
