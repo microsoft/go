@@ -54,16 +54,18 @@ func (s Platforms) Get(platform string) PlatformStatus {
 }
 
 type Section struct {
-	Title        string
-	ShortTitle   string
-	ColumnHeader string
-	Packages     []string
-	Description  string
-	MinGoVersion string
-	Items        []Item
-	Subsections  []Section
-	Footnotes    []string
-	Footer       string
+	Title                 string
+	ShortTitle            string
+	ColumnHeader          string
+	Packages              []string
+	Description           string
+	DescriptionParagraphs []string
+	MinGoVersion          string
+	Items                 []Item
+	Subsections           []Section
+	Footnotes             []string
+	Footer                string
+	FooterParagraphs      []string
 }
 
 type Document struct {
@@ -186,7 +188,14 @@ var doc = Document{
 			Title:        "Symmetric encryption",
 			ColumnHeader: "Cipher + Mode",
 			Packages:     []string{"crypto/aes", "crypto/cipher", "crypto/des", "crypto/rc4"},
-			Footer:       "- Key Sizes\n\n  AES-GCM works with 128, 192, and 256-bit keys.\n\n- Nonce Sizes\n\n  AES-GCM works with 12-byte nonces.\n\n- Tag Sizes\n\n  AES-GCM works with 16-byte tags.",
+			FooterParagraphs: []string{
+				"- Key Sizes",
+				"  AES-GCM works with 128, 192, and 256-bit keys.",
+				"- Nonce Sizes",
+				"  AES-GCM works with 12-byte nonces.",
+				"- Tag Sizes",
+				"  AES-GCM works with 16-byte tags.",
+			},
 			Items: []Item{
 				{Name: "AES-ECB"},
 				{Name: "AES-CBC"},
@@ -263,7 +272,13 @@ var doc = Document{
 					Title:        "RSA",
 					ColumnHeader: "Padding Mode",
 					Packages:     []string{"crypto/rsa"},
-					Description:  "[rsa.GenerateKey](https://pkg.go.dev/crypto/rsa#GenerateKey) only supports the following key sizes (in bits): 2048, 3072, 4096.\n\nMulti-prime RSA keys are not supported.\n\nThe RSA key size is subject to the limitations of the underlying cryptographic library.\nFor example, on some Windows and SCOSSL configurations, the key size should be multiple of 8.\nPlease refer to the documentation of the underlying cryptographic library for the specific limitations.\n\nOperations that require random numbers (rand io.Reader) only support [rand.Reader](https://pkg.go.dev/crypto/rand#Reader).",
+					DescriptionParagraphs: []string{
+						"Multi-prime RSA keys are not supported.",
+						"The RSA key size is subject to the limitations of the underlying cryptographic library.\n" +
+							"For example, on some Windows and SCOSSL configurations, the key size should be multiple of 8.\n" +
+							"Please refer to the documentation of the underlying cryptographic library for the specific limitations.",
+						"Operations that require random numbers (rand io.Reader) only support [rand.Reader](https://pkg.go.dev/crypto/rand#Reader).",
+					},
 					Items: []Item{
 						{
 							Name: "OAEP (MD5)",
@@ -556,9 +571,14 @@ var doc = Document{
 			},
 		},
 		{
-			Title:       "Higher-level protocols",
-			Packages:    []string{"HPKE", "TLS"},
-			Description: "High-level protocols are algorithms that combine multiple cryptographic primitives to provide a specific functionality,\nsuch as TLS or Hybrid Public Key Encryption (HPKE).\n\nThese protocols are implemented using native Go code, but they rely on the underlying OS cryptographic libraries for the cryptographic operations.\n\nThis section includes the following subsections:",
+			Title:    "Higher-level protocols",
+			Packages: []string{"HPKE", "TLS"},
+			DescriptionParagraphs: []string{
+				"High-level protocols are algorithms that combine multiple cryptographic primitives to provide a specific functionality,\n" +
+					"such as TLS or Hybrid Public Key Encryption (HPKE).",
+				"These protocols are implemented using native Go code, but they rely on the underlying OS cryptographic libraries for the cryptographic operations.",
+				"This section includes the following subsections:",
+			},
 			Subsections: []Section{
 				{
 					Title:    "Hybrid Public Key Encryption (HPKE)",
@@ -684,7 +704,9 @@ var doc = Document{
 						{
 							Title:        "TLS Cipher Suites",
 							ColumnHeader: "Name",
-							Footer:       "On Windows, it is possible to restrict and reorder the cipher suites following the [Schannel preferences](https://learn.microsoft.com/en-us/windows/win32/secauthn/cipher-suites-in-schannel) by building with the `ms_tls_config_schannel` goexperiment enabled.",
+							Footer: "On Windows, it is possible to restrict and reorder the cipher suites following the " +
+								"[Schannel preferences](https://learn.microsoft.com/en-us/windows/win32/secauthn/cipher-suites-in-schannel) " +
+								"by building with the `ms_tls_config_schannel` goexperiment enabled.",
 							Items: []Item{
 								{
 									Name: "TLS_RSA_WITH_RC4_128_SHA",

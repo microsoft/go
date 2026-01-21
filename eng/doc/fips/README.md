@@ -8,6 +8,7 @@ See also:
 * [The Migration Guide](../MigrationGuide.md).  Includes direct guidance on how to migrate an existing Go app to use the Microsoft build of Go and decide whether this is necessary.
 * [Cross-Platform Cryptography in the Microsoft build of Go](../CrossPlatformCryptography.md). A digestible overview of the information in the *FIPS 140 User Guide*.
 * [The Microsoft build of Go README](../../../README.md). Background information about the Microsoft build of Go and how to acquire it.
+* [The Microsoft internal policy `Microsoft.Security.Cryptography.10010`.][msc10010]
 
 # Crypto FIPS 140 support
 
@@ -63,15 +64,17 @@ These are described in the following sections in detail.
 
 ## Usage: Common configurations
 
-There are typically two goals that lead to this document. Creating a FIPS compliant app is one. The other is to comply with internal Microsoft crypto policies that have been set for Go. This table summarizes common configurations and how suitable each one is for these goals.
+The modified Go runtime is typically used to accomplish one of two goals: complying with [internal Microsoft crypto policies][msc10010] or creating a FIPS compliant app.
+The following table summarizes common configurations and how suitable each one is for these goals.
 
 > [!NOTE]
-> This section assumes the use of the Microsoft build of Go 1.24 or later.
->
-> 1.24 introduces `GODEBUG=fips140=on` as the preferred way to enable FIPS mode. See also [the Go 1.24 changelog](#go-124-feb-2025).
+> This document assumes the use of a supported version of the Microsoft build of Go: 1.24 or later.
 
 > [!NOTE]
 > Since Go 1.25, `systemcrypto` is enabled by default on Linux and Windows. There is no need to manually enable using OpenSSL/CNG under the hood anymore. See also [the Go 1.25 changelog](#go-125-aug-2025). Since Go 1.26, `systemcrypto` is also enabled by default on macOS.
+
+> [!TIP]
+> If an app uses no cryptography, FIPS compliance is not relevant and the internal Microsoft crypto policy doesn't apply.
 
 | Build-time config | Runtime config | Internal Microsoft crypto policy | FIPS behavior |
 | --- | --- | --- | --- |
@@ -306,6 +309,9 @@ To enable FIPS mode on Windows, [enable the Windows FIPS policy](https://docs.mi
 
 For testing purposes, Windows FIPS policy can be enabled via the registry key `HKLM\SYSTEM\CurrentControlSet\Control\Lsa\FipsAlgorithmPolicy`, dword value `Enabled` set to `1`.
 
+CNG cryptographic primitives are FIPS compliant by default.
+Since Go 1.26, setting the enabled FIPS preference will not cause a panic on Windows even if the Windows FIPS policy is not enabled.
+
 ### macOS FIPS mode (CommonCrypto/CryptoKit)
 
 A platform-specific FIPS preference is never detected on macOS.
@@ -461,19 +467,33 @@ Versions not listed above are not supported at all.
 >
 > The Go runtime is tested with the default configuration of each supported OpenSSL version and with the OpenSSL configurations in the [Azure Linux] 2 and [Azure Linux] 3 distributions.
 
-### Dynamic linking
+### No static linking
 
-Dynamic linking (as opposed to static linking) is a requirement for an app to be considered FIPS compliant in Microsoft. The approach the modified Go runtime takes meets that requirement.
+Microsoft's [internal policy `Microsoft.Security.Cryptography.10010`][msc10010] forbids static linking to OpenSSL.
+For Linux, we use [dlopen] when initializing OpenSSL, satisfying this requirement.
 
-For OpenSSL, Go uses [dlopen] when initializing. Sometimes this is called *dynamic loading* and not considered part of the *dynamic linking* category (https://stackoverflow.com/a/45959845), but it satisfies requirements for the same reasons as dynamic linking: the OpenSSL library provided by the OS/environment is used, and the app doesn't necessarily have to be rebuilt to take an update.
+> [!NOTE]
+> The Microsoft internal policy forbids "static linking" and requires "dynamic linking", but [dlopen] is often considered to be in a distinct category called "dynamic loading" (https://stackoverflow.com/a/45959845).
+> We have discussed this with the Crypto Board, and the [dlopen] approach does satisfy the policy requirement.
+> The key is that the Go program uses the OpenSSL library provided by the OS/environment and doesn't need to be rebuilt to take an OpenSSL update.
 
-For CNG, Go uses Windows syscalls to call the CNG APIs. This can also not be considered *dynamic linking*, but like *dynamic loading*, syscalls also mean the app is using OS-provided crypto functionality.
+> [!NOTE]
+> It's a relatively common practice in the Go ecosystem to statically link all dependencies of a Go program to produce a single binary that can run standalone.
+> This can simplify deployment and allows Go apps to run when a dynamic loader isn't present, such as in `scratch`-based containers.
+> Unfortunately, the internal policy requirement means this isn't possible to do with a Go program that uses cryptography: other dependencies can be statically linked, but not OpenSSL.
+>
+> If you are responsible for a Go app in Microsoft and it's absolutely necessary that the app is fully statically linked, contact the Crypto Board for more details.
+>
+> We have discussed support for static linking in [microsoft/go#744 *OpenSSL static linking proposal*](https://github.com/microsoft/go/issues/744)
+> However, we learned this would not be considered compliant with Microsoft policies and it isn't possible with the way OpenSSL 3 is designed to load providers, so we don't have any plans to implement it.
 
-It's common in the Go ecosystem to statically link all dependencies to produce a single binary that can run standalone (e.g. in a minimal Docker container). Unfortunately, the requirements of FIPS and the way it's implemented in Microsoft mean this is not possible for a Go program that uses the Microsoft build of Go runtime and FIPS features. If you are responsible for a Go app in Microsoft and this is impossible, contact the crypto board for more details. We opened an issue to discuss support for static linking: [microsoft/go#744 *OpenSSL static linking proposal*](https://github.com/microsoft/go/issues/744). However, as we learned this would not be considered FIPS compliant for use in Microsoft, we don't have any plans to implement it.
+The policy's requirements and recommendations for Windows and macOS don't specifically mention linking, but for clarity: the Microsoft build of Go never statically links any platform's crypto libraries.
 
 ### Portable OpenSSL
 
-The OpenSSL version present when building a program does not have to match the OpenSSL version used when running it. In fact, OpenSSL doesn't need to be present on the builder at all if the built program isn't executed on that system. *Dynamic loading* rather than *linking* makes this possible.
+The OpenSSL version present when building a program does not have to match the OpenSSL version used when running it.
+In fact, OpenSSL doesn't need to be present on the builder at all if the built program isn't executed on that system.
+*Dynamic loading at runtime* rather than *dynamic linking at build-time* makes this possible.
 
 This feature does not require any additional configuration, but it only works with OpenSSL versions known and supported by the Go toolchain.
 
@@ -509,6 +529,7 @@ This list of major changes is intended for quick reference and for access to his
 - The `systemcrypto` goexperiment is now enabled by default on macOS.
 - The macOS backend is no longer "preview" and is now fully supported.
 - `systemcrypto` can be disabled at build time using `MS_GO_NOSYSTEMCRYPTO=1`. This is now the preferred way to disable `systemcrypto` when necessary.
+- Setting the enabled FIPS preference will not cause a panic on Windows even if the Windows FIPS policy is not enabled.
 
 ### Go 1.25.2 (Oct 2025)
 
@@ -589,3 +610,4 @@ See the [Microsoft build of Go 1.24 FIPS changes](https://devblogs.microsoft.com
 [microsoft-go-images]: https://github.com/microsoft/go-images
 [OpenSSL features]: https://github.com/openssl/openssl/blob/4114964865435edc475c9ba49a7fa2b78956ab76/INSTALL.md#enable-and-disable-features
 [Azure Linux]: https://github.com/microsoft/azurelinux
+[msc10010]: https://liquid.microsoft.com/Web/Object/Read/MS.Security/Requirements/Microsoft.Security.Cryptography.10010
