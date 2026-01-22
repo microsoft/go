@@ -45,6 +45,7 @@ The Microsoft build of Go includes [patches](/patches/) that:
 - **Add [toolset telemetry](https://devblogs.microsoft.com/go/microsoft-go-telemetry/)**, enabled by default.
 - **Disable [GOTOOLCHAIN](https://go.dev/doc/toolchain) by default** to avoid mixups with the official Go distribution.
 - **Remove use of undocumented Windows APIs** for compatibility, security, and compliance.
+- **Embed Microsoft-specific version information** into built Go binaries for [easier identification](./MicrosoftToolsetIdentification.md).
 
 The patches directory at each Git tag specifies the exact code changes we have made to the official Go toolchain of that version.
 If it's critical to you to understand the exact set of changes we've made, please review the patch files.
