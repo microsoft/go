@@ -62,8 +62,11 @@ Use a 'go' that was recently built by the current branch to ensure stable result
  .../github.com/golang-fips/openssl/v2/hmac.go |  282 ++
  .../openssl/v2/internal/fakecgo/abi_amd64.h   |   99 +
  .../openssl/v2/internal/fakecgo/abi_arm64.h   |   39 +
+ .../openssl/v2/internal/fakecgo/asm_386.s     |   29 +
  .../openssl/v2/internal/fakecgo/asm_amd64.s   |   39 +
+ .../openssl/v2/internal/fakecgo/asm_arm.s     |   49 +
  .../openssl/v2/internal/fakecgo/asm_arm64.s   |   36 +
+ .../openssl/v2/internal/fakecgo/asm_riscv64.s |   78 +
  .../openssl/v2/internal/fakecgo/callbacks.go  |   93 +
  .../openssl/v2/internal/fakecgo/fakecgo.go    |   29 +
  .../openssl/v2/internal/fakecgo/generate.go   |    3 +
@@ -71,26 +74,35 @@ Use a 'go' that was recently built by the current branch to ensure stable result
  .../openssl/v2/internal/fakecgo/go_libinit.go |   72 +
  .../openssl/v2/internal/fakecgo/go_linux.go   |  100 +
  .../openssl/v2/internal/fakecgo/go_setenv.go  |   18 +
- .../openssl/v2/internal/fakecgo/go_util.go    |   37 +
+ .../openssl/v2/internal/fakecgo/go_util.go    |   38 +
  .../openssl/v2/internal/fakecgo/iscgo.go      |   19 +
  .../openssl/v2/internal/fakecgo/libcgo.go     |   39 +
  .../v2/internal/fakecgo/libcgo_darwin.go      |   26 +
  .../v2/internal/fakecgo/libcgo_linux.go       |   20 +
  .../openssl/v2/internal/fakecgo/linux.go      |   34 +
  .../openssl/v2/internal/fakecgo/setenv.go     |   19 +
+ .../v2/internal/fakecgo/trampolines_386.s     |  105 +
  .../v2/internal/fakecgo/trampolines_amd64.s   |  114 +
+ .../v2/internal/fakecgo/trampolines_arm.s     |   79 +
  .../v2/internal/fakecgo/trampolines_arm64.s   |   83 +
+ .../v2/internal/fakecgo/trampolines_riscv64.s |   71 +
  .../openssl/v2/internal/fakecgo/zsymbols.go   |  175 ++
  .../v2/internal/fakecgo/zsymbols_darwin.go    |   60 +
  .../v2/internal/fakecgo/zsymbols_linux.go     |  294 ++
  .../v2/internal/fakecgo/ztrampolines_darwin.s |   19 +
  .../v2/internal/fakecgo/ztrampolines_linux.s  |   16 +
+ .../internal/fakecgo/ztrampolines_linux_386.s |  111 +
  .../fakecgo/ztrampolines_linux_amd64.s        |  103 +
+ .../internal/fakecgo/ztrampolines_linux_arm.s |   74 +
  .../fakecgo/ztrampolines_linux_arm64.s        |   94 +
+ .../fakecgo/ztrampolines_linux_riscv64.s      |   92 +
  .../v2/internal/fakecgo/ztrampolines_stubs.s  |   58 +
+ .../openssl/v2/internal/ossl/asm_386.s        |   94 +
  .../openssl/v2/internal/ossl/asm_amd64.s      |  108 +
+ .../openssl/v2/internal/ossl/asm_arm.s        |  105 +
  .../openssl/v2/internal/ossl/asm_arm64.s      |   87 +
  .../openssl/v2/internal/ossl/asm_others.s     |    7 +
+ .../openssl/v2/internal/ossl/asm_riscv64.s    |   96 +
  .../golang-fips/openssl/v2/internal/ossl/dl.h |   12 +
  .../openssl/v2/internal/ossl/errors.go        |   34 +
  .../openssl/v2/internal/ossl/errors_cgo.go    |   14 +
@@ -249,7 +261,7 @@ Use a 'go' that was recently built by the current branch to ensure stable result
  .../internal/subtle/aliasing.go               |   32 +
  .../internal/sysdll/sys_windows.go            |   55 +
  src/vendor/modules.txt                        |   23 +
- 241 files changed, 31439 insertions(+), 7 deletions(-)
+ 253 files changed, 32423 insertions(+), 7 deletions(-)
  create mode 100644 src/cmd/internal/telemetry/counter/deps_ignore.go
  create mode 100644 src/cmd/vendor/github.com/microsoft/go-infra/telemetry/LICENSE
  create mode 100644 src/cmd/vendor/github.com/microsoft/go-infra/telemetry/README.md
@@ -297,8 +309,11 @@ Use a 'go' that was recently built by the current branch to ensure stable result
  create mode 100644 src/vendor/github.com/golang-fips/openssl/v2/hmac.go
  create mode 100644 src/vendor/github.com/golang-fips/openssl/v2/internal/fakecgo/abi_amd64.h
  create mode 100644 src/vendor/github.com/golang-fips/openssl/v2/internal/fakecgo/abi_arm64.h
+ create mode 100644 src/vendor/github.com/golang-fips/openssl/v2/internal/fakecgo/asm_386.s
  create mode 100644 src/vendor/github.com/golang-fips/openssl/v2/internal/fakecgo/asm_amd64.s
+ create mode 100644 src/vendor/github.com/golang-fips/openssl/v2/internal/fakecgo/asm_arm.s
  create mode 100644 src/vendor/github.com/golang-fips/openssl/v2/internal/fakecgo/asm_arm64.s
+ create mode 100644 src/vendor/github.com/golang-fips/openssl/v2/internal/fakecgo/asm_riscv64.s
  create mode 100644 src/vendor/github.com/golang-fips/openssl/v2/internal/fakecgo/callbacks.go
  create mode 100644 src/vendor/github.com/golang-fips/openssl/v2/internal/fakecgo/fakecgo.go
  create mode 100644 src/vendor/github.com/golang-fips/openssl/v2/internal/fakecgo/generate.go
@@ -313,19 +328,28 @@ Use a 'go' that was recently built by the current branch to ensure stable result
  create mode 100644 src/vendor/github.com/golang-fips/openssl/v2/internal/fakecgo/libcgo_linux.go
  create mode 100644 src/vendor/github.com/golang-fips/openssl/v2/internal/fakecgo/linux.go
  create mode 100644 src/vendor/github.com/golang-fips/openssl/v2/internal/fakecgo/setenv.go
+ create mode 100644 src/vendor/github.com/golang-fips/openssl/v2/internal/fakecgo/trampolines_386.s
  create mode 100644 src/vendor/github.com/golang-fips/openssl/v2/internal/fakecgo/trampolines_amd64.s
+ create mode 100644 src/vendor/github.com/golang-fips/openssl/v2/internal/fakecgo/trampolines_arm.s
  create mode 100644 src/vendor/github.com/golang-fips/openssl/v2/internal/fakecgo/trampolines_arm64.s
+ create mode 100644 src/vendor/github.com/golang-fips/openssl/v2/internal/fakecgo/trampolines_riscv64.s
  create mode 100644 src/vendor/github.com/golang-fips/openssl/v2/internal/fakecgo/zsymbols.go
  create mode 100644 src/vendor/github.com/golang-fips/openssl/v2/internal/fakecgo/zsymbols_darwin.go
  create mode 100644 src/vendor/github.com/golang-fips/openssl/v2/internal/fakecgo/zsymbols_linux.go
  create mode 100644 src/vendor/github.com/golang-fips/openssl/v2/internal/fakecgo/ztrampolines_darwin.s
  create mode 100644 src/vendor/github.com/golang-fips/openssl/v2/internal/fakecgo/ztrampolines_linux.s
+ create mode 100644 src/vendor/github.com/golang-fips/openssl/v2/internal/fakecgo/ztrampolines_linux_386.s
  create mode 100644 src/vendor/github.com/golang-fips/openssl/v2/internal/fakecgo/ztrampolines_linux_amd64.s
+ create mode 100644 src/vendor/github.com/golang-fips/openssl/v2/internal/fakecgo/ztrampolines_linux_arm.s
  create mode 100644 src/vendor/github.com/golang-fips/openssl/v2/internal/fakecgo/ztrampolines_linux_arm64.s
+ create mode 100644 src/vendor/github.com/golang-fips/openssl/v2/internal/fakecgo/ztrampolines_linux_riscv64.s
  create mode 100644 src/vendor/github.com/golang-fips/openssl/v2/internal/fakecgo/ztrampolines_stubs.s
+ create mode 100644 src/vendor/github.com/golang-fips/openssl/v2/internal/ossl/asm_386.s
  create mode 100644 src/vendor/github.com/golang-fips/openssl/v2/internal/ossl/asm_amd64.s
+ create mode 100644 src/vendor/github.com/golang-fips/openssl/v2/internal/ossl/asm_arm.s
  create mode 100644 src/vendor/github.com/golang-fips/openssl/v2/internal/ossl/asm_arm64.s
  create mode 100644 src/vendor/github.com/golang-fips/openssl/v2/internal/ossl/asm_others.s
+ create mode 100644 src/vendor/github.com/golang-fips/openssl/v2/internal/ossl/asm_riscv64.s
  create mode 100644 src/vendor/github.com/golang-fips/openssl/v2/internal/ossl/dl.h
  create mode 100644 src/vendor/github.com/golang-fips/openssl/v2/internal/ossl/errors.go
  create mode 100644 src/vendor/github.com/golang-fips/openssl/v2/internal/ossl/errors_cgo.go
@@ -2152,7 +2176,7 @@ index 00000000000000..ae4055d2d71303
 +// that are used by the backend package. This allows to track
 +// their versions in a single patch file.
 diff --git a/src/go.mod b/src/go.mod
-index efc07451b53448..4333a7155532dc 100644
+index efc07451b53448..ed09b7c7c6681b 100644
 --- a/src/go.mod
 +++ b/src/go.mod
 @@ -11,3 +11,9 @@ require (
@@ -2161,17 +2185,17 @@ index efc07451b53448..4333a7155532dc 100644
  )
 +
 +require (
-+	github.com/golang-fips/openssl/v2 v2.0.4-0.20260115115456-4e77131fa055
++	github.com/golang-fips/openssl/v2 v2.0.4-0.20260122161456-253270d31f86
 +	github.com/microsoft/go-crypto-darwin v0.0.3-0.20260114113743-000278575184
 +	github.com/microsoft/go-crypto-winnative v0.0.0-20260114031524-c493765efc5f
 +)
 diff --git a/src/go.sum b/src/go.sum
-index b6b841b44d8e38..126eae60f4b991 100644
+index b6b841b44d8e38..ab31638935b5c4 100644
 --- a/src/go.sum
 +++ b/src/go.sum
 @@ -1,3 +1,9 @@
-+github.com/golang-fips/openssl/v2 v2.0.4-0.20260115115456-4e77131fa055 h1:I6wGxCUkueebFXN3Mn8bPJQV+XkwK9CNNlpgm3nB1O0=
-+github.com/golang-fips/openssl/v2 v2.0.4-0.20260115115456-4e77131fa055/go.mod h1:EtVnMfLGkB4pihGOH+tXEV0WlXxewWdT1n3GLJEHvpw=
++github.com/golang-fips/openssl/v2 v2.0.4-0.20260122161456-253270d31f86 h1:1HjCrWzNrJSwcd2yEeP6S5ca5Zmh7dQ9UMH9AoyYqSA=
++github.com/golang-fips/openssl/v2 v2.0.4-0.20260122161456-253270d31f86/go.mod h1:EtVnMfLGkB4pihGOH+tXEV0WlXxewWdT1n3GLJEHvpw=
 +github.com/microsoft/go-crypto-darwin v0.0.3-0.20260114113743-000278575184 h1:b0PQtPdldqXsTg7yLqLo9HFUF+4Qp07Vi+ohWwTBNrU=
 +github.com/microsoft/go-crypto-darwin v0.0.3-0.20260114113743-000278575184/go.mod h1:MTii5PQwRlfUjYpGoF8CPLGwXSHTbLHGRN9FVNML5N0=
 +github.com/microsoft/go-crypto-winnative v0.0.0-20260114031524-c493765efc5f h1:SvZJthaYYoyAxBX87EnmIFn4PmT/UbvKClLiSMhK8uw=
@@ -7237,6 +7261,41 @@ index 00000000000000..5d5061ec1dbf8c
 +	FLDPD	((offset)+2*8)(RSP), (F10, F11) \
 +	FLDPD	((offset)+4*8)(RSP), (F12, F13) \
 +	FLDPD	((offset)+6*8)(RSP), (F14, F15)
+diff --git a/src/vendor/github.com/golang-fips/openssl/v2/internal/fakecgo/asm_386.s b/src/vendor/github.com/golang-fips/openssl/v2/internal/fakecgo/asm_386.s
+new file mode 100644
+index 00000000000000..2e7e9512e27328
+--- /dev/null
++++ b/src/vendor/github.com/golang-fips/openssl/v2/internal/fakecgo/asm_386.s
+@@ -0,0 +1,29 @@
++// Copyright 2009 The Go Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style
++// license that can be found in the LICENSE file.
++
++#include "textflag.h"
++
++// Called by C code generated by cmd/cgo.
++// func crosscall2(fn, a unsafe.Pointer, n int32, ctxt uintptr)
++// Saves C callee-saved registers and calls cgocallback with three arguments.
++// fn is the PC of a func(a unsafe.Pointer) function.
++TEXT crosscall2(SB),NOSPLIT,$28-16
++	MOVL BP, 24(SP)
++	MOVL BX, 20(SP)
++	MOVL SI, 16(SP)
++	MOVL DI, 12(SP)
++
++	MOVL	ctxt+12(FP), AX
++	MOVL	AX, 8(SP)
++	MOVL	a+4(FP), AX
++	MOVL	AX, 4(SP)
++	MOVL	fn+0(FP), AX
++	MOVL	AX, 0(SP)
++	CALL	runtime·cgocallback(SB)
++
++	MOVL 12(SP), DI
++	MOVL 16(SP), SI
++	MOVL 20(SP), BX
++	MOVL 24(SP), BP
++	RET
 diff --git a/src/vendor/github.com/golang-fips/openssl/v2/internal/fakecgo/asm_amd64.s b/src/vendor/github.com/golang-fips/openssl/v2/internal/fakecgo/asm_amd64.s
 new file mode 100644
 index 00000000000000..2b7eb57f8ae783
@@ -7282,6 +7341,61 @@ index 00000000000000..2b7eb57f8ae783
 +	ADJSP $-0x18
 +	POP_REGS_HOST_TO_ABI0()
 +	RET
+diff --git a/src/vendor/github.com/golang-fips/openssl/v2/internal/fakecgo/asm_arm.s b/src/vendor/github.com/golang-fips/openssl/v2/internal/fakecgo/asm_arm.s
+new file mode 100644
+index 00000000000000..0fadbb3bd589ac
+--- /dev/null
++++ b/src/vendor/github.com/golang-fips/openssl/v2/internal/fakecgo/asm_arm.s
+@@ -0,0 +1,49 @@
++// Copyright 2012 The Go Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style
++// license that can be found in the LICENSE file.
++
++#include "textflag.h"
++
++// Called by C code generated by cmd/cgo.
++// func crosscall2(fn, a unsafe.Pointer, n int32, ctxt uintptr)
++// Saves C callee-saved registers and calls cgocallback with three arguments.
++// fn is the PC of a func(a unsafe.Pointer) function.
++TEXT crosscall2(SB),NOSPLIT|NOFRAME,$0
++	SUB	$(8*9), R13 // Reserve space for the floating point registers.
++	// The C arguments arrive in R0, R1, R2, and R3. We want to
++	// pass R0, R1, and R3 to Go, so we push those on the stack.
++	// Also, save C callee-save registers R4-R12.
++	MOVM.WP	[R0, R1, R3, R4, R5, R6, R7, R8, R9, g, R11, R12], (R13)
++	// Finally, save the link register R14. This also puts the
++	// arguments we pushed for cgocallback where they need to be,
++	// starting at 4(R13).
++	MOVW.W	R14, -4(R13)
++
++	// Save VFP callee-saved registers D8-D15 (same as S16-S31).
++	// Note: We always save these since we target hard-float ABI.
++	MOVD	F8, (13*4+8*1)(R13)
++	MOVD	F9, (13*4+8*2)(R13)
++	MOVD	F10, (13*4+8*3)(R13)
++	MOVD	F11, (13*4+8*4)(R13)
++	MOVD	F12, (13*4+8*5)(R13)
++	MOVD	F13, (13*4+8*6)(R13)
++	MOVD	F14, (13*4+8*7)(R13)
++	MOVD	F15, (13*4+8*8)(R13)
++
++	BL	runtime·load_g(SB)
++	// We set up the arguments to cgocallback when saving registers above.
++	BL	runtime·cgocallback(SB)
++
++	MOVD	(13*4+8*1)(R13), F8
++	MOVD	(13*4+8*2)(R13), F9
++	MOVD	(13*4+8*3)(R13), F10
++	MOVD	(13*4+8*4)(R13), F11
++	MOVD	(13*4+8*5)(R13), F12
++	MOVD	(13*4+8*6)(R13), F13
++	MOVD	(13*4+8*7)(R13), F14
++	MOVD	(13*4+8*8)(R13), F15
++
++	MOVW.P	4(R13), R14
++	MOVM.IAW	(R13), [R0, R1, R3, R4, R5, R6, R7, R8, R9, g, R11, R12]
++	ADD	$(8*9), R13
++	MOVW	R14, R15
 diff --git a/src/vendor/github.com/golang-fips/openssl/v2/internal/fakecgo/asm_arm64.s b/src/vendor/github.com/golang-fips/openssl/v2/internal/fakecgo/asm_arm64.s
 new file mode 100644
 index 00000000000000..50e5261d922c56
@@ -7323,6 +7437,90 @@ index 00000000000000..50e5261d922c56
 +	LDP (8*22)(RSP), (R29, R30)
 +
 +	ADD $(8*24), RSP
++	RET
+diff --git a/src/vendor/github.com/golang-fips/openssl/v2/internal/fakecgo/asm_riscv64.s b/src/vendor/github.com/golang-fips/openssl/v2/internal/fakecgo/asm_riscv64.s
+new file mode 100644
+index 00000000000000..45151bf02bacbe
+--- /dev/null
++++ b/src/vendor/github.com/golang-fips/openssl/v2/internal/fakecgo/asm_riscv64.s
+@@ -0,0 +1,78 @@
++// Copyright 2020 The Go Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style
++// license that can be found in the LICENSE file.
++
++#include "textflag.h"
++
++// Called by C code generated by cmd/cgo.
++// func crosscall2(fn, a unsafe.Pointer, n int32, ctxt uintptr)
++// Saves C callee-saved registers and calls cgocallback with three arguments.
++// fn is the PC of a func(a unsafe.Pointer) function.
++TEXT crosscall2(SB),NOSPLIT|NOFRAME,$0
++	/*
++	 * Push arguments for fn (X10, X11, X13), along with all callee-save
++	 * registers. Note that at procedure entry the first argument is at
++	 * 8(X2).
++	 */
++	ADD	$(-8*29), X2
++	MOV	X10, (8*1)(X2) // fn unsafe.Pointer
++	MOV	X11, (8*2)(X2) // a unsafe.Pointer
++	MOV	X13, (8*3)(X2) // ctxt uintptr
++	MOV	X8, (8*4)(X2)
++	MOV	X9, (8*5)(X2)
++	MOV	X18, (8*6)(X2)
++	MOV	X19, (8*7)(X2)
++	MOV	X20, (8*8)(X2)
++	MOV	X21, (8*9)(X2)
++	MOV	X22, (8*10)(X2)
++	MOV	X23, (8*11)(X2)
++	MOV	X24, (8*12)(X2)
++	MOV	X25, (8*13)(X2)
++	MOV	X26, (8*14)(X2)
++	MOV	g, (8*15)(X2)
++	MOV	X1, (8*16)(X2)
++	MOVD	F8, (8*17)(X2)
++	MOVD	F9, (8*18)(X2)
++	MOVD	F18, (8*19)(X2)
++	MOVD	F19, (8*20)(X2)
++	MOVD	F20, (8*21)(X2)
++	MOVD	F21, (8*22)(X2)
++	MOVD	F22, (8*23)(X2)
++	MOVD	F23, (8*24)(X2)
++	MOVD	F24, (8*25)(X2)
++	MOVD	F25, (8*26)(X2)
++	MOVD	F26, (8*27)(X2)
++	MOVD	F27, (8*28)(X2)
++
++	// Initialize Go ABI environment
++	CALL	runtime·load_g(SB)
++	CALL	runtime·cgocallback(SB)
++
++	MOV	(8*4)(X2), X8
++	MOV	(8*5)(X2), X9
++	MOV	(8*6)(X2), X18
++	MOV	(8*7)(X2), X19
++	MOV	(8*8)(X2), X20
++	MOV	(8*9)(X2), X21
++	MOV	(8*10)(X2), X22
++	MOV	(8*11)(X2), X23
++	MOV	(8*12)(X2), X24
++	MOV	(8*13)(X2), X25
++	MOV	(8*14)(X2), X26
++	MOV	(8*15)(X2), g
++	MOV	(8*16)(X2), X1
++	MOVD	(8*17)(X2), F8
++	MOVD	(8*18)(X2), F9
++	MOVD	(8*19)(X2), F18
++	MOVD	(8*20)(X2), F19
++	MOVD	(8*21)(X2), F20
++	MOVD	(8*22)(X2), F21
++	MOVD	(8*23)(X2), F22
++	MOVD	(8*24)(X2), F23
++	MOVD	(8*25)(X2), F24
++	MOVD	(8*26)(X2), F25
++	MOVD	(8*27)(X2), F26
++	MOVD	(8*28)(X2), F27
++	ADD	$(8*29), X2
++
 +	RET
 diff --git a/src/vendor/github.com/golang-fips/openssl/v2/internal/fakecgo/callbacks.go b/src/vendor/github.com/golang-fips/openssl/v2/internal/fakecgo/callbacks.go
 new file mode 100644
@@ -7771,10 +7969,10 @@ index 00000000000000..6c2f981d730980
 +}
 diff --git a/src/vendor/github.com/golang-fips/openssl/v2/internal/fakecgo/go_util.go b/src/vendor/github.com/golang-fips/openssl/v2/internal/fakecgo/go_util.go
 new file mode 100644
-index 00000000000000..c2497488ef6578
+index 00000000000000..4519011e114b36
 --- /dev/null
 +++ b/src/vendor/github.com/golang-fips/openssl/v2/internal/fakecgo/go_util.go
-@@ -0,0 +1,37 @@
+@@ -0,0 +1,38 @@
 +// SPDX-License-Identifier: Apache-2.0
 +// SPDX-FileCopyrightText: 2022 The Ebitengine Authors
 +
@@ -7805,8 +8003,9 @@ index 00000000000000..c2497488ef6578
 +		abort()
 +	}
 +	// *ts = *arg would cause a writebarrier so copy using slices
-+	s1 := unsafe.Slice((*uintptr)(unsafe.Pointer(ts)), unsafe.Sizeof(*ts)/8)
-+	s2 := unsafe.Slice((*uintptr)(unsafe.Pointer(arg)), unsafe.Sizeof(*arg)/8)
++	ptrSize := unsafe.Sizeof(uintptr(0))
++	s1 := unsafe.Slice((*uintptr)(unsafe.Pointer(ts)), unsafe.Sizeof(*ts)/ptrSize)
++	s2 := unsafe.Slice((*uintptr)(unsafe.Pointer(arg)), unsafe.Sizeof(*arg)/ptrSize)
 +	for i := range s2 {
 +		s1[i] = s2[i]
 +	}
@@ -8005,6 +8204,117 @@ index 00000000000000..8d7b9831d31fae
 +//go:linkname _cgo_unsetenv runtime._cgo_unsetenv
 +var x_cgo_unsetenv_trampoline byte
 +var _cgo_unsetenv = &x_cgo_unsetenv_trampoline
+diff --git a/src/vendor/github.com/golang-fips/openssl/v2/internal/fakecgo/trampolines_386.s b/src/vendor/github.com/golang-fips/openssl/v2/internal/fakecgo/trampolines_386.s
+new file mode 100644
+index 00000000000000..b0a837f4fafb8b
+--- /dev/null
++++ b/src/vendor/github.com/golang-fips/openssl/v2/internal/fakecgo/trampolines_386.s
+@@ -0,0 +1,105 @@
++// SPDX-License-Identifier: Apache-2.0
++// SPDX-FileCopyrightText: 2026 The Ebitengine Authors
++
++//go:build !cgo && (freebsd || linux)
++
++#include "textflag.h"
++#include "go_asm.h"
++
++// These trampolines map the gcc ABI to Go ABI0 and then call into the Go equivalent functions.
++// On i386, both GCC and Go use stack-based calling conventions.
++//
++// When C calls a function, the stack looks like:
++//   0(SP) = return address
++//   4(SP) = arg1
++//   8(SP) = arg2
++//   ...
++//
++// When we declare a Go function with frame size $N-0, Go's prologue
++// effectively does SUB $N, SP, so the C arguments shift up by N bytes:
++//   N+0(SP) = return address  
++//   N+4(SP) = arg1
++//   N+8(SP) = arg2
++//
++// Go ABI0 on 386 expects arguments starting at 0(FP) which equals N+4(SP)
++// after the prologue (where N is the local frame size).
++
++TEXT x_cgo_init_trampoline(SB), NOSPLIT, $8-0
++	// C args at 12(SP) and 16(SP) after frame setup (8 bytes local + 4 bytes ret addr)
++	// Go function expects args at 0(SP) and 4(SP) in local frame
++	MOVL	12(SP), AX	// first C arg
++	MOVL	16(SP), BX	// second C arg
++	MOVL	AX, 0(SP)	// Go arg 1
++	MOVL	BX, 4(SP)	// Go arg 2
++	MOVL	·x_cgo_init_call(SB), CX
++	MOVL	(CX), CX
++	CALL	CX
++	RET
++
++TEXT x_cgo_thread_start_trampoline(SB), NOSPLIT, $4-0
++	// C args at 8(SP) after frame setup (4 bytes local + 4 bytes ret addr)
++	MOVL	8(SP), AX	// first C arg
++	MOVL	AX, 0(SP)	// Go arg 1
++	MOVL	·x_cgo_thread_start_call(SB), CX
++	MOVL	(CX), CX
++	CALL	CX
++	RET
++
++TEXT x_cgo_setenv_trampoline(SB), NOSPLIT, $4-0
++	MOVL	8(SP), AX	// first C arg
++	MOVL	AX, 0(SP)	// Go arg 1
++	MOVL	·x_cgo_setenv_call(SB), CX
++	MOVL	(CX), CX
++	CALL	CX
++	RET
++
++TEXT x_cgo_unsetenv_trampoline(SB), NOSPLIT, $4-0
++	MOVL	8(SP), AX	// first C arg
++	MOVL	AX, 0(SP)	// Go arg 1
++	MOVL	·x_cgo_unsetenv_call(SB), CX
++	MOVL	(CX), CX
++	CALL	CX
++	RET
++
++TEXT x_cgo_notify_runtime_init_done_trampoline(SB), NOSPLIT, $0-0
++	CALL	·x_cgo_notify_runtime_init_done(SB)
++	RET
++
++TEXT x_cgo_bindm_trampoline(SB), NOSPLIT, $0
++	CALL	·x_cgo_bindm(SB)
++	RET
++
++// func setg_trampoline(setg uintptr, g uintptr)
++// This is called from Go, so args are at normal FP positions
++TEXT ·setg_trampoline(SB), NOSPLIT, $4-8
++	MOVL	g+4(FP), AX
++	MOVL	setg+0(FP), BX
++	// setg expects g in 0(SP)
++	MOVL	AX, 0(SP)
++	CALL	BX
++	RET
++
++TEXT threadentry_trampoline(SB), NOSPLIT, $4-0
++	MOVL	8(SP), AX	// first C arg
++	MOVL	AX, 0(SP)	// Go arg 1
++	MOVL	·threadentry_call(SB), CX
++	MOVL	(CX), CX
++	CALL	CX
++	RET
++
++TEXT ·call5(SB), NOSPLIT, $20-28
++	MOVL	fn+0(FP), AX
++	MOVL	a1+4(FP), BX
++	MOVL	a2+8(FP), CX
++	MOVL	a3+12(FP), DX
++	MOVL	a4+16(FP), SI
++	MOVL	a5+20(FP), DI
++	// Place arguments on local stack frame for C calling convention
++	MOVL	BX, 0(SP)	// a1
++	MOVL	CX, 4(SP)	// a2
++	MOVL	DX, 8(SP)	// a3
++	MOVL	SI, 12(SP)	// a4
++	MOVL	DI, 16(SP)	// a5
++	CALL	AX
++	MOVL	AX, r1+24(FP)
++	RET
 diff --git a/src/vendor/github.com/golang-fips/openssl/v2/internal/fakecgo/trampolines_amd64.s b/src/vendor/github.com/golang-fips/openssl/v2/internal/fakecgo/trampolines_amd64.s
 new file mode 100644
 index 00000000000000..e4a61f5978515b
@@ -8125,6 +8435,91 @@ index 00000000000000..e4a61f5978515b
 +
 +	MOVQ AX, ret+48(FP)
 +	RET
+diff --git a/src/vendor/github.com/golang-fips/openssl/v2/internal/fakecgo/trampolines_arm.s b/src/vendor/github.com/golang-fips/openssl/v2/internal/fakecgo/trampolines_arm.s
+new file mode 100644
+index 00000000000000..7b877b4682aeb5
+--- /dev/null
++++ b/src/vendor/github.com/golang-fips/openssl/v2/internal/fakecgo/trampolines_arm.s
+@@ -0,0 +1,79 @@
++// SPDX-License-Identifier: Apache-2.0
++// SPDX-FileCopyrightText: 2026 The Ebitengine Authors
++
++//go:build !cgo && (freebsd || linux)
++
++#include "textflag.h"
++#include "go_asm.h"
++
++// These trampolines map the gcc ABI to Go ABI0 and then call into the Go equivalent functions.
++// On ARM32, Go ABI0 uses stack-based calling convention.
++// Arguments are placed on the stack starting at 4(SP) after the prologue.
++
++TEXT x_cgo_init_trampoline(SB), NOSPLIT, $8-0
++	MOVW R0, 4(R13)
++	MOVW R1, 8(R13)
++	MOVW    ·x_cgo_init_call(SB), R12
++	MOVW    (R12), R2
++	CALL    (R2)
++	RET
++
++TEXT x_cgo_thread_start_trampoline(SB), NOSPLIT, $8-0
++	MOVW R0, 4(R13)
++	MOVW    ·x_cgo_thread_start_call(SB), R12
++	MOVW    (R12), R2
++	CALL    (R2)
++	RET
++
++TEXT x_cgo_setenv_trampoline(SB), NOSPLIT, $8-0
++	MOVW R0, 4(R13)
++	MOVW    ·x_cgo_setenv_call(SB), R12
++	MOVW    (R12), R2
++	CALL    (R2)
++	RET
++
++TEXT x_cgo_unsetenv_trampoline(SB), NOSPLIT, $8-0
++	MOVW R0, 4(R13)
++	MOVW    ·x_cgo_unsetenv_call(SB), R12
++	MOVW    (R12), R2
++	CALL    (R2)
++	RET
++
++TEXT x_cgo_notify_runtime_init_done_trampoline(SB), NOSPLIT, $0-0
++	CALL ·x_cgo_notify_runtime_init_done(SB)
++	RET
++
++TEXT x_cgo_bindm_trampoline(SB), NOSPLIT, $0
++	CALL ·x_cgo_bindm(SB)
++	RET
++
++// func setg_trampoline(setg uintptr, g uintptr)
++TEXT ·setg_trampoline(SB), NOSPLIT, $0-8
++	MOVW G+4(FP), R0
++	MOVW setg+0(FP), R1
++	BL (R1)
++	RET
++
++TEXT threadentry_trampoline(SB), NOSPLIT, $8-0
++	// See crosscall2.
++	MOVW R0, 4(R13)
++	MOVW    ·threadentry_call(SB), R12
++	MOVW    (R12), R2
++	CALL    (R2)
++	RET
++
++TEXT ·call5(SB), NOSPLIT, $8-28
++    MOVW    fn+0(FP), R5
++    MOVW    a1+4(FP), R0
++    MOVW    a2+8(FP), R1
++    MOVW    a3+12(FP), R2
++    MOVW    a4+16(FP), R3
++    MOVW    a5+20(FP), R4
++    // Store 5th arg below SP (in local frame area)
++    MOVW    R4, arg5-8(SP)
++    // Align SP to 8 bytes for call (required by ARM AAPCS)
++    SUB     $8, R13
++	CALL   	(R5)
++    ADD     $8, R13
++    MOVW    R0, r1+24(FP)
++    RET
 diff --git a/src/vendor/github.com/golang-fips/openssl/v2/internal/fakecgo/trampolines_arm64.s b/src/vendor/github.com/golang-fips/openssl/v2/internal/fakecgo/trampolines_arm64.s
 new file mode 100644
 index 00000000000000..1ebee99617dbde
@@ -8213,6 +8608,83 @@ index 00000000000000..1ebee99617dbde
 +	MOVD a5+40(FP), R4
 +	CALL R6
 +	MOVD R0, ret+48(FP)
++	RET
+diff --git a/src/vendor/github.com/golang-fips/openssl/v2/internal/fakecgo/trampolines_riscv64.s b/src/vendor/github.com/golang-fips/openssl/v2/internal/fakecgo/trampolines_riscv64.s
+new file mode 100644
+index 00000000000000..da9ab9a08a599d
+--- /dev/null
++++ b/src/vendor/github.com/golang-fips/openssl/v2/internal/fakecgo/trampolines_riscv64.s
+@@ -0,0 +1,71 @@
++// SPDX-License-Identifier: Apache-2.0
++// SPDX-FileCopyrightText: 2026 The Ebitengine Authors
++
++//go:build !cgo && (darwin || linux)
++
++#include "textflag.h"
++#include "go_asm.h"
++
++// these trampolines map the gcc ABI to Go ABI and then calls into the Go equivalent functions.
++
++TEXT x_cgo_init_trampoline(SB), NOSPLIT, $16
++	MOV	X10, 8(SP)
++	MOV	X11, 16(SP)
++	MOV	·x_cgo_init_call(SB), X5
++	MOV	(X5), X6
++	JALR	RA, 0(X6)
++	RET
++
++TEXT x_cgo_thread_start_trampoline(SB), NOSPLIT, $8
++	MOV	X10, 8(SP)
++	MOV	·x_cgo_thread_start_call(SB), X5
++	MOV	(X5), X6
++	JALR	RA, 0(X6)
++	RET
++
++TEXT x_cgo_setenv_trampoline(SB), NOSPLIT, $8
++	MOV	X10, 8(SP)
++	MOV	·x_cgo_setenv_call(SB), X5
++	MOV	(X5), X6
++	JALR	RA, 0(X6)
++	RET
++
++TEXT x_cgo_unsetenv_trampoline(SB), NOSPLIT, $8
++	MOV	X10, 8(SP)
++	MOV	·x_cgo_unsetenv_call(SB), X5
++	MOV	(X5), X6
++	JALR	RA, 0(X6)
++	RET
++
++TEXT x_cgo_notify_runtime_init_done_trampoline(SB), NOSPLIT, $0
++	CALL	·x_cgo_notify_runtime_init_done(SB)
++	RET
++
++TEXT x_cgo_bindm_trampoline(SB), NOSPLIT, $0
++	CALL	·x_cgo_bindm(SB)
++	RET
++
++// func setg_trampoline(setg uintptr, g uintptr)
++TEXT ·setg_trampoline(SB), NOSPLIT, $0
++	MOV	gp+8(FP), X10
++	MOV	setg+0(FP), X5
++	JALR	RA, 0(X5)
++	RET
++
++TEXT threadentry_trampoline(SB), NOSPLIT, $16
++	MOV	X10, 8(SP)
++	MOV	·threadentry_call(SB), X5
++	MOV	(X5), X6
++	JALR	RA, 0(X6)
++	RET
++
++TEXT ·call5(SB), NOSPLIT, $0-48
++	MOV	fn+0(FP), X9
++	MOV	a1+8(FP), X10
++	MOV	a2+16(FP), X11
++	MOV	a3+24(FP), X12
++	MOV	a4+32(FP), X13
++	MOV	a5+40(FP), X14
++	JALR	RA, 0(X9)
++	MOV	X10, ret+48(FP)
 +	RET
 diff --git a/src/vendor/github.com/golang-fips/openssl/v2/internal/fakecgo/zsymbols.go b/src/vendor/github.com/golang-fips/openssl/v2/internal/fakecgo/zsymbols.go
 new file mode 100644
@@ -8808,6 +9280,123 @@ index 00000000000000..da07005c0bc988
 +
 +TEXT _pthread_attr_destroy(SB), NOSPLIT|NOFRAME, $0-0
 +	JMP purego_pthread_attr_destroy(SB)
+diff --git a/src/vendor/github.com/golang-fips/openssl/v2/internal/fakecgo/ztrampolines_linux_386.s b/src/vendor/github.com/golang-fips/openssl/v2/internal/fakecgo/ztrampolines_linux_386.s
+new file mode 100644
+index 00000000000000..b566eb6ac38ab7
+--- /dev/null
++++ b/src/vendor/github.com/golang-fips/openssl/v2/internal/fakecgo/ztrampolines_linux_386.s
+@@ -0,0 +1,111 @@
++// Code generated by 'go generate' with gen.go. DO NOT EDIT.
++
++// SPDX-License-Identifier: Apache-2.0
++// SPDX-FileCopyrightText: 2022 The Ebitengine Authors
++
++//go:build !cgo
++
++#include "textflag.h"
++
++
++TEXT ___errno_location(SB), NOSPLIT, $0-0
++	JMP purego___errno_location(SB)
++
++TEXT _cgo_purego_setegid_trampoline(SB), NOSPLIT, $4-0
++	MOVL	8(SP), AX	// first C arg
++	MOVL	AX, 0(SP)	// Go arg 1
++	MOVL	·x_cgo_purego_setegid_call(SB), CX
++	MOVL	(CX), CX
++	CALL	CX
++	RET
++
++TEXT _setegid(SB), NOSPLIT, $0-0
++	JMP purego_setegid(SB)
++
++TEXT _cgo_purego_seteuid_trampoline(SB), NOSPLIT, $4-0
++	MOVL	8(SP), AX	// first C arg
++	MOVL	AX, 0(SP)	// Go arg 1
++	MOVL	·x_cgo_purego_seteuid_call(SB), CX
++	MOVL	(CX), CX
++	CALL	CX
++	RET
++
++TEXT _seteuid(SB), NOSPLIT, $0-0
++	JMP purego_seteuid(SB)
++
++TEXT _cgo_purego_setgid_trampoline(SB), NOSPLIT, $4-0
++	MOVL	8(SP), AX	// first C arg
++	MOVL	AX, 0(SP)	// Go arg 1
++	MOVL	·x_cgo_purego_setgid_call(SB), CX
++	MOVL	(CX), CX
++	CALL	CX
++	RET
++
++TEXT _setgid(SB), NOSPLIT, $0-0
++	JMP purego_setgid(SB)
++
++TEXT _cgo_purego_setregid_trampoline(SB), NOSPLIT, $4-0
++	MOVL	8(SP), AX	// first C arg
++	MOVL	AX, 0(SP)	// Go arg 1
++	MOVL	·x_cgo_purego_setregid_call(SB), CX
++	MOVL	(CX), CX
++	CALL	CX
++	RET
++
++TEXT _setregid(SB), NOSPLIT, $0-0
++	JMP purego_setregid(SB)
++
++TEXT _cgo_purego_setresgid_trampoline(SB), NOSPLIT, $4-0
++	MOVL	8(SP), AX	// first C arg
++	MOVL	AX, 0(SP)	// Go arg 1
++	MOVL	·x_cgo_purego_setresgid_call(SB), CX
++	MOVL	(CX), CX
++	CALL	CX
++	RET
++
++TEXT _setresgid(SB), NOSPLIT, $0-0
++	JMP purego_setresgid(SB)
++
++TEXT _cgo_purego_setresuid_trampoline(SB), NOSPLIT, $4-0
++	MOVL	8(SP), AX	// first C arg
++	MOVL	AX, 0(SP)	// Go arg 1
++	MOVL	·x_cgo_purego_setresuid_call(SB), CX
++	MOVL	(CX), CX
++	CALL	CX
++	RET
++
++TEXT _setresuid(SB), NOSPLIT, $0-0
++	JMP purego_setresuid(SB)
++
++TEXT _cgo_purego_setreuid_trampoline(SB), NOSPLIT, $4-0
++	MOVL	8(SP), AX	// first C arg
++	MOVL	AX, 0(SP)	// Go arg 1
++	MOVL	·x_cgo_purego_setreuid_call(SB), CX
++	MOVL	(CX), CX
++	CALL	CX
++	RET
++
++TEXT _setreuid(SB), NOSPLIT, $0-0
++	JMP purego_setreuid(SB)
++
++TEXT _cgo_purego_setuid_trampoline(SB), NOSPLIT, $4-0
++	MOVL	8(SP), AX	// first C arg
++	MOVL	AX, 0(SP)	// Go arg 1
++	MOVL	·x_cgo_purego_setuid_call(SB), CX
++	MOVL	(CX), CX
++	CALL	CX
++	RET
++
++TEXT _setuid(SB), NOSPLIT, $0-0
++	JMP purego_setuid(SB)
++
++TEXT _cgo_purego_setgroups_trampoline(SB), NOSPLIT, $4-0
++	MOVL	8(SP), AX	// first C arg
++	MOVL	AX, 0(SP)	// Go arg 1
++	MOVL	·x_cgo_purego_setgroups_call(SB), CX
++	MOVL	(CX), CX
++	CALL	CX
++	RET
++
++TEXT _setgroups(SB), NOSPLIT, $0-0
++	JMP purego_setgroups(SB)
 diff --git a/src/vendor/github.com/golang-fips/openssl/v2/internal/fakecgo/ztrampolines_linux_amd64.s b/src/vendor/github.com/golang-fips/openssl/v2/internal/fakecgo/ztrampolines_linux_amd64.s
 new file mode 100644
 index 00000000000000..603cd6802eea20
@@ -8917,6 +9506,86 @@ index 00000000000000..603cd6802eea20
 +TEXT _setgroups(SB), NOSPLIT, $0-0
 +	JMP purego_setgroups(SB)
 +
+diff --git a/src/vendor/github.com/golang-fips/openssl/v2/internal/fakecgo/ztrampolines_linux_arm.s b/src/vendor/github.com/golang-fips/openssl/v2/internal/fakecgo/ztrampolines_linux_arm.s
+new file mode 100644
+index 00000000000000..1e31b9737f3395
+--- /dev/null
++++ b/src/vendor/github.com/golang-fips/openssl/v2/internal/fakecgo/ztrampolines_linux_arm.s
+@@ -0,0 +1,74 @@
++// Code generated by 'go generate' with gen.go. DO NOT EDIT.
++
++// SPDX-License-Identifier: Apache-2.0
++// SPDX-FileCopyrightText: 2022 The Ebitengine Authors
++
++//go:build !cgo
++
++#include "textflag.h"
++
++TEXT ___errno_location(SB), NOSPLIT, $0-0
++	JMP	purego___errno_location(SB)
++
++TEXT _cgo_purego_setegid_trampoline(SB), NOSPLIT, $4-0
++	MOVW	R0, 4(R13)
++	MOVW	·x_cgo_purego_setegid_call(SB), R12
++	MOVW	(R12), R2
++	CALL	(R2)
++	RET
++
++TEXT _cgo_purego_seteuid_trampoline(SB), NOSPLIT, $4-0
++	MOVW	R0, 4(R13)
++	MOVW	·x_cgo_purego_seteuid_call(SB), R12
++	MOVW	(R12), R2
++	CALL	(R2)
++	RET
++
++TEXT _cgo_purego_setgid_trampoline(SB), NOSPLIT, $4-0
++	MOVW	R0, 4(R13)
++	MOVW	·x_cgo_purego_setgid_call(SB), R12
++	MOVW	(R12), R2
++	CALL	(R2)
++	RET
++
++TEXT _cgo_purego_setregid_trampoline(SB), NOSPLIT, $4-0
++	MOVW	R0, 4(R13)
++	MOVW	·x_cgo_purego_setregid_call(SB), R12
++	MOVW	(R12), R2
++	CALL	(R2)
++	RET
++
++TEXT _cgo_purego_setresgid_trampoline(SB), NOSPLIT, $4-0
++	MOVW	R0, 4(R13)
++	MOVW	·x_cgo_purego_setresgid_call(SB), R12
++	MOVW	(R12), R2
++	CALL	(R2)
++	RET
++
++TEXT _cgo_purego_setresuid_trampoline(SB), NOSPLIT, $4-0
++	MOVW	R0, 4(R13)
++	MOVW	·x_cgo_purego_setresuid_call(SB), R12
++	MOVW	(R12), R2
++	CALL	(R2)
++	RET
++
++TEXT _cgo_purego_setreuid_trampoline(SB), NOSPLIT, $4-0
++	MOVW	R0, 4(R13)
++	MOVW	·x_cgo_purego_setreuid_call(SB), R12
++	MOVW	(R12), R2
++	CALL	(R2)
++	RET
++
++TEXT _cgo_purego_setuid_trampoline(SB), NOSPLIT, $4-0
++	MOVW	R0, 4(R13)
++	MOVW	·x_cgo_purego_setuid_call(SB), R12
++	MOVW	(R12), R2
++	CALL	(R2)
++	RET
++
++TEXT _cgo_purego_setgroups_trampoline(SB), NOSPLIT, $4-0
++	MOVW	R0, 4(R13)
++	MOVW	·x_cgo_purego_setgroups_call(SB), R12
++	MOVW	(R12), R2
++	CALL	(R2)
++	RET
 diff --git a/src/vendor/github.com/golang-fips/openssl/v2/internal/fakecgo/ztrampolines_linux_arm64.s b/src/vendor/github.com/golang-fips/openssl/v2/internal/fakecgo/ztrampolines_linux_arm64.s
 new file mode 100644
 index 00000000000000..b5aeb4b47a2e55
@@ -9017,6 +9686,104 @@ index 00000000000000..b5aeb4b47a2e55
 +TEXT _setgroups(SB), NOSPLIT, $0-0
 +	JMP purego_setgroups(SB)
 +
+diff --git a/src/vendor/github.com/golang-fips/openssl/v2/internal/fakecgo/ztrampolines_linux_riscv64.s b/src/vendor/github.com/golang-fips/openssl/v2/internal/fakecgo/ztrampolines_linux_riscv64.s
+new file mode 100644
+index 00000000000000..d97eb10cee2bd5
+--- /dev/null
++++ b/src/vendor/github.com/golang-fips/openssl/v2/internal/fakecgo/ztrampolines_linux_riscv64.s
+@@ -0,0 +1,92 @@
++// Code generated by 'go generate' with gen.go. DO NOT EDIT.
++
++// SPDX-License-Identifier: Apache-2.0
++// SPDX-FileCopyrightText: 2022 The Ebitengine Authors
++
++//go:build !cgo
++
++#include "textflag.h"
++
++TEXT ___errno_location(SB), NOSPLIT, $0-0
++	JMP purego___errno_location(SB)
++
++TEXT _cgo_purego_setegid_trampoline(SB), NOSPLIT, $0
++	MOV	·x_cgo_purego_setegid_call(SB), T0
++	MOV	(T0), T1
++	JALR	RA, 0(T1)
++	RET
++
++TEXT _setegid(SB), NOSPLIT, $0-0
++	JMP purego_setegid(SB)
++
++TEXT _cgo_purego_seteuid_trampoline(SB), NOSPLIT, $0
++	MOV	·x_cgo_purego_seteuid_call(SB), T0
++	MOV	(T0), T1
++	JALR	RA, 0(T1)
++	RET
++
++TEXT _seteuid(SB), NOSPLIT, $0-0
++	JMP purego_seteuid(SB)
++
++TEXT _cgo_purego_setgid_trampoline(SB), NOSPLIT, $0
++	MOV	·x_cgo_purego_setgid_call(SB), T0
++	MOV	(T0), T1
++	JALR	RA, 0(T1)
++	RET
++
++TEXT _setgid(SB), NOSPLIT, $0-0
++	JMP purego_setgid(SB)
++
++TEXT _cgo_purego_setregid_trampoline(SB), NOSPLIT, $0
++	MOV	·x_cgo_purego_setregid_call(SB), T0
++	MOV	(T0), T1
++	JALR	RA, 0(T1)
++	RET
++
++TEXT _setregid(SB), NOSPLIT, $0-0
++	JMP purego_setregid(SB)
++
++TEXT _cgo_purego_setresgid_trampoline(SB), NOSPLIT, $0
++	MOV	·x_cgo_purego_setresgid_call(SB), T0
++	MOV	(T0), T1
++	JALR	RA, 0(T1)
++	RET
++
++TEXT _setresgid(SB), NOSPLIT, $0-0
++	JMP purego_setresgid(SB)
++
++TEXT _cgo_purego_setresuid_trampoline(SB), NOSPLIT, $0
++	MOV	·x_cgo_purego_setresuid_call(SB), T0
++	MOV	(T0), T1
++	JALR	RA, 0(T1)
++	RET
++
++TEXT _setresuid(SB), NOSPLIT, $0-0
++	JMP purego_setresuid(SB)
++
++TEXT _cgo_purego_setreuid_trampoline(SB), NOSPLIT, $0
++	MOV	·x_cgo_purego_setreuid_call(SB), T0
++	MOV	(T0), T1
++	JALR	RA, 0(T1)
++	RET
++
++TEXT _setreuid(SB), NOSPLIT, $0-0
++	JMP purego_setreuid(SB)
++
++TEXT _cgo_purego_setuid_trampoline(SB), NOSPLIT, $0
++	MOV	·x_cgo_purego_setuid_call(SB), T0
++	MOV	(T0), T1
++	JALR	RA, 0(T1)
++	RET
++
++TEXT _setuid(SB), NOSPLIT, $0-0
++	JMP purego_setuid(SB)
++
++TEXT _cgo_purego_setgroups_trampoline(SB), NOSPLIT, $0
++	MOV	·x_cgo_purego_setgroups_call(SB), T0
++	MOV	(T0), T1
++	JALR	RA, 0(T1)
++	RET
++
++TEXT _setgroups(SB), NOSPLIT, $0-0
++	JMP purego_setgroups(SB)
 diff --git a/src/vendor/github.com/golang-fips/openssl/v2/internal/fakecgo/ztrampolines_stubs.s b/src/vendor/github.com/golang-fips/openssl/v2/internal/fakecgo/ztrampolines_stubs.s
 new file mode 100644
 index 00000000000000..8417ba55e1e5cf
@@ -9081,6 +9848,106 @@ index 00000000000000..8417ba55e1e5cf
 +
 +TEXT _pthread_setspecific(SB), NOSPLIT|NOFRAME, $0-0
 +	JMP purego_pthread_setspecific(SB)
+diff --git a/src/vendor/github.com/golang-fips/openssl/v2/internal/ossl/asm_386.s b/src/vendor/github.com/golang-fips/openssl/v2/internal/ossl/asm_386.s
+new file mode 100644
+index 00000000000000..7302a8e55f91b2
+--- /dev/null
++++ b/src/vendor/github.com/golang-fips/openssl/v2/internal/ossl/asm_386.s
+@@ -0,0 +1,94 @@
++// Copyright 2026 The Go Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style
++// license that can be found in the LICENSE file.
++
++//go:build !cgo
++
++#include "go_asm.h"
++#include "textflag.h"
++
++TEXT ·syscallNSystemStack_trampoline(SB),NOSPLIT,$16-0
++	MOVL	20(SP), AX	// libcArgs from C caller (frame_size + ret_addr = 16 + 4)
++	MOVL	AX, 0(SP)	// pass to Go function
++	CALL	·syscallNSystemStack(SB)
++	RET
++
++TEXT ·syscallNAsm(SB),NOSPLIT,$16-4
++	// Frame layout: 16 bytes local storage
++	// 0(SP) - saved BP (original SP)
++	// 4(SP) - saved libcArgs pointer
++	// 8(SP) - saved fn pointer
++	// 12(SP) - scratch
++
++	// Load args pointer FIRST before any stack modifications
++	MOVL	libcArgs+0(FP), SI
++
++	// Save original SP and libcArgs in local frame
++	MOVL	SP, BP
++	ADDL	$16, BP			// BP = original SP (before frame allocation)
++	MOVL	BP, 0(SP)		// save original SP
++	MOVL	SI, 4(SP)		// save libcArgs pointer
++
++	// Load struct fields
++	MOVL	libcCallInfo_fn(SI), AX
++	MOVL	AX, 8(SP)		// save fn pointer
++	MOVL	libcCallInfo_n(SI), CX
++	MOVL	libcCallInfo_args(SI), BX
++
++	// Allocate 16 bytes for fast path (0-3 args)
++	MOVL	SP, BP
++	SUBL	$16, SP
++
++	// Fast path for 0-3 args, otherwise fall through to manyargs
++	CMPL	CX, $0;	JE	_0args
++	CMPL	CX, $1;	JE	_1args
++	CMPL	CX, $2;	JE	_2args
++	CMPL	CX, $3;	JE	_3args
++
++	// manyargs: 4+ args, restore SP and reallocate
++	MOVL	BP, SP
++
++	// Calculate stack space needed: n*4 bytes, aligned to 16
++	MOVL	CX, AX
++	SHLL	$2, AX			// AX = n * 4
++	ADDL	$15, AX
++	ANDL	$~15, AX		// 16-byte align
++	SUBL	AX, SP
++
++	// Copy all args to stack
++	// BX = args pointer, CX = count, DI = dest
++	MOVL	SP, DI
++copy_loop:
++	DECL	CX
++	MOVL	(BX)(CX*4), AX
++	MOVL	AX, (DI)(CX*4)
++	CMPL	CX, $0
++	JNE	copy_loop
++	JMP	_0args
++
++	// Fast path: fall through to copy args
++_3args:
++	MOVL	8(BX), AX
++	MOVL	AX, 8(SP)
++_2args:
++	MOVL	4(BX), AX
++	MOVL	AX, 4(SP)
++_1args:
++	MOVL	0(BX), AX
++	MOVL	AX, 0(SP)
++_0args:
++	MOVL	8(BP), DX		// fn pointer from saved location
++	CALL	DX
++	MOVL	BP, SP
++
++ret:
++	// Reload libcArgs pointer from saved location
++	MOVL	4(SP), SI
++
++	// Save return values (AX already has r1, need to save DX before it's clobbered)
++	MOVL	DX, 12(SP)		// temporarily save r2
++	MOVL	AX, libcCallInfo_r1(SI)
++	MOVL	12(SP), AX
++	MOVL	AX, libcCallInfo_r2(SI)
++
++	RET
 diff --git a/src/vendor/github.com/golang-fips/openssl/v2/internal/ossl/asm_amd64.s b/src/vendor/github.com/golang-fips/openssl/v2/internal/ossl/asm_amd64.s
 new file mode 100644
 index 00000000000000..59560c7d590f7a
@@ -9195,6 +10062,117 @@ index 00000000000000..59560c7d590f7a
 +	MOVQ	DX, libcCallInfo_r2(R13)
 +
 +	RET
+diff --git a/src/vendor/github.com/golang-fips/openssl/v2/internal/ossl/asm_arm.s b/src/vendor/github.com/golang-fips/openssl/v2/internal/ossl/asm_arm.s
+new file mode 100644
+index 00000000000000..96fe867d80004b
+--- /dev/null
++++ b/src/vendor/github.com/golang-fips/openssl/v2/internal/ossl/asm_arm.s
+@@ -0,0 +1,105 @@
++// Copyright 2026 The Go Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style
++// license that can be found in the LICENSE file.
++
++//go:build !cgo
++
++#include "go_asm.h"
++#include "textflag.h"
++
++TEXT ·syscallNSystemStack_trampoline(SB),NOSPLIT,$8
++	MOVW	R0, 4(R13)
++	CALL	·syscallNSystemStack(SB)
++	RET
++
++TEXT ·syscallNAsm(SB),NOSPLIT,$0-4
++	// Load args pointer first, before modifying SP
++	MOVW	libcArgs+0(FP), R0
++	
++	// Save callee-saved registers R4-R8 and LR.
++	// We use R4 for libcArgs pointer.
++	// We use R5 for args pointer.
++	// We use R6 for n.
++	// We use R7 for scratch.
++	// We use R8 for saving SP.
++	MOVM.DB.W [R4-R8, R14], (R13)
++
++	MOVW	R0, R4 // Move libcArgs to R4
++
++	MOVW	libcCallInfo_n(R4), R6
++	MOVW	libcCallInfo_args(R4), R5
++	MOVW	libcCallInfo_fn(R4), R12
++
++	CMP	$4, R6
++	BGT	args_stack
++
++	CMP	$0, R6
++	BEQ	call
++	CMP	$1, R6
++	BEQ	args_1
++	CMP	$2, R6
++	BEQ	args_2
++	CMP	$3, R6
++	BEQ	args_3
++	
++args_4:	
++	MOVM.IA	(R5), [R0, R1, R2, R3]
++	B	call
++
++args_3:
++	MOVM.IA	(R5), [R0, R1, R2]
++	B	call
++
++args_2:
++	MOVM.IA	(R5), [R0, R1]
++	B	call
++
++args_1:
++	MOVW	(R5), R0
++	B	call
++
++args_stack:
++	// Calculate stack space needed: (n-4)*4
++	SUB	$4, R6, R7
++	MOVW	R7, R2
++	SLL	$2, R2 // bytes
++	
++	// Save SP
++	MOVW	R13, R8
++	
++	// Allocate stack
++	SUB	R2, R13
++	BIC	$7, R13 // Align to 8 bytes
++	
++	// Copy args
++	ADD	$16, R5, R14 // Src = args + 16
++	MOVW	R13, R3      // Dst = SP
++	
++copy_loop:
++	MOVW.P	4(R14), R1 // read
++	MOVW.P	R1, 4(R3)  // write
++	SUB	$1, R7
++	CMP	$0, R7
++	BNE	copy_loop
++	
++	// Load first 4 args
++	MOVM.IA	(R5), [R0, R1, R2, R3]
++	
++	// Reload fn
++	MOVW	libcCallInfo_fn(R4), R12
++	
++	BL	(R12)
++	
++	// Restore SP
++	MOVW	R8, R13
++	B	ret
++
++call:
++	BL	(R12)
++
++ret:
++	MOVW	R0, libcCallInfo_r1(R4)
++	MOVW	R1, libcCallInfo_r2(R4)
++	
++	MOVM.IA.W (R13), [R4-R8, R14]
++	RET
 diff --git a/src/vendor/github.com/golang-fips/openssl/v2/internal/ossl/asm_arm64.s b/src/vendor/github.com/golang-fips/openssl/v2/internal/ossl/asm_arm64.s
 new file mode 100644
 index 00000000000000..025276dffb2aa5
@@ -9290,7 +10268,7 @@ index 00000000000000..025276dffb2aa5
 +    RET
 diff --git a/src/vendor/github.com/golang-fips/openssl/v2/internal/ossl/asm_others.s b/src/vendor/github.com/golang-fips/openssl/v2/internal/ossl/asm_others.s
 new file mode 100644
-index 00000000000000..dfc38e4106d778
+index 00000000000000..67ab3cf1532ec9
 --- /dev/null
 +++ b/src/vendor/github.com/golang-fips/openssl/v2/internal/ossl/asm_others.s
 @@ -0,0 +1,7 @@
@@ -9298,9 +10276,111 @@ index 00000000000000..dfc38e4106d778
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
 +
-+//go:build !cgo && !arm64 && !amd64
++//go:build !cgo && !arm && !arm64 && !386 && !amd64 && !riscv64
 +
 +// This file silences errors about body-less functions.
+diff --git a/src/vendor/github.com/golang-fips/openssl/v2/internal/ossl/asm_riscv64.s b/src/vendor/github.com/golang-fips/openssl/v2/internal/ossl/asm_riscv64.s
+new file mode 100644
+index 00000000000000..7b771dc770badc
+--- /dev/null
++++ b/src/vendor/github.com/golang-fips/openssl/v2/internal/ossl/asm_riscv64.s
+@@ -0,0 +1,96 @@
++// Copyright 2015 The Go Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style
++// license that can be found in the LICENSE file.
++ 
++//go:build !cgo
++ 
++#include "go_asm.h"
++#include "textflag.h"
++ 
++TEXT ·syscallNSystemStack_trampoline(SB),NOSPLIT,$16
++    MOV A0, 8(X2)
++    CALL    ·syscallNSystemStack(SB)
++    RET
++ 
++TEXT ·syscallNAsm(SB),NOSPLIT,$0-8
++    // Save original stack pointer
++    MOV X2, X20
++ 
++    // Load pointer from stack (ABI0 calling convention)
++    MOV libcArgs+0(FP), X5
++
++    MOV libcCallInfo_args(X5), X30
++    MOV libcCallInfo_fn(X5), X29
++    // Do we have more than 8 arguments?
++    MOV libcCallInfo_n(X5), X10
++    BEQ X10, ZERO, _0args
++    MOV $1, X6
++    BEQ X10, X6, _1args
++    MOV $2, X6
++    BEQ X10, X6, _2args
++    MOV $3, X6
++    BEQ X10, X6, _3args
++    MOV $4, X6
++    BEQ X10, X6, _4args
++    MOV $5, X6
++    BEQ X10, X6, _5args
++    MOV $6, X6
++    BEQ X10, X6, _6args
++    MOV $7, X6
++    BEQ X10, X6, _7args
++    MOV $8, X6
++    BEQ X10, X6, _8args
++ 
++    // Reserve stack space for remaining args
++    ADDI    $-8, X10, X7
++    ADDI    $1, X7, X5 // make even number of words for stack alignment
++    ANDI    $-2, X5, X5
++    SLLI    $3, X5, X5
++    SUB X5, X2, X2
++ 
++    // X6: size of stack arguments (n-8)*8
++    // X7: &args[8]
++    // X8: loop counter, from 0 to (n-8)*8
++    // X9: scratch
++    // X28: copy of X2 (SP)
++    ADDI    $-8, X10, X6
++    SLLI    $3, X6, X6
++    ADDI    $(8*8), X7, X7
++    MOV ZERO, X8
++    MOV X2, X28
++stackargs:
++    ADD X8, X7, X9
++    MOV (X9), X9
++    ADD X8, X28, X31
++    MOV X9, (X31)
++    ADDI    $8, X8, X8
++    BNE X8, X6, stackargs
++ 
++_8args:
++    MOV (7*8)(X30), X17
++_7args:
++    MOV (6*8)(X30), X16
++_6args:
++    MOV (5*8)(X30), X15
++_5args:
++    MOV (4*8)(X30), X14
++_4args:
++    MOV (3*8)(X30), X13
++_3args:
++    MOV (2*8)(X30), X12
++_2args:
++    MOV (1*8)(X30), X11
++_1args:
++    MOV (0*8)(X30), X10
++_0args:
++
++    JALR    RA, (X29)
++
++    // Restore original stack pointer
++    MOV X20, X2
++ 
++    MOV libcArgs+0(FP), X5
++    MOV X10, libcCallInfo_r1(X5)    // save r1
++    MOV X11, libcCallInfo_r2(X5)    // save r2
++ 
++    RET
 diff --git a/src/vendor/github.com/golang-fips/openssl/v2/internal/ossl/dl.h b/src/vendor/github.com/golang-fips/openssl/v2/internal/ossl/dl.h
 new file mode 100644
 index 00000000000000..e94cca9e27e30a
@@ -35419,11 +36499,11 @@ index 00000000000000..1722410e5af193
 +	return getSystemDirectory() + "\\" + dll
 +}
 diff --git a/src/vendor/modules.txt b/src/vendor/modules.txt
-index b6f6376eac041a..42fde54eacaeda 100644
+index b6f6376eac041a..1e9ffd7c312b4d 100644
 --- a/src/vendor/modules.txt
 +++ b/src/vendor/modules.txt
 @@ -1,3 +1,26 @@
-+# github.com/golang-fips/openssl/v2 v2.0.4-0.20260115115456-4e77131fa055
++# github.com/golang-fips/openssl/v2 v2.0.4-0.20260122161456-253270d31f86
 +## explicit; go 1.24
 +github.com/golang-fips/openssl/v2
 +github.com/golang-fips/openssl/v2/bbig
