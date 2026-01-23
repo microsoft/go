@@ -57,25 +57,25 @@ This section includes the following packages:
 - [crypto/sha3](https://pkg.go.dev/crypto/sha3)
 - [crypto/hmac](https://pkg.go.dev/crypto/hmac)
 
-| Algorithm             | Windows        | Linux            | macOS          |
-| --------------------- | -------------- | ---------------- | -------------- |
-| MD5                   | ✔️             | ✔️               | ✔️             |
-| SHA-1                 | ✔️             | ✔️               | ✔️             |
-| SHA-2-224             | ❌️             | ✔️               | ✔️             |
-| SHA-2-256             | ✔️             | ✔️               | ✔️             |
-| SHA-2-384             | ✔️             | ✔️               | ✔️             |
-| SHA-2-512             | ✔️             | ✔️               | ✔️             |
-| SHA-2-512_224         | ❌️             | ✔️<sup>1,2</sup> | ❌️             |
-| SHA-2-512_256         | ❌️             | ✔️<sup>1,2</sup> | ❌️             |
-| SHA-3-224<sup>3</sup> | ❌️             | ✔️<sup>2</sup>   | ❌️             |
-| SHA-3-256<sup>3</sup> | ✔️<sup>4</sup> | ✔️<sup>2</sup>   | ✔️<sup>5</sup> |
-| SHA-3-384<sup>3</sup> | ✔️<sup>4</sup> | ✔️<sup>2</sup>   | ✔️<sup>5</sup> |
-| SHA-3-512<sup>3</sup> | ✔️<sup>4</sup> | ✔️<sup>2</sup>   | ✔️<sup>5</sup> |
-| SHAKE-128             | ✔️             | ✔️<sup>6</sup>   | ❌️             |
-| SHAKE-256             | ✔️             | ✔️<sup>6</sup>   | ❌️             |
-| CSHAKE-128            | ✔️             | ❌️               | ❌️             |
-| CSHAKE-256            | ✔️             | ❌️               | ❌️             |
-| HMAC<sup>7</sup>      | ✔️             | ✔️               | ✔️             |
+|	Algorithm	|	Windows	|	Linux	|	macOS	|
+|	---	|	---	|	---	|	---	|
+|	MD5	|	✔️	|	✔️	|	✔️	|
+|	SHA-1	|	✔️	|	✔️	|	✔️	|
+|	SHA-2-224	|	❌️	|	✔️	|	✔️	|
+|	SHA-2-256	|	✔️	|	✔️	|	✔️	|
+|	SHA-2-384	|	✔️	|	✔️	|	✔️	|
+|	SHA-2-512	|	✔️	|	✔️	|	✔️	|
+|	SHA-2-512_224	|	❌️	|	<details><summary>✔️<sup>1,2</sup></summary><sup>1</sup>Available starting in the Microsoft build of Go 1.24.<br/><sup>2</sup>Requires OpenSSL 1.1.1 or later.<br/></details>	|	❌️	|
+|	SHA-2-512_256	|	❌️	|	<details><summary>✔️<sup>1,2</sup></summary><sup>1</sup>Available starting in the Microsoft build of Go 1.24.<br/><sup>2</sup>Requires OpenSSL 1.1.1 or later.<br/></details>	|	❌️	|
+|	<details><summary>SHA-3-224<sup>3</sup></summary><sup>3</sup>Available starting in the Microsoft build of Go 1.26.<br/></details>	|	❌️	|	<details><summary>✔️<sup>2</sup></summary><sup>2</sup>Requires OpenSSL 1.1.1 or later.<br/></details>	|	❌️	|
+|	<details><summary>SHA-3-256<sup>3</sup></summary><sup>3</sup>Available starting in the Microsoft build of Go 1.26.<br/></details>	|	<details><summary>✔️<sup>4</sup></summary><sup>4</sup>Requires Windows 11 (24H2) or later.<br/></details>	|	<details><summary>✔️<sup>2</sup></summary><sup>2</sup>Requires OpenSSL 1.1.1 or later.<br/></details>	|	<details><summary>✔️<sup>5</sup></summary><sup>5</sup>Requires macOS 26 or later.<br/></details>	|
+|	<details><summary>SHA-3-384<sup>3</sup></summary><sup>3</sup>Available starting in the Microsoft build of Go 1.26.<br/></details>	|	<details><summary>✔️<sup>4</sup></summary><sup>4</sup>Requires Windows 11 (24H2) or later.<br/></details>	|	<details><summary>✔️<sup>2</sup></summary><sup>2</sup>Requires OpenSSL 1.1.1 or later.<br/></details>	|	<details><summary>✔️<sup>5</sup></summary><sup>5</sup>Requires macOS 26 or later.<br/></details>	|
+|	<details><summary>SHA-3-512<sup>3</sup></summary><sup>3</sup>Available starting in the Microsoft build of Go 1.26.<br/></details>	|	<details><summary>✔️<sup>4</sup></summary><sup>4</sup>Requires Windows 11 (24H2) or later.<br/></details>	|	<details><summary>✔️<sup>2</sup></summary><sup>2</sup>Requires OpenSSL 1.1.1 or later.<br/></details>	|	<details><summary>✔️<sup>5</sup></summary><sup>5</sup>Requires macOS 26 or later.<br/></details>	|
+|	SHAKE-128	|	✔️	|	<details><summary>✔️<sup>6</sup></summary><sup>6</sup>Requires OpenSSL 3.3 or later.<br/></details>	|	❌️	|
+|	SHAKE-256	|	✔️	|	<details><summary>✔️<sup>6</sup></summary><sup>6</sup>Requires OpenSSL 3.3 or later.<br/></details>	|	❌️	|
+|	CSHAKE-128	|	✔️	|	❌️	|	❌️	|
+|	CSHAKE-256	|	✔️	|	❌️	|	❌️	|
+|	<details><summary>HMAC<sup>7</sup></summary><sup>7</sup>Supports only hash algorithms that are supported as standalone hash functions.<br/></details>	|	✔️	|	✔️	|	✔️	|
 
 <sup>1</sup>Available starting in the Microsoft build of Go 1.24.
 
@@ -100,19 +100,19 @@ This section includes the following packages:
 - [crypto/des](https://pkg.go.dev/crypto/des)
 - [crypto/rc4](https://pkg.go.dev/crypto/rc4)
 
-| Cipher + Mode       | Windows | Linux          | macOS |
-| ------------------- | ------- | -------------- | ----- |
-| AES-ECB             | ✔️      | ✔️             | ✔️    |
-| AES-CBC             | ✔️      | ✔️             | ✔️    |
-| AES-CTR             | ❌️      | ✔️             | ❌️    |
-| AES-CFB             | ❌️      | ❌️             | ❌️    |
-| AES-OFB             | ❌️      | ❌️             | ❌️    |
-| AES-GCM<sup>1</sup> | ✔️      | ✔️             | ✔️    |
-| DES-CBC             | ✔️      | ⚠️<sup>2</sup> | ✔️    |
-| DES-ECB             | ✔️      | ⚠️<sup>2</sup> | ✔️    |
-| 3DES-ECB            | ✔️      | ✔️             | ✔️    |
-| 3DES-CBC            | ✔️      | ✔️             | ✔️    |
-| RC4                 | ✔️      | ⚠️<sup>2</sup> | ✔️    |
+|	Cipher + Mode	|	Windows	|	Linux	|	macOS	|
+|	---	|	---	|	---	|	---	|
+|	AES-ECB	|	✔️	|	✔️	|	✔️	|
+|	AES-CBC	|	✔️	|	✔️	|	✔️	|
+|	AES-CTR	|	❌️	|	✔️	|	❌️	|
+|	AES-CFB	|	❌️	|	❌️	|	❌️	|
+|	AES-OFB	|	❌️	|	❌️	|	❌️	|
+|	<details><summary>AES-GCM<sup>1</sup></summary><sup>1</sup>AES-GCM supports specific keys, nonces, and tags:<br/></details>	|	✔️	|	✔️	|	✔️	|
+|	DES-CBC	|	✔️	|	<details><summary>⚠️<sup>2</sup></summary><sup>2</sup>When using OpenSSL 3, requires the legacy provider to be enabled.<br/></details>	|	✔️	|
+|	DES-ECB	|	✔️	|	<details><summary>⚠️<sup>2</sup></summary><sup>2</sup>When using OpenSSL 3, requires the legacy provider to be enabled.<br/></details>	|	✔️	|
+|	3DES-ECB	|	✔️	|	✔️	|	✔️	|
+|	3DES-CBC	|	✔️	|	✔️	|	✔️	|
+|	RC4	|	✔️	|	<details><summary>⚠️<sup>2</sup></summary><sup>2</sup>When using OpenSSL 3, requires the legacy provider to be enabled.<br/></details>	|	✔️	|
 
 <sup>1</sup>AES-GCM supports specific keys, nonces, and tags:
 
@@ -154,23 +154,23 @@ Please refer to the documentation of the underlying cryptographic library for th
 
 Operations that require random numbers (rand io.Reader) only support [rand.Reader](https://pkg.go.dev/crypto/rand#Reader).
 
-| Padding Mode                           | Windows          | Linux          | macOS          |
-| -------------------------------------- | ---------------- | -------------- | -------------- |
-| OAEP (MD5)                             | ✔️               | ✔️             | ✔️<sup>1</sup> |
-| OAEP (SHA-1)                           | ✔️               | ✔️             | ✔️<sup>1</sup> |
-| OAEP (SHA-2)<sup>2</sup>               | ✔️               | ✔️             | ✔️<sup>1</sup> |
-| OAEP (SHA-3)<sup>2,3</sup>             | ✔️               | ✔️             | ❌️             |
-| PSS (MD5)                              | ✔️<sup>4</sup>   | ✔️             | ❌️             |
-| PSS (SHA-1)                            | ✔️<sup>4</sup>   | ✔️             | ✔️<sup>5</sup> |
-| PSS (SHA-2)<sup>2</sup>                | ✔️<sup>4</sup>   | ✔️             | ✔️<sup>5</sup> |
-| PSS (SHA-3)<sup>2</sup>                | ✔️<sup>3</sup>   | ✔️             | ❌️             |
-| PKCS1v15 Signature (Unhashed)          | ✔️               | ✔️             | ✔️             |
-| PKCS1v15 Signature (RIPMED160)         | ❌️               | ✔️<sup>6</sup> | ❌️             |
-| PKCS1v15 Signature (MD5)               | ✔️               | ✔️             | ❌️             |
-| PKCS1v15 Signature (MD5-SHA1)          | ✔️<sup>6</sup>   | ✔️<sup>6</sup> | ❌️             |
-| PKCS1v15 Signature (SHA-1)             | ✔️               | ✔️             | ✔️             |
-| PKCS1v15 Signature (SHA-2)<sup>2</sup> | ✔️               | ✔️             | ✔️             |
-| PKCS1v15 Signature (SHA-3)             | ✔️<sup>3,7</sup> | ✔️<sup>8</sup> | ❌️             |
+|	Padding Mode	|	Windows	|	Linux	|	macOS	|
+|	---	|	---	|	---	|	---	|
+|	OAEP (MD5)	|	✔️	|	✔️	|	<details><summary>✔️<sup>1</sup></summary><sup>1</sup>macOS doesn't support passing a custom label to OAEP functions.<br/></details>	|
+|	OAEP (SHA-1)	|	✔️	|	✔️	|	<details><summary>✔️<sup>1</sup></summary><sup>1</sup>macOS doesn't support passing a custom label to OAEP functions.<br/></details>	|
+|	<details><summary>OAEP (SHA-2)<sup>2</sup></summary><sup>2</sup>Supports only hash algorithms that are [supported as standalone hash functions](#hash-and-message-authentication-algorithms).<br/></details>	|	✔️	|	✔️	|	<details><summary>✔️<sup>1</sup></summary><sup>1</sup>macOS doesn't support passing a custom label to OAEP functions.<br/></details>	|
+|	<details><summary>OAEP (SHA-3)<sup>2,3</sup></summary><sup>2</sup>Supports only hash algorithms that are [supported as standalone hash functions](#hash-and-message-authentication-algorithms).<br/><sup>3</sup>Available starting in the Microsoft build of Go 1.26.<br/></details>	|	✔️	|	✔️	|	❌️	|
+|	PSS (MD5)	|	<details><summary>✔️<sup>4</sup></summary><sup>4</sup>Verifying PSS signatures with [rsa.PSSSaltLengthAuto](https://pkg.go.dev/crypto/rsa#pkg-constants) is not supported.<br/></details>	|	✔️	|	❌️	|
+|	PSS (SHA-1)	|	<details><summary>✔️<sup>4</sup></summary><sup>4</sup>Verifying PSS signatures with [rsa.PSSSaltLengthAuto](https://pkg.go.dev/crypto/rsa#pkg-constants) is not supported.<br/></details>	|	✔️	|	<details><summary>✔️<sup>5</sup></summary><sup>5</sup>Custom salt lengths are not supported. PSS always uses the [`rsa.PSSSaltLengthEqualsHash`](https://pkg.go.dev/crypto/rsa#pkg-constants).<br/></details>	|
+|	<details><summary>PSS (SHA-2)<sup>2</sup></summary><sup>2</sup>Supports only hash algorithms that are [supported as standalone hash functions](#hash-and-message-authentication-algorithms).<br/></details>	|	<details><summary>✔️<sup>4</sup></summary><sup>4</sup>Verifying PSS signatures with [rsa.PSSSaltLengthAuto](https://pkg.go.dev/crypto/rsa#pkg-constants) is not supported.<br/></details>	|	✔️	|	<details><summary>✔️<sup>5</sup></summary><sup>5</sup>Custom salt lengths are not supported. PSS always uses the [`rsa.PSSSaltLengthEqualsHash`](https://pkg.go.dev/crypto/rsa#pkg-constants).<br/></details>	|
+|	<details><summary>PSS (SHA-3)<sup>2</sup></summary><sup>2</sup>Supports only hash algorithms that are [supported as standalone hash functions](#hash-and-message-authentication-algorithms).<br/></details>	|	<details><summary>✔️<sup>3</sup></summary><sup>3</sup>Available starting in the Microsoft build of Go 1.26.<br/></details>	|	✔️	|	❌️	|
+|	PKCS1v15 Signature (Unhashed)	|	✔️	|	✔️	|	✔️	|
+|	PKCS1v15 Signature (RIPMED160)	|	❌️	|	<details><summary>✔️<sup>6</sup></summary><sup>6</sup>Available starting in the Microsoft build of Go 1.24.<br/></details>	|	❌️	|
+|	PKCS1v15 Signature (MD5)	|	✔️	|	✔️	|	❌️	|
+|	PKCS1v15 Signature (MD5-SHA1)	|	<details><summary>✔️<sup>6</sup></summary><sup>6</sup>Available starting in the Microsoft build of Go 1.24.<br/></details>	|	<details><summary>✔️<sup>6</sup></summary><sup>6</sup>Available starting in the Microsoft build of Go 1.24.<br/></details>	|	❌️	|
+|	PKCS1v15 Signature (SHA-1)	|	✔️	|	✔️	|	✔️	|
+|	<details><summary>PKCS1v15 Signature (SHA-2)<sup>2</sup></summary><sup>2</sup>Supports only hash algorithms that are [supported as standalone hash functions](#hash-and-message-authentication-algorithms).<br/></details>	|	✔️	|	✔️	|	✔️	|
+|	PKCS1v15 Signature (SHA-3)	|	<details><summary>✔️<sup>3,7</sup></summary><sup>3</sup>Available starting in the Microsoft build of Go 1.26.<br/><sup>7</sup>Requires Windows 11 (24H2) or later.<br/></details>	|	<details><summary>✔️<sup>8</sup></summary><sup>8</sup>Requires OpenSSL 1.1.1 or later.<br/></details>	|	❌️	|
 
 <sup>1</sup>macOS doesn't support passing a custom label to OAEP functions.
 
@@ -197,12 +197,12 @@ This section includes the following packages:
 
 Operations that require random numbers (rand io.Reader) only support [rand.Reader](https://pkg.go.dev/crypto/rand#Reader).
 
-| Elliptic Curve         | Windows | Linux | macOS |
-| ---------------------- | ------- | ----- | ----- |
-| NIST P-224 (secp224r1) | ✔️      | ✔️    | ❌️    |
-| NIST P-256 (secp256r1) | ✔️      | ✔️    | ✔️    |
-| NIST P-384 (secp384r1) | ✔️      | ✔️    | ✔️    |
-| NIST P-521 (secp521r1) | ✔️      | ✔️    | ✔️    |
+|	Elliptic Curve	|	Windows	|	Linux	|	macOS	|
+|	---	|	---	|	---	|	---	|
+|	NIST P-224 (secp224r1)	|	✔️	|	✔️	|	❌️	|
+|	NIST P-256 (secp256r1)	|	✔️	|	✔️	|	✔️	|
+|	NIST P-384 (secp384r1)	|	✔️	|	✔️	|	✔️	|
+|	NIST P-521 (secp521r1)	|	✔️	|	✔️	|	✔️	|
 
 ### ECDH
 
@@ -212,13 +212,13 @@ This section includes the following packages:
 
 Operations that require random numbers (rand io.Reader) only support [rand.Reader](https://pkg.go.dev/crypto/rand#Reader).
 
-| Elliptic Curve                  | Windows | Linux          | macOS |
-| ------------------------------- | ------- | -------------- | ----- |
-| NIST P-224 (secp224r1)          | ✔️      | ✔️             | ❌️    |
-| NIST P-256 (secp256r1)          | ✔️      | ✔️             | ✔️    |
-| NIST P-384 (secp384r1)          | ✔️      | ✔️             | ✔️    |
-| NIST P-521 (secp521r1)          | ✔️      | ✔️             | ✔️    |
-| X25519 (curve25519)<sup>1</sup> | ✔️      | ✔️<sup>2</sup> | ✔️    |
+|	Elliptic Curve	|	Windows	|	Linux	|	macOS	|
+|	---	|	---	|	---	|	---	|
+|	NIST P-224 (secp224r1)	|	✔️	|	✔️	|	❌️	|
+|	NIST P-256 (secp256r1)	|	✔️	|	✔️	|	✔️	|
+|	NIST P-384 (secp384r1)	|	✔️	|	✔️	|	✔️	|
+|	NIST P-521 (secp521r1)	|	✔️	|	✔️	|	✔️	|
+|	<details><summary>X25519 (curve25519)<sup>1</sup></summary><sup>1</sup>Available starting in the Microsoft build of Go 1.26.<br/></details>	|	✔️	|	<details><summary>✔️<sup>2</sup></summary><sup>2</sup>Requires OpenSSL 1.1.1 or later.<br/></details>	|	✔️	|
 
 <sup>1</sup>Available starting in the Microsoft build of Go 1.26.
 
@@ -232,20 +232,20 @@ This section includes the following packages:
 
 Operations that require random numbers (rand io.Reader) only support [rand.Reader](https://pkg.go.dev/crypto/rand#Reader).
 
-| Schemes    | Windows | Linux | macOS |
-| ---------- | ------- | ----- | ----- |
-| Ed25519    | ❌️      | ✔️    | ✔️    |
-| Ed25519ctx | ❌️      | ❌️    | ❌️    |
-| Ed25519ph  | ❌️      | ❌️    | ❌️    |
+|	Schemes	|	Windows	|	Linux	|	macOS	|
+|	---	|	---	|	---	|	---	|
+|	Ed25519	|	❌️	|	✔️	|	✔️	|
+|	Ed25519ctx	|	❌️	|	❌️	|	❌️	|
+|	Ed25519ph	|	❌️	|	❌️	|	❌️	|
 
 ### DSA
 
-| Parameters | Windows | Linux | macOS |
-| ---------- | ------- | ----- | ----- |
-| L1024N160  | ✔️      | ✔️    | ❌️    |
-| L2048N224  | ❌️      | ✔️    | ❌️    |
-| L2048N256  | ✔️      | ✔️    | ❌️    |
-| L3072N256  | ✔️      | ✔️    | ❌️    |
+|	Parameters	|	Windows	|	Linux	|	macOS	|
+|	---	|	---	|	---	|	---	|
+|	L1024N160	|	✔️	|	✔️	|	❌️	|
+|	L2048N224	|	❌️	|	✔️	|	❌️	|
+|	L2048N256	|	✔️	|	✔️	|	❌️	|
+|	L3072N256	|	✔️	|	✔️	|	❌️	|
 
 ## Key derivation functions (KDFs)
 
@@ -254,10 +254,10 @@ This section includes the following packages:
 - [crypto/hkdf](https://pkg.go.dev/crypto/hkdf)
 - [crypto/pbkdf2](https://pkg.go.dev/crypto/pbkdf2)
 
-| Functions          | Windows | Linux | macOS |
-| ------------------ | ------- | ----- | ----- |
-| PBKDF2<sup>1</sup> | ✔️      | ✔️    | ✔️    |
-| HKDF<sup>1</sup>   | ✔️      | ✔️    | ✔️    |
+|	Functions	|	Windows	|	Linux	|	macOS	|
+|	---	|	---	|	---	|	---	|
+|	<details><summary>PBKDF2<sup>1</sup></summary><sup>1</sup>Supports only hash algorithms that are [supported as standalone hash functions](#hash-and-message-authentication-algorithms).<br/></details>	|	✔️	|	✔️	|	✔️	|
+|	<details><summary>HKDF<sup>1</sup></summary><sup>1</sup>Supports only hash algorithms that are [supported as standalone hash functions](#hash-and-message-authentication-algorithms).<br/></details>	|	✔️	|	✔️	|	✔️	|
 
 <sup>1</sup>Supports only hash algorithms that are [supported as standalone hash functions](#hash-and-message-authentication-algorithms).
 
@@ -275,10 +275,10 @@ This section includes the following packages:
 
 ML-KEM is available starting from the Microsoft build of Go 1.26.
 
-| Parameters | Windows        | Linux          | macOS          |
-| ---------- | -------------- | -------------- | -------------- |
-| 768        | ✔️<sup>1</sup> | ✔️<sup>2</sup> | ✔️<sup>3</sup> |
-| 1024       | ✔️<sup>1</sup> | ✔️<sup>2</sup> | ✔️<sup>3</sup> |
+|	Parameters	|	Windows	|	Linux	|	macOS	|
+|	---	|	---	|	---	|	---	|
+|	768	|	<details><summary>✔️<sup>1</sup></summary><sup>1</sup>Requires Windows 11 (24H2) or later.<br/></details>	|	<details><summary>✔️<sup>2</sup></summary><sup>2</sup>Requires OpenSSL 3.5.0 or later.<br/></details>	|	<details><summary>✔️<sup>3</sup></summary><sup>3</sup>Requires macOS 26 or later.<br/></details>	|
+|	1024	|	<details><summary>✔️<sup>1</sup></summary><sup>1</sup>Requires Windows 11 (24H2) or later.<br/></details>	|	<details><summary>✔️<sup>2</sup></summary><sup>2</sup>Requires OpenSSL 3.5.0 or later.<br/></details>	|	<details><summary>✔️<sup>3</sup></summary><sup>3</sup>Requires macOS 26 or later.<br/></details>	|
 
 <sup>1</sup>Requires Windows 11 (24H2) or later.
 
@@ -312,36 +312,36 @@ This section includes the following subsections:
 
 #### HPKE Authenticated Encryption with Associated Data (AEAD) Functions
 
-| Functions                    | Windows | Linux | macOS |
-| ---------------------------- | ------- | ----- | ----- |
-| AES-128-GCM                  | ✔️      | ✔️    | ✔️    |
-| AES-256-GCM                  | ✔️      | ✔️    | ✔️    |
-| ChaCha20Poly1305<sup>1</sup> | ✔️      | ✔️    | ✔️    |
-| Export-only                  | N/A     | N/A   | N/A   |
+|	Functions	|	Windows	|	Linux	|	macOS	|
+|	---	|	---	|	---	|	---	|
+|	AES-128-GCM	|	✔️	|	✔️	|	✔️	|
+|	AES-256-GCM	|	✔️	|	✔️	|	✔️	|
+|	<details><summary>ChaCha20Poly1305<sup>1</sup></summary><sup>1</sup>Available starting in the Microsoft build of Go 1.26.<br/></details>	|	✔️	|	✔️	|	✔️	|
+|	Export-only	|	N/A	|	N/A	|	N/A	|
 
 <sup>1</sup>Available starting in the Microsoft build of Go 1.26.
 
 #### HPKE Key Derivation Functions (KDFs)
 
-| Functions   | Windows | Linux | macOS |
-| ----------- | ------- | ----- | ----- |
-| HKDF-SHA256 | ✔️      | ✔️    | ✔️    |
-| HKDF-SHA384 | ✔️      | ✔️    | ✔️    |
-| HKDF-SHA512 | ✔️      | ✔️    | ✔️    |
+|	Functions	|	Windows	|	Linux	|	macOS	|
+|	---	|	---	|	---	|	---	|
+|	HKDF-SHA256	|	✔️	|	✔️	|	✔️	|
+|	HKDF-SHA384	|	✔️	|	✔️	|	✔️	|
+|	HKDF-SHA512	|	✔️	|	✔️	|	✔️	|
 
 #### HPKE Key Encapsulation Mechanisms (KEMs)
 
-| Functions                              | Windows | Linux | macOS |
-| -------------------------------------- | ------- | ----- | ----- |
-| DHKEM(P-256, HKDF-SHA256)              | ✔️      | ✔️    | ✔️    |
-| DHKEM(P-384, HKDF-SHA384)              | ✔️      | ✔️    | ✔️    |
-| DHKEM(P-521, HKDF-SHA512)              | ✔️      | ✔️    | ✔️    |
-| DHKEM(X25519, HKDF-SHA256)<sup>1</sup> | ✔️      | ✔️    | ✔️    |
-| ML-KEM-768<sup>2</sup>                 | ✔️      | ✔️    | ✔️    |
-| ML-KEM-1024<sup>2</sup>                | ✔️      | ✔️    | ✔️    |
-| MLKEM768-P256<sup>2</sup>              | ✔️      | ✔️    | ✔️    |
-| MLKEM1024-P384<sup>2</sup>             | ✔️      | ✔️    | ✔️    |
-| MLKEM768-X25519<sup>1,2</sup>          | ✔️      | ✔️    | ✔️    |
+|	Functions	|	Windows	|	Linux	|	macOS	|
+|	---	|	---	|	---	|	---	|
+|	DHKEM(P-256, HKDF-SHA256)	|	✔️	|	✔️	|	✔️	|
+|	DHKEM(P-384, HKDF-SHA384)	|	✔️	|	✔️	|	✔️	|
+|	DHKEM(P-521, HKDF-SHA512)	|	✔️	|	✔️	|	✔️	|
+|	<details><summary>DHKEM(X25519, HKDF-SHA256)<sup>1</sup></summary><sup>1</sup>See the [X25519](#ecdh) section for requirements.<br/></details>	|	✔️	|	✔️	|	✔️	|
+|	<details><summary>ML-KEM-768<sup>2</sup></summary><sup>2</sup>See the [ML-KEM](#ml-kem) section for requirements.<br/></details>	|	✔️	|	✔️	|	✔️	|
+|	<details><summary>ML-KEM-1024<sup>2</sup></summary><sup>2</sup>See the [ML-KEM](#ml-kem) section for requirements.<br/></details>	|	✔️	|	✔️	|	✔️	|
+|	<details><summary>MLKEM768-P256<sup>2</sup></summary><sup>2</sup>See the [ML-KEM](#ml-kem) section for requirements.<br/></details>	|	✔️	|	✔️	|	✔️	|
+|	<details><summary>MLKEM1024-P384<sup>2</sup></summary><sup>2</sup>See the [ML-KEM](#ml-kem) section for requirements.<br/></details>	|	✔️	|	✔️	|	✔️	|
+|	<details><summary>MLKEM768-X25519<sup>1,2</sup></summary><sup>1</sup>See the [X25519](#ecdh) section for requirements.<br/><sup>2</sup>See the [ML-KEM](#ml-kem) section for requirements.<br/></details>	|	✔️	|	✔️	|	✔️	|
 
 <sup>1</sup>See the [X25519](#ecdh) section for requirements.
 
@@ -364,45 +364,45 @@ This section includes the following subsections:
 
 The TLS stack is implemented using native Go code but the crypto primitives are provided by the system cryptographic libraries.
 
-| Version | Windows | Linux | macOS |
-| ------- | ------- | ----- | ----- |
-| SSL 3.0 | ❌️      | ❌️    | ❌️    |
-| TLS 1.0 | ✔️      | ✔️    | ❌️    |
-| TLS 1.1 | ✔️      | ✔️    | ❌️    |
-| TLS 1.2 | ✔️      | ✔️    | ✔️    |
-| TLS 1.3 | ✔️      | ✔️    | ✔️    |
+|	Version	|	Windows	|	Linux	|	macOS	|
+|	---	|	---	|	---	|	---	|
+|	SSL 3.0	|	❌️	|	❌️	|	❌️	|
+|	TLS 1.0	|	✔️	|	✔️	|	❌️	|
+|	TLS 1.1	|	✔️	|	✔️	|	❌️	|
+|	TLS 1.2	|	✔️	|	✔️	|	✔️	|
+|	TLS 1.3	|	✔️	|	✔️	|	✔️	|
 
 #### TLS Cipher Suites
 
-| Name                                                      | Windows | Linux          | macOS |
-| --------------------------------------------------------- | ------- | -------------- | ----- |
-| TLS_RSA_WITH_RC4_128_SHA                                  | ✔️      | ⚠️<sup>1</sup> | ✔️    |
-| TLS_RSA_WITH_3DES_EDE_CBC_SHA                             | ✔️      | ⚠️<sup>1</sup> | ✔️    |
-| TLS_RSA_WITH_AES_128_CBC_SHA                              | ✔️      | ✔️             | ✔️    |
-| TLS_RSA_WITH_AES_256_CBC_SHA                              | ✔️      | ✔️             | ✔️    |
-| TLS_RSA_WITH_AES_128_CBC_SHA256                           | ✔️      | ✔️             | ✔️    |
-| TLS_RSA_WITH_AES_128_GCM_SHA256                           | ✔️      | ✔️             | ✔️    |
-| TLS_RSA_WITH_AES_256_GCM_SHA384                           | ✔️      | ✔️             | ✔️    |
-| TLS_ECDHE_ECDSA_WITH_RC4_128_SHA                          | ✔️      | ⚠️<sup>1</sup> | ✔️    |
-| TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA                      | ✔️      | ✔️             | ✔️    |
-| TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA                      | ✔️      | ✔️             | ✔️    |
-| TLS_ECDHE_RSA_WITH_RC4_128_SHA                            | ✔️      | ⚠️<sup>1</sup> | ✔️    |
-| TLS_ECDHE_RSA_WITH_3DES_EDE_CBC_SHA                       | ✔️      | ⚠️<sup>1</sup> | ✔️    |
-| TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA                        | ✔️      | ✔️             | ✔️    |
-| TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA                        | ✔️      | ✔️             | ✔️    |
-| TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA256                   | ✔️      | ✔️             | ✔️    |
-| TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA256                     | ✔️      | ✔️             | ✔️    |
-| TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256                     | ✔️      | ✔️             | ✔️    |
-| TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256                   | ✔️      | ✔️             | ✔️    |
-| TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384                     | ✔️      | ✔️             | ✔️    |
-| TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384                   | ✔️      | ✔️             | ✔️    |
-| TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256<sup>2</sup>   | ✔️      | ✔️             | ✔️    |
-| TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256<sup>2</sup> | ✔️      | ✔️             | ✔️    |
-| TLS_AES_128_GCM_SHA256                                    | ✔️      | ✔️             | ✔️    |
-| TLS_AES_256_GCM_SHA384                                    | ✔️      | ✔️             | ✔️    |
-| TLS_CHACHA20_POLY1305_SHA256<sup>2</sup>                  | ✔️      | ✔️             | ✔️    |
-| TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305<sup>2</sup>          | ✔️      | ✔️             | ✔️    |
-| TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305<sup>2</sup>        | ✔️      | ✔️             | ✔️    |
+|	Name	|	Windows	|	Linux	|	macOS	|
+|	---	|	---	|	---	|	---	|
+|	TLS_RSA_WITH_RC4_128_SHA	|	✔️	|	<details><summary>⚠️<sup>1</sup></summary><sup>1</sup>When using OpenSSL 3, requires the legacy provider to be enabled.<br/></details>	|	✔️	|
+|	TLS_RSA_WITH_3DES_EDE_CBC_SHA	|	✔️	|	<details><summary>⚠️<sup>1</sup></summary><sup>1</sup>When using OpenSSL 3, requires the legacy provider to be enabled.<br/></details>	|	✔️	|
+|	TLS_RSA_WITH_AES_128_CBC_SHA	|	✔️	|	✔️	|	✔️	|
+|	TLS_RSA_WITH_AES_256_CBC_SHA	|	✔️	|	✔️	|	✔️	|
+|	TLS_RSA_WITH_AES_128_CBC_SHA256	|	✔️	|	✔️	|	✔️	|
+|	TLS_RSA_WITH_AES_128_GCM_SHA256	|	✔️	|	✔️	|	✔️	|
+|	TLS_RSA_WITH_AES_256_GCM_SHA384	|	✔️	|	✔️	|	✔️	|
+|	TLS_ECDHE_ECDSA_WITH_RC4_128_SHA	|	✔️	|	<details><summary>⚠️<sup>1</sup></summary><sup>1</sup>When using OpenSSL 3, requires the legacy provider to be enabled.<br/></details>	|	✔️	|
+|	TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA	|	✔️	|	✔️	|	✔️	|
+|	TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA	|	✔️	|	✔️	|	✔️	|
+|	TLS_ECDHE_RSA_WITH_RC4_128_SHA	|	✔️	|	<details><summary>⚠️<sup>1</sup></summary><sup>1</sup>When using OpenSSL 3, requires the legacy provider to be enabled.<br/></details>	|	✔️	|
+|	TLS_ECDHE_RSA_WITH_3DES_EDE_CBC_SHA	|	✔️	|	<details><summary>⚠️<sup>1</sup></summary><sup>1</sup>When using OpenSSL 3, requires the legacy provider to be enabled.<br/></details>	|	✔️	|
+|	TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA	|	✔️	|	✔️	|	✔️	|
+|	TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA	|	✔️	|	✔️	|	✔️	|
+|	TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA256	|	✔️	|	✔️	|	✔️	|
+|	TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA256	|	✔️	|	✔️	|	✔️	|
+|	TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256	|	✔️	|	✔️	|	✔️	|
+|	TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256	|	✔️	|	✔️	|	✔️	|
+|	TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384	|	✔️	|	✔️	|	✔️	|
+|	TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384	|	✔️	|	✔️	|	✔️	|
+|	<details><summary>TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256<sup>2</sup></summary><sup>2</sup>Available starting in the Microsoft build of Go 1.26.<br/></details>	|	✔️	|	✔️	|	✔️	|
+|	<details><summary>TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256<sup>2</sup></summary><sup>2</sup>Available starting in the Microsoft build of Go 1.26.<br/></details>	|	✔️	|	✔️	|	✔️	|
+|	TLS_AES_128_GCM_SHA256	|	✔️	|	✔️	|	✔️	|
+|	TLS_AES_256_GCM_SHA384	|	✔️	|	✔️	|	✔️	|
+|	<details><summary>TLS_CHACHA20_POLY1305_SHA256<sup>2</sup></summary><sup>2</sup>Available starting in the Microsoft build of Go 1.26.<br/></details>	|	✔️	|	✔️	|	✔️	|
+|	<details><summary>TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305<sup>2</sup></summary><sup>2</sup>Available starting in the Microsoft build of Go 1.26.<br/></details>	|	✔️	|	✔️	|	✔️	|
+|	<details><summary>TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305<sup>2</sup></summary><sup>2</sup>Available starting in the Microsoft build of Go 1.26.<br/></details>	|	✔️	|	✔️	|	✔️	|
 
 <sup>1</sup>When using OpenSSL 3, requires the legacy provider to be enabled.
 
@@ -414,15 +414,15 @@ On Windows, it is possible to restrict and reorder the cipher suites following t
 
 Below are the supported [`tls.CurveIDs`](https://pkg.go.dev/crypto/tls#CurveID).
 
-| Name                           | Windows | Linux | macOS |
-| ------------------------------ | ------- | ----- | ----- |
-| CurveP256                      | ✔️      | ✔️    | ✔️    |
-| CurveP384                      | ✔️      | ✔️    | ✔️    |
-| CurveP521                      | ✔️      | ✔️    | ✔️    |
-| X25519<sup>1</sup>             | ✔️      | ✔️    | ✔️    |
-| X25519MLKEM768<sup>1,2</sup>   | ✔️      | ✔️    | ✔️    |
-| SecP256r1MLKEM768<sup>2</sup>  | ✔️      | ✔️    | ✔️    |
-| SecP384r1MLKEM1024<sup>2</sup> | ✔️      | ✔️    | ✔️    |
+|	Name	|	Windows	|	Linux	|	macOS	|
+|	---	|	---	|	---	|	---	|
+|	CurveP256	|	✔️	|	✔️	|	✔️	|
+|	CurveP384	|	✔️	|	✔️	|	✔️	|
+|	CurveP521	|	✔️	|	✔️	|	✔️	|
+|	<details><summary>X25519<sup>1</sup></summary><sup>1</sup>See the [X25519](#ecdh) section for requirements.<br/></details>	|	✔️	|	✔️	|	✔️	|
+|	<details><summary>X25519MLKEM768<sup>1,2</sup></summary><sup>1</sup>See the [X25519](#ecdh) section for requirements.<br/><sup>2</sup>See the [ML-KEM](#ml-kem) section for requirements.<br/></details>	|	✔️	|	✔️	|	✔️	|
+|	<details><summary>SecP256r1MLKEM768<sup>2</sup></summary><sup>2</sup>See the [ML-KEM](#ml-kem) section for requirements.<br/></details>	|	✔️	|	✔️	|	✔️	|
+|	<details><summary>SecP384r1MLKEM1024<sup>2</sup></summary><sup>2</sup>See the [ML-KEM](#ml-kem) section for requirements.<br/></details>	|	✔️	|	✔️	|	✔️	|
 
 <sup>1</sup>See the [X25519](#ecdh) section for requirements.
 
@@ -432,17 +432,17 @@ Below are the supported [`tls.CurveIDs`](https://pkg.go.dev/crypto/tls#CurveID).
 
 Below are the supported [`tls.SignatureSchemes`](https://pkg.go.dev/crypto/tls#SignatureScheme).
 
-| Name                   | Windows | Linux | macOS |
-| ---------------------- | ------- | ----- | ----- |
-| PKCS1WithSHA1          | ✔️      | ✔️    | ✔️    |
-| PKCS1WithSHA256        | ✔️      | ✔️    | ✔️    |
-| PKCS1WithSHA384        | ✔️      | ✔️    | ✔️    |
-| PKCS1WithSHA512        | ✔️      | ✔️    | ✔️    |
-| PSSWithSHA256          | ✔️      | ✔️    | ✔️    |
-| PSSWithSHA384          | ✔️      | ✔️    | ✔️    |
-| PSSWithSHA512          | ✔️      | ✔️    | ✔️    |
-| ECDSAWithSHA1          | ✔️      | ✔️    | ✔️    |
-| ECDSAWithP256AndSHA256 | ✔️      | ✔️    | ✔️    |
-| ECDSAWithP384AndSHA384 | ✔️      | ✔️    | ✔️    |
-| ECDSAWithP521AndSHA512 | ✔️      | ✔️    | ✔️    |
-| Ed25519                | ❌️      | ✔️    | ✔️    |
+|	Name	|	Windows	|	Linux	|	macOS	|
+|	---	|	---	|	---	|	---	|
+|	PKCS1WithSHA1	|	✔️	|	✔️	|	✔️	|
+|	PKCS1WithSHA256	|	✔️	|	✔️	|	✔️	|
+|	PKCS1WithSHA384	|	✔️	|	✔️	|	✔️	|
+|	PKCS1WithSHA512	|	✔️	|	✔️	|	✔️	|
+|	PSSWithSHA256	|	✔️	|	✔️	|	✔️	|
+|	PSSWithSHA384	|	✔️	|	✔️	|	✔️	|
+|	PSSWithSHA512	|	✔️	|	✔️	|	✔️	|
+|	ECDSAWithSHA1	|	✔️	|	✔️	|	✔️	|
+|	ECDSAWithP256AndSHA256	|	✔️	|	✔️	|	✔️	|
+|	ECDSAWithP384AndSHA384	|	✔️	|	✔️	|	✔️	|
+|	ECDSAWithP521AndSHA512	|	✔️	|	✔️	|	✔️	|
+|	Ed25519	|	❌️	|	✔️	|	✔️	|

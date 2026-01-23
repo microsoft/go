@@ -12,7 +12,6 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
-	"text/tabwriter"
 )
 
 var docPath = flag.String("path", filepath.Join("eng", "doc", "CrossPlatformCryptography.md"), "Path to CrossPlatformCryptography.md")
@@ -148,18 +147,16 @@ func printTable(w io.Writer, section Section) {
 		colHeader = "Algorithm" // Default
 	}
 
-	var wipTable strings.Builder
-	tw := tabwriter.NewWriter(&wipTable, 0, 0, 1, ' ', 0)
 	platforms := strings.Join(SupportedPlatforms, "\t|\t")
 	platforms = strings.Replace(platforms, "windows", "Windows", 1)
 	platforms = strings.Replace(platforms, "linux", "Linux", 1)
 	platforms = strings.Replace(platforms, "macos", "macOS", 1)
-	fmt.Fprintf(tw, "|\t%s\t|\t%s\t|\n", colHeader, platforms)
+	fmt.Fprintf(w, "|\t%s\t|\t%s\t|\n", colHeader, platforms)
 
-	// We skip the "| --- | --- | etc." row for now. We need to know the actual
-	// column lengths to put in the proper number of dashes (for raw source
-	// readability). So, we need to figure it out first and inject it later.
-	// fmt.Fprintf(tw, "|\t---\t|\t---\t|\t---\t|\t---\t|\n")
+	// Use fixed --- rather than dynamically scaling the number of dashes to fit
+	// the table text. The table is not readable as source anyway due to the
+	// expandable <details> elements.
+	fmt.Fprintf(w, "|\t---\t|\t---\t|\t---\t|\t---\t|\n")
 
 	// Collect footnotes
 	footnotes := make(map[string]int)
@@ -173,10 +170,16 @@ func printTable(w io.Writer, section Section) {
 		}
 	}
 
-	// Helper to get footnote indices
-	getFootnotes := func(notes []string) string {
+	// Helper to get footnote indices. Take the name (potentially just a symbol)
+	// because if there are any notes, we wrap it in a:
+	//
+	//     <details><summary>[name][footnotes]</summary>[footnote details]</details>
+	//
+	// This lets the reader can see the info on demand if it's hard to piece
+	// together by association with the list below the entire table.
+	getFootnotes := func(name string, notes []string) string {
 		if len(notes) == 0 {
-			return ""
+			return name
 		}
 		var indices []int
 		for _, note := range notes {
@@ -193,7 +196,23 @@ func printTable(w io.Writer, section Section) {
 		for i, idx := range indices {
 			strs[i] = fmt.Sprintf("%d", idx)
 		}
-		return fmt.Sprintf("<sup>%s</sup>", strings.Join(strs, ","))
+		var r strings.Builder
+		fmt.Fprintf(&r,
+			"<details><summary>%s<sup>%s</sup></summary>",
+			name, strings.Join(strs, ","))
+		for _, idx := range indices {
+			note := ""
+			// Find note by index
+			for n, i := range footnotes {
+				if i == idx {
+					note = n
+					break
+				}
+			}
+			fmt.Fprintf(&r, "<sup>%d</sup>%s<br/>", idx, note)
+		}
+		fmt.Fprintf(&r, "</details>")
+		return r.String()
 	}
 
 	for _, item := range section.Items {
@@ -205,9 +224,7 @@ func printTable(w io.Writer, section Section) {
 			itemNotes = append([]string{note}, itemNotes...)
 		}
 
-		nameNotes := getFootnotes(itemNotes)
-
-		row := []string{name + nameNotes}
+		row := []string{getFootnotes(name, itemNotes)}
 
 		for _, platform := range SupportedPlatforms {
 			status := item.Platforms.Get(platform)
@@ -260,32 +277,10 @@ func printTable(w io.Writer, section Section) {
 			}
 			statusNotes = append(versionNotes, filtered...)
 
-			notes := getFootnotes(statusNotes)
-			row = append(row, symbol+notes)
+			row = append(row, getFootnotes(symbol, statusNotes))
 		}
 
-		fmt.Fprintf(tw, "|\t%s\t|\t%s\t|\t%s\t|\t%s\t|\n", row[0], row[1], row[2], row[3])
-	}
-
-	err := tw.Flush()
-	if err != nil {
-		panic(err)
-	}
-
-	ts := wipTable.String()
-	// Now, inject the separator line with proper dash lengths.
-	rows := strings.Split(ts, "\n")
-	firstRow := rows[0]
-	fmt.Fprintf(w, "%s\n", firstRow)
-	cells := strings.Split(firstRow, "|")
-	// Ignore the first and last: empty strings.
-	// We expect "| <label> | <label> | ... |"
-	fmt.Fprintf(w, "|")
-	for i := 1; i < len(cells)-1; i++ {
-		fmt.Fprintf(w, " %s |", strings.Repeat("-", len(cells[i])-2))
-	}
-	for _, remainingRow := range rows[1:] {
-		fmt.Fprintf(w, "\n%s", remainingRow)
+		fmt.Fprintf(w, "|\t%s\t|\t%s\t|\t%s\t|\t%s\t|\n", row[0], row[1], row[2], row[3])
 	}
 
 	// Print footnotes
