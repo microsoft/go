@@ -75,7 +75,7 @@ This section includes the following packages:
 | SHAKE-256             | ✔️             | ✔️<sup>6</sup>   | ❌️             |
 | CSHAKE-128            | ✔️             | ❌️               | ❌️             |
 | CSHAKE-256            | ✔️             | ❌️               | ❌️             |
-| HMAC<sup>7</sup>      | ✔️             | ✔️               | ✔️             |
+| HMAC<sup>7</sup>      | ✔️<sup>8</sup> | ✔️               | ✔️             |
 
 <sup>1</sup>Available starting in the Microsoft build of Go 1.24.
 
@@ -91,6 +91,8 @@ This section includes the following packages:
 
 <sup>7</sup>Supports only hash algorithms that are supported as standalone hash functions.
 
+<sup>8</sup>The CNG backend does not support sha224.
+
 ## Symmetric encryption
 
 This section includes the following packages:
@@ -100,23 +102,27 @@ This section includes the following packages:
 - [crypto/des](https://pkg.go.dev/crypto/des)
 - [crypto/rc4](https://pkg.go.dev/crypto/rc4)
 
-| Cipher + Mode       | Windows | Linux          | macOS |
-| ------------------- | ------- | -------------- | ----- |
-| AES-ECB             | ✔️      | ✔️             | ✔️    |
-| AES-CBC             | ✔️      | ✔️             | ✔️    |
-| AES-CTR             | ❌️      | ✔️             | ❌️    |
-| AES-CFB             | ❌️      | ❌️             | ❌️    |
-| AES-OFB             | ❌️      | ❌️             | ❌️    |
-| AES-GCM<sup>1</sup> | ✔️      | ✔️             | ✔️    |
-| DES-CBC             | ✔️      | ⚠️<sup>2</sup> | ✔️    |
-| DES-ECB             | ✔️      | ⚠️<sup>2</sup> | ✔️    |
-| 3DES-ECB            | ✔️      | ✔️             | ✔️    |
-| 3DES-CBC            | ✔️      | ✔️             | ✔️    |
-| RC4                 | ✔️      | ⚠️<sup>2</sup> | ✔️    |
+| Cipher + Mode       | Windows | Linux            | macOS |
+| ------------------- | ------- | ---------------- | ----- |
+| AES-ECB             | ✔️      | ✔️               | ✔️    |
+| AES-CBC             | ✔️      | ✔️               | ✔️    |
+| AES-CTR             | ❌️      | ✔️               | ❌️    |
+| AES-CFB             | ❌️      | ❌️               | ❌️    |
+| AES-OFB             | ❌️      | ❌️               | ❌️    |
+| AES-GCM<sup>1</sup> | ✔️      | ✔️               | ✔️    |
+| DES-CBC             | ✔️      | ⚠️<sup>2,3</sup> | ✔️    |
+| DES-ECB             | ✔️      | ⚠️<sup>2,3</sup> | ✔️    |
+| 3DES-ECB            | ✔️      | ✔️               | ✔️    |
+| 3DES-CBC            | ✔️      | ✔️               | ✔️    |
+| RC4                 | ✔️      | ⚠️<sup>3,4</sup> | ✔️    |
 
 <sup>1</sup>AES-GCM supports specific keys, nonces, and tags:
 
-<sup>2</sup>When using OpenSSL 3, requires the legacy provider to be enabled.
+<sup>2</sup>OpenSSL does not provide DES implementations in FIPS mode.
+
+<sup>3</sup>When using OpenSSL 3, requires the legacy provider to be enabled.
+
+<sup>4</sup>Some OpenSSL distributions don't implement RC4 (e.g., OpenSSL 1.x with -DOPENSSL_NO_RC4).
 
 - Key Sizes
 
@@ -158,35 +164,37 @@ Operations that require random numbers (rand io.Reader) only support [rand.Reade
 | -------------------------------------- | ---------------- | -------------- | -------------- |
 | OAEP (MD5)                             | ✔️               | ✔️             | ✔️<sup>1</sup> |
 | OAEP (SHA-1)                           | ✔️               | ✔️             | ✔️<sup>1</sup> |
-| OAEP (SHA-2)<sup>2</sup>               | ✔️               | ✔️             | ✔️<sup>1</sup> |
-| OAEP (SHA-3)<sup>2,3</sup>             | ✔️               | ✔️             | ❌️             |
-| PSS (MD5)                              | ✔️<sup>4</sup>   | ✔️             | ❌️             |
-| PSS (SHA-1)                            | ✔️<sup>4</sup>   | ✔️             | ✔️<sup>5</sup> |
-| PSS (SHA-2)<sup>2</sup>                | ✔️<sup>4</sup>   | ✔️             | ✔️<sup>5</sup> |
-| PSS (SHA-3)<sup>2</sup>                | ✔️<sup>3</sup>   | ✔️             | ❌️             |
+| OAEP (SHA-2)<sup>2,3</sup>             | ✔️               | ✔️             | ✔️<sup>1</sup> |
+| OAEP (SHA-3)<sup>2,3,4</sup>           | ✔️               | ✔️             | ❌️             |
+| PSS (MD5)                              | ✔️<sup>5</sup>   | ✔️             | ❌️             |
+| PSS (SHA-1)                            | ✔️<sup>5</sup>   | ✔️             | ✔️<sup>6</sup> |
+| PSS (SHA-2)<sup>2</sup>                | ✔️<sup>5</sup>   | ✔️             | ✔️<sup>6</sup> |
+| PSS (SHA-3)<sup>2</sup>                | ✔️<sup>4</sup>   | ✔️             | ❌️             |
 | PKCS1v15 Signature (Unhashed)          | ✔️               | ✔️             | ✔️             |
-| PKCS1v15 Signature (RIPMED160)         | ❌️               | ✔️<sup>6</sup> | ❌️             |
+| PKCS1v15 Signature (RIPMED160)         | ❌️               | ✔️<sup>7</sup> | ❌️             |
 | PKCS1v15 Signature (MD5)               | ✔️               | ✔️             | ❌️             |
-| PKCS1v15 Signature (MD5-SHA1)          | ✔️<sup>6</sup>   | ✔️<sup>6</sup> | ❌️             |
+| PKCS1v15 Signature (MD5-SHA1)          | ✔️<sup>7</sup>   | ✔️<sup>7</sup> | ❌️             |
 | PKCS1v15 Signature (SHA-1)             | ✔️               | ✔️             | ✔️             |
 | PKCS1v15 Signature (SHA-2)<sup>2</sup> | ✔️               | ✔️             | ✔️             |
-| PKCS1v15 Signature (SHA-3)             | ✔️<sup>3,7</sup> | ✔️<sup>8</sup> | ❌️             |
+| PKCS1v15 Signature (SHA-3)             | ✔️<sup>4,8</sup> | ✔️<sup>9</sup> | ❌️             |
 
 <sup>1</sup>macOS doesn't support passing a custom label to OAEP functions.
 
 <sup>2</sup>Supports only hash algorithms that are [supported as standalone hash functions](#hash-and-message-authentication-algorithms).
 
-<sup>3</sup>Available starting in the Microsoft build of Go 1.26.
+<sup>3</sup>Requires OAEPOptions.Hash to match OAEPOptions.MGFHash.
 
-<sup>4</sup>Verifying PSS signatures with [rsa.PSSSaltLengthAuto](https://pkg.go.dev/crypto/rsa#pkg-constants) is not supported.
+<sup>4</sup>Available starting in the Microsoft build of Go 1.26.
 
-<sup>5</sup>Custom salt lengths are not supported. PSS always uses the [`rsa.PSSSaltLengthEqualsHash`](https://pkg.go.dev/crypto/rsa#pkg-constants).
+<sup>5</sup>Verifying PSS signatures with [rsa.PSSSaltLengthAuto](https://pkg.go.dev/crypto/rsa#pkg-constants) is not supported.
 
-<sup>6</sup>Available starting in the Microsoft build of Go 1.24.
+<sup>6</sup>Custom salt lengths are not supported. PSS always uses the [`rsa.PSSSaltLengthEqualsHash`](https://pkg.go.dev/crypto/rsa#pkg-constants).
 
-<sup>7</sup>Requires Windows 11 (24H2) or later.
+<sup>7</sup>Available starting in the Microsoft build of Go 1.24.
 
-<sup>8</sup>Requires OpenSSL 1.1.1 or later.
+<sup>8</sup>Requires Windows 11 (24H2) or later.
+
+<sup>9</sup>Requires OpenSSL 1.1.1 or later.
 
 ### ECDSA
 
@@ -232,11 +240,19 @@ This section includes the following packages:
 
 Operations that require random numbers (rand io.Reader) only support [rand.Reader](https://pkg.go.dev/crypto/rand#Reader).
 
-| Schemes    | Windows | Linux | macOS |
-| ---------- | ------- | ----- | ----- |
-| Ed25519    | ❌️      | ✔️    | ✔️    |
-| Ed25519ctx | ❌️      | ❌️    | ❌️    |
-| Ed25519ph  | ❌️      | ❌️    | ❌️    |
+The CNG backend and some old OpenSSL distributions don't support Ed25519.
+
+| Schemes                | Windows | Linux            | macOS |
+| ---------------------- | ------- | ---------------- | ----- |
+| Ed25519                | ❌️      | ✔️<sup>1,2</sup> | ✔️    |
+| Ed25519ctx<sup>3</sup> | ❌️      | ❌️               | ❌️    |
+| Ed25519ph<sup>3</sup>  | ❌️      | ❌️               | ❌️    |
+
+<sup>1</sup>Requires OpenSSL 1.1.1b or later.
+
+<sup>2</sup>Verify requires OpenSSL 1.1.1b or higher.
+
+<sup>3</sup>Only opts.Hash == nil && opts.Context == "" is implemented using the OpenSSL backend.
 
 ### DSA
 
@@ -353,7 +369,9 @@ This section includes the following packages:
 
 - [crypto/tls](https://pkg.go.dev/crypto/tls)
 
-This section includes the following subsections:
+Package tls will automatically use FIPS compliant primitives implemented in other crypto packages.
+
+Since Go 1.22, the Microsoft build of Go runtime automatically enforces that tls only uses FIPS-approved settings when running in FIPS mode. Prior to Go 1.22, a program using tls must import the `crypto/tls/fipsonly` package to be compliant with these restrictions.
 
 - [TLS Versions](#tls-versions)
 - [TLS Cipher Suites](#tls-cipher-suites)

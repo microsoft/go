@@ -181,6 +181,13 @@ var doc = Document{
 					Notes: []string{
 						"Supports only hash algorithms that are supported as standalone hash functions.",
 					},
+					Platforms: Platforms{
+						Windows: PlatformStatus{
+							Notes: []string{
+								"The CNG backend does not support sha224.",
+							},
+						},
+					},
 				},
 			},
 		},
@@ -232,6 +239,7 @@ var doc = Document{
 						Linux: PlatformStatus{
 							Supported: Warn,
 							Notes: []string{
+								"OpenSSL does not provide DES implementations in FIPS mode.",
 								"When using OpenSSL 3, requires the legacy provider to be enabled.",
 							},
 						},
@@ -243,6 +251,7 @@ var doc = Document{
 						Linux: PlatformStatus{
 							Supported: Warn,
 							Notes: []string{
+								"OpenSSL does not provide DES implementations in FIPS mode.",
 								"When using OpenSSL 3, requires the legacy provider to be enabled.",
 							},
 						},
@@ -256,6 +265,7 @@ var doc = Document{
 						Linux: PlatformStatus{
 							Supported: Warn,
 							Notes: []string{
+								"Some OpenSSL distributions don't implement RC4 (e.g., OpenSSL 1.x with -DOPENSSL_NO_RC4).",
 								"When using OpenSSL 3, requires the legacy provider to be enabled.",
 							},
 						},
@@ -304,6 +314,7 @@ var doc = Document{
 							Name: "OAEP (SHA-2)",
 							Notes: []string{
 								"Supports only hash algorithms that are [supported as standalone hash functions](#hash-and-message-authentication-algorithms).",
+								"Requires OAEPOptions.Hash to match OAEPOptions.MGFHash.",
 							},
 							Platforms: Platforms{
 								MacOS: PlatformStatus{
@@ -317,6 +328,7 @@ var doc = Document{
 							Name: "OAEP (SHA-3)",
 							Notes: []string{
 								"Supports only hash algorithms that are [supported as standalone hash functions](#hash-and-message-authentication-algorithms).",
+								"Requires OAEPOptions.Hash to match OAEPOptions.MGFHash.",
 							},
 							MinGoVersion: "1.26",
 							Platforms: Platforms{
@@ -462,16 +474,28 @@ var doc = Document{
 					Title:        "Ed25519",
 					ColumnHeader: "Schemes",
 					Packages:     []string{"crypto/ed25519"},
-					Description:  "Operations that require random numbers (rand io.Reader) only support [rand.Reader](https://pkg.go.dev/crypto/rand#Reader).",
+					DescriptionParagraphs: []string{
+						"Operations that require random numbers (rand io.Reader) only support [rand.Reader](https://pkg.go.dev/crypto/rand#Reader).",
+						"The CNG backend and some old OpenSSL distributions don't support Ed25519.",
+					},
 					Items: []Item{
 						{
 							Name: "Ed25519",
 							Platforms: Platforms{
 								Windows: PlatformStatus{Supported: NotSupported},
+								Linux: PlatformStatus{
+									MinVersion: "1.1.1b",
+									Notes: []string{
+										"Verify requires OpenSSL 1.1.1b or higher.",
+									},
+								},
 							},
 						},
 						{
 							Name: "Ed25519ctx",
+							Notes: []string{
+								"Only opts.Hash == nil && opts.Context == \"\" is implemented using the OpenSSL backend.",
+							},
 							Platforms: Platforms{
 								Windows: PlatformStatus{Supported: NotSupported},
 								Linux:   PlatformStatus{Supported: NotSupported},
@@ -480,6 +504,9 @@ var doc = Document{
 						},
 						{
 							Name: "Ed25519ph",
+							Notes: []string{
+								"Only opts.Hash == nil && opts.Context == \"\" is implemented using the OpenSSL backend.",
+							},
 							Platforms: Platforms{
 								Windows: PlatformStatus{Supported: NotSupported},
 								Linux:   PlatformStatus{Supported: NotSupported},
@@ -670,6 +697,10 @@ var doc = Document{
 						"TLS Curves and Groups",
 						"TLS Signature Schemes",
 						"crypto/tls",
+					},
+					DescriptionParagraphs: []string{
+						"Package tls will automatically use FIPS compliant primitives implemented in other crypto packages.",
+						"Since Go 1.22, the Microsoft build of Go runtime automatically enforces that tls only uses FIPS-approved settings when running in FIPS mode. Prior to Go 1.22, a program using tls must import the `crypto/tls/fipsonly` package to be compliant with these restrictions.",
 					},
 					Subsections: []Section{
 						{
