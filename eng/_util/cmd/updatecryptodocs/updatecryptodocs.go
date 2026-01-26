@@ -197,10 +197,11 @@ func printTable(w io.Writer, section Section) {
 			strs[i] = fmt.Sprintf("%d", idx)
 		}
 		var r strings.Builder
-		fmt.Fprintf(&r,
-			"<details><summary>%s<sup>%s</sup></summary>",
-			name, strings.Join(strs, ","))
-		for _, idx := range indices {
+		fmt.Fprintf(&r, "%s<sup title=\"", name)
+		for i, idx := range indices {
+			if i > 0 {
+				fmt.Fprintf(&r, " ")
+			}
 			note := ""
 			// Find note by index
 			for n, i := range footnotes {
@@ -209,9 +210,9 @@ func printTable(w io.Writer, section Section) {
 					break
 				}
 			}
-			fmt.Fprintf(&r, "<sup>%d</sup>%s<br/>", idx, note)
+			fmt.Fprintf(&r, "%d: %s", idx, note)
 		}
-		fmt.Fprintf(&r, "</details>")
+		fmt.Fprintf(&r, "\">%s</sup>", strings.Join(strs, ","))
 		return r.String()
 	}
 
