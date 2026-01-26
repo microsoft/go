@@ -148,6 +148,10 @@ The next sections describe how to select a crypto backend in some common scenari
 
 If you use [the Microsoft build of Go images produced by microsoft/go-images][microsoft-go-images], the `systemcrypto` backend is enabled by default as of Go 1.25.
 
+> [!NOTE]
+> Inside a Linux container, [the system-wide FIPS mode is shared with the container host](#linux-fips-mode-openssl).
+> This means Go binaries built using the Microsoft build of Go with a compliant build configuration don't require any extra runtime configuration to use the expected FIPS mode inside a container.
+
 If you use a Dockerfile and a version of the Microsoft build of Go prior to 1.25, you can swap your Dockerfile's base image to one of our images that include the `-fips-` segment.
 These images are no longer produced as of Go 1.25.
 The `-fips-` images include `env GOEXPERIMENT=systemcrypto` and are otherwise the same as the non`-fips-` images.
@@ -280,7 +284,11 @@ The `only` setting is not yet supported in the Microsoft build of Go.
 The Linux Kernel FIPS mode is read to determine the platform-specific FIPS preference on Linux.
 The Go runtime reads the content of `/proc/sys/crypto/fips_enabled`, and if it's `1`, then the platform preference is to enable FIPS.
 
-If OpenSSL is not using a FIPS-compliant engine or provider, this is considered not being in FIPS mode.
+> [!NOTE]
+> In a Linux container, the content of `/proc/sys/crypto/fips_enabled` is shared with the container host.
+> This is because the kernel is shared.
+
+If OpenSSL is not using a FIPS-compliant engine or provider, the Go runtime considers OpenSSL to not be in FIPS mode.
 
 For more information about the standard OpenSSL FIPS behavior, see https://www.openssl.org/docs/fips.html.
 
