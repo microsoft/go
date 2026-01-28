@@ -29,8 +29,8 @@ More details are available in the [FIPS README](/eng/doc/fips/README.md).
 These changes also include improvements to crypto library behavior to make it easier to comply with some FIPS requirements.
 
 > [!NOTE]
-> Improving security is not the purpose of this feature.
-> We encourage Go developers who aren't subject to Microsoft internal cryptography policies to continue using the official Go cryptography implementation.
+> The purpose of this feature is to comply with the Microsoft internal cryptography policies, which mandate using system-provided cryptography modules.
+> We encourage Go developers who aren't subject to those policies to continue using the official Go cryptography implementation.
 
 ## Version string changes to identify the Microsoft build of Go
 
