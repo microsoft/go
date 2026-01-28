@@ -135,7 +135,9 @@ See <https://go.dev/doc/toolchain> for more information about `GOTOOLCHAIN`.
 This change [is recommended by the Go team](https://github.com/golang/go/issues/57001#issuecomment-1332657428) for Linux distributions of Go, and the reasoning applies to the Microsoft build of Go as well.
 We anticipate that otherwise, many who use the Microsoft build of Go would find themselves in a situation where their build switched to the official Go toolchain without their knowledge, and they would silently lose features they rely on for compliance.
 
-For developers who are aware of this behavior and want it, it's possible to re-enable `GOTOOLCHAIN=auto`.
+As an additional safeguard against this risk, when the Microsoft build of Go detects that `GOTOOLCHAIN` has been manually changed to anything other than `local`, it prints a warning message to stderr and immediately exits with a non-zero status code.
+This safeguard prevents forgotten or unintentional `GOTOOLCHAIN` settings from causing silent changes in toolchain behavior.
+The printed message includes instructions to override the safeguard if necessary.
 
 ## Additional Windows support
 
