@@ -32,6 +32,26 @@ These changes also include improvements to crypto library behavior to make it ea
 > The purpose of this feature is to comply with the Microsoft internal cryptography policies, which mandate using system-provided cryptography modules.
 > We encourage Go developers who aren't subject to those policies to continue using the official Go cryptography implementation.
 
+## TLS setting alignment with Microsoft internal policies
+
+The Microsoft build of Go can align the default TLS settings with Microsoft internal cryptography policies.
+This allows developers to comply without changing application code that uses (or indirectly uses) the `crypto/tls` package.
+
+Go 1.26 introduces `ms_tlsprofile`.
+The possible values are:
+
+- `default`: (default) use the recommended Microsoft TLS settings.
+- `off`: use the upstream Go TLS settings.
+
+Go 1.26 also introduces `ms_tlsx25519`.
+The possible values of `ms_tlsx25519` are:
+
+- `0` disables the X25519 and X25519MLKEM768 TLS groups.
+- `1` (default) enables these groups.
+
+These features operate independently from the system-provided cryptography backend feature.
+They work the same way when the pure Go cryptography implementation is used.
+
 ## Version string changes to identify the Microsoft build of Go
 
 ### Embed Microsoft build of Go version information in binaries
