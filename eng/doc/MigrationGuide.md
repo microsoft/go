@@ -47,8 +47,7 @@ The Microsoft build of Go includes [patches](/patches/) that:
 - **Remove use of undocumented Windows APIs** for compatibility, security, and compliance.
 - **Embed Microsoft-specific version information** into built Go binaries for [easier identification](./MicrosoftToolsetIdentification.md).
 
-The patches directory at each Git tag specifies the exact code changes we have made to the official Go toolchain of that version.
-If it's critical to you to understand the exact set of changes we've made, please review the patch files.
+For a detailed description of every feature, see the [Additional Features](./AdditionalFeatures.md) document.
 
 ## CI and build environment migration steps
 
