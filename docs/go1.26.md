@@ -22,6 +22,7 @@ Setting the FIPS preference to enabled will no longer cause a panic when the Win
 #### OpenSSL
 
 Improved support for the Fedora OpenSSL FIPS provider.
+
 Binaries can now be built without using cgo by setting `GOEXPERIMENT=ms_nocgo_opensslcrypto`.
 
 #### Darwin
@@ -29,7 +30,7 @@ Binaries can now be built without using cgo by setting `GOEXPERIMENT=ms_nocgo_op
 The backend is no longer in preview and is now fully supported.
 It is enabled by default on macOS.
 
-Binaries can now be built without using cgo.
+Binaries are now built without using cgo.
 
 ### Supported Algorithms
 
@@ -70,9 +71,9 @@ The following TLS cipher suites are now implemented using the systemcrypto backe
 
 The TLS curves X25519 and X25519MLKEM768 can be disabled using the GODEBUG setting `ms_tlsx25519=0`.
 
-The TLS default settings have been aligned with Microsoft TLS policies.
+The TLS default settings are now aligned with Microsoft TLS internal policies.
 This behavior can be disabled using the GODEBUG setting `ms_tlsprofile=off`.
-The following changes have been made:
+The changes from standard Go TLS default settings are:
 
 - TLS cipher suites using AES-256 are now preferred over those using AES-128.
 - TLS cipher suites using CHACHA20_POLY1305 are no longer preferred over AES-GCM cipher suites when the client or server supports hardware acceleration for AES.
