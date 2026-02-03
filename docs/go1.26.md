@@ -35,7 +35,7 @@ Binaries can now be built without using cgo by setting `GOEXPERIMENT=ms_nocgo_op
 The backend is no longer in preview and is now fully supported.
 It is enabled by default on macOS.
 
-Binaries are now built without using cgo.
+Building a program that uses this backend no longer requires cgo.
 
 ### Supported Algorithms
 
