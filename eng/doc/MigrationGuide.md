@@ -148,7 +148,7 @@ For more information, visit https://github.com/microsoft/go/blob/microsoft/main/
 > [!NOTE]
 > As of Go 1.26, there is a cgo-less experiment available for Linux: `ms_nocgo_opensslcrypto`.
 > This allows the use of OpenSSL without requiring cgo.
-> Currently this experiment is supported on the following architectures: `386`, `amd64`, `arm`, `arm64`, and `riscv64`.
+> Currently this experiment is supported on the following architectures: `386`, `amd64`, `arm`, `arm64`, `ppc64le` and `riscv64`.
 >
 > While `systemcrypto` is a fully supported `GOEXPERIMENT` value (it is not "experimental"), `ms_nocgo_opensslcrypto` **is** experimental as of Go 1.26 and may have limitations.
 
