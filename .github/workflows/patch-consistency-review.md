@@ -11,7 +11,7 @@ on:
         description: "PR number to review"
         required: true
         type: string
-roles: all
+roles: [admin, maintainer, write]
 permissions:
   contents: read
   pull-requests: read
