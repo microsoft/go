@@ -6,6 +6,11 @@ After the release of 1.26, 1.24 is no longer supported, per the [Go release poli
 
 The `GOCACHE` environment variable now defaults to `os.UserCacheDir()/ms-go-build` instead of `os.UserCacheDir()/go-build`.
 
+The [buildinfo](https://pkg.go.dev/debug/buildinfo) embedded at build time now includes Microsoft-specific version information in a new `microsoft_toolset_version` setting.
+A new GODEBUG setting `ms_version=1` changes [`runtime.Version()`](https://pkg.go.dev/runtime#Version) to return the Microsoft-specific version string.
+A new [linker flag](https://pkg.go.dev/cmd/link) `-ms_upstreamversion=0` uses the Microsoft-specific version as the main Go version embedded in the output instead of the upstream version.
+For more information, see [the Additional Features document](https://github.com/microsoft/go/blob/microsoft/main/eng/doc/AdditionalFeatures.md#version-string-changes-to-identify-the-microsoft-build-of-go).
+
 ## Systemcrypto
 
 ### Configuration
