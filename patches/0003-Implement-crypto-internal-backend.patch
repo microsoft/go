@@ -13,12 +13,12 @@ desired goexperiments and build tags.
  .../compile/internal/logopt/logopt_test.go    |   6 +-
  src/cmd/compile/script_test.go                |   8 +
  src/cmd/dist/build.go                         |  80 +++-
- src/cmd/dist/test.go                          |  30 +-
+ src/cmd/dist/test.go                          |  18 +-
  src/cmd/go/go_test.go                         |  11 +
  src/cmd/go/internal/cfg/cfg.go                |  16 +
  src/cmd/go/internal/load/pkg.go               |   3 +
  src/cmd/go/internal/tool/tool.go              |   9 +-
- src/cmd/go/systemcrypto_test.go               | 249 ++++++++++
+ src/cmd/go/systemcrypto_test.go               | 241 ++++++++++
  .../go/testdata/script/env_cross_build.txt    |   2 +
  .../script/test_android_issue62123.txt        |   2 +
  src/cmd/internal/testdir/testdir_test.go      |   7 +
@@ -48,12 +48,11 @@ desired goexperiments and build tags.
  src/crypto/internal/backend/nobackend.go      | 375 +++++++++++++++
  src/crypto/internal/backend/openssl_linux.go  | 424 +++++++++++++++++
  src/crypto/internal/backend/stub.s            |  10 +
- src/crypto/systemcrypto_nocgo_linux.go        |  17 +
+ src/crypto/systemcrypto_nocgo_linux.go        |  18 +
  src/go/build/deps_test.go                     |  24 +-
- src/internal/buildcfg/exp.go                  |  77 ++++
+ src/internal/buildcfg/exp.go                  |  74 +++
  src/runtime/runtime_boring.go                 |   5 +
- src/syscall/exec_linux_test.go                |   4 +
- 44 files changed, 2773 insertions(+), 17 deletions(-)
+ 43 files changed, 2749 insertions(+), 15 deletions(-)
  create mode 100644 src/cmd/go/systemcrypto_test.go
  create mode 100644 src/crypto/internal/backend/backend_test.go
  create mode 100644 src/crypto/internal/backend/bbig/big.go
@@ -145,7 +144,7 @@ index 0e32e0769ee2e2..eda2d576acc6c6 100644
  	if doReplacement {
  		if testCompiler == "" {
 diff --git a/src/cmd/dist/build.go b/src/cmd/dist/build.go
-index e4250e12de8975..917f682fd4bfaf 100644
+index e4250e12de8975..feef0080cb12d6 100644
 --- a/src/cmd/dist/build.go
 +++ b/src/cmd/dist/build.go
 @@ -1382,6 +1382,80 @@ func toolenv() []string {
@@ -196,7 +195,7 @@ index e4250e12de8975..917f682fd4bfaf 100644
 +		}
 +		goexp := strings.Split(value, ",")
 +		goexp = slices.DeleteFunc(goexp, func(s string) bool {
-+			return s == "systemcrypto" || s == "nosystemcrypto" || s == "ms_nocgo_opensslcrypto"
++			return s == "systemcrypto" || s == "nosystemcrypto"
 +		})
 +		goexp = append(goexp, "nosystemcrypto")
 +		return strings.Join(goexp, ",")
@@ -246,7 +245,7 @@ index e4250e12de8975..917f682fd4bfaf 100644
  	if debug {
  		run("", ShowOutput|CheckExit, pathf("%s/compile", tooldir), "-V=full")
 diff --git a/src/cmd/dist/test.go b/src/cmd/dist/test.go
-index 48c3aa5efdb008..3ac500b85e6988 100644
+index 48c3aa5efdb008..ad050c065e463f 100644
 --- a/src/cmd/dist/test.go
 +++ b/src/cmd/dist/test.go
 @@ -156,10 +156,12 @@ func (t *tester) run() {
@@ -287,42 +286,7 @@ index 48c3aa5efdb008..3ac500b85e6988 100644
  		t.registerTest("GOOS=ios on darwin/amd64",
  			&goTest{
  				variant:  "amd64ios",
-@@ -882,14 +886,21 @@ func (t *tester) registerTests() {
- 
- 	// Test internal linking of PIE binaries where it is supported.
- 	if t.internalLinkPIE() && !disablePIE {
-+		var tags, env []string
-+		if goos == "linux" && !strings.Contains(goexperiment, "ms_nocgo_opensslcrypto") {
-+			// Linux doesn't support systemcrypto with CGO_ENABLED=0.
-+			tags = append(tags, "ms_skipfipscheck")
-+			env = append(env, "MS_GO_NOSYSTEMCRYPTO=1")
-+		}
- 		t.registerTest("internal linking, -buildmode=pie",
- 			&goTest{
- 				variant:   "pie_internal",
- 				timeout:   60 * time.Second,
- 				buildmode: "pie",
- 				ldflags:   "-linkmode=internal",
--				env:       []string{"CGO_ENABLED=0"},
-+				env:       append([]string{"CGO_ENABLED=0"}, env...),
- 				pkg:       "reflect",
-+				tags:      tags,
- 			})
- 		t.registerTest("internal linking, -buildmode=pie",
- 			&goTest{
-@@ -897,9 +908,10 @@ func (t *tester) registerTests() {
- 				timeout:   60 * time.Second,
- 				buildmode: "pie",
- 				ldflags:   "-linkmode=internal",
--				env:       []string{"CGO_ENABLED=0"},
-+				env:       append([]string{"CGO_ENABLED=0"}, env...),
- 				pkg:       "crypto/internal/fips140test",
- 				runTests:  "TestFIPSCheck",
-+				tags:      tags,
- 			})
- 		// Also test a cgo package.
- 		if t.cgoEnabled && t.internalLink() && !disablePIE {
-@@ -1005,7 +1017,9 @@ func (t *tester) registerTests() {
+@@ -1005,7 +1009,9 @@ func (t *tester) registerTests() {
  		t.registerRaceTests()
  	}
  
@@ -447,10 +411,10 @@ index 92e8a803105f8d..95d47b625c28a7 100644
  	buildAndRunTool(loaderstate, ctx, tool, args, runFunc)
 diff --git a/src/cmd/go/systemcrypto_test.go b/src/cmd/go/systemcrypto_test.go
 new file mode 100644
-index 00000000000000..b6ba8158598a6c
+index 00000000000000..a225a62c0d31f6
 --- /dev/null
 +++ b/src/cmd/go/systemcrypto_test.go
-@@ -0,0 +1,249 @@
+@@ -0,0 +1,241 @@
 +// Copyright 2025 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -539,12 +503,10 @@ index 00000000000000..b6ba8158598a6c
 +		goexp   string
 +		succeed bool
 +	}{
-+		{"linux", "amd64", "noms_nocgo_opensslcrypto", false}, // cgoless OpenSSL requires ms_nocgo_opensslcrypto on linux/amd64
-+		{"linux", "arm64", "noms_nocgo_opensslcrypto", false}, // cgoless OpenSSL requires ms_nocgo_opensslcrypto on linux/arm64
-+		{"linux", "ppc64le", "ms_nocgo_cngcrypto", false},     // cgoless OpenSSL not supported on linux/ppc64le
-+		{"linux", "arm", "ms_nocgo_cngcrypto", false},         // cgoless OpenSSL not supported on linux/arm
-+		{"linux", "amd64", "ms_nocgo_opensslcrypto", true},
-+		{"linux", "arm64", "ms_nocgo_opensslcrypto", true},
++		{"linux", "amd64", "", false},
++		{"linux", "arm64", "", false},
++		{"linux", "ppc64le", "", false},
++		{"linux", "arm", "", false},
 +		{"darwin", "amd64", "", true},
 +		{"darwin", "arm64", "", true},
 +		{"windows", "386", "", false}, // cgoless system crypto not supported on windows/386
@@ -617,15 +579,9 @@ index 00000000000000..b6ba8158598a6c
 +			t.Parallel()
 +			out := outPath(t)
 +			env := []string{"CGO_ENABLED=0", "GOOS=" + tt.goos, "GOARCH=" + tt.goarch, "MS_GO_NOSYSTEMCRYPTO=0"}
-+			if tt.goos == "linux" {
-+				// On linux, set ms_nocgo_opensslcrypto to allow cross-compilation without cgo.
-+				env = append(env, "GOEXPERIMENT=ms_nocgo_opensslcrypto")
-+			} else {
-+				// Set a goexperiment in case the Go toolchain has been built with GOEXPERIMENT=nosystemcrypto.
-+				// In that case, systemcrypto will not be enabled by default unless we pass an explicit GOEXPERIMENT.
-+				env = append(env, "GOEXPERIMENT=regabi")
-+
-+			}
++			// Set a goexperiment in case the Go toolchain has been built with GOEXPERIMENT=nosystemcrypto.
++			// In that case, systemcrypto will not be enabled by default unless we pass an explicit GOEXPERIMENT.
++			env = append(env, "GOEXPERIMENT=regabi")
 +			execGoTool(t, false, env, "build", "-o", out, cryptoFile)
 +			// Check that the binary has the correct settings.
 +			settings, _ := execGoTool(t, false, nil, "version", "-m", out)
@@ -2034,7 +1990,7 @@ index 00000000000000..289d6594eac54b
 +}
 diff --git a/src/crypto/internal/backend/fips140/openssl.go b/src/crypto/internal/backend/fips140/openssl.go
 new file mode 100644
-index 00000000000000..8da484e3ffb9b7
+index 00000000000000..f5de8e094d3d87
 --- /dev/null
 +++ b/src/crypto/internal/backend/fips140/openssl.go
 @@ -0,0 +1,59 @@
@@ -2042,7 +1998,7 @@ index 00000000000000..8da484e3ffb9b7
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
 +
-+//go:build goexperiment.opensslcrypto && (cgo || goexperiment.ms_nocgo_opensslcrypto)
++//go:build goexperiment.opensslcrypto
 +
 +package fips140
 +
@@ -2150,7 +2106,7 @@ index 00000000000000..d3d39fd77f98db
 +const isSkipFIPSCheck = true
 diff --git a/src/crypto/internal/backend/internal/opensslsetup/opensslsetup.go b/src/crypto/internal/backend/internal/opensslsetup/opensslsetup.go
 new file mode 100644
-index 00000000000000..14b217a6e2eb21
+index 00000000000000..51e80d3332f816
 --- /dev/null
 +++ b/src/crypto/internal/backend/internal/opensslsetup/opensslsetup.go
 @@ -0,0 +1,68 @@
@@ -2158,7 +2114,7 @@ index 00000000000000..14b217a6e2eb21
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
 +
-+//go:build goexperiment.opensslcrypto && (cgo || goexperiment.ms_nocgo_opensslcrypto)
++//go:build goexperiment.opensslcrypto
 +
 +// opensslsetup is a package that initializes the OpenSSL library.
 +// It doesn't export any symbol, but blank importing it has the
@@ -2336,7 +2292,7 @@ index 00000000000000..3b92bfc5fbabf6
 +package opensslsetup
 diff --git a/src/crypto/internal/backend/nobackend.go b/src/crypto/internal/backend/nobackend.go
 new file mode 100644
-index 00000000000000..c8f281d7fd1274
+index 00000000000000..5e16f39dc107c7
 --- /dev/null
 +++ b/src/crypto/internal/backend/nobackend.go
 @@ -0,0 +1,375 @@
@@ -2344,7 +2300,7 @@ index 00000000000000..c8f281d7fd1274
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
 +
-+//go:build !goexperiment.systemcrypto || (goexperiment.opensslcrypto && !(cgo || goexperiment.ms_nocgo_opensslcrypto))
++//go:build !goexperiment.systemcrypto
 +
 +package backend
 +
@@ -2717,7 +2673,7 @@ index 00000000000000..c8f281d7fd1274
 +}
 diff --git a/src/crypto/internal/backend/openssl_linux.go b/src/crypto/internal/backend/openssl_linux.go
 new file mode 100644
-index 00000000000000..929afe7f446aa6
+index 00000000000000..a7437047f91696
 --- /dev/null
 +++ b/src/crypto/internal/backend/openssl_linux.go
 @@ -0,0 +1,424 @@
@@ -2725,7 +2681,7 @@ index 00000000000000..929afe7f446aa6
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
 +
-+//go:build goexperiment.opensslcrypto && linux && (cgo || goexperiment.ms_nocgo_opensslcrypto)
++//go:build goexperiment.opensslcrypto
 +
 +// Package openssl provides access to OpenSSLCrypto implementation functions.
 +// Check the variable Enabled to find out whether OpenSSLCrypto is available.
@@ -3163,15 +3119,15 @@ index 00000000000000..5e4b436554d44d
 +// (because the implementation might be here).
 diff --git a/src/crypto/systemcrypto_nocgo_linux.go b/src/crypto/systemcrypto_nocgo_linux.go
 new file mode 100644
-index 00000000000000..d272072340a213
+index 00000000000000..283386a822a4b3
 --- /dev/null
 +++ b/src/crypto/systemcrypto_nocgo_linux.go
-@@ -0,0 +1,17 @@
+@@ -0,0 +1,18 @@
 +// Copyright 2025 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
 +
-+//go:build goexperiment.opensslcrypto && !(cgo || (goexperiment.ms_nocgo_opensslcrypto && (386 || amd64 || arm || arm64 || ppc64le || riscv64)))
++//go:build goexperiment.opensslcrypto && !(cgo || 386 || amd64 || arm || arm64 || ppc64le || riscv64)
 +
 +package crypto
 +
@@ -3179,9 +3135,10 @@ index 00000000000000..d272072340a213
 +	`
 +	Using GOEXPERIMENT=systemcrypto on Linux requires CGO_ENABLED=1.
 +
-+	Consider using our cgo-less experiment by setting GOEXPERIMENT=ms_nocgo_opensslcrypto.
++	Our CGO-less OpenSSL implementation is only supported on certain architectures.
++	These architectures are: 386, amd64, arm, arm64, ppc64le and riscv64.
 +	
-+	For more information, visit https://github.com/microsoft/go/blob/microsoft/main/eng/doc/MigrationGuide.md#cgo-is-not-enabled
++	To request support for additional architectures, please file an issue at https://github.com/microsoft/go/issues/new.
 +	`
 +}
 diff --git a/src/go/build/deps_test.go b/src/go/build/deps_test.go
@@ -3241,7 +3198,7 @@ index a0436aa1901b7e..ad2c8fa13fd07a 100644
  	< crypto/rand
  	< crypto/ed25519 # depends on crypto/rand.Reader
 diff --git a/src/internal/buildcfg/exp.go b/src/internal/buildcfg/exp.go
-index 87cd1f4de3246a..aa767df31dd84d 100644
+index 87cd1f4de3246a..c8d7fb4cffba66 100644
 --- a/src/internal/buildcfg/exp.go
 +++ b/src/internal/buildcfg/exp.go
 @@ -5,12 +5,15 @@
@@ -3260,7 +3217,7 @@ index 87cd1f4de3246a..aa767df31dd84d 100644
  )
  
  // ExperimentFlags represents a set of GOEXPERIMENT flags relative to a baseline
-@@ -193,6 +196,60 @@ func ParseGOEXPERIMENT(goos, goarch, goexp string) (*ExperimentFlags, error) {
+@@ -193,6 +196,57 @@ func ParseGOEXPERIMENT(goos, goarch, goexp string) (*ExperimentFlags, error) {
  	if flags.BoringCrypto {
  		return nil, fmt.Errorf("GOEXPERIMENT boringcrypto is not supported in the Microsoft build of Go")
  	}
@@ -3311,9 +3268,6 @@ index 87cd1f4de3246a..aa767df31dd84d 100644
 +			}
 +		}
 +	}
-+	if flags.MS_Nocgo_OpenSSLCrypto && !flags.SystemCrypto {
-+		errs = append(errs, "GOEXPERIMENT ms_nocgo_opensslcrypto requires systemcrypto")
-+	}
 +	if len(errs) > 0 {
 +		errs = append(errs, "For more information, visit https://github.com/microsoft/go/tree/microsoft/main/eng/doc/fips")
 +		return nil, errors.New(strings.Join(errs, "\n\t"))
@@ -3321,7 +3275,7 @@ index 87cd1f4de3246a..aa767df31dd84d 100644
  	return flags, nil
  }
  
-@@ -202,6 +259,26 @@ func (exp *ExperimentFlags) String() string {
+@@ -202,6 +256,26 @@ func (exp *ExperimentFlags) String() string {
  	return strings.Join(expList(&exp.Flags, &exp.baseline, false), ",")
  }
  
@@ -3340,7 +3294,7 @@ index 87cd1f4de3246a..aa767df31dd84d 100644
 +	// The Microsoft build of Go default behavior sets a few experiments that we
 +	// need to remove from the result.
 +	exps = slices.DeleteFunc(exps, func(s string) bool {
-+		return s == "nosystemcrypto" || s == "ms_nocgo_opensslcrypto"
++		return s == "nosystemcrypto"
 +	})
 +	return strings.Join(exps, ",")
 +}
@@ -3361,25 +3315,3 @@ index 831ee67afc952d..d2f00d57c10286 100644
 +func crypto_backend_runtime_arg0() string {
 +	return boring_runtime_arg0()
 +}
-diff --git a/src/syscall/exec_linux_test.go b/src/syscall/exec_linux_test.go
-index ac04e51b144cb3..f5dd63858bd61f 100644
---- a/src/syscall/exec_linux_test.go
-+++ b/src/syscall/exec_linux_test.go
-@@ -12,6 +12,7 @@ import (
- 	"flag"
- 	"fmt"
- 	"internal/asan"
-+	"internal/goexperiment"
- 	"internal/platform"
- 	"internal/syscall/unix"
- 	"internal/testenv"
-@@ -300,6 +301,9 @@ func TestUnshareMountNameSpaceChroot(t *testing.T) {
- 
- 	cmd := testenv.Command(t, testenv.GoToolPath(t), "test", "-c", "-o", x, "syscall")
- 	cmd.Env = append(cmd.Environ(), "CGO_ENABLED=0")
-+	if !goexperiment.MS_Nocgo_OpenSSLCrypto {
-+		cmd.Env = append(cmd.Env, "MS_GO_NOSYSTEMCRYPTO=1")
-+	}
- 	if o, err := cmd.CombinedOutput(); err != nil {
- 		t.Fatalf("%v: %v\n%s", cmd, err, o)
- 	}
