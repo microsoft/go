@@ -6,6 +6,11 @@ After the release of 1.26, 1.24 is no longer supported, per the [Go release poli
 
 The `GOCACHE` environment variable now defaults to `os.UserCacheDir()/ms-go-build` instead of `os.UserCacheDir()/go-build`.
 
+The [buildinfo](https://pkg.go.dev/debug/buildinfo) embedded at build time now includes Microsoft-specific version information in a new `microsoft_toolset_version` setting.
+A new GODEBUG setting `ms_version=1` changes [`runtime.Version()`](https://pkg.go.dev/runtime#Version) to return the Microsoft-specific version string.
+A new [linker flag](https://pkg.go.dev/cmd/link) `-ms_upstreamversion=0` uses the Microsoft-specific version as the main Go version embedded in the output instead of the upstream version.
+For more information, see [the Additional Features document](https://github.com/microsoft/go/blob/microsoft/main/eng/doc/AdditionalFeatures.md#version-string-changes-to-identify-the-microsoft-build-of-go).
+
 ## Systemcrypto
 
 ### Configuration
@@ -22,6 +27,7 @@ Setting the FIPS preference to enabled will no longer cause a panic when the Win
 #### OpenSSL
 
 Improved support for the Fedora OpenSSL FIPS provider.
+
 Binaries can now be built without using cgo by setting `GOEXPERIMENT=ms_nocgo_opensslcrypto`.
 
 #### Darwin
@@ -29,7 +35,7 @@ Binaries can now be built without using cgo by setting `GOEXPERIMENT=ms_nocgo_op
 The backend is no longer in preview and is now fully supported.
 It is enabled by default on macOS.
 
-Binaries can now be built without using cgo.
+Building a program that uses this backend no longer requires cgo.
 
 ### Supported Algorithms
 
@@ -70,9 +76,9 @@ The following TLS cipher suites are now implemented using the systemcrypto backe
 
 The TLS curves X25519 and X25519MLKEM768 can be disabled using the GODEBUG setting `ms_tlsx25519=0`.
 
-The TLS default settings have been aligned with Microsoft TLS policies.
+The TLS default settings are now aligned with Microsoft TLS internal policies.
 This behavior can be disabled using the GODEBUG setting `ms_tlsprofile=off`.
-The following changes have been made:
+The changes from standard Go TLS default settings are:
 
 - TLS cipher suites using AES-256 are now preferred over those using AES-128.
 - TLS cipher suites using CHACHA20_POLY1305 are no longer preferred over AES-GCM cipher suites when the client or server supports hardware acceleration for AES.
