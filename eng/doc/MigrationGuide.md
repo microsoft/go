@@ -146,9 +146,17 @@ For more information, visit https://github.com/microsoft/go/blob/microsoft/main/
 ```
 
 > [!NOTE]
-> In Go 1.26, there is a cgo-less experiment available for Linux: `ms_nocgo_opensslcrypto`. For Go 1.27 this experiment will be removed and the CGO requirement for `systemcrypto` on Linux will be lifted.
+> In Go 1.26, there is a cgo-less experiment available for Linux: `ms_nocgo_opensslcrypto`. For Go 1.27 this experiment will be removed and the cgo requirement for `systemcrypto` on Linux will be lifted by default.
 > This allows the use of OpenSSL without requiring cgo.
-> Currently this experiment is supported on the following architectures: `386`, `amd64`, `arm`, `arm64`, `ppc64le` and `riscv64`.
+> Currently this experiment is supported on the following architectures: **386**, **amd64**, **arm**, **arm64**, **ppc64le** and **riscv64**.
+>
+> **How the backend is selected:** If cgo is enabled (e.g., `CGO_ENABLED=1`), the cgo-based OpenSSL backend is always used.
+> The cgo-less backend is only used when cgo is disabled AND you're on a supported architecture.
+> This means if you enable cgo for other reasons (e.g., your own C library or cross-compiling for a different platform), the crypto backend will use the cgo-based implementation.
+>
+> The set of supported architectures is limited because each architecture requires a unique assembly implementation to call OpenSSL.
+> Architectures are added based on demand and available resources.
+> To see existing requests or request support for additional architectures, search for issues with the [`Area-Nocgo`](https://github.com/microsoft/go/labels/Area-Nocgo) label.
 >
 > While `systemcrypto` is a fully supported `GOEXPERIMENT` value (it is not "experimental"), `ms_nocgo_opensslcrypto` **is** experimental as of Go 1.26 and may have limitations.
 
