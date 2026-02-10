@@ -24,7 +24,6 @@ desired goexperiments and build tags.
  src/cmd/internal/testdir/testdir_test.go      |   7 +
  src/cmd/link/internal/ld/main.go              |   2 +-
  src/cmd/link/link_test.go                     |   8 +
- src/crypto/ed25519/ed25519_test.go            |   4 +-
  src/crypto/internal/backend/backend_test.go   |  56 +++
  src/crypto/internal/backend/bbig/big.go       |  17 +
  src/crypto/internal/backend/bbig/big_cng.go   |  12 +
@@ -49,15 +48,11 @@ desired goexperiments and build tags.
  src/crypto/internal/backend/nobackend.go      | 375 +++++++++++++++
  src/crypto/internal/backend/openssl_linux.go  | 424 +++++++++++++++++
  src/crypto/internal/backend/stub.s            |  10 +
- src/crypto/rsa/boring.go                      |   6 +
- src/crypto/rsa/darwin.go                      |  71 +++
- src/crypto/rsa/pss_test.go                    |   5 +
  src/crypto/systemcrypto_nocgo_linux.go        |  18 +
  src/go/build/deps_test.go                     |  24 +-
  src/internal/buildcfg/exp.go                  |  37 ++
- src/os/exec/exec_test.go                      |   9 +
  src/runtime/runtime_boring.go                 |   5 +
- 48 files changed, 2794 insertions(+), 16 deletions(-)
+ 43 files changed, 2699 insertions(+), 16 deletions(-)
  create mode 100644 src/cmd/go/systemcrypto_test.go
  create mode 100644 src/crypto/internal/backend/backend_test.go
  create mode 100644 src/crypto/internal/backend/bbig/big.go
@@ -83,7 +78,6 @@ desired goexperiments and build tags.
  create mode 100644 src/crypto/internal/backend/nobackend.go
  create mode 100644 src/crypto/internal/backend/openssl_linux.go
  create mode 100644 src/crypto/internal/backend/stub.s
- create mode 100644 src/crypto/rsa/darwin.go
  create mode 100644 src/crypto/systemcrypto_nocgo_linux.go
 
 diff --git a/.gitignore b/.gitignore
@@ -737,30 +731,6 @@ index 19607c324ceaef..50439e47260a99 100644
  	t.Parallel()
  
  	tmpdir := t.TempDir()
-diff --git a/src/crypto/ed25519/ed25519_test.go b/src/crypto/ed25519/ed25519_test.go
-index c8a23e3246a949..02d85717eb16ce 100644
---- a/src/crypto/ed25519/ed25519_test.go
-+++ b/src/crypto/ed25519/ed25519_test.go
-@@ -13,8 +13,10 @@ import (
- 	"crypto/rand"
- 	"crypto/sha512"
- 	"encoding/hex"
-+	"internal/goexperiment"
- 	"log"
- 	"os"
-+	"runtime"
- 	"strings"
- 	"testing"
- )
-@@ -316,7 +318,7 @@ func TestGolden(t *testing.T) {
- 		copy(priv[32:], pubKey)
- 
- 		sig2 := Sign(priv[:], msg)
--		if !bytes.Equal(sig, sig2[:]) {
-+		if !bytes.Equal(sig, sig2[:]) && !(goexperiment.SystemCrypto && runtime.GOOS == "darwin") {
- 			t.Errorf("different signature result on line %d: %x vs %x", lineNo, sig, sig2)
- 		}
- 
 diff --git a/src/crypto/internal/backend/backend_test.go b/src/crypto/internal/backend/backend_test.go
 new file mode 100644
 index 00000000000000..093acd82556330
@@ -3135,132 +3105,6 @@ index 00000000000000..5e4b436554d44d
 +// Having this assembly file keeps the go command
 +// from complaining about the missing body
 +// (because the implementation might be here).
-diff --git a/src/crypto/rsa/boring.go b/src/crypto/rsa/boring.go
-index b9f9d3154f2589..54a8d18badc49b 100644
---- a/src/crypto/rsa/boring.go
-+++ b/src/crypto/rsa/boring.go
-@@ -11,6 +11,7 @@ import (
- 	"crypto/internal/boring/bbig"
- 	"crypto/internal/boring/bcache"
- 	"math/big"
-+	"runtime"
- )
- 
- // Cached conversions from Go PublicKey/PrivateKey to BoringCrypto.
-@@ -62,6 +63,11 @@ type boringPriv struct {
- }
- 
- func boringPrivateKey(priv *PrivateKey) (*boring.PrivateKeyRSA, error) {
-+	// CommonCrypto requires the CRT values to be precomputed if nil
-+	if goexperiment.SystemCrypto && runtime.GOOS == "darwin" && (priv.Precomputed.Dp == nil || priv.Precomputed.Dq == nil || priv.Precomputed.Qinv == nil) {
-+		priv.Precompute()
-+		priv.Precomputed.fips = nil
-+	}
- 	b := privCache.Get(priv)
- 	if b != nil && privateKeyEqual(&b.orig, priv) {
- 		return b.key, nil
-diff --git a/src/crypto/rsa/darwin.go b/src/crypto/rsa/darwin.go
-new file mode 100644
-index 00000000000000..bff8ac449c9a3b
---- /dev/null
-+++ b/src/crypto/rsa/darwin.go
-@@ -0,0 +1,71 @@
-+// Copyright 2017 The Go Authors. All rights reserved.
-+// Use of this source code is governed by a BSD-style
-+// license that can be found in the LICENSE file.
-+
-+//go:build goexperiment.systemcrypto && darwin
-+
-+package rsa
-+
-+import (
-+	"crypto/internal/backend"
-+	"crypto/internal/backend/bbig"
-+	"errors"
-+	"math/big"
-+	_ "unsafe"
-+
-+	"golang.org/x/crypto/cryptobyte"
-+	"golang.org/x/crypto/cryptobyte/asn1"
-+)
-+
-+//go:linkname decodeKey
-+func decodeKey(data []byte) (N, E, D, P, Q, Dp, Dq, Qinv backend.BigInt, err error) {
-+	bad := func(e error) (N, E, D, P, Q, Dp, Dq, Qinv backend.BigInt, err error) {
-+		return nil, nil, nil, nil, nil, nil, nil, nil, e
-+	}
-+	input := cryptobyte.String(data)
-+	var version int
-+	n, e, d, p, q, dp, dq, qinv := new(big.Int), new(big.Int), new(big.Int), new(big.Int),
-+		new(big.Int), new(big.Int), new(big.Int), new(big.Int)
-+	// Parse the ASN.1 sequence
-+	if !input.ReadASN1(&input, asn1.SEQUENCE) {
-+		return bad(errors.New("invalid ASN.1 structure: not a sequence"))
-+	}
-+	if !input.ReadASN1Integer(&version) || version != 0 {
-+		return bad(errors.New("invalid ASN.1 structure: unsupported version"))
-+	}
-+	if !input.ReadASN1Integer(n) || !input.ReadASN1Integer(e) ||
-+		!input.ReadASN1Integer(d) || !input.ReadASN1Integer(p) ||
-+		!input.ReadASN1Integer(q) || !input.ReadASN1Integer(dp) ||
-+		!input.ReadASN1Integer(dq) || !input.ReadASN1Integer(qinv) {
-+		return bad(errors.New("invalid ASN.1 structure"))
-+	}
-+	return bbig.Enc(n), bbig.Enc(e), bbig.Enc(d), bbig.Enc(p), bbig.Enc(q),
-+		bbig.Enc(dp), bbig.Enc(dq), bbig.Enc(qinv), nil
-+}
-+
-+//go:linkname encodeKey
-+func encodeKey(N, E, D, P, Q, Dp, Dq, Qinv backend.BigInt) ([]byte, error) {
-+	builder := cryptobyte.NewBuilder(nil)
-+	builder.AddASN1(asn1.SEQUENCE, func(b *cryptobyte.Builder) {
-+		b.AddASN1Int64(0)               // Add version as int64
-+		b.AddASN1BigInt(bbig.Dec(N))    // Add modulus
-+		b.AddASN1BigInt(bbig.Dec(E))    // Add public exponent
-+		b.AddASN1BigInt(bbig.Dec(D))    // Add private exponent
-+		b.AddASN1BigInt(bbig.Dec(P))    // Add prime1
-+		b.AddASN1BigInt(bbig.Dec(Q))    // Add prime2
-+		b.AddASN1BigInt(bbig.Dec(Dp))   // Add exponent1
-+		b.AddASN1BigInt(bbig.Dec(Dq))   // Add exponent2
-+		b.AddASN1BigInt(bbig.Dec(Qinv)) // Add coefficient
-+	})
-+	return builder.Bytes()
-+}
-+
-+//go:linkname encodePublicKey
-+func encodePublicKey(N, E backend.BigInt) ([]byte, error) {
-+	builder := cryptobyte.NewBuilder(nil)
-+	builder.AddASN1(asn1.SEQUENCE, func(b *cryptobyte.Builder) {
-+		b.AddASN1BigInt(bbig.Dec(N)) // Add modulus
-+		b.AddASN1BigInt(bbig.Dec(E)) // Add public exponent
-+	})
-+	return builder.Bytes()
-+}
-diff --git a/src/crypto/rsa/pss_test.go b/src/crypto/rsa/pss_test.go
-index e03f4ab06603c6..dd5e15a2e7a33c 100644
---- a/src/crypto/rsa/pss_test.go
-+++ b/src/crypto/rsa/pss_test.go
-@@ -14,8 +14,10 @@ import (
- 	"crypto/sha256"
- 	"crypto/sha512"
- 	"encoding/hex"
-+	"internal/goexperiment"
- 	"math/big"
- 	"os"
-+	"runtime"
- 	"strconv"
- 	"strings"
- 	"testing"
-@@ -104,6 +106,9 @@ func TestPSSGolden(t *testing.T) {
- 			hashed = h.Sum(hashed[:0])
- 
- 			if err := VerifyPSS(key, hash, hashed, sig, opts); err != nil {
-+				if goexperiment.SystemCrypto && runtime.GOOS == "darwin" && key.N.BitLen() == 1025 {
-+					t.Skip("CommonCrypto doesn't support golden test entries with this key size")
-+				}
- 				t.Error(err)
- 			}
- 		default:
 diff --git a/src/crypto/systemcrypto_nocgo_linux.go b/src/crypto/systemcrypto_nocgo_linux.go
 new file mode 100644
 index 00000000000000..d659272bf6ca13
@@ -3406,33 +3250,6 @@ index d4121357526a84..fdb5024e58796f 100644
  // expList returns the list of lower-cased experiment names for
  // experiments that differ from base. base may be nil to indicate no
  // experiments. If all is true, then include all experiment flags,
-diff --git a/src/os/exec/exec_test.go b/src/os/exec/exec_test.go
-index 2746ad8783ab22..c39f32c8fba6fc 100644
---- a/src/os/exec/exec_test.go
-+++ b/src/os/exec/exec_test.go
-@@ -14,6 +14,7 @@ import (
- 	"errors"
- 	"flag"
- 	"fmt"
-+	"internal/goexperiment"
- 	"internal/poll"
- 	"internal/testenv"
- 	"io"
-@@ -692,6 +693,14 @@ func TestExtraFiles(t *testing.T) {
- 		t.Skipf("skipping test on %q", runtime.GOOS)
- 	}
- 
-+	if goexperiment.SystemCrypto && runtime.GOOS == "linux" {
-+		// OpenSSL default behavior is to maintain open FDs to any
-+		// random devices that get used by the random number library.
-+		// Since those FDs are not marked FD_CLOEXEC or O_CLOEXEC,
-+		// they also get inherited by children.
-+		t.Skip("skipping test because test was run with systemcrypto on linux (OpenSSL)")
-+	}
-+
- 	// Force network usage, to verify the epoll (or whatever) fd
- 	// doesn't leak to the child,
- 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 diff --git a/src/runtime/runtime_boring.go b/src/runtime/runtime_boring.go
 index 831ee67afc952d..d2f00d57c10286 100644
 --- a/src/runtime/runtime_boring.go
