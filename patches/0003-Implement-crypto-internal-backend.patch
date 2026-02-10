@@ -13,7 +13,7 @@ desired goexperiments and build tags.
  .../compile/internal/logopt/logopt_test.go    |   6 +-
  src/cmd/compile/script_test.go                |   8 +
  src/cmd/dist/build.go                         |  80 +++-
- src/cmd/dist/test.go                          |  20 +-
+ src/cmd/dist/test.go                          |  18 +-
  src/cmd/go/go_test.go                         |  11 +
  src/cmd/go/internal/cfg/cfg.go                |  16 +
  src/cmd/go/internal/load/pkg.go               |   3 +
@@ -54,10 +54,10 @@ desired goexperiments and build tags.
  src/crypto/rsa/pss_test.go                    |   5 +
  src/crypto/systemcrypto_nocgo_linux.go        |  18 +
  src/go/build/deps_test.go                     |  24 +-
- src/internal/buildcfg/exp.go                  |  22 +
+ src/internal/buildcfg/exp.go                  |  37 ++
  src/os/exec/exec_test.go                      |   9 +
  src/runtime/runtime_boring.go                 |   5 +
- 48 files changed, 2780 insertions(+), 17 deletions(-)
+ 48 files changed, 2794 insertions(+), 16 deletions(-)
  create mode 100644 src/cmd/go/systemcrypto_test.go
  create mode 100644 src/crypto/internal/backend/backend_test.go
  create mode 100644 src/crypto/internal/backend/bbig/big.go
@@ -251,7 +251,7 @@ index e4250e12de8975..feef0080cb12d6 100644
  	if debug {
  		run("", ShowOutput|CheckExit, pathf("%s/compile", tooldir), "-V=full")
 diff --git a/src/cmd/dist/test.go b/src/cmd/dist/test.go
-index 4984f930b932c0..048a5b1b6191ed 100644
+index 4984f930b932c0..b651104235adcc 100644
 --- a/src/cmd/dist/test.go
 +++ b/src/cmd/dist/test.go
 @@ -156,10 +156,12 @@ func (t *tester) run() {
@@ -303,15 +303,6 @@ index 4984f930b932c0..048a5b1b6191ed 100644
  		// Only start multiple test dir shards on builders,
  		// where they get distributed to multiple machines.
  		// See issues 20141 and 31834.
-@@ -1382,7 +1388,7 @@ func (t *tester) registerCgoTests(heading string) {
- 			// a C linker warning on Linux.
- 			// in function `bio_ip_and_port_to_socket_and_addr':
- 			// warning: Using 'getaddrinfo' in statically linked applications requires at runtime the shared libraries from the glibc version used for linking
--			if staticCheck.skip == nil && goos == "linux" && strings.Contains(goexperiment, "boringcrypto") {
-+			if staticCheck.skip == nil && goos == "linux" && (strings.Contains(goexperiment, "systemcrypto") || strings.Contains(goexperiment, "opensslcrypto")) {
- 				staticCheck.skip = func(*distTest) (string, bool) {
- 					return "skipping static linking check on Linux when using boringcrypto to avoid C linker warning about getaddrinfo", true
- 				}
 diff --git a/src/cmd/go/go_test.go b/src/cmd/go/go_test.go
 index 260c91e800b622..467d8d6547b70a 100644
 --- a/src/cmd/go/go_test.go
@@ -3351,7 +3342,7 @@ index a0436aa1901b7e..ad2c8fa13fd07a 100644
  	< crypto/rand
  	< crypto/ed25519 # depends on crypto/rand.Reader
 diff --git a/src/internal/buildcfg/exp.go b/src/internal/buildcfg/exp.go
-index 323043af74a8c3..fdb5024e58796f 100644
+index d4121357526a84..fdb5024e58796f 100644
 --- a/src/internal/buildcfg/exp.go
 +++ b/src/internal/buildcfg/exp.go
 @@ -8,9 +8,11 @@ import (
@@ -3366,7 +3357,29 @@ index 323043af74a8c3..fdb5024e58796f 100644
  )
  
  // ExperimentFlags represents a set of GOEXPERIMENT flags relative to a baseline
-@@ -209,6 +211,26 @@ func (exp *ExperimentFlags) String() string {
+@@ -185,6 +187,21 @@ func ParseGOEXPERIMENT(goos, goarch, goexp string) (*ExperimentFlags, error) {
+ 	if flags.BoringCrypto {
+ 		return nil, fmt.Errorf("GOEXPERIMENT boringcrypto is not supported in the Microsoft build of Go")
+ 	}
++	// Check systemcrypto platform support.
++	if flags.SystemCrypto && goplatform.BuildModeSupported("gc", "default", goos, goarch) {
++		var supported bool
++		switch goos {
++		case "linux":
++			supported = true
++		case "windows":
++			supported = goarch == "amd64" || goarch == "arm64"
++		case "darwin":
++			supported = true
++		}
++		if !supported {
++			return nil, fmt.Errorf("GOEXPERIMENT systemcrypto is not supported on %s/%s\n\tFor more information, visit https://github.com/microsoft/go/tree/microsoft/main/eng/doc/fips", goos, goarch)
++		}
++	}
+ 	return flags, nil
+ }
+ 
+@@ -194,6 +211,26 @@ func (exp *ExperimentFlags) String() string {
  	return strings.Join(expList(&exp.Flags, &exp.baseline, false), ",")
  }
  
