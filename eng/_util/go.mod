@@ -10,7 +10,7 @@ require (
 	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/microsoft/go-infra v0.0.8
 	github.com/microsoft/go-infra/goinstallscript v1.2.0
-	golang.org/x/net v0.49.0
+	golang.org/x/net v0.50.0
 )
 
 require (
@@ -28,9 +28,9 @@ require (
 	github.com/shopspring/decimal v1.4.0 // indirect
 	github.com/spf13/cast v1.7.0 // indirect
 	go.yaml.in/yaml/v4 v4.0.0-rc.3 // indirect
-	golang.org/x/crypto v0.47.0 // indirect
+	golang.org/x/crypto v0.48.0 // indirect
 	golang.org/x/oauth2 v0.33.0 // indirect
-	golang.org/x/text v0.33.0 // indirect
+	golang.org/x/text v0.34.0 // indirect
 )
 
 tool github.com/microsoft/go-infra/cmd/pipelineymlgen
