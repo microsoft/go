@@ -50,9 +50,9 @@ desired goexperiments and build tags.
  src/crypto/internal/backend/stub.s            |  10 +
  src/crypto/systemcrypto_nocgo_linux.go        |  18 +
  src/go/build/deps_test.go                     |  24 +-
- src/internal/buildcfg/exp.go                  |  37 ++
+ src/internal/buildcfg/exp.go                  |  46 ++
  src/runtime/runtime_boring.go                 |   5 +
- 43 files changed, 2699 insertions(+), 16 deletions(-)
+ 43 files changed, 2709 insertions(+), 15 deletions(-)
  create mode 100644 src/cmd/go/systemcrypto_test.go
  create mode 100644 src/crypto/internal/backend/backend_test.go
  create mode 100644 src/crypto/internal/backend/bbig/big.go
@@ -3186,7 +3186,7 @@ index a0436aa1901b7e..ad2c8fa13fd07a 100644
  	< crypto/rand
  	< crypto/ed25519 # depends on crypto/rand.Reader
 diff --git a/src/internal/buildcfg/exp.go b/src/internal/buildcfg/exp.go
-index d4121357526a84..fdb5024e58796f 100644
+index d4121357526a84..c722eadca85453 100644
 --- a/src/internal/buildcfg/exp.go
 +++ b/src/internal/buildcfg/exp.go
 @@ -8,9 +8,11 @@ import (
@@ -3201,7 +3201,23 @@ index d4121357526a84..fdb5024e58796f 100644
  )
  
  // ExperimentFlags represents a set of GOEXPERIMENT flags relative to a baseline
-@@ -185,6 +187,21 @@ func ParseGOEXPERIMENT(goos, goarch, goexp string) (*ExperimentFlags, error) {
+@@ -161,6 +163,15 @@ func ParseGOEXPERIMENT(goos, goarch, goexp string) (*ExperimentFlags, error) {
+ 			if strings.HasPrefix(f, "no") {
+ 				f, val = f[2:], false
+ 			}
++			// Check for deprecated per-platform crypto experiments.
++			switch f {
++			case "opensslcrypto":
++				return nil, fmt.Errorf("GOEXPERIMENT opensslcrypto is deprecated, use GOEXPERIMENT=systemcrypto instead")
++			case "cngcrypto":
++				return nil, fmt.Errorf("GOEXPERIMENT cngcrypto is deprecated, use GOEXPERIMENT=systemcrypto instead")
++			case "darwincrypto":
++				return nil, fmt.Errorf("GOEXPERIMENT darwincrypto is deprecated, use GOEXPERIMENT=systemcrypto instead")
++			}
+ 			set, ok := names[f]
+ 			if !ok {
+ 				return nil, fmt.Errorf("unknown GOEXPERIMENT %s", f)
+@@ -185,6 +196,21 @@ func ParseGOEXPERIMENT(goos, goarch, goexp string) (*ExperimentFlags, error) {
  	if flags.BoringCrypto {
  		return nil, fmt.Errorf("GOEXPERIMENT boringcrypto is not supported in the Microsoft build of Go")
  	}
@@ -3223,7 +3239,7 @@ index d4121357526a84..fdb5024e58796f 100644
  	return flags, nil
  }
  
-@@ -194,6 +211,26 @@ func (exp *ExperimentFlags) String() string {
+@@ -194,6 +220,26 @@ func (exp *ExperimentFlags) String() string {
  	return strings.Join(expList(&exp.Flags, &exp.baseline, false), ",")
  }
  
