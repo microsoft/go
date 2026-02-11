@@ -18,7 +18,7 @@ desired goexperiments and build tags.
  src/cmd/go/internal/cfg/cfg.go                |  16 +
  src/cmd/go/internal/load/pkg.go               |   3 +
  src/cmd/go/internal/tool/tool.go              |   9 +-
- src/cmd/go/systemcrypto_test.go               | 241 ++++++++++
+ src/cmd/go/systemcrypto_test.go               | 229 ++++++++++
  .../go/testdata/script/env_cross_build.txt    |   2 +
  .../script/test_android_issue62123.txt        |   2 +
  src/cmd/internal/testdir/testdir_test.go      |   7 +
@@ -50,9 +50,9 @@ desired goexperiments and build tags.
  src/crypto/internal/backend/stub.s            |  10 +
  src/crypto/systemcrypto_nocgo_linux.go        |  18 +
  src/go/build/deps_test.go                     |  24 +-
- src/internal/buildcfg/exp.go                  |  74 +++
+ src/internal/buildcfg/exp.go                  |  47 ++
  src/runtime/runtime_boring.go                 |   5 +
- 43 files changed, 2749 insertions(+), 15 deletions(-)
+ 43 files changed, 2710 insertions(+), 15 deletions(-)
  create mode 100644 src/cmd/go/systemcrypto_test.go
  create mode 100644 src/crypto/internal/backend/backend_test.go
  create mode 100644 src/crypto/internal/backend/bbig/big.go
@@ -245,7 +245,7 @@ index e4250e12de8975..feef0080cb12d6 100644
  	if debug {
  		run("", ShowOutput|CheckExit, pathf("%s/compile", tooldir), "-V=full")
 diff --git a/src/cmd/dist/test.go b/src/cmd/dist/test.go
-index 48c3aa5efdb008..ad050c065e463f 100644
+index 4984f930b932c0..b651104235adcc 100644
 --- a/src/cmd/dist/test.go
 +++ b/src/cmd/dist/test.go
 @@ -156,10 +156,12 @@ func (t *tester) run() {
@@ -281,19 +281,19 @@ index 48c3aa5efdb008..ad050c065e463f 100644
  	// Test ios/amd64 for the iOS simulator.
 -	if goos == "darwin" && goarch == "amd64" && t.cgoEnabled {
 +	if goos == "darwin" && goarch == "amd64" && t.cgoEnabled &&
-+		// IOS is not supported with darwincrypto.
-+		!(strings.Contains(goexperiment, "systemcrypto") || strings.Contains(goexperiment, "darwincrypto")) {
++		// IOS is not supported with systemcrypto.
++		!strings.Contains(goexperiment, "systemcrypto") {
  		t.registerTest("GOOS=ios on darwin/amd64",
  			&goTest{
  				variant:  "amd64ios",
-@@ -1005,7 +1009,9 @@ func (t *tester) registerTests() {
+@@ -1021,7 +1025,9 @@ func (t *tester) registerTests() {
  		t.registerRaceTests()
  	}
  
 -	if goos != "android" && !t.iOS() {
 +	// cmd/internal/testdir uses -buildmode=exe on darwin,
-+	// which is not supported by darwincrypto.
-+	if goos != "android" && !t.iOS() && !(strings.Contains(goexperiment, "systemcrypto") || strings.Contains(goexperiment, "darwincrypto")) {
++	// which is not supported by systemcrypto.
++	if goos != "android" && !t.iOS() && !strings.Contains(goexperiment, "systemcrypto") {
  		// Only start multiple test dir shards on builders,
  		// where they get distributed to multiple machines.
  		// See issues 20141 and 31834.
@@ -411,10 +411,10 @@ index 92e8a803105f8d..95d47b625c28a7 100644
  	buildAndRunTool(loaderstate, ctx, tool, args, runFunc)
 diff --git a/src/cmd/go/systemcrypto_test.go b/src/cmd/go/systemcrypto_test.go
 new file mode 100644
-index 00000000000000..fcbbe6c86a2180
+index 00000000000000..306133fef6d65f
 --- /dev/null
 +++ b/src/cmd/go/systemcrypto_test.go
-@@ -0,0 +1,241 @@
+@@ -0,0 +1,229 @@
 +// Copyright 2025 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -426,7 +426,6 @@ index 00000000000000..fcbbe6c86a2180
 +	"internal/testenv"
 +	"os"
 +	"path/filepath"
-+	"runtime"
 +	"slices"
 +	"strings"
 +	"testing"
@@ -608,17 +607,6 @@ index 00000000000000..fcbbe6c86a2180
 +		{true, []string{"GOEXPERIMENT=systemcrypto"}},
 +		{true, []string{"GOEXPERIMENT=nosystemcrypto,systemcrypto"}},
 +	}
-+	switch runtime.GOOS {
-+	case "linux":
-+		tests = append(tests, testCase{true, []string{"GOEXPERIMENT=opensslcrypto"}})
-+	case "windows":
-+		switch runtime.GOARCH {
-+		case "amd64", "arm64":
-+			tests = append(tests, testCase{true, []string{"GOEXPERIMENT=cngcrypto"}})
-+		}
-+	case "darwin":
-+		tests = append(tests, testCase{true, []string{"GOEXPERIMENT=darwincrypto"}})
-+	}
 +	// Duplicate each test with MS_GO_NOSYSTEMCRYPTO=1, which should always result
 +	// in systemcrypto being disabled.
 +	n := len(tests)
@@ -680,7 +668,7 @@ index 2f46a6b44bffe1..69071289e2de81 100644
  
  ! go build -o $devnull cmd/buildid
 diff --git a/src/cmd/internal/testdir/testdir_test.go b/src/cmd/internal/testdir/testdir_test.go
-index c7060898778c88..47de9e25baa759 100644
+index c7060898778c88..4d2bd8a87127ee 100644
 --- a/src/cmd/internal/testdir/testdir_test.go
 +++ b/src/cmd/internal/testdir/testdir_test.go
 @@ -118,6 +118,13 @@ func Test(t *testing.T) {
@@ -688,7 +676,7 @@ index c7060898778c88..47de9e25baa759 100644
  	tmpDir = t.TempDir()
  
 +	if slices.ContainsFunc(strings.Split(goExperiment, ","), func(s string) bool {
-+		return s == "systemcrypto" || s == "opensslcrypto" || s == "cngcrypto" || s == "darwincrypto"
++		return s == "systemcrypto"
 +	}) {
 +		// Codegen tests cross-compile to platforms that do not support system crypto.
 +		*allCodegen = false
@@ -711,7 +699,7 @@ index a4b3a0422f2f41..0140c385e47991 100644
  		if !strings.Contains(buildVersion, "-") { // See go.dev/issue/75953.
  			sep = "-"
 diff --git a/src/cmd/link/link_test.go b/src/cmd/link/link_test.go
-index 541733b8e615f0..e45f1286595f4f 100644
+index 19607c324ceaef..50439e47260a99 100644
 --- a/src/cmd/link/link_test.go
 +++ b/src/cmd/link/link_test.go
 @@ -12,6 +12,7 @@ import (
@@ -830,7 +818,7 @@ index 00000000000000..20251a290dc2e0
 +}
 diff --git a/src/crypto/internal/backend/bbig/big_cng.go b/src/crypto/internal/backend/bbig/big_cng.go
 new file mode 100644
-index 00000000000000..92623031fd87d0
+index 00000000000000..9331c34d402ba2
 --- /dev/null
 +++ b/src/crypto/internal/backend/bbig/big_cng.go
 @@ -0,0 +1,12 @@
@@ -838,7 +826,7 @@ index 00000000000000..92623031fd87d0
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
 +
-+//go:build goexperiment.cngcrypto
++//go:build goexperiment.systemcrypto && windows
 +
 +package bbig
 +
@@ -848,7 +836,7 @@ index 00000000000000..92623031fd87d0
 +var Dec = bbig.Dec
 diff --git a/src/crypto/internal/backend/bbig/big_darwin.go b/src/crypto/internal/backend/bbig/big_darwin.go
 new file mode 100644
-index 00000000000000..4ff10194a06e86
+index 00000000000000..e8884576d05427
 --- /dev/null
 +++ b/src/crypto/internal/backend/bbig/big_darwin.go
 @@ -0,0 +1,12 @@
@@ -856,7 +844,7 @@ index 00000000000000..4ff10194a06e86
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
 +
-+//go:build goexperiment.darwincrypto
++//go:build goexperiment.systemcrypto && darwin
 +
 +package bbig
 +
@@ -866,7 +854,7 @@ index 00000000000000..4ff10194a06e86
 +var Dec = bbig.Dec
 diff --git a/src/crypto/internal/backend/bbig/big_openssl.go b/src/crypto/internal/backend/bbig/big_openssl.go
 new file mode 100644
-index 00000000000000..e6695dd66b1d02
+index 00000000000000..51396c3db1a871
 --- /dev/null
 +++ b/src/crypto/internal/backend/bbig/big_openssl.go
 @@ -0,0 +1,12 @@
@@ -874,7 +862,7 @@ index 00000000000000..e6695dd66b1d02
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
 +
-+//go:build goexperiment.opensslcrypto
++//go:build goexperiment.systemcrypto && linux
 +
 +package bbig
 +
@@ -884,7 +872,7 @@ index 00000000000000..e6695dd66b1d02
 +var Dec = bbig.Dec
 diff --git a/src/crypto/internal/backend/cng_windows.go b/src/crypto/internal/backend/cng_windows.go
 new file mode 100644
-index 00000000000000..0a53f791c34ceb
+index 00000000000000..919f3482dcb3d6
 --- /dev/null
 +++ b/src/crypto/internal/backend/cng_windows.go
 @@ -0,0 +1,425 @@
@@ -892,7 +880,7 @@ index 00000000000000..0a53f791c34ceb
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
 +
-+//go:build goexperiment.cngcrypto && windows
++//go:build goexperiment.systemcrypto && windows
 +
 +// Package cng provides access to CNGCrypto implementation functions.
 +// Check the variable Enabled to find out whether CNGCrypto is available.
@@ -1367,7 +1355,7 @@ index 00000000000000..a9682181ffa154
 +}
 diff --git a/src/crypto/internal/backend/darwin_darwin.go b/src/crypto/internal/backend/darwin_darwin.go
 new file mode 100644
-index 00000000000000..80b6e9d9f5ec09
+index 00000000000000..6d0aac8021aeb0
 --- /dev/null
 +++ b/src/crypto/internal/backend/darwin_darwin.go
 @@ -0,0 +1,430 @@
@@ -1375,7 +1363,7 @@ index 00000000000000..80b6e9d9f5ec09
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
 +
-+//go:build goexperiment.darwincrypto && darwin
++//go:build goexperiment.systemcrypto && darwin
 +
 +// Package darwin provides access to DarwinCrypto implementation functions.
 +// Check the variable Enabled to find out whether DarwinCrypto is available.
@@ -1803,7 +1791,7 @@ index 00000000000000..80b6e9d9f5ec09
 +}
 diff --git a/src/crypto/internal/backend/fips140/cng.go b/src/crypto/internal/backend/fips140/cng.go
 new file mode 100644
-index 00000000000000..e4a1ddeeb7dc09
+index 00000000000000..d74cffe462b234
 --- /dev/null
 +++ b/src/crypto/internal/backend/fips140/cng.go
 @@ -0,0 +1,35 @@
@@ -1811,7 +1799,7 @@ index 00000000000000..e4a1ddeeb7dc09
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
 +
-+//go:build goexperiment.cngcrypto
++//go:build goexperiment.systemcrypto && windows
 +
 +package fips140
 +
@@ -1844,7 +1832,7 @@ index 00000000000000..e4a1ddeeb7dc09
 +}
 diff --git a/src/crypto/internal/backend/fips140/darwin.go b/src/crypto/internal/backend/fips140/darwin.go
 new file mode 100644
-index 00000000000000..8a2efe2346e84c
+index 00000000000000..be7c416b531e58
 --- /dev/null
 +++ b/src/crypto/internal/backend/fips140/darwin.go
 @@ -0,0 +1,13 @@
@@ -1852,7 +1840,7 @@ index 00000000000000..8a2efe2346e84c
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
 +
-+//go:build goexperiment.darwincrypto
++//go:build goexperiment.systemcrypto && darwin
 +
 +package fips140
 +
@@ -1990,7 +1978,7 @@ index 00000000000000..289d6594eac54b
 +}
 diff --git a/src/crypto/internal/backend/fips140/openssl.go b/src/crypto/internal/backend/fips140/openssl.go
 new file mode 100644
-index 00000000000000..f5de8e094d3d87
+index 00000000000000..95c93093d0b707
 --- /dev/null
 +++ b/src/crypto/internal/backend/fips140/openssl.go
 @@ -0,0 +1,59 @@
@@ -1998,7 +1986,7 @@ index 00000000000000..f5de8e094d3d87
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
 +
-+//go:build goexperiment.opensslcrypto
++//go:build goexperiment.systemcrypto && linux
 +
 +package fips140
 +
@@ -2106,7 +2094,7 @@ index 00000000000000..d3d39fd77f98db
 +const isSkipFIPSCheck = true
 diff --git a/src/crypto/internal/backend/internal/opensslsetup/opensslsetup.go b/src/crypto/internal/backend/internal/opensslsetup/opensslsetup.go
 new file mode 100644
-index 00000000000000..51e80d3332f816
+index 00000000000000..ef97d994841717
 --- /dev/null
 +++ b/src/crypto/internal/backend/internal/opensslsetup/opensslsetup.go
 @@ -0,0 +1,68 @@
@@ -2114,7 +2102,7 @@ index 00000000000000..51e80d3332f816
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
 +
-+//go:build goexperiment.opensslcrypto
++//go:build goexperiment.systemcrypto && linux
 +
 +// opensslsetup is a package that initializes the OpenSSL library.
 +// It doesn't export any symbol, but blank importing it has the
@@ -2180,7 +2168,7 @@ index 00000000000000..51e80d3332f816
 +}
 diff --git a/src/crypto/internal/backend/internal/opensslsetup/opensslsetup_test.go b/src/crypto/internal/backend/internal/opensslsetup/opensslsetup_test.go
 new file mode 100644
-index 00000000000000..e9f67449710d65
+index 00000000000000..7276cc2b871b85
 --- /dev/null
 +++ b/src/crypto/internal/backend/internal/opensslsetup/opensslsetup_test.go
 @@ -0,0 +1,92 @@
@@ -2188,7 +2176,7 @@ index 00000000000000..e9f67449710d65
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
 +
-+//go:build goexperiment.opensslcrypto && cgo
++//go:build goexperiment.systemcrypto && linux && cgo
 +
 +package opensslsetup
 +
@@ -2278,7 +2266,7 @@ index 00000000000000..e9f67449710d65
 +}
 diff --git a/src/crypto/internal/backend/internal/opensslsetup/stub.go b/src/crypto/internal/backend/internal/opensslsetup/stub.go
 new file mode 100644
-index 00000000000000..3b92bfc5fbabf6
+index 00000000000000..19fd29e19e7b96
 --- /dev/null
 +++ b/src/crypto/internal/backend/internal/opensslsetup/stub.go
 @@ -0,0 +1,8 @@
@@ -2287,7 +2275,7 @@ index 00000000000000..3b92bfc5fbabf6
 +// license that can be found in the LICENSE file.
 +
 +// Placeholder to allow the opensslsetup package to be imported
-+// without cgo enabled or without goexperiment.opensslcrypto.
++// without cgo enabled or without goexperiment.systemcrypto on linux.
 +
 +package opensslsetup
 diff --git a/src/crypto/internal/backend/nobackend.go b/src/crypto/internal/backend/nobackend.go
@@ -2673,7 +2661,7 @@ index 00000000000000..5e16f39dc107c7
 +}
 diff --git a/src/crypto/internal/backend/openssl_linux.go b/src/crypto/internal/backend/openssl_linux.go
 new file mode 100644
-index 00000000000000..a7437047f91696
+index 00000000000000..6121670c0e3659
 --- /dev/null
 +++ b/src/crypto/internal/backend/openssl_linux.go
 @@ -0,0 +1,424 @@
@@ -2681,7 +2669,7 @@ index 00000000000000..a7437047f91696
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
 +
-+//go:build goexperiment.opensslcrypto && linux
++//go:build goexperiment.systemcrypto && linux
 +
 +// Package openssl provides access to OpenSSLCrypto implementation functions.
 +// Check the variable Enabled to find out whether OpenSSLCrypto is available.
@@ -3119,7 +3107,7 @@ index 00000000000000..5e4b436554d44d
 +// (because the implementation might be here).
 diff --git a/src/crypto/systemcrypto_nocgo_linux.go b/src/crypto/systemcrypto_nocgo_linux.go
 new file mode 100644
-index 00000000000000..1d3d180ff70b75
+index 00000000000000..d659272bf6ca13
 --- /dev/null
 +++ b/src/crypto/systemcrypto_nocgo_linux.go
 @@ -0,0 +1,18 @@
@@ -3127,7 +3115,7 @@ index 00000000000000..1d3d180ff70b75
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
 +
-+//go:build goexperiment.opensslcrypto && !(cgo || 386 || amd64 || arm || arm64 || ppc64le || riscv64)
++//go:build goexperiment.systemcrypto && linux && !(cgo || 386 || amd64 || arm || arm64 || ppc64le || riscv64)
 +
 +package crypto
 +
@@ -3198,14 +3186,10 @@ index a0436aa1901b7e..ad2c8fa13fd07a 100644
  	< crypto/rand
  	< crypto/ed25519 # depends on crypto/rand.Reader
 diff --git a/src/internal/buildcfg/exp.go b/src/internal/buildcfg/exp.go
-index 87cd1f4de3246a..c8d7fb4cffba66 100644
+index d4121357526a84..c082274fcb6838 100644
 --- a/src/internal/buildcfg/exp.go
 +++ b/src/internal/buildcfg/exp.go
-@@ -5,12 +5,15 @@
- package buildcfg
- 
- import (
-+	"errors"
+@@ -8,9 +8,11 @@ import (
  	"fmt"
  	"os"
  	"reflect"
@@ -3217,65 +3201,46 @@ index 87cd1f4de3246a..c8d7fb4cffba66 100644
  )
  
  // ExperimentFlags represents a set of GOEXPERIMENT flags relative to a baseline
-@@ -193,6 +196,57 @@ func ParseGOEXPERIMENT(goos, goarch, goexp string) (*ExperimentFlags, error) {
+@@ -161,6 +163,16 @@ func ParseGOEXPERIMENT(goos, goarch, goexp string) (*ExperimentFlags, error) {
+ 			if strings.HasPrefix(f, "no") {
+ 				f, val = f[2:], false
+ 			}
++			// Check for deprecated per-platform crypto experiments.
++			switch f {
++			case "opensslcrypto", "cngcrypto", "darwincrypto":
++				switch {
++				case goos == "darwin" || goos == "linux" || (goos == "windows" && goarch != "386"):
++					return nil, fmt.Errorf("systemcrypto is enabled by default, GOEXPERIMENT %s is not necessary", f)
++				default:
++					return nil, fmt.Errorf("GOEXPERIMENT %s has been removed, use GOEXPERIMENT=systemcrypto instead", f)
++				}
++			}
+ 			set, ok := names[f]
+ 			if !ok {
+ 				return nil, fmt.Errorf("unknown GOEXPERIMENT %s", f)
+@@ -185,6 +197,21 @@ func ParseGOEXPERIMENT(goos, goarch, goexp string) (*ExperimentFlags, error) {
  	if flags.BoringCrypto {
  		return nil, fmt.Errorf("GOEXPERIMENT boringcrypto is not supported in the Microsoft build of Go")
  	}
-+	// Check crypto backend conflicts.
-+	type platform struct {
-+		goos   string
-+		goarch []string // if nil or empty, enabled on all architectures
-+	}
-+	var backends = []struct {
-+		name     string
-+		enabled  bool
-+		platform []platform
-+	}{
-+		{"systemcrypto", flags.SystemCrypto, []platform{
-+			{"linux", nil},
-+			{"windows", []string{"amd64", "arm64"}},
-+			{"darwin", nil},
-+		}},
-+		{"opensslcrypto", flags.OpenSSLCrypto, []platform{{"linux", nil}}},
-+		{"cngcrypto", flags.CNGCrypto, []platform{{"windows", []string{"amd64", "arm64"}}}},
-+		{"darwincrypto", flags.DarwinCrypto, []platform{{"darwin", nil}}},
-+	}
-+	var errs []string
-+	for i, backend := range backends {
-+		if !backend.enabled {
-+			continue
++	// Check systemcrypto platform support.
++	if flags.SystemCrypto && goplatform.BuildModeSupported("gc", "default", goos, goarch) {
++		var supported bool
++		switch goos {
++		case "linux":
++			supported = true
++		case "windows":
++			supported = goarch == "amd64" || goarch == "arm64"
++		case "darwin":
++			supported = true
 +		}
-+		// Don't report an error if the build mode is not supported,
-+		// since that is not a problem with the experiment configuration.
-+		if goplatform.BuildModeSupported("gc", "default", goos, goarch) {
-+			if !slices.ContainsFunc(backend.platform, func(p platform) bool { return p.goos == goos }) {
-+				errs = append(errs, fmt.Sprintf("GOEXPERIMENT %s is not supported on %s", backend.name, goos))
-+			} else {
-+				for _, platform := range backend.platform {
-+					if platform.goos == goos && (len(platform.goarch) > 0 && !slices.Contains(platform.goarch, goarch)) {
-+						errs = append(errs, fmt.Sprintf("GOEXPERIMENT %s is not supported on %s/%s", backend.name, goos, goarch))
-+					}
-+				}
-+			}
++		if !supported {
++			return nil, fmt.Errorf("GOEXPERIMENT systemcrypto is not supported on %s/%s\n\tFor more information, visit https://github.com/microsoft/go/tree/microsoft/main/eng/doc/fips", goos, goarch)
 +		}
-+		if backend.name != "systemcrypto" { // systemcrypto can coexist with other valid backends
-+			for _, backend2 := range backends[i+1:] {
-+				if !backend2.enabled || backend2.name == "systemcrypto" {
-+					continue
-+				}
-+				errs = append(errs, fmt.Sprintf("GOEXPERIMENT %s and %s are both enabled, but they are mutually exclusive",
-+					backend.name, backend2.name))
-+			}
-+		}
-+	}
-+	if len(errs) > 0 {
-+		errs = append(errs, "For more information, visit https://github.com/microsoft/go/tree/microsoft/main/eng/doc/fips")
-+		return nil, errors.New(strings.Join(errs, "\n\t"))
 +	}
  	return flags, nil
  }
  
-@@ -202,6 +256,26 @@ func (exp *ExperimentFlags) String() string {
+@@ -194,6 +221,26 @@ func (exp *ExperimentFlags) String() string {
  	return strings.Join(expList(&exp.Flags, &exp.baseline, false), ",")
  }
  
