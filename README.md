@@ -63,6 +63,7 @@ We build the forked Go toolset with the following list of OS/Arch combinations:
 * `linux_armv6l`
 * `linux_arm64`
 * `windows_amd64`
+* `windows_arm64`
 * `darwin_amd64`
 * `darwin_arm64`
 
