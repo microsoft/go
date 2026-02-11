@@ -68,7 +68,7 @@ The modified Go runtime is typically used to accomplish one of two goals: comply
 The following table summarizes common configurations and how suitable each one is for these goals.
 
 > [!NOTE]
-> This document assumes the use of a supported version of the Microsoft build of Go: 1.24 or later.
+> This document assumes the use of a supported version of the Microsoft build of Go: 1.25 or later.
 
 > [!NOTE]
 > Since Go 1.25, `systemcrypto` is enabled by default on Linux and Windows. There is no need to manually enable using OpenSSL/CNG under the hood anymore. See also [the Go 1.25 changelog](#go-125-aug-2025). Since Go 1.26, `systemcrypto` is also enabled by default on macOS.
