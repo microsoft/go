@@ -223,29 +223,8 @@ It happens when the `GOEXPERIMENT` environment variable includes `systemcrypto` 
 If you're trying to migrate to the Microsoft build of Go, check your build environment to ensure that the `go` command is the Microsoft build of Go.
 See [Microsoft Toolset Identification](./MicrosoftToolsetIdentification.md).
 
-If you're trying to make a build command compliant with Microsoft crypto policy but still compatible with **both the Microsoft build of Go and the official Go distribution**, this is possible:
-
-- If you're using Go 1.25 or later, remove `systemcrypto` from `GOEXPERIMENT`. Starting in 1.25, `systemcrypto` is enabled by default.
-  - If `GOEXPERIMENT` only contains `systemcrypto`, delete the assignment entirely.
-  - If it's not possible to find the `GOEXPERIMENT` setting in your build scripts and remove `systemcrypto`, reassign `GOEXPERIMENT` to remove `systemcrypto` just before your build commands.
-- If you're using Go 1.24 or earlier, or want to use both 1.24 and 1.25, use build tags instead of `GOEXPERIMENT`.
-  - Manually enabling `systemcrypto` in the Microsoft build of Go 1.25 is unnecessary, but harmless.
-
-**Build tags** (also known as build constraints) are more flexible than `GOEXPERIMENT`: build tag names are not verified against the list of known experiments.
-You can pass build tags to a `go build` command using the `-tags` flag:
-
-```
-go build -tags=goexperiment.systemcrypto .
-```
-
-See [Build Tags](fips/README.md#build-tags) in the FIPS README documentation for more information about using build tags with `systemcrypto`.
-
-If passing additional arguments to `go build` is undesirable, you can alternatively set up the `GOFLAGS` environment variable to include `-tags=goexperiment.systemcrypto`.
-This makes all subsequent `go` commands automatically use that build tag.
-See [`cmd/go` documentation](https://pkg.go.dev/cmd/go#hdr-Environment_variables) and [the FIPS readme](fips/README.md#assign-goflags-environment-variable-to-automatically-pass--tags-to-go-build) for more information about using GOFLAGS.
-
-> [!WARNING]
-> `nosystemcrypto` can't be specified as a build tag.
+If you're trying to make a build command compliant with Microsoft crypto policy but still compatible with **both the Microsoft build of Go and the official Go distribution**, remove `systemcrypto` from `GOEXPERIMENT`.
+`systemcrypto` is enabled by default, so it's not necessary to specify it using `GOEXPERIMENT`.
 
 See [Disabling `systemcrypto`](#disabling-systemcrypto) for information about how to disable `systemcrypto` if you need to temporarily avoid migrating to it.
 
@@ -359,47 +338,12 @@ For specific guidance within Microsoft:
 ## Disabling `systemcrypto`
 
 The difficulty of migrating to using `systemcrypto` can vary significantly depending on the Go project.
-If the change requires further planning and if it's acceptable for your project to be temporarily out of compliance with Microsoft cryptography policy, you can disable `systemcrypto` by following these instructions:
-
-- If you're using Go 1.25.2 or later, set the `MS_GO_NOSYSTEMCRYPTO` environment variable to 1.
-- Otherwise, set the `GOEXPERIMENT` environment variable to `nosystemcrypto`.
-  - If you have already set `GOEXPERIMENT`, append `,nosystemcrypto` to the existing value.
-
+If the change requires further planning and if it's acceptable for your project to be temporarily out of compliance with Microsoft cryptography policy, you can disable `systemcrypto` by setting the `MS_GO_NOSYSTEMCRYPTO` environment variable to 1.
 After that, build commands won't encounter errors related to `systemcrypto`, and the resulting program won't attempt to use system-provided cryptography at runtime.
 
 For more information about these options, see [the "Build option to use Go crypto" section of the FIPS README](fips/README.md#build-option-to-use-go-crypto-if-the-backend-compatibility-check-fails).
 
-Alternatively, if you experienced an unexpected auto-update to 1.25 that broke your project, you should downgrade to the latest version of 1.24.
-This will disable `systemcrypto` by default and give you time to plan the migration.
-You can choose to upgrade at your own pace, as long as you complete the migration before 1.24 reaches EOL (End of Life).
-**1.24 EOL is expected in February 2025.**
-
-For most installation methods, specify 1.24, and you will get the latest, most secure version of 1.24.
-
-> [!TIP]
-> To update to the latest version of 1.24 in Azure Linux 3, use this command:
->
-> ```bash
-> sudo tdnf install -y 'golang < 1.25'
-> ```
->
-> Using the constraint `< 1.25` rather than a specific version ensures that you get the latest, most secure version of Go 1.24.
->
-> Some care may be needed: the above command installs, downgrades, or updates `golang`, but it doesn't lock the version to 1.24.
-> `golang` will be updated to the latest version of 1.25 the next time you run `tdnf update`.
-> This command may only be suitable for some situations, such as CI, and may need to be run just before any steps that use `go`.
->
-> `dnf` has `versionlock` capabilities, but it doesn't enable upgrades to newer patches within the major version.
-> It will only lock to a specific version.
-
-If you're unable to complete migration to `systemcrypto` right away, we recommend disabling systemcrypto with 1.25 rather than using 1.24, if possible.
-This approach lets you benefit from other changes in 1.25.
-It also avoids setting the migration deadline of 1.24 EOL.
-
 More information about exceptions to the Microsoft cryptography policy can be found at [Microsoft.Security.Cryptography.10010 on the Liquid Microsoft-internal site.][msc10010]
-
-> [!NOTE]
-> Like any major version of Go, there may be more breaking changes that you need to evaluate before upgrading, not only `systemcrypto`.
 
 > [!NOTE]
 > The Microsoft build of Go does apply [other changes](#whats-different) to the official Go distribution, but `systemcrypto` is the most impactful, and the only one that adds additional dependencies.
