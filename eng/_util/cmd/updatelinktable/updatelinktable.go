@@ -32,6 +32,7 @@ var supported = []version{
 			"linux-arm64":   {},
 			"linux-armv6l":  {},
 			"windows-amd64": {},
+			"windows-arm64": {},
 			"src":           {},
 			"assets":        {},
 		},
