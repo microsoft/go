@@ -16,8 +16,6 @@ To comply with Microsoft internal policy for the use of Go, most projects need t
 
 1. [Use the Microsoft build of Go **for CI (Continuous Integration) and build environments.**](#ci-and-build-environment-migration-steps)
     - See [Microsoft Toolset Identification](./MicrosoftToolsetIdentification.md) if it's not clear which distribution of Go you're currently using.
-1. If you use a version of Go prior to 1.25, [enable `systemcrypto`](#enable-systemcrypto).
-    - Starting with 1.25 (Linux and Windows) and 1.26 (macOS), `systemcrypto` is enabled by default, and no action is required.
 1. [**Test** your program.](#testing)
     - It's important to test on all target platforms. The changes to runtime behavior are platform-specific.
 1. Consider **whether your project must be FIPS compliant** and if so, [**review your project**](#review-project-for-fips-compliance).
@@ -31,9 +29,14 @@ Like the official Go distribution, the Microsoft build of Go has no Go runtime c
 Your Go application is still a single executable binary.
 However, in some cases, it may now have additional dependencies.
 
-Regardless of which method you use to install Go, we recommend picking a specific major version of Go and setting up your build system to use the latest update to that major version, a.k.a. pinning the major version.
-Both official Go and the Microsoft build of Go occasionally have breaking changes in new major versions, and pinning lets you plan for and execute migrations at your own pace.
-However, we recognize that pinning increases maintenance burden when there are no breaking changes, and ultimately the risk must be evaluated in the context of each project.
+> [!TIP]
+> Regardless of which method you use to install Go, we recommend picking a specific major version of Go and setting up your build system to use the latest update to that major version.
+> (For example, `1.26.*`. This is also called "pinning" to major version `26`.)
+> Both official Go and the Microsoft build of Go occasionally have breaking changes in new major versions, and pinning lets you migrate to the next major version at your own pace.
+>
+> However, pinning increases maintenance burden when there are no breaking changes, because you are responsible for making sure you aren't using a version of Go that is past End-of-Life (EOL) and insecure.
+> Some projects may prefer to always use the latest version of Go to be sure they never miss maintenance, even though this puts the project at risk of unexpected breaks when a new major version is released.
+> Ultimately, these risks must be evaluated in the context of each project.
 
 ## What's different?
 
@@ -59,12 +62,24 @@ This section describes some migration scenarios we know about and the path we re
 >
 > The scenarios in the following sections simply offer targeted guidance to help find the easiest approach.
 
-### The `GoTool@0` Azure Pipelines step
+### The `GoTool@0` Azure Pipelines task
 
-The `GoTool@0` step doesn't currently support the Microsoft build of Go, and there is no equivalent step.
-(See [microsoft/go#483](https://github.com/microsoft/go/issues/483).)
+The [GoTool@0](https://learn.microsoft.com/azure/devops/pipelines/tasks/reference/go-tool-v0) Azure Pipelines build task supports installing the Microsoft build of Go.
 
-The most universal replacement is to use a `script` step to run [the cross-platform `go-install.ps1` script](/README.md#the-go-installps1-script).
+To use it, set these parameters:
+
+* `version`: the task supports the version formats `1.X`, `1.X.Y`, and `1.X.Y-Z`, and if there is a partial match, it installs the latest matching version. We recommend using the latest major version, currently `1.26`.
+* `goDownloadUrl`: use `https://aka.ms/golang/release/latest` to select the Microsoft build of Go.
+
+The resulting step in a yml-based Azure Pipeline looks like this:
+
+```yml
+- task: GoTool@0
+  displayName: 'Install Go'
+  inputs:
+    version: '1.26'
+    goDownloadUrl: 'https://aka.ms/golang/release/latest'
+```
 
 ### A `go` toolset that happens to be on my build agent
 

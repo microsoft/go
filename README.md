@@ -109,10 +109,10 @@ After the repository is added, install the Microsoft build of Go by running the 
 sudo apt-get update && sudo apt-get install msft-golang
 ```
 
-### Binary archive
+### Azure Pipelines `GoTool@0` task
 
-[Signed builds of Go](https://github.com/microsoft/go/blob/microsoft/main/eng/doc/Downloads.md)
-for several platforms are available as `zip` and `tar.gz` files.
+The [`GoTool@0`](https://learn.microsoft.com/azure/devops/pipelines/tasks/reference/go-tool-v0) Azure Pipelines build task supports installing the Microsoft build of Go.
+For more details, see [the GoTool@0 section of the Migration Guide](eng/doc/MigrationGuide.md#the-gotool0-azure-pipelines-task).
 
 ### The `go-install.ps1` script
 
@@ -120,6 +120,11 @@ The [cross-platform `go-install.ps1` script](https://github.com/microsoft/go-inf
 It can install specific versions or the latest releases.
 
 If you use Azure Pipelines, try running the script in a [script step](https://learn.microsoft.com/en-us/azure/devops/pipelines/tasks/reference/cmd-line-v2?view=azure-pipelines) and pass the `-AzurePipelinePath` argument to automatically set up `go` in the environment for future steps.
+
+### Binary archive
+
+[Signed builds of Go](https://github.com/microsoft/go/blob/microsoft/main/eng/doc/Downloads.md)
+for several platforms are available as `zip` and `tar.gz` files.
 
 ### Build from source
 
