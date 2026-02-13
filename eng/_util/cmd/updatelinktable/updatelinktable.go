@@ -23,7 +23,7 @@ This command updates the table in ` + docPath + ` and data in ` + jsonPath + `.
 
 var supported = []version{
 	{
-		Number:       "1.25",
+		Number:       "1.26",
 		LatestStable: true,
 		Platforms: map[string]struct{}{
 			"darwin-amd64":  {},
@@ -32,12 +32,13 @@ var supported = []version{
 			"linux-arm64":   {},
 			"linux-armv6l":  {},
 			"windows-amd64": {},
+			"windows-arm64": {},
 			"src":           {},
 			"assets":        {},
 		},
 	},
 	{
-		Number:         "1.24",
+		Number:         "1.25",
 		PreviousStable: true,
 		Platforms: map[string]struct{}{
 			"darwin-amd64":  {},
@@ -246,6 +247,9 @@ func data() (string, []supportdata.Branch) {
 				types = fileTypes("")
 			}
 			for _, f := range types {
+				if strings.HasPrefix(p, "darwin-") && v.Number == "1.25" {
+					b.WriteString("**Preview**<sup>2</sup><br/>")
+				}
 				artifact := f.ArtifactLink(v.Number, p, os, arch)
 				writeURL(f.Name, artifact.URL)
 				branch.Files = append(branch.Files, artifact)
@@ -290,9 +294,6 @@ func platforms() []string {
 func platformPrettyName(p string) string {
 	if pretty, ok := platformPrettyNames[p]; ok {
 		return pretty
-	}
-	if strings.HasPrefix(p, "darwin-") {
-		p = p + " (macOS) **Preview**<sup>2</sup>"
 	}
 	return p
 }

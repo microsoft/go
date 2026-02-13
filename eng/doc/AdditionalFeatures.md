@@ -170,9 +170,6 @@ It ensures TLS configuration matches the system's security policies at runtime.
 > This feature may reduce compatibility between TLS clients or servers and other implementations.
 > Enable it only if your use case specifically requires alignment with Windows Schannel configuration settings.
 
-As of Go 1.24.7, it can be enabled by setting the environment variable `GOEXPERIMENT` to `ms_tls_config_schannel` before building a Go program.
-Other methods of changing goexperiment settings also work.
-
 It is not supported and has no effect on Windows 8 and earlier and (the equivalent) Windows Server 2012 and earlier.
 
 ### Remove use of undocumented Windows APIs
