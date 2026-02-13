@@ -121,7 +121,7 @@ Install instructions [are in the project README file](/README.md#ubuntu).
 ### A OneBranch Azure Pipeline
 
 We are not aware of an enhanced migration path for OneBranch pipelines that should be preferred over the Azure Pipelines migrations mentioned above.
-See the above sections for [`GoTool@0`](#the-gotool0-azure-pipelines-step) and [container jobs](#an-azure-pipelines-container-job-referring-to-the-official-golang-container-image) to find the best fit for your project.
+See the above sections for [`GoTool@0`](#the-gotool0-azure-pipelines-task) and [container jobs](#an-azure-pipelines-container-job-referring-to-the-official-golang-container-image) to find the best fit for your project.
 
 ### Direct download of the Go `tar.gz` or `zip` file
 
