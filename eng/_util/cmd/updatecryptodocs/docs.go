@@ -100,7 +100,7 @@ var doc = Document{
 					Name: "SHA-2-512_224",
 					Platforms: Platforms{
 						Windows: PlatformStatus{Supported: NotSupported},
-						Linux:   PlatformStatus{MinGoVersion: "1.24", MinVersion: "1.1.1"},
+						Linux:   PlatformStatus{MinVersion: "1.1.1"},
 						MacOS:   PlatformStatus{Supported: NotSupported},
 					},
 				},
@@ -108,7 +108,7 @@ var doc = Document{
 					Name: "SHA-2-512_256",
 					Platforms: Platforms{
 						Windows: PlatformStatus{Supported: NotSupported},
-						Linux:   PlatformStatus{MinGoVersion: "1.24", MinVersion: "1.1.1"},
+						Linux:   PlatformStatus{MinVersion: "1.1.1"},
 						MacOS:   PlatformStatus{Supported: NotSupported},
 					},
 				},
@@ -382,7 +382,6 @@ var doc = Document{
 							Name: "PKCS1v15 Signature (RIPMED160)",
 							Platforms: Platforms{
 								Windows: PlatformStatus{Supported: NotSupported},
-								Linux:   PlatformStatus{MinGoVersion: "1.24"},
 								MacOS:   PlatformStatus{Supported: NotSupported},
 							},
 						},
@@ -395,9 +394,7 @@ var doc = Document{
 						{
 							Name: "PKCS1v15 Signature (MD5-SHA1)",
 							Platforms: Platforms{
-								Windows: PlatformStatus{MinGoVersion: "1.24"},
-								Linux:   PlatformStatus{MinGoVersion: "1.24"},
-								MacOS:   PlatformStatus{Supported: NotSupported},
+								MacOS: PlatformStatus{Supported: NotSupported},
 							},
 						},
 						{Name: "PKCS1v15 Signature (SHA-1)"},
