@@ -23,6 +23,7 @@ Currently this experiment is supported on the following architectures:
 - **arm64**
 - ppc64le
 - riscv64
+- s390x (added in Go 1.27)
 
 The set of supported architectures is limited because each architecture requires a unique assembly implementation to call OpenSSL.
 Architectures are added based on demand and available resources.
