@@ -67,12 +67,6 @@ We build the forked Go toolset with the following list of OS/Arch combinations:
 * `darwin_amd64`
 * `darwin_arm64`
 
-> [!NOTE]
-> Cross-compilation to Windows is supported.
-> For other OS targets, cgo makes cross-compilation difficult, but it may still be possible.
->
-> For example, to build a program for `windows_arm64`, you can cross-compile on a `windows_amd64` or `linux_amd64` host.
-
 Visit the [Migration Guide](eng/doc/MigrationGuide.md) for guidance about how we
 recommend migrating existing Go projects to use the Microsoft build of Go. This
 guide also helps resolve commonly encountered issues.
