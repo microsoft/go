@@ -91,6 +91,7 @@ var doc = Document{
 					Name: "SHA-2-224",
 					Platforms: Platforms{
 						Windows: PlatformStatus{Supported: NotSupported},
+						MacOS:   PlatformStatus{Supported: NotSupported},
 					},
 				},
 				{Name: "SHA-2-256"},
