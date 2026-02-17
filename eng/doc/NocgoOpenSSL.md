@@ -21,6 +21,7 @@ Currently this experiment is supported on the following architectures:
 - **amd64**
 - arm
 - **arm64**
+- loong64
 - ppc64le
 - riscv64
 - s390x (added in Go 1.27)
