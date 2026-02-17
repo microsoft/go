@@ -10,7 +10,7 @@ Update the Go toolchain build settings so that it uses the
 desired goexperiments and build tags.
 ---
  .gitignore                                    |   2 +
- .../compile/internal/logopt/logopt_test.go    |   6 +-
+ .../compile/internal/logopt/logopt_test.go    |   5 +
  src/cmd/compile/script_test.go                |   8 +
  src/cmd/dist/build.go                         |  80 +++-
  src/cmd/dist/test.go                          |  30 +-
@@ -18,7 +18,7 @@ desired goexperiments and build tags.
  src/cmd/go/internal/cfg/cfg.go                |  16 +
  src/cmd/go/internal/load/pkg.go               |   3 +
  src/cmd/go/internal/tool/tool.go              |   9 +-
- src/cmd/go/systemcrypto_test.go               | 249 ++++++++++
+ src/cmd/go/systemcrypto_test.go               | 258 +++++++++++
  .../go/testdata/script/env_cross_build.txt    |   2 +
  .../script/test_android_issue62123.txt        |   2 +
  src/cmd/internal/testdir/testdir_test.go      |   7 +
@@ -53,7 +53,7 @@ desired goexperiments and build tags.
  src/internal/buildcfg/exp.go                  |  77 ++++
  src/runtime/runtime_boring.go                 |   5 +
  src/syscall/exec_linux_test.go                |   4 +
- 44 files changed, 2773 insertions(+), 17 deletions(-)
+ 44 files changed, 2782 insertions(+), 16 deletions(-)
  create mode 100644 src/cmd/go/systemcrypto_test.go
  create mode 100644 src/crypto/internal/backend/backend_test.go
  create mode 100644 src/crypto/internal/backend/bbig/big.go
@@ -95,7 +95,7 @@ index 344b31f7ac1c1d..b4583113d5aa15 100644
  # For files created by specific development environment (e.g. editor),
  # use alternative ways to exclude files from git.
 diff --git a/src/cmd/compile/internal/logopt/logopt_test.go b/src/cmd/compile/internal/logopt/logopt_test.go
-index 1edabf9fb7ff04..026f8cb0278ab6 100644
+index 1edabf9fb7ff04..fff0c40834a3f9 100644
 --- a/src/cmd/compile/internal/logopt/logopt_test.go
 +++ b/src/cmd/compile/internal/logopt/logopt_test.go
 @@ -5,6 +5,7 @@
@@ -106,14 +106,13 @@ index 1edabf9fb7ff04..026f8cb0278ab6 100644
  	"internal/testenv"
  	"os"
  	"path/filepath"
-@@ -147,7 +148,10 @@ func s15a8(x *[15]int64) [15]int64 {
- 		arches := []string{runtime.GOARCH}
+@@ -148,6 +149,10 @@ func s15a8(x *[15]int64) [15]int64 {
  		goos0 := runtime.GOOS
  		if runtime.GOARCH == "amd64" { // Test many things with "linux" (wasm will get "js")
--			arches = []string{"arm", "arm64", "386", "amd64", "mips", "mips64", "loong64", "ppc64le", "riscv64", "s390x", "wasm"}
-+			if !goexperiment.SystemCrypto {
-+				// SystemCrypto does not support cross-compilation.
-+				arches = []string{"arm", "arm64", "386", "amd64", "mips", "mips64", "loong64", "ppc64le", "riscv64", "s390x", "wasm"}
+ 			arches = []string{"arm", "arm64", "386", "amd64", "mips", "mips64", "loong64", "ppc64le", "riscv64", "s390x", "wasm"}
++			if goexperiment.SystemCrypto {
++				// SystemCrypto does not support cross-compilation on all architectures.
++				arches = []string{"arm", "arm64", "386", "amd64", "loong64", "ppc64le", "riscv64"}
 +			}
  			goos0 = "linux"
  		}
@@ -447,10 +446,10 @@ index 92e8a803105f8d..95d47b625c28a7 100644
  	buildAndRunTool(loaderstate, ctx, tool, args, runFunc)
 diff --git a/src/cmd/go/systemcrypto_test.go b/src/cmd/go/systemcrypto_test.go
 new file mode 100644
-index 00000000000000..b6ba8158598a6c
+index 00000000000000..552ce078e780fb
 --- /dev/null
 +++ b/src/cmd/go/systemcrypto_test.go
-@@ -0,0 +1,249 @@
+@@ -0,0 +1,258 @@
 +// Copyright 2025 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -539,12 +538,21 @@ index 00000000000000..b6ba8158598a6c
 +		goexp   string
 +		succeed bool
 +	}{
-+		{"linux", "amd64", "noms_nocgo_opensslcrypto", false}, // cgoless OpenSSL requires ms_nocgo_opensslcrypto on linux/amd64
-+		{"linux", "arm64", "noms_nocgo_opensslcrypto", false}, // cgoless OpenSSL requires ms_nocgo_opensslcrypto on linux/arm64
-+		{"linux", "ppc64le", "ms_nocgo_cngcrypto", false},     // cgoless OpenSSL not supported on linux/ppc64le
-+		{"linux", "arm", "ms_nocgo_cngcrypto", false},         // cgoless OpenSSL not supported on linux/arm
++		// cgoless OpenSSL requires ms_nocgo_opensslcrypto
++		{"linux", "386", "noms_nocgo_opensslcrypto", false},
++		{"linux", "amd64", "noms_nocgo_opensslcrypto", false},
++		{"linux", "arm64", "noms_nocgo_opensslcrypto", false},
++		{"linux", "ppc64le", "noms_nocgo_opensslcrypto", false},
++		{"linux", "riscv64", "noms_nocgo_opensslcrypto", false},
++		{"linux", "loong64", "noms_nocgo_opensslcrypto", false},
++		{"linux", "arm", "noms_nocgo_opensslcrypto", false},
++		{"linux", "386", "ms_nocgo_opensslcrypto", true},
 +		{"linux", "amd64", "ms_nocgo_opensslcrypto", true},
 +		{"linux", "arm64", "ms_nocgo_opensslcrypto", true},
++		{"linux", "ppc64le", "ms_nocgo_opensslcrypto", true},
++		{"linux", "loong64", "ms_nocgo_opensslcrypto", true},
++		{"linux", "riscv64", "ms_nocgo_opensslcrypto", true},
++		{"linux", "arm", "ms_nocgo_opensslcrypto", true},
 +		{"darwin", "amd64", "", true},
 +		{"darwin", "arm64", "", true},
 +		{"windows", "386", "", false}, // cgoless system crypto not supported on windows/386
@@ -755,7 +763,7 @@ index a4b3a0422f2f41..0140c385e47991 100644
  		if !strings.Contains(buildVersion, "-") { // See go.dev/issue/75953.
  			sep = "-"
 diff --git a/src/cmd/link/link_test.go b/src/cmd/link/link_test.go
-index 541733b8e615f0..e45f1286595f4f 100644
+index 036eda13bc8807..33a79409ecc1fe 100644
 --- a/src/cmd/link/link_test.go
 +++ b/src/cmd/link/link_test.go
 @@ -12,6 +12,7 @@ import (
@@ -3163,7 +3171,7 @@ index 00000000000000..5e4b436554d44d
 +// (because the implementation might be here).
 diff --git a/src/crypto/systemcrypto_nocgo_linux.go b/src/crypto/systemcrypto_nocgo_linux.go
 new file mode 100644
-index 00000000000000..d272072340a213
+index 00000000000000..3aa3c4bb73cfbd
 --- /dev/null
 +++ b/src/crypto/systemcrypto_nocgo_linux.go
 @@ -0,0 +1,17 @@
@@ -3171,7 +3179,7 @@ index 00000000000000..d272072340a213
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
 +
-+//go:build goexperiment.opensslcrypto && !(cgo || (goexperiment.ms_nocgo_opensslcrypto && (386 || amd64 || arm || arm64 || ppc64le || riscv64)))
++//go:build goexperiment.opensslcrypto && !(cgo || (goexperiment.ms_nocgo_opensslcrypto && (386 || amd64 || arm || arm64 || loong64 || ppc64le || riscv64)))
 +
 +package crypto
 +
@@ -3185,10 +3193,10 @@ index 00000000000000..d272072340a213
 +	`
 +}
 diff --git a/src/go/build/deps_test.go b/src/go/build/deps_test.go
-index a0436aa1901b7e..ad2c8fa13fd07a 100644
+index 3f2b2399ec4127..f52b6b1ac71711 100644
 --- a/src/go/build/deps_test.go
 +++ b/src/go/build/deps_test.go
-@@ -369,7 +369,7 @@ var depsRules = `
+@@ -370,7 +370,7 @@ var depsRules = `
  	math/big, go/token
  	< go/constant;
  
@@ -3197,7 +3205,7 @@ index a0436aa1901b7e..ad2c8fa13fd07a 100644
  	< internal/buildcfg;
  
  	container/heap, go/constant, go/parser, internal/buildcfg, internal/goversion, internal/types/errors
-@@ -564,6 +564,10 @@ var depsRules = `
+@@ -565,6 +565,10 @@ var depsRules = `
  	< github.com/microsoft/go-crypto-winnative/internal/sysdll
  	< github.com/microsoft/go-crypto-winnative/internal/bcrypt;
  
@@ -3208,7 +3216,7 @@ index a0436aa1901b7e..ad2c8fa13fd07a 100644
  	FIPS, internal/godebug, embed
  	< crypto/internal/fips140only
  	< crypto
-@@ -584,6 +588,13 @@ var depsRules = `
+@@ -585,6 +589,13 @@ var depsRules = `
  	github.com/microsoft/go-crypto-winnative/internal/bcrypt
  	< github.com/microsoft/go-crypto-winnative/cng;
  
@@ -3222,7 +3230,7 @@ index a0436aa1901b7e..ad2c8fa13fd07a 100644
  	FIPS, internal/godebug, embed,
  	crypto/internal/boring/sig,
  	crypto/internal/boring/syso,
-@@ -619,8 +630,15 @@ var depsRules = `
+@@ -620,8 +631,15 @@ var depsRules = `
  	math/big, github.com/microsoft/go-crypto-darwin/xcrypto < github.com/microsoft/go-crypto-darwin/bbig;
  	math/big, github.com/microsoft/go-crypto-winnative/cng < github.com/microsoft/go-crypto-winnative/cng/bbig;
  
