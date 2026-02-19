@@ -1,0 +1,51 @@
+# Copyright (c) Microsoft Corporation.
+# Use of this source code is governed by a BSD-style
+# license that can be found in the LICENSE file.
+
+# This stage checks that patches apply cleanly to the submodule. It runs before
+# all build/test stages so that patch failures are immediately visible in the PR
+# checks list without drilling into the pipeline.
+
+parameters:
+  - name: ctx
+    type: object
+
+  - name: pool
+    type: object
+
+stages:
+  - stage: Patches_Apply_Cleanly
+    displayName: 'Patches Apply Cleanly'
+    dependsOn: []
+    jobs:
+      - job: Check_Patches
+        displayName: Check Patches Apply Cleanly
+        workspace:
+          clean: all
+        timeoutInMinutes: 10
+        pool: ${{ parameters.pool }}
+
+        ${{ if not(parameters.ctx['Go1ESOfficial']) }}:
+          container: ubuntu2204
+
+        steps:
+          - script: |
+              set -x
+              echo 'Cleaning old build dirs with sudo in case of root ownership.'
+              sudo rm -v -rf a b s
+              mkdir a b s
+            workingDirectory: $(Agent.BuildDirectory)
+            displayName: Cleanup
+
+          - template: ../steps/checkout-unix-task.yml
+
+          - pwsh: |
+              . eng/utilities.ps1
+              Download-Stage0
+            displayName: Init stage 0 Go toolset
+
+          - template: ../steps/init-submodule-task.yml
+
+          - pwsh: |
+              eng/run.ps1 submodule-refresh
+            displayName: Apply patches
