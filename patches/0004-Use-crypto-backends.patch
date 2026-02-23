@@ -50,7 +50,7 @@ Subject: [PATCH] Use crypto backends
  .../internal/cryptotest/implementations.go    |   2 +-
  src/crypto/internal/fips140hash/hash.go       |   3 +-
  .../internal/fips140only/fips140only.go       |   6 +-
- .../internal/fips140only/fips140only_test.go  |  44 ++--
+ .../internal/fips140only/fips140only_test.go  |  52 +++--
  src/crypto/internal/fips140test/acvp_test.go  |   6 +
  src/crypto/internal/fips140test/cast_test.go  |   2 +
  src/crypto/internal/fips140test/fips_test.go  |   2 +-
@@ -79,7 +79,7 @@ Subject: [PATCH] Use crypto backends
  src/crypto/sha1/sha1_test.go                  |  11 +-
  src/crypto/sha256/sha256.go                   |   6 +-
  src/crypto/sha256/sha256_test.go              |  44 ++--
- src/crypto/sha3/sha3.go                       | 133 ++++++++++--
+ src/crypto/sha3/sha3.go                       | 129 ++++++++++--
  src/crypto/sha3/sha3_test.go                  |  18 +-
  src/crypto/sha512/sha512.go                   |   2 +-
  src/crypto/sha512/sha512_test.go              |  32 ++-
@@ -104,7 +104,7 @@ Subject: [PATCH] Use crypto backends
  src/hash/notboring_test.go                    |   9 +
  src/net/lookup_test.go                        |   3 +
  src/os/exec/exec_test.go                      |   9 +
- 100 files changed, 1614 insertions(+), 253 deletions(-)
+ 100 files changed, 1617 insertions(+), 254 deletions(-)
  create mode 100644 src/crypto/dsa/boring.go
  create mode 100644 src/crypto/dsa/notboring.go
  create mode 100644 src/crypto/ecdsa/badlinkname.go
@@ -1801,7 +1801,7 @@ index 1b0a4be6ba5897..3225763ebb1da8 100644
  
  func ApprovedRandomReader(r io.Reader) bool {
 diff --git a/src/crypto/internal/fips140only/fips140only_test.go b/src/crypto/internal/fips140only/fips140only_test.go
-index 96df536d56f345..31d07e73f201bc 100644
+index 96df536d56f345..13874c097447bd 100644
 --- a/src/crypto/internal/fips140only/fips140only_test.go
 +++ b/src/crypto/internal/fips140only/fips140only_test.go
 @@ -17,6 +17,7 @@ import (
@@ -1812,7 +1812,29 @@ index 96df536d56f345..31d07e73f201bc 100644
  	"crypto/internal/cryptotest"
  	"crypto/internal/fips140"
  	"crypto/internal/fips140only"
-@@ -310,13 +311,16 @@ bXVL8iKLrG91IYQByUHZIn3WVAd2bfi4MfKagRt0ggd4
+@@ -39,6 +40,7 @@ import (
+ 	"io"
+ 	"math/big"
+ 	"os"
++	"runtime"
+ 	"strings"
+ 	"testing"
+ 
+@@ -89,7 +91,12 @@ func testFIPS140Only(t *testing.T) {
+ 	expectPanic(t, func() { cipher.NewCFBEncrypter(aesBlock, iv) })
+ 	expectPanic(t, func() { cipher.NewCFBDecrypter(aesBlock, iv) })
+ 
+-	cipher.NewCTR(aesBlock, iv)
++	if boring.Enabled && runtime.GOOS == "darwin" {
++		// The darwin crypto backend doesn't support CTR.
++		expectPanic(t, func() { cipher.NewCTR(aesBlock, iv) })
++	} else {
++		cipher.NewCTR(aesBlock, iv)
++	}
+ 	expectPanic(t, func() { cipher.NewCTR(notAESBlock, iv) })
+ 
+ 	expectPanic(t, func() { cipher.NewOFB(aesBlock, iv) })
+@@ -310,13 +317,16 @@ bXVL8iKLrG91IYQByUHZIn3WVAd2bfi4MfKagRt0ggd4
  	expectErr(t, errRet2(hpke.DHKEM(ecdh.X25519()).NewPublicKey(make([]byte, 32))))
  	hpkeK, err := hpke.MLKEM768().GenerateKey()
  	expectNoErr(t, err)
@@ -1836,7 +1858,7 @@ index 96df536d56f345..31d07e73f201bc 100644
  	}
  }
  
-@@ -329,16 +333,22 @@ type readerWrap struct {
+@@ -329,16 +339,22 @@ type readerWrap struct {
  }
  
  func withApprovedHash(f func(crypto.Hash)) {
@@ -3279,7 +3301,7 @@ index a18a536ba2896f..7b3b37c3b0c10d 100644
  	}
  }
 diff --git a/src/crypto/sha3/sha3.go b/src/crypto/sha3/sha3.go
-index 48c67e9fe11005..57c1126b53d804 100644
+index 48c67e9fe11005..1ab7ae42462ef6 100644
 --- a/src/crypto/sha3/sha3.go
 +++ b/src/crypto/sha3/sha3.go
 @@ -8,6 +8,7 @@ package sha3
@@ -3350,7 +3372,7 @@ index 48c67e9fe11005..57c1126b53d804 100644
  	// Outline the allocation for up to 512 bits of output to the caller's stack.
  	out := make([]byte, 64)
  	return sumSHAKE256(out, data, length)
-@@ -99,36 +118,57 @@ func sumSHAKE256(out, data []byte, length int) []byte {
+@@ -99,36 +118,53 @@ func sumSHAKE256(out, data []byte, length int) []byte {
  // SHA3 is an instance of a SHA-3 hash. It implements [hash.Hash].
  // The zero value is a usable SHA3-256 hash.
  type SHA3 struct {
@@ -3369,10 +3391,6 @@ index 48c67e9fe11005..57c1126b53d804 100644
  	return &sha3.s
  }
  
-+// FIPSApproved reports whether this hash algorithm is FIPS 140-3 approved.
-+// All SHA-3 hash variants (224, 256, 384, 512) are approved.
-+func (s *SHA3) FIPSApproved() bool { return true }
-+
  // New224 creates a new SHA3-224 hash.
  func New224() *SHA3 {
 -	return &SHA3{*sha3.New224()}
@@ -3415,7 +3433,7 @@ index 48c67e9fe11005..57c1126b53d804 100644
  		*s = *New256()
  	}
  }
-@@ -136,53 +176,81 @@ func (s *SHA3) init() {
+@@ -136,53 +172,81 @@ func (s *SHA3) init() {
  // Write absorbs more data into the hash's state.
  func (s *SHA3) Write(p []byte) (n int, err error) {
  	s.init()
@@ -3498,7 +3516,7 @@ index 48c67e9fe11005..57c1126b53d804 100644
  	r := *d
  	return &r, nil
  }
-@@ -190,23 +258,30 @@ func (d *SHA3) Clone() (hash.Cloner, error) {
+@@ -190,23 +254,30 @@ func (d *SHA3) Clone() (hash.Cloner, error) {
  // SHAKE is an instance of a SHAKE extendable output function.
  // The zero value is a usable SHAKE256 hash.
  type SHAKE struct {
@@ -3533,7 +3551,7 @@ index 48c67e9fe11005..57c1126b53d804 100644
  }
  
  // NewCSHAKE128 creates a new cSHAKE128 XOF.
-@@ -215,7 +290,10 @@ func NewSHAKE256() *SHAKE {
+@@ -215,7 +286,10 @@ func NewSHAKE256() *SHAKE {
  // cSHAKE is desired. S is a customization byte string used for domain
  // separation. When N and S are both empty, this is equivalent to NewSHAKE128.
  func NewCSHAKE128(N, S []byte) *SHAKE {
@@ -3545,7 +3563,7 @@ index 48c67e9fe11005..57c1126b53d804 100644
  }
  
  // NewCSHAKE256 creates a new cSHAKE256 XOF.
-@@ -224,7 +302,10 @@ func NewCSHAKE128(N, S []byte) *SHAKE {
+@@ -224,7 +298,10 @@ func NewCSHAKE128(N, S []byte) *SHAKE {
  // cSHAKE is desired. S is a customization byte string used for domain
  // separation. When N and S are both empty, this is equivalent to NewSHAKE256.
  func NewCSHAKE256(N, S []byte) *SHAKE {
@@ -3557,7 +3575,7 @@ index 48c67e9fe11005..57c1126b53d804 100644
  }
  
  // Write absorbs more data into the XOF's state.
-@@ -232,6 +313,9 @@ func NewCSHAKE256(N, S []byte) *SHAKE {
+@@ -232,6 +309,9 @@ func NewCSHAKE256(N, S []byte) *SHAKE {
  // It panics if any output has already been read.
  func (s *SHAKE) Write(p []byte) (n int, err error) {
  	s.init()
@@ -3567,7 +3585,7 @@ index 48c67e9fe11005..57c1126b53d804 100644
  	return s.s.Write(p)
  }
  
-@@ -240,35 +324,54 @@ func (s *SHAKE) Write(p []byte) (n int, err error) {
+@@ -240,35 +320,54 @@ func (s *SHAKE) Write(p []byte) (n int, err error) {
  // Any call to Write after a call to Read will panic.
  func (s *SHAKE) Read(p []byte) (n int, err error) {
  	s.init()
