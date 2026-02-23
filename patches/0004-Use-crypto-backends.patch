@@ -31,7 +31,7 @@ Subject: [PATCH] Use crypto backends
  src/crypto/ecdh/x25519.go                     |  49 +++++
  src/crypto/ecdsa/badlinkname.go               |  19 ++
  src/crypto/ecdsa/boring.go                    |   6 +-
- src/crypto/ecdsa/ecdsa.go                     |  16 +-
+ src/crypto/ecdsa/ecdsa.go                     |  10 +-
  src/crypto/ecdsa/notboring.go                 |   4 +-
  src/crypto/ed25519/boring.go                  |  71 +++++++
  src/crypto/ed25519/ed25519.go                 |  70 +++++++
@@ -81,7 +81,7 @@ Subject: [PATCH] Use crypto backends
  src/crypto/sha256/sha256_test.go              |  44 ++--
  src/crypto/sha3/sha3.go                       | 129 ++++++++++--
  src/crypto/sha3/sha3_test.go                  |  18 +-
- src/crypto/sha512/sha512.go                   |   8 +-
+ src/crypto/sha512/sha512.go                   |  14 +-
  src/crypto/sha512/sha512_test.go              |  32 ++-
  src/crypto/tls/auth_test.go                   |   1 +
  src/crypto/tls/cipher_suites.go               |  10 +-
@@ -104,7 +104,7 @@ Subject: [PATCH] Use crypto backends
  src/hash/notboring_test.go                    |   9 +
  src/net/lookup_test.go                        |   3 +
  src/os/exec/exec_test.go                      |   9 +
- 100 files changed, 1623 insertions(+), 254 deletions(-)
+ 100 files changed, 1625 insertions(+), 252 deletions(-)
  create mode 100644 src/crypto/dsa/boring.go
  create mode 100644 src/crypto/dsa/notboring.go
  create mode 100644 src/crypto/ecdsa/badlinkname.go
@@ -1132,10 +1132,10 @@ index 275c60b4de49eb..ff8bddf28c4545 100644
  	"math/big"
  )
 diff --git a/src/crypto/ecdsa/ecdsa.go b/src/crypto/ecdsa/ecdsa.go
-index b336f32eb69ef5..8a204e3a40e7d2 100644
+index b336f32eb69ef5..1eb2604505e229 100644
 --- a/src/crypto/ecdsa/ecdsa.go
 +++ b/src/crypto/ecdsa/ecdsa.go
-@@ -20,15 +20,15 @@ import (
+@@ -20,8 +20,8 @@ import (
  	"crypto"
  	"crypto/ecdh"
  	"crypto/elliptic"
@@ -1145,15 +1145,7 @@ index b336f32eb69ef5..8a204e3a40e7d2 100644
 +	"crypto/internal/backend/bbig"
  	"crypto/internal/fips140/ecdsa"
  	"crypto/internal/fips140/nistec"
-+	fipsSha512 "crypto/internal/fips140/sha512"
  	"crypto/internal/fips140cache"
- 	"crypto/internal/fips140hash"
- 	"crypto/internal/fips140only"
- 	"crypto/internal/rand"
--	"crypto/sha512"
- 	"crypto/subtle"
- 	"errors"
- 	"io"
 @@ -334,7 +334,7 @@ func (priv *PrivateKey) Sign(random io.Reader, digest []byte, opts crypto.Signer
  // ignored unless GODEBUG=cryptocustomrand=1 is set. This setting will be removed
  // in a future Go release. Instead, use [testing/cryptotest.SetGlobalRandom].
@@ -1172,18 +1164,7 @@ index b336f32eb69ef5..8a204e3a40e7d2 100644
  		b, err := boringPrivateKey(priv)
  		if err != nil {
  			return nil, err
-@@ -416,7 +416,9 @@ func signFIPS[P ecdsa.Point[P]](c *ecdsa.Curve[P], priv *PrivateKey, rand io.Rea
- 	// Always using SHA-512 instead of the hash that computed hash is
- 	// technically a violation of draft-irtf-cfrg-det-sigs-with-noise-04 but in
- 	// our API we don't get to know what it was, and this has no security impact.
--	sig, err := ecdsa.Sign(c, sha512.New, k, rand, hash)
-+	// Use the FIPS module's SHA-512 directly to ensure the service indicator
-+	// recognizes the hash type when the backend doesn't handle ECDSA.
-+	sig, err := ecdsa.Sign(c, fipsSha512.New, k, rand, hash)
- 	if err != nil {
- 		return nil, err
- 	}
-@@ -494,7 +496,7 @@ func addASN1IntBytes(b *cryptobyte.Builder, bytes []byte) {
+@@ -494,7 +494,7 @@ func addASN1IntBytes(b *cryptobyte.Builder, bytes []byte) {
  // The inputs are not considered confidential, and may leak through timing side
  // channels, or if an attacker has control of part of the inputs.
  func VerifyASN1(pub *PublicKey, hash, sig []byte) bool {
@@ -3716,7 +3697,7 @@ index 3973e0afd1b935..4a92e2652a50c4 100644
  	}
  	h.Write(bytes.Repeat([]byte{0}, 200))
 diff --git a/src/crypto/sha512/sha512.go b/src/crypto/sha512/sha512.go
-index 1435eac1f5b5dc..7ce248bb1acf06 100644
+index 1435eac1f5b5dc..ca424cb6b904ba 100644
 --- a/src/crypto/sha512/sha512.go
 +++ b/src/crypto/sha512/sha512.go
 @@ -12,7 +12,7 @@ package sha512
@@ -3748,8 +3729,28 @@ index 1435eac1f5b5dc..7ce248bb1acf06 100644
  	return sha512.New512_256()
  }
  
+@@ -106,6 +112,9 @@ func Sum384(data []byte) [Size384]byte {
+ 
+ // Sum512_224 returns the Sum512/224 checksum of the data.
+ func Sum512_224(data []byte) [Size224]byte {
++	if boring.Enabled && boring.SupportsHash(crypto.SHA512_224) {
++		return boring.SHA512_224(data)
++	}
+ 	h := New512_224()
+ 	h.Write(data)
+ 	var sum [Size224]byte
+@@ -115,6 +124,9 @@ func Sum512_224(data []byte) [Size224]byte {
+ 
+ // Sum512_256 returns the Sum512/256 checksum of the data.
+ func Sum512_256(data []byte) [Size256]byte {
++	if boring.Enabled && boring.SupportsHash(crypto.SHA512_256) {
++		return boring.SHA512_256(data)
++	}
+ 	h := New512_256()
+ 	h.Write(data)
+ 	var sum [Size256]byte
 diff --git a/src/crypto/sha512/sha512_test.go b/src/crypto/sha512/sha512_test.go
-index 080bf694f03652..0c899f5c407ffa 100644
+index 080bf694f03652..0df87918082a66 100644
 --- a/src/crypto/sha512/sha512_test.go
 +++ b/src/crypto/sha512/sha512_test.go
 @@ -8,9 +8,11 @@ package sha512
@@ -3809,7 +3810,7 @@ index 080bf694f03652..0c899f5c407ffa 100644
  	cryptotest.SkipTestAllocations(t)
 +	expectedAllocations := 0.0
 +	if boring.Enabled {
-+		expectedAllocations = 2
++		expectedAllocations = 6
 +	}
  	if n := testing.AllocsPerRun(10, func() {
  		in := []byte("hello, world!")
