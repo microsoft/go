@@ -15,7 +15,7 @@ Subject: [PATCH] Use crypto backends
  src/crypto/aes/aes.go                         |   2 +-
  src/crypto/aes/aes_test.go                    |   2 +-
  src/crypto/boring/boring.go                   |   4 +-
- src/crypto/cipher/cbc.go                      |  14 ++
+ src/crypto/cipher/cbc.go                      |  16 ++
  src/crypto/cipher/ctr.go                      |   7 +
  src/crypto/cipher/ctr_aes_test.go             |   2 +-
  src/crypto/cipher/gcm.go                      |  59 +++++-
@@ -41,7 +41,7 @@ Subject: [PATCH] Use crypto backends
  src/crypto/fips140/fips140.go                 |   3 +-
  src/crypto/hkdf/hkdf.go                       |  14 ++
  src/crypto/hkdf/hkdf_test.go                  |   2 +-
- src/crypto/hmac/hmac.go                       |  22 +-
+ src/crypto/hmac/hmac.go                       |  16 +-
  src/crypto/hmac/hmac_test.go                  |   2 +-
  src/crypto/hpke/aead.go                       |  14 +-
  src/crypto/internal/cryptotest/allocations.go |   6 -
@@ -49,7 +49,7 @@ Subject: [PATCH] Use crypto backends
  src/crypto/internal/cryptotest/hash.go        |   3 +-
  .../internal/cryptotest/implementations.go    |   2 +-
  src/crypto/internal/fips140hash/hash.go       |   3 +-
- .../internal/fips140only/fips140only.go       |   6 +-
+ .../internal/fips140only/fips140only.go       |  11 +-
  .../internal/fips140only/fips140only_test.go  |  52 +++--
  src/crypto/internal/fips140test/acvp_test.go  |   6 +
  src/crypto/internal/fips140test/cast_test.go  |   2 +
@@ -104,7 +104,7 @@ Subject: [PATCH] Use crypto backends
  src/hash/notboring_test.go                    |   9 +
  src/net/lookup_test.go                        |   3 +
  src/os/exec/exec_test.go                      |   9 +
- 100 files changed, 1625 insertions(+), 252 deletions(-)
+ 100 files changed, 1629 insertions(+), 249 deletions(-)
  create mode 100644 src/crypto/dsa/boring.go
  create mode 100644 src/crypto/dsa/notboring.go
  create mode 100644 src/crypto/ecdsa/badlinkname.go
@@ -312,13 +312,15 @@ index 097c37e343fdb8..a5d603896d3890 100644
  // Enabled reports whether BoringCrypto handles supported crypto operations.
  func Enabled() bool {
 diff --git a/src/crypto/cipher/cbc.go b/src/crypto/cipher/cbc.go
-index 87bafee08ade4f..d724c21e76f7f1 100644
+index 87bafee08ade4f..198de1d17b7e7c 100644
 --- a/src/crypto/cipher/cbc.go
 +++ b/src/crypto/cipher/cbc.go
-@@ -44,6 +44,10 @@ type cbcEncAble interface {
+@@ -44,6 +44,12 @@ type cbcEncAble interface {
  	NewCBCEncrypter(iv []byte) BlockMode
  }
  
++// fipsCBCEncAble is an interface implemented by ciphers that have a specific
++// optimized implementation of CBC encryption that is compliant with FIPS 140-2.
 +type fipsCBCEncAble interface {
 +	NewFIPSCBCEncrypter(iv []byte) BlockMode
 +}
@@ -326,7 +328,7 @@ index 87bafee08ade4f..d724c21e76f7f1 100644
  // NewCBCEncrypter returns a BlockMode which encrypts in cipher block chaining
  // mode, using the given Block. The length of iv must be the same as the
  // Block's block size.
-@@ -54,6 +58,9 @@ func NewCBCEncrypter(b Block, iv []byte) BlockMode {
+@@ -54,6 +60,9 @@ func NewCBCEncrypter(b Block, iv []byte) BlockMode {
  	if b, ok := b.(*aes.Block); ok {
  		return aes.NewCBCEncrypter(b, [16]byte(iv))
  	}
@@ -336,7 +338,7 @@ index 87bafee08ade4f..d724c21e76f7f1 100644
  	if fips140only.Enforced() {
  		panic("crypto/cipher: use of CBC with non-AES ciphers is not allowed in FIPS 140-only mode")
  	}
-@@ -123,6 +130,10 @@ type cbcDecAble interface {
+@@ -123,6 +132,10 @@ type cbcDecAble interface {
  	NewCBCDecrypter(iv []byte) BlockMode
  }
  
@@ -347,7 +349,7 @@ index 87bafee08ade4f..d724c21e76f7f1 100644
  // NewCBCDecrypter returns a BlockMode which decrypts in cipher block chaining
  // mode, using the given Block. The length of iv must be the same as the
  // Block's block size and must match the iv used to encrypt the data.
-@@ -133,6 +144,9 @@ func NewCBCDecrypter(b Block, iv []byte) BlockMode {
+@@ -133,6 +146,9 @@ func NewCBCDecrypter(b Block, iv []byte) BlockMode {
  	if b, ok := b.(*aes.Block); ok {
  		return aes.NewCBCDecrypter(b, [16]byte(iv))
  	}
@@ -1568,7 +1570,7 @@ index 57d90f88e93e75..4069ab057a2525 100644
  	"crypto/md5"
  	"crypto/sha1"
 diff --git a/src/crypto/hmac/hmac.go b/src/crypto/hmac/hmac.go
-index e7976e25193dfe..5dd85b693c4083 100644
+index e7976e25193dfe..58b357ee52c328 100644
 --- a/src/crypto/hmac/hmac.go
 +++ b/src/crypto/hmac/hmac.go
 @@ -22,7 +22,7 @@ timing side-channels:
@@ -1580,7 +1582,7 @@ index e7976e25193dfe..5dd85b693c4083 100644
  	"crypto/internal/fips140/hmac"
  	"crypto/internal/fips140hash"
  	"crypto/internal/fips140only"
-@@ -37,23 +37,23 @@ import (
+@@ -37,13 +37,6 @@ import (
  // the returned Hash does not implement [encoding.BinaryMarshaler]
  // or [encoding.BinaryUnmarshaler].
  func New(h func() hash.Hash, key []byte) hash.Hash {
@@ -1591,18 +1593,13 @@ index e7976e25193dfe..5dd85b693c4083 100644
 -		}
 -		// BoringCrypto did not recognize h, so fall through to standard Go code.
 -	}
--	h = fips140hash.UnwrapNew(h)
-+	fh := fips140hash.UnwrapNew(h)
+ 	h = fips140hash.UnwrapNew(h)
  	if fips140only.Enforced() {
  		if len(key) < 112/8 {
- 			panic("crypto/hmac: use of keys shorter than 112 bits is not allowed in FIPS 140-only mode")
- 		}
--		if !fips140only.ApprovedHash(h()) {
-+		if !fips140only.ApprovedHash(fh()) {
+@@ -53,6 +46,13 @@ func New(h func() hash.Hash, key []byte) hash.Hash {
  			panic("crypto/hmac: use of hash functions other than SHA-2 or SHA-3 is not allowed in FIPS 140-only mode")
  		}
  	}
--	return hmac.New(h, key)
 +	if boring.Enabled {
 +		hm := boring.NewHMAC(h, key)
 +		if hm != nil {
@@ -1610,10 +1607,9 @@ index e7976e25193dfe..5dd85b693c4083 100644
 +		}
 +		// BoringCrypto did not recognize h, so fall through to standard Go code.
 +	}
-+	return hmac.New(fh, key)
+ 	return hmac.New(h, key)
  }
  
- // Equal compares two MACs for equality without leaking timing information.
 diff --git a/src/crypto/hmac/hmac_test.go b/src/crypto/hmac/hmac_test.go
 index 4046a9555a8e35..4721a2a7ac04f7 100644
 --- a/src/crypto/hmac/hmac_test.go
@@ -1764,18 +1760,27 @@ index 6d67ee8b3429a1..8f8d5937ea913c 100644
  // Unwrap returns h, or a crypto/internal/fips140 inner implementation of h.
  //
 diff --git a/src/crypto/internal/fips140only/fips140only.go b/src/crypto/internal/fips140only/fips140only.go
-index 1b0a4be6ba5897..3225763ebb1da8 100644
+index 1b0a4be6ba5897..72fea1cfa7eed8 100644
 --- a/src/crypto/internal/fips140only/fips140only.go
 +++ b/src/crypto/internal/fips140only/fips140only.go
-@@ -24,9 +24,11 @@ func ApprovedHash(h hash.Hash) bool {
+@@ -20,13 +20,20 @@ func Enforced() bool {
+ 	return fips140.Enforced()
+ }
+ 
++// BackendApprovedHash is set by a crypto backend during init to provide
++// backend-specific FIPS hash approval checking. If nil, only the standard
++// library FIPS hash types are recognized as approved.
++var BackendApprovedHash func(h hash.Hash) bool
++
+ func ApprovedHash(h hash.Hash) bool {
  	switch h.(type) {
  	case *sha256.Digest, *sha512.Digest, *sha3.Digest:
  		return true
 -	default:
 -		return false
  	}
-+	if fa, ok := h.(interface{ FIPSApproved() bool }); ok {
-+		return fa.FIPSApproved()
++	if BackendApprovedHash != nil {
++		return BackendApprovedHash(h)
 +	}
 +	return false
  }

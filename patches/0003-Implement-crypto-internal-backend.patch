@@ -29,9 +29,9 @@ desired goexperiments and build tags.
  src/crypto/internal/backend/bbig/big_cng.go   |  12 +
  .../internal/backend/bbig/big_darwin.go       |  12 +
  .../internal/backend/bbig/big_openssl.go      |  12 +
- src/crypto/internal/backend/cng_windows.go    | 425 +++++++++++++++++
+ src/crypto/internal/backend/cng_windows.go    | 431 +++++++++++++++++
  src/crypto/internal/backend/common.go         |  46 ++
- src/crypto/internal/backend/darwin_darwin.go  | 432 ++++++++++++++++++
+ src/crypto/internal/backend/darwin_darwin.go  | 438 ++++++++++++++++++
  src/crypto/internal/backend/fips140/cng.go    |  35 ++
  src/crypto/internal/backend/fips140/darwin.go |  13 +
  .../internal/backend/fips140/fips140.go       |  70 +++
@@ -45,14 +45,14 @@ desired goexperiments and build tags.
  .../internal/opensslsetup/opensslsetup.go     |  68 +++
  .../opensslsetup/opensslsetup_test.go         |  92 ++++
  .../backend/internal/opensslsetup/stub.go     |   8 +
- src/crypto/internal/backend/nobackend.go      | 375 +++++++++++++++
- src/crypto/internal/backend/openssl_linux.go  | 424 +++++++++++++++++
+ src/crypto/internal/backend/nobackend.go      | 376 +++++++++++++++
+ src/crypto/internal/backend/openssl_linux.go  | 430 +++++++++++++++++
  src/crypto/internal/backend/stub.s            |  10 +
  src/crypto/systemcrypto_nocgo_linux.go        |  18 +
  src/go/build/deps_test.go                     |  24 +-
  src/internal/buildcfg/exp.go                  |  47 ++
  src/runtime/runtime_boring.go                 |   5 +
- 43 files changed, 2716 insertions(+), 14 deletions(-)
+ 43 files changed, 2735 insertions(+), 14 deletions(-)
  create mode 100644 src/cmd/go/systemcrypto_test.go
  create mode 100644 src/crypto/internal/backend/backend_test.go
  create mode 100644 src/crypto/internal/backend/bbig/big.go
@@ -875,10 +875,10 @@ index 00000000000000..51396c3db1a871
 +var Dec = bbig.Dec
 diff --git a/src/crypto/internal/backend/cng_windows.go b/src/crypto/internal/backend/cng_windows.go
 new file mode 100644
-index 00000000000000..919f3482dcb3d6
+index 00000000000000..ba69d9f74c9fef
 --- /dev/null
 +++ b/src/crypto/internal/backend/cng_windows.go
-@@ -0,0 +1,425 @@
+@@ -0,0 +1,431 @@
 +// Copyright 2017 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -895,6 +895,7 @@ index 00000000000000..919f3482dcb3d6
 +	"crypto/cipher"
 +	"crypto/internal/backend/fips140"
 +	"crypto/internal/boring/sig"
++	"crypto/internal/fips140only"
 +	"hash"
 +	_ "unsafe"
 +
@@ -907,6 +908,7 @@ index 00000000000000..919f3482dcb3d6
 +		panic("cngcrypto: " + err.Error())
 +	}
 +	sig.BoringCrypto()
++	fips140only.BackendApprovedHash = FIPSApprovedHash
 +}
 +
 +// Enabled controls whether FIPS crypto is enabled.
@@ -918,6 +920,10 @@ index 00000000000000..919f3482dcb3d6
 +
 +func SupportsHash(h crypto.Hash) bool {
 +	return cng.SupportsHash(h)
++}
++
++func FIPSApprovedHash(h hash.Hash) bool {
++	return cng.FIPSApprovedHash(h)
 +}
 +
 +func SupportsSHAKE(securityBits int) bool {
@@ -1358,10 +1364,10 @@ index 00000000000000..a9682181ffa154
 +}
 diff --git a/src/crypto/internal/backend/darwin_darwin.go b/src/crypto/internal/backend/darwin_darwin.go
 new file mode 100644
-index 00000000000000..a491519e864dc5
+index 00000000000000..805e95c926a1a1
 --- /dev/null
 +++ b/src/crypto/internal/backend/darwin_darwin.go
-@@ -0,0 +1,432 @@
+@@ -0,0 +1,438 @@
 +// Copyright 2017 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -1378,6 +1384,7 @@ index 00000000000000..a491519e864dc5
 +	"crypto/cipher"
 +	"crypto/internal/backend/fips140"
 +	"crypto/internal/boring/sig"
++	"crypto/internal/fips140only"
 +	"hash"
 +	"io"
 +	_ "unsafe"
@@ -1391,6 +1398,7 @@ index 00000000000000..a491519e864dc5
 +		panic("darwincrypto: " + err.Error())
 +	}
 +	sig.BoringCrypto()
++	fips140only.BackendApprovedHash = FIPSApprovedHash
 +}
 +
 +// Enabled controls whether FIPS crypto is enabled.
@@ -1402,6 +1410,10 @@ index 00000000000000..a491519e864dc5
 +
 +func SupportsHash(h crypto.Hash) bool {
 +	return xcrypto.SupportsHash(h)
++}
++
++func FIPSApprovedHash(h hash.Hash) bool {
++	return xcrypto.FIPSApprovedHash(h)
 +}
 +
 +func SupportsSHAKE(securityBits int) bool  { return false }
@@ -2285,10 +2297,10 @@ index 00000000000000..19fd29e19e7b96
 +package opensslsetup
 diff --git a/src/crypto/internal/backend/nobackend.go b/src/crypto/internal/backend/nobackend.go
 new file mode 100644
-index 00000000000000..5e16f39dc107c7
+index 00000000000000..cdc768b1e4b57d
 --- /dev/null
 +++ b/src/crypto/internal/backend/nobackend.go
-@@ -0,0 +1,375 @@
+@@ -0,0 +1,376 @@
 +// Copyright 2017 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -2321,7 +2333,8 @@ index 00000000000000..5e16f39dc107c7
 +
 +const RandReader = randReader(0)
 +
-+func SupportsHash(h crypto.Hash) bool { panic("cryptobackend: not available") }
++func SupportsHash(h crypto.Hash) bool   { panic("cryptobackend: not available") }
++func FIPSApprovedHash(h hash.Hash) bool { panic("cryptobackend: not available") }
 +
 +func SupportsSHAKE(securityBits int) bool  { panic("cryptobackend: not available") }
 +func SupportsCSHAKE(securityBits int) bool { panic("cryptobackend: not available") }
@@ -2666,10 +2679,10 @@ index 00000000000000..5e16f39dc107c7
 +}
 diff --git a/src/crypto/internal/backend/openssl_linux.go b/src/crypto/internal/backend/openssl_linux.go
 new file mode 100644
-index 00000000000000..6121670c0e3659
+index 00000000000000..ccac6ce8ad0b35
 --- /dev/null
 +++ b/src/crypto/internal/backend/openssl_linux.go
-@@ -0,0 +1,424 @@
+@@ -0,0 +1,430 @@
 +// Copyright 2017 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -2687,6 +2700,7 @@ index 00000000000000..6121670c0e3659
 +	"crypto/internal/backend/fips140"
 +	_ "crypto/internal/backend/internal/opensslsetup"
 +	"crypto/internal/boring/sig"
++	"crypto/internal/fips140only"
 +	"hash"
 +
 +	"github.com/golang-fips/openssl/v2"
@@ -2711,12 +2725,17 @@ index 00000000000000..6121670c0e3659
 +		panic("opensslcrypto: " + err.Error() + ": " + openssl.VersionText())
 +	}
 +	sig.BoringCrypto()
++	fips140only.BackendApprovedHash = FIPSApprovedHash
 +}
 +
 +const RandReader = openssl.RandReader
 +
 +func SupportsHash(h crypto.Hash) bool {
 +	return openssl.SupportsHash(h)
++}
++
++func FIPSApprovedHash(h hash.Hash) bool {
++	return openssl.FIPSApprovedHash(h)
 +}
 +
 +func SupportsSHAKE(securityBits int) bool {
