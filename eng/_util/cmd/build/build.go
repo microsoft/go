@@ -143,33 +143,9 @@ func build(o *options) (err error) {
 		return err
 	}
 
-	// Next, make sure VERSION and MICROSOFT_REVISION files are in the Go root. We need them for
-	// different reasons.
-	//
-	// A VERSION file is necessary to make distpack run. The build runs fine without this file,
-	// but for consistency with MICROSOFT_REVISION, we include VERSION during the build as well.
-	var version string
-	if data, err := os.ReadFile(filepath.Join(goRootDir, "VERSION")); err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			// If the Go root doesn't have a VERSION file, we're either in main or a prerelease
-			// branch. distpack needs a VERSION file to run, so create a temp dev version and put it
-			// in VERSION.
-			if version, err = writeDevelVersionFile(goRootDir, executableExtension); err != nil {
-				return fmt.Errorf("unable to write development VERSION file: %v", err)
-			}
-			// Best effort: clean up the VERSION file when we're done with the build. Clean up for
-			// tidier dev workflows: the temp VERSION file should never be checked in.
-			defer os.Remove(filepath.Join(goRootDir, "VERSION"))
-		} else {
-			return fmt.Errorf("unable to read VERSION file for unexpected reason: %v", err)
-		}
-	} else {
-		version, _, _ = strings.Cut(string(data), "\n")
-	}
-
-	// A MICROSOFT_REVISION file only exists in a release branch. We need to copy it in before
-	// running the build (not only copy it into the tar.gz output) because it's used during the
-	// build to generate the "src/internal/buildcfg/zbootstrap.go" file.
+	// Make sure the MICROSOFT_REVISION file from the outer repository is in the Go root. We need to
+	// copy it in before running the build (not just before running distpack) because it's used
+	// during the build to generate the "src/internal/buildcfg/zbootstrap.go" file.
 	microsoftRevisionDst := filepath.Join(goRootDir, "MICROSOFT_REVISION")
 	if err := copyFile(microsoftRevisionDst, filepath.Join(rootDir, "MICROSOFT_REVISION")); err != nil {
 		if !errors.Is(err, os.ErrNotExist) {
@@ -301,6 +277,27 @@ func build(o *options) (err error) {
 	}
 
 	if o.PackBuild || o.PackSource {
+		// We need to figure out the version string so we can identify the distpack output files and
+		// copy them to our artifacts dir with the right names.
+		var version string
+		if data, err := os.ReadFile(filepath.Join(goRootDir, "VERSION")); err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				// The distpack tool needs a VERSION file to exist or it'll fail. If we're on the
+				// main branch, there won't be a VERSION file, so use dist's version calculation to
+				// create a temp dev version and put it in VERSION.
+				if version, err = writeDevelVersionFile(goRootDir, executableExtension); err != nil {
+					return fmt.Errorf("unable to write development VERSION file: %v", err)
+				}
+				// Best effort: clean up the VERSION file when we're done with the build. Clean up
+				// for tidier dev workflows: the temp VERSION file should never be checked in.
+				defer os.Remove(filepath.Join(goRootDir, "VERSION"))
+			} else {
+				return fmt.Errorf("unable to read VERSION file for unexpected reason: %v", err)
+			}
+		} else {
+			version, _, _ = strings.Cut(string(data), "\n")
+		}
+
 		cmd := exec.Command(filepath.Join(goRootDir, "bin", "go"+executableExtension), "tool", "distpack")
 		cmd.Env = append(os.Environ(), "GOROOT="+goRootDir)
 		cmd.Stdout = os.Stdout
