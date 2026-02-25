@@ -110,6 +110,7 @@ func build(o *options) (err error) {
 	if err != nil {
 		return err
 	}
+	goRootDir := filepath.Join(rootDir, "go")
 
 	if o.Refresh {
 		config, err := patch.FindAncestorConfig(rootDir)
@@ -140,6 +141,21 @@ func build(o *options) (err error) {
 
 	if err := buildutil.UnassignGOROOT(); err != nil {
 		return err
+	}
+
+	// Make sure the MICROSOFT_REVISION file from the outer repository is in the Go root. We need to
+	// copy it in before running the build (not just before running distpack) because it's used
+	// during the build to generate the "src/internal/buildcfg/zbootstrap.go" file.
+	microsoftRevisionDst := filepath.Join(goRootDir, "MICROSOFT_REVISION")
+	if err := copyFile(microsoftRevisionDst, filepath.Join(rootDir, "MICROSOFT_REVISION")); err != nil {
+		if !errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("unable to read MICROSOFT_REVISION file for unexpected reason: %v", err)
+		}
+		// Ok: a main branch or pre-stable release branch has no MICROSOFT_REVISION file.
+	} else {
+		// Best effort: clean up the MICROSOFT_REVISION file when we're done. Clean up for
+		// tidier dev workflows: the temp MICROSOFT_REVISION file should never be checked in.
+		defer os.Remove(microsoftRevisionDst)
 	}
 
 	// The upstream build scripts in {repo-root}/src require your working directory to be src, or
@@ -213,7 +229,6 @@ func build(o *options) (err error) {
 		}
 	}
 
-	goRootDir := filepath.Join(rootDir, "go")
 	if o.CreatePDB {
 		if _, err := exec.LookPath("gopdb"); err != nil {
 			return fmt.Errorf("gopdb not found in PATH: %v", err)
@@ -262,35 +277,25 @@ func build(o *options) (err error) {
 	}
 
 	if o.PackBuild || o.PackSource {
-		// distpack needs a VERSION file to run. If we're on the main branch, we don't have one, so
-		// use dist's version calculation to create a temp dev version and put it in VERSION.
+		// We need to figure out the version string so we can identify the distpack output files and
+		// copy them to our artifacts dir with the right names.
 		var version string
 		if data, err := os.ReadFile(filepath.Join(goRootDir, "VERSION")); err != nil {
 			if errors.Is(err, os.ErrNotExist) {
+				// The distpack tool needs a VERSION file to exist or it'll fail. If we're on the
+				// main branch, there won't be a VERSION file, so use dist's version calculation to
+				// create a temp dev version and put it in VERSION.
 				if version, err = writeDevelVersionFile(goRootDir, executableExtension); err != nil {
-					return fmt.Errorf("unable to pack: failed writing development VERSION file: %v", err)
+					return fmt.Errorf("unable to write development VERSION file: %v", err)
 				}
-				// Best effort: clean up the VERSION file when we're done. Clean up for tidier dev
-				// workflows: the temp VERSION file should never be checked in.
+				// Best effort: clean up the VERSION file when we're done with the build. Clean up
+				// for tidier dev workflows: the temp VERSION file should never be checked in.
 				defer os.Remove(filepath.Join(goRootDir, "VERSION"))
 			} else {
-				return fmt.Errorf("unable to pack: VERSION file in unexpected state: %v", err)
+				return fmt.Errorf("unable to read VERSION file for unexpected reason: %v", err)
 			}
 		} else {
 			version, _, _ = strings.Cut(string(data), "\n")
-		}
-		// We also need to copy our MICROSOFT_REVISION file in so the toolset can report that it's a
-		// Microsoft build of a specific revision and embed that info into built binaries.
-		microsoftRevisionDst := filepath.Join(goRootDir, "MICROSOFT_REVISION")
-		if err := copyFile(microsoftRevisionDst, filepath.Join(rootDir, "MICROSOFT_REVISION")); err != nil {
-			if !errors.Is(err, os.ErrNotExist) {
-				return fmt.Errorf("unable to pack: failed to read MICROSOFT_REVISION file for unexpected reason: %v", err)
-			}
-			// Ok: a main branch or pre-stable release branch has no MICROSOFT_REVISION file.
-		} else {
-			// Best effort: clean up the MICROSOFT_REVISION file when we're done. Clean up for
-			// tidier dev workflows: the temp MICROSOFT_REVISION file should never be checked in.
-			defer os.Remove(microsoftRevisionDst)
 		}
 
 		cmd := exec.Command(filepath.Join(goRootDir, "bin", "go"+executableExtension), "tool", "distpack")
@@ -342,6 +347,7 @@ func build(o *options) (err error) {
 }
 
 func writeDevelVersionFile(goRootDir, executableExtension string) (string, error) {
+	// Use "go tool dist version" to directly get the version the toolset would call itself.
 	cmd := exec.Command(filepath.Join(goRootDir, "bin", "go"+executableExtension), "tool", "dist", "version")
 	cmd.Env = append(os.Environ(), "GOROOT="+goRootDir)
 	vBytes, err := cmd.CombinedOutput()
