@@ -74,6 +74,8 @@ When a pull request modifies any patch file, review it to ensure:
 2. **Suggest, don't demand**: Frame feedback as suggestions for maintaining consistency
 3. **Skip trivial changes**: Don't flag minor differences like comment styles or variable naming
 4. **Only comment if there are actual consistency issues**: If the PR maintains consistency or only touches one patch's content, acknowledge it positively in a summary comment
+5. **Prefer filename suffix constraints over build tags**: When a Go file targets a specific OS or architecture, use the filename suffix convention (e.g. `_linux.go`, `_windows.go`, `_darwin.go`) rather than duplicating that constraint in a `//go:build` tag. If the filename suffix already implies the OS/arch, the build tag should not repeat it. For example, `foo_linux.go` with `//go:build goexperiment.systemcrypto` is preferred over `foo.go` with `//go:build goexperiment.systemcrypto && linux`.
+6. **Avoid extraneous blank lines in patches**: Patches should not introduce unnecessary blank lines between functions, at the end of files, or between import groups. Keep whitespace consistent with the surrounding code style.
 
 ## Output Format
 
