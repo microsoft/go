@@ -81,6 +81,7 @@ The following table summarizes common configurations and how suitable each one i
 | Default | Default | Compliant | Can be used to create a compliant app. FIPS mode is determined by system-wide configuration. Make sure you are familiar with your platform's system-wide FIPS switch, described in [Usage: Runtime](#usage-runtime). |
 | `GOEXPERIMENT=systemcrypto` | Default | Compliant | Can be used to create a compliant app. The `GOEXPERIMENT` setting is redundant because `systemcrypto` is enabled by default. |
 | Default | `GODEBUG=fips140=on` or `GOFIPS=1` | Compliant | Can be used to create a compliant app. Depending on platform, the app enables FIPS mode, ensures it is already enabled, or doesn't do any additional checks. The app panics if there is a problem. See [Usage: Runtime](#usage-runtime). |
+| Default | `GODEBUG=fips140=only`, Go 1.27+ | Compliant | Same as `fips140=on`, but also panics if a non-FIPS-approved algorithm is used. Note: if the backend does not support a particular algorithm, the call panics rather than falling back to Go standard library crypto. See [Cross-Platform Cryptography](../CrossPlatformCryptography.md) to check algorithm support per platform, and [Usage: Runtime](#usage-runtime). |
 | Default | `GO_OPENSSL_VERSION_OVERRIDE=1.1.1k-fips` | Compliant | Can be used to create a compliant app. On Linux, this environment variable causes the runtime to load `libcrypto.so.1.1.1k-fips` instead of using the automatic search behavior. This environment variable has no effect on Windows or macOS. |
 | `-tags=requirefips` | Default | Compliant | Can be used to create a compliant app. The behavior is the same as `GODEBUG=fips140=on` and `GOFIPS=1`, but no runtime configuration is necessary. See [the `requirefips` section](#build-option-to-require-fips-mode) for more information on when this "locked-in" approach may be useful rather than the flexible approach. |
 | `MS_GO_NOSYSTEMCRYPTO=1` or `GOEXPERIMENT=nosystemcrypto` | Default | Not compliant | Crypto usage is not FIPS compliant. |
@@ -163,10 +164,14 @@ If FIPS mode preference is Enabled ✅, then:
 The Go runtime FIPS mode may be important to distinguish its FIPS mode from the system FIPS mode or crypto engine's FIPS mode.
 The [Go Runtime FIPS mode](#go-runtime-fips-mode) section describes this in more detail.
 
-There is also `GODEBUG=fips140=only`.
+Since Go 1.27, there is also `GODEBUG=fips140=only`.
 It acts as `GODEBUG=fips140=on`, but also makes a best effort to panic if a non-FIPS 140-3 compliant algorithm is used.
-The `only` setting is not yet supported in the Microsoft build of Go.
-(See [microsoft/go#1656 Support `GODEBUG=fips140=only`](https://github.com/microsoft/go/issues/1656).)
+
+> [!NOTE]
+> When `fips140=only` is set with a system crypto backend, the enforcement depends on the backend's algorithm support.
+> If the backend does not support a particular FIPS-approved algorithm (e.g. SHA-512/224 on macOS, or CTR mode on macOS), a call to that algorithm will panic rather than falling back to the Go standard library implementation.
+> This means that `fips140=only` may restrict the set of usable algorithms compared to `fips140=on`, depending on the platform.
+> See [Cross-Platform Cryptography](../CrossPlatformCryptography.md) to check which algorithms are supported on each platform.
 
 > [!NOTE]
 > The `GODEBUG`, `GOFIPS`, and `GOLANG_FIPS` options described in this section have no effect at build time, only runtime. When the Go program starts up, it examines its environment variables and other platform-specific configurations. This is normally the desired behavior. See [`requirefips`](#build-option-to-require-fips-mode) for info about an optional build tag that may affect FIPS mode.
@@ -418,6 +423,7 @@ This list of major changes is intended for quick reference and for access to his
 
 ### Go 1.27 (Aug 2026)
 
+- Support for `GODEBUG=fips140=only` has been added. It acts as `fips140=on`, but also panics if a non-FIPS-approved algorithm is used.
 - The per-platform GOEXPERIMENTs (`opensslcrypto`, `cngcrypto`, `darwincrypto`) have been removed.
   - The `systemcrypto` GOEXPERIMENT is now enabled by default on all platforms where it's supported (Windows, Linux and macOS). To disable it, set `GOEXPERIMENT=nosystemcrypto`.
   - Using any of the removed experiments will result in a build error.
