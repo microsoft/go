@@ -67,13 +67,13 @@ Subject: [PATCH] Use crypto backends
  src/crypto/rc4/rc4.go                         |  18 ++
  src/crypto/rsa/boring.go                      |  13 +-
  src/crypto/rsa/boring_test.go                 |   2 +-
- src/crypto/rsa/darwin_darwin.go                |  71 +++++++
  src/crypto/rsa/fips.go                        |  84 ++++----
  src/crypto/rsa/notboring.go                   |   4 +-
  src/crypto/rsa/pkcs1v15.go                    |  10 +-
  src/crypto/rsa/pkcs1v15_test.go               |   5 +
  src/crypto/rsa/pss_test.go                    |  14 +-
  src/crypto/rsa/rsa.go                         |  29 +--
+ src/crypto/rsa/rsa_darwin.go                  |  71 +++++++
  src/crypto/rsa/rsa_test.go                    |   7 +-
  src/crypto/sha1/sha1.go                       |  11 +-
  src/crypto/sha1/sha1_test.go                  |  11 +-
@@ -109,7 +109,7 @@ Subject: [PATCH] Use crypto backends
  create mode 100644 src/crypto/ecdsa/badlinkname.go
  create mode 100644 src/crypto/ed25519/boring.go
  create mode 100644 src/crypto/ed25519/notboring.go
- create mode 100644 src/crypto/rsa/darwin_darwin.go
+ create mode 100644 src/crypto/rsa/rsa_darwin.go
  create mode 100644 src/crypto/tls/internal/tls13/doc.go
  create mode 100644 src/crypto/tls/internal/tls13/tls13.go
  create mode 100644 src/hash/boring_test.go
@@ -2564,83 +2564,6 @@ index 838fcc1244bdbe..d89f732345e8a3 100644
  
  // Note: Can run these tests against the non-BoringCrypto
  // version of the code by using "CGO_ENABLED=0 go test".
-diff --git a/src/crypto/rsa/darwin_darwin.go b/src/crypto/rsa/darwin_darwin.go
-new file mode 100644
-index 00000000000000..bff8ac449c9a3b
---- /dev/null
-+++ b/src/crypto/rsa/darwin_darwin.go
-@@ -0,0 +1,71 @@
-+// Copyright 2017 The Go Authors. All rights reserved.
-+// Use of this source code is governed by a BSD-style
-+// license that can be found in the LICENSE file.
-+
-+//go:build goexperiment.systemcrypto
-+
-+package rsa
-+
-+import (
-+	"crypto/internal/backend"
-+	"crypto/internal/backend/bbig"
-+	"errors"
-+	"math/big"
-+	_ "unsafe"
-+
-+	"golang.org/x/crypto/cryptobyte"
-+	"golang.org/x/crypto/cryptobyte/asn1"
-+)
-+
-+//go:linkname decodeKey
-+func decodeKey(data []byte) (N, E, D, P, Q, Dp, Dq, Qinv backend.BigInt, err error) {
-+	bad := func(e error) (N, E, D, P, Q, Dp, Dq, Qinv backend.BigInt, err error) {
-+		return nil, nil, nil, nil, nil, nil, nil, nil, e
-+	}
-+	input := cryptobyte.String(data)
-+	var version int
-+	n, e, d, p, q, dp, dq, qinv := new(big.Int), new(big.Int), new(big.Int), new(big.Int),
-+		new(big.Int), new(big.Int), new(big.Int), new(big.Int)
-+	// Parse the ASN.1 sequence
-+	if !input.ReadASN1(&input, asn1.SEQUENCE) {
-+		return bad(errors.New("invalid ASN.1 structure: not a sequence"))
-+	}
-+	if !input.ReadASN1Integer(&version) || version != 0 {
-+		return bad(errors.New("invalid ASN.1 structure: unsupported version"))
-+	}
-+	if !input.ReadASN1Integer(n) || !input.ReadASN1Integer(e) ||
-+		!input.ReadASN1Integer(d) || !input.ReadASN1Integer(p) ||
-+		!input.ReadASN1Integer(q) || !input.ReadASN1Integer(dp) ||
-+		!input.ReadASN1Integer(dq) || !input.ReadASN1Integer(qinv) {
-+		return bad(errors.New("invalid ASN.1 structure"))
-+	}
-+	return bbig.Enc(n), bbig.Enc(e), bbig.Enc(d), bbig.Enc(p), bbig.Enc(q),
-+		bbig.Enc(dp), bbig.Enc(dq), bbig.Enc(qinv), nil
-+}
-+
-+//go:linkname encodeKey
-+func encodeKey(N, E, D, P, Q, Dp, Dq, Qinv backend.BigInt) ([]byte, error) {
-+	builder := cryptobyte.NewBuilder(nil)
-+	builder.AddASN1(asn1.SEQUENCE, func(b *cryptobyte.Builder) {
-+		b.AddASN1Int64(0)               // Add version as int64
-+		b.AddASN1BigInt(bbig.Dec(N))    // Add modulus
-+		b.AddASN1BigInt(bbig.Dec(E))    // Add public exponent
-+		b.AddASN1BigInt(bbig.Dec(D))    // Add private exponent
-+		b.AddASN1BigInt(bbig.Dec(P))    // Add prime1
-+		b.AddASN1BigInt(bbig.Dec(Q))    // Add prime2
-+		b.AddASN1BigInt(bbig.Dec(Dp))   // Add exponent1
-+		b.AddASN1BigInt(bbig.Dec(Dq))   // Add exponent2
-+		b.AddASN1BigInt(bbig.Dec(Qinv)) // Add coefficient
-+	})
-+	return builder.Bytes()
-+}
-+
-+//go:linkname encodePublicKey
-+func encodePublicKey(N, E backend.BigInt) ([]byte, error) {
-+	builder := cryptobyte.NewBuilder(nil)
-+	builder.AddASN1(asn1.SEQUENCE, func(b *cryptobyte.Builder) {
-+		b.AddASN1BigInt(bbig.Dec(N)) // Add modulus
-+		b.AddASN1BigInt(bbig.Dec(E)) // Add public exponent
-+	})
-+	return builder.Bytes()
-+}
 diff --git a/src/crypto/rsa/fips.go b/src/crypto/rsa/fips.go
 index fb2395886b053b..18334e731f9349 100644
 --- a/src/crypto/rsa/fips.go
@@ -3020,6 +2943,83 @@ index b94b129867727b..149dd4321f8d72 100644
  	if fips140only.Enforced() && !fips140only.ApprovedRandomReader(random) {
  		return nil, errors.New("crypto/rsa: only crypto/rand.Reader is allowed in FIPS 140-only mode")
  	}
+diff --git a/src/crypto/rsa/rsa_darwin.go b/src/crypto/rsa/rsa_darwin.go
+new file mode 100644
+index 00000000000000..b549c6e3b17484
+--- /dev/null
++++ b/src/crypto/rsa/rsa_darwin.go
+@@ -0,0 +1,71 @@
++// Copyright 2017 The Go Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style
++// license that can be found in the LICENSE file.
++
++//go:build goexperiment.systemcrypto
++
++package rsa
++
++import (
++	"crypto/internal/backend"
++	"crypto/internal/backend/bbig"
++	"errors"
++	"math/big"
++	_ "unsafe"
++
++	"golang.org/x/crypto/cryptobyte"
++	"golang.org/x/crypto/cryptobyte/asn1"
++)
++
++//go:linkname decodeKey
++func decodeKey(data []byte) (N, E, D, P, Q, Dp, Dq, Qinv backend.BigInt, err error) {
++	bad := func(e error) (N, E, D, P, Q, Dp, Dq, Qinv backend.BigInt, err error) {
++		return nil, nil, nil, nil, nil, nil, nil, nil, e
++	}
++	input := cryptobyte.String(data)
++	var version int
++	n, e, d, p, q, dp, dq, qinv := new(big.Int), new(big.Int), new(big.Int), new(big.Int),
++		new(big.Int), new(big.Int), new(big.Int), new(big.Int)
++	// Parse the ASN.1 sequence
++	if !input.ReadASN1(&input, asn1.SEQUENCE) {
++		return bad(errors.New("invalid ASN.1 structure: not a sequence"))
++	}
++	if !input.ReadASN1Integer(&version) || version != 0 {
++		return bad(errors.New("invalid ASN.1 structure: unsupported version"))
++	}
++	if !input.ReadASN1Integer(n) || !input.ReadASN1Integer(e) ||
++		!input.ReadASN1Integer(d) || !input.ReadASN1Integer(p) ||
++		!input.ReadASN1Integer(q) || !input.ReadASN1Integer(dp) ||
++		!input.ReadASN1Integer(dq) || !input.ReadASN1Integer(qinv) {
++		return bad(errors.New("invalid ASN.1 structure"))
++	}
++	return bbig.Enc(n), bbig.Enc(e), bbig.Enc(d), bbig.Enc(p), bbig.Enc(q),
++		bbig.Enc(dp), bbig.Enc(dq), bbig.Enc(qinv), nil
++}
++
++//go:linkname encodeKey
++func encodeKey(N, E, D, P, Q, Dp, Dq, Qinv backend.BigInt) ([]byte, error) {
++	builder := cryptobyte.NewBuilder(nil)
++	builder.AddASN1(asn1.SEQUENCE, func(b *cryptobyte.Builder) {
++		b.AddASN1Int64(0)               // Add version as int64
++		b.AddASN1BigInt(bbig.Dec(N))    // Add modulus
++		b.AddASN1BigInt(bbig.Dec(E))    // Add public exponent
++		b.AddASN1BigInt(bbig.Dec(D))    // Add private exponent
++		b.AddASN1BigInt(bbig.Dec(P))    // Add prime1
++		b.AddASN1BigInt(bbig.Dec(Q))    // Add prime2
++		b.AddASN1BigInt(bbig.Dec(Dp))   // Add exponent1
++		b.AddASN1BigInt(bbig.Dec(Dq))   // Add exponent2
++		b.AddASN1BigInt(bbig.Dec(Qinv)) // Add coefficient
++	})
++	return builder.Bytes()
++}
++
++//go:linkname encodePublicKey
++func encodePublicKey(N, E backend.BigInt) ([]byte, error) {
++	builder := cryptobyte.NewBuilder(nil)
++	builder.AddASN1(asn1.SEQUENCE, func(b *cryptobyte.Builder) {
++		b.AddASN1BigInt(bbig.Dec(N)) // Add modulus
++		b.AddASN1BigInt(bbig.Dec(E)) // Add public exponent
++	})
++	return builder.Bytes()
++}
 diff --git a/src/crypto/rsa/rsa_test.go b/src/crypto/rsa/rsa_test.go
 index 124fba1e8a4faa..af6d8e9291af62 100644
 --- a/src/crypto/rsa/rsa_test.go

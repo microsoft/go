@@ -24,29 +24,29 @@ desired goexperiments and build tags.
  src/cmd/internal/testdir/testdir_test.go      |   7 +
  src/cmd/link/internal/ld/main.go              |   2 +-
  src/cmd/link/link_test.go                     |   8 +
+ src/crypto/internal/backend/backend_darwin.go | 438 ++++++++++++++++++
+ src/crypto/internal/backend/backend_linux.go  | 430 +++++++++++++++++
  src/crypto/internal/backend/backend_test.go   |  56 +++
+ .../internal/backend/backend_windows.go       | 438 ++++++++++++++++++
  src/crypto/internal/backend/bbig/big.go       |  17 +
- .../internal/backend/bbig/big_windows.go      |  12 +
  .../internal/backend/bbig/big_darwin.go       |  12 +
- .../internal/backend/bbig/big_linux.go         |  12 +
- src/crypto/internal/backend/cng_windows.go    | 438 ++++++++++++++++++
+ src/crypto/internal/backend/bbig/big_linux.go |  12 +
+ .../internal/backend/bbig/big_windows.go      |  12 +
  src/crypto/internal/backend/common.go         |  46 ++
- src/crypto/internal/backend/darwin_darwin.go  | 438 ++++++++++++++++++
- .../internal/backend/fips140/cng_windows.go   |  35 ++
- .../internal/backend/fips140/darwin_darwin.go  |  13 +
  .../internal/backend/fips140/fips140.go       |  70 +++
  .../internal/backend/fips140/isrequirefips.go |   9 +
  .../internal/backend/fips140/norequirefips.go |   9 +
  .../backend/fips140/nosystemcrypto.go         |  13 +
- .../internal/backend/fips140/openssl_linux.go  |  59 +++
  .../fips140/requirefips_nosystemcrypto.go     |  15 +
  .../backend/fips140/skipfipscheck_off.go      |   9 +
  .../backend/fips140/skipfipscheck_on.go       |   9 +
+ .../backend/fips140/systemfips_darwin.go      |  13 +
+ .../backend/fips140/systemfips_linux.go       |  59 +++
+ .../backend/fips140/systemfips_windows.go     |  35 ++
  .../opensslsetup/opensslsetup_linux.go        |  68 +++
- .../opensslsetup/opensslsetup_linux_test.go    |  92 ++++
+ .../opensslsetup/opensslsetup_linux_test.go   |  92 ++++
  .../backend/internal/opensslsetup/stub.go     |   8 +
  src/crypto/internal/backend/nobackend.go      | 376 +++++++++++++++
- src/crypto/internal/backend/openssl_linux.go  | 430 +++++++++++++++++
  src/crypto/internal/backend/stub.s            |  10 +
  src/crypto/systemcrypto_nocgo_linux.go        |  18 +
  src/go/build/deps_test.go                     |  24 +-
@@ -54,29 +54,29 @@ desired goexperiments and build tags.
  src/runtime/runtime_boring.go                 |   5 +
  43 files changed, 2742 insertions(+), 14 deletions(-)
  create mode 100644 src/cmd/go/systemcrypto_test.go
+ create mode 100644 src/crypto/internal/backend/backend_darwin.go
+ create mode 100644 src/crypto/internal/backend/backend_linux.go
  create mode 100644 src/crypto/internal/backend/backend_test.go
+ create mode 100644 src/crypto/internal/backend/backend_windows.go
  create mode 100644 src/crypto/internal/backend/bbig/big.go
- create mode 100644 src/crypto/internal/backend/bbig/big_windows.go
  create mode 100644 src/crypto/internal/backend/bbig/big_darwin.go
  create mode 100644 src/crypto/internal/backend/bbig/big_linux.go
- create mode 100644 src/crypto/internal/backend/cng_windows.go
+ create mode 100644 src/crypto/internal/backend/bbig/big_windows.go
  create mode 100644 src/crypto/internal/backend/common.go
- create mode 100644 src/crypto/internal/backend/darwin_darwin.go
- create mode 100644 src/crypto/internal/backend/fips140/cng_windows.go
- create mode 100644 src/crypto/internal/backend/fips140/darwin_darwin.go
  create mode 100644 src/crypto/internal/backend/fips140/fips140.go
  create mode 100644 src/crypto/internal/backend/fips140/isrequirefips.go
  create mode 100644 src/crypto/internal/backend/fips140/norequirefips.go
  create mode 100644 src/crypto/internal/backend/fips140/nosystemcrypto.go
- create mode 100644 src/crypto/internal/backend/fips140/openssl_linux.go
  create mode 100644 src/crypto/internal/backend/fips140/requirefips_nosystemcrypto.go
  create mode 100644 src/crypto/internal/backend/fips140/skipfipscheck_off.go
  create mode 100644 src/crypto/internal/backend/fips140/skipfipscheck_on.go
+ create mode 100644 src/crypto/internal/backend/fips140/systemfips_darwin.go
+ create mode 100644 src/crypto/internal/backend/fips140/systemfips_linux.go
+ create mode 100644 src/crypto/internal/backend/fips140/systemfips_windows.go
  create mode 100644 src/crypto/internal/backend/internal/opensslsetup/opensslsetup_linux.go
  create mode 100644 src/crypto/internal/backend/internal/opensslsetup/opensslsetup_linux_test.go
  create mode 100644 src/crypto/internal/backend/internal/opensslsetup/stub.go
  create mode 100644 src/crypto/internal/backend/nobackend.go
- create mode 100644 src/crypto/internal/backend/openssl_linux.go
  create mode 100644 src/crypto/internal/backend/stub.s
  create mode 100644 src/crypto/systemcrypto_nocgo_linux.go
 
@@ -244,7 +244,7 @@ index e4250e12de8975..feef0080cb12d6 100644
  	if debug {
  		run("", ShowOutput|CheckExit, pathf("%s/compile", tooldir), "-V=full")
 diff --git a/src/cmd/dist/test.go b/src/cmd/dist/test.go
-index 4396c9de190f1f..91502c9a23f724 100644
+index 78213a7a552e1e..7314eaffa3f800 100644
 --- a/src/cmd/dist/test.go
 +++ b/src/cmd/dist/test.go
 @@ -156,10 +156,12 @@ func (t *tester) run() {
@@ -734,646 +734,11 @@ index 19607c324ceaef..50439e47260a99 100644
  	t.Parallel()
  
  	tmpdir := t.TempDir()
-diff --git a/src/crypto/internal/backend/backend_test.go b/src/crypto/internal/backend/backend_test.go
+diff --git a/src/crypto/internal/backend/backend_darwin.go b/src/crypto/internal/backend/backend_darwin.go
 new file mode 100644
-index 00000000000000..093acd82556330
+index 00000000000000..657e27ed74dc99
 --- /dev/null
-+++ b/src/crypto/internal/backend/backend_test.go
-@@ -0,0 +1,56 @@
-+// Copyright 2017 The Go Authors. All rights reserved.
-+// Use of this source code is governed by a BSD-style
-+// license that can be found in the LICENSE file.
-+
-+package backend
-+
-+import (
-+	"testing"
-+)
-+
-+// Test that Unreachable panics.
-+func TestUnreachable(t *testing.T) {
-+	defer func() {
-+		if Enabled {
-+			if err := recover(); err == nil {
-+				t.Fatal("expected Unreachable to panic")
-+			}
-+		} else {
-+			if err := recover(); err != nil {
-+				t.Fatalf("expected Unreachable to be a no-op")
-+			}
-+		}
-+	}()
-+	Unreachable()
-+}
-+
-+// Test that UnreachableExceptTests does not panic (this is a test).
-+func TestUnreachableExceptTests(t *testing.T) {
-+	UnreachableExceptTests()
-+}
-+
-+func TestSupportsRSAPrivateKey(t *testing.T) {
-+	if !Enabled {
-+		t.Skip("BoringCrypto not enabled")
-+	}
-+	tests := []struct {
-+		bitLen    int
-+		numPrimes int
-+		supported bool
-+	}{
-+		{2048, 2, true},
-+		{3072, 2, true},
-+		{4096, 2, true},
-+		{2048, 3, false},
-+		{3072, 3, false},
-+		{4096, 3, false},
-+	}
-+	for _, test := range tests {
-+		t.Run("", func(t *testing.T) {
-+			supported := SupportsRSAPrivateKey(test.bitLen, test.numPrimes)
-+			if supported != test.supported {
-+				t.Errorf("SupportsRSAPrivateKey(%d, %d) = %v; want %v", test.bitLen, test.numPrimes, supported, test.supported)
-+			}
-+		})
-+	}
-+}
-diff --git a/src/crypto/internal/backend/bbig/big.go b/src/crypto/internal/backend/bbig/big.go
-new file mode 100644
-index 00000000000000..20251a290dc2e0
---- /dev/null
-+++ b/src/crypto/internal/backend/bbig/big.go
-@@ -0,0 +1,17 @@
-+// Copyright 2022 The Go Authors. All rights reserved.
-+// Use of this source code is governed by a BSD-style
-+// license that can be found in the LICENSE file.
-+
-+//go:build !goexperiment.systemcrypto
-+
-+package bbig
-+
-+import "math/big"
-+
-+func Enc(b *big.Int) []uint {
-+	return nil
-+}
-+
-+func Dec(b []uint) *big.Int {
-+	return nil
-+}
-diff --git a/src/crypto/internal/backend/bbig/big_windows.go b/src/crypto/internal/backend/bbig/big_windows.go
-new file mode 100644
-index 00000000000000..9331c34d402ba2
---- /dev/null
-+++ b/src/crypto/internal/backend/bbig/big_windows.go
-@@ -0,0 +1,12 @@
-+// Copyright 2022 The Go Authors. All rights reserved.
-+// Use of this source code is governed by a BSD-style
-+// license that can be found in the LICENSE file.
-+
-+//go:build goexperiment.systemcrypto
-+
-+package bbig
-+
-+import "github.com/microsoft/go-crypto-winnative/cng/bbig"
-+
-+var Enc = bbig.Enc
-+var Dec = bbig.Dec
-diff --git a/src/crypto/internal/backend/bbig/big_darwin.go b/src/crypto/internal/backend/bbig/big_darwin.go
-new file mode 100644
-index 00000000000000..e8884576d05427
---- /dev/null
-+++ b/src/crypto/internal/backend/bbig/big_darwin.go
-@@ -0,0 +1,12 @@
-+// Copyright 2022 The Go Authors. All rights reserved.
-+// Use of this source code is governed by a BSD-style
-+// license that can be found in the LICENSE file.
-+
-+//go:build goexperiment.systemcrypto
-+
-+package bbig
-+
-+import "github.com/microsoft/go-crypto-darwin/bbig"
-+
-+var Enc = bbig.Enc
-+var Dec = bbig.Dec
-diff --git a/src/crypto/internal/backend/bbig/big_linux.go b/src/crypto/internal/backend/bbig/big_linux.go
-new file mode 100644
-index 00000000000000..51396c3db1a871
---- /dev/null
-+++ b/src/crypto/internal/backend/bbig/big_linux.go
-@@ -0,0 +1,12 @@
-+// Copyright 2022 The Go Authors. All rights reserved.
-+// Use of this source code is governed by a BSD-style
-+// license that can be found in the LICENSE file.
-+
-+//go:build goexperiment.systemcrypto
-+
-+package bbig
-+
-+import "github.com/golang-fips/openssl/v2/bbig"
-+
-+var Enc = bbig.Enc
-+var Dec = bbig.Dec
-diff --git a/src/crypto/internal/backend/cng_windows.go b/src/crypto/internal/backend/cng_windows.go
-new file mode 100644
-index 00000000000000..9bc7525be1e462
---- /dev/null
-+++ b/src/crypto/internal/backend/cng_windows.go
-@@ -0,0 +1,438 @@
-+// Copyright 2017 The Go Authors. All rights reserved.
-+// Use of this source code is governed by a BSD-style
-+// license that can be found in the LICENSE file.
-+
-+//go:build goexperiment.systemcrypto
-+
-+// Package cng provides access to CNGCrypto implementation functions.
-+// Check the variable Enabled to find out whether CNGCrypto is available.
-+// If CNGCrypto is not available, the functions in this package all panic.
-+package backend
-+
-+import (
-+	"crypto"
-+	"crypto/cipher"
-+	"crypto/internal/backend/fips140"
-+	"crypto/internal/boring/sig"
-+	"crypto/internal/fips140only"
-+	"hash"
-+	_ "unsafe"
-+
-+	"github.com/microsoft/go-crypto-winnative/cng"
-+)
-+
-+func init() {
-+	// Windows is considered FIPS compliant.
-+	if err := fips140.Check(func() bool { return true }); err != nil {
-+		panic("cngcrypto: " + err.Error())
-+	}
-+	sig.BoringCrypto()
-+	fips140only.BackendApprovedHash = FIPSApprovedHash
-+}
-+
-+// Enabled controls whether FIPS crypto is enabled.
-+const Enabled = true
-+
-+type BigInt = cng.BigInt
-+
-+const RandReader = cng.RandReader
-+
-+func SupportsHash(h crypto.Hash) bool {
-+	return cng.SupportsHash(h)
-+}
-+
-+func FIPSApprovedHash(h hash.Hash) bool {
-+	return cng.FIPSApprovedHash(h)
-+}
-+
-+func SupportsSHAKE(securityBits int) bool {
-+	return cng.SupportsSHAKE(securityBits)
-+}
-+
-+func SupportsCSHAKE(securityBits int) bool {
-+	return cng.SupportsSHAKE(securityBits)
-+}
-+
-+func SupportsCurve(curve string) bool {
-+	switch curve {
-+	case "P-224", "P-256", "P-384", "P-521", "X25519":
-+		return true
-+	}
-+	return false
-+}
-+
-+func SupportsRSAOAEPLabel(label []byte) bool { return true }
-+func SupportsRSAPKCS1v15Encryption() bool    { return true }
-+
-+func SupportsRSAPKCS1v15Signature(hash crypto.Hash) bool {
-+	// 0 and MD5SHA1 are special cases that are always supported for PKCS1v15 signatures.
-+	switch hash {
-+	case 0, crypto.MD5SHA1:
-+		return true
-+	default:
-+		return cng.SupportsHash(hash)
-+	}
-+}
-+
-+type Hash = cng.Hash
-+type SHAKE = cng.SHAKE
-+
-+func NewMD5() hash.Hash        { return cng.NewMD5() }
-+func NewSHA1() hash.Hash       { return cng.NewSHA1() }
-+func NewSHA224() hash.Hash     { panic("cngcrypto: not available") }
-+func NewSHA256() hash.Hash     { return cng.NewSHA256() }
-+func NewSHA384() hash.Hash     { return cng.NewSHA384() }
-+func NewSHA512() hash.Hash     { return cng.NewSHA512() }
-+func NewSHA512_224() hash.Hash { panic("cngcrypto: not available") }
-+func NewSHA512_256() hash.Hash { panic("cngcrypto: not available") }
-+func NewSHA3_224() *Hash       { panic("cngcrypto: not available") }
-+func NewSHA3_256() *Hash       { return cng.NewSHA3_256() }
-+func NewSHA3_384() *Hash       { return cng.NewSHA3_384() }
-+func NewSHA3_512() *Hash       { return cng.NewSHA3_512() }
-+
-+func NewSHAKE128() *SHAKE             { return cng.NewSHAKE128() }
-+func NewSHAKE256() *SHAKE             { return cng.NewSHAKE256() }
-+func NewCSHAKE128(N, S []byte) *SHAKE { return cng.NewCSHAKE128(N, S) }
-+func NewCSHAKE256(N, S []byte) *SHAKE { return cng.NewCSHAKE256(N, S) }
-+
-+func MD5(p []byte) (sum [16]byte)         { return cng.MD5(p) }
-+func SHA1(p []byte) (sum [20]byte)        { return cng.SHA1(p) }
-+func SHA224(p []byte) (sum [28]byte)      { panic("cngcrypto: not available") }
-+func SHA256(p []byte) (sum [32]byte)      { return cng.SHA256(p) }
-+func SHA384(p []byte) (sum [48]byte)      { return cng.SHA384(p) }
-+func SHA512(p []byte) (sum [64]byte)      { return cng.SHA512(p) }
-+func SHA512_224(p []byte) (sum [28]byte)  { panic("cngcrypto: not available") }
-+func SHA512_256(p []byte) (sum [32]byte)  { panic("cngcrypto: not available") }
-+func SumSHA3_224(p []byte) (sum [28]byte) { panic("cngcrypto: not available") }
-+func SumSHA3_256(p []byte) (sum [32]byte) { return cng.SumSHA3_256(p) }
-+func SumSHA3_384(p []byte) (sum [48]byte) { return cng.SumSHA3_384(p) }
-+func SumSHA3_512(p []byte) (sum [64]byte) { return cng.SumSHA3_512(p) }
-+
-+func SumSHAKE128(data []byte, length int) (sum []byte) { return cng.SumSHAKE128(data, length) }
-+func SumSHAKE256(data []byte, length int) (sum []byte) { return cng.SumSHAKE256(data, length) }
-+
-+func NewHMAC(h func() hash.Hash, key []byte) hash.Hash {
-+	return cng.NewHMAC(h, key)
-+}
-+
-+func NewAESCipher(key []byte) (cipher.Block, error) {
-+	return cng.NewAESCipher(key)
-+}
-+
-+func NewGCMTLS(c cipher.Block) (cipher.AEAD, error) {
-+	return cng.NewGCMTLS(c)
-+}
-+
-+func NewGCMTLS13(c cipher.Block) (cipher.AEAD, error) {
-+	return cng.NewGCMTLS13(c)
-+}
-+
-+type PublicKeyECDSA = cng.PublicKeyECDSA
-+type PrivateKeyECDSA = cng.PrivateKeyECDSA
-+
-+func GenerateKeyECDSA(curve string) (X, Y, D cng.BigInt, err error) {
-+	return cng.GenerateKeyECDSA(curve)
-+}
-+
-+func NewPrivateKeyECDSA(curve string, X, Y, D cng.BigInt) (*cng.PrivateKeyECDSA, error) {
-+	return cng.NewPrivateKeyECDSA(curve, X, Y, D)
-+}
-+
-+func NewPublicKeyECDSA(curve string, X, Y cng.BigInt) (*cng.PublicKeyECDSA, error) {
-+	return cng.NewPublicKeyECDSA(curve, X, Y)
-+}
-+
-+//go:linkname encodeSignature crypto/ecdsa.encodeSignature
-+func encodeSignature(r, s []byte) ([]byte, error)
-+
-+//go:linkname parseSignature crypto/ecdsa.parseSignature
-+func parseSignature(sig []byte) (r, s []byte, err error)
-+
-+func SignMarshalECDSA(priv *cng.PrivateKeyECDSA, hash []byte) ([]byte, error) {
-+	r, s, err := cng.SignECDSA(priv, hash)
-+	if err != nil {
-+		return nil, err
-+	}
-+	return encodeSignature(r, s)
-+}
-+
-+func VerifyECDSA(pub *cng.PublicKeyECDSA, hash []byte, sig []byte) bool {
-+	rBytes, sBytes, err := parseSignature(sig)
-+	if err != nil {
-+		return false
-+	}
-+	return cng.VerifyECDSA(pub, hash, cng.BigInt(rBytes), cng.BigInt(sBytes))
-+}
-+
-+func SignECDSA(priv *cng.PrivateKeyECDSA, hash []byte) (r, s cng.BigInt, err error) {
-+	return cng.SignECDSA(priv, hash)
-+}
-+
-+func VerifyECDSARaw(pub *cng.PublicKeyECDSA, hash []byte, r, s cng.BigInt) bool {
-+	return cng.VerifyECDSA(pub, hash, r, s)
-+}
-+
-+func SupportsRSAPrivateKey(bits, primes int) bool {
-+	return primes == 2 && SupportsRSAPublicKey(bits)
-+}
-+
-+func SupportsRSAPublicKey(bits int) bool {
-+	return bits >= 512 && bits%8 == 0 && bits <= 16384
-+}
-+
-+func SupportsRSASaltLength(sign bool, salt int) bool {
-+	if sign {
-+		return true
-+	}
-+	return salt != 0 // rsa.PSSSaltLengthAuto
-+}
-+
-+type PublicKeyRSA = cng.PublicKeyRSA
-+type PrivateKeyRSA = cng.PrivateKeyRSA
-+
-+func DecryptRSAOAEP(h, mgfHash hash.Hash, priv *cng.PrivateKeyRSA, ciphertext, label []byte) ([]byte, error) {
-+	return cng.DecryptRSAOAEP(h, priv, ciphertext, label)
-+}
-+
-+func DecryptRSAPKCS1(priv *cng.PrivateKeyRSA, ciphertext []byte) ([]byte, error) {
-+	return cng.DecryptRSAPKCS1(priv, ciphertext)
-+}
-+
-+func DecryptRSANoPadding(priv *cng.PrivateKeyRSA, ciphertext []byte) ([]byte, error) {
-+	return cng.DecryptRSANoPadding(priv, ciphertext)
-+}
-+
-+func EncryptRSAOAEP(h, mgfHash hash.Hash, pub *cng.PublicKeyRSA, msg, label []byte) ([]byte, error) {
-+	return cng.EncryptRSAOAEP(h, pub, msg, label)
-+}
-+
-+func EncryptRSAPKCS1(pub *cng.PublicKeyRSA, msg []byte) ([]byte, error) {
-+	return cng.EncryptRSAPKCS1(pub, msg)
-+}
-+
-+func EncryptRSANoPadding(pub *cng.PublicKeyRSA, msg []byte) ([]byte, error) {
-+	return cng.EncryptRSANoPadding(pub, msg)
-+}
-+
-+func GenerateKeyRSA(bits int) (N, E, D, P, Q, Dp, Dq, Qinv cng.BigInt, err error) {
-+	return cng.GenerateKeyRSA(bits)
-+}
-+
-+func NewPrivateKeyRSA(N, E, D, P, Q, Dp, Dq, Qinv cng.BigInt) (*cng.PrivateKeyRSA, error) {
-+	return cng.NewPrivateKeyRSA(N, E, D, P, Q, Dp, Dq, Qinv)
-+}
-+
-+func NewPublicKeyRSA(N, E cng.BigInt) (*cng.PublicKeyRSA, error) {
-+	return cng.NewPublicKeyRSA(N, E)
-+}
-+
-+func SignRSAPKCS1v15(priv *cng.PrivateKeyRSA, h crypto.Hash, hashed []byte) ([]byte, error) {
-+	return cng.SignRSAPKCS1v15(priv, h, hashed)
-+}
-+
-+func SignRSAPSS(priv *cng.PrivateKeyRSA, h crypto.Hash, hashed []byte, saltLen int) ([]byte, error) {
-+	return cng.SignRSAPSS(priv, h, hashed, saltLen)
-+}
-+
-+func VerifyRSAPKCS1v15(pub *cng.PublicKeyRSA, h crypto.Hash, hashed, sig []byte) error {
-+	return cng.VerifyRSAPKCS1v15(pub, h, hashed, sig)
-+}
-+
-+func VerifyRSAPSS(pub *cng.PublicKeyRSA, h crypto.Hash, hashed, sig []byte, saltLen int) error {
-+	return cng.VerifyRSAPSS(pub, h, hashed, sig, saltLen)
-+}
-+
-+type PrivateKeyECDH = cng.PrivateKeyECDH
-+type PublicKeyECDH = cng.PublicKeyECDH
-+
-+func ECDH(priv *cng.PrivateKeyECDH, pub *cng.PublicKeyECDH) ([]byte, error) {
-+	return cng.ECDH(priv, pub)
-+}
-+
-+func GenerateKeyECDH(curve string) (*cng.PrivateKeyECDH, []byte, error) {
-+	return cng.GenerateKeyECDH(curve)
-+}
-+
-+func NewPrivateKeyECDH(curve string, bytes []byte) (*cng.PrivateKeyECDH, error) {
-+	return cng.NewPrivateKeyECDH(curve, bytes)
-+}
-+
-+func NewPublicKeyECDH(curve string, bytes []byte) (*cng.PublicKeyECDH, error) {
-+	return cng.NewPublicKeyECDH(curve, bytes)
-+}
-+
-+func SupportsTLS13KDF() bool {
-+	return false
-+}
-+
-+func ExpandTLS13KDF(h func() hash.Hash, pseudorandomKey, label, context []byte, keyLength int) ([]byte, error) {
-+	panic("cryptobackend: not available")
-+}
-+
-+func SupportsHKDF() bool {
-+	return cng.SupportsHKDF()
-+}
-+
-+func ExpandHKDF(h func() hash.Hash, pseudorandomKey, info []byte, keyLength int) ([]byte, error) {
-+	return cng.ExpandHKDF(h, pseudorandomKey, info, keyLength)
-+}
-+
-+func ExtractHKDF(h func() hash.Hash, secret, salt []byte) ([]byte, error) {
-+	return cng.ExtractHKDF(h, secret, salt)
-+}
-+
-+func SupportsPBKDF2() bool { return true }
-+
-+func PBKDF2(password, salt []byte, iter, keyLen int, h func() hash.Hash) ([]byte, error) {
-+	return cng.PBKDF2(password, salt, iter, keyLen, h)
-+}
-+
-+func SupportsTLS1PRF() bool {
-+	return true
-+}
-+
-+func TLS1PRF(result, secret, label, seed []byte, h func() hash.Hash) error {
-+	return cng.TLS1PRF(result, secret, label, seed, h)
-+}
-+
-+func SupportsDESCipher() bool {
-+	return true
-+}
-+
-+func SupportsTripleDESCipher() bool {
-+	return true
-+}
-+
-+func NewDESCipher(key []byte) (cipher.Block, error) {
-+	return cng.NewDESCipher(key)
-+}
-+
-+func NewTripleDESCipher(key []byte) (cipher.Block, error) {
-+	return cng.NewTripleDESCipher(key)
-+}
-+
-+func SupportsRC4() bool { return true }
-+
-+type RC4Cipher = cng.RC4Cipher
-+
-+func NewRC4Cipher(key []byte) (*RC4Cipher, error) { return cng.NewRC4Cipher(key) }
-+
-+func SupportsEd25519() bool { return false }
-+
-+type PublicKeyEd25519 struct{}
-+
-+func (k PublicKeyEd25519) Bytes() ([]byte, error) {
-+	panic("cryptobackend: not available")
-+}
-+
-+type PrivateKeyEd25519 struct{}
-+
-+func (k PrivateKeyEd25519) Bytes() ([]byte, error) {
-+	panic("cryptobackend: not available")
-+}
-+
-+func GenerateKeyEd25519() (PrivateKeyEd25519, error) {
-+	panic("cryptobackend: not available")
-+}
-+
-+func NewPrivateKeyEd25519(priv []byte) (PrivateKeyEd25519, error) {
-+	panic("cryptobackend: not available")
-+}
-+
-+func NewPublicKeyEd25519(pub []byte) (PublicKeyEd25519, error) {
-+	panic("cryptobackend: not available")
-+}
-+
-+func NewPrivateKeyEd25519FromSeed(seed []byte) (PrivateKeyEd25519, error) {
-+	panic("cryptobackend: not available")
-+}
-+
-+func SignEd25519(priv PrivateKeyEd25519, message []byte) ([]byte, error) {
-+	panic("cryptobackend: not available")
-+}
-+
-+func VerifyEd25519(pub PublicKeyEd25519, message, sig []byte) error {
-+	panic("cryptobackend: not available")
-+}
-+
-+type PrivateKeyDSA = cng.PrivateKeyDSA
-+type PublicKeyDSA = cng.PublicKeyDSA
-+
-+func SupportsDSA(l, n int) bool {
-+	// These are the only N values supported by CNG
-+	return n == 160 || n == 256
-+}
-+
-+func GenerateParametersDSA(l, n int) (p, q, g cng.BigInt, err error) {
-+	params, err := cng.GenerateParametersDSA(l)
-+	if err != nil {
-+		return nil, nil, nil, err
-+	}
-+	return params.P, params.Q, params.G, nil
-+}
-+
-+func GenerateKeyDSA(p, q, g cng.BigInt) (x, y cng.BigInt, err error) {
-+	return cng.GenerateKeyDSA(cng.DSAParameters{P: p, Q: q, G: g})
-+}
-+
-+func NewPrivateKeyDSA(p, q, g, x, y cng.BigInt) (*cng.PrivateKeyDSA, error) {
-+	return cng.NewPrivateKeyDSA(cng.DSAParameters{P: p, Q: q, G: g}, x, y)
-+}
-+
-+func NewPublicKeyDSA(p, q, g, y cng.BigInt) (*cng.PublicKeyDSA, error) {
-+	return cng.NewPublicKeyDSA(cng.DSAParameters{P: p, Q: q, G: g}, y)
-+}
-+
-+func SignDSA(priv *PrivateKeyDSA, hash []byte, parseSignature func([]byte) (cng.BigInt, cng.BigInt, error)) (r, s cng.BigInt, err error) {
-+	return cng.SignDSA(priv, hash)
-+}
-+
-+func VerifyDSA(pub *PublicKeyDSA, hashed []byte, r, s cng.BigInt, encodeSignature func(r, s cng.BigInt) ([]byte, error)) bool {
-+	return cng.VerifyDSA(pub, hashed, r, s)
-+}
-+
-+func SupportsMLKEM768() bool {
-+	return cng.SupportsMLKEM()
-+}
-+
-+func SupportsMLKEM1024() bool {
-+	return cng.SupportsMLKEM()
-+}
-+
-+type DecapsulationKeyMLKEM768 = cng.DecapsulationKeyMLKEM768
-+type EncapsulationKeyMLKEM768 = cng.EncapsulationKeyMLKEM768
-+
-+func GenerateKeyMLKEM768() (DecapsulationKeyMLKEM768, error) {
-+	return cng.GenerateKeyMLKEM768()
-+}
-+
-+func NewDecapsulationKeyMLKEM768(seed []byte) (DecapsulationKeyMLKEM768, error) {
-+	return cng.NewDecapsulationKeyMLKEM768(seed)
-+}
-+
-+func NewEncapsulationKeyMLKEM768(encapsulationKey []byte) (EncapsulationKeyMLKEM768, error) {
-+	return cng.NewEncapsulationKeyMLKEM768(encapsulationKey)
-+}
-+
-+type DecapsulationKeyMLKEM1024 = cng.DecapsulationKeyMLKEM1024
-+type EncapsulationKeyMLKEM1024 = cng.EncapsulationKeyMLKEM1024
-+
-+func GenerateKeyMLKEM1024() (DecapsulationKeyMLKEM1024, error) {
-+	return cng.GenerateKeyMLKEM1024()
-+}
-+
-+func NewDecapsulationKeyMLKEM1024(seed []byte) (DecapsulationKeyMLKEM1024, error) {
-+	return cng.NewDecapsulationKeyMLKEM1024(seed)
-+}
-+
-+func NewEncapsulationKeyMLKEM1024(encapsulationKey []byte) (EncapsulationKeyMLKEM1024, error) {
-+	return cng.NewEncapsulationKeyMLKEM1024(encapsulationKey)
-+}
-+
-+func SupportsChaCha20Poly1305() bool {
-+	return cng.SupportsChaCha20Poly1305()
-+}
-+
-+func NewChaCha20Poly1305(key []byte) (cipher.AEAD, error) {
-+	return cng.NewChaCha20Poly1305(key)
-+}
-diff --git a/src/crypto/internal/backend/common.go b/src/crypto/internal/backend/common.go
-new file mode 100644
-index 00000000000000..a9682181ffa154
---- /dev/null
-+++ b/src/crypto/internal/backend/common.go
-@@ -0,0 +1,46 @@
-+// Copyright 2022 The Go Authors. All rights reserved.
-+// Use of this source code is governed by a BSD-style
-+// license that can be found in the LICENSE file.
-+
-+package backend
-+
-+import (
-+	"crypto/internal/boring/sig"
-+	"runtime"
-+)
-+
-+// Unreachable marks code that should be unreachable
-+// when backend is in use.
-+func Unreachable() {
-+	if Enabled {
-+		panic("cryptobackend: invalid code execution")
-+	} else {
-+		// Code that's unreachable is exactly the code
-+		// we want to detect for reporting standard Go crypto.
-+		sig.StandardCrypto()
-+	}
-+}
-+
-+// Provided by runtime.crypto_backend_runtime_arg0 to avoid os import.
-+func runtime_arg0() string
-+
-+func hasSuffix(s, t string) bool {
-+	return len(s) > len(t) && s[len(s)-len(t):] == t
-+}
-+
-+// UnreachableExceptTests marks code that should be unreachable
-+// when backend is in use. It panics.
-+func UnreachableExceptTests() {
-+	// runtime_arg0 is not supported on windows.
-+	// We are going through the same code patch on linux,
-+	// so if we are unintentionally calling an 'unreachable' function,
-+	// we will catch it there.
-+	if Enabled && runtime.GOOS != "windows" {
-+		name := runtime_arg0()
-+		// If ran on Windows we'd need to allow _test.exe and .test.exe as well.
-+		if !hasSuffix(name, "_test") && !hasSuffix(name, ".test") {
-+			println("cryptobackend: unexpected code execution in", name)
-+			panic("cryptobackend: invalid code execution")
-+		}
-+	}
-+}
-diff --git a/src/crypto/internal/backend/darwin_darwin.go b/src/crypto/internal/backend/darwin_darwin.go
-new file mode 100644
-index 00000000000000..805e95c926a1a1
---- /dev/null
-+++ b/src/crypto/internal/backend/darwin_darwin.go
++++ b/src/crypto/internal/backend/backend_darwin.go
 @@ -0,0 +1,438 @@
 +// Copyright 2017 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
@@ -1813,65 +1178,1076 @@ index 00000000000000..805e95c926a1a1
 +func NewChaCha20Poly1305(key []byte) (cipher.AEAD, error) {
 +	return xcrypto.NewChaCha20Poly1305(key)
 +}
-diff --git a/src/crypto/internal/backend/fips140/cng_windows.go b/src/crypto/internal/backend/fips140/cng_windows.go
+diff --git a/src/crypto/internal/backend/backend_linux.go b/src/crypto/internal/backend/backend_linux.go
 new file mode 100644
-index 00000000000000..d74cffe462b234
+index 00000000000000..a4ca780ebb0251
 --- /dev/null
-+++ b/src/crypto/internal/backend/fips140/cng_windows.go
-@@ -0,0 +1,35 @@
-+// Copyright 2024 The Go Authors. All rights reserved.
++++ b/src/crypto/internal/backend/backend_linux.go
+@@ -0,0 +1,430 @@
++// Copyright 2017 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
 +
 +//go:build goexperiment.systemcrypto
 +
-+package fips140
++// Package openssl provides access to OpenSSLCrypto implementation functions.
++// Check the variable Enabled to find out whether OpenSSLCrypto is available.
++// If OpenSSLCrypto is not available, the functions in this package all panic.
++package backend
 +
 +import (
-+	"internal/syscall/windows/sysdll"
-+	"syscall"
-+	"unsafe"
++	"crypto"
++	"crypto/cipher"
++	"crypto/internal/backend/fips140"
++	_ "crypto/internal/backend/internal/opensslsetup"
++	"crypto/internal/boring/sig"
++	"crypto/internal/fips140only"
++	"hash"
++
++	"github.com/golang-fips/openssl/v2"
 +)
 +
-+const backendEnabled = true
++// Enabled controls whether FIPS crypto is enabled.
++const Enabled = true
 +
-+// Don't use github.com/microsoft/go-crypto-winnative here.
-+// The fips140 package should have minimal dependencies.
-+// Also, don't directly query the system FIPS mode from the registry,
-+// there are some no-longer documented legacy entries that can enable FIPS mode,
-+// and BCryptGetFipsAlgorithmMode supports them all.
-+var (
-+	bcrypt = syscall.MustLoadDLL(sysdll.Add("bcrypt.dll"))
++type BigInt = openssl.BigInt
 +
-+	bcryptGetFipsAlgorithmMode = bcrypt.MustFindProc("BCryptGetFipsAlgorithmMode")
-+)
++func init() {
++	// Some distributions, e.g. Azure Linux 3, don't set the `fips=yes` property when running in FIPS mode,
++	// but they configure OpenSSL to use a FIPS-compliant provider (in the case of Azure Linux 3, the SCOSSL provider).
++	// In this cases, openssl.FIPS would return `false` and openssl.FIPSCapable would return `true`.
++	// We don't care about the `fips=yes` property as long as the provider is FIPS-compliant, so use
++	// openssl.FIPSCapable to determine whether FIPS mode is enabled.
++	if err := fips140.Check(func() bool { return openssl.FIPSCapable() }); err != nil {
++		// This path can be reached for the following reasons:
++		// - In OpenSSL 1, the active engine doesn't support FIPS mode.
++		// - In OpenSSL 1, the active engine supports FIPS mode, but it is not enabled.
++		// - In OpenSSL 3, the provider used by default doesn't match the `fips=yes` query.
++		panic("opensslcrypto: " + err.Error() + ": " + openssl.VersionText())
++	}
++	sig.BoringCrypto()
++	fips140only.BackendApprovedHash = FIPSApprovedHash
++}
 +
-+func systemFIPSMode() bool {
-+	var enabled uint32
-+	ret, _, _ := bcryptGetFipsAlgorithmMode.Call(uintptr(unsafe.Pointer(&enabled)))
-+	if ret != 0 {
++const RandReader = openssl.RandReader
++
++func SupportsHash(h crypto.Hash) bool {
++	return openssl.SupportsHash(h)
++}
++
++func FIPSApprovedHash(h hash.Hash) bool {
++	return openssl.FIPSApprovedHash(h)
++}
++
++func SupportsSHAKE(securityBits int) bool {
++	return openssl.SupportsSHAKE(securityBits)
++}
++
++func SupportsCSHAKE(securityBits int) bool {
++	return openssl.SupportsCSHAKE(securityBits)
++}
++
++func SupportsCurve(curve string) bool {
++	return openssl.SupportsCurve(curve)
++}
++
++func SupportsRSAOAEPLabel(label []byte) bool { return true }
++
++func SupportsRSAPKCS1v15Encryption() bool {
++	return openssl.SupportsRSAPKCS1v15Encryption()
++}
++
++func SupportsRSAPKCS1v15Signature(hash crypto.Hash) bool {
++	return openssl.SupportsRSAPKCS1v15Signature(hash)
++}
++
++type Hash = openssl.Hash
++type SHAKE = openssl.SHAKE
++
++func NewMD5() hash.Hash        { return openssl.NewMD5() }
++func NewSHA1() hash.Hash       { return openssl.NewSHA1() }
++func NewSHA224() hash.Hash     { return openssl.NewSHA224() }
++func NewSHA256() hash.Hash     { return openssl.NewSHA256() }
++func NewSHA384() hash.Hash     { return openssl.NewSHA384() }
++func NewSHA512() hash.Hash     { return openssl.NewSHA512() }
++func NewSHA512_224() hash.Hash { return openssl.NewSHA512_224() }
++func NewSHA512_256() hash.Hash { return openssl.NewSHA512_256() }
++func NewSHA3_224() *Hash       { return openssl.NewSHA3_224() }
++func NewSHA3_256() *Hash       { return openssl.NewSHA3_256() }
++func NewSHA3_384() *Hash       { return openssl.NewSHA3_384() }
++func NewSHA3_512() *Hash       { return openssl.NewSHA3_512() }
++
++func NewSHAKE128() *SHAKE             { return openssl.NewSHAKE128() }
++func NewSHAKE256() *SHAKE             { return openssl.NewSHAKE256() }
++func NewCSHAKE128(N, S []byte) *SHAKE { return openssl.NewCSHAKE128(N, S) }
++func NewCSHAKE256(N, S []byte) *SHAKE { return openssl.NewCSHAKE256(N, S) }
++
++func MD5(p []byte) (sum [16]byte)         { return openssl.MD5(p) }
++func SHA1(p []byte) (sum [20]byte)        { return openssl.SHA1(p) }
++func SHA224(p []byte) (sum [28]byte)      { return openssl.SHA224(p) }
++func SHA256(p []byte) (sum [32]byte)      { return openssl.SHA256(p) }
++func SHA384(p []byte) (sum [48]byte)      { return openssl.SHA384(p) }
++func SHA512(p []byte) (sum [64]byte)      { return openssl.SHA512(p) }
++func SHA512_224(p []byte) (sum [28]byte)  { return openssl.SHA512_224(p) }
++func SHA512_256(p []byte) (sum [32]byte)  { return openssl.SHA512_256(p) }
++func SumSHA3_224(p []byte) (sum [28]byte) { return openssl.SumSHA3_224(p) }
++func SumSHA3_256(p []byte) (sum [32]byte) { return openssl.SumSHA3_256(p) }
++func SumSHA3_384(p []byte) (sum [48]byte) { return openssl.SumSHA3_384(p) }
++func SumSHA3_512(p []byte) (sum [64]byte) { return openssl.SumSHA3_512(p) }
++
++func SumSHAKE128(data []byte, length int) (sum []byte) { return openssl.SumSHAKE128(data, length) }
++func SumSHAKE256(data []byte, length int) (sum []byte) { return openssl.SumSHAKE256(data, length) }
++
++func NewHMAC(h func() hash.Hash, key []byte) hash.Hash { return openssl.NewHMAC(h, key) }
++
++func NewAESCipher(key []byte) (cipher.Block, error)   { return openssl.NewAESCipher(key) }
++func NewGCMTLS(c cipher.Block) (cipher.AEAD, error)   { return openssl.NewGCMTLS(c) }
++func NewGCMTLS13(c cipher.Block) (cipher.AEAD, error) { return openssl.NewGCMTLS13(c) }
++
++type PublicKeyECDSA = openssl.PublicKeyECDSA
++type PrivateKeyECDSA = openssl.PrivateKeyECDSA
++
++func GenerateKeyECDSA(curve string) (X, Y, D openssl.BigInt, err error) {
++	return openssl.GenerateKeyECDSA(curve)
++}
++
++func NewPrivateKeyECDSA(curve string, X, Y, D openssl.BigInt) (*openssl.PrivateKeyECDSA, error) {
++	return openssl.NewPrivateKeyECDSA(curve, X, Y, D)
++}
++
++func NewPublicKeyECDSA(curve string, X, Y openssl.BigInt) (*openssl.PublicKeyECDSA, error) {
++	return openssl.NewPublicKeyECDSA(curve, X, Y)
++}
++
++func SignMarshalECDSA(priv *openssl.PrivateKeyECDSA, hash []byte) ([]byte, error) {
++	return openssl.SignMarshalECDSA(priv, hash)
++}
++
++func VerifyECDSA(pub *openssl.PublicKeyECDSA, hash []byte, sig []byte) bool {
++	return openssl.VerifyECDSA(pub, hash, sig)
++}
++
++func SupportsRSAPrivateKey(bits, primes int) bool {
++	// The built-in OpenSSL 3 providers and OpenSSL 1 do support n-prime RSA keys,
++	// but SCOSSL only supports 2-prime RSA keys.
++	// Only 2-prime RSA keys are FIPS compliant, other n having compatibility
++	// and security issues. Even crypto/rsa deprecated rsa.GenerateMultiPrimeKey as of Go 1.21.
++	// Given the above reasons, we only support what SCOSSL supports.
++	return primes == 2 && SupportsRSAPublicKey(bits)
++}
++
++func SupportsRSAPublicKey(bits int) bool {
++	min := 1024
++	if fips140.Enabled() {
++		// The built-in OpenSSL 3 FIPS provider requires at least 2048 bits for FIPS compliance.
++		min = 2048
++	}
++	return bits >= min && bits%8 == 0 && bits <= 16384
++}
++
++func SupportsRSASaltLength(sign bool, salt int) bool {
++	return true
++}
++
++type PublicKeyRSA = openssl.PublicKeyRSA
++type PrivateKeyRSA = openssl.PrivateKeyRSA
++
++func DecryptRSAOAEP(h, mgfHash hash.Hash, priv *openssl.PrivateKeyRSA, ciphertext, label []byte) ([]byte, error) {
++	return openssl.DecryptRSAOAEP(h, mgfHash, priv, ciphertext, label)
++}
++
++func DecryptRSAPKCS1(priv *openssl.PrivateKeyRSA, ciphertext []byte) ([]byte, error) {
++	return openssl.DecryptRSAPKCS1(priv, ciphertext)
++}
++
++func DecryptRSANoPadding(priv *openssl.PrivateKeyRSA, ciphertext []byte) ([]byte, error) {
++	return openssl.DecryptRSANoPadding(priv, ciphertext)
++}
++
++func EncryptRSAOAEP(h, mgfHash hash.Hash, pub *openssl.PublicKeyRSA, msg, label []byte) ([]byte, error) {
++	return openssl.EncryptRSAOAEP(h, mgfHash, pub, msg, label)
++}
++
++func EncryptRSAPKCS1(pub *openssl.PublicKeyRSA, msg []byte) ([]byte, error) {
++	return openssl.EncryptRSAPKCS1(pub, msg)
++}
++
++func EncryptRSANoPadding(pub *openssl.PublicKeyRSA, msg []byte) ([]byte, error) {
++	return openssl.EncryptRSANoPadding(pub, msg)
++}
++
++func GenerateKeyRSA(bits int) (N, E, D, P, Q, Dp, Dq, Qinv openssl.BigInt, err error) {
++	return openssl.GenerateKeyRSA(bits)
++}
++
++func NewPrivateKeyRSA(N, E, D, P, Q, Dp, Dq, Qinv openssl.BigInt) (*openssl.PrivateKeyRSA, error) {
++	return openssl.NewPrivateKeyRSA(N, E, D, P, Q, Dp, Dq, Qinv)
++}
++
++func NewPublicKeyRSA(N, E openssl.BigInt) (*openssl.PublicKeyRSA, error) {
++	return openssl.NewPublicKeyRSA(N, E)
++}
++
++func SignRSAPKCS1v15(priv *openssl.PrivateKeyRSA, h crypto.Hash, hashed []byte) ([]byte, error) {
++	return openssl.SignRSAPKCS1v15(priv, h, hashed)
++}
++
++func SignRSAPSS(priv *openssl.PrivateKeyRSA, h crypto.Hash, hashed []byte, saltLen int) ([]byte, error) {
++	return openssl.SignRSAPSS(priv, h, hashed, saltLen)
++}
++
++func VerifyRSAPKCS1v15(pub *openssl.PublicKeyRSA, h crypto.Hash, hashed, sig []byte) error {
++	return openssl.VerifyRSAPKCS1v15(pub, h, hashed, sig)
++}
++
++func VerifyRSAPSS(pub *openssl.PublicKeyRSA, h crypto.Hash, hashed, sig []byte, saltLen int) error {
++	return openssl.VerifyRSAPSS(pub, h, hashed, sig, saltLen)
++}
++
++type PublicKeyECDH = openssl.PublicKeyECDH
++type PrivateKeyECDH = openssl.PrivateKeyECDH
++
++func ECDH(priv *openssl.PrivateKeyECDH, pub *openssl.PublicKeyECDH) ([]byte, error) {
++	return openssl.ECDH(priv, pub)
++}
++
++func GenerateKeyECDH(curve string) (*openssl.PrivateKeyECDH, []byte, error) {
++	return openssl.GenerateKeyECDH(curve)
++}
++
++func NewPrivateKeyECDH(curve string, bytes []byte) (*openssl.PrivateKeyECDH, error) {
++	return openssl.NewPrivateKeyECDH(curve, bytes)
++}
++
++func NewPublicKeyECDH(curve string, bytes []byte) (*openssl.PublicKeyECDH, error) {
++	return openssl.NewPublicKeyECDH(curve, bytes)
++}
++
++func SupportsTLS13KDF() bool {
++	return openssl.SupportsTLS13KDF()
++}
++
++func ExpandTLS13KDF(h func() hash.Hash, pseudorandomKey, label, context []byte, keyLength int) ([]byte, error) {
++	return openssl.ExpandTLS13KDF(h, pseudorandomKey, label, context, keyLength)
++}
++
++func SupportsHKDF() bool {
++	return openssl.SupportsHKDF()
++}
++
++func ExpandHKDF(h func() hash.Hash, pseudorandomKey, info []byte, keyLength int) ([]byte, error) {
++	return openssl.ExpandHKDFOneShot(h, pseudorandomKey, info, keyLength)
++}
++
++func ExtractHKDF(h func() hash.Hash, secret, salt []byte) ([]byte, error) {
++	return openssl.ExtractHKDF(h, secret, salt)
++}
++
++func SupportsPBKDF2() bool {
++	return openssl.SupportsPBKDF2()
++}
++
++func PBKDF2(pass, salt []byte, iter, keyLen int, h func() hash.Hash) ([]byte, error) {
++	return openssl.PBKDF2(pass, salt, iter, keyLen, h)
++}
++
++func SupportsTLS1PRF() bool {
++	return openssl.SupportsTLS1PRF()
++}
++
++func TLS1PRF(result, secret, label, seed []byte, h func() hash.Hash) error {
++	return openssl.TLS1PRF(result, secret, label, seed, h)
++}
++
++func SupportsDESCipher() bool {
++	return openssl.SupportsDESCipher()
++}
++
++func SupportsTripleDESCipher() bool {
++	return openssl.SupportsTripleDESCipher()
++}
++
++func NewDESCipher(key []byte) (cipher.Block, error) {
++	return openssl.NewDESCipher(key)
++}
++
++func NewTripleDESCipher(key []byte) (cipher.Block, error) {
++	return openssl.NewTripleDESCipher(key)
++}
++
++func SupportsRC4() bool {
++	return openssl.SupportsRC4()
++}
++
++type RC4Cipher = openssl.RC4Cipher
++
++func NewRC4Cipher(key []byte) (*RC4Cipher, error) { return openssl.NewRC4Cipher(key) }
++
++func SupportsEd25519() bool { return openssl.SupportsEd25519() }
++
++type PublicKeyEd25519 = *openssl.PublicKeyEd25519
++type PrivateKeyEd25519 = *openssl.PrivateKeyEd25519
++
++func GenerateKeyEd25519() (PrivateKeyEd25519, error) {
++	return openssl.GenerateKeyEd25519()
++}
++
++// Deprecated: use NewPrivateKeyEd25519 instead.
++func NewPrivateKeyEd25119(priv []byte) (PrivateKeyEd25519, error) {
++	return openssl.NewPrivateKeyEd25519(priv)
++}
++
++// Deprecated: use NewPublicKeyEd25519 instead.
++func NewPublicKeyEd25119(pub []byte) (PublicKeyEd25519, error) {
++	return openssl.NewPublicKeyEd25519(pub)
++}
++
++func NewPrivateKeyEd25519(priv []byte) (PrivateKeyEd25519, error) {
++	return openssl.NewPrivateKeyEd25519(priv)
++}
++
++func NewPublicKeyEd25519(pub []byte) (PublicKeyEd25519, error) {
++	return openssl.NewPublicKeyEd25519(pub)
++}
++
++func NewPrivateKeyEd25519FromSeed(seed []byte) (PrivateKeyEd25519, error) {
++	return openssl.NewPrivateKeyEd25519FromSeed(seed)
++}
++
++func SignEd25519(priv PrivateKeyEd25519, message []byte) ([]byte, error) {
++	return openssl.SignEd25519(priv, message)
++}
++
++func VerifyEd25519(pub PublicKeyEd25519, message, sig []byte) error {
++	return openssl.VerifyEd25519(pub, message, sig)
++}
++
++type PublicKeyDSA = openssl.PublicKeyDSA
++type PrivateKeyDSA = openssl.PrivateKeyDSA
++
++func SupportsDSA(l, n int) bool {
++	return openssl.SupportsDSA()
++}
++
++func GenerateParametersDSA(l, n int) (p, q, g openssl.BigInt, err error) {
++	params, err := openssl.GenerateParametersDSA(l, n)
++	return params.P, params.Q, params.G, err
++}
++
++func GenerateKeyDSA(p, q, g openssl.BigInt) (x, y openssl.BigInt, err error) {
++	return openssl.GenerateKeyDSA(openssl.DSAParameters{P: p, Q: q, G: g})
++}
++
++func NewPrivateKeyDSA(p, q, g, x, y openssl.BigInt) (*openssl.PrivateKeyDSA, error) {
++	return openssl.NewPrivateKeyDSA(openssl.DSAParameters{P: p, Q: q, G: g}, x, y)
++}
++
++func NewPublicKeyDSA(p, q, g, y openssl.BigInt) (*openssl.PublicKeyDSA, error) {
++	return openssl.NewPublicKeyDSA(openssl.DSAParameters{P: p, Q: q, G: g}, y)
++}
++
++func SignDSA(priv *PrivateKeyDSA, hash []byte, parseSignature func([]byte) (openssl.BigInt, openssl.BigInt, error)) (r, s openssl.BigInt, err error) {
++	sig, err := openssl.SignDSA(priv, hash)
++	if err != nil {
++		return nil, nil, err
++	}
++
++	r, s, err = parseSignature(sig)
++	if err != nil {
++		return nil, nil, err
++	}
++
++	return openssl.BigInt(r), openssl.BigInt(s), nil
++}
++
++func VerifyDSA(pub *PublicKeyDSA, hashed []byte, r, s openssl.BigInt, encodeSignature func(r, s openssl.BigInt) ([]byte, error)) bool {
++	sig, err := encodeSignature(r, s)
++	if err != nil {
 +		return false
 +	}
-+	return enabled != 0
++
++	return openssl.VerifyDSA(pub, hashed, sig)
 +}
-diff --git a/src/crypto/internal/backend/fips140/darwin_darwin.go b/src/crypto/internal/backend/fips140/darwin_darwin.go
++
++func SupportsMLKEM768() bool {
++	return openssl.SupportsMLKEM768()
++}
++
++func SupportsMLKEM1024() bool {
++	return openssl.SupportsMLKEM1024()
++}
++
++type DecapsulationKeyMLKEM768 = openssl.DecapsulationKeyMLKEM768
++type EncapsulationKeyMLKEM768 = openssl.EncapsulationKeyMLKEM768
++
++func GenerateKeyMLKEM768() (DecapsulationKeyMLKEM768, error) {
++	return openssl.GenerateKeyMLKEM768()
++}
++
++func NewDecapsulationKeyMLKEM768(seed []byte) (DecapsulationKeyMLKEM768, error) {
++	return openssl.NewDecapsulationKeyMLKEM768(seed)
++}
++
++func NewEncapsulationKeyMLKEM768(encapsulationKey []byte) (EncapsulationKeyMLKEM768, error) {
++	return openssl.NewEncapsulationKeyMLKEM768(encapsulationKey)
++}
++
++type DecapsulationKeyMLKEM1024 = openssl.DecapsulationKeyMLKEM1024
++type EncapsulationKeyMLKEM1024 = openssl.EncapsulationKeyMLKEM1024
++
++func GenerateKeyMLKEM1024() (DecapsulationKeyMLKEM1024, error) {
++	return openssl.GenerateKeyMLKEM1024()
++}
++
++func NewDecapsulationKeyMLKEM1024(seed []byte) (DecapsulationKeyMLKEM1024, error) {
++	return openssl.NewDecapsulationKeyMLKEM1024(seed)
++}
++
++func NewEncapsulationKeyMLKEM1024(encapsulationKey []byte) (EncapsulationKeyMLKEM1024, error) {
++	return openssl.NewEncapsulationKeyMLKEM1024(encapsulationKey)
++}
++
++func SupportsChaCha20Poly1305() bool {
++	return openssl.SupportsChaCha20Poly1305()
++}
++
++func NewChaCha20Poly1305(key []byte) (cipher.AEAD, error) {
++	return openssl.NewChaCha20Poly1305(key)
++}
+diff --git a/src/crypto/internal/backend/backend_test.go b/src/crypto/internal/backend/backend_test.go
 new file mode 100644
-index 00000000000000..be7c416b531e58
+index 00000000000000..093acd82556330
 --- /dev/null
-+++ b/src/crypto/internal/backend/fips140/darwin_darwin.go
-@@ -0,0 +1,13 @@
-+// Copyright 2024 The Go Authors. All rights reserved.
++++ b/src/crypto/internal/backend/backend_test.go
+@@ -0,0 +1,56 @@
++// Copyright 2017 The Go Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style
++// license that can be found in the LICENSE file.
++
++package backend
++
++import (
++	"testing"
++)
++
++// Test that Unreachable panics.
++func TestUnreachable(t *testing.T) {
++	defer func() {
++		if Enabled {
++			if err := recover(); err == nil {
++				t.Fatal("expected Unreachable to panic")
++			}
++		} else {
++			if err := recover(); err != nil {
++				t.Fatalf("expected Unreachable to be a no-op")
++			}
++		}
++	}()
++	Unreachable()
++}
++
++// Test that UnreachableExceptTests does not panic (this is a test).
++func TestUnreachableExceptTests(t *testing.T) {
++	UnreachableExceptTests()
++}
++
++func TestSupportsRSAPrivateKey(t *testing.T) {
++	if !Enabled {
++		t.Skip("BoringCrypto not enabled")
++	}
++	tests := []struct {
++		bitLen    int
++		numPrimes int
++		supported bool
++	}{
++		{2048, 2, true},
++		{3072, 2, true},
++		{4096, 2, true},
++		{2048, 3, false},
++		{3072, 3, false},
++		{4096, 3, false},
++	}
++	for _, test := range tests {
++		t.Run("", func(t *testing.T) {
++			supported := SupportsRSAPrivateKey(test.bitLen, test.numPrimes)
++			if supported != test.supported {
++				t.Errorf("SupportsRSAPrivateKey(%d, %d) = %v; want %v", test.bitLen, test.numPrimes, supported, test.supported)
++			}
++		})
++	}
++}
+diff --git a/src/crypto/internal/backend/backend_windows.go b/src/crypto/internal/backend/backend_windows.go
+new file mode 100644
+index 00000000000000..26f0e5d79f0588
+--- /dev/null
++++ b/src/crypto/internal/backend/backend_windows.go
+@@ -0,0 +1,438 @@
++// Copyright 2017 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
 +
 +//go:build goexperiment.systemcrypto
 +
-+package fips140
++// Package cng provides access to CNGCrypto implementation functions.
++// Check the variable Enabled to find out whether CNGCrypto is available.
++// If CNGCrypto is not available, the functions in this package all panic.
++package backend
 +
-+const backendEnabled = true
++import (
++	"crypto"
++	"crypto/cipher"
++	"crypto/internal/backend/fips140"
++	"crypto/internal/boring/sig"
++	"crypto/internal/fips140only"
++	"hash"
++	_ "unsafe"
 +
-+func systemFIPSMode() bool {
++	"github.com/microsoft/go-crypto-winnative/cng"
++)
++
++func init() {
++	// Windows is considered FIPS compliant.
++	if err := fips140.Check(func() bool { return true }); err != nil {
++		panic("cngcrypto: " + err.Error())
++	}
++	sig.BoringCrypto()
++	fips140only.BackendApprovedHash = FIPSApprovedHash
++}
++
++// Enabled controls whether FIPS crypto is enabled.
++const Enabled = true
++
++type BigInt = cng.BigInt
++
++const RandReader = cng.RandReader
++
++func SupportsHash(h crypto.Hash) bool {
++	return cng.SupportsHash(h)
++}
++
++func FIPSApprovedHash(h hash.Hash) bool {
++	return cng.FIPSApprovedHash(h)
++}
++
++func SupportsSHAKE(securityBits int) bool {
++	return cng.SupportsSHAKE(securityBits)
++}
++
++func SupportsCSHAKE(securityBits int) bool {
++	return cng.SupportsSHAKE(securityBits)
++}
++
++func SupportsCurve(curve string) bool {
++	switch curve {
++	case "P-224", "P-256", "P-384", "P-521", "X25519":
++		return true
++	}
 +	return false
++}
++
++func SupportsRSAOAEPLabel(label []byte) bool { return true }
++func SupportsRSAPKCS1v15Encryption() bool    { return true }
++
++func SupportsRSAPKCS1v15Signature(hash crypto.Hash) bool {
++	// 0 and MD5SHA1 are special cases that are always supported for PKCS1v15 signatures.
++	switch hash {
++	case 0, crypto.MD5SHA1:
++		return true
++	default:
++		return cng.SupportsHash(hash)
++	}
++}
++
++type Hash = cng.Hash
++type SHAKE = cng.SHAKE
++
++func NewMD5() hash.Hash        { return cng.NewMD5() }
++func NewSHA1() hash.Hash       { return cng.NewSHA1() }
++func NewSHA224() hash.Hash     { panic("cngcrypto: not available") }
++func NewSHA256() hash.Hash     { return cng.NewSHA256() }
++func NewSHA384() hash.Hash     { return cng.NewSHA384() }
++func NewSHA512() hash.Hash     { return cng.NewSHA512() }
++func NewSHA512_224() hash.Hash { panic("cngcrypto: not available") }
++func NewSHA512_256() hash.Hash { panic("cngcrypto: not available") }
++func NewSHA3_224() *Hash       { panic("cngcrypto: not available") }
++func NewSHA3_256() *Hash       { return cng.NewSHA3_256() }
++func NewSHA3_384() *Hash       { return cng.NewSHA3_384() }
++func NewSHA3_512() *Hash       { return cng.NewSHA3_512() }
++
++func NewSHAKE128() *SHAKE             { return cng.NewSHAKE128() }
++func NewSHAKE256() *SHAKE             { return cng.NewSHAKE256() }
++func NewCSHAKE128(N, S []byte) *SHAKE { return cng.NewCSHAKE128(N, S) }
++func NewCSHAKE256(N, S []byte) *SHAKE { return cng.NewCSHAKE256(N, S) }
++
++func MD5(p []byte) (sum [16]byte)         { return cng.MD5(p) }
++func SHA1(p []byte) (sum [20]byte)        { return cng.SHA1(p) }
++func SHA224(p []byte) (sum [28]byte)      { panic("cngcrypto: not available") }
++func SHA256(p []byte) (sum [32]byte)      { return cng.SHA256(p) }
++func SHA384(p []byte) (sum [48]byte)      { return cng.SHA384(p) }
++func SHA512(p []byte) (sum [64]byte)      { return cng.SHA512(p) }
++func SHA512_224(p []byte) (sum [28]byte)  { panic("cngcrypto: not available") }
++func SHA512_256(p []byte) (sum [32]byte)  { panic("cngcrypto: not available") }
++func SumSHA3_224(p []byte) (sum [28]byte) { panic("cngcrypto: not available") }
++func SumSHA3_256(p []byte) (sum [32]byte) { return cng.SumSHA3_256(p) }
++func SumSHA3_384(p []byte) (sum [48]byte) { return cng.SumSHA3_384(p) }
++func SumSHA3_512(p []byte) (sum [64]byte) { return cng.SumSHA3_512(p) }
++
++func SumSHAKE128(data []byte, length int) (sum []byte) { return cng.SumSHAKE128(data, length) }
++func SumSHAKE256(data []byte, length int) (sum []byte) { return cng.SumSHAKE256(data, length) }
++
++func NewHMAC(h func() hash.Hash, key []byte) hash.Hash {
++	return cng.NewHMAC(h, key)
++}
++
++func NewAESCipher(key []byte) (cipher.Block, error) {
++	return cng.NewAESCipher(key)
++}
++
++func NewGCMTLS(c cipher.Block) (cipher.AEAD, error) {
++	return cng.NewGCMTLS(c)
++}
++
++func NewGCMTLS13(c cipher.Block) (cipher.AEAD, error) {
++	return cng.NewGCMTLS13(c)
++}
++
++type PublicKeyECDSA = cng.PublicKeyECDSA
++type PrivateKeyECDSA = cng.PrivateKeyECDSA
++
++func GenerateKeyECDSA(curve string) (X, Y, D cng.BigInt, err error) {
++	return cng.GenerateKeyECDSA(curve)
++}
++
++func NewPrivateKeyECDSA(curve string, X, Y, D cng.BigInt) (*cng.PrivateKeyECDSA, error) {
++	return cng.NewPrivateKeyECDSA(curve, X, Y, D)
++}
++
++func NewPublicKeyECDSA(curve string, X, Y cng.BigInt) (*cng.PublicKeyECDSA, error) {
++	return cng.NewPublicKeyECDSA(curve, X, Y)
++}
++
++//go:linkname encodeSignature crypto/ecdsa.encodeSignature
++func encodeSignature(r, s []byte) ([]byte, error)
++
++//go:linkname parseSignature crypto/ecdsa.parseSignature
++func parseSignature(sig []byte) (r, s []byte, err error)
++
++func SignMarshalECDSA(priv *cng.PrivateKeyECDSA, hash []byte) ([]byte, error) {
++	r, s, err := cng.SignECDSA(priv, hash)
++	if err != nil {
++		return nil, err
++	}
++	return encodeSignature(r, s)
++}
++
++func VerifyECDSA(pub *cng.PublicKeyECDSA, hash []byte, sig []byte) bool {
++	rBytes, sBytes, err := parseSignature(sig)
++	if err != nil {
++		return false
++	}
++	return cng.VerifyECDSA(pub, hash, cng.BigInt(rBytes), cng.BigInt(sBytes))
++}
++
++func SignECDSA(priv *cng.PrivateKeyECDSA, hash []byte) (r, s cng.BigInt, err error) {
++	return cng.SignECDSA(priv, hash)
++}
++
++func VerifyECDSARaw(pub *cng.PublicKeyECDSA, hash []byte, r, s cng.BigInt) bool {
++	return cng.VerifyECDSA(pub, hash, r, s)
++}
++
++func SupportsRSAPrivateKey(bits, primes int) bool {
++	return primes == 2 && SupportsRSAPublicKey(bits)
++}
++
++func SupportsRSAPublicKey(bits int) bool {
++	return bits >= 512 && bits%8 == 0 && bits <= 16384
++}
++
++func SupportsRSASaltLength(sign bool, salt int) bool {
++	if sign {
++		return true
++	}
++	return salt != 0 // rsa.PSSSaltLengthAuto
++}
++
++type PublicKeyRSA = cng.PublicKeyRSA
++type PrivateKeyRSA = cng.PrivateKeyRSA
++
++func DecryptRSAOAEP(h, mgfHash hash.Hash, priv *cng.PrivateKeyRSA, ciphertext, label []byte) ([]byte, error) {
++	return cng.DecryptRSAOAEP(h, priv, ciphertext, label)
++}
++
++func DecryptRSAPKCS1(priv *cng.PrivateKeyRSA, ciphertext []byte) ([]byte, error) {
++	return cng.DecryptRSAPKCS1(priv, ciphertext)
++}
++
++func DecryptRSANoPadding(priv *cng.PrivateKeyRSA, ciphertext []byte) ([]byte, error) {
++	return cng.DecryptRSANoPadding(priv, ciphertext)
++}
++
++func EncryptRSAOAEP(h, mgfHash hash.Hash, pub *cng.PublicKeyRSA, msg, label []byte) ([]byte, error) {
++	return cng.EncryptRSAOAEP(h, pub, msg, label)
++}
++
++func EncryptRSAPKCS1(pub *cng.PublicKeyRSA, msg []byte) ([]byte, error) {
++	return cng.EncryptRSAPKCS1(pub, msg)
++}
++
++func EncryptRSANoPadding(pub *cng.PublicKeyRSA, msg []byte) ([]byte, error) {
++	return cng.EncryptRSANoPadding(pub, msg)
++}
++
++func GenerateKeyRSA(bits int) (N, E, D, P, Q, Dp, Dq, Qinv cng.BigInt, err error) {
++	return cng.GenerateKeyRSA(bits)
++}
++
++func NewPrivateKeyRSA(N, E, D, P, Q, Dp, Dq, Qinv cng.BigInt) (*cng.PrivateKeyRSA, error) {
++	return cng.NewPrivateKeyRSA(N, E, D, P, Q, Dp, Dq, Qinv)
++}
++
++func NewPublicKeyRSA(N, E cng.BigInt) (*cng.PublicKeyRSA, error) {
++	return cng.NewPublicKeyRSA(N, E)
++}
++
++func SignRSAPKCS1v15(priv *cng.PrivateKeyRSA, h crypto.Hash, hashed []byte) ([]byte, error) {
++	return cng.SignRSAPKCS1v15(priv, h, hashed)
++}
++
++func SignRSAPSS(priv *cng.PrivateKeyRSA, h crypto.Hash, hashed []byte, saltLen int) ([]byte, error) {
++	return cng.SignRSAPSS(priv, h, hashed, saltLen)
++}
++
++func VerifyRSAPKCS1v15(pub *cng.PublicKeyRSA, h crypto.Hash, hashed, sig []byte) error {
++	return cng.VerifyRSAPKCS1v15(pub, h, hashed, sig)
++}
++
++func VerifyRSAPSS(pub *cng.PublicKeyRSA, h crypto.Hash, hashed, sig []byte, saltLen int) error {
++	return cng.VerifyRSAPSS(pub, h, hashed, sig, saltLen)
++}
++
++type PrivateKeyECDH = cng.PrivateKeyECDH
++type PublicKeyECDH = cng.PublicKeyECDH
++
++func ECDH(priv *cng.PrivateKeyECDH, pub *cng.PublicKeyECDH) ([]byte, error) {
++	return cng.ECDH(priv, pub)
++}
++
++func GenerateKeyECDH(curve string) (*cng.PrivateKeyECDH, []byte, error) {
++	return cng.GenerateKeyECDH(curve)
++}
++
++func NewPrivateKeyECDH(curve string, bytes []byte) (*cng.PrivateKeyECDH, error) {
++	return cng.NewPrivateKeyECDH(curve, bytes)
++}
++
++func NewPublicKeyECDH(curve string, bytes []byte) (*cng.PublicKeyECDH, error) {
++	return cng.NewPublicKeyECDH(curve, bytes)
++}
++
++func SupportsTLS13KDF() bool {
++	return false
++}
++
++func ExpandTLS13KDF(h func() hash.Hash, pseudorandomKey, label, context []byte, keyLength int) ([]byte, error) {
++	panic("cryptobackend: not available")
++}
++
++func SupportsHKDF() bool {
++	return cng.SupportsHKDF()
++}
++
++func ExpandHKDF(h func() hash.Hash, pseudorandomKey, info []byte, keyLength int) ([]byte, error) {
++	return cng.ExpandHKDF(h, pseudorandomKey, info, keyLength)
++}
++
++func ExtractHKDF(h func() hash.Hash, secret, salt []byte) ([]byte, error) {
++	return cng.ExtractHKDF(h, secret, salt)
++}
++
++func SupportsPBKDF2() bool { return true }
++
++func PBKDF2(password, salt []byte, iter, keyLen int, h func() hash.Hash) ([]byte, error) {
++	return cng.PBKDF2(password, salt, iter, keyLen, h)
++}
++
++func SupportsTLS1PRF() bool {
++	return true
++}
++
++func TLS1PRF(result, secret, label, seed []byte, h func() hash.Hash) error {
++	return cng.TLS1PRF(result, secret, label, seed, h)
++}
++
++func SupportsDESCipher() bool {
++	return true
++}
++
++func SupportsTripleDESCipher() bool {
++	return true
++}
++
++func NewDESCipher(key []byte) (cipher.Block, error) {
++	return cng.NewDESCipher(key)
++}
++
++func NewTripleDESCipher(key []byte) (cipher.Block, error) {
++	return cng.NewTripleDESCipher(key)
++}
++
++func SupportsRC4() bool { return true }
++
++type RC4Cipher = cng.RC4Cipher
++
++func NewRC4Cipher(key []byte) (*RC4Cipher, error) { return cng.NewRC4Cipher(key) }
++
++func SupportsEd25519() bool { return false }
++
++type PublicKeyEd25519 struct{}
++
++func (k PublicKeyEd25519) Bytes() ([]byte, error) {
++	panic("cryptobackend: not available")
++}
++
++type PrivateKeyEd25519 struct{}
++
++func (k PrivateKeyEd25519) Bytes() ([]byte, error) {
++	panic("cryptobackend: not available")
++}
++
++func GenerateKeyEd25519() (PrivateKeyEd25519, error) {
++	panic("cryptobackend: not available")
++}
++
++func NewPrivateKeyEd25519(priv []byte) (PrivateKeyEd25519, error) {
++	panic("cryptobackend: not available")
++}
++
++func NewPublicKeyEd25519(pub []byte) (PublicKeyEd25519, error) {
++	panic("cryptobackend: not available")
++}
++
++func NewPrivateKeyEd25519FromSeed(seed []byte) (PrivateKeyEd25519, error) {
++	panic("cryptobackend: not available")
++}
++
++func SignEd25519(priv PrivateKeyEd25519, message []byte) ([]byte, error) {
++	panic("cryptobackend: not available")
++}
++
++func VerifyEd25519(pub PublicKeyEd25519, message, sig []byte) error {
++	panic("cryptobackend: not available")
++}
++
++type PrivateKeyDSA = cng.PrivateKeyDSA
++type PublicKeyDSA = cng.PublicKeyDSA
++
++func SupportsDSA(l, n int) bool {
++	// These are the only N values supported by CNG
++	return n == 160 || n == 256
++}
++
++func GenerateParametersDSA(l, n int) (p, q, g cng.BigInt, err error) {
++	params, err := cng.GenerateParametersDSA(l)
++	if err != nil {
++		return nil, nil, nil, err
++	}
++	return params.P, params.Q, params.G, nil
++}
++
++func GenerateKeyDSA(p, q, g cng.BigInt) (x, y cng.BigInt, err error) {
++	return cng.GenerateKeyDSA(cng.DSAParameters{P: p, Q: q, G: g})
++}
++
++func NewPrivateKeyDSA(p, q, g, x, y cng.BigInt) (*cng.PrivateKeyDSA, error) {
++	return cng.NewPrivateKeyDSA(cng.DSAParameters{P: p, Q: q, G: g}, x, y)
++}
++
++func NewPublicKeyDSA(p, q, g, y cng.BigInt) (*cng.PublicKeyDSA, error) {
++	return cng.NewPublicKeyDSA(cng.DSAParameters{P: p, Q: q, G: g}, y)
++}
++
++func SignDSA(priv *PrivateKeyDSA, hash []byte, parseSignature func([]byte) (cng.BigInt, cng.BigInt, error)) (r, s cng.BigInt, err error) {
++	return cng.SignDSA(priv, hash)
++}
++
++func VerifyDSA(pub *PublicKeyDSA, hashed []byte, r, s cng.BigInt, encodeSignature func(r, s cng.BigInt) ([]byte, error)) bool {
++	return cng.VerifyDSA(pub, hashed, r, s)
++}
++
++func SupportsMLKEM768() bool {
++	return cng.SupportsMLKEM()
++}
++
++func SupportsMLKEM1024() bool {
++	return cng.SupportsMLKEM()
++}
++
++type DecapsulationKeyMLKEM768 = cng.DecapsulationKeyMLKEM768
++type EncapsulationKeyMLKEM768 = cng.EncapsulationKeyMLKEM768
++
++func GenerateKeyMLKEM768() (DecapsulationKeyMLKEM768, error) {
++	return cng.GenerateKeyMLKEM768()
++}
++
++func NewDecapsulationKeyMLKEM768(seed []byte) (DecapsulationKeyMLKEM768, error) {
++	return cng.NewDecapsulationKeyMLKEM768(seed)
++}
++
++func NewEncapsulationKeyMLKEM768(encapsulationKey []byte) (EncapsulationKeyMLKEM768, error) {
++	return cng.NewEncapsulationKeyMLKEM768(encapsulationKey)
++}
++
++type DecapsulationKeyMLKEM1024 = cng.DecapsulationKeyMLKEM1024
++type EncapsulationKeyMLKEM1024 = cng.EncapsulationKeyMLKEM1024
++
++func GenerateKeyMLKEM1024() (DecapsulationKeyMLKEM1024, error) {
++	return cng.GenerateKeyMLKEM1024()
++}
++
++func NewDecapsulationKeyMLKEM1024(seed []byte) (DecapsulationKeyMLKEM1024, error) {
++	return cng.NewDecapsulationKeyMLKEM1024(seed)
++}
++
++func NewEncapsulationKeyMLKEM1024(encapsulationKey []byte) (EncapsulationKeyMLKEM1024, error) {
++	return cng.NewEncapsulationKeyMLKEM1024(encapsulationKey)
++}
++
++func SupportsChaCha20Poly1305() bool {
++	return cng.SupportsChaCha20Poly1305()
++}
++
++func NewChaCha20Poly1305(key []byte) (cipher.AEAD, error) {
++	return cng.NewChaCha20Poly1305(key)
++}
+diff --git a/src/crypto/internal/backend/bbig/big.go b/src/crypto/internal/backend/bbig/big.go
+new file mode 100644
+index 00000000000000..20251a290dc2e0
+--- /dev/null
++++ b/src/crypto/internal/backend/bbig/big.go
+@@ -0,0 +1,17 @@
++// Copyright 2022 The Go Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style
++// license that can be found in the LICENSE file.
++
++//go:build !goexperiment.systemcrypto
++
++package bbig
++
++import "math/big"
++
++func Enc(b *big.Int) []uint {
++	return nil
++}
++
++func Dec(b []uint) *big.Int {
++	return nil
++}
+diff --git a/src/crypto/internal/backend/bbig/big_darwin.go b/src/crypto/internal/backend/bbig/big_darwin.go
+new file mode 100644
+index 00000000000000..889f2ff7c703d8
+--- /dev/null
++++ b/src/crypto/internal/backend/bbig/big_darwin.go
+@@ -0,0 +1,12 @@
++// Copyright 2022 The Go Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style
++// license that can be found in the LICENSE file.
++
++//go:build goexperiment.systemcrypto
++
++package bbig
++
++import "github.com/microsoft/go-crypto-darwin/bbig"
++
++var Enc = bbig.Enc
++var Dec = bbig.Dec
+diff --git a/src/crypto/internal/backend/bbig/big_linux.go b/src/crypto/internal/backend/bbig/big_linux.go
+new file mode 100644
+index 00000000000000..8a133422f20fa0
+--- /dev/null
++++ b/src/crypto/internal/backend/bbig/big_linux.go
+@@ -0,0 +1,12 @@
++// Copyright 2022 The Go Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style
++// license that can be found in the LICENSE file.
++
++//go:build goexperiment.systemcrypto
++
++package bbig
++
++import "github.com/golang-fips/openssl/v2/bbig"
++
++var Enc = bbig.Enc
++var Dec = bbig.Dec
+diff --git a/src/crypto/internal/backend/bbig/big_windows.go b/src/crypto/internal/backend/bbig/big_windows.go
+new file mode 100644
+index 00000000000000..f2c21a88bff471
+--- /dev/null
++++ b/src/crypto/internal/backend/bbig/big_windows.go
+@@ -0,0 +1,12 @@
++// Copyright 2022 The Go Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style
++// license that can be found in the LICENSE file.
++
++//go:build goexperiment.systemcrypto
++
++package bbig
++
++import "github.com/microsoft/go-crypto-winnative/cng/bbig"
++
++var Enc = bbig.Enc
++var Dec = bbig.Dec
+diff --git a/src/crypto/internal/backend/common.go b/src/crypto/internal/backend/common.go
+new file mode 100644
+index 00000000000000..a9682181ffa154
+--- /dev/null
++++ b/src/crypto/internal/backend/common.go
+@@ -0,0 +1,46 @@
++// Copyright 2022 The Go Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style
++// license that can be found in the LICENSE file.
++
++package backend
++
++import (
++	"crypto/internal/boring/sig"
++	"runtime"
++)
++
++// Unreachable marks code that should be unreachable
++// when backend is in use.
++func Unreachable() {
++	if Enabled {
++		panic("cryptobackend: invalid code execution")
++	} else {
++		// Code that's unreachable is exactly the code
++		// we want to detect for reporting standard Go crypto.
++		sig.StandardCrypto()
++	}
++}
++
++// Provided by runtime.crypto_backend_runtime_arg0 to avoid os import.
++func runtime_arg0() string
++
++func hasSuffix(s, t string) bool {
++	return len(s) > len(t) && s[len(s)-len(t):] == t
++}
++
++// UnreachableExceptTests marks code that should be unreachable
++// when backend is in use. It panics.
++func UnreachableExceptTests() {
++	// runtime_arg0 is not supported on windows.
++	// We are going through the same code patch on linux,
++	// so if we are unintentionally calling an 'unreachable' function,
++	// we will catch it there.
++	if Enabled && runtime.GOOS != "windows" {
++		name := runtime_arg0()
++		// If ran on Windows we'd need to allow _test.exe and .test.exe as well.
++		if !hasSuffix(name, "_test") && !hasSuffix(name, ".test") {
++			println("cryptobackend: unexpected code execution in", name)
++			panic("cryptobackend: invalid code execution")
++		}
++	}
 +}
 diff --git a/src/crypto/internal/backend/fips140/fips140.go b/src/crypto/internal/backend/fips140/fips140.go
 new file mode 100644
@@ -2000,11 +2376,81 @@ index 00000000000000..289d6594eac54b
 +func systemFIPSMode() bool {
 +	return false
 +}
-diff --git a/src/crypto/internal/backend/fips140/openssl_linux.go b/src/crypto/internal/backend/fips140/openssl_linux.go
+diff --git a/src/crypto/internal/backend/fips140/requirefips_nosystemcrypto.go b/src/crypto/internal/backend/fips140/requirefips_nosystemcrypto.go
 new file mode 100644
-index 00000000000000..95c93093d0b707
+index 00000000000000..dad6bcea9451e2
 --- /dev/null
-+++ b/src/crypto/internal/backend/fips140/openssl_linux.go
++++ b/src/crypto/internal/backend/fips140/requirefips_nosystemcrypto.go
+@@ -0,0 +1,15 @@
++// Copyright 2025 The Go Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style
++// license that can be found in the LICENSE file.
++
++//go:build requirefips && !goexperiment.systemcrypto
++
++package fips140
++
++func init() {
++	`
++	The requirefips tag is enabled, but no crypto backend is enabled.
++	A crypto backend is required to enable FIPS mode.
++	For more information, visit https://github.com/microsoft/go/tree/microsoft/main/eng/doc/fips
++	`
++}
+diff --git a/src/crypto/internal/backend/fips140/skipfipscheck_off.go b/src/crypto/internal/backend/fips140/skipfipscheck_off.go
+new file mode 100644
+index 00000000000000..f60b10dfa3aaf3
+--- /dev/null
++++ b/src/crypto/internal/backend/fips140/skipfipscheck_off.go
+@@ -0,0 +1,9 @@
++// Copyright 2025 The Go Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style
++// license that can be found in the LICENSE file.
++
++//go:build !ms_skipfipscheck
++
++package fips140
++
++const isSkipFIPSCheck = false
+diff --git a/src/crypto/internal/backend/fips140/skipfipscheck_on.go b/src/crypto/internal/backend/fips140/skipfipscheck_on.go
+new file mode 100644
+index 00000000000000..d3d39fd77f98db
+--- /dev/null
++++ b/src/crypto/internal/backend/fips140/skipfipscheck_on.go
+@@ -0,0 +1,9 @@
++// Copyright 2025 The Go Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style
++// license that can be found in the LICENSE file.
++
++//go:build ms_skipfipscheck
++
++package fips140
++
++const isSkipFIPSCheck = true
+diff --git a/src/crypto/internal/backend/fips140/systemfips_darwin.go b/src/crypto/internal/backend/fips140/systemfips_darwin.go
+new file mode 100644
+index 00000000000000..606a2db4dd685f
+--- /dev/null
++++ b/src/crypto/internal/backend/fips140/systemfips_darwin.go
+@@ -0,0 +1,13 @@
++// Copyright 2024 The Go Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style
++// license that can be found in the LICENSE file.
++
++//go:build goexperiment.systemcrypto
++
++package fips140
++
++const backendEnabled = true
++
++func systemFIPSMode() bool {
++	return false
++}
+diff --git a/src/crypto/internal/backend/fips140/systemfips_linux.go b/src/crypto/internal/backend/fips140/systemfips_linux.go
+new file mode 100644
+index 00000000000000..19cafc156fbc5d
+--- /dev/null
++++ b/src/crypto/internal/backend/fips140/systemfips_linux.go
 @@ -0,0 +1,59 @@
 +// Copyright 2024 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
@@ -2065,60 +2511,50 @@ index 00000000000000..95c93093d0b707
 +	// fips_enabled can be either '0' or '1'.
 +	return tmp[0] == '1'
 +}
-diff --git a/src/crypto/internal/backend/fips140/requirefips_nosystemcrypto.go b/src/crypto/internal/backend/fips140/requirefips_nosystemcrypto.go
+diff --git a/src/crypto/internal/backend/fips140/systemfips_windows.go b/src/crypto/internal/backend/fips140/systemfips_windows.go
 new file mode 100644
-index 00000000000000..dad6bcea9451e2
+index 00000000000000..a705e7bc4fc536
 --- /dev/null
-+++ b/src/crypto/internal/backend/fips140/requirefips_nosystemcrypto.go
-@@ -0,0 +1,15 @@
-+// Copyright 2025 The Go Authors. All rights reserved.
++++ b/src/crypto/internal/backend/fips140/systemfips_windows.go
+@@ -0,0 +1,35 @@
++// Copyright 2024 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
 +
-+//go:build requirefips && !goexperiment.systemcrypto
++//go:build goexperiment.systemcrypto
 +
 +package fips140
 +
-+func init() {
-+	`
-+	The requirefips tag is enabled, but no crypto backend is enabled.
-+	A crypto backend is required to enable FIPS mode.
-+	For more information, visit https://github.com/microsoft/go/tree/microsoft/main/eng/doc/fips
-+	`
++import (
++	"internal/syscall/windows/sysdll"
++	"syscall"
++	"unsafe"
++)
++
++const backendEnabled = true
++
++// Don't use github.com/microsoft/go-crypto-winnative here.
++// The fips140 package should have minimal dependencies.
++// Also, don't directly query the system FIPS mode from the registry,
++// there are some no-longer documented legacy entries that can enable FIPS mode,
++// and BCryptGetFipsAlgorithmMode supports them all.
++var (
++	bcrypt = syscall.MustLoadDLL(sysdll.Add("bcrypt.dll"))
++
++	bcryptGetFipsAlgorithmMode = bcrypt.MustFindProc("BCryptGetFipsAlgorithmMode")
++)
++
++func systemFIPSMode() bool {
++	var enabled uint32
++	ret, _, _ := bcryptGetFipsAlgorithmMode.Call(uintptr(unsafe.Pointer(&enabled)))
++	if ret != 0 {
++		return false
++	}
++	return enabled != 0
 +}
-diff --git a/src/crypto/internal/backend/fips140/skipfipscheck_off.go b/src/crypto/internal/backend/fips140/skipfipscheck_off.go
-new file mode 100644
-index 00000000000000..f60b10dfa3aaf3
---- /dev/null
-+++ b/src/crypto/internal/backend/fips140/skipfipscheck_off.go
-@@ -0,0 +1,9 @@
-+// Copyright 2025 The Go Authors. All rights reserved.
-+// Use of this source code is governed by a BSD-style
-+// license that can be found in the LICENSE file.
-+
-+//go:build !ms_skipfipscheck
-+
-+package fips140
-+
-+const isSkipFIPSCheck = false
-diff --git a/src/crypto/internal/backend/fips140/skipfipscheck_on.go b/src/crypto/internal/backend/fips140/skipfipscheck_on.go
-new file mode 100644
-index 00000000000000..d3d39fd77f98db
---- /dev/null
-+++ b/src/crypto/internal/backend/fips140/skipfipscheck_on.go
-@@ -0,0 +1,9 @@
-+// Copyright 2025 The Go Authors. All rights reserved.
-+// Use of this source code is governed by a BSD-style
-+// license that can be found in the LICENSE file.
-+
-+//go:build ms_skipfipscheck
-+
-+package fips140
-+
-+const isSkipFIPSCheck = true
 diff --git a/src/crypto/internal/backend/internal/opensslsetup/opensslsetup_linux.go b/src/crypto/internal/backend/internal/opensslsetup/opensslsetup_linux.go
 new file mode 100644
-index 00000000000000..ef97d994841717
+index 00000000000000..968cdf35985f80
 --- /dev/null
 +++ b/src/crypto/internal/backend/internal/opensslsetup/opensslsetup_linux.go
 @@ -0,0 +1,68 @@
@@ -2192,7 +2628,7 @@ index 00000000000000..ef97d994841717
 +}
 diff --git a/src/crypto/internal/backend/internal/opensslsetup/opensslsetup_linux_test.go b/src/crypto/internal/backend/internal/opensslsetup/opensslsetup_linux_test.go
 new file mode 100644
-index 00000000000000..7276cc2b871b85
+index 00000000000000..2e45358029f484
 --- /dev/null
 +++ b/src/crypto/internal/backend/internal/opensslsetup/opensslsetup_linux_test.go
 @@ -0,0 +1,92 @@
@@ -2684,442 +3120,6 @@ index 00000000000000..cdc768b1e4b57d
 +func NewChaCha20Poly1305(key []byte) (cipher.AEAD, error) {
 +	panic("cryptobackend: not available")
 +}
-diff --git a/src/crypto/internal/backend/openssl_linux.go b/src/crypto/internal/backend/openssl_linux.go
-new file mode 100644
-index 00000000000000..ccac6ce8ad0b35
---- /dev/null
-+++ b/src/crypto/internal/backend/openssl_linux.go
-@@ -0,0 +1,430 @@
-+// Copyright 2017 The Go Authors. All rights reserved.
-+// Use of this source code is governed by a BSD-style
-+// license that can be found in the LICENSE file.
-+
-+//go:build goexperiment.systemcrypto
-+
-+// Package openssl provides access to OpenSSLCrypto implementation functions.
-+// Check the variable Enabled to find out whether OpenSSLCrypto is available.
-+// If OpenSSLCrypto is not available, the functions in this package all panic.
-+package backend
-+
-+import (
-+	"crypto"
-+	"crypto/cipher"
-+	"crypto/internal/backend/fips140"
-+	_ "crypto/internal/backend/internal/opensslsetup"
-+	"crypto/internal/boring/sig"
-+	"crypto/internal/fips140only"
-+	"hash"
-+
-+	"github.com/golang-fips/openssl/v2"
-+)
-+
-+// Enabled controls whether FIPS crypto is enabled.
-+const Enabled = true
-+
-+type BigInt = openssl.BigInt
-+
-+func init() {
-+	// Some distributions, e.g. Azure Linux 3, don't set the `fips=yes` property when running in FIPS mode,
-+	// but they configure OpenSSL to use a FIPS-compliant provider (in the case of Azure Linux 3, the SCOSSL provider).
-+	// In this cases, openssl.FIPS would return `false` and openssl.FIPSCapable would return `true`.
-+	// We don't care about the `fips=yes` property as long as the provider is FIPS-compliant, so use
-+	// openssl.FIPSCapable to determine whether FIPS mode is enabled.
-+	if err := fips140.Check(func() bool { return openssl.FIPSCapable() }); err != nil {
-+		// This path can be reached for the following reasons:
-+		// - In OpenSSL 1, the active engine doesn't support FIPS mode.
-+		// - In OpenSSL 1, the active engine supports FIPS mode, but it is not enabled.
-+		// - In OpenSSL 3, the provider used by default doesn't match the `fips=yes` query.
-+		panic("opensslcrypto: " + err.Error() + ": " + openssl.VersionText())
-+	}
-+	sig.BoringCrypto()
-+	fips140only.BackendApprovedHash = FIPSApprovedHash
-+}
-+
-+const RandReader = openssl.RandReader
-+
-+func SupportsHash(h crypto.Hash) bool {
-+	return openssl.SupportsHash(h)
-+}
-+
-+func FIPSApprovedHash(h hash.Hash) bool {
-+	return openssl.FIPSApprovedHash(h)
-+}
-+
-+func SupportsSHAKE(securityBits int) bool {
-+	return openssl.SupportsSHAKE(securityBits)
-+}
-+
-+func SupportsCSHAKE(securityBits int) bool {
-+	return openssl.SupportsCSHAKE(securityBits)
-+}
-+
-+func SupportsCurve(curve string) bool {
-+	return openssl.SupportsCurve(curve)
-+}
-+
-+func SupportsRSAOAEPLabel(label []byte) bool { return true }
-+
-+func SupportsRSAPKCS1v15Encryption() bool {
-+	return openssl.SupportsRSAPKCS1v15Encryption()
-+}
-+
-+func SupportsRSAPKCS1v15Signature(hash crypto.Hash) bool {
-+	return openssl.SupportsRSAPKCS1v15Signature(hash)
-+}
-+
-+type Hash = openssl.Hash
-+type SHAKE = openssl.SHAKE
-+
-+func NewMD5() hash.Hash        { return openssl.NewMD5() }
-+func NewSHA1() hash.Hash       { return openssl.NewSHA1() }
-+func NewSHA224() hash.Hash     { return openssl.NewSHA224() }
-+func NewSHA256() hash.Hash     { return openssl.NewSHA256() }
-+func NewSHA384() hash.Hash     { return openssl.NewSHA384() }
-+func NewSHA512() hash.Hash     { return openssl.NewSHA512() }
-+func NewSHA512_224() hash.Hash { return openssl.NewSHA512_224() }
-+func NewSHA512_256() hash.Hash { return openssl.NewSHA512_256() }
-+func NewSHA3_224() *Hash       { return openssl.NewSHA3_224() }
-+func NewSHA3_256() *Hash       { return openssl.NewSHA3_256() }
-+func NewSHA3_384() *Hash       { return openssl.NewSHA3_384() }
-+func NewSHA3_512() *Hash       { return openssl.NewSHA3_512() }
-+
-+func NewSHAKE128() *SHAKE             { return openssl.NewSHAKE128() }
-+func NewSHAKE256() *SHAKE             { return openssl.NewSHAKE256() }
-+func NewCSHAKE128(N, S []byte) *SHAKE { return openssl.NewCSHAKE128(N, S) }
-+func NewCSHAKE256(N, S []byte) *SHAKE { return openssl.NewCSHAKE256(N, S) }
-+
-+func MD5(p []byte) (sum [16]byte)         { return openssl.MD5(p) }
-+func SHA1(p []byte) (sum [20]byte)        { return openssl.SHA1(p) }
-+func SHA224(p []byte) (sum [28]byte)      { return openssl.SHA224(p) }
-+func SHA256(p []byte) (sum [32]byte)      { return openssl.SHA256(p) }
-+func SHA384(p []byte) (sum [48]byte)      { return openssl.SHA384(p) }
-+func SHA512(p []byte) (sum [64]byte)      { return openssl.SHA512(p) }
-+func SHA512_224(p []byte) (sum [28]byte)  { return openssl.SHA512_224(p) }
-+func SHA512_256(p []byte) (sum [32]byte)  { return openssl.SHA512_256(p) }
-+func SumSHA3_224(p []byte) (sum [28]byte) { return openssl.SumSHA3_224(p) }
-+func SumSHA3_256(p []byte) (sum [32]byte) { return openssl.SumSHA3_256(p) }
-+func SumSHA3_384(p []byte) (sum [48]byte) { return openssl.SumSHA3_384(p) }
-+func SumSHA3_512(p []byte) (sum [64]byte) { return openssl.SumSHA3_512(p) }
-+
-+func SumSHAKE128(data []byte, length int) (sum []byte) { return openssl.SumSHAKE128(data, length) }
-+func SumSHAKE256(data []byte, length int) (sum []byte) { return openssl.SumSHAKE256(data, length) }
-+
-+func NewHMAC(h func() hash.Hash, key []byte) hash.Hash { return openssl.NewHMAC(h, key) }
-+
-+func NewAESCipher(key []byte) (cipher.Block, error)   { return openssl.NewAESCipher(key) }
-+func NewGCMTLS(c cipher.Block) (cipher.AEAD, error)   { return openssl.NewGCMTLS(c) }
-+func NewGCMTLS13(c cipher.Block) (cipher.AEAD, error) { return openssl.NewGCMTLS13(c) }
-+
-+type PublicKeyECDSA = openssl.PublicKeyECDSA
-+type PrivateKeyECDSA = openssl.PrivateKeyECDSA
-+
-+func GenerateKeyECDSA(curve string) (X, Y, D openssl.BigInt, err error) {
-+	return openssl.GenerateKeyECDSA(curve)
-+}
-+
-+func NewPrivateKeyECDSA(curve string, X, Y, D openssl.BigInt) (*openssl.PrivateKeyECDSA, error) {
-+	return openssl.NewPrivateKeyECDSA(curve, X, Y, D)
-+}
-+
-+func NewPublicKeyECDSA(curve string, X, Y openssl.BigInt) (*openssl.PublicKeyECDSA, error) {
-+	return openssl.NewPublicKeyECDSA(curve, X, Y)
-+}
-+
-+func SignMarshalECDSA(priv *openssl.PrivateKeyECDSA, hash []byte) ([]byte, error) {
-+	return openssl.SignMarshalECDSA(priv, hash)
-+}
-+
-+func VerifyECDSA(pub *openssl.PublicKeyECDSA, hash []byte, sig []byte) bool {
-+	return openssl.VerifyECDSA(pub, hash, sig)
-+}
-+
-+func SupportsRSAPrivateKey(bits, primes int) bool {
-+	// The built-in OpenSSL 3 providers and OpenSSL 1 do support n-prime RSA keys,
-+	// but SCOSSL only supports 2-prime RSA keys.
-+	// Only 2-prime RSA keys are FIPS compliant, other n having compatibility
-+	// and security issues. Even crypto/rsa deprecated rsa.GenerateMultiPrimeKey as of Go 1.21.
-+	// Given the above reasons, we only support what SCOSSL supports.
-+	return primes == 2 && SupportsRSAPublicKey(bits)
-+}
-+
-+func SupportsRSAPublicKey(bits int) bool {
-+	min := 1024
-+	if fips140.Enabled() {
-+		// The built-in OpenSSL 3 FIPS provider requires at least 2048 bits for FIPS compliance.
-+		min = 2048
-+	}
-+	return bits >= min && bits%8 == 0 && bits <= 16384
-+}
-+
-+func SupportsRSASaltLength(sign bool, salt int) bool {
-+	return true
-+}
-+
-+type PublicKeyRSA = openssl.PublicKeyRSA
-+type PrivateKeyRSA = openssl.PrivateKeyRSA
-+
-+func DecryptRSAOAEP(h, mgfHash hash.Hash, priv *openssl.PrivateKeyRSA, ciphertext, label []byte) ([]byte, error) {
-+	return openssl.DecryptRSAOAEP(h, mgfHash, priv, ciphertext, label)
-+}
-+
-+func DecryptRSAPKCS1(priv *openssl.PrivateKeyRSA, ciphertext []byte) ([]byte, error) {
-+	return openssl.DecryptRSAPKCS1(priv, ciphertext)
-+}
-+
-+func DecryptRSANoPadding(priv *openssl.PrivateKeyRSA, ciphertext []byte) ([]byte, error) {
-+	return openssl.DecryptRSANoPadding(priv, ciphertext)
-+}
-+
-+func EncryptRSAOAEP(h, mgfHash hash.Hash, pub *openssl.PublicKeyRSA, msg, label []byte) ([]byte, error) {
-+	return openssl.EncryptRSAOAEP(h, mgfHash, pub, msg, label)
-+}
-+
-+func EncryptRSAPKCS1(pub *openssl.PublicKeyRSA, msg []byte) ([]byte, error) {
-+	return openssl.EncryptRSAPKCS1(pub, msg)
-+}
-+
-+func EncryptRSANoPadding(pub *openssl.PublicKeyRSA, msg []byte) ([]byte, error) {
-+	return openssl.EncryptRSANoPadding(pub, msg)
-+}
-+
-+func GenerateKeyRSA(bits int) (N, E, D, P, Q, Dp, Dq, Qinv openssl.BigInt, err error) {
-+	return openssl.GenerateKeyRSA(bits)
-+}
-+
-+func NewPrivateKeyRSA(N, E, D, P, Q, Dp, Dq, Qinv openssl.BigInt) (*openssl.PrivateKeyRSA, error) {
-+	return openssl.NewPrivateKeyRSA(N, E, D, P, Q, Dp, Dq, Qinv)
-+}
-+
-+func NewPublicKeyRSA(N, E openssl.BigInt) (*openssl.PublicKeyRSA, error) {
-+	return openssl.NewPublicKeyRSA(N, E)
-+}
-+
-+func SignRSAPKCS1v15(priv *openssl.PrivateKeyRSA, h crypto.Hash, hashed []byte) ([]byte, error) {
-+	return openssl.SignRSAPKCS1v15(priv, h, hashed)
-+}
-+
-+func SignRSAPSS(priv *openssl.PrivateKeyRSA, h crypto.Hash, hashed []byte, saltLen int) ([]byte, error) {
-+	return openssl.SignRSAPSS(priv, h, hashed, saltLen)
-+}
-+
-+func VerifyRSAPKCS1v15(pub *openssl.PublicKeyRSA, h crypto.Hash, hashed, sig []byte) error {
-+	return openssl.VerifyRSAPKCS1v15(pub, h, hashed, sig)
-+}
-+
-+func VerifyRSAPSS(pub *openssl.PublicKeyRSA, h crypto.Hash, hashed, sig []byte, saltLen int) error {
-+	return openssl.VerifyRSAPSS(pub, h, hashed, sig, saltLen)
-+}
-+
-+type PublicKeyECDH = openssl.PublicKeyECDH
-+type PrivateKeyECDH = openssl.PrivateKeyECDH
-+
-+func ECDH(priv *openssl.PrivateKeyECDH, pub *openssl.PublicKeyECDH) ([]byte, error) {
-+	return openssl.ECDH(priv, pub)
-+}
-+
-+func GenerateKeyECDH(curve string) (*openssl.PrivateKeyECDH, []byte, error) {
-+	return openssl.GenerateKeyECDH(curve)
-+}
-+
-+func NewPrivateKeyECDH(curve string, bytes []byte) (*openssl.PrivateKeyECDH, error) {
-+	return openssl.NewPrivateKeyECDH(curve, bytes)
-+}
-+
-+func NewPublicKeyECDH(curve string, bytes []byte) (*openssl.PublicKeyECDH, error) {
-+	return openssl.NewPublicKeyECDH(curve, bytes)
-+}
-+
-+func SupportsTLS13KDF() bool {
-+	return openssl.SupportsTLS13KDF()
-+}
-+
-+func ExpandTLS13KDF(h func() hash.Hash, pseudorandomKey, label, context []byte, keyLength int) ([]byte, error) {
-+	return openssl.ExpandTLS13KDF(h, pseudorandomKey, label, context, keyLength)
-+}
-+
-+func SupportsHKDF() bool {
-+	return openssl.SupportsHKDF()
-+}
-+
-+func ExpandHKDF(h func() hash.Hash, pseudorandomKey, info []byte, keyLength int) ([]byte, error) {
-+	return openssl.ExpandHKDFOneShot(h, pseudorandomKey, info, keyLength)
-+}
-+
-+func ExtractHKDF(h func() hash.Hash, secret, salt []byte) ([]byte, error) {
-+	return openssl.ExtractHKDF(h, secret, salt)
-+}
-+
-+func SupportsPBKDF2() bool {
-+	return openssl.SupportsPBKDF2()
-+}
-+
-+func PBKDF2(pass, salt []byte, iter, keyLen int, h func() hash.Hash) ([]byte, error) {
-+	return openssl.PBKDF2(pass, salt, iter, keyLen, h)
-+}
-+
-+func SupportsTLS1PRF() bool {
-+	return openssl.SupportsTLS1PRF()
-+}
-+
-+func TLS1PRF(result, secret, label, seed []byte, h func() hash.Hash) error {
-+	return openssl.TLS1PRF(result, secret, label, seed, h)
-+}
-+
-+func SupportsDESCipher() bool {
-+	return openssl.SupportsDESCipher()
-+}
-+
-+func SupportsTripleDESCipher() bool {
-+	return openssl.SupportsTripleDESCipher()
-+}
-+
-+func NewDESCipher(key []byte) (cipher.Block, error) {
-+	return openssl.NewDESCipher(key)
-+}
-+
-+func NewTripleDESCipher(key []byte) (cipher.Block, error) {
-+	return openssl.NewTripleDESCipher(key)
-+}
-+
-+func SupportsRC4() bool {
-+	return openssl.SupportsRC4()
-+}
-+
-+type RC4Cipher = openssl.RC4Cipher
-+
-+func NewRC4Cipher(key []byte) (*RC4Cipher, error) { return openssl.NewRC4Cipher(key) }
-+
-+func SupportsEd25519() bool { return openssl.SupportsEd25519() }
-+
-+type PublicKeyEd25519 = *openssl.PublicKeyEd25519
-+type PrivateKeyEd25519 = *openssl.PrivateKeyEd25519
-+
-+func GenerateKeyEd25519() (PrivateKeyEd25519, error) {
-+	return openssl.GenerateKeyEd25519()
-+}
-+
-+// Deprecated: use NewPrivateKeyEd25519 instead.
-+func NewPrivateKeyEd25119(priv []byte) (PrivateKeyEd25519, error) {
-+	return openssl.NewPrivateKeyEd25519(priv)
-+}
-+
-+// Deprecated: use NewPublicKeyEd25519 instead.
-+func NewPublicKeyEd25119(pub []byte) (PublicKeyEd25519, error) {
-+	return openssl.NewPublicKeyEd25519(pub)
-+}
-+
-+func NewPrivateKeyEd25519(priv []byte) (PrivateKeyEd25519, error) {
-+	return openssl.NewPrivateKeyEd25519(priv)
-+}
-+
-+func NewPublicKeyEd25519(pub []byte) (PublicKeyEd25519, error) {
-+	return openssl.NewPublicKeyEd25519(pub)
-+}
-+
-+func NewPrivateKeyEd25519FromSeed(seed []byte) (PrivateKeyEd25519, error) {
-+	return openssl.NewPrivateKeyEd25519FromSeed(seed)
-+}
-+
-+func SignEd25519(priv PrivateKeyEd25519, message []byte) ([]byte, error) {
-+	return openssl.SignEd25519(priv, message)
-+}
-+
-+func VerifyEd25519(pub PublicKeyEd25519, message, sig []byte) error {
-+	return openssl.VerifyEd25519(pub, message, sig)
-+}
-+
-+type PublicKeyDSA = openssl.PublicKeyDSA
-+type PrivateKeyDSA = openssl.PrivateKeyDSA
-+
-+func SupportsDSA(l, n int) bool {
-+	return openssl.SupportsDSA()
-+}
-+
-+func GenerateParametersDSA(l, n int) (p, q, g openssl.BigInt, err error) {
-+	params, err := openssl.GenerateParametersDSA(l, n)
-+	return params.P, params.Q, params.G, err
-+}
-+
-+func GenerateKeyDSA(p, q, g openssl.BigInt) (x, y openssl.BigInt, err error) {
-+	return openssl.GenerateKeyDSA(openssl.DSAParameters{P: p, Q: q, G: g})
-+}
-+
-+func NewPrivateKeyDSA(p, q, g, x, y openssl.BigInt) (*openssl.PrivateKeyDSA, error) {
-+	return openssl.NewPrivateKeyDSA(openssl.DSAParameters{P: p, Q: q, G: g}, x, y)
-+}
-+
-+func NewPublicKeyDSA(p, q, g, y openssl.BigInt) (*openssl.PublicKeyDSA, error) {
-+	return openssl.NewPublicKeyDSA(openssl.DSAParameters{P: p, Q: q, G: g}, y)
-+}
-+
-+func SignDSA(priv *PrivateKeyDSA, hash []byte, parseSignature func([]byte) (openssl.BigInt, openssl.BigInt, error)) (r, s openssl.BigInt, err error) {
-+	sig, err := openssl.SignDSA(priv, hash)
-+	if err != nil {
-+		return nil, nil, err
-+	}
-+
-+	r, s, err = parseSignature(sig)
-+	if err != nil {
-+		return nil, nil, err
-+	}
-+
-+	return openssl.BigInt(r), openssl.BigInt(s), nil
-+}
-+
-+func VerifyDSA(pub *PublicKeyDSA, hashed []byte, r, s openssl.BigInt, encodeSignature func(r, s openssl.BigInt) ([]byte, error)) bool {
-+	sig, err := encodeSignature(r, s)
-+	if err != nil {
-+		return false
-+	}
-+
-+	return openssl.VerifyDSA(pub, hashed, sig)
-+}
-+
-+func SupportsMLKEM768() bool {
-+	return openssl.SupportsMLKEM768()
-+}
-+
-+func SupportsMLKEM1024() bool {
-+	return openssl.SupportsMLKEM1024()
-+}
-+
-+type DecapsulationKeyMLKEM768 = openssl.DecapsulationKeyMLKEM768
-+type EncapsulationKeyMLKEM768 = openssl.EncapsulationKeyMLKEM768
-+
-+func GenerateKeyMLKEM768() (DecapsulationKeyMLKEM768, error) {
-+	return openssl.GenerateKeyMLKEM768()
-+}
-+
-+func NewDecapsulationKeyMLKEM768(seed []byte) (DecapsulationKeyMLKEM768, error) {
-+	return openssl.NewDecapsulationKeyMLKEM768(seed)
-+}
-+
-+func NewEncapsulationKeyMLKEM768(encapsulationKey []byte) (EncapsulationKeyMLKEM768, error) {
-+	return openssl.NewEncapsulationKeyMLKEM768(encapsulationKey)
-+}
-+
-+type DecapsulationKeyMLKEM1024 = openssl.DecapsulationKeyMLKEM1024
-+type EncapsulationKeyMLKEM1024 = openssl.EncapsulationKeyMLKEM1024
-+
-+func GenerateKeyMLKEM1024() (DecapsulationKeyMLKEM1024, error) {
-+	return openssl.GenerateKeyMLKEM1024()
-+}
-+
-+func NewDecapsulationKeyMLKEM1024(seed []byte) (DecapsulationKeyMLKEM1024, error) {
-+	return openssl.NewDecapsulationKeyMLKEM1024(seed)
-+}
-+
-+func NewEncapsulationKeyMLKEM1024(encapsulationKey []byte) (EncapsulationKeyMLKEM1024, error) {
-+	return openssl.NewEncapsulationKeyMLKEM1024(encapsulationKey)
-+}
-+
-+func SupportsChaCha20Poly1305() bool {
-+	return openssl.SupportsChaCha20Poly1305()
-+}
-+
-+func NewChaCha20Poly1305(key []byte) (cipher.AEAD, error) {
-+	return openssl.NewChaCha20Poly1305(key)
-+}
 diff --git a/src/crypto/internal/backend/stub.s b/src/crypto/internal/backend/stub.s
 new file mode 100644
 index 00000000000000..5e4b436554d44d
@@ -3138,7 +3138,7 @@ index 00000000000000..5e4b436554d44d
 +// (because the implementation might be here).
 diff --git a/src/crypto/systemcrypto_nocgo_linux.go b/src/crypto/systemcrypto_nocgo_linux.go
 new file mode 100644
-index 00000000000000..1461a5f75b3b06
+index 00000000000000..7500bd3a86472b
 --- /dev/null
 +++ b/src/crypto/systemcrypto_nocgo_linux.go
 @@ -0,0 +1,18 @@
