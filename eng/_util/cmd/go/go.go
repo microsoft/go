@@ -5,7 +5,6 @@
 package main
 
 import (
-	"flag"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -13,24 +12,15 @@ import (
 	"github.com/microsoft/go-infra/executil"
 )
 
-const description = `
-This command runs the given go command using _util's version of Go with the
-working directory set to the root of the _util module.
-
-All args (except '-h', used to print this help message) pass through to Go.
-`
+// This command runs the given go command using _util's version of Go with the
+// working directory set to the root of the _util module.
+//
+// All args pass through to Go. Unlike other commands, "-h"/"-help" are not
+// handled to give a detailed description of this command. It doesn't seem worth
+// the effort to handle help args in a way that doesn't introduce further edge
+// cases or usability complications.
 
 func main() {
-	flag.Usage = func() {
-		fmt.Fprintf(flag.CommandLine.Output(), "Usage of go:\n")
-		flag.PrintDefaults()
-		fmt.Fprintf(flag.CommandLine.Output(), "%s\n", description)
-	}
-
-	// Handle "-h" using built-in logic. Technically overrides go's handling,
-	// but that's fine: we expect users of these tools to know what's going on.
-	flag.Parse()
-
 	if err := run(); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
@@ -46,6 +36,6 @@ func run() error {
 	return executil.Run(executil.Dir(
 		filepath.Join("eng", "_util"),
 		filepath.Join(stage0Goroot, "bin", "go"),
-		flag.Args()...,
+		os.Args[1:]...,
 	))
 }
