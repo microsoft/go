@@ -4,13 +4,13 @@
 
 module github.com/microsoft/go/_util
 
-go 1.24.0
+go 1.25.0
 
 require (
 	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/microsoft/go-infra v0.0.8
 	github.com/microsoft/go-infra/goinstallscript v1.2.0
-	golang.org/x/net v0.50.0
+	golang.org/x/net v0.51.0
 )
 
 require (
