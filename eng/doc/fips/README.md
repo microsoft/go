@@ -280,11 +280,12 @@ We recommend fixing the build environment to allow the crypto backend to be used
 These are other fixes that may be used on a case-by-case basis:
 
 - Intentionally disable the backend and intentional become incompliant with the internal Microsoft crypto policy or FIPS. For builds within Microsoft, this should only be done under a documented exception. To do so:
-  > [!WARNING]
-  > Disabling `systemcrypto` should only be done under **exceptional circumstances** in builds performed by Microsoft. See [Disabling `systemcrypto`](../MigrationGuide.md#disabling-systemcrypto).
   - With Go 1.25.2 or later, set `MS_GO_NOSYSTEMCRYPTO=1`.
   - With Go 1.25 or later, set `GOEXPERIMENT=nosystemcrypto`.
 - Refactor the code to not use a `crypto` package. For example, when computing a hash for non-cryptographic purposes, there are several alternatives in the Go standard library that don't require a crypto backend, such as `hash/fnv` or `hash/maphash`.
+
+> [!WARNING]
+> Disabling `systemcrypto` should only be done under **exceptional circumstances** in builds performed by Microsoft. See [Disabling `systemcrypto`](../MigrationGuide.md#disabling-systemcrypto).
 
 > [!NOTE]
 > `MS_GO_NOSYSTEMCRYPTO=1` has precedence over `GOEXPERIMENT` values.
