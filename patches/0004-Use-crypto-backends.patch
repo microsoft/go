@@ -50,7 +50,7 @@ Subject: [PATCH] Use crypto backends
  .../internal/cryptotest/implementations.go    |   2 +-
  src/crypto/internal/fips140hash/hash.go       |   3 +-
  .../internal/fips140only/fips140only.go       |  11 +-
- .../internal/fips140only/fips140only_test.go  |  52 +++--
+ .../internal/fips140only/fips140only_test.go  |  45 ++--
  src/crypto/internal/fips140test/acvp_test.go  |   6 +
  src/crypto/internal/fips140test/cast_test.go  |   2 +
  src/crypto/internal/fips140test/fips_test.go  |   2 +-
@@ -103,7 +103,7 @@ Subject: [PATCH] Use crypto backends
  src/hash/notboring_test.go                    |   9 +
  src/net/lookup_test.go                        |   3 +
  src/os/exec/exec_test.go                      |   9 +
- 99 files changed, 1628 insertions(+), 249 deletions(-)
+ 99 files changed, 1624 insertions(+), 246 deletions(-)
  create mode 100644 src/crypto/dsa/boring.go
  create mode 100644 src/crypto/dsa/notboring.go
  create mode 100644 src/crypto/ecdsa/badlinkname.go
@@ -176,10 +176,10 @@ index ed0fbf3d53d75b..a2f74c8095d449 100644
  func TestBoringInternalLink(t *testing.T) {
  	tg := testgo(t)
 diff --git a/src/cmd/go/script_test.go b/src/cmd/go/script_test.go
-index 390a36723787f4..0576ea8add72af 100644
+index f6eaddf8fb3f40..48151eee988ba4 100644
 --- a/src/cmd/go/script_test.go
 +++ b/src/cmd/go/script_test.go
-@@ -297,6 +297,8 @@ var extraEnvKeys = []string{
+@@ -296,6 +296,8 @@ var extraEnvKeys = []string{
  	"GO_TESTING_GOTOOLS", // for gccgo testing
  	"GCCGO",              // for gccgo testing
  	"GCCGOTOOLDIR",       // for gccgo testing
@@ -1784,7 +1784,7 @@ index a8d840b17022cc..2a17f7da2d4aaa 100644
 +	return false
  }
 diff --git a/src/crypto/internal/fips140only/fips140only_test.go b/src/crypto/internal/fips140only/fips140only_test.go
-index 96df536d56f345..01613841a3c87e 100644
+index 96df536d56f345..91d2a792d90296 100644
 --- a/src/crypto/internal/fips140only/fips140only_test.go
 +++ b/src/crypto/internal/fips140only/fips140only_test.go
 @@ -17,6 +17,7 @@ import (
@@ -1817,22 +1817,15 @@ index 96df536d56f345..01613841a3c87e 100644
  	expectPanic(t, func() { cipher.NewCTR(notAESBlock, iv) })
  
  	expectPanic(t, func() { cipher.NewOFB(aesBlock, iv) })
-@@ -310,13 +317,16 @@ bXVL8iKLrG91IYQByUHZIn3WVAd2bfi4MfKagRt0ggd4
- 	expectErr(t, errRet2(hpke.DHKEM(ecdh.X25519()).NewPublicKey(make([]byte, 32))))
- 	hpkeK, err := hpke.MLKEM768().GenerateKey()
- 	expectNoErr(t, err)
--	expectErr(t, errRet2(hpke.Seal(hpkeK.PublicKey(), hpke.HKDFSHA256(), hpke.ChaCha20Poly1305(), nil, nil)))
--	expectErr(t, errRet2(hpke.Open(hpkeK, hpke.HKDFSHA256(), hpke.ChaCha20Poly1305(), nil, make([]byte, 2000))))
--
+@@ -313,10 +320,12 @@ bXVL8iKLrG91IYQByUHZIn3WVAd2bfi4MfKagRt0ggd4
+ 	expectErr(t, errRet2(hpke.Seal(hpkeK.PublicKey(), hpke.HKDFSHA256(), hpke.ChaCha20Poly1305(), nil, nil)))
+ 	expectErr(t, errRet2(hpke.Open(hpkeK, hpke.HKDFSHA256(), hpke.ChaCha20Poly1305(), nil, make([]byte, 2000))))
+ 
 -	// fips140=only mode should prevent any operation that would make the FIPS
 -	// 140-3 module set its service indicator to false.
 -	if !fips140.ServiceIndicator() {
 -		t.Errorf("service indicator not set")
 +	if !boring.Enabled {
-+		// TODO implement error handling in backends that check for fips140only.Enforced().
-+		expectErr(t, errRet2(hpke.Seal(hpkeK.PublicKey(), hpke.HKDFSHA256(), hpke.ChaCha20Poly1305(), nil, nil)))
-+		expectErr(t, errRet2(hpke.Open(hpkeK, hpke.HKDFSHA256(), hpke.ChaCha20Poly1305(), nil, make([]byte, 2000))))
-+
 +		// fips140=only mode should prevent any operation that would make the FIPS
 +		// 140-3 module set its service indicator to false.
 +		if !fips140.ServiceIndicator() {
@@ -1841,7 +1834,7 @@ index 96df536d56f345..01613841a3c87e 100644
  	}
  }
  
-@@ -329,16 +339,22 @@ type readerWrap struct {
+@@ -329,16 +338,22 @@ type readerWrap struct {
  }
  
  func withApprovedHash(f func(crypto.Hash)) {
