@@ -275,13 +275,13 @@ It's possible to disable `systemcrypto` and use the Go standard library's implem
 > If you haven't already, check the [Migration Guide](/eng/doc/MigrationGuide.md) to find common issues and fixes.
 
 > [!TIP]
-> If your project don't use the `crypto` package at all, `systemcrypto` is not included in your program.
+> If your project doesn't use the `crypto` package at all, `systemcrypto` is not included in your program.
 > This is an alternative to complying with cryptography policies: refactor the code to not use any cryptography.
 > While this isn't possible for many types of projects, it may be an ideal approach for tools that only run on a local machine.
 >
 > For example, when computing a hash for non-cryptographic purposes, there are several alternatives in the Go standard library that don't require a crypto backend, such as `hash/fnv` or `hash/maphash`.
 
-If it's acceptable to become incompliant with the internal Microsoft crypto policy and FIPS, you can use the Go standard library cryptography implementation by disabling the `systemcrypto` backend:
+If it's acceptable to become noncompliant with the internal Microsoft crypto policy and FIPS, you can use the Go standard library cryptography implementation by disabling the `systemcrypto` backend:
 
 - With Go 1.25.2 or later, set the `MS_GO_NOSYSTEMCRYPTO` environment variable to `1`.
 - With Go 1.25 or later, set the `GOEXPERIMENT` environment variable to `nosystemcrypto`.
