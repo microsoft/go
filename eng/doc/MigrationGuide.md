@@ -152,12 +152,28 @@ After switching to the Microsoft build of Go, you may encounter new build errors
 
 #### Cgo is not enabled
 
+You may see this error message if cgo is not enabled:
+
 ```
-Using GOEXPERIMENT=systemcrypto on Linux requires CGO_ENABLED=1.
+# crypto
+../../../sdk/msgo1.26.0-1/src/crypto/systemcrypto_nocgo_linux.go:10:2: `
+        Using GOEXPERIMENT=systemcrypto on Linux requires CGO_ENABLED=1.
 
-Consider using our cgo-less experiment by setting GOEXPERIMENT=ms_nocgo_opensslcrypto.
+        Consider using our cgo-less experiment by setting GOEXPERIMENT=ms_nocgo_opensslcrypto.
 
-For more information, visit https://github.com/microsoft/go/blob/microsoft/main/eng/doc/MigrationGuide.md#cgo-is-not-enabled
+        For more information, visit https://github.com/microsoft/go/blob/microsoft/main/eng/doc/MigrationGuide.md#cgo-is-not-enabled
+        ` (untyped string constant "\n\tUsing GOEXPERIMENT=systemcrypto on Linux requires CGO_ENABLED=1....) is not used
+```
+
+In Go 1.25, you may see this similar error:
+
+```
+# crypto
+../../../sdk/msgo1.25.7-1/src/crypto/systemcrypto_nocgo.go:10:2: `
+        Using a crypto backend requires CGO_ENABLED=1.
+
+        For more information, visit https://github.com/microsoft/go/tree/microsoft/main/eng/doc/fips
+        ` (untyped string constant "\n\tUsing a crypto backend requires CGO_ENABLED=1.\n\t\n\tFor more i...) is not used
 ```
 
 > [!NOTE]
@@ -165,10 +181,12 @@ For more information, visit https://github.com/microsoft/go/blob/microsoft/main/
 >
 > For more details, see [cgo-less OpenSSL Backend](NocgoOpenSSL.md).
 
+When building a Go program that imports a `crypto` package (or has a dependency that imports a `crypto` package), the build will check that the build environment and target are compatible with the crypto backend being used.
+If it's incompatible, the build will fail with an error like the above.
+
 When targeting Linux, `systemcrypto` requires cgo.
-Cgo is disabled by default on some platforms or when a C compiler is not detected
+Cgo is disabled by default on some platforms or when a C compiler is not detected.
 Sometimes a project's build scripts might explicitly disable cgo.
-There are good reasons to disable cgo, but unfortunately, cgo is currently necessary to use `systemcrypto` on Linux.
 
 In this case, you should first try to install a C compiler, like `gcc`.
 
@@ -353,15 +371,17 @@ For specific guidance within Microsoft:
 ## Disabling `systemcrypto`
 
 The difficulty of migrating to using `systemcrypto` can vary significantly depending on the Go project.
-If the change requires further planning and if it's acceptable for your project to be temporarily out of compliance with Microsoft cryptography policy, you can disable `systemcrypto` by setting the `MS_GO_NOSYSTEMCRYPTO` environment variable to 1.
-After that, build commands won't encounter errors related to `systemcrypto`, and the resulting program won't attempt to use system-provided cryptography at runtime.
+If this change requires further planning, and if it's acceptable for your project to be temporarily out of compliance with Microsoft cryptography policy, you can disable `systemcrypto`.
 
-For more information about these options, see [the "Build option to use Go crypto" section of the FIPS README](fips/README.md#build-option-to-use-go-crypto-if-the-backend-compatibility-check-fails).
+After disabling `systemcrypto`, build commands won't encounter errors related to `systemcrypto`, and the built program won't attempt to use system-provided cryptography at runtime, instead using the ordinary Go crypto implementation.
 
-More information about exceptions to the Microsoft cryptography policy can be found at [Microsoft.Security.Cryptography.10010 on the Liquid Microsoft-internal site.][msc10010]
+To disable `systemcrypto`, see the instructions in [the "Build option to use Go crypto" section of the FIPS README](fips/README.md#build-option-to-use-go-crypto).
 
 > [!NOTE]
-> The Microsoft build of Go does apply [other changes](#whats-different) to the official Go distribution, but `systemcrypto` is the most impactful, and the only one that adds additional dependencies.
+> `systemcrypto` is the most impactful change in the Microsoft build of Go compared to upstream Go, and the only change that adds additional runtime dependencies.
+>
+> However, the Microsoft build of Go does apply [other changes](#whats-different) to the official Go distribution that may cause an issue.
+> If you disable `systemcrypto` and still encounter a problem, it may be caused by another change.
 
 ## Additional Resources
 

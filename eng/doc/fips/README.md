@@ -100,7 +100,7 @@ The default behavior of the Microsoft build of Go is to use a platform-provided 
 See the [Migration Guide](/eng/doc/MigrationGuide.md) for more information on incorporating the Microsoft build of Go into your build system.
 
 `systemcrypto` modifies the Go runtime included in the program to use the specified platform-provided cryptographic library whenever it calls a Go standard library crypto API.
-If `systemcrypto` is disabled (see [build option to use Go crypto](#build-option-to-use-go-crypto-if-the-backend-compatibility-check-fails)), Go standard library cryptography is used.
+If `systemcrypto` is disabled (see [build option to use Go crypto](#build-option-to-use-go-crypto)), Go standard library cryptography is used.
 
 > [!NOTE]
 > "Experiment" doesn't indicate the FIPS features are experimental. The original intent of `GOEXPERIMENT` is to use it to enable experimental features in the Go runtime and toolchain, but we and Google are now using `GOEXPERIMENT` for this FIPS-related feature because the mechanism itself perfectly fits our needs.
@@ -133,7 +133,7 @@ We have also successfully used a rootfs to build on an older glibc version (and 
 If a crypto backend is selected but isn't supported, the build fails.
 For example, attempting to use the OpenSSL backend without cgo enabled results in a build error.
 
-For more information about disabling the crypto backend, see [build option to use Go crypto](#build-option-to-use-go-crypto-if-the-backend-compatibility-check-fails).
+For more information about disabling the crypto backend, see [build option to use Go crypto](#build-option-to-use-go-crypto).
 
 ## Usage: Runtime
 
@@ -262,36 +262,45 @@ Most programs aren't expected to use these options. Determining FIPS mode at run
 - The program's documentation can state it will always run in FIPS mode without any nuance about environment variables.
 - If the program is used by someone unfamiliar with the system they're configuring, the panic will help catch mistakes before they become a problem.
 
-### Build option to use Go crypto if the backend compatibility check fails
+### Build option to use Go crypto
 
-When building a Go program that imports a `crypto` package, the build will check that the build environment and target are compatible with the crypto backend being used, if any. If it's incompatible, the build will fail with an error. For example, a common unsupported build configuration is `GOOS=linux CGO_ENABLED=0`. The OpenSSL backend on Linux requires cgo, so the build fails:
+The Microsoft build of Go uses the `systemcrypto` backend by default to provide `crypto` functionality.
+It's possible to disable `systemcrypto` and use the Go standard library's implementation of cryptography instead.
 
-```
-# runtime
-..\..\go\src\runtime\backenderr_gen_nofallback_openssl.go:12:2: `
-        The goexperiment.systemcrypto tag is specified, but other tags required to enable that backend were not met.
-        Required build tags:
-          goexperiment.systemcrypto && linux && cgo
-        Please check your build environment and build command for a reason one or more of these tags weren't specified.
-```
+> [!CAUTION]
+> Within Microsoft, disabling `systemcrypto` should only be done in exceptional circumstances under a documented exception.
+>
+> More information about the Microsoft cryptography policy can be found at [Microsoft.Security.Cryptography.10010 on the Liquid Microsoft-internal site.][msc10010]
+>
+> If you haven't already, check the [Migration Guide](/eng/doc/MigrationGuide.md) to find common issues and fixes.
 
-We recommend fixing the build environment to allow the crypto backend to be used. (Enable cgo.)
+> [!TIP]
+> If your project doesn't use the `crypto` package at all, `systemcrypto` is not included in your program.
+> This is an alternative to complying with cryptography policies: refactor the code to not use any cryptography.
+> While this isn't possible for many types of projects, it may be an ideal approach for tools that only run on a local machine.
+>
+> For example, when computing a hash for non-cryptographic purposes, there are several alternatives in the Go standard library that don't require a crypto backend, such as `hash/fnv` or `hash/maphash`.
 
-These are other fixes that may be used on a case-by-case basis:
+If it's acceptable to become noncompliant with the internal Microsoft crypto policy and FIPS, you can use the Go standard library cryptography implementation by disabling the `systemcrypto` backend:
 
-- Intentionally disable the backend and intentional become incompliant with the internal Microsoft crypto policy or FIPS. For builds within Microsoft, this should only be done under a documented exception. To do so:
-  > [!WARNING]
-  > Disabling `systemcrypto` should only be done under **exceptional circumstances** in builds performed by Microsoft. See [Disabling `systemcrypto`](../MigrationGuide.md#disabling-systemcrypto).
-  - With Go 1.25.2 or later, set `MS_GO_NOSYSTEMCRYPTO=1`.
-  - With Go 1.25 or later, set `GOEXPERIMENT=nosystemcrypto`.
-- Refactor the code to not use a `crypto` package. For example, when computing a hash for non-cryptographic purposes, there are several alternatives in the Go standard library that don't require a crypto backend, such as `hash/fnv` or `hash/maphash`.
+- With Go 1.25.2 or later, set the `MS_GO_NOSYSTEMCRYPTO` environment variable to `1`.
+- With Go 1.25 or later, set the `GOEXPERIMENT` environment variable to `nosystemcrypto`.
+
+Both of the above methods are supported, but we encourage using `MS_GO_NOSYSTEMCRYPTO` instead of `GOEXPERIMENT`:
+
+- `GOEXPERIMENT=nosystemcrypto` may make your *build command* incompatible with the official Go toolset. ([microsoft/go#1880](https://github.com/microsoft/go/issues/1880))
+- `MS_GO_NOSYSTEMCRYPTO=1` doesn't involve the `GOEXPERIMENT` mechanism. It's simpler to use and to incorporate into any build process.
+
+> [!WARNING]
+> `MS_GO_NOSYSTEMCRYPTO=1` has precedence over `GOEXPERIMENT` values.
+> It will disable the backend even if `GOEXPERIMENT=systemcrypto` is set.
+>
+> Specifically, `MS_GO_NOSYSTEMCRYPTO=1 GOEXPERIMENT=systemcrypto go build .` builds a program that uses Go standard library cryptography.
 
 > [!NOTE]
-> `MS_GO_NOSYSTEMCRYPTO=1` has precedence over `GOEXPERIMENT` values.
-> For example, setting `MS_GO_NOSYSTEMCRYPTO=1` and `GOEXPERIMENT=systemcrypto` builds a program that uses Go standard library cryptography.
-
-> [!IMPORTANT]
-> Individual crypto calls may fall back to standard Go crypto at runtime if the selected backend doesn't support an API or the arguments used. See the [FIPS User Guide](UserGuide.md) for more information.
+> Your program may use Go crypto even if `systemcrypto` is enabled.
+> If the selected backend doesn't support an API or the specific arguments used to call it, the call may fall back to using standard Go crypto at runtime.
+> See the [FIPS User Guide](UserGuide.md) for more information.
 
 ### Runtime OpenSSL version override
 
@@ -425,19 +434,23 @@ This list of major changes is intended for quick reference and for access to his
 
 - Support for `GODEBUG=fips140=only` has been added. It acts as `fips140=on`, but also panics if a non-FIPS-approved algorithm is used.
 - The per-platform GOEXPERIMENTs (`opensslcrypto`, `cngcrypto`, `darwincrypto`) have been removed.
-  - The `systemcrypto` GOEXPERIMENT is now enabled by default on all platforms where it's supported (Windows, Linux and macOS). To disable it, set `GOEXPERIMENT=nosystemcrypto`.
   - Using any of the removed experiments will result in a build error.
+  - The `systemcrypto` GOEXPERIMENT has been the preferred way to select a crypto backend since it was introduced in Go 1.21. It is now the only way.
+  - The build tags (build constraints) associated with the removed GOEXPERIMENTs are no longer supported.
+    - The per-platform tags are not set by the Microsoft build of Go when `systemcrypto` is enabled.
+    - Manually using `-tags` to enable a per-platform backend tag no longer has any effect on the standard library.
+    - The `goexperiment.systemcrypto` build tag remains supported, and its behavior has not changed.
 
 ### Go 1.26 (Feb 2026)
 
 - The `systemcrypto` goexperiment is now enabled by default on macOS.
 - The macOS backend is no longer "preview" and is now fully supported.
-- `systemcrypto` can be disabled at build time using `MS_GO_NOSYSTEMCRYPTO=1`. This is now the preferred way to disable `systemcrypto` when necessary.
+- `systemcrypto` can be [disabled at build time](#build-option-to-use-go-crypto) by setting the `MS_GO_NOSYSTEMCRYPTO` environment variable to `1`.
 - Setting the enabled FIPS preference will not cause a panic on Windows even if the Windows FIPS policy is not enabled.
 
 ### Go 1.25.2 (Oct 2025)
 
-- `systemcrypto` can be disabled at build time using `MS_GO_NOSYSTEMCRYPTO=1`. This is now the preferred way to disable `systemcrypto` when necessary.
+- `systemcrypto` can be [disabled at build time](#build-option-to-use-go-crypto) by setting the `MS_GO_NOSYSTEMCRYPTO` environment variable to `1`.
 
 ### Go 1.25 (Aug 2025)
 
