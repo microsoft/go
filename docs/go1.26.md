@@ -13,10 +13,11 @@ For more information, see [the Additional Features document](https://github.com/
 
 ## Systemcrypto
 
+See the [FIPS documentation Go 1.26 changelog](https://github.com/microsoft/go/blob/microsoft/main/eng/doc/fips/README.md#go-126-feb-2026) for more information.
+
 ### Configuration
 
 You can disable `systemcrypto` at build time by setting the environment variable `MS_GO_NOSYSTEMCRYPTO` to `1`.
-This is now the preferred method for disabling systemcrypto when necessary.
 
 ### Backends
 
