@@ -5,13 +5,14 @@ Subject: [PATCH] Add appinsights telemetry
 
 ---
  README.md                                     | 15 ++++++
+ .../internal/telemetrystats/telemetrystats.go | 14 +++++
  src/cmd/go/main.go                            |  8 +++
  src/cmd/go/mstelemetry_test.go                | 52 +++++++++++++++++++
  src/cmd/go/script_test.go                     |  8 +++
  src/cmd/go/scriptcmds_test.go                 | 11 ++++
  src/cmd/internal/telemetry/counter/counter.go | 48 ++++++++++++++++-
  .../telemetry/counter/counter_bootstrap.go    |  3 ++
- 7 files changed, 144 insertions(+), 1 deletion(-)
+ 8 files changed, 158 insertions(+), 1 deletion(-)
  create mode 100644 src/cmd/go/mstelemetry_test.go
 
 diff --git a/README.md b/README.md
@@ -38,11 +39,44 @@ index 71c9d1dc299388..8cab5daec4da54 100644
 +our privacy statement. Your use of the software operates as your consent to
 +these practices.
 \ No newline at end of file
+diff --git a/src/cmd/go/internal/telemetrystats/telemetrystats.go b/src/cmd/go/internal/telemetrystats/telemetrystats.go
+index 81a6e1e1758461..1ef5eff53db267 100644
+--- a/src/cmd/go/internal/telemetrystats/telemetrystats.go
++++ b/src/cmd/go/internal/telemetrystats/telemetrystats.go
+@@ -11,7 +11,12 @@ import (
+ 	"cmd/go/internal/cfg"
+ 	"cmd/go/internal/modload"
+ 	"cmd/internal/telemetry/counter"
++	"crypto/sha256"
++	"math/big"
++	"os"
+ 	"strings"
++
++	"golang.org/x/mod/modfile"
+ )
+ 
+ func Increment() {
+@@ -39,6 +44,15 @@ func incrementConfig() {
+ 		counter.Inc("go/cgo:disabled")
+ 	}
+ 
++	if gomod := modload.FindGoMod(base.Cwd()); gomod != "" {
++		if data, err := os.ReadFile(gomod); err == nil {
++			if f, err := modfile.ParseLax(gomod, data, nil); err == nil && f.Module != nil {
++				h := sha256.Sum256([]byte(f.Module.Mod.Path))
++				counter.Inc("msgo/modulehash:" + new(big.Int).SetBytes(h[:]).String())
++			}
++		}
++	}
++
+ 	counter.Inc("go/platform/target/goos:" + cfg.Goos)
+ 	counter.Inc("go/platform/target/goarch:" + cfg.Goarch)
+ 	switch cfg.Goarch {
 diff --git a/src/cmd/go/main.go b/src/cmd/go/main.go
-index e81969ca4a3144..67dbcb2e7a3cb9 100644
+index 8cdfd9196e4cb1..3f4a4d8f912969 100644
 --- a/src/cmd/go/main.go
 +++ b/src/cmd/go/main.go
-@@ -111,6 +111,14 @@ func main() {
+@@ -110,6 +110,14 @@ func main() {
  	}
  	flag.Usage = base.Usage
  	flag.Parse()
@@ -116,7 +150,7 @@ index 00000000000000..6993137ad56e8c
 +	fmt.Fprint(w, `{"itemsReceived": 1, "itemsAccepted": 1}`)
 +}
 diff --git a/src/cmd/go/script_test.go b/src/cmd/go/script_test.go
-index 1345ea8bb8e530..e2b75957e21d3a 100644
+index d947c0b28454c7..d9651ae2cc5f22 100644
 --- a/src/cmd/go/script_test.go
 +++ b/src/cmd/go/script_test.go
 @@ -60,6 +60,7 @@ func TestScript(t *testing.T) {
@@ -127,7 +161,7 @@ index 1345ea8bb8e530..e2b75957e21d3a 100644
  
  	var (
  		ctx         = context.Background()
-@@ -254,6 +255,8 @@ func scriptEnv(srv *vcstest.Server, srvCertFile string) ([]string, error) {
+@@ -253,6 +254,8 @@ func scriptEnv(srv *vcstest.Server, srvCertFile string) ([]string, error) {
  		"HGRCPATH=",
  		"GOTOOLCHAIN=auto",
  		"MS_GOTOOLCHAIN_ALLOW_NON_LOCAL=1", // allow non-local toolchains, some tests expect GOTOOLCHAIN to be honored
@@ -136,7 +170,7 @@ index 1345ea8bb8e530..e2b75957e21d3a 100644
  		"newline=\n",
  	}
  
-@@ -408,6 +411,11 @@ func checkCounters(t *testing.T, telemetryDir string) {
+@@ -407,6 +410,11 @@ func checkCounters(t *testing.T, telemetryDir string) {
  			t.Fatal("go was invoked but no counters were incremented")
  		}
  	}
@@ -149,10 +183,10 @@ index 1345ea8bb8e530..e2b75957e21d3a 100644
  
  // Copied from https://go.googlesource.com/telemetry/+/5f08a0cbff3f/internal/telemetry/mode.go#122
 diff --git a/src/cmd/go/scriptcmds_test.go b/src/cmd/go/scriptcmds_test.go
-index ced8d880e9ae3a..b3ad521ff94873 100644
+index 8195e830caa31b..cb59a8b278e9b4 100644
 --- a/src/cmd/go/scriptcmds_test.go
 +++ b/src/cmd/go/scriptcmds_test.go
-@@ -71,6 +71,7 @@ func scriptCC(cmdExec script.Cmd) script.Cmd {
+@@ -72,6 +72,7 @@ func scriptCC(cmdExec script.Cmd) script.Cmd {
  }
  
  var scriptGoInvoked sync.Map // testing.TB → go command was invoked
@@ -160,7 +194,7 @@ index ced8d880e9ae3a..b3ad521ff94873 100644
  
  // scriptGo runs the go command.
  func scriptGo(cancel func(*exec.Cmd) error, waitDelay time.Duration) script.Cmd {
-@@ -85,6 +86,16 @@ func scriptGo(cancel func(*exec.Cmd) error, waitDelay time.Duration) script.Cmd
+@@ -86,6 +87,16 @@ func scriptGo(cancel func(*exec.Cmd) error, waitDelay time.Duration) script.Cmd
  		if !dup {
  			t.Cleanup(func() { scriptGoInvoked.Delete(t) })
  		}
