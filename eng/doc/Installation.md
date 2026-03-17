@@ -19,10 +19,6 @@ documents container images that are available on Microsoft Artifact Registry.
 The **[Azure Linux](https://github.com/microsoft/azurelinux)** distribution
 includes the `golang` package, a build of this fork of Go.
 
-For more information about how to manage the `systemcrypto` migration from 1.24
-to 1.25 in Azure Linux 3, see
-[the `systemcrypto` section of the Migration Guide](MigrationGuide.md#migration-to-systemcrypto).
-
 ## Ubuntu
 
 To install the Microsoft build of Go using an Ubuntu package, first set up the [Linux package repository for Microsoft Products](https://learn.microsoft.com/en-us/linux/packages).
