@@ -74,7 +74,7 @@ The [Installation](eng/doc/Installation.md) documentation contains sections desc
 * [Azure Linux](eng/doc/Installation.md#azure-linux)
 * [Ubuntu](eng/doc/Installation.md#ubuntu)
 * [Azure Pipelines `GoTool@0` task](eng/doc/Installation.md#azure-pipelines-gotool0-task)
-* [GitHub Actions `setup-go`](eng/doc/Installation.md#github-actions-setup-go)
+* [GitHub Actions `setup-go` action](eng/doc/Installation.md#github-actions-setup-go-action)
 * [The `go-install.ps1` script](eng/doc/Installation.md#the-go-installps1-script)
 * [Binary archive](eng/doc/Installation.md#binary-archive)
 * [Build from source](eng/doc/Installation.md#build-from-source)
