@@ -72,7 +72,7 @@ If your CI system has a built-in task or action that installs Go, it may support
 ### A `go` toolset that happens to be on my build agent
 
 Some build agents (VMs, containers, etc.) have `go` conveniently pre-installed, but it's the official distribution of Go rather than the Microsoft build.
-A universal migration is to use [the cross-platform `go-install.ps1` script](/README.md#the-go-installps1-script).
+A universal migration is to use [the cross-platform `go-install.ps1` script](Installation.md#the-go-installps1-script).
 However, we recommend looking at these options first:
 
 * Request that your agent provider includes the Microsoft build of Go.
