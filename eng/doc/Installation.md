@@ -36,7 +36,7 @@ The [`GoTool@0`](https://learn.microsoft.com/azure/devops/pipelines/tasks/refere
 
 To use it, set these parameters:
 
-* `version`: the task supports the version formats `1.X`, `1.X.Y`, and `1.X.Y-Z`, and if there is a partial match, it installs the latest matching version. We recommend using the latest major version, currently `1.26`.
+* `version`: the task supports the version formats `1.X`, `1.X.Y`, and `1.X.Y-Z`, and if there is a partial match, it installs the latest matching version.
 * `goDownloadUrl`: use `https://aka.ms/golang/release/latest` to select the Microsoft build of Go.
 
 The resulting step in a yml-based Azure Pipeline looks like this:
