@@ -104,7 +104,7 @@ If you're using it, no action is needed.
 ### An Ubuntu `golang` package
 
 Ubuntu packages for the Microsoft build of Go are `msft-golang` on the [Linux Software Repository for Microsoft Products](https://learn.microsoft.com/en-us/linux/packages), also known as PMC (packages.microsoft.com).
-Install instructions [are in the Installation Guide(Installation.md#ubuntu).
+Install instructions [are in the Installation Guide](Installation.md#ubuntu).
 
 ### A OneBranch Azure Pipeline
 
