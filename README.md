@@ -57,21 +57,18 @@ There are a few additional support resources internal to Microsoft:
 
 ## Download and install
 
-We build the forked Go toolset with the following list of OS/Arch combinations:
+We build the Microsoft build of Go toolset with the following OS/Arch combinations:
 
-* `linux_amd64`
-* `linux_armv6l`
-* `linux_arm64`
-* `windows_amd64`
-* `windows_arm64`
-* `darwin_amd64`
-* `darwin_arm64`
+| OS | `amd64` | `arm64` | `armv6l` |
+| --- | :---: | :---: | :---: |
+| `linux` | ✓ | ✓ | ✓ |
+| `windows` | ✓ | ✓ | |
+| `darwin` (macOS) | ✓ | ✓ | |
 
-Visit the [Migration Guide](eng/doc/MigrationGuide.md) for guidance about how we
-recommend migrating existing Go projects to use the Microsoft build of Go. This
-guide also helps resolve commonly encountered issues.
+Visit the [Migration Guide](eng/doc/MigrationGuide.md) for guidance about how we recommend migrating existing Go projects to use the Microsoft build of Go.
+This guide also helps resolve commonly encountered issues.
 
-The following installation methods are available. See [Installation](eng/doc/Installation.md) for full details.
+The [Installation](eng/doc/Installation.md) documentation contains sections describing each of the following installation methods:
 
 * [Docker Container Images](eng/doc/Installation.md#docker-container-images)
 * [Azure Linux](eng/doc/Installation.md#azure-linux)
