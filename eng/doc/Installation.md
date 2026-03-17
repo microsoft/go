@@ -59,7 +59,7 @@ The [`actions/setup-go`](https://github.com/actions/setup-go) GitHub Action supp
 
 To use it, set these parameters:
 
-* `version`: the version of Go to install.
+* `go-version`: the version of Go to install.
 * `go-download-base-url`: use `https://aka.ms/golang/release/latest` to select the Microsoft build of Go.
 
 The resulting step in a GitHub Actions workflow looks like this:
@@ -82,7 +82,7 @@ If you use GitHub Actions, pass the `-GitHubActionsPath` argument to automatical
 
 ## Binary archive
 
-[Signed builds of Go](https://github.com/microsoft/go/blob/microsoft/main/eng/doc/Downloads.md)
+[Signed builds of Go](Downloads.md)
 for several platforms are available as `zip` and `tar.gz` files.
 
 ## Build from source
