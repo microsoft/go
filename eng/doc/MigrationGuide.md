@@ -57,29 +57,17 @@ For a detailed description of every feature, see the [Additional Features](./Add
 This section describes some migration scenarios we know about and the path we recommend following for each one.
 
 > [!NOTE]
-> Any method of installing the Microsoft build of Go specified [in the project README file](/README.md#download-and-install) is valid.
+> Any method of installing the Microsoft build of Go specified [in the Installation guide](Installation.md) is valid.
 > If you see a good fit, go ahead and use it.
 >
 > The scenarios in the following sections simply offer targeted guidance to help find the easiest approach.
 
-### The `GoTool@0` Azure Pipelines task
+### A CI task or action that installs Go
 
-The [GoTool@0](https://learn.microsoft.com/azure/devops/pipelines/tasks/reference/go-tool-v0) Azure Pipelines build task supports installing the Microsoft build of Go.
+If your CI system has a built-in task or action that installs Go, it may support installing the Microsoft build of Go:
 
-To use it, set these parameters:
-
-* `version`: the task supports the version formats `1.X`, `1.X.Y`, and `1.X.Y-Z`, and if there is a partial match, it installs the latest matching version. We recommend using the latest major version, currently `1.26`.
-* `goDownloadUrl`: use `https://aka.ms/golang/release/latest` to select the Microsoft build of Go.
-
-The resulting step in a yml-based Azure Pipeline looks like this:
-
-```yml
-- task: GoTool@0
-  displayName: 'Install Go'
-  inputs:
-    version: '1.26'
-    goDownloadUrl: 'https://aka.ms/golang/release/latest'
-```
+* **Azure Pipelines:** use the [`GoTool@0` task](Installation.md#azure-pipelines-gotool0-task).
+* **GitHub Actions:** use the [`actions/setup-go` action](Installation.md#github-actions-setup-go).
 
 ### A `go` toolset that happens to be on my build agent
 
