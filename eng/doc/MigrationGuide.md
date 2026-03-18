@@ -67,7 +67,7 @@ This section describes some migration scenarios we know about and the path we re
 If your CI system has a built-in task or action that installs Go, it may support installing the Microsoft build of Go:
 
 * **Azure Pipelines:** use the [`GoTool@0` task](Installation.md#azure-pipelines-gotool0-task).
-* **GitHub Actions:** use the [`actions/setup-go` action](Installation.md#github-actions-setup-go).
+* **GitHub Actions:** use the [`actions/setup-go` action](Installation.md#github-actions-setup-go-action).
 
 ### A `go` toolset that happens to be on my build agent
 
