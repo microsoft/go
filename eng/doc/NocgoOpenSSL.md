@@ -41,7 +41,7 @@ To see existing requests or request support for additional architectures, use th
 
 ## Runtime dependencies
 
-The cgo-less OpenSSL backend still relies in the C machinery to load OpenSSL at runtime and manage threading.
+The cgo-less OpenSSL backend still relies in the C machinery to load OpenSSL at runtime and manage threads.
 
 This is an exhaustive list of the runtime dependencies other than OpenSSL itself:
 
