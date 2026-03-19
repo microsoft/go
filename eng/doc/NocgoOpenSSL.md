@@ -32,8 +32,23 @@ To see existing requests or request support for additional architectures, use th
 
 ## How the backend is selected
 
-If cgo is enabled (e.g., `CGO_ENABLED=1`), the cgo-based OpenSSL backend is always used.
-The cgo-less backend is only used when cgo is disabled **and** you're on a supported architecture.
+* If cgo is explicitly enabled with `CGO_ENABLED=1`, the cgo-based OpenSSL backend is used.
+* If cgo is disabled with `CGO_ENABLED=0` and you're on a supported architecture, the cgo-less OpenSSL backend is used.
+* If cgo is not explicitly enabled or disabled, then the cgo-less OpenSSL backend is used if the Go toolchain decides that cgo should be disabled. The are the rules at the time of writing:
+  * cgo is disabled if the Go toolchain is build with `CGO_ENABLED=0`. Note that that's not currently the case for the Microsoft build of Go. 
+  * cgo is disabled when cross-compiling.
+  * cgo is diables if the `CC` environment variable is not set to an existing executable.
 
-This means if cgo is enabled by default on your platform or you enable cgo for other reasons (e.g., linking your own C library), the crypto backend will use the cgo-based implementation.
-You can also intentionally enable cgo to successfully build for a platform without cgo-less OpenSSL support.
+## Runtime dependencies
+
+The cgo-less OpenSSL backend still relies in the C machinery to load OpenSSL at runtime and manage threading.
+
+This is an exhaustive list of the runtime dependencies other than OpenSSL itself:
+
+* `libc.so.6` for various C library functions. There is no minimum version requirement.
+* `libdl.so.2` for loading OpenSSL at runtime using `dlopen`. There is no minimum version requirement.
+* `libpthread.so.0` for managing Go's threads. There is no minimum version requirement.
+
+Note that `libdl.so.2` and `libpthread.so.0` functionality is already provided by `libc.so.6` since glibc 2.34.
+The Microsoft build of Go supports platforms with older versions of glibc, so it still links to `libdl.so.2` and `libpthread.so.0` directly.
+If your platform doesn't provide these libraries, you can create them as symlinks to `libc.so.6` to satisfy the dependencies, e.g. `ln -s libc.so.6 libdl.so.2` and `ln -s libc.so.6 libpthread.so.0`.
