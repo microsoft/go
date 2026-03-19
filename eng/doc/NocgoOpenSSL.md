@@ -45,9 +45,9 @@ The cgo-less OpenSSL backend still relies on the C machinery to load OpenSSL at 
 
 The following are the expected runtime dependencies other than OpenSSL itself on glibc-based systems:
 
-* `libc.so.6` for various C library functions. There is no additional minimum version requirement beyond the glibc baseline supported by this Go distribution.
-* `libdl.so.2` for loading OpenSSL at runtime using `dlopen`. There is no additional minimum version requirement beyond the glibc baseline supported by this Go distribution.
-* `libpthread.so.0` for managing Go's threads. There is no additional minimum version requirement beyond the glibc baseline supported by this Go distribution.
+* `libc.so.6` for various C library functions.
+* `libdl.so.2` for loading OpenSSL at runtime using `dlopen`.
+* `libpthread.so.0` for managing Go's threads.
 
 Note that `libdl.so.2` and `libpthread.so.0` functionality is already provided by `libc.so.6` since glibc 2.34.
 The Microsoft build of Go supports platforms with older versions of glibc, so it still links to `libdl.so.2` and `libpthread.so.0` directly.
