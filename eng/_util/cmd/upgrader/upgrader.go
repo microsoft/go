@@ -145,20 +145,55 @@ func upgradeDependency(info *depsInfo) error {
 	return nil
 }
 
-var goBinary = sync.OnceValue(func() string {
+var repoRoot = sync.OnceValues(func() (string, error) {
+	dir, err := os.Getwd()
+	if err != nil {
+		return "", fmt.Errorf("failed to get working directory: %w", err)
+	}
+	for {
+		if _, err := os.Stat(filepath.Join(dir, ".git-go-patch")); err == nil {
+			log.Printf("Found repo root: %s\n", dir)
+			return dir, nil
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return "", fmt.Errorf("could not find repo root: no .git-go-patch file found in any ancestor directory")
+		}
+		dir = parent
+	}
+})
+
+var goBinary = sync.OnceValues(func() (string, error) {
+	ext := ""
+	if runtime.GOOS == "windows" {
+		ext = ".exe"
+	}
+	// Use the dev-built Go binary, if it exists.
+	if root, err := repoRoot(); err == nil {
+		path := filepath.Join(root, "go", "bin", "go"+ext)
+		if _, err := os.Stat(path); err == nil {
+			log.Printf("Using %s\n", path)
+			return path, nil
+		}
+	}
 	//lint:ignore SA1019 we want to know the binary that built us
 	//nolint:staticcheck // deprecated okay
-	path := filepath.Join(runtime.GOROOT(), "bin", "go")
-	if runtime.GOOS == "windows" {
-		path += ".exe"
-	}
+	path := filepath.Join(runtime.GOROOT(), "bin", "go"+ext)
 	log.Printf("Using %s\n", path)
-	return path
+	return path, nil
 })
 
 func runGoCmd(wd string, args ...string) error {
-	cmd := exec.Command(goBinary(), args...)
-	cmd.Dir = wd
+	root, err := repoRoot()
+	if err != nil {
+		return err
+	}
+	binary, err := goBinary()
+	if err != nil {
+		return err
+	}
+	cmd := exec.Command(binary, args...)
+	cmd.Dir = filepath.Join(root, wd)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("%q failed: %v: %s", cmd, err, out)
