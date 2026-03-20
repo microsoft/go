@@ -68,6 +68,8 @@ func run() error {
 		return err
 	}
 
+	fmt.Println(string(out))
+
 	if *ghActions {
 		ghOutputPath := os.Getenv("GITHUB_OUTPUT")
 		if ghOutputPath == "" {
@@ -79,8 +81,6 @@ func run() error {
 		}
 		_, writeErr := fmt.Fprintf(f, "patches=%s\n", out)
 		return errors.Join(writeErr, f.Close())
-	} else {
-		fmt.Println(string(out))
 	}
 	return nil
 }
