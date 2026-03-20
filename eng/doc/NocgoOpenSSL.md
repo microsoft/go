@@ -55,6 +55,8 @@ The following are the expected runtime dependencies other than OpenSSL itself on
 > The `libdl.so.2` and `libpthread.so.0` functionality is already provided by `libc.so.6` since glibc 2.34.
 > The Microsoft build of Go supports platforms with older versions of glibc, so it still links to `libdl.so.2` and `libpthread.so.0` directly.
 >
+> There is no runtime dependency on the same libc that the program was built with. You can, for example, build a program on a system with glibc 2.34 or later and run it on a system with an older glibc version.
+>
 > If your platform doesn't provide these libraries, the preferred solution is to install the appropriate runtime or compatibility packages so that `libdl.so.2` and `libpthread.so.0` are available in standard system library directories (for example `/lib` or `/usr/lib`).
 >
 > As an advanced workaround, you may instead symlink `libdl.so.2` and `libpthread.so.0` to `libc.so.6` in a directory searched by the dynamic linker (for example, a system library directory) and update the loader cache if required (for example by running `ldconfig`); this typically requires root privileges and should only be done if you understand the implications for your system's C library.
