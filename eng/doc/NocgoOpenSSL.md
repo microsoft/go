@@ -33,8 +33,10 @@ To see existing requests or request support for additional architectures, use th
 ## How the backend is selected
 
 * If cgo is explicitly enabled with `CGO_ENABLED=1`, the cgo-based OpenSSL backend is used.
-* If cgo is disabled with `CGO_ENABLED=0` and you're on a supported architecture, the cgo-less OpenSSL backend is used.
-* If cgo is not explicitly enabled or disabled, then the cgo-less OpenSSL backend is used if the Go toolchain decides that cgo should be disabled. These are the rules at the time of writing:
+* If cgo is disabled with `CGO_ENABLED=0`, then:
+  * If you're on a supported architecture, the cgo-less OpenSSL backend is used.
+  * If you're on an unsupported architecture, the build fails.
+* If cgo is not explicitly enabled or disabled, then the cgo-less OpenSSL backend is used if the Go toolchain decides that cgo should be disabled. The rules are officially described by [cmd/cgo](https://pkg.go.dev/cmd/cgo). This is a summary, at the time of writing (2026-03-19):
   * cgo is disabled if the Go toolchain is built with `CGO_ENABLED=0`. Note that that's not currently the case for the Microsoft build of Go. 
   * cgo is disabled when cross-compiling.
   * cgo is disabled if the `CC` environment variable is not set to an existing executable.
