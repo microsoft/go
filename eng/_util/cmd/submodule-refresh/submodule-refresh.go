@@ -9,9 +9,9 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"log"
 	"os"
 	"path/filepath"
-	"slices"
 
 	"github.com/microsoft/go-infra/patch"
 	"github.com/microsoft/go-infra/submodule"
@@ -82,30 +82,30 @@ func refresh(rootDir string) error {
 	if *take >= 0 {
 		// The patch API applies all patches in a directory. To apply only the
 		// first N, copy them into a temporary directory and point the config there.
-		patchesDir := filepath.Join(config.RootDir, config.PatchesDir)
-		matches, err := filepath.Glob(filepath.Join(patchesDir, "*.patch"))
-		if err != nil {
+		tmpDirRelative := filepath.Join("eng", "artifacts", "submodule-refresh", "patch-subset")
+		tmpDir := filepath.Join(config.RootDir, tmpDirRelative)
+		if err := os.RemoveAll(tmpDir); err != nil {
 			return err
 		}
-		slices.Sort(matches)
-		if *take > len(matches) {
-			return fmt.Errorf("-take %d exceeds number of patches (%d)", *take, len(matches))
-		}
-		tmpDir, err := os.MkdirTemp("", "patches-take-*")
-		if err != nil {
+		if err := os.MkdirAll(tmpDir, 0o777); err != nil {
 			return err
 		}
-		defer os.RemoveAll(tmpDir)
-		for _, src := range matches[:*take] {
-			if err := copyFile(src, filepath.Join(tmpDir, filepath.Base(src))); err != nil {
-				return err
+		i := 0
+		if err := patch.WalkGoPatches(config, func(path string) error {
+			if i >= *take {
+				log.Printf("Not including patch %q\n", path)
+				return nil
 			}
-		}
-		relTmpDir, err := filepath.Rel(config.RootDir, tmpDir)
-		if err != nil {
+			i++
+			log.Printf("Taking patch %q\n", path)
+			return copyFile(path, filepath.Join(tmpDir, filepath.Base(path)))
+		}); err != nil {
 			return err
 		}
-		config.PatchesDir = relTmpDir
+		if *take > i {
+			return fmt.Errorf("-take %d exceeds number of patches (%d)", *take, i)
+		}
+		config.PatchesDir = tmpDirRelative
 	}
 
 	if err := patch.Apply(config, mode); err != nil {

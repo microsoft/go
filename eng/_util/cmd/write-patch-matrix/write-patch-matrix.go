@@ -19,8 +19,7 @@ import (
 const description = `
 This command reads patch files from the patches/ directory and writes a JSON
 array to stdout suitable for use as a GitHub Actions matrix. Each entry contains
-a "number" (1-based position) and "name" (filename). The patches are sorted in
-name order.
+a "number" (1-based position) and "name" (filename).
 
 Use -github-actions to write the result to $GITHUB_OUTPUT as "patches=<json>".
 `
@@ -58,6 +57,10 @@ func run() error {
 		return nil
 	}); err != nil {
 		return fmt.Errorf("error walking patches: %v", err)
+	}
+
+	if len(entries) == 0 {
+		return errors.New("no patches found")
 	}
 
 	out, err := json.Marshal(entries)
