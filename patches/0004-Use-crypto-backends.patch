@@ -49,7 +49,6 @@ Subject: [PATCH] Use crypto backends
  src/crypto/internal/cryptotest/hash.go        |   3 +-
  .../internal/cryptotest/implementations.go    |   2 +-
  src/crypto/internal/fips140hash/hash.go       |   3 +-
- .../internal/fips140only/fips140only.go       |  11 +-
  .../internal/fips140only/fips140only_test.go  |  45 ++--
  src/crypto/internal/fips140test/acvp_test.go  |   6 +
  src/crypto/internal/fips140test/cast_test.go  |   2 +
@@ -103,7 +102,7 @@ Subject: [PATCH] Use crypto backends
  src/hash/notboring_test.go                    |   9 +
  src/net/lookup_test.go                        |   3 +
  src/os/exec/exec_test.go                      |   9 +
- 99 files changed, 1624 insertions(+), 246 deletions(-)
+ 98 files changed, 1617 insertions(+), 243 deletions(-)
  create mode 100644 src/crypto/dsa/boring.go
  create mode 100644 src/crypto/dsa/notboring.go
  create mode 100644 src/crypto/ecdsa/badlinkname.go
@@ -1758,31 +1757,6 @@ index 6d67ee8b3429a1..8f8d5937ea913c 100644
  
  // Unwrap returns h, or a crypto/internal/fips140 inner implementation of h.
  //
-diff --git a/src/crypto/internal/fips140only/fips140only.go b/src/crypto/internal/fips140only/fips140only.go
-index a8d840b17022cc..2a17f7da2d4aaa 100644
---- a/src/crypto/internal/fips140only/fips140only.go
-+++ b/src/crypto/internal/fips140only/fips140only.go
-@@ -18,11 +18,18 @@ func Enforced() bool {
- 	return fips140.Enforced()
- }
- 
-+// BackendApprovedHash is set by a crypto backend during init to provide
-+// backend-specific FIPS hash approval checking. If nil, only the standard
-+// library FIPS hash types are recognized as approved.
-+var BackendApprovedHash func(h hash.Hash) bool
-+
- func ApprovedHash(h hash.Hash) bool {
- 	switch h.(type) {
- 	case *sha256.Digest, *sha512.Digest, *sha3.Digest:
- 		return true
--	default:
--		return false
- 	}
-+	if BackendApprovedHash != nil {
-+		return BackendApprovedHash(h)
-+	}
-+	return false
- }
 diff --git a/src/crypto/internal/fips140only/fips140only_test.go b/src/crypto/internal/fips140only/fips140only_test.go
 index 96df536d56f345..91d2a792d90296 100644
 --- a/src/crypto/internal/fips140only/fips140only_test.go
