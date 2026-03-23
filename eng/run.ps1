@@ -4,7 +4,7 @@
 
 <#
 .DESCRIPTION
-This script builds and runs a tool defined in 'eng/_util'.
+This script builds and runs a tool defined in 'eng/_util'..
 
 To run a tool:
   run.ps1 <tool> [arguments...]
