@@ -57,6 +57,25 @@ func appendVendorOnlyIssues(issues []*PatchIssue, patchFile string, mods []patch
 			})
 		}
 	}
+
+	if isVendorPatch {
+		for _, required := range append(vendorOnlyPaths, vendorSharedPaths...) {
+			found := false
+			for _, mod := range mods {
+				if matchPathList([]string{required}, mod.path) {
+					found = true
+					break
+				}
+			}
+			if !found {
+				issues = append(issues, &PatchIssue{
+					PatchFile: patchName,
+					Message:   fmt.Sprintf("vendor patch must contain changes to: %s", required),
+				})
+			}
+		}
+	}
+
 	return issues, nil
 }
 

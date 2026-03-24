@@ -18,7 +18,7 @@ import (
 )
 
 type PatchIssue struct {
-	// PatchFile is the relative path to the patch file from the working directory.
+	// PatchFile is the base name of the patch file.
 	PatchFile string
 	// Message is a description of the issue.
 	Message string
