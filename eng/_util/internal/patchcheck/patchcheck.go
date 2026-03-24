@@ -73,9 +73,9 @@ func readPatchNumstat(patchFile string) ([]patchModification, error) {
 
 	cmd := exec.Command("git", "apply", "--no-index", "--numstat", patchFile)
 	cmd.Dir = repoRoot
-	out, err := cmd.Output()
+	out, err := cmd.CombinedOutput()
 	if err != nil {
-		return nil, fmt.Errorf("git apply --numstat %s: %w", patchFile, err)
+		return nil, fmt.Errorf("git apply --no-index --numstat %s in %s: %w\noutput:\n%s", patchFile, repoRoot, err, string(out))
 	}
 
 	var mods []patchModification
