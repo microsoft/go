@@ -1,0 +1,216 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: bot-for-go[bot] <199222863+bot-for-go[bot]@users.noreply.github.com>
+Date: Wed, 11 Mar 2026 13:14:41 +0100
+Subject: [PATCH] cmd/link: fix host object's .pdata entries order
+
+Host objects are expected to have their .pdata entries in the correct
+order, but the Go internal linker might reorder some of the functions
+associated with the .pdata entries. This causes the .pdata section
+in the final binary to have entries in the wrong order, and therefore
+issues with unwinding on Windows.
+
+The fix is to treat the .pdata entries of host objects as individual
+symbols that will be retained only if the function they are associated
+with is retained. Also, those entries will be sorted together with the
+.pdata entries emitted by the Go compiler, ensuring the correct order
+in the final binary.
+
+Fixes #65116
+
+Change-Id: I421471b2aef519b0c20707a40c4b7957db5d2ed5
+---
+ src/cmd/link/internal/ld/data.go     | 14 ++++++
+ src/cmd/link/internal/ld/lib.go      |  4 +-
+ src/cmd/link/internal/loadpe/ldpe.go | 17 +++++--
+ src/cmd/link/internal/loadpe/seh.go  | 69 +++++++++++++++++++++-------
+ 4 files changed, 79 insertions(+), 25 deletions(-)
+
+diff --git a/src/cmd/link/internal/ld/data.go b/src/cmd/link/internal/ld/data.go
+index 1265b028e679fa..6ea55deebd8b16 100644
+--- a/src/cmd/link/internal/ld/data.go
++++ b/src/cmd/link/internal/ld/data.go
+@@ -1689,6 +1689,20 @@ func (ctxt *Link) dodata(symGroupType []sym.SymKind) {
+ 		ldr.SetAttrOnList(s, true)
+ 	}
+ 
++	// SEH symbols are tracked in side lists (sehp.pdata/xdata), so make
++	// them follow the same reachability decision used for all other data.
++	filterReachableSEH := func(syms []loader.Sym) []loader.Sym {
++		out := syms[:0]
++		for _, s := range syms {
++			if ldr.AttrReachable(s) {
++				out = append(out, s)
++			}
++		}
++		return out
++	}
++	sehp.pdata = filterReachableSEH(sehp.pdata)
++	sehp.xdata = filterReachableSEH(sehp.xdata)
++
+ 	// Now that we have the data symbols, but before we start
+ 	// to assign addresses, record all the necessary
+ 	// dynamic relocations. These will grow the relocation
+diff --git a/src/cmd/link/internal/ld/lib.go b/src/cmd/link/internal/ld/lib.go
+index 1c2b344abef7aa..77397383a79e88 100644
+--- a/src/cmd/link/internal/ld/lib.go
++++ b/src/cmd/link/internal/ld/lib.go
+@@ -2411,9 +2411,7 @@ func ldobj(ctxt *Link, f *bio.Reader, lib *sym.Library, length int64, pn string,
+ 			if len(ls.Resources) != 0 {
+ 				setpersrc(ctxt, ls.Resources)
+ 			}
+-			if ls.PData != 0 {
+-				sehp.pdata = append(sehp.pdata, ls.PData)
+-			}
++			sehp.pdata = append(sehp.pdata, ls.PData...)
+ 			if ls.XData != 0 {
+ 				sehp.xdata = append(sehp.xdata, ls.XData)
+ 			}
+diff --git a/src/cmd/link/internal/loadpe/ldpe.go b/src/cmd/link/internal/loadpe/ldpe.go
+index 2073045c479a97..fe39fad429d1f8 100644
+--- a/src/cmd/link/internal/loadpe/ldpe.go
++++ b/src/cmd/link/internal/loadpe/ldpe.go
+@@ -222,7 +222,7 @@ var comdatDefinitions map[string]int64
+ type Symbols struct {
+ 	Textp     []loader.Sym // text symbols
+ 	Resources []loader.Sym // .rsrc section or set of .rsrc$xx sections
+-	PData     loader.Sym
++	PData     []loader.Sym
+ 	XData     loader.Sym
+ }
+ 
+@@ -256,7 +256,10 @@ func Load(l *loader.Loader, arch *sys.Arch, localSymVersion int, input *bio.Read
+ 	defer f.Close()
+ 	state.f = f
+ 
+-	var ls Symbols
++	var (
++		ls    Symbols
++		pdata loader.Sym
++	)
+ 
+ 	// TODO return error if found .cormeta
+ 
+@@ -312,7 +315,7 @@ func Load(l *loader.Loader, arch *sys.Arch, localSymVersion int, input *bio.Read
+ 			ls.Resources = append(ls.Resources, s)
+ 		} else if bld.Type() == sym.SSEHSECT {
+ 			if sect.Name == ".pdata" {
+-				ls.PData = s
++				pdata = s
+ 			} else if sect.Name == ".xdata" {
+ 				ls.XData = s
+ 			}
+@@ -596,8 +599,12 @@ func Load(l *loader.Loader, arch *sys.Arch, localSymVersion int, input *bio.Read
+ 		}
+ 	}
+ 
+-	if ls.PData != 0 {
+-		processSEH(l, arch, ls.PData, ls.XData)
++	if pdata != 0 {
++		subs, err := processSEH(l, arch, pdata)
++		if err != nil {
++			return nil, err
++		}
++		ls.PData = subs
+ 	}
+ 
+ 	return &ls, nil
+diff --git a/src/cmd/link/internal/loadpe/seh.go b/src/cmd/link/internal/loadpe/seh.go
+index 545958f1d60bee..91d67c67fa7380 100644
+--- a/src/cmd/link/internal/loadpe/seh.go
++++ b/src/cmd/link/internal/loadpe/seh.go
+@@ -21,24 +21,19 @@ const (
+ 	unwCodeSize        = 2 // Bytes per unwind code.
+ )
+ 
+-// processSEH walks all pdata relocations looking for exception handler function symbols.
+-// We want to mark these as reachable if the function that they protect is reachable
+-// in the final binary.
+-func processSEH(ldr *loader.Loader, arch *sys.Arch, pdata sym.LoaderSym, xdata sym.LoaderSym) error {
++// processSEH walks host-object pdata relocations and returns the set of
++// per-entry pdata symbols created from the input section.
++func processSEH(ldr *loader.Loader, arch *sys.Arch, pdata sym.LoaderSym) ([]loader.Sym, error) {
+ 	switch arch.Family {
+ 	case sys.AMD64:
+-		ldr.SetAttrReachable(pdata, true)
+-		if xdata != 0 {
+-			ldr.SetAttrReachable(xdata, true)
+-		}
+ 		return processSEHAMD64(ldr, pdata)
+ 	default:
+ 		// TODO: support SEH on other architectures.
+-		return fmt.Errorf("unsupported architecture for SEH: %v", arch.Family)
++		return nil, fmt.Errorf("unsupported architecture for SEH: %v", arch.Family)
+ 	}
+ }
+ 
+-func processSEHAMD64(ldr *loader.Loader, pdata sym.LoaderSym) error {
++func processSEHAMD64(ldr *loader.Loader, pdata sym.LoaderSym) ([]loader.Sym, error) {
+ 	// The following loop traverses a list of pdata entries,
+ 	// each entry being 3 relocations long. The first relocation
+ 	// is a pointer to the function symbol to which the pdata entry
+@@ -48,18 +43,58 @@ func processSEHAMD64(ldr *loader.Loader, pdata sym.LoaderSym) error {
+ 	// https://learn.microsoft.com/en-us/cpp/build/exception-handling-x64#struct-runtime_function
+ 	rels := ldr.Relocs(pdata)
+ 	if rels.Count()%3 != 0 {
+-		return fmt.Errorf(".pdata symbol %q has invalid relocation count", ldr.SymName(pdata))
++		return nil, fmt.Errorf(".pdata symbol %q has invalid relocation count", ldr.SymName(pdata))
+ 	}
++	data := ldr.Data(pdata)
++	entries := make([]loader.Sym, 0, rels.Count()/3)
++
+ 	for i := 0; i < rels.Count(); i += 3 {
+-		xrel := rels.At(i + 2)
+-		handler := findHandlerInXDataAMD64(ldr, xrel.Sym(), xrel.Add())
+-		if handler != 0 {
+-			sb := ldr.MakeSymbolUpdater(rels.At(i).Sym())
++		// Create a new symbol for the pdata entry.
++		entry := ldr.MakeSymbolBuilder("")
++		entry.SetType(sym.SSEHSECT)
++		entry.SetAlign(4)
++		entry.SetSize(12)
++		entryOff := int(rels.At(i).Off())
++		entryEnd := entryOff + 4*3
++		entry.SetData(data[entryOff:entryEnd:entryEnd])
++
++		// Add a relocation from the target function to the pdata entry
++		// and to the exception handler, if present, to ensure they are
++		// retained by dead code elimination.
++		if targetFunc := rels.At(i).Sym(); targetFunc != 0 {
++			sb := ldr.MakeSymbolUpdater(targetFunc)
+ 			r, _ := sb.AddRel(objabi.R_KEEP)
+-			r.SetSym(handler)
++			r.SetSym(entry.Sym())
++			xrel := rels.At(i + 2)
++			if xrel.Sym() != 0 {
++				r, _ = sb.AddRel(objabi.R_KEEP)
++				r.SetSym(xrel.Sym())
++			}
++			handler := findHandlerInXDataAMD64(ldr, xrel.Sym(), xrel.Add())
++			if handler != 0 {
++				r, _ = sb.AddRel(objabi.R_KEEP)
++				r.SetSym(handler)
++			}
+ 		}
++
++		// Copy the relocations from the original .pdata entry to the new symbol,
++		// adjusting the offsets.
++		for j := range 3 {
++			rOld := rels.At(i + j)
++			typ := rOld.Type()
++			if rOld.Weak() {
++				typ |= objabi.R_WEAK
++			}
++			rel, _ := entry.AddRel(typ)
++			rel.SetOff(int32(j * 4))
++			rel.SetSiz(rOld.Siz())
++			rel.SetSym(rOld.Sym())
++			rel.SetAdd(rOld.Add())
++		}
++
++		entries = append(entries, entry.Sym())
+ 	}
+-	return nil
++	return entries, nil
+ }
+ 
+ // findHandlerInXDataAMD64 finds the symbol in the .xdata section that
