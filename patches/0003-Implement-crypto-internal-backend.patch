@@ -48,11 +48,12 @@ desired goexperiments and build tags.
  .../backend/internal/opensslsetup/stub.go     |   8 +
  src/crypto/internal/backend/nobackend.go      | 376 +++++++++++++++
  src/crypto/internal/backend/stub.s            |  10 +
+ .../internal/fips140only/fips140only.go       |  11 +-
  src/crypto/systemcrypto_nocgo_linux.go        |  18 +
  src/go/build/deps_test.go                     |  24 +-
  src/internal/buildcfg/exp.go                  |  47 ++
  src/runtime/runtime_boring.go                 |   5 +
- 43 files changed, 2754 insertions(+), 14 deletions(-)
+ 44 files changed, 2761 insertions(+), 17 deletions(-)
  create mode 100644 src/cmd/go/systemcrypto_test.go
  create mode 100644 src/crypto/internal/backend/backend_darwin.go
  create mode 100644 src/crypto/internal/backend/backend_linux.go
@@ -3148,6 +3149,31 @@ index 00000000000000..5e4b436554d44d
 +// Having this assembly file keeps the go command
 +// from complaining about the missing body
 +// (because the implementation might be here).
+diff --git a/src/crypto/internal/fips140only/fips140only.go b/src/crypto/internal/fips140only/fips140only.go
+index a8d840b17022cc..2a17f7da2d4aaa 100644
+--- a/src/crypto/internal/fips140only/fips140only.go
++++ b/src/crypto/internal/fips140only/fips140only.go
+@@ -18,11 +18,18 @@ func Enforced() bool {
+ 	return fips140.Enforced()
+ }
+ 
++// BackendApprovedHash is set by a crypto backend during init to provide
++// backend-specific FIPS hash approval checking. If nil, only the standard
++// library FIPS hash types are recognized as approved.
++var BackendApprovedHash func(h hash.Hash) bool
++
+ func ApprovedHash(h hash.Hash) bool {
+ 	switch h.(type) {
+ 	case *sha256.Digest, *sha512.Digest, *sha3.Digest:
+ 		return true
+-	default:
+-		return false
+ 	}
++	if BackendApprovedHash != nil {
++		return BackendApprovedHash(h)
++	}
++	return false
+ }
 diff --git a/src/crypto/systemcrypto_nocgo_linux.go b/src/crypto/systemcrypto_nocgo_linux.go
 new file mode 100644
 index 00000000000000..7500bd3a86472b

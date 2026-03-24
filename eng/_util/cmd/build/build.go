@@ -41,6 +41,7 @@ func main() {
 	o := &options{}
 
 	flag.BoolVar(&o.SkipBuild, "skipbuild", false, "Disable building Go.")
+	flag.BoolVar(&o.SkipBuildRace, "skipbuildrace", false, "Disable building Go with race detector.")
 	flag.BoolVar(&o.Test, "test", false, "Enable running tests.")
 	flag.BoolVar(&o.PackBuild, "packbuild", false, "Enable creating an archive of this build using upstream 'distpack' and placing it in eng/artifacts/bin.")
 	flag.BoolVar(&o.PackSource, "packsource", false, "Enable creating a source archive using upstream 'distpack' and placing it in eng/artifacts/bin.")
@@ -78,13 +79,14 @@ func main() {
 }
 
 type options struct {
-	SkipBuild  bool
-	Test       bool
-	PackBuild  bool
-	PackSource bool
-	CreatePDB  bool
-	Refresh    bool
-	Experiment string
+	SkipBuild     bool
+	SkipBuildRace bool
+	Test          bool
+	PackBuild     bool
+	PackSource    bool
+	CreatePDB     bool
+	Refresh       bool
+	Experiment    string
 
 	TestJSONFlags *buildutil.TestJSONFlags
 
@@ -202,7 +204,12 @@ func build(o *options) (err error) {
 		// The race runtime requires cgo.
 		// It isn't supported on arm or 386.
 		// It's supported on arm64, but the official linux-arm64 distribution doesn't include it.
-		if os.Getenv("CGO_ENABLED") != "0" && targetArch != "arm" && targetArch != "arm64" && targetArch != "386" {
+		if !o.SkipBuildRace &&
+			os.Getenv("CGO_ENABLED") != "0" &&
+			targetArch != "arm" &&
+			targetArch != "arm64" &&
+			targetArch != "386" {
+
 			fmt.Println("---- Building race runtime...")
 			err := runCommandLine(
 				filepath.Join("..", "bin", "go"+executableExtension),
