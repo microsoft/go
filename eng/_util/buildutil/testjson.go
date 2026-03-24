@@ -62,7 +62,9 @@ func (f *TestJSONFlags) RunTestCmd(cmdline []string) (err error) {
 			defer func() {
 				err = errors.Join(err, jf.Close())
 			}()
-			c := json2junit.NewConverter(jf)
+			c := json2junit.NewConverterWithOptions(jf, &json2junit.Options{
+				IncludePackageInTestName: true,
+			})
 			defer func() {
 				err = errors.Join(err, c.Close())
 			}()
