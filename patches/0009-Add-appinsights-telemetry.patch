@@ -4,14 +4,14 @@ Date: Thu, 29 May 2025 14:53:58 +0200
 Subject: [PATCH] Add appinsights telemetry
 
 ---
- README.md                                     | 15 ++++++
+ README.md                                     | 15 +++++
  src/cmd/go/main.go                            |  8 +++
- src/cmd/go/mstelemetry_test.go                | 52 ++++++++++++++++++
- src/cmd/go/script_test.go                     |  9 ++++
- src/cmd/go/scriptcmds_test.go                 | 11 ++++
- src/cmd/internal/telemetry/counter/counter.go | 53 ++++++++++++++++++-
- .../telemetry/counter/counter_bootstrap.go    |  3 ++
- 7 files changed, 150 insertions(+), 1 deletion(-)
+ src/cmd/go/mstelemetry_test.go                | 56 +++++++++++++++++++
+ src/cmd/go/script_test.go                     |  9 +++
+ src/cmd/go/scriptcmds_test.go                 | 22 ++++++++
+ src/cmd/internal/telemetry/counter/counter.go | 53 +++++++++++++++++-
+ .../telemetry/counter/counter_bootstrap.go    |  3 +
+ 7 files changed, 165 insertions(+), 1 deletion(-)
  create mode 100644 src/cmd/go/mstelemetry_test.go
 
 diff --git a/README.md b/README.md
@@ -59,10 +59,10 @@ index 8cdfd9196e4cb1..3f4a4d8f912969 100644
  
 diff --git a/src/cmd/go/mstelemetry_test.go b/src/cmd/go/mstelemetry_test.go
 new file mode 100644
-index 00000000000000..6993137ad56e8c
+index 00000000000000..010270fb6ad4cf
 --- /dev/null
 +++ b/src/cmd/go/mstelemetry_test.go
-@@ -0,0 +1,52 @@
+@@ -0,0 +1,56 @@
 +// Copyright 2025 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -115,8 +115,12 @@ index 00000000000000..6993137ad56e8c
 +	appInsightsRequests.Add(1)
 +	fmt.Fprint(w, `{"itemsReceived": 1, "itemsAccepted": 1}`)
 +}
++
++func appInsightsTotalRequests() int64 {
++	return appInsightsRequests.Load()
++}
 diff --git a/src/cmd/go/script_test.go b/src/cmd/go/script_test.go
-index f84a42352c5768..b7168754091aa1 100644
+index f84a42352c5768..69c1d70c0a972f 100644
 --- a/src/cmd/go/script_test.go
 +++ b/src/cmd/go/script_test.go
 @@ -62,6 +62,7 @@ func TestScript(t *testing.T) {
@@ -141,8 +145,8 @@ index f84a42352c5768..b7168754091aa1 100644
  			t.Fatal("go was invoked but no counters were incremented")
  		}
  	}
-+	if _, ok := scriptGoBuildInvoked.Load(testing.TB(t)); ok {
-+		if appInsightsRequests.Load() == 0 {
++	if _, ok := scriptGoBuildSucceeded.Load(testing.TB(t)); ok {
++		if appInsightsTotalRequests() == 0 {
 +			t.Fatal("go was invoked but no App Insights request were recorded")
 +		}
 +	}
@@ -150,18 +154,18 @@ index f84a42352c5768..b7168754091aa1 100644
  
  // Copied from https://go.googlesource.com/telemetry/+/5f08a0cbff3f/internal/telemetry/mode.go#122
 diff --git a/src/cmd/go/scriptcmds_test.go b/src/cmd/go/scriptcmds_test.go
-index 8195e830caa31b..cb59a8b278e9b4 100644
+index 8195e830caa31b..882aeecfa562b9 100644
 --- a/src/cmd/go/scriptcmds_test.go
 +++ b/src/cmd/go/scriptcmds_test.go
 @@ -72,6 +72,7 @@ func scriptCC(cmdExec script.Cmd) script.Cmd {
  }
  
  var scriptGoInvoked sync.Map // testing.TB → go command was invoked
-+var scriptGoBuildInvoked sync.Map
++var scriptGoBuildSucceeded sync.Map
  
  // scriptGo runs the go command.
  func scriptGo(cancel func(*exec.Cmd) error, waitDelay time.Duration) script.Cmd {
-@@ -86,6 +87,16 @@ func scriptGo(cancel func(*exec.Cmd) error, waitDelay time.Duration) script.Cmd
+@@ -86,6 +87,27 @@ func scriptGo(cancel func(*exec.Cmd) error, waitDelay time.Duration) script.Cmd
  		if !dup {
  			t.Cleanup(func() { scriptGoInvoked.Delete(t) })
  		}
@@ -169,10 +173,21 @@ index 8195e830caa31b..cb59a8b278e9b4 100644
 +			// If the first argument is a subcommand, record it.
 +			switch s[0] {
 +			case "build", "install", "run":
-+				_, dup = scriptGoBuildInvoked.LoadOrStore(t, true)
-+				if !dup {
-+					t.Cleanup(func() { scriptGoBuildInvoked.Delete(t) })
++				wait, err := cmd.Run(state, s...)
++				if err != nil {
++					return wait, err
 +				}
++				waitAndRecord := func(state *script.State) (stdout, stderr string, err error) {
++					stdout, stderr, err = wait(state)
++					if err == nil {
++						_, dup = scriptGoBuildSucceeded.LoadOrStore(t, true)
++						if !dup {
++							t.Cleanup(func() { scriptGoBuildSucceeded.Delete(t) })
++						}
++					}
++					return stdout, stderr, err
++				}
++				return waitAndRecord, nil
 +			}
 +		}
  		return cmd.Run(state, s...)
