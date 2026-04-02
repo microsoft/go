@@ -21,7 +21,6 @@ import (
 type TestJSONFlags struct {
 	JUnitOutFile   string
 	RawTestOutFile string
-	JobAttempt     string
 }
 
 func BindTestJSONFlags() *TestJSONFlags {
@@ -32,9 +31,6 @@ func BindTestJSONFlags() *TestJSONFlags {
 	flag.StringVar(
 		&f.RawTestOutFile, "rawtestout", "",
 		"Write raw test output to a new file at this path and summarize any test JSON before it reaches stdout.")
-	flag.StringVar(
-		&f.JobAttempt, "jobattempt", "",
-		"Label for the CI attempt (such as a stage or job rerun; e.g. Azure DevOps System.StageAttempt), included in JUnit test suite names.")
 	return &f
 }
 
@@ -45,9 +41,6 @@ func (f *TestJSONFlags) AppendToCmdline(cmdline []string) []string {
 		}
 		if f.RawTestOutFile != "" {
 			cmdline = append(cmdline, "-rawtestout", f.RawTestOutFile)
-		}
-		if f.JobAttempt != "" {
-			cmdline = append(cmdline, "-jobattempt", f.JobAttempt)
 		}
 	}
 	return cmdline
@@ -71,7 +64,6 @@ func (f *TestJSONFlags) RunTestCmd(cmdline []string) (err error) {
 			}()
 			c := json2junit.NewConverterWithOptions(jf, &json2junit.Options{
 				IncludePackageInTestName: true,
-				JobAttempt:               f.JobAttempt,
 			})
 			defer func() {
 				err = errors.Join(err, c.Close())

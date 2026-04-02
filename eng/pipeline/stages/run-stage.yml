@@ -266,8 +266,15 @@ stages:
                       $(if ('${{ parameters.builder.experiment }}') { '-experiment'; '${{ parameters.builder.experiment }}' }) `
                       $(if ('${{ parameters.builder.fips }}') { '-fipsmode' }) `
                       -junitout '$(Build.SourcesDirectory)/eng/artifacts/RawTestOutput/TestResults-attempt-${{ attempt }}.xml' `
-                      -rawtestout '$(Build.SourcesDirectory)/eng/artifacts/RawTestOutput/raw-json-attempt-${{ attempt }}.txt' `
-                      -jobattempt '$(System.StageAttempt)'
+                      -rawtestout '$(Build.SourcesDirectory)/eng/artifacts/RawTestOutput/raw-json-attempt-${{ attempt }}.txt'
+
+                  # TODO: Remove this forced flake. It's used to test retry attempt visibility.
+                  # https://github.com/microsoft/go/issues/2134
+                  Write-Host "##vso[task.setvariable variable=TEST_BUILDER_SUCCESSFUL]"
+                  if ('${{ attempt }}' -eq 'FINAL') {
+                    Write-Host "##vso[task.complete result=Failed;]Forced failure for retry visibility testing."
+                    exit 1
+                  }
                 ${{ if eq(length(parameters.retryAttempts), 1) }}:
                   displayName: Test
                 ${{ else }}:
@@ -282,19 +289,17 @@ stages:
                   # Don't fail the job if we are at the last retry and the builder is marked as broken.
                   continueOnError: true
 
-            # Publish test results from all attempts in a single test run.
-            # Suite names in the XML include retry/job attempt labels to distinguish them.
-            - task: PublishTestResults@2
-              displayName: Publish test results
-              condition: succeededOrFailed()
-              inputs:
-                testResultsFormat: JUnit
-                testResultsFiles: $(Build.SourcesDirectory)/eng/artifacts/RawTestOutput/TestResults-attempt-*.xml
-                mergeTestResults: true
-                testRunTitle: $(System.JobDisplayName) (stage attempt $(System.StageAttempt))
-                buildPlatform: ${{ parameters.builder.arch }}
-                buildConfiguration: ${{ parameters.builder.config }}
-                publishRunAttachments: true
+              # Publish this retry attempt's test results as its own test run.
+              - task: PublishTestResults@2
+                displayName: Publish test results (${{ attempt }})
+                condition: succeededOrFailed()
+                inputs:
+                  testResultsFormat: JUnit
+                  testResultsFiles: $(Build.SourcesDirectory)/eng/artifacts/RawTestOutput/TestResults-attempt-${{ attempt }}.xml
+                  testRunTitle: $(System.JobDisplayName) (retry ${{ attempt }}, stage attempt $(System.StageAttempt))
+                  buildPlatform: ${{ parameters.builder.arch }}
+                  buildConfiguration: ${{ parameters.builder.config }}
+                  publishRunAttachments: true
 
             # Publish raw test JSON output and the published (or attempted to publish) JUnit XML.
             - task: ${{ iif(eq(variables['System.TeamProject'], 'public'), '', '1ES.') }}PublishPipelineArtifact@1
