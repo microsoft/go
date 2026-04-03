@@ -267,14 +267,6 @@ stages:
                       $(if ('${{ parameters.builder.fips }}') { '-fipsmode' }) `
                       -junitout '$(Build.SourcesDirectory)/eng/artifacts/RawTestOutput/TestResults-attempt-${{ attempt }}.xml' `
                       -rawtestout '$(Build.SourcesDirectory)/eng/artifacts/RawTestOutput/raw-json-attempt-${{ attempt }}.txt'
-
-                  # TODO: Remove this forced flake. It's used to test retry attempt visibility.
-                  # https://github.com/microsoft/go/issues/2134
-                  Write-Host "##vso[task.setvariable variable=TEST_BUILDER_SUCCESSFUL]"
-                  if ('${{ attempt }}' -eq 'FINAL') {
-                    Write-Host "##vso[task.complete result=Failed;]Forced failure for retry visibility testing."
-                    exit 1
-                  }
                 ${{ if eq(length(parameters.retryAttempts), 1) }}:
                   displayName: Test
                 ${{ else }}:
@@ -292,7 +284,7 @@ stages:
               # Publish this retry attempt's test results as its own test run.
               - task: PublishTestResults@2
                 displayName: Publish test results (${{ attempt }})
-                condition: succeededOrFailed()
+                condition: and(ne(variables['TEST_BUILDER_SUCCESSFUL'], 'true'), succeededOrFailed())
                 inputs:
                   testResultsFormat: JUnit
                   testResultsFiles: $(Build.SourcesDirectory)/eng/artifacts/RawTestOutput/TestResults-attempt-${{ attempt }}.xml
