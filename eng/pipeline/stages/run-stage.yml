@@ -265,7 +265,7 @@ stages:
                       -builder '${{ parameters.builder.os }}-${{ parameters.builder.arch }}-${{ parameters.builder.config }}' `
                       $(if ('${{ parameters.builder.experiment }}') { '-experiment'; '${{ parameters.builder.experiment }}' }) `
                       $(if ('${{ parameters.builder.fips }}') { '-fipsmode' }) `
-                      -junitout '$(Build.SourcesDirectory)/eng/artifacts/RawTestOutput/TestResults.xml' `
+                      -junitout '$(Build.SourcesDirectory)/eng/artifacts/RawTestOutput/TestResults-attempt-${{ attempt }}.xml' `
                       -rawtestout '$(Build.SourcesDirectory)/eng/artifacts/RawTestOutput/raw-json-attempt-${{ attempt }}.txt'
                 ${{ if eq(length(parameters.retryAttempts), 1) }}:
                   displayName: Test
@@ -281,17 +281,17 @@ stages:
                   # Don't fail the job if we are at the last retry and the builder is marked as broken.
                   continueOnError: true
 
-            # Publish test results. Use the last-overwritten result, if multiple attempts were made.
-            - task: PublishTestResults@2
-              displayName: Publish test results
-              condition: succeededOrFailed()
-              inputs:
-                testResultsFormat: JUnit
-                testResultsFiles: $(Build.SourcesDirectory)/eng/artifacts/RawTestOutput/TestResults.xml
-                testRunTitle: $(System.JobDisplayName)
-                buildPlatform: ${{ parameters.builder.arch }}
-                buildConfiguration: ${{ parameters.builder.config }}
-                publishRunAttachments: true
+              # Publish this retry attempt's test results as its own test run.
+              - task: PublishTestResults@2
+                displayName: Publish test results (${{ attempt }})
+                condition: and(ne(variables['TEST_BUILDER_SUCCESSFUL'], 'true'), succeededOrFailed())
+                inputs:
+                  testResultsFormat: JUnit
+                  testResultsFiles: $(Build.SourcesDirectory)/eng/artifacts/RawTestOutput/TestResults-attempt-${{ attempt }}.xml
+                  testRunTitle: $(System.JobDisplayName) (retry ${{ attempt }}, stage attempt $(System.StageAttempt))
+                  buildPlatform: ${{ parameters.builder.arch }}
+                  buildConfiguration: ${{ parameters.builder.config }}
+                  publishRunAttachments: true
 
             # Publish raw test JSON output and the published (or attempted to publish) JUnit XML.
             - task: ${{ iif(eq(variables['System.TeamProject'], 'public'), '', '1ES.') }}PublishPipelineArtifact@1
@@ -299,7 +299,7 @@ stages:
               condition: succeededOrFailed()
               inputs:
                 targetPath: $(Build.SourcesDirectory)/eng/artifacts/RawTestOutput
-                artifactName: raw-test-output-${{ parameters.builder.id }}-retry-$(System.JobAttempt)
+                artifactName: raw-test-output-${{ parameters.builder.id }}-retry-$(System.StageAttempt)-job-$(System.JobAttempt)
 
           # - ${{ if eq(parameters.builder.config, 'buildandpack' ) }}:
           #   - ${{ if ne(parameters.releaseVersion, 'nil') }}:
