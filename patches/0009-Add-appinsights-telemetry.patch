@@ -4,14 +4,14 @@ Date: Thu, 29 May 2025 14:53:58 +0200
 Subject: [PATCH] Add appinsights telemetry
 
 ---
- README.md                                     | 15 ++++++
+ README.md                                     | 15 +++++
  src/cmd/go/main.go                            |  8 +++
- src/cmd/go/mstelemetry_test.go                | 52 +++++++++++++++++++
- src/cmd/go/script_test.go                     |  8 +++
- src/cmd/go/scriptcmds_test.go                 | 11 ++++
- src/cmd/internal/telemetry/counter/counter.go | 48 ++++++++++++++++-
- .../telemetry/counter/counter_bootstrap.go    |  3 ++
- 7 files changed, 144 insertions(+), 1 deletion(-)
+ src/cmd/go/mstelemetry_test.go                | 56 +++++++++++++++++++
+ src/cmd/go/script_test.go                     | 10 ++++
+ src/cmd/go/scriptcmds_test.go                 | 22 ++++++++
+ src/cmd/internal/telemetry/counter/counter.go | 54 +++++++++++++++++-
+ .../telemetry/counter/counter_bootstrap.go    |  3 +
+ 7 files changed, 167 insertions(+), 1 deletion(-)
  create mode 100644 src/cmd/go/mstelemetry_test.go
 
 diff --git a/README.md b/README.md
@@ -39,10 +39,10 @@ index 71c9d1dc299388..8cab5daec4da54 100644
 +these practices.
 \ No newline at end of file
 diff --git a/src/cmd/go/main.go b/src/cmd/go/main.go
-index e81969ca4a3144..67dbcb2e7a3cb9 100644
+index 8cdfd9196e4cb1..3f4a4d8f912969 100644
 --- a/src/cmd/go/main.go
 +++ b/src/cmd/go/main.go
-@@ -111,6 +111,14 @@ func main() {
+@@ -110,6 +110,14 @@ func main() {
  	}
  	flag.Usage = base.Usage
  	flag.Parse()
@@ -59,10 +59,10 @@ index e81969ca4a3144..67dbcb2e7a3cb9 100644
  
 diff --git a/src/cmd/go/mstelemetry_test.go b/src/cmd/go/mstelemetry_test.go
 new file mode 100644
-index 00000000000000..6993137ad56e8c
+index 00000000000000..010270fb6ad4cf
 --- /dev/null
 +++ b/src/cmd/go/mstelemetry_test.go
-@@ -0,0 +1,52 @@
+@@ -0,0 +1,56 @@
 +// Copyright 2025 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -115,11 +115,15 @@ index 00000000000000..6993137ad56e8c
 +	appInsightsRequests.Add(1)
 +	fmt.Fprint(w, `{"itemsReceived": 1, "itemsAccepted": 1}`)
 +}
++
++func appInsightsTotalRequests() int64 {
++	return appInsightsRequests.Load()
++}
 diff --git a/src/cmd/go/script_test.go b/src/cmd/go/script_test.go
-index 1345ea8bb8e530..e2b75957e21d3a 100644
+index f84a42352c5768..7521ce3db4af9f 100644
 --- a/src/cmd/go/script_test.go
 +++ b/src/cmd/go/script_test.go
-@@ -60,6 +60,7 @@ func TestScript(t *testing.T) {
+@@ -62,6 +62,7 @@ func TestScript(t *testing.T) {
  	}
  
  	StartProxy()
@@ -127,21 +131,23 @@ index 1345ea8bb8e530..e2b75957e21d3a 100644
  
  	var (
  		ctx         = context.Background()
-@@ -254,6 +255,8 @@ func scriptEnv(srv *vcstest.Server, srvCertFile string) ([]string, error) {
+@@ -256,6 +257,10 @@ func scriptEnv(srv *vcstest.Server, srvCertFile string) ([]string, error) {
  		"HGRCPATH=",
  		"GOTOOLCHAIN=auto",
  		"MS_GOTOOLCHAIN_ALLOW_NON_LOCAL=1", // allow non-local toolchains, some tests expect GOTOOLCHAIN to be honored
 +		"MS_GOTOOLCHAIN_TELEMETRY_ENDPOINT=" + appInsightsURL,
-+		"MS_GOTOOLCHAIN_TELEMETRY_ALLOW_GO_DEVEL=1", // allow telemetry for Go development versions
++		"MS_GOTOOLCHAIN_TELEMETRY_ALLOW_GO_DEVEL=1",   // allow telemetry for Go development versions
++		"MS_GOTOOLCHAIN_TELEMETRY_VERBOSE=2",          // enable verbose telemetry logging to help diagnose test failures
++		"MS_GOTOOLCHAIN_TELEMETRY_TRIM_TEST_SUFFIX=1", // trim ".test" suffix from program name for telemetry purposes when running tests
  		"newline=\n",
  	}
  
-@@ -408,6 +411,11 @@ func checkCounters(t *testing.T, telemetryDir string) {
+@@ -410,6 +415,11 @@ func checkCounters(t *testing.T, telemetryDir string) {
  			t.Fatal("go was invoked but no counters were incremented")
  		}
  	}
-+	if _, ok := scriptGoBuildInvoked.Load(testing.TB(t)); ok {
-+		if appInsightsRequests.Load() == 0 {
++	if _, ok := scriptGoBuildSucceeded.Load(testing.TB(t)); ok {
++		if appInsightsTotalRequests() == 0 {
 +			t.Fatal("go was invoked but no App Insights request were recorded")
 +		}
 +	}
@@ -149,18 +155,18 @@ index 1345ea8bb8e530..e2b75957e21d3a 100644
  
  // Copied from https://go.googlesource.com/telemetry/+/5f08a0cbff3f/internal/telemetry/mode.go#122
 diff --git a/src/cmd/go/scriptcmds_test.go b/src/cmd/go/scriptcmds_test.go
-index ced8d880e9ae3a..b3ad521ff94873 100644
+index 8195e830caa31b..882aeecfa562b9 100644
 --- a/src/cmd/go/scriptcmds_test.go
 +++ b/src/cmd/go/scriptcmds_test.go
-@@ -71,6 +71,7 @@ func scriptCC(cmdExec script.Cmd) script.Cmd {
+@@ -72,6 +72,7 @@ func scriptCC(cmdExec script.Cmd) script.Cmd {
  }
  
  var scriptGoInvoked sync.Map // testing.TB → go command was invoked
-+var scriptGoBuildInvoked sync.Map
++var scriptGoBuildSucceeded sync.Map
  
  // scriptGo runs the go command.
  func scriptGo(cancel func(*exec.Cmd) error, waitDelay time.Duration) script.Cmd {
-@@ -85,6 +86,16 @@ func scriptGo(cancel func(*exec.Cmd) error, waitDelay time.Duration) script.Cmd
+@@ -86,6 +87,27 @@ func scriptGo(cancel func(*exec.Cmd) error, waitDelay time.Duration) script.Cmd
  		if !dup {
  			t.Cleanup(func() { scriptGoInvoked.Delete(t) })
  		}
@@ -168,17 +174,28 @@ index ced8d880e9ae3a..b3ad521ff94873 100644
 +			// If the first argument is a subcommand, record it.
 +			switch s[0] {
 +			case "build", "install", "run":
-+				_, dup = scriptGoBuildInvoked.LoadOrStore(t, true)
-+				if !dup {
-+					t.Cleanup(func() { scriptGoBuildInvoked.Delete(t) })
++				wait, err := cmd.Run(state, s...)
++				if err != nil {
++					return wait, err
 +				}
++				waitAndRecord := func(state *script.State) (stdout, stderr string, err error) {
++					stdout, stderr, err = wait(state)
++					if err == nil {
++						_, dup = scriptGoBuildSucceeded.LoadOrStore(t, true)
++						if !dup {
++							t.Cleanup(func() { scriptGoBuildSucceeded.Delete(t) })
++						}
++					}
++					return stdout, stderr, err
++				}
++				return waitAndRecord, nil
 +			}
 +		}
  		return cmd.Run(state, s...)
  	})
  }
 diff --git a/src/cmd/internal/telemetry/counter/counter.go b/src/cmd/internal/telemetry/counter/counter.go
-index 5cef0b0041551a..2c1b8143d60764 100644
+index 5cef0b0041551a..8c2bae0e613c92 100644
 --- a/src/cmd/internal/telemetry/counter/counter.go
 +++ b/src/cmd/internal/telemetry/counter/counter.go
 @@ -7,10 +7,24 @@
@@ -206,7 +223,7 @@ index 5cef0b0041551a..2c1b8143d60764 100644
  )
  
  var openCalled bool
-@@ -24,9 +38,38 @@ func Open() {
+@@ -24,9 +38,44 @@ func Open() {
  	counter.OpenDir(os.Getenv("TEST_TELEMETRY_DIR"))
  }
  
@@ -216,8 +233,13 @@ index 5cef0b0041551a..2c1b8143d60764 100644
 +		return
 +	}
 +	var logger *slog.Logger
-+	if os.Getenv("MS_GOTOOLCHAIN_TELEMETRY_VERBOSE") == "1" {
-+		logger = slog.Default()
++	level := slog.LevelWarn
++	switch os.Getenv("MS_GOTOOLCHAIN_TELEMETRY_VERBOSE") {
++	case "2":
++		level = slog.LevelInfo
++		fallthrough
++	case "1":
++		logger = slog.New(slog.NewTextHandler(log.Default().Writer(), &slog.HandlerOptions{Level: level}))
 +	}
 +	mstelemetry.Start(mstelemetry.Config{
 +		InstrumentationKey: appInsightsInstrumentationKey,
@@ -225,6 +247,7 @@ index 5cef0b0041551a..2c1b8143d60764 100644
 +		AllowGoDevel:       os.Getenv("MS_GOTOOLCHAIN_TELEMETRY_ALLOW_GO_DEVEL") == "1",
 +		UploadConfig:       msconfig.Config,
 +		Logger:             logger,
++		TrimTestSuffix:     os.Getenv("MS_GOTOOLCHAIN_TELEMETRY_TRIM_TEST_SUFFIX") == "1",
 +	})
 +}
 +
@@ -245,7 +268,7 @@ index 5cef0b0041551a..2c1b8143d60764 100644
  }
  
  // New returns a counter with the given name.
-@@ -44,6 +87,7 @@ func NewStack(name string, depth int) *counter.StackCounter {
+@@ -44,6 +93,7 @@ func NewStack(name string, depth int) *counter.StackCounter {
  // the concatenation of prefix and the flag name.
  func CountFlags(prefix string, flagSet flag.FlagSet) {
  	counter.CountFlags(prefix, flagSet)
@@ -253,7 +276,7 @@ index 5cef0b0041551a..2c1b8143d60764 100644
  }
  
  // CountFlagValue creates a counter for the flag value
-@@ -56,7 +100,9 @@ func CountFlagValue(prefix string, flagSet flag.FlagSet, flagName string) {
+@@ -56,7 +106,9 @@ func CountFlagValue(prefix string, flagSet flag.FlagSet, flagName string) {
  	// TODO(matloob): Add this to x/telemetry?
  	flagSet.Visit(func(f *flag.Flag) {
  		if f.Name == flagName {

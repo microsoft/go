@@ -4,26 +4,27 @@ Date: Fri, 12 Dec 2025 16:46:44 +0100
 Subject: [PATCH] Align TLS settings with Microsoft policies
 
 ---
- doc/godebug.md                           |   9 +
- src/crypto/tls/common.go                 |   9 +-
- src/crypto/tls/defaults.go               |  47 ++-
- src/crypto/tls/defaults_microsoft.go     | 153 +++++++
- src/crypto/tls/handshake_client.go       |  21 +-
- src/crypto/tls/handshake_client_test.go  |  17 +-
- src/crypto/tls/handshake_server_tls13.go |  22 +-
- src/crypto/tls/handshake_test.go         |   3 +
- src/crypto/tls/microsoft_test.go         | 483 +++++++++++++++++++++++
- src/crypto/tls/schannel_windows.go       |   7 +
- src/internal/godebugs/table.go           |   2 +
- 11 files changed, 749 insertions(+), 24 deletions(-)
+ doc/godebug.md                                |   9 +
+ src/crypto/tls/common.go                      |   9 +-
+ src/crypto/tls/defaults.go                    |  47 +-
+ src/crypto/tls/defaults_microsoft.go          | 153 ++++++
+ src/crypto/tls/handshake_client.go            |  21 +-
+ src/crypto/tls/handshake_client_test.go       |  17 +-
+ src/crypto/tls/handshake_server_tls13.go      |  22 +-
+ src/crypto/tls/handshake_test.go              |   3 +
+ src/crypto/tls/microsoft_test.go              | 483 ++++++++++++++++++
+ src/crypto/tls/schannel_windows.go            |   7 +
+ src/internal/godebugs/table.go                |   2 +
+ src/net/http/internal/http2/transport_test.go |   2 +
+ 12 files changed, 751 insertions(+), 24 deletions(-)
  create mode 100644 src/crypto/tls/defaults_microsoft.go
  create mode 100644 src/crypto/tls/microsoft_test.go
 
 diff --git a/doc/godebug.md b/doc/godebug.md
-index 7184b2aaf1ce67..07fc1ea6d19970 100644
+index 4935d64850883d..1736fd71017add 100644
 --- a/doc/godebug.md
 +++ b/doc/godebug.md
-@@ -197,6 +197,15 @@ APIs ignore the random `io.Reader` parameter. For Go 1.26, it defaults
+@@ -207,6 +207,15 @@ APIs ignore the random `io.Reader` parameter. For Go 1.26, it defaults
  to `cryptocustomrand=0`, ignoring the random parameters. Using `cryptocustomrand=1`
  reverts to the pre-Go 1.26 behavior.
  
@@ -907,10 +908,10 @@ index cccfb8866f88ab..b2896e95e74686 100644
  	cipherSuitesPreferenceOrderNoAES = cipherSuitesPreferenceOrder
  	defaultCipherSuitesTLS13NoAES = defaultCipherSuitesTLS13
 diff --git a/src/internal/godebugs/table.go b/src/internal/godebugs/table.go
-index 10c4eb715e99e4..edf933b0a770bd 100644
+index 7ddfad14ea1be0..1ba17bc136710f 100644
 --- a/src/internal/godebugs/table.go
 +++ b/src/internal/godebugs/table.go
-@@ -48,6 +48,8 @@ var All = []Info{
+@@ -49,6 +49,8 @@ var All = []Info{
  	{Name: "httpservecontentkeepheaders", Package: "net/http", Changed: 23, Old: "1"},
  	{Name: "installgoroot", Package: "go/build"},
  	{Name: "jstmpllitinterp", Package: "html/template", Opaque: true}, // bug #66217: remove Opaque
@@ -919,3 +920,23 @@ index 10c4eb715e99e4..edf933b0a770bd 100644
  	//{Name: "multipartfiles", Package: "mime/multipart"},
  	{Name: "multipartmaxheaders", Package: "mime/multipart"},
  	{Name: "multipartmaxparts", Package: "mime/multipart"},
+diff --git a/src/net/http/internal/http2/transport_test.go b/src/net/http/internal/http2/transport_test.go
+index 955c2208ad4a86..0f5dc2ab51c728 100644
+--- a/src/net/http/internal/http2/transport_test.go
++++ b/src/net/http/internal/http2/transport_test.go
+@@ -15,6 +15,7 @@ import (
+ 	"errors"
+ 	"flag"
+ 	"fmt"
++	"internal/testenv"
+ 	"io"
+ 	"log"
+ 	"math/rand"
+@@ -2744,6 +2745,7 @@ func testTransportCloseAfterLostPing(t testing.TB) {
+ }
+ 
+ func TestTransportPingWriteBlocks(t *testing.T) {
++	testenv.SetGODEBUG(t, "ms_tlsprofile=off")
+ 	ts := newTestServer(t,
+ 		func(w http.ResponseWriter, r *http.Request) {},
+ 	)
