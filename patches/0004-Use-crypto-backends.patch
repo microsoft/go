@@ -102,7 +102,7 @@ Subject: [PATCH] Use crypto backends
  src/hash/notboring_test.go                    |   9 +
  src/net/lookup_test.go                        |   3 +
  src/os/exec/exec_test.go                      |   9 +
- 98 files changed, 1617 insertions(+), 243 deletions(-)
+ 98 files changed, 1615 insertions(+), 244 deletions(-)
  create mode 100644 src/crypto/dsa/boring.go
  create mode 100644 src/crypto/dsa/notboring.go
  create mode 100644 src/crypto/ecdsa/badlinkname.go
@@ -128,10 +128,10 @@ index f0e3575637c62a..9eab3b4e66e60b 100644
  package main
  
 diff --git a/src/cmd/dist/test.go b/src/cmd/dist/test.go
-index 7314eaffa3f800..089cc2b36ab186 100644
+index 7f66bb58d1580f..03cca6183229f9 100644
 --- a/src/cmd/dist/test.go
 +++ b/src/cmd/dist/test.go
-@@ -720,7 +720,7 @@ func (t *tester) registerTests() {
+@@ -714,7 +714,7 @@ func (t *tester) registerTests() {
  	})
  
  	// Check that all crypto packages compile (and test correctly, in longmode) with fips.
@@ -140,7 +140,7 @@ index 7314eaffa3f800..089cc2b36ab186 100644
  		// Test standard crypto packages with fips140=on.
  		t.registerTest("GOFIPS140=latest go test crypto/...", &goTest{
  			variant: "gofips140",
-@@ -1384,12 +1384,11 @@ func (t *tester) registerCgoTests(heading string) {
+@@ -1378,12 +1378,11 @@ func (t *tester) registerCgoTests(heading string) {
  			// a C linker warning on Linux.
  			// in function `bio_ip_and_port_to_socket_and_addr':
  			// warning: Using 'getaddrinfo' in statically linked applications requires at runtime the shared libraries from the glibc version used for linking
@@ -175,10 +175,10 @@ index ed0fbf3d53d75b..a2f74c8095d449 100644
  func TestBoringInternalLink(t *testing.T) {
  	tg := testgo(t)
 diff --git a/src/cmd/go/script_test.go b/src/cmd/go/script_test.go
-index f6eaddf8fb3f40..48151eee988ba4 100644
+index 088b9a8b5fdb2e..6a27473d4ed1d6 100644
 --- a/src/cmd/go/script_test.go
 +++ b/src/cmd/go/script_test.go
-@@ -296,6 +296,8 @@ var extraEnvKeys = []string{
+@@ -299,6 +299,8 @@ var extraEnvKeys = []string{
  	"GO_TESTING_GOTOOLS", // for gccgo testing
  	"GCCGO",              // for gccgo testing
  	"GCCGOTOOLDIR",       // for gccgo testing
@@ -245,7 +245,7 @@ index 802fb35aee4e65..4416731b69ec26 100644
  			*mode = BuildModePIE
  		default:
 diff --git a/src/cmd/link/internal/ld/lib.go b/src/cmd/link/internal/ld/lib.go
-index cac9cc0b98f6d9..ae553979a7fd09 100644
+index a05c8c2b48be4b..6499182422863c 100644
 --- a/src/cmd/link/internal/ld/lib.go
 +++ b/src/cmd/link/internal/ld/lib.go
 @@ -1176,6 +1176,12 @@ var hostobj []Hostobj
@@ -1269,7 +1269,7 @@ index 00000000000000..4e18cdfbaad4fd
 +	return key, nil
 +}
 diff --git a/src/crypto/ed25519/ed25519.go b/src/crypto/ed25519/ed25519.go
-index a0263638ef19fe..00752fce1bae07 100644
+index ed599ad2908dfb..b3106b9ed83811 100644
 --- a/src/crypto/ed25519/ed25519.go
 +++ b/src/crypto/ed25519/ed25519.go
 @@ -17,6 +17,7 @@ package ed25519
@@ -1306,9 +1306,9 @@ index a0263638ef19fe..00752fce1bae07 100644
 +		return pubKey, privKey, err
 +	}
  
- 	seed := make([]byte, SeedSize)
- 	if _, err := io.ReadFull(random, seed); err != nil {
-@@ -175,6 +190,17 @@ func GenerateKey(random io.Reader) (PublicKey, PrivateKey, error) {
+ 	if fips140only.Enforced() && !fips140only.ApprovedRandomReader(random) {
+ 		return nil, nil, errors.New("crypto/ed25519: only crypto/rand.Reader is allowed in FIPS 140-only mode")
+@@ -188,6 +203,17 @@ func GenerateKey(random io.Reader) (PublicKey, PrivateKey, error) {
  // with RFC 8032. RFC 8032's private keys correspond to seeds in this
  // package.
  func NewKeyFromSeed(seed []byte) PrivateKey {
@@ -1326,7 +1326,7 @@ index a0263638ef19fe..00752fce1bae07 100644
  	// Outline the function body so that the returned key can be stack-allocated.
  	privateKey := make([]byte, PrivateKeySize)
  	newKeyFromSeed(privateKey, seed)
-@@ -193,6 +219,17 @@ func newKeyFromSeed(privateKey, seed []byte) {
+@@ -206,6 +232,17 @@ func newKeyFromSeed(privateKey, seed []byte) {
  // Sign signs the message with privateKey and returns a signature. It will
  // panic if len(privateKey) is not [PrivateKeySize].
  func Sign(privateKey PrivateKey, message []byte) []byte {
@@ -1344,7 +1344,7 @@ index a0263638ef19fe..00752fce1bae07 100644
  	// Outline the function body so that the returned signature can be
  	// stack-allocated.
  	signature := make([]byte, SignatureSize)
-@@ -222,6 +259,32 @@ func Verify(publicKey PublicKey, message, sig []byte) bool {
+@@ -235,6 +272,32 @@ func Verify(publicKey PublicKey, message, sig []byte) bool {
  	return VerifyWithOptions(publicKey, message, sig, &Options{Hash: crypto.Hash(0)}) == nil
  }
  
@@ -1377,7 +1377,7 @@ index a0263638ef19fe..00752fce1bae07 100644
  // VerifyWithOptions reports whether sig is a valid signature of message by
  // publicKey. A valid signature is indicated by returning a nil error. It will
  // panic if len(publicKey) is not [PublicKeySize].
-@@ -250,6 +313,13 @@ func VerifyWithOptions(publicKey PublicKey, message, sig []byte, opts *Options)
+@@ -263,6 +326,13 @@ func VerifyWithOptions(publicKey PublicKey, message, sig []byte, opts *Options)
  		}
  		return ed25519.VerifyCtx(k, message, sig, opts.Context)
  	case opts.Hash == crypto.Hash(0): // Ed25519
@@ -2847,7 +2847,7 @@ index e03f4ab06603c6..a9d9daba2fd6ce 100644
  		t.Fatal(err)
  	}
 diff --git a/src/crypto/rsa/rsa.go b/src/crypto/rsa/rsa.go
-index b94b129867727b..149dd4321f8d72 100644
+index 3a744f3e3fb603..ef00f6008818b2 100644
 --- a/src/crypto/rsa/rsa.go
 +++ b/src/crypto/rsa/rsa.go
 @@ -43,8 +43,8 @@ package rsa
@@ -3918,7 +3918,7 @@ index 7d4bd5bcceba4f..697dfa1ecb792e 100644
  
  	// If we did not load a session (hs.session == nil), but we did set a
 diff --git a/src/crypto/tls/handshake_client_tls13.go b/src/crypto/tls/handshake_client_tls13.go
-index 77a24b4a78d8fc..84724fac5f951e 100644
+index 65177767a05b1f..87b637a0f25602 100644
 --- a/src/crypto/tls/handshake_client_tls13.go
 +++ b/src/crypto/tls/handshake_client_tls13.go
 @@ -10,9 +10,9 @@ import (
@@ -3959,7 +3959,7 @@ index 34dfb13b672f79..e635079f12313f 100644
  
  	if err := hs.processClientHello(); err != nil {
 diff --git a/src/crypto/tls/handshake_server_tls13.go b/src/crypto/tls/handshake_server_tls13.go
-index bce94ed2d8c436..14834301052886 100644
+index b45d7cbc537ffe..c88871127ae8bb 100644
 --- a/src/crypto/tls/handshake_server_tls13.go
 +++ b/src/crypto/tls/handshake_server_tls13.go
 @@ -11,9 +11,9 @@ import (
@@ -4303,7 +4303,7 @@ index 8233985a62bd22..ef1b2bfe02c3b7 100644
  		in, _ := hex.DecodeString(test.preMasterSecret)
  		clientRandom, _ := hex.DecodeString(test.clientRandom)
 diff --git a/src/crypto/x509/verify_test.go b/src/crypto/x509/verify_test.go
-index f9bd313737e21b..04548c961e74a8 100644
+index 1d3e845d0f0a9c..eb4318faf13f7b 100644
 --- a/src/crypto/x509/verify_test.go
 +++ b/src/crypto/x509/verify_test.go
 @@ -3127,7 +3127,7 @@ func dsaSelfSignedCNX(t *testing.T) []byte {
@@ -4316,10 +4316,10 @@ index f9bd313737e21b..04548c961e74a8 100644
  
  	var dsaPriv dsa.PrivateKey
 diff --git a/src/go/build/deps_test.go b/src/go/build/deps_test.go
-index ad2c8fa13fd07a..de1cea23e37ba1 100644
+index b6ff825fc811b3..1fc0a4ac947345 100644
 --- a/src/go/build/deps_test.go
 +++ b/src/go/build/deps_test.go
-@@ -544,7 +544,7 @@ var depsRules = `
+@@ -539,7 +539,7 @@ var depsRules = `
  	< crypto/internal/fips140/edwards25519
  	< crypto/internal/fips140/ed25519
  	< crypto/internal/fips140/rsa
@@ -4328,7 +4328,7 @@ index ad2c8fa13fd07a..de1cea23e37ba1 100644
  
  	crypto !< FIPS;
  
-@@ -568,7 +568,12 @@ var depsRules = `
+@@ -563,7 +563,12 @@ var depsRules = `
  	< crypto/internal/backend/internal/opensslsetup
  	< crypto/internal/backend/fips140;
  
@@ -4342,7 +4342,7 @@ index ad2c8fa13fd07a..de1cea23e37ba1 100644
  	< crypto/internal/fips140only
  	< crypto
  	< crypto/subtle
-@@ -602,7 +607,8 @@ var depsRules = `
+@@ -597,7 +602,8 @@ var depsRules = `
  	crypto/internal/fips140only,
  	crypto,
  	crypto/subtle,
@@ -4352,7 +4352,7 @@ index ad2c8fa13fd07a..de1cea23e37ba1 100644
  	< crypto/sha3
  	< crypto/internal/fips140hash
  	< crypto/internal/boring
-@@ -620,6 +626,7 @@ var depsRules = `
+@@ -615,6 +621,7 @@ var depsRules = `
  	  crypto/pbkdf2,
  	  crypto/ecdh,
  	  crypto/mlkem
