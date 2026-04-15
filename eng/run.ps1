@@ -17,10 +17,9 @@ To list all possible tools:
 
 Builds 'eng/_util/cmd/<tool>/<tool>.go' and runs it using the list of arguments.
 
-This command automatically installs a known version of the Microsoft build Go that
-will be used to build the tools. The known version of Go will also be used to build the
-Go source code, if it's built. Set environment variable "MS_USE_PATH_GO" to 1 to
-your own Go from PATH instead.
+This command uses Go from PATH by default. Set "MS_USE_CI_STAGE0" to 1 to instead
+download the exact Go version used in CI into the repository at
+'eng/artifacts/_goStage0/'. This is useful for reproducing CI-specific failures.
 
 Every tool accepts a '-h' argument to show tool usage help.
 #>
@@ -82,17 +81,19 @@ if (-not ($tool_source -is [System.IO.FileInfo])) {
 # Now that we have a single result, navigate upwards to see which module it's in.
 $tool_module = $tool_source.Directory.Parent.Parent.FullName
 
-# Download a consistent stage 0 version of Go unless opted out.
-if ($env:MS_USE_PATH_GO -eq "1") {
+# Set up a Go toolset. See https://github.com/microsoft/go/issues/12
+#  - Default: use Go from PATH.
+#  - "MS_USE_CI_STAGE0=1": download the exact CI stage 0 version (eng/artifacts/_goStage0/).
+if ($env:MS_USE_CI_STAGE0 -eq "1") {
+  Download-Stage0
+} else {
   try {
-    Write-Host "Using $(go version) from '$(go env GOROOT)'. Results may differ from CI environment."
+    Write-Host "Using $(go version) from '$(go env GOROOT)'. Results may differ from CI. Set MS_USE_CI_STAGE0=1 to download the CI version."
   } catch {
-    Write-Host "Error: 'go' is most likely not in PATH. To download the known version, set 'MS_USE_PATH_GO' to '0' or unset it, then try again."
+    Write-Host "Error: 'go' is not in PATH. Install Go or set MS_USE_CI_STAGE0=1 to download it automatically."
     Write-Host "Exception: $_"
     exit 1
   }
-} else {
-  Download-Stage0
 }
 
 $stage0_goroot = & go env GOROOT
