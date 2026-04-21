@@ -146,10 +146,23 @@ The Microsoft build of Go detects your FIPS mode preference by evaluating this l
 - If environment variable setting `GODEBUG=fips140=on` is found: Enabled ✅
   - More specifically, if [`GODEBUG`](https://go.dev/doc/godebug) contains `fips140=on`.
   - This is the recommended way to set your FIPS preference.
+  - `GODEBUG=fips140=only` and `GODEBUG=fips140=debug` also enable FIPS mode. See [Go Runtime FIPS mode](#go-runtime-fips-mode).
+- If environment variable setting `GODEBUG=fips140=off` is found: Disabled ❌
+  - This explicitly disables FIPS mode and skips platform-specific FIPS
+    detection (e.g. the Linux kernel FIPS flag). This is the only supported
+    way to skip platform FIPS detection.
 - If the environment variable `GOFIPS` is set to:
   - `1`: Enabled ✅
+  - Any other value (including `0` and the empty string) is ignored, and
+    detection continues with the next item in this list. To explicitly
+    disable FIPS mode and skip platform FIPS detection, use
+    `GODEBUG=fips140=off`.
 - If the environment variable `GOLANG_FIPS` is set to:
   - `1`: Enabled ✅
+  - Any other value (including `0` and the empty string) is ignored, and
+    detection continues with the next item in this list. To explicitly
+    disable FIPS mode and skip platform FIPS detection, use
+    `GODEBUG=fips140=off`.
 - If a platform-specific preference is detected: Enabled ✅
   - See the following sections for per-platform details.
 - If the [build option to require FIPS mode](#build-option-to-require-fips-mode) is enabled: Enabled ✅
@@ -433,6 +446,9 @@ This list of major changes is intended for quick reference and for access to his
 ### Go 1.27 (Aug 2026)
 
 - Support for `GODEBUG=fips140=only` has been added. It acts as `fips140=on`, but also panics if a non-FIPS-approved algorithm is used.
+- `GODEBUG=fips140=off` now explicitly disables FIPS mode and skips the platform-specific FIPS detection (e.g. the Linux kernel FIPS flag at `/proc/sys/crypto/fips_enabled`). This is the supported way to opt out of platform FIPS detection. See [microsoft/go#2184](https://github.com/microsoft/go/issues/2184).
+- `GOFIPS` now matches its documented behavior: only `GOFIPS=1` enables FIPS mode, and any other value (including `0` and the empty string) is treated as if `GOFIPS` were unset. The same applies to `GOLANG_FIPS`.
+  - In Go 1.25 and 1.26, due to a bug, setting `GOFIPS` (or `GOLANG_FIPS`) to any value silently bypassed the platform-specific FIPS detection (e.g. the Linux kernel FIPS flag) even though only `=1` actually enabled FIPS mode. Programs that previously relied on `GOFIPS=0` to skip platform FIPS detection should switch to `GODEBUG=fips140=off`.
 - The per-platform GOEXPERIMENTs (`opensslcrypto`, `cngcrypto`, `darwincrypto`) have been removed.
   - Using any of the removed experiments will result in a build error.
   - The `systemcrypto` GOEXPERIMENT has been the preferred way to select a crypto backend since it was introduced in Go 1.21. It is now the only way.
@@ -463,6 +479,7 @@ This list of major changes is intended for quick reference and for access to his
   - If your app doesn't use a crypto package and you make a change that introduces a crypto package dependency, you will only encounter a compatibility check failure after the change. The change may be in your transitive dependencies: for example, depending on a new module that uses `crypto/sha256` may trigger the compatibility check. This is undesirable, but it's necessary to enable flexibility.
 
 - `GOFIPS=0` support has been removed. It now has no effect.
+  - Note: due to a bug, in Go 1.25 and 1.26 setting `GOFIPS` (or `GOLANG_FIPS`) to any value other than `1` actually still bypassed the platform-specific FIPS detection (e.g. the Linux kernel FIPS flag), even though it was documented as having no effect. This was fixed in Go 1.27, which also adds `GODEBUG=fips140=off` as the supported way to explicitly disable FIPS mode and skip platform FIPS detection. See [microsoft/go#2184](https://github.com/microsoft/go/issues/2184).
 
 - `GOEXPERIMENT=boringcrypto` has been removed.
 
