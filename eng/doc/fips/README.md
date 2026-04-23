@@ -144,8 +144,8 @@ The following sections describe how to enable FIPS mode and the effect of the `G
 The Microsoft build of Go detects your FIPS mode preference by evaluating this list in order.
 
 - If the [`GODEBUG`](https://go.dev/doc/godebug) settings include a `fips140` setting:
-  - If `GODEBUG=fips140=on`, `only`, or `debug`: Enabled ✅
-  - If `GODEBUG=fips140=off`: Disabled ❌ (As of Go 1.27, 1.26.3-1, and 1.25.10-1.)
+  - If `fips140=on`, `fips140=only`, or `fips140=debug`: Enabled ✅
+  - If `fips140=off`: Disabled ❌ (As of Go 1.27, 1.26.3-1, and 1.25.10-1.)
 - If the environment variable `GOFIPS` or `GOLANG_FIPS` is set to `1`: Enabled ✅
   - Any other value (including `0` and the empty string) is ignored.
 - If a platform-specific preference is detected: Enabled ✅
