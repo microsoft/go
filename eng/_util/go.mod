@@ -8,7 +8,7 @@ go 1.25.0
 
 require (
 	github.com/golang-jwt/jwt/v5 v5.3.1
-	github.com/microsoft/go-infra v0.0.10-0.20260411064856-24be3e9cffcc
+	github.com/microsoft/go-infra v0.0.10-0.20260420165249-d41a92f0b571
 	github.com/microsoft/go-infra/goinstallscript v1.2.0
 	golang.org/x/net v0.53.0
 )
