@@ -141,28 +141,13 @@ A program built with `systemcrypto` always uses the system-provided cryptography
 
 The following sections describe how to enable FIPS mode and the effect of the `GODEBUG=fips140=on` and `GOFIPS=1` settings on each supported platform.
 
-The Microsoft build of Go detects your FIPS mode preference by evaluating this list.
+The Microsoft build of Go detects your FIPS mode preference by evaluating this list in order.
 
-- If environment variable setting `GODEBUG=fips140=on` is found: Enabled ✅
-  - More specifically, if [`GODEBUG`](https://go.dev/doc/godebug) contains `fips140=on`.
-  - This is the recommended way to set your FIPS preference.
-  - `GODEBUG=fips140=only` and `GODEBUG=fips140=debug` also enable FIPS mode. See [Go Runtime FIPS mode](#go-runtime-fips-mode).
-- If environment variable setting `GODEBUG=fips140=off` is found: Disabled ❌
-  - This explicitly disables FIPS mode and skips platform-specific FIPS
-    detection (e.g. the Linux kernel FIPS flag). This is the only supported
-    way to skip platform FIPS detection.
-- If the environment variable `GOFIPS` is set to:
-  - `1`: Enabled ✅
-  - Any other value (including `0` and the empty string) is ignored, and
-    detection continues with the next item in this list. To explicitly
-    disable FIPS mode and skip platform FIPS detection, use
-    `GODEBUG=fips140=off`.
-- If the environment variable `GOLANG_FIPS` is set to:
-  - `1`: Enabled ✅
-  - Any other value (including `0` and the empty string) is ignored, and
-    detection continues with the next item in this list. To explicitly
-    disable FIPS mode and skip platform FIPS detection, use
-    `GODEBUG=fips140=off`.
+- If the [`GODEBUG`](https://go.dev/doc/godebug) settings include a `fips140` setting:
+  - If `GODEBUG=fips140=on`, `only`, or `debug`: Enabled ✅
+  - If `GODEBUG=fips140=off`: Disabled ❌ (As of Go 1.27, 1.26.3-1, and 1.25.10-1.)
+- If the environment variable `GOFIPS` or `GOLANG_FIPS` is set to `1`: Enabled ✅
+  - Any other value (including `0` and the empty string) is ignored.
 - If a platform-specific preference is detected: Enabled ✅
   - See the following sections for per-platform details.
 - If the [build option to require FIPS mode](#build-option-to-require-fips-mode) is enabled: Enabled ✅
@@ -174,11 +159,29 @@ If FIPS mode preference is Enabled ✅, then:
   - This may help detect and refuse to run with incorrectly configured environments.
 - The program enables [Go Runtime FIPS mode](#go-runtime-fips-mode).
 
+If FIPS mode preference is Disabled ❌, then:
+
+- The program explicitly disables [Go Runtime FIPS mode](#go-runtime-fips-mode).
+
+> [!TIP]
+> The `GODEBUG` `fips140` settings such as `GODEBUG=fips140=on` are the recommended way to set your FIPS preference.
+
 The Go runtime FIPS mode may be important to distinguish its FIPS mode from the system FIPS mode or crypto engine's FIPS mode.
 The [Go Runtime FIPS mode](#go-runtime-fips-mode) section describes this in more detail.
 
 Since Go 1.27, there is also `GODEBUG=fips140=only`.
 It acts as `GODEBUG=fips140=on`, but also makes a best effort to panic if a non-FIPS 140-3 compliant algorithm is used.
+
+> [!NOTE]
+> The "Disabled ❌" preference is the only supported way to skip platform-specific FIPS detection.
+>
+> A scenario where this may be necessary is running containers on a Linux host.
+> If the container host runs a Linux kernel with FIPS mode enabled, this preference is shared with every container it runs.
+> If that host runs a container that includes a copy of OpenSSL that isn't in FIPS mode, a Go program that runs in the container panics during initialization.
+> (The Linux kernel is shared with containers. OpenSSL is not.)
+>
+> In this scenario, **if FIPS compliance is desired**, the fix is to change the container to use a FIPS-compliant version of OpenSSL.
+> However, if FIPS compliance is **not** desired, it may be preferable to configure the container to ignore the Linux kernel's FIPS preference.
 
 > [!NOTE]
 > When `fips140=only` is set with a system crypto backend, the enforcement depends on the backend's algorithm support.
