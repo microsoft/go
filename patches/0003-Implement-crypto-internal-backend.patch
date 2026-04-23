@@ -33,7 +33,8 @@ desired goexperiments and build tags.
  src/crypto/internal/backend/bbig/big_linux.go |  12 +
  .../internal/backend/bbig/big_windows.go      |  12 +
  src/crypto/internal/backend/common.go         |  46 ++
- .../internal/backend/fips140/fips140.go       |  70 +++
+ .../internal/backend/fips140/fips140.go       |  95 ++++
+ .../internal/backend/fips140/fips140_test.go  |  75 +++
  .../internal/backend/fips140/isrequirefips.go |   9 +
  .../internal/backend/fips140/norequirefips.go |   9 +
  .../backend/fips140/nosystemcrypto.go         |  13 +
@@ -53,7 +54,7 @@ desired goexperiments and build tags.
  src/go/build/deps_test.go                     |  24 +-
  src/internal/buildcfg/exp.go                  |  47 ++
  src/runtime/runtime_boring.go                 |   5 +
- 44 files changed, 2763 insertions(+), 16 deletions(-)
+ 45 files changed, 2863 insertions(+), 16 deletions(-)
  create mode 100644 src/cmd/go/systemcrypto_test.go
  create mode 100644 src/crypto/internal/backend/backend_darwin.go
  create mode 100644 src/crypto/internal/backend/backend_linux.go
@@ -65,6 +66,7 @@ desired goexperiments and build tags.
  create mode 100644 src/crypto/internal/backend/bbig/big_windows.go
  create mode 100644 src/crypto/internal/backend/common.go
  create mode 100644 src/crypto/internal/backend/fips140/fips140.go
+ create mode 100644 src/crypto/internal/backend/fips140/fips140_test.go
  create mode 100644 src/crypto/internal/backend/fips140/isrequirefips.go
  create mode 100644 src/crypto/internal/backend/fips140/norequirefips.go
  create mode 100644 src/crypto/internal/backend/fips140/nosystemcrypto.go
@@ -368,10 +370,10 @@ index a4edd854f1d35a..10ee92536b96cd 100644
  	// This will also update the BuildContext's tool tags to include the new
  	// experiment tags.
 diff --git a/src/cmd/go/internal/load/pkg.go b/src/cmd/go/internal/load/pkg.go
-index f40de7fe12fd37..04797bfc529ac1 100644
+index 91282ef9ace1c6..8f0deba2378f44 100644
 --- a/src/cmd/go/internal/load/pkg.go
 +++ b/src/cmd/go/internal/load/pkg.go
-@@ -2413,6 +2413,9 @@ func (p *Package) setBuildInfo(ctx context.Context, f *modfetch.Fetcher, autoVCS
+@@ -2415,6 +2415,9 @@ func (p *Package) setBuildInfo(ctx context.Context, f *modfetch.Fetcher, autoVCS
  			buildmode = "archive"
  		}
  	}
@@ -2264,10 +2266,10 @@ index 00000000000000..a9682181ffa154
 +}
 diff --git a/src/crypto/internal/backend/fips140/fips140.go b/src/crypto/internal/backend/fips140/fips140.go
 new file mode 100644
-index 00000000000000..1bf7c3b7d63da8
+index 00000000000000..6c3568d77d2c0a
 --- /dev/null
 +++ b/src/crypto/internal/backend/fips140/fips140.go
-@@ -0,0 +1,70 @@
+@@ -0,0 +1,95 @@
 +// Copyright 2024 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -2297,20 +2299,7 @@ index 00000000000000..1bf7c3b7d63da8
 +func init() {
 +	// TODO: Decide which environment variable to use.
 +	// See https://github.com/microsoft/go/issues/397.
-+	var ok bool
-+	value := fips140GODEBUG.Value()
-+	if value == "on" || value == "only" || value == "debug" {
-+		message = "environment variable GODEBUG=fips140=" + value
-+		value = "1"
-+	} else if value, ok = syscall.Getenv("GOFIPS"); ok {
-+		message = "environment variable GOFIPS"
-+	} else if value, ok = syscall.Getenv("GOLANG_FIPS"); ok {
-+		message = "environment variable GOLANG_FIPS"
-+	} else if systemFIPSMode() {
-+		message = "system FIPS mode"
-+		value = "1"
-+	}
-+	enabled = value == "1"
++	enabled, message = detect(fips140GODEBUG.Value(), syscall.Getenv, systemFIPSMode)
 +	if isRequireFIPS {
 +		if isSkipFIPSCheck {
 +			panic("the 'requirefips' build tag is enabled, but it conflicts " +
@@ -2319,6 +2308,44 @@ index 00000000000000..1bf7c3b7d63da8
 +		message = "requirefips tag set"
 +		enabled = true
 +	}
++}
++
++// detect reports whether FIPS 140 mode should be enabled and returns a
++// human-readable message describing how the decision was made.
++//
++// godebug is the value of the fips140 GODEBUG setting. getenv is used to look
++// up the GOFIPS and GOLANG_FIPS environment variables and mirrors the
++// semantics of [syscall.Getenv]. systemFIPS reports whether the platform
++// indicates that FIPS mode should be enabled (e.g. the Linux kernel FIPS flag).
++//
++// The inputs are taken as parameters, rather than read directly, to make the
++// detection logic easy to test without depending on process state.
++func detect(godebug string, getenv func(string) (string, bool), systemFIPS func() bool) (enabled bool, message string) {
++	switch godebug {
++	case "on", "only", "debug":
++		return true, "environment variable GODEBUG=fips140=" + godebug
++	case "off":
++		// GODEBUG=fips140=off explicitly disables FIPS mode and bypasses
++		// the platform-specific FIPS detection (e.g. the Linux kernel FIPS flag).
++		// This is the only supported way to skip the platform FIPS detection.
++		return false, "environment variable GODEBUG=fips140=off"
++	}
++	// Only "1" is a meaningful value for GOFIPS and GOLANG_FIPS. Any other
++	// value (including "0" and the empty string) is treated as if the
++	// variable were unset, to match the documented behavior and to avoid
++	// silently bypassing the platform FIPS detection due to a typo or
++	// accidental setting. To explicitly disable FIPS mode and skip the
++	// platform FIPS detection, use GODEBUG=fips140=off.
++	if v, ok := getenv("GOFIPS"); ok && v == "1" {
++		return true, "environment variable GOFIPS=1"
++	}
++	if v, ok := getenv("GOLANG_FIPS"); ok && v == "1" {
++		return true, "environment variable GOLANG_FIPS=1"
++	}
++	if systemFIPS() {
++		return true, "system FIPS mode"
++	}
++	return false, ""
 +}
 +
 +// Check checks whether fips mode, as returned by fips(),
@@ -2337,6 +2364,87 @@ index 00000000000000..1bf7c3b7d63da8
 +		return errors.New("FIPS mode requested (" + message + ") but not available")
 +	}
 +	return nil
++}
+diff --git a/src/crypto/internal/backend/fips140/fips140_test.go b/src/crypto/internal/backend/fips140/fips140_test.go
+new file mode 100644
+index 00000000000000..9fb7df809baed8
+--- /dev/null
++++ b/src/crypto/internal/backend/fips140/fips140_test.go
+@@ -0,0 +1,75 @@
++// Copyright 2026 The Go Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style
++// license that can be found in the LICENSE file.
++
++package fips140
++
++import (
++	"testing"
++)
++
++// fakeEnv returns a getenv function that serves lookups from m, with the
++// same (value, ok) semantics as [syscall.Getenv]. A key present in m with an
++// empty string value represents a set-but-empty environment variable.
++func fakeEnv(m map[string]string) func(string) (string, bool) {
++	return func(key string) (string, bool) {
++		v, ok := m[key]
++		return v, ok
++	}
++}
++
++// TestDetect exercises the FIPS 140 detection logic in isolation, without
++// depending on process environment variables or the host's kernel FIPS
++// configuration. This lets us cover combinations that would otherwise be
++// impossible to test on a single machine, such as the kernel FIPS flag
++// being set or not set for the same test run.
++func TestDetect(t *testing.T) {
++	tests := []struct {
++		name        string
++		godebug     string
++		env         map[string]string
++		systemFIPS  bool
++		wantEnabled bool
++		wantMessage string
++	}{
++		// GODEBUG=fips140 takes precedence over everything else.
++		{name: "GODEBUG=on", godebug: "on", wantEnabled: true, wantMessage: "environment variable GODEBUG=fips140=on"},
++		{name: "GODEBUG=only", godebug: "only", wantEnabled: true, wantMessage: "environment variable GODEBUG=fips140=only"},
++		{name: "GODEBUG=debug", godebug: "debug", wantEnabled: true, wantMessage: "environment variable GODEBUG=fips140=debug"},
++		{name: "GODEBUG=on beats GOFIPS=0 and kernel FIPS", godebug: "on", env: map[string]string{"GOFIPS": "0"}, systemFIPS: true, wantEnabled: true, wantMessage: "environment variable GODEBUG=fips140=on"},
++		{name: "GODEBUG=off beats kernel FIPS", godebug: "off", systemFIPS: true, wantEnabled: false, wantMessage: "environment variable GODEBUG=fips140=off"},
++		{name: "GODEBUG=off beats GOFIPS=1", godebug: "off", env: map[string]string{"GOFIPS": "1"}, wantEnabled: false, wantMessage: "environment variable GODEBUG=fips140=off"},
++
++		// GOFIPS=1 enables FIPS when GODEBUG is unset/empty/unrecognized.
++		{name: "GOFIPS=1", env: map[string]string{"GOFIPS": "1"}, wantEnabled: true, wantMessage: "environment variable GOFIPS=1"},
++		{name: "GOFIPS=1 beats kernel FIPS off", env: map[string]string{"GOFIPS": "1"}, systemFIPS: false, wantEnabled: true, wantMessage: "environment variable GOFIPS=1"},
++		{name: "GODEBUG unrecognized, GOFIPS=1", godebug: "bogus", env: map[string]string{"GOFIPS": "1"}, wantEnabled: true, wantMessage: "environment variable GOFIPS=1"},
++
++		// Non-"1" values of GOFIPS are ignored and fall through.
++		{name: "GOFIPS=0 falls through to kernel FIPS on", env: map[string]string{"GOFIPS": "0"}, systemFIPS: true, wantEnabled: true, wantMessage: "system FIPS mode"},
++		{name: "GOFIPS=0 falls through to kernel FIPS off", env: map[string]string{"GOFIPS": "0"}, systemFIPS: false, wantEnabled: false, wantMessage: ""},
++		{name: "GOFIPS empty falls through to kernel FIPS on", env: map[string]string{"GOFIPS": ""}, systemFIPS: true, wantEnabled: true, wantMessage: "system FIPS mode"},
++		{name: "GOFIPS=garbage falls through", env: map[string]string{"GOFIPS": "garbage"}, systemFIPS: false, wantEnabled: false, wantMessage: ""},
++
++		// GOLANG_FIPS behaves the same as GOFIPS.
++		{name: "GOLANG_FIPS=1", env: map[string]string{"GOLANG_FIPS": "1"}, wantEnabled: true, wantMessage: "environment variable GOLANG_FIPS=1"},
++		{name: "GOFIPS=1 beats GOLANG_FIPS=0", env: map[string]string{"GOFIPS": "1", "GOLANG_FIPS": "0"}, wantEnabled: true, wantMessage: "environment variable GOFIPS=1"},
++		{name: "GOLANG_FIPS=0 falls through to kernel FIPS on", env: map[string]string{"GOLANG_FIPS": "0"}, systemFIPS: true, wantEnabled: true, wantMessage: "system FIPS mode"},
++
++		// With nothing set, the kernel FIPS flag controls the result.
++		{name: "nothing set, kernel FIPS on", systemFIPS: true, wantEnabled: true, wantMessage: "system FIPS mode"},
++		{name: "nothing set, kernel FIPS off", systemFIPS: false, wantEnabled: false, wantMessage: ""},
++	}
++
++	for _, tc := range tests {
++		t.Run(tc.name, func(t *testing.T) {
++			systemFIPS := func() bool { return tc.systemFIPS }
++			gotEnabled, gotMessage := detect(tc.godebug, fakeEnv(tc.env), systemFIPS)
++			if gotEnabled != tc.wantEnabled || gotMessage != tc.wantMessage {
++				t.Errorf("detect(godebug=%q, env=%v, systemFIPS=%v) = (%v, %q), want (%v, %q)",
++					tc.godebug, tc.env, tc.systemFIPS,
++					gotEnabled, gotMessage, tc.wantEnabled, tc.wantMessage)
++			}
++		})
++	}
 +}
 diff --git a/src/crypto/internal/backend/fips140/isrequirefips.go b/src/crypto/internal/backend/fips140/isrequirefips.go
 new file mode 100644
@@ -3199,7 +3307,7 @@ index 00000000000000..7500bd3a86472b
 +	`
 +}
 diff --git a/src/go/build/deps_test.go b/src/go/build/deps_test.go
-index 2c523a20bdfbc7..b6ff825fc811b3 100644
+index e8eeb9455e4bb5..52c0785a87e5e8 100644
 --- a/src/go/build/deps_test.go
 +++ b/src/go/build/deps_test.go
 @@ -367,7 +367,7 @@ var depsRules = `
@@ -3236,7 +3344,7 @@ index 2c523a20bdfbc7..b6ff825fc811b3 100644
  	FIPS, internal/godebug, embed,
  	crypto/internal/boring/sig,
  	crypto/internal/boring/syso,
-@@ -614,8 +625,15 @@ var depsRules = `
+@@ -617,8 +628,15 @@ var depsRules = `
  	math/big, github.com/microsoft/go-crypto-darwin/xcrypto < github.com/microsoft/go-crypto-darwin/bbig;
  	math/big, github.com/microsoft/go-crypto-winnative/cng < github.com/microsoft/go-crypto-winnative/cng/bbig;
  
