@@ -150,7 +150,7 @@ The Microsoft build of Go detects your FIPS mode preference by evaluating this l
   - `1`: Enabled ✅
   - (**Prior to Go 1.27**) Any other value, including `0` and the empty string: Disabled ❌
     - See the [Go 1.25 changelog](#go-125-aug-2025) for details.
-- If the environment variable `GOLANG_FIPS` is set:
+- If the environment variable `GOLANG_FIPS` is set to:
   - `1`: Enabled ✅
   - (**Prior to Go 1.27**) Any other value, including `0` and the empty string: Disabled ❌
     - See the [Go 1.25 changelog](#go-125-aug-2025) for details.
