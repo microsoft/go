@@ -145,9 +145,15 @@ The Microsoft build of Go detects your FIPS mode preference by evaluating this l
 
 - If the [`GODEBUG`](https://go.dev/doc/godebug) settings include a `fips140` setting:
   - If `fips140=on`, `fips140=only`, or `fips140=debug`: Enabled ✅
-  - If `fips140=off`: Disabled ❌ (As of Go 1.27, 1.26.3-1, and 1.25.10-1.)
-- If the environment variable `GOFIPS` or `GOLANG_FIPS` is set to `1`: Enabled ✅
-  - Any other value (including `0` and the empty string) is ignored.
+  - (**Since Go 1.27**) If `fips140=off`: Disabled ❌
+- If the environment variable `GOFIPS` is set to:
+  - `1`: Enabled ✅
+  - (**Prior to Go 1.27**) Any other value, including `0` and the empty string: Disabled ❌
+    - See the [Go 1.25 changelog](#go-125-aug-2025) for details.
+- If the environment variable `GOLANG_FIPS` is set:
+  - `1`: Enabled ✅
+  - (**Prior to Go 1.27**) Any other value, including `0` and the empty string: Disabled ❌
+    - See the [Go 1.25 changelog](#go-125-aug-2025) for details.
 - If a platform-specific preference is detected: Enabled ✅
   - See the following sections for per-platform details.
 - If the [build option to require FIPS mode](#build-option-to-require-fips-mode) is enabled: Enabled ✅
@@ -450,8 +456,8 @@ This list of major changes is intended for quick reference and for access to his
 
 - Support for `GODEBUG=fips140=only` has been added. It acts as `fips140=on`, but also panics if a non-FIPS-approved algorithm is used.
 - `GODEBUG=fips140=off` now explicitly disables FIPS mode and skips the platform-specific FIPS detection (e.g. the Linux kernel FIPS flag at `/proc/sys/crypto/fips_enabled`). This is the supported way to opt out of platform FIPS detection. See [microsoft/go#2184](https://github.com/microsoft/go/issues/2184).
-- `GOFIPS` now matches its documented behavior: only `GOFIPS=1` enables FIPS mode, and any other value (including `0` and the empty string) is treated as if `GOFIPS` were unset. The same applies to `GOLANG_FIPS`.
-  - In Go 1.25 and 1.26, due to a bug, setting `GOFIPS` (or `GOLANG_FIPS`) to any value silently bypassed the platform-specific FIPS detection (e.g. the Linux kernel FIPS flag) even though only `=1` actually enabled FIPS mode. Programs that previously relied on `GOFIPS=0` to skip platform FIPS detection should switch to `GODEBUG=fips140=off`.
+- The `GOFIPS` environment variable check now matches its intended behavior: only `GOFIPS=1` enables FIPS mode, and any other value (including `0` and the empty string) is treated as if `GOFIPS` were unset.
+  - The same applies to `GOLANG_FIPS`.
 - The per-platform GOEXPERIMENTs (`opensslcrypto`, `cngcrypto`, `darwincrypto`) have been removed.
   - Using any of the removed experiments will result in a build error.
   - The `systemcrypto` GOEXPERIMENT has been the preferred way to select a crypto backend since it was introduced in Go 1.21. It is now the only way.
@@ -460,12 +466,26 @@ This list of major changes is intended for quick reference and for access to his
     - Manually using `-tags` to enable a per-platform backend tag no longer has any effect on the standard library.
     - The `goexperiment.systemcrypto` build tag remains supported, and its behavior has not changed.
 
+### Go 1.26.3
+
+- The [Usage: Runtime](#usage-runtime) documentation has been updated to correctly describe the influence of the `GOFIPS` environment variable during FIPS mode selection.
+  - Specifically, the behavior when `GOFIPS` is any value other than `1` is now described.
+  - The behavior has not changed.
+  - The same applies to `GOLANG_FIPS`.
+
 ### Go 1.26 (Feb 2026)
 
 - The `systemcrypto` goexperiment is now enabled by default on macOS.
 - The macOS backend is no longer "preview" and is now fully supported.
 - `systemcrypto` can be [disabled at build time](#build-option-to-use-go-crypto) by setting the `MS_GO_NOSYSTEMCRYPTO` environment variable to `1`.
 - Setting the enabled FIPS preference will not cause a panic on Windows even if the Windows FIPS policy is not enabled.
+
+### Go 1.25.9
+
+- The [Usage: Runtime](#usage-runtime) documentation has been updated to correctly describe the influence of the `GOFIPS` environment variable during FIPS mode selection.
+  - Specifically, the behavior when `GOFIPS` is any value other than `1` is now described.
+  - The behavior has not changed.
+  - The same applies to `GOLANG_FIPS`.
 
 ### Go 1.25.2 (Oct 2025)
 
@@ -481,8 +501,8 @@ This list of major changes is intended for quick reference and for access to his
   - If your app doesn't depend on a crypto package, you may, for example, use `GOOS=linux CGO_ENABLED=0 GOEXPERIMENT=systemcrypto`.
   - If your app doesn't use a crypto package and you make a change that introduces a crypto package dependency, you will only encounter a compatibility check failure after the change. The change may be in your transitive dependencies: for example, depending on a new module that uses `crypto/sha256` may trigger the compatibility check. This is undesirable, but it's necessary to enable flexibility.
 
-- `GOFIPS=0` support has been removed. It now has no effect.
-  - Note: due to a bug, in Go 1.25 and 1.26 setting `GOFIPS` (or `GOLANG_FIPS`) to any value other than `1` actually still bypassed the platform-specific FIPS detection (e.g. the Linux kernel FIPS flag), even though it was documented as having no effect. This was fixed in Go 1.27, which also adds `GODEBUG=fips140=off` as the supported way to explicitly disable FIPS mode and skip platform FIPS detection. See [microsoft/go#2184](https://github.com/microsoft/go/issues/2184).
+- `GOFIPS=0` support has been removed. ~~It now has no effect.~~
+  - Note: due to a bug, in Go 1.25 and 1.26 setting `GOFIPS` (or `GOLANG_FIPS`) to any value other than `1` actually bypasses the platform-specific FIPS detection (e.g. the Linux kernel FIPS flag), even though all non-`1` values were originally intended to have no effect. This bug is fixed in 1.27, but out of caution, the fix was not backported to 1.25 or 1.26 to avoid breaking compatibility with existing builds. See [microsoft/go#2184](https://github.com/microsoft/go/issues/2184) for details about the bug, and [Usage: Runtime](#usage-runtime) for current behavior.
 
 - `GOEXPERIMENT=boringcrypto` has been removed.
 
