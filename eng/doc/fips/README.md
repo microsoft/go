@@ -501,8 +501,9 @@ This list of major changes is intended for quick reference and for access to his
   - If your app doesn't depend on a crypto package, you may, for example, use `GOOS=linux CGO_ENABLED=0 GOEXPERIMENT=systemcrypto`.
   - If your app doesn't use a crypto package and you make a change that introduces a crypto package dependency, you will only encounter a compatibility check failure after the change. The change may be in your transitive dependencies: for example, depending on a new module that uses `crypto/sha256` may trigger the compatibility check. This is undesirable, but it's necessary to enable flexibility.
 
-- `GOFIPS=0` support has been removed. ~~It now has no effect.~~
-  - Note: due to a bug, in Go 1.25 and 1.26 setting `GOFIPS` (or `GOLANG_FIPS`) to any value other than `1` actually bypasses the platform-specific FIPS detection (e.g. the Linux kernel FIPS flag), even though all non-`1` values were originally intended to have no effect. This bug is fixed in 1.27, but out of caution, the fix was not backported to 1.25 or 1.26 to avoid breaking compatibility with existing builds. See [microsoft/go#2184](https://github.com/microsoft/go/issues/2184) for details about the bug, and [Usage: Runtime](#usage-runtime) for current behavior.
+- `GOFIPS=0` no longer causes a panic if FIPS mode is enabled.
+  - Note: the original intent was to make `GOFIPS` behavior only have two possibilities: `1` (enabled preference) or non-`1` (no-op). However, due to a bug, in Go 1.25 and 1.26, setting `GOFIPS` to any value other than `1` actually bypasses the platform-specific FIPS detection (e.g. the Linux kernel FIPS flag). This bug is fixed in 1.27, but out of caution, the fix has not been backported to 1.25 or 1.26 to avoid breaking compatibility with existing builds. See [microsoft/go#2184](https://github.com/microsoft/go/issues/2184) for details about the bug, and [Usage: Runtime](#usage-runtime) for a description of the current behavior.
+  - The same applies to `GOLANG_FIPS`.
 
 - `GOEXPERIMENT=boringcrypto` has been removed.
 
