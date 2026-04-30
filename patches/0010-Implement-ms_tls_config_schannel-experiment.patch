@@ -4,7 +4,7 @@ Date: Tue, 19 Aug 2025 15:16:09 +0200
 Subject: [PATCH] Implement ms_tls_config_schannel experiment
 
 ---
- src/crypto/tls/fips140_test.go                |   4 +
+ src/crypto/tls/fips140_test.go                |   8 +
  src/crypto/tls/schannel_disabled_test.go      |  11 +
  src/crypto/tls/schannel_windows.go            | 166 +++++++++++++
  src/crypto/tls/schannel_windows_test.go       | 226 ++++++++++++++++++
@@ -16,7 +16,7 @@ Subject: [PATCH] Implement ms_tls_config_schannel experiment
  .../syscall/windows/version_windows.go        |  11 +
  .../syscall/windows/version_windows_test.go   |   7 +
  .../syscall/windows/zsyscall_windows.go       |  16 ++
- 12 files changed, 512 insertions(+)
+ 12 files changed, 516 insertions(+)
  create mode 100644 src/crypto/tls/schannel_disabled_test.go
  create mode 100644 src/crypto/tls/schannel_windows.go
  create mode 100644 src/crypto/tls/schannel_windows_test.go
@@ -24,7 +24,7 @@ Subject: [PATCH] Implement ms_tls_config_schannel experiment
  create mode 100644 src/internal/goexperiment/exp_ms_tls_config_schannel_on.go
 
 diff --git a/src/crypto/tls/fips140_test.go b/src/crypto/tls/fips140_test.go
-index 5644d235acf1c6..ada973d1328c50 100644
+index 5644d235acf1c6..4152949d49c262 100644
 --- a/src/crypto/tls/fips140_test.go
 +++ b/src/crypto/tls/fips140_test.go
 @@ -15,6 +15,7 @@ import (
@@ -35,7 +35,18 @@ index 5644d235acf1c6..ada973d1328c50 100644
  	"internal/testenv"
  	"math/big"
  	"net"
-@@ -191,6 +192,9 @@ func isFIPSSignatureScheme(alg SignatureScheme) bool {
+@@ -63,6 +64,10 @@ func generateKeyShare(group CurveID) keyShare {
+ func TestFIPSServerProtocolVersion(t *testing.T) {
+ 	test := func(t *testing.T, name string, v uint16, msg string) {
+ 		t.Run(name, func(t *testing.T) {
++			if goexperiment.MS_TLS_Config_Schannel && v < VersionTLS12 {
++				// Schannel may have disabled TLS 1.0 and 1.1.
++				t.Skip("skipping Schannel unsupported protocol version")
++			}
+ 			serverConfig := testConfigFIPS140.Clone()
+ 			serverConfig.MinVersion = VersionSSL30
+ 			serverConfig.MaxVersion = VersionTLS13
+@@ -191,6 +196,9 @@ func isFIPSSignatureScheme(alg SignatureScheme) bool {
  func TestFIPSServerCipherSuites(t *testing.T) {
  	for _, id := range allCipherSuitesIncludingTLS13() {
  		t.Run(fmt.Sprintf("suite=%s", CipherSuiteName(id)), func(t *testing.T) {
