@@ -24,27 +24,27 @@ Subject: [PATCH] Implement ms_tls_config_schannel experiment
  create mode 100644 src/internal/goexperiment/exp_ms_tls_config_schannel_on.go
 
 diff --git a/src/crypto/tls/fips140_test.go b/src/crypto/tls/fips140_test.go
-index 5a72c493e03eba..930d8c6d134e94 100644
+index 5644d235acf1c6..ada973d1328c50 100644
 --- a/src/crypto/tls/fips140_test.go
 +++ b/src/crypto/tls/fips140_test.go
-@@ -14,6 +14,7 @@ import (
+@@ -15,6 +15,7 @@ import (
+ 	"crypto/x509"
  	"crypto/x509/pkix"
- 	"encoding/pem"
  	"fmt"
 +	"internal/goexperiment"
- 	"internal/obscuretestdata"
  	"internal/testenv"
  	"math/big"
-@@ -190,6 +191,9 @@ func TestFIPSServerCipherSuites(t *testing.T) {
- 		}
- 		serverConfig.BuildNameToCertificate()
+ 	"net"
+@@ -191,6 +192,9 @@ func isFIPSSignatureScheme(alg SignatureScheme) bool {
+ func TestFIPSServerCipherSuites(t *testing.T) {
+ 	for _, id := range allCipherSuitesIncludingTLS13() {
  		t.Run(fmt.Sprintf("suite=%s", CipherSuiteName(id)), func(t *testing.T) {
 +			if goexperiment.MS_TLS_Config_Schannel && !isSchannelCipherSuite(id) {
 +				t.Skip("skipping Schannel unsupported cipher suite")
 +			}
+ 			serverConfig := testConfigFIPS140.Clone()
  			clientHello := &clientHelloMsg{
  				vers:                         VersionTLS12,
- 				random:                       make([]byte, 32),
 diff --git a/src/crypto/tls/schannel_disabled_test.go b/src/crypto/tls/schannel_disabled_test.go
 new file mode 100644
 index 00000000000000..d598d48dedf762
@@ -467,10 +467,10 @@ index 00000000000000..b1bdb31863cc7a
 +	}
 +}
 diff --git a/src/crypto/tls/tls_test.go b/src/crypto/tls/tls_test.go
-index 4df1aed1706c74..f447dc3432945a 100644
+index e8089162fb588a..5fe96985c49223 100644
 --- a/src/crypto/tls/tls_test.go
 +++ b/src/crypto/tls/tls_test.go
-@@ -21,6 +21,7 @@ import (
+@@ -22,6 +22,7 @@ import (
  	"encoding/pem"
  	"errors"
  	"fmt"
@@ -478,7 +478,7 @@ index 4df1aed1706c74..f447dc3432945a 100644
  	"internal/testenv"
  	"io"
  	"math"
-@@ -211,6 +212,11 @@ func skipFIPS(t *testing.T) {
+@@ -219,6 +220,11 @@ func skipFIPS(t *testing.T) {
  	if fips140tls.Required() {
  		t.Skip("skipping test in FIPS mode")
  	}
@@ -490,7 +490,7 @@ index 4df1aed1706c74..f447dc3432945a 100644
  }
  
  func TestDialTimeout(t *testing.T) {
-@@ -1324,6 +1330,9 @@ func TestConnectionState(t *testing.T) {
+@@ -1332,6 +1338,9 @@ func TestConnectionState(t *testing.T) {
  		if !isFIPSVersion(v) && fips140tls.Required() {
  			t.Skipf("skipping test in FIPS 140-3 mode for non-FIPS version %x", v)
  		}
@@ -500,7 +500,7 @@ index 4df1aed1706c74..f447dc3432945a 100644
  		var name string
  		switch v {
  		case VersionTLS10:
-@@ -1567,6 +1576,11 @@ func TestClientHelloInfo_SupportsCertificate(t *testing.T) {
+@@ -1575,6 +1584,11 @@ func TestClientHelloInfo_SupportsCertificate(t *testing.T) {
  		}, ""}, // static RSA fallback
  	}
  	for i, tt := range tests {
@@ -512,7 +512,7 @@ index 4df1aed1706c74..f447dc3432945a 100644
  		err := tt.chi.SupportsCertificate(tt.c)
  		switch {
  		case tt.wantErr == "" && err != nil:
-@@ -1580,6 +1594,11 @@ func TestClientHelloInfo_SupportsCertificate(t *testing.T) {
+@@ -1588,6 +1602,11 @@ func TestClientHelloInfo_SupportsCertificate(t *testing.T) {
  }
  
  func TestCipherSuites(t *testing.T) {

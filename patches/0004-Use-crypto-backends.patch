@@ -245,7 +245,7 @@ index 802fb35aee4e65..4416731b69ec26 100644
  			*mode = BuildModePIE
  		default:
 diff --git a/src/cmd/link/internal/ld/lib.go b/src/cmd/link/internal/ld/lib.go
-index 96d25c718847d5..2f5feb5490809a 100644
+index 3db1a6490c3ce9..718216a015b268 100644
 --- a/src/cmd/link/internal/ld/lib.go
 +++ b/src/cmd/link/internal/ld/lib.go
 @@ -1177,6 +1177,12 @@ var hostobj []Hostobj
@@ -507,7 +507,7 @@ index 88892e155551b3..675dbed240e8af 100644
  // theoretically support. It's a copy of the generic implementation from
  // crypto/internal/fips140/aes/gcm/gcm_generic.go, refer to that file for more details.
 diff --git a/src/crypto/cipher/gcm_test.go b/src/crypto/cipher/gcm_test.go
-index 8daa0ded22e176..eeb5cf0f904b55 100644
+index 8ba0bb3981319d..7b212f8f19b101 100644
 --- a/src/crypto/cipher/gcm_test.go
 +++ b/src/crypto/cipher/gcm_test.go
 @@ -8,7 +8,6 @@ import (
@@ -518,7 +518,7 @@ index 8daa0ded22e176..eeb5cf0f904b55 100644
  	"crypto/internal/cryptotest"
  	"crypto/internal/fips140"
  	fipsaes "crypto/internal/fips140/aes"
-@@ -728,9 +727,13 @@ func testGCMAEAD(t *testing.T, newCipher func(key []byte) cipher.Block) {
+@@ -727,9 +726,13 @@ func testGCMAEAD(t *testing.T, newCipher func(key []byte) cipher.Block) {
  
  			// Test NewGCMWithRandomNonce.
  			t.Run("GCMWithRandomNonce", func(t *testing.T) {
@@ -533,7 +533,7 @@ index 8daa0ded22e176..eeb5cf0f904b55 100644
  				cryptotest.TestAEAD(t, func() (cipher.AEAD, error) { return cipher.NewGCMWithRandomNonce(block) })
  			})
  		})
-@@ -753,7 +756,7 @@ func TestGCMExtraMethods(t *testing.T) {
+@@ -752,7 +755,7 @@ func TestGCMExtraMethods(t *testing.T) {
  		})
  		t.Run("NewGCMWithRandomNonce", func(t *testing.T) {
  			block := newCipher(make([]byte, 16))
@@ -1466,7 +1466,7 @@ index 00000000000000..77b69a3be88183
 +	panic("boringcrypto: not available")
 +}
 diff --git a/src/crypto/fips140/enforcement_test.go b/src/crypto/fips140/enforcement_test.go
-index c2f66d544bfbd0..a1eb9bcecbf621 100644
+index d230c0f4ec1fa1..56020ea5f6c2a3 100644
 --- a/src/crypto/fips140/enforcement_test.go
 +++ b/src/crypto/fips140/enforcement_test.go
 @@ -7,6 +7,7 @@ package fips140_test
@@ -1475,23 +1475,23 @@ index c2f66d544bfbd0..a1eb9bcecbf621 100644
  	"crypto/fips140"
 +	boring "crypto/internal/backend"
  	"crypto/internal/cryptotest"
- 	"internal/testenv"
  	"testing"
-@@ -26,6 +27,9 @@ func isAllowed() bool {
+ )
+@@ -25,6 +26,9 @@ func isAllowed() bool {
  }
  
  func TestWithoutEnforcement(t *testing.T) {
 +	if boring.Enabled {
 +		t.Skip("GODEBUG=fips140=only not supported")
 +	}
- 	cryptotest.MustSupportFIPS140(t)
  	if !fips140.Enforced() {
- 		cmd := testenv.Command(t, testenv.Executable(t), "-test.run=^TestWithoutEnforcement$", "-test.v")
+ 		cryptotest.RerunWithFIPS140Enforced(t)
+ 		return
 diff --git a/src/crypto/fips140/fips140.go b/src/crypto/fips140/fips140.go
-index f44f3b399b2f05..041081f54744b1 100644
+index d3f63d3bf18fcb..7197af537228aa 100644
 --- a/src/crypto/fips140/fips140.go
 +++ b/src/crypto/fips140/fips140.go
-@@ -5,6 +5,7 @@
+@@ -11,6 +11,7 @@
  package fips140
  
  import (
@@ -1499,7 +1499,7 @@ index f44f3b399b2f05..041081f54744b1 100644
  	"crypto/internal/fips140"
  	"crypto/internal/fips140/check"
  )
-@@ -21,7 +22,7 @@ func Enabled() bool {
+@@ -27,7 +28,7 @@ func Enabled() bool {
  	if fips140.Enabled && !check.Verified {
  		panic("crypto/fips140: FIPS 140-3 mode enabled, but integrity check didn't pass")
  	}
@@ -1609,7 +1609,7 @@ index e7976e25193dfe..58b357ee52c328 100644
  }
  
 diff --git a/src/crypto/hmac/hmac_test.go b/src/crypto/hmac/hmac_test.go
-index 4046a9555a8e35..4721a2a7ac04f7 100644
+index b324d1f02cda7d..1df17bdc90a1f0 100644
 --- a/src/crypto/hmac/hmac_test.go
 +++ b/src/crypto/hmac/hmac_test.go
 @@ -5,7 +5,7 @@
@@ -1619,8 +1619,8 @@ index 4046a9555a8e35..4721a2a7ac04f7 100644
 -	"crypto/internal/boring"
 +	boring "crypto/internal/backend"
  	"crypto/internal/cryptotest"
+ 	"crypto/internal/fips140hash"
  	"crypto/md5"
- 	"crypto/sha1"
 diff --git a/src/crypto/hpke/aead.go b/src/crypto/hpke/aead.go
 index fb55c97ddf20c9..fb036863cde2dd 100644
 --- a/src/crypto/hpke/aead.go
@@ -1678,18 +1678,19 @@ index 70055af70b42ec..21528faa0d6145 100644
  	if race.Enabled || msan.Enabled || asan.Enabled {
  		t.Skip("skipping allocations test with sanitizers")
 diff --git a/src/crypto/internal/cryptotest/fips140.go b/src/crypto/internal/cryptotest/fips140.go
-index c24622ce5ac3c2..bdc5a63e204922 100644
+index 54c796197a29e2..f4c1d0a681753b 100644
 --- a/src/crypto/internal/cryptotest/fips140.go
 +++ b/src/crypto/internal/cryptotest/fips140.go
-@@ -5,13 +5,21 @@
+@@ -5,6 +5,8 @@
  package cryptotest
  
  import (
 +	boring "crypto/internal/backend"
 +	bfips140 "crypto/internal/backend/fips140"
  	"crypto/internal/fips140"
- 	"testing"
- )
+ 	"internal/testenv"
+ 	"regexp"
+@@ -13,9 +15,15 @@ import (
  
  func MustSupportFIPS140(t *testing.T) {
  	t.Helper()
@@ -1703,6 +1704,8 @@ index c24622ce5ac3c2..bdc5a63e204922 100644
 +		t.Skipf("skipping: FIPS is not enabled")
 +	}
  }
+ 
+ func RerunWithFIPS140Enabled(t *testing.T) {
 diff --git a/src/crypto/internal/cryptotest/hash.go b/src/crypto/internal/cryptotest/hash.go
 index 37fd96a2d9d0b9..6d4b190831d57d 100644
 --- a/src/crypto/internal/cryptotest/hash.go
@@ -1758,7 +1761,7 @@ index 6d67ee8b3429a1..8f8d5937ea913c 100644
  // Unwrap returns h, or a crypto/internal/fips140 inner implementation of h.
  //
 diff --git a/src/crypto/internal/fips140only/fips140only_test.go b/src/crypto/internal/fips140only/fips140only_test.go
-index 96df536d56f345..91d2a792d90296 100644
+index 462e279ce2e97c..07f9a3db478878 100644
 --- a/src/crypto/internal/fips140only/fips140only_test.go
 +++ b/src/crypto/internal/fips140only/fips140only_test.go
 @@ -17,6 +17,7 @@ import (
@@ -1769,7 +1772,7 @@ index 96df536d56f345..91d2a792d90296 100644
  	"crypto/internal/cryptotest"
  	"crypto/internal/fips140"
  	"crypto/internal/fips140only"
-@@ -39,6 +40,7 @@ import (
+@@ -38,6 +39,7 @@ import (
  	"io"
  	"math/big"
  	"os"
@@ -1777,7 +1780,7 @@ index 96df536d56f345..91d2a792d90296 100644
  	"strings"
  	"testing"
  
-@@ -89,7 +91,12 @@ func testFIPS140Only(t *testing.T) {
+@@ -81,7 +83,12 @@ func testFIPS140Only(t *testing.T) {
  	expectPanic(t, func() { cipher.NewCFBEncrypter(aesBlock, iv) })
  	expectPanic(t, func() { cipher.NewCFBDecrypter(aesBlock, iv) })
  
@@ -1791,7 +1794,7 @@ index 96df536d56f345..91d2a792d90296 100644
  	expectPanic(t, func() { cipher.NewCTR(notAESBlock, iv) })
  
  	expectPanic(t, func() { cipher.NewOFB(aesBlock, iv) })
-@@ -313,10 +320,12 @@ bXVL8iKLrG91IYQByUHZIn3WVAd2bfi4MfKagRt0ggd4
+@@ -305,10 +312,12 @@ bXVL8iKLrG91IYQByUHZIn3WVAd2bfi4MfKagRt0ggd4
  	expectErr(t, errRet2(hpke.Seal(hpkeK.PublicKey(), hpke.HKDFSHA256(), hpke.ChaCha20Poly1305(), nil, nil)))
  	expectErr(t, errRet2(hpke.Open(hpkeK, hpke.HKDFSHA256(), hpke.ChaCha20Poly1305(), nil, make([]byte, 2000))))
  
@@ -1808,7 +1811,7 @@ index 96df536d56f345..91d2a792d90296 100644
  	}
  }
  
-@@ -329,16 +338,22 @@ type readerWrap struct {
+@@ -321,16 +330,22 @@ type readerWrap struct {
  }
  
  func withApprovedHash(f func(crypto.Hash)) {
@@ -1899,7 +1902,7 @@ index 7f2824ca9ac052..f0d3b2a8459871 100644
  	"crypto/internal/fips140/aes"
  	"crypto/internal/fips140/aes/gcm"
 diff --git a/src/crypto/internal/rand/rand.go b/src/crypto/internal/rand/rand.go
-index 00e736a579859a..3583dadcf7aeec 100644
+index 5845cfe92bbffb..26f23eac5855dc 100644
 --- a/src/crypto/internal/rand/rand.go
 +++ b/src/crypto/internal/rand/rand.go
 @@ -5,7 +5,7 @@
@@ -2011,7 +2014,7 @@ index 403ff2881f4b68..5417556a86700e 100644
  
  func maybeCloner(h hash.Hash) any {
 diff --git a/src/crypto/mlkem/mlkem.go b/src/crypto/mlkem/mlkem.go
-index b652e3bae9dd71..ff6cf6ff0aad0d 100644
+index f0fd6a4993a8e6..3743fd90f32e4c 100644
 --- a/src/crypto/mlkem/mlkem.go
 +++ b/src/crypto/mlkem/mlkem.go
 @@ -13,6 +13,7 @@ package mlkem
@@ -2085,7 +2088,7 @@ index b652e3bae9dd71..ff6cf6ff0aad0d 100644
  	return dk.key.Bytes()
  }
  
-@@ -76,13 +97,19 @@ func (dk *DecapsulationKey768) Bytes() []byte {
+@@ -79,13 +100,19 @@ func (dk *DecapsulationKey768) Bytes() []byte {
  //
  // The shared key must be kept secret.
  func (dk *DecapsulationKey768) Decapsulate(ciphertext []byte) (sharedKey []byte, err error) {
@@ -2106,7 +2109,7 @@ index b652e3bae9dd71..ff6cf6ff0aad0d 100644
  }
  
  // Encapsulator returns the encapsulation key, like
-@@ -98,22 +125,34 @@ var _ crypto.Decapsulator = (*DecapsulationKey768)(nil)
+@@ -101,22 +128,34 @@ var _ crypto.Decapsulator = (*DecapsulationKey768)(nil)
  // An EncapsulationKey768 is the public key used to produce ciphertexts to be
  // decapsulated by the corresponding DecapsulationKey768.
  type EncapsulationKey768 struct {
@@ -2143,7 +2146,7 @@ index b652e3bae9dd71..ff6cf6ff0aad0d 100644
  	return ek.key.Bytes()
  }
  
-@@ -125,41 +164,64 @@ func (ek *EncapsulationKey768) Bytes() []byte {
+@@ -128,41 +167,64 @@ func (ek *EncapsulationKey768) Bytes() []byte {
  // For testing, derandomized encapsulation is provided by the
  // [crypto/mlkem/mlkemtest] package.
  func (ek *EncapsulationKey768) Encapsulate() (sharedKey, ciphertext []byte) {
@@ -2211,7 +2214,7 @@ index b652e3bae9dd71..ff6cf6ff0aad0d 100644
  	return dk.key.Bytes()
  }
  
-@@ -168,13 +230,19 @@ func (dk *DecapsulationKey1024) Bytes() []byte {
+@@ -174,13 +236,19 @@ func (dk *DecapsulationKey1024) Bytes() []byte {
  //
  // The shared key must be kept secret.
  func (dk *DecapsulationKey1024) Decapsulate(ciphertext []byte) (sharedKey []byte, err error) {
@@ -2232,7 +2235,7 @@ index b652e3bae9dd71..ff6cf6ff0aad0d 100644
  }
  
  // Encapsulator returns the encapsulation key, like
-@@ -190,22 +258,34 @@ var _ crypto.Decapsulator = (*DecapsulationKey1024)(nil)
+@@ -196,22 +264,34 @@ var _ crypto.Decapsulator = (*DecapsulationKey1024)(nil)
  // An EncapsulationKey1024 is the public key used to produce ciphertexts to be
  // decapsulated by the corresponding DecapsulationKey1024.
  type EncapsulationKey1024 struct {
@@ -2269,7 +2272,7 @@ index b652e3bae9dd71..ff6cf6ff0aad0d 100644
  	return ek.key.Bytes()
  }
  
-@@ -217,5 +297,8 @@ func (ek *EncapsulationKey1024) Bytes() []byte {
+@@ -223,5 +303,8 @@ func (ek *EncapsulationKey1024) Bytes() []byte {
  // For testing, derandomized encapsulation is provided by the
  // [crypto/mlkem/mlkemtest] package.
  func (ek *EncapsulationKey1024) Encapsulate() (sharedKey, ciphertext []byte) {
@@ -3251,7 +3254,7 @@ index a18a536ba2896f..7b3b37c3b0c10d 100644
  	}
  }
 diff --git a/src/crypto/sha3/sha3.go b/src/crypto/sha3/sha3.go
-index 48c67e9fe11005..1ab7ae42462ef6 100644
+index f7c5549ddd113c..f35de2cb5c6652 100644
 --- a/src/crypto/sha3/sha3.go
 +++ b/src/crypto/sha3/sha3.go
 @@ -8,6 +8,7 @@ package sha3
@@ -3322,7 +3325,7 @@ index 48c67e9fe11005..1ab7ae42462ef6 100644
  	// Outline the allocation for up to 512 bits of output to the caller's stack.
  	out := make([]byte, 64)
  	return sumSHAKE256(out, data, length)
-@@ -99,36 +118,53 @@ func sumSHAKE256(out, data []byte, length int) []byte {
+@@ -99,37 +118,54 @@ func sumSHAKE256(out, data []byte, length int) []byte {
  // SHA3 is an instance of a SHA-3 hash. It implements [hash.Hash].
  // The zero value is a usable SHA3-256 hash.
  type SHA3 struct {
@@ -3333,12 +3336,13 @@ index 48c67e9fe11005..1ab7ae42462ef6 100644
  }
  
  //go:linkname fips140hash_sha3Unwrap crypto/internal/fips140hash.sha3Unwrap
--func fips140hash_sha3Unwrap(sha3 *SHA3) *sha3.Digest {
-+func fips140hash_sha3Unwrap(sha3 *SHA3) hash.Hash {
-+	if sha3.boringS != nil {
-+		return sha3.boringS
+-func fips140hash_sha3Unwrap(s *SHA3) *sha3.Digest {
++func fips140hash_sha3Unwrap(s *SHA3) hash.Hash {
++	if s.boringS != nil {
++		return s.boringS
 +	}
- 	return &sha3.s
+ 	s.init()
+ 	return &s.s
  }
  
  // New224 creates a new SHA3-224 hash.
@@ -3383,7 +3387,7 @@ index 48c67e9fe11005..1ab7ae42462ef6 100644
  		*s = *New256()
  	}
  }
-@@ -136,53 +172,81 @@ func (s *SHA3) init() {
+@@ -137,53 +173,81 @@ func (s *SHA3) init() {
  // Write absorbs more data into the hash's state.
  func (s *SHA3) Write(p []byte) (n int, err error) {
  	s.init()
@@ -3466,7 +3470,7 @@ index 48c67e9fe11005..1ab7ae42462ef6 100644
  	r := *d
  	return &r, nil
  }
-@@ -190,23 +254,30 @@ func (d *SHA3) Clone() (hash.Cloner, error) {
+@@ -191,23 +255,30 @@ func (d *SHA3) Clone() (hash.Cloner, error) {
  // SHAKE is an instance of a SHAKE extendable output function.
  // The zero value is a usable SHAKE256 hash.
  type SHAKE struct {
@@ -3501,7 +3505,7 @@ index 48c67e9fe11005..1ab7ae42462ef6 100644
  }
  
  // NewCSHAKE128 creates a new cSHAKE128 XOF.
-@@ -215,7 +286,10 @@ func NewSHAKE256() *SHAKE {
+@@ -216,7 +287,10 @@ func NewSHAKE256() *SHAKE {
  // cSHAKE is desired. S is a customization byte string used for domain
  // separation. When N and S are both empty, this is equivalent to NewSHAKE128.
  func NewCSHAKE128(N, S []byte) *SHAKE {
@@ -3513,7 +3517,7 @@ index 48c67e9fe11005..1ab7ae42462ef6 100644
  }
  
  // NewCSHAKE256 creates a new cSHAKE256 XOF.
-@@ -224,7 +298,10 @@ func NewCSHAKE128(N, S []byte) *SHAKE {
+@@ -225,7 +299,10 @@ func NewCSHAKE128(N, S []byte) *SHAKE {
  // cSHAKE is desired. S is a customization byte string used for domain
  // separation. When N and S are both empty, this is equivalent to NewSHAKE256.
  func NewCSHAKE256(N, S []byte) *SHAKE {
@@ -3525,7 +3529,7 @@ index 48c67e9fe11005..1ab7ae42462ef6 100644
  }
  
  // Write absorbs more data into the XOF's state.
-@@ -232,6 +309,9 @@ func NewCSHAKE256(N, S []byte) *SHAKE {
+@@ -233,6 +310,9 @@ func NewCSHAKE256(N, S []byte) *SHAKE {
  // It panics if any output has already been read.
  func (s *SHAKE) Write(p []byte) (n int, err error) {
  	s.init()
@@ -3535,7 +3539,7 @@ index 48c67e9fe11005..1ab7ae42462ef6 100644
  	return s.s.Write(p)
  }
  
-@@ -240,35 +320,54 @@ func (s *SHAKE) Write(p []byte) (n int, err error) {
+@@ -241,35 +321,54 @@ func (s *SHAKE) Write(p []byte) (n int, err error) {
  // Any call to Write after a call to Read will panic.
  func (s *SHAKE) Read(p []byte) (n int, err error) {
  	s.init()
@@ -4209,12 +4213,12 @@ index 00000000000000..579aaedabb188a
 +	return ExpandLabel(s.hash, secret, "exporter", h.Sum(nil), length)
 +}
 diff --git a/src/crypto/tls/key_schedule.go b/src/crypto/tls/key_schedule.go
-index bfa22449c87178..08cda456579f64 100644
+index 97f4993a179939..94e28436850760 100644
 --- a/src/crypto/tls/key_schedule.go
 +++ b/src/crypto/tls/key_schedule.go
-@@ -8,8 +8,8 @@ import (
- 	"crypto"
+@@ -9,8 +9,8 @@ import (
  	"crypto/ecdh"
+ 	"crypto/fips140"
  	"crypto/hmac"
 -	"crypto/internal/fips140/tls13"
  	"crypto/mlkem"
@@ -4316,10 +4320,10 @@ index 1d3e845d0f0a9c..eb4318faf13f7b 100644
  
  	var dsaPriv dsa.PrivateKey
 diff --git a/src/go/build/deps_test.go b/src/go/build/deps_test.go
-index 52c0785a87e5e8..b15ef32c94c1c3 100644
+index 465142153d1476..ac1e6265e51acd 100644
 --- a/src/go/build/deps_test.go
 +++ b/src/go/build/deps_test.go
-@@ -539,7 +539,7 @@ var depsRules = `
+@@ -532,7 +532,7 @@ var depsRules = `
  	< crypto/internal/fips140/edwards25519
  	< crypto/internal/fips140/ed25519
  	< crypto/internal/fips140/rsa
@@ -4328,7 +4332,7 @@ index 52c0785a87e5e8..b15ef32c94c1c3 100644
  
  	crypto !< FIPS;
  
-@@ -563,7 +563,12 @@ var depsRules = `
+@@ -556,7 +556,12 @@ var depsRules = `
  	< crypto/internal/backend/internal/opensslsetup
  	< crypto/internal/backend/fips140;
  
@@ -4342,7 +4346,7 @@ index 52c0785a87e5e8..b15ef32c94c1c3 100644
  	< crypto/internal/fips140only
  	< crypto
  	< crypto/subtle
-@@ -597,7 +602,8 @@ var depsRules = `
+@@ -590,7 +595,8 @@ var depsRules = `
  	crypto/internal/fips140only,
  	crypto,
  	crypto/subtle,
@@ -4352,7 +4356,7 @@ index 52c0785a87e5e8..b15ef32c94c1c3 100644
  	< crypto/sha3
  	< crypto/internal/fips140hash
  	< crypto/internal/boring
-@@ -615,6 +621,7 @@ var depsRules = `
+@@ -608,6 +614,7 @@ var depsRules = `
  	  crypto/pbkdf2,
  	  crypto/ecdh,
  	  crypto/mlkem
@@ -4440,7 +4444,7 @@ index 2a774100a8ec67..a0cabb42b19484 100644
  
  	const testNXDOMAIN = "invalid.invalid."
 diff --git a/src/os/exec/exec_test.go b/src/os/exec/exec_test.go
-index 2746ad8783ab22..c39f32c8fba6fc 100644
+index 2d966b627e1e81..532f24384bd309 100644
 --- a/src/os/exec/exec_test.go
 +++ b/src/os/exec/exec_test.go
 @@ -14,6 +14,7 @@ import (
