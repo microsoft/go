@@ -11,11 +11,16 @@ information about the behavior.
 Includes new tests in "build_test.go" and "buildbackend_test.go" to help
 maintain this feature. For more information, see the test files.
 ---
+ src/cmd/go/alldocs.go                         |  3 +
+ src/cmd/go/internal/envcmd/env.go             |  3 +-
+ src/cmd/go/internal/help/helpdoc.go           |  3 +
  src/cmd/go/internal/modindex/build_test.go    | 73 +++++++++++++++++++
+ src/cmd/go/testdata/script/env_changed.txt    |  3 +
  src/go/build/buildbackend_test.go             | 50 +++++++++++++
  .../build/testdata/backendtags_system/main.go |  3 +
  .../backendtags_system/systemcrypto.go        |  3 +
  src/internal/buildcfg/exp.go                  | 34 +++++++++
+ src/internal/cfg/cfg.go                       |  1 +
  .../goexperiment/exp_cngcrypto_off.go         |  8 ++
  src/internal/goexperiment/exp_cngcrypto_on.go |  8 ++
  .../goexperiment/exp_darwincrypto_off.go      |  8 ++
@@ -25,7 +30,7 @@ maintain this feature. For more information, see the test files.
  .../goexperiment/exp_systemcrypto_off.go      |  8 ++
  .../goexperiment/exp_systemcrypto_on.go       |  8 ++
  src/internal/goexperiment/flags.go            | 18 +++++
- 14 files changed, 245 insertions(+)
+ 19 files changed, 257 insertions(+), 1 deletion(-)
  create mode 100644 src/cmd/go/internal/modindex/build_test.go
  create mode 100644 src/go/build/buildbackend_test.go
  create mode 100644 src/go/build/testdata/backendtags_system/main.go
@@ -39,6 +44,55 @@ maintain this feature. For more information, see the test files.
  create mode 100644 src/internal/goexperiment/exp_systemcrypto_off.go
  create mode 100644 src/internal/goexperiment/exp_systemcrypto_on.go
 
+diff --git a/src/cmd/go/alldocs.go b/src/cmd/go/alldocs.go
+index 560cdb28fe5e86..7c4bf70b24f9c7 100644
+--- a/src/cmd/go/alldocs.go
++++ b/src/cmd/go/alldocs.go
+@@ -2616,6 +2616,9 @@
+ //		mentioned will be considered insecure by 'go get'.
+ //		Because the variable is defined by Git, the default value cannot
+ //		be set using 'go env -w'.
++//	MS_GO_NOSYSTEMCRYPTO
++//		Whether to disable the use of the system's cryptography libraries.
++//		Set to 1 to disable the use of system cryptography libraries.
+ //
+ // Additional information available from 'go env' but not read from the environment:
+ //
+diff --git a/src/cmd/go/internal/envcmd/env.go b/src/cmd/go/internal/envcmd/env.go
+index e950c651691c40..86ee152e96b71b 100644
+--- a/src/cmd/go/internal/envcmd/env.go
++++ b/src/cmd/go/internal/envcmd/env.go
+@@ -118,6 +118,7 @@ func MkEnv() []cfg.EnvVar {
+ 		{Name: "GOTOOLDIR", Value: build.ToolDir},
+ 		{Name: "GOVCS", Value: cfg.GOVCS},
+ 		{Name: "GOVERSION", Value: runtime.Version()},
++		{Name: "MS_GO_NOSYSTEMCRYPTO", Value: os.Getenv("MS_GO_NOSYSTEMCRYPTO")},
+ 	}
+ 
+ 	for i := range env {
+@@ -126,7 +127,7 @@ func MkEnv() []cfg.EnvVar {
+ 			if env[i].Value != "on" && env[i].Value != "" {
+ 				env[i].Changed = true
+ 			}
+-		case "GOBIN", "GOEXPERIMENT", "GOFLAGS", "GOINSECURE", "GOPRIVATE", "GOTMPDIR", "GOVCS":
++		case "GOBIN", "GOEXPERIMENT", "GOFLAGS", "GOINSECURE", "GOPRIVATE", "GOTMPDIR", "GOVCS", "MS_GO_NOSYSTEMCRYPTO":
+ 			if env[i].Value != "" {
+ 				env[i].Changed = true
+ 			}
+diff --git a/src/cmd/go/internal/help/helpdoc.go b/src/cmd/go/internal/help/helpdoc.go
+index 4f76f7f9c1fc68..783d11609c0bf4 100644
+--- a/src/cmd/go/internal/help/helpdoc.go
++++ b/src/cmd/go/internal/help/helpdoc.go
+@@ -755,6 +755,9 @@ Special-purpose environment variables:
+ 		mentioned will be considered insecure by 'go get'.
+ 		Because the variable is defined by Git, the default value cannot
+ 		be set using 'go env -w'.
++	MS_GO_NOSYSTEMCRYPTO
++		Whether to disable the use of the system's cryptography libraries.
++		Set to 1 to disable the use of system cryptography libraries.
+ 
+ Additional information available from 'go env' but not read from the environment:
+ 
 diff --git a/src/cmd/go/internal/modindex/build_test.go b/src/cmd/go/internal/modindex/build_test.go
 new file mode 100644
 index 00000000000000..1756c5d027fee0
@@ -118,6 +172,34 @@ index 00000000000000..1756c5d027fee0
 +		})
 +	}
 +}
+diff --git a/src/cmd/go/testdata/script/env_changed.txt b/src/cmd/go/testdata/script/env_changed.txt
+index da9560062704e6..a12836ff65fd03 100644
+--- a/src/cmd/go/testdata/script/env_changed.txt
++++ b/src/cmd/go/testdata/script/env_changed.txt
+@@ -13,6 +13,7 @@ env CGO_CPPFLAGS=nodefault
+ env GOFIPS140=latest
+ [cgo] env CGO_ENABLED=0
+ env GCCGO=nodefault
++env MS_GO_NOSYSTEMCRYPTO=1
+ 
+ go env -changed
+ # linux output like GOTOOLCHAIN='local'
+@@ -26,6 +27,7 @@ stdout 'CGO_CPPFLAGS=''?nodefault''?'
+ stdout 'GOFIPS140=''?latest''?'
+ [cgo] stdout 'CGO_ENABLED=''?0''?'
+ stdout 'GCCGO=''?nodefault''?'
++stdout 'MS_GO_NOSYSTEMCRYPTO=''?1''?'
+ 
+ go env -changed -json
+ stdout '"GOTOOLCHAIN": "local"'
+@@ -37,6 +39,7 @@ stdout '"CGO_CPPFLAGS": "nodefault"'
+ stdout '"GOFIPS140": "latest"'
+ [cgo] stdout '"CGO_ENABLED": "0"'
+ stdout '"GCCGO": "nodefault"'
++stdout '"MS_GO_NOSYSTEMCRYPTO": "1"'
+ 
+ [GOOS:windows] env GOOS=linux
+ [!GOOS:windows] env GOOS=windows
 diff --git a/src/go/build/buildbackend_test.go b/src/go/build/buildbackend_test.go
 new file mode 100644
 index 00000000000000..ffb835ce34a2f7
@@ -193,7 +275,7 @@ index 00000000000000..eb8a026982259c
 +
 +package main
 diff --git a/src/internal/buildcfg/exp.go b/src/internal/buildcfg/exp.go
-index 82866cef66b5af..723b8b7f113e8a 100644
+index c8506d41bb240f..f4d514baf8657e 100644
 --- a/src/internal/buildcfg/exp.go
 +++ b/src/internal/buildcfg/exp.go
 @@ -6,6 +6,7 @@ package buildcfg
@@ -262,7 +344,7 @@ index 82866cef66b5af..723b8b7f113e8a 100644
  			}
  			val := true
  			if strings.HasPrefix(f, "no") {
-@@ -150,6 +181,9 @@ func ParseGOEXPERIMENT(goos, goarch, goexp string) (*ExperimentFlags, error) {
+@@ -149,6 +180,9 @@ func ParseGOEXPERIMENT(goos, goarch, goexp string) (*ExperimentFlags, error) {
  	if flags.RegabiArgs && !flags.RegabiWrappers {
  		return nil, fmt.Errorf("GOEXPERIMENT regabiargs requires regabiwrappers")
  	}
@@ -272,6 +354,17 @@ index 82866cef66b5af..723b8b7f113e8a 100644
  	return flags, nil
  }
  
+diff --git a/src/internal/cfg/cfg.go b/src/internal/cfg/cfg.go
+index 9329769721b7de..1724afb71b851e 100644
+--- a/src/internal/cfg/cfg.go
++++ b/src/internal/cfg/cfg.go
+@@ -70,5 +70,6 @@ const KnownEnv = `
+ 	GOWASM
+ 	GOWORK
+ 	GO_EXTLINK_ENABLED
++	MS_GO_NOSYSTEMCRYPTO
+ 	PKG_CONFIG
+ `
 diff --git a/src/internal/goexperiment/exp_cngcrypto_off.go b/src/internal/goexperiment/exp_cngcrypto_off.go
 new file mode 100644
 index 00000000000000..eb879f94fa0c42
@@ -385,7 +478,7 @@ index 00000000000000..fcd4cb9da0d162
 +const SystemCrypto = true
 +const SystemCryptoInt = 1
 diff --git a/src/internal/goexperiment/flags.go b/src/internal/goexperiment/flags.go
-index 683316b2135d52..b8ddbb1cb5b9ab 100644
+index 72f787bec7825a..baa40788e4bd34 100644
 --- a/src/internal/goexperiment/flags.go
 +++ b/src/internal/goexperiment/flags.go
 @@ -60,6 +60,24 @@ type Flags struct {
