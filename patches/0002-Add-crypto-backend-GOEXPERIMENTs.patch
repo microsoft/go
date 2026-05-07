@@ -19,6 +19,7 @@ maintain this feature. For more information, see the test files.
  src/go/build/buildbackend_test.go             | 50 +++++++++++++
  .../build/testdata/backendtags_system/main.go |  3 +
  .../backendtags_system/systemcrypto.go        |  3 +
+ src/internal/buildcfg/cfg.go                  |  2 +
  src/internal/buildcfg/exp.go                  | 34 +++++++++
  src/internal/cfg/cfg.go                       |  1 +
  .../goexperiment/exp_cngcrypto_off.go         |  8 ++
@@ -30,7 +31,8 @@ maintain this feature. For more information, see the test files.
  .../goexperiment/exp_systemcrypto_off.go      |  8 ++
  .../goexperiment/exp_systemcrypto_on.go       |  8 ++
  src/internal/goexperiment/flags.go            | 18 +++++
- 19 files changed, 257 insertions(+), 1 deletion(-)
+ src/internal/platform/supported.go            | 12 +++
+ 21 files changed, 271 insertions(+), 1 deletion(-)
  create mode 100644 src/cmd/go/internal/modindex/build_test.go
  create mode 100644 src/go/build/buildbackend_test.go
  create mode 100644 src/go/build/testdata/backendtags_system/main.go
@@ -274,8 +276,21 @@ index 00000000000000..eb8a026982259c
 +//go:build goexperiment.systemcrypto
 +
 +package main
+diff --git a/src/internal/buildcfg/cfg.go b/src/internal/buildcfg/cfg.go
+index 89fd74eb823162..6d266ff641d721 100644
+--- a/src/internal/buildcfg/cfg.go
++++ b/src/internal/buildcfg/cfg.go
+@@ -38,6 +38,8 @@ var (
+ 	Version   = version
+ )
+ 
++var SystemCryptoDisabled = os.Getenv("MS_GO_NOSYSTEMCRYPTO") == "1"
++
+ // Error is one of the errors found (if any) in the build configuration.
+ var Error error
+ 
 diff --git a/src/internal/buildcfg/exp.go b/src/internal/buildcfg/exp.go
-index c8506d41bb240f..f4d514baf8657e 100644
+index 82866cef66b5af..195e53de95eedd 100644
 --- a/src/internal/buildcfg/exp.go
 +++ b/src/internal/buildcfg/exp.go
 @@ -6,6 +6,7 @@ package buildcfg
@@ -290,7 +305,7 @@ index c8506d41bb240f..f4d514baf8657e 100644
  // default in the current toolchain. This is, in effect, the "control"
  // configuration and any variation from this is an experiment.
  var Experiment ExperimentFlags = func() ExperimentFlags {
-+	if os.Getenv("MS_GO_NOSYSTEMCRYPTO") == "1" {
++	if SystemCryptoDisabled {
 +		// If MS_GO_NOSYSTEMCRYPTO is set, ensure that nosystemcrypto is in GOEXPERIMENT.
 +		// We do it here because it is the earliest point where the toolchain tries to retrive
 +		// the GOEXPERIMENT value.
@@ -344,7 +359,7 @@ index c8506d41bb240f..f4d514baf8657e 100644
  			}
  			val := true
  			if strings.HasPrefix(f, "no") {
-@@ -149,6 +180,9 @@ func ParseGOEXPERIMENT(goos, goarch, goexp string) (*ExperimentFlags, error) {
+@@ -150,6 +181,9 @@ func ParseGOEXPERIMENT(goos, goarch, goexp string) (*ExperimentFlags, error) {
  	if flags.RegabiArgs && !flags.RegabiWrappers {
  		return nil, fmt.Errorf("GOEXPERIMENT regabiargs requires regabiwrappers")
  	}
@@ -478,7 +493,7 @@ index 00000000000000..fcd4cb9da0d162
 +const SystemCrypto = true
 +const SystemCryptoInt = 1
 diff --git a/src/internal/goexperiment/flags.go b/src/internal/goexperiment/flags.go
-index 72f787bec7825a..baa40788e4bd34 100644
+index 683316b2135d52..b8ddbb1cb5b9ab 100644
 --- a/src/internal/goexperiment/flags.go
 +++ b/src/internal/goexperiment/flags.go
 @@ -60,6 +60,24 @@ type Flags struct {
@@ -506,3 +521,23 @@ index 72f787bec7825a..baa40788e4bd34 100644
  	// Regabi is split into several sub-experiments that can be
  	// enabled individually. Not all combinations work.
  	// The "regabi" GOEXPERIMENT is an alias for all "working"
+diff --git a/src/internal/platform/supported.go b/src/internal/platform/supported.go
+index 6cee00a7aebcdb..1182e37b86c0fc 100644
+--- a/src/internal/platform/supported.go
++++ b/src/internal/platform/supported.go
+@@ -281,3 +281,15 @@ func FirstClass(goos, goarch string) bool {
+ func Broken(goos, goarch string) bool {
+ 	return distInfo[OSArch{goos, goarch}].Broken
+ }
++
++// SystemCryptoSupported reports whether goos/goarch supports system crypto.
++func SystemCryptoSupported(goos, goarch string) bool {
++	switch goos {
++	case "linux", "darwin":
++		return true
++	case "windows":
++		return goarch == "amd64" || goarch == "arm64"
++	default:
++		return false
++	}
++}
