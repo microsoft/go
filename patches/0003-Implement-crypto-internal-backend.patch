@@ -52,9 +52,9 @@ desired goexperiments and build tags.
  .../internal/fips140only/fips140only.go       |  11 +-
  src/crypto/systemcrypto_nocgo_linux.go        |  18 +
  src/go/build/deps_test.go                     |  24 +-
- src/internal/buildcfg/exp.go                  |  47 ++
+ src/internal/buildcfg/exp.go                  |  50 +-
  src/runtime/runtime_boring.go                 |   5 +
- 45 files changed, 2863 insertions(+), 16 deletions(-)
+ 45 files changed, 2854 insertions(+), 28 deletions(-)
  create mode 100644 src/cmd/go/systemcrypto_test.go
  create mode 100644 src/crypto/internal/backend/backend_darwin.go
  create mode 100644 src/crypto/internal/backend/backend_linux.go
@@ -146,10 +146,10 @@ index 0e32e0769ee2e2..eda2d576acc6c6 100644
  	if doReplacement {
  		if testCompiler == "" {
 diff --git a/src/cmd/dist/build.go b/src/cmd/dist/build.go
-index eacaa53b909632..63f3e2644a912f 100644
+index a0f8d8dd372088..6a1a5258b22dc8 100644
 --- a/src/cmd/dist/build.go
 +++ b/src/cmd/dist/build.go
-@@ -1396,6 +1396,80 @@ func toolenv() []string {
+@@ -1398,6 +1398,80 @@ func toolenv() []string {
  		// still have full paths for stack traces for compiler crashes and the like.
  		env = append(env, "GOFLAGS=-trimpath -ldflags=-w -gcflags=cmd/...=-dwarf=false")
  	}
@@ -230,7 +230,7 @@ index eacaa53b909632..63f3e2644a912f 100644
  	return env
  }
  
-@@ -1638,12 +1712,12 @@ func cmdbootstrap() {
+@@ -1640,12 +1714,12 @@ func cmdbootstrap() {
  		os.Setenv("CC", compilerEnvLookup("CC", defaultcc, goos, goarch))
  		xprintf("Building packages and commands for target, %s/%s.\n", goos, goarch)
  	}
@@ -370,10 +370,10 @@ index a4edd854f1d35a..10ee92536b96cd 100644
  	// This will also update the BuildContext's tool tags to include the new
  	// experiment tags.
 diff --git a/src/cmd/go/internal/load/pkg.go b/src/cmd/go/internal/load/pkg.go
-index 91282ef9ace1c6..8f0deba2378f44 100644
+index 1d90061b065f5f..0d5d4fe0556564 100644
 --- a/src/cmd/go/internal/load/pkg.go
 +++ b/src/cmd/go/internal/load/pkg.go
-@@ -2415,6 +2415,9 @@ func (p *Package) setBuildInfo(ctx context.Context, f *modfetch.Fetcher, autoVCS
+@@ -2417,6 +2417,9 @@ func (p *Package) setBuildInfo(ctx context.Context, f *modfetch.Fetcher, autoVCS
  			buildmode = "archive"
  		}
  	}
@@ -674,7 +674,7 @@ index 2f46a6b44bffe1..69071289e2de81 100644
  
  ! go build -o $devnull cmd/buildid
 diff --git a/src/cmd/internal/testdir/testdir_test.go b/src/cmd/internal/testdir/testdir_test.go
-index 66c1619902e73e..d30198ae493442 100644
+index 07984396b7d44e..c7fbda270159f3 100644
 --- a/src/cmd/internal/testdir/testdir_test.go
 +++ b/src/cmd/internal/testdir/testdir_test.go
 @@ -118,6 +118,13 @@ func Test(t *testing.T) {
@@ -705,7 +705,7 @@ index 19ed197a20b57e..5e592c7c6697d7 100644
  		if !strings.Contains(buildVersion, "-") { // See go.dev/issue/75953.
  			sep = "-"
 diff --git a/src/cmd/link/link_test.go b/src/cmd/link/link_test.go
-index ac9a7a90b90155..7112047dcb5f39 100644
+index 941cee36a62a4b..4ccd22da3bcd0a 100644
 --- a/src/cmd/link/link_test.go
 +++ b/src/cmd/link/link_test.go
 @@ -12,6 +12,7 @@ import (
@@ -3307,7 +3307,7 @@ index 00000000000000..7500bd3a86472b
 +	`
 +}
 diff --git a/src/go/build/deps_test.go b/src/go/build/deps_test.go
-index e8eeb9455e4bb5..52c0785a87e5e8 100644
+index 03896fca65f120..465142153d1476 100644
 --- a/src/go/build/deps_test.go
 +++ b/src/go/build/deps_test.go
 @@ -367,7 +367,7 @@ var depsRules = `
@@ -3319,7 +3319,7 @@ index e8eeb9455e4bb5..52c0785a87e5e8 100644
  	< internal/buildcfg;
  
  	# The vast majority of standard library packages should not be resorting to regexp.
-@@ -559,6 +559,10 @@ var depsRules = `
+@@ -552,6 +552,10 @@ var depsRules = `
  	< github.com/microsoft/go-crypto-winnative/internal/sysdll
  	< github.com/microsoft/go-crypto-winnative/internal/bcrypt;
  
@@ -3330,7 +3330,7 @@ index e8eeb9455e4bb5..52c0785a87e5e8 100644
  	FIPS, internal/godebug, embed
  	< crypto/internal/fips140only
  	< crypto
-@@ -579,6 +583,13 @@ var depsRules = `
+@@ -572,6 +576,13 @@ var depsRules = `
  	github.com/microsoft/go-crypto-winnative/internal/bcrypt
  	< github.com/microsoft/go-crypto-winnative/cng;
  
@@ -3344,7 +3344,7 @@ index e8eeb9455e4bb5..52c0785a87e5e8 100644
  	FIPS, internal/godebug, embed,
  	crypto/internal/boring/sig,
  	crypto/internal/boring/syso,
-@@ -617,8 +628,15 @@ var depsRules = `
+@@ -610,8 +621,15 @@ var depsRules = `
  	math/big, github.com/microsoft/go-crypto-darwin/xcrypto < github.com/microsoft/go-crypto-darwin/bbig;
  	math/big, github.com/microsoft/go-crypto-winnative/cng < github.com/microsoft/go-crypto-winnative/cng/bbig;
  
@@ -3363,7 +3363,7 @@ index e8eeb9455e4bb5..52c0785a87e5e8 100644
  	< crypto/rand
  	< crypto/ed25519 # depends on crypto/rand.Reader
 diff --git a/src/internal/buildcfg/exp.go b/src/internal/buildcfg/exp.go
-index d4121357526a84..c082274fcb6838 100644
+index 195e53de95eedd..c8b37f1e64955e 100644
 --- a/src/internal/buildcfg/exp.go
 +++ b/src/internal/buildcfg/exp.go
 @@ -8,9 +8,11 @@ import (
@@ -3378,7 +3378,35 @@ index d4121357526a84..c082274fcb6838 100644
  )
  
  // ExperimentFlags represents a set of GOEXPERIMENT flags relative to a baseline
-@@ -161,6 +163,16 @@ func ParseGOEXPERIMENT(goos, goarch, goexp string) (*ExperimentFlags, error) {
+@@ -81,17 +83,7 @@ func ParseGOEXPERIMENT(goos, goarch, goexp string) (*ExperimentFlags, error) {
+ 		regabiSupported = true
+ 	}
+ 
+-	// These are the goos/goarch combinations where systemcrypto is
+-	// enabled by default.
+-	var systemCryptoSupported bool
+-	switch goos {
+-	case "windows":
+-		systemCryptoSupported = goarch == "amd64" || goarch == "arm64"
+-	case "linux":
+-		systemCryptoSupported = true
+-	case "darwin":
+-		systemCryptoSupported = true
+-	}
++	systemCryptoSupported := goplatform.SystemCryptoSupported(goos, goarch)
+ 
+ 	// Older versions (anything before V16) of dsymutil don't handle
+ 	// the .debug_rnglists section in DWARF5. See
+@@ -111,7 +103,7 @@ func ParseGOEXPERIMENT(goos, goarch, goexp string) (*ExperimentFlags, error) {
+ 		RandomizedHeapBase64: true,
+ 		GreenTeaGC:           true,
+ 		GoroutineLeakProfile: true,
+-		SystemCrypto:         systemCryptoSupported,
++		SystemCrypto:         systemCryptoSupported, // if system crypto is supported, enable it by default
+ 	}
+ 	flags := &ExperimentFlags{
+ 		Flags:    baseline,
+@@ -160,6 +152,16 @@ func ParseGOEXPERIMENT(goos, goarch, goexp string) (*ExperimentFlags, error) {
  			if strings.HasPrefix(f, "no") {
  				f, val = f[2:], false
  			}
@@ -3395,29 +3423,18 @@ index d4121357526a84..c082274fcb6838 100644
  			set, ok := names[f]
  			if !ok {
  				return nil, fmt.Errorf("unknown GOEXPERIMENT %s", f)
-@@ -185,6 +197,21 @@ func ParseGOEXPERIMENT(goos, goarch, goexp string) (*ExperimentFlags, error) {
+@@ -184,6 +186,10 @@ func ParseGOEXPERIMENT(goos, goarch, goexp string) (*ExperimentFlags, error) {
  	if flags.BoringCrypto {
  		return nil, fmt.Errorf("GOEXPERIMENT boringcrypto is not supported in the Microsoft build of Go")
  	}
-+	// Check systemcrypto platform support.
-+	if flags.SystemCrypto && goplatform.BuildModeSupported("gc", "default", goos, goarch) {
-+		var supported bool
-+		switch goos {
-+		case "linux":
-+			supported = true
-+		case "windows":
-+			supported = goarch == "amd64" || goarch == "arm64"
-+		case "darwin":
-+			supported = true
-+		}
-+		if !supported {
-+			return nil, fmt.Errorf("GOEXPERIMENT systemcrypto is not supported on %s/%s\n\tFor more information, visit https://github.com/microsoft/go/tree/microsoft/main/eng/doc/fips", goos, goarch)
-+		}
++	if flags.SystemCrypto && !systemCryptoSupported && goplatform.BuildModeSupported("gc", "default", goos, goarch) {
++		// System crypto enabled but not supported.
++		return nil, fmt.Errorf("GOEXPERIMENT systemcrypto is not supported on %s/%s\n\tFor more information, visit https://github.com/microsoft/go/tree/microsoft/main/eng/doc/fips", goos, goarch)
 +	}
  	return flags, nil
  }
  
-@@ -194,6 +221,26 @@ func (exp *ExperimentFlags) String() string {
+@@ -193,6 +199,26 @@ func (exp *ExperimentFlags) String() string {
  	return strings.Join(expList(&exp.Flags, &exp.baseline, false), ",")
  }
  
