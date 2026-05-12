@@ -52,9 +52,9 @@ desired goexperiments and build tags.
  .../internal/fips140only/fips140only.go       |  11 +-
  src/crypto/systemcrypto_nocgo_linux.go        |  18 +
  src/go/build/deps_test.go                     |  24 +-
- src/internal/buildcfg/exp.go                  |  50 +-
+ src/internal/buildcfg/exp.go                  |  48 +-
  src/runtime/runtime_boring.go                 |   5 +
- 45 files changed, 2854 insertions(+), 28 deletions(-)
+ 45 files changed, 2853 insertions(+), 27 deletions(-)
  create mode 100644 src/cmd/go/systemcrypto_test.go
  create mode 100644 src/crypto/internal/backend/backend_darwin.go
  create mode 100644 src/crypto/internal/backend/backend_linux.go
@@ -3307,10 +3307,10 @@ index 00000000000000..7500bd3a86472b
 +	`
 +}
 diff --git a/src/go/build/deps_test.go b/src/go/build/deps_test.go
-index 03896fca65f120..465142153d1476 100644
+index 4adb0db977e5a5..0b7d08133be300 100644
 --- a/src/go/build/deps_test.go
 +++ b/src/go/build/deps_test.go
-@@ -367,7 +367,7 @@ var depsRules = `
+@@ -368,7 +368,7 @@ var depsRules = `
  	math/big, go/token
  	< go/constant;
  
@@ -3319,7 +3319,7 @@ index 03896fca65f120..465142153d1476 100644
  	< internal/buildcfg;
  
  	# The vast majority of standard library packages should not be resorting to regexp.
-@@ -552,6 +552,10 @@ var depsRules = `
+@@ -553,6 +553,10 @@ var depsRules = `
  	< github.com/microsoft/go-crypto-winnative/internal/sysdll
  	< github.com/microsoft/go-crypto-winnative/internal/bcrypt;
  
@@ -3330,7 +3330,7 @@ index 03896fca65f120..465142153d1476 100644
  	FIPS, internal/godebug, embed
  	< crypto/internal/fips140only
  	< crypto
-@@ -572,6 +576,13 @@ var depsRules = `
+@@ -573,6 +577,13 @@ var depsRules = `
  	github.com/microsoft/go-crypto-winnative/internal/bcrypt
  	< github.com/microsoft/go-crypto-winnative/cng;
  
@@ -3344,7 +3344,7 @@ index 03896fca65f120..465142153d1476 100644
  	FIPS, internal/godebug, embed,
  	crypto/internal/boring/sig,
  	crypto/internal/boring/syso,
-@@ -610,8 +621,15 @@ var depsRules = `
+@@ -611,8 +622,15 @@ var depsRules = `
  	math/big, github.com/microsoft/go-crypto-darwin/xcrypto < github.com/microsoft/go-crypto-darwin/bbig;
  	math/big, github.com/microsoft/go-crypto-winnative/cng < github.com/microsoft/go-crypto-winnative/cng/bbig;
  
@@ -3363,7 +3363,7 @@ index 03896fca65f120..465142153d1476 100644
  	< crypto/rand
  	< crypto/ed25519 # depends on crypto/rand.Reader
 diff --git a/src/internal/buildcfg/exp.go b/src/internal/buildcfg/exp.go
-index 195e53de95eedd..c8b37f1e64955e 100644
+index 35b4d011584f52..1029dc8eb4fc83 100644
 --- a/src/internal/buildcfg/exp.go
 +++ b/src/internal/buildcfg/exp.go
 @@ -8,9 +8,11 @@ import (
@@ -3397,16 +3397,7 @@ index 195e53de95eedd..c8b37f1e64955e 100644
  
  	// Older versions (anything before V16) of dsymutil don't handle
  	// the .debug_rnglists section in DWARF5. See
-@@ -111,7 +103,7 @@ func ParseGOEXPERIMENT(goos, goarch, goexp string) (*ExperimentFlags, error) {
- 		RandomizedHeapBase64: true,
- 		GreenTeaGC:           true,
- 		GoroutineLeakProfile: true,
--		SystemCrypto:         systemCryptoSupported,
-+		SystemCrypto:         systemCryptoSupported, // if system crypto is supported, enable it by default
- 	}
- 	flags := &ExperimentFlags{
- 		Flags:    baseline,
-@@ -160,6 +152,16 @@ func ParseGOEXPERIMENT(goos, goarch, goexp string) (*ExperimentFlags, error) {
+@@ -159,6 +151,16 @@ func ParseGOEXPERIMENT(goos, goarch, goexp string) (*ExperimentFlags, error) {
  			if strings.HasPrefix(f, "no") {
  				f, val = f[2:], false
  			}
@@ -3423,7 +3414,7 @@ index 195e53de95eedd..c8b37f1e64955e 100644
  			set, ok := names[f]
  			if !ok {
  				return nil, fmt.Errorf("unknown GOEXPERIMENT %s", f)
-@@ -184,6 +186,10 @@ func ParseGOEXPERIMENT(goos, goarch, goexp string) (*ExperimentFlags, error) {
+@@ -183,6 +185,10 @@ func ParseGOEXPERIMENT(goos, goarch, goexp string) (*ExperimentFlags, error) {
  	if flags.BoringCrypto {
  		return nil, fmt.Errorf("GOEXPERIMENT boringcrypto is not supported in the Microsoft build of Go")
  	}
@@ -3434,7 +3425,7 @@ index 195e53de95eedd..c8b37f1e64955e 100644
  	return flags, nil
  }
  
-@@ -193,6 +199,26 @@ func (exp *ExperimentFlags) String() string {
+@@ -192,6 +198,26 @@ func (exp *ExperimentFlags) String() string {
  	return strings.Join(expList(&exp.Flags, &exp.baseline, false), ",")
  }
  
