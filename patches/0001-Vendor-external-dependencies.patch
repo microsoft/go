@@ -151,7 +151,7 @@ Use a 'go' that was recently built by the current branch to ensure stable result
  .../openssl/v2/osslsetup/init_cgo_unix.go     |   31 +
  .../openssl/v2/osslsetup/init_nocgo_unix.go   |   32 +
  .../openssl/v2/osslsetup/init_windows.go      |   36 +
- .../openssl/v2/osslsetup/osslsetup.go         |  103 +
+ .../openssl/v2/osslsetup/osslsetup.go         |  108 +
  .../openssl/v2/osslsetup/osslsetup_cgo.go     |   11 +
  .../openssl/v2/osslsetup/osslsetup_nocgo.go   |   21 +
  .../golang-fips/openssl/v2/params.go          |  190 ++
@@ -273,7 +273,7 @@ Use a 'go' that was recently built by the current branch to ensure stable result
  .../internal/subtle/aliasing.go               |   32 +
  .../internal/sysdll/sys_windows.go            |   55 +
  src/vendor/modules.txt                        |   23 +
- 265 files changed, 35744 insertions(+), 7 deletions(-)
+ 265 files changed, 35749 insertions(+), 7 deletions(-)
  create mode 100644 src/cmd/internal/telemetry/counter/deps_ignore.go
  create mode 100644 src/cmd/vendor/github.com/microsoft/go-infra/telemetry/LICENSE
  create mode 100644 src/cmd/vendor/github.com/microsoft/go-infra/telemetry/README.md
@@ -2276,7 +2276,7 @@ index 00000000000000..ae4055d2d71303
 +// that are used by the backend package. This allows to track
 +// their versions in a single patch file.
 diff --git a/src/go.mod b/src/go.mod
-index 8703fad3b226c9..9f8df0036c955d 100644
+index 8703fad3b226c9..10ccf74f86ae3b 100644
 --- a/src/go.mod
 +++ b/src/go.mod
 @@ -11,3 +11,9 @@ require (
@@ -2285,17 +2285,17 @@ index 8703fad3b226c9..9f8df0036c955d 100644
  )
 +
 +require (
-+	github.com/golang-fips/openssl/v2 v2.0.4-0.20260514023258-747562f362cd
++	github.com/golang-fips/openssl/v2 v2.0.4-0.20260514124455-0301bcb6ccce
 +	github.com/microsoft/go-crypto-darwin v0.0.3-0.20260512212935-d0ce8397e44b
 +	github.com/microsoft/go-crypto-winnative v0.0.0-20260512074019-00d811a4aefe
 +)
 diff --git a/src/go.sum b/src/go.sum
-index 43554ff45c183e..3d89135b77492f 100644
+index 43554ff45c183e..143b3063c17042 100644
 --- a/src/go.sum
 +++ b/src/go.sum
 @@ -1,3 +1,9 @@
-+github.com/golang-fips/openssl/v2 v2.0.4-0.20260514023258-747562f362cd h1:Gy+X+bKvOprZMji5Fc4Js0BNha4Fw0nM+Ah3Bf53d0k=
-+github.com/golang-fips/openssl/v2 v2.0.4-0.20260514023258-747562f362cd/go.mod h1:E+yPtdllHdy5S8YLMfcIRcqjqQySyiexqxxaLK7+cQQ=
++github.com/golang-fips/openssl/v2 v2.0.4-0.20260514124455-0301bcb6ccce h1:Kl2/ytBV5nuKMGe6YNZsm3IEq9y1i0xjf/LUdAXBK9A=
++github.com/golang-fips/openssl/v2 v2.0.4-0.20260514124455-0301bcb6ccce/go.mod h1:E+yPtdllHdy5S8YLMfcIRcqjqQySyiexqxxaLK7+cQQ=
 +github.com/microsoft/go-crypto-darwin v0.0.3-0.20260512212935-d0ce8397e44b h1:HADuteQytnLec1jmAOGPGCukWIxObrAm/CBYtVzuo5o=
 +github.com/microsoft/go-crypto-darwin v0.0.3-0.20260512212935-d0ce8397e44b/go.mod h1:QahyqOoEDhEJ08aC1WtiWq691LyNgXq3qrjI4QmdPzM=
 +github.com/microsoft/go-crypto-winnative v0.0.0-20260512074019-00d811a4aefe h1:WDbUuTTKY8VElMRA3JJ8Quvj9xK9GqEcTiBZ3BF+7mI=
@@ -21157,10 +21157,10 @@ index 00000000000000..c4981aef84b42f
 +}
 diff --git a/src/vendor/github.com/golang-fips/openssl/v2/osslsetup/osslsetup.go b/src/vendor/github.com/golang-fips/openssl/v2/osslsetup/osslsetup.go
 new file mode 100644
-index 00000000000000..991e9ed5ba5e21
+index 00000000000000..cbf60ff9f1462c
 --- /dev/null
 +++ b/src/vendor/github.com/golang-fips/openssl/v2/osslsetup/osslsetup.go
-@@ -0,0 +1,103 @@
+@@ -0,0 +1,108 @@
 +//go:build !cmd_go_bootstrap
 +
 +package osslsetup
@@ -21168,7 +21168,6 @@ index 00000000000000..991e9ed5ba5e21
 +import (
 +	"errors"
 +	"strconv"
-+	"strings"
 +	"sync"
 +	"syscall"
 +
@@ -21198,10 +21197,16 @@ index 00000000000000..991e9ed5ba5e21
 +// contains ms_opensslallowuntested=1. Matches internal/godebug parsing:
 +// no whitespace trimming.
 +func godebugAllowUntested(godebug string) bool {
-+	for _, kv := range strings.Split(godebug, ",") {
-+		if kv == "ms_opensslallowuntested=1" {
++	const key = "ms_opensslallowuntested=1"
++	var start int = 0
++	for i := 0; i <= len(godebug); i++ {
++		if i < len(godebug) && godebug[i] != ',' {
++			continue
++		}
++		if godebug[start:i] == key {
 +			return true
 +		}
++		start = i + 1
 +	}
 +	return false
 +}
@@ -39972,11 +39977,11 @@ index 00000000000000..1722410e5af193
 +	return getSystemDirectory() + "\\" + dll
 +}
 diff --git a/src/vendor/modules.txt b/src/vendor/modules.txt
-index d72017d2a43c1e..6baad0da40495a 100644
+index d72017d2a43c1e..f352d97e430e89 100644
 --- a/src/vendor/modules.txt
 +++ b/src/vendor/modules.txt
 @@ -1,3 +1,26 @@
-+# github.com/golang-fips/openssl/v2 v2.0.4-0.20260514023258-747562f362cd
++# github.com/golang-fips/openssl/v2 v2.0.4-0.20260514124455-0301bcb6ccce
 +## explicit; go 1.25
 +github.com/golang-fips/openssl/v2
 +github.com/golang-fips/openssl/v2/bbig
