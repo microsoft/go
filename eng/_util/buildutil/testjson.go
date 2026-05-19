@@ -49,44 +49,40 @@ func (f *TestJSONFlags) AppendToCmdline(cmdline []string) []string {
 func (f *TestJSONFlags) RunTestCmd(cmdline []string) (err error) {
 	var writers []io.Writer
 	var needJSON bool
+	var rawTestOutFile string
+	var removeRawTestOutFile bool
+	var rawTestOut *os.File
 
 	if f != nil {
-		if f.JUnitOutFile != "" {
-			var jf *os.File
-			if err := os.MkdirAll(filepath.Dir(f.JUnitOutFile), 0o755); err != nil {
-				return fmt.Errorf("failed to create directory for JUnit output: %v", err)
+		if f.RawTestOutFile != "" || f.JUnitOutFile != "" {
+			rawTestOutFile = f.RawTestOutFile
+			if rawTestOutFile != "" {
+				if err := os.MkdirAll(filepath.Dir(rawTestOutFile), 0o755); err != nil {
+					return fmt.Errorf("failed to create directory for raw test output: %v", err)
+				}
+				rawTestOut, err = os.Create(rawTestOutFile)
+			} else {
+				rawTestOut, err = os.CreateTemp("", "go-test-json-*.txt")
 			}
-			if jf, err = os.Create(f.JUnitOutFile); err != nil {
-				return err
+			if err != nil {
+				return fmt.Errorf("failed to create raw test output: %v", err)
 			}
-			defer func() {
-				err = errors.Join(err, jf.Close())
-			}()
-			c := json2junit.NewConverterWithOptions(jf, &json2junit.Options{
-				IncludePackageInTestName: true,
-			})
-			defer func() {
-				err = errors.Join(err, c.Close())
-			}()
-			writers = append(writers, c)
-			needJSON = true
-		}
-		if f.RawTestOutFile != "" {
-			var rf *os.File
-			if err := os.MkdirAll(filepath.Dir(f.RawTestOutFile), 0o755); err != nil {
-				return fmt.Errorf("failed to create directory for raw test output: %v", err)
+			if rawTestOutFile == "" {
+				rawTestOutFile = rawTestOut.Name()
+				removeRawTestOutFile = true
 			}
-			if rf, err = os.Create(f.RawTestOutFile); err != nil {
-				return err
+			if removeRawTestOutFile {
+				defer func() {
+					err = errors.Join(err, os.Remove(rawTestOutFile))
+				}()
 			}
-			defer func() {
-				err = errors.Join(err, rf.Close())
-			}()
-			writers = append(
-				writers,
-				&testJSONSummaryConverter{w: os.Stdout},
-				rf,
-			)
+			if f.RawTestOutFile != "" {
+				writers = append(writers, &testJSONSummaryConverter{w: os.Stdout})
+			}
+			writers = append(writers, rawTestOut)
+			if f.RawTestOutFile == "" {
+				writers = append(writers, os.Stdout)
+			}
 			needJSON = true
 		} else {
 			// If we don't summarize, we need to write directly to stdout.
@@ -97,7 +93,21 @@ func (f *TestJSONFlags) RunTestCmd(cmdline []string) (err error) {
 		cmdline = append(cmdline, "-json")
 	}
 
-	return RunCmdMultiWriter(cmdline, writers...)
+	runErr := RunCmdMultiWriter(cmdline, writers...)
+	if rawTestOut != nil {
+		runErr = errors.Join(runErr, rawTestOut.Close())
+	}
+
+	if f != nil && f.JUnitOutFile != "" {
+		// Convert after the command exits so a converter error can't close the
+		// test process' stdout pipe and truncate the raw output.
+		runErr = errors.Join(runErr, json2junit.ConvertFileWithOptions(
+			f.JUnitOutFile,
+			rawTestOutFile,
+			&json2junit.Options{IncludePackageInTestName: true},
+		))
+	}
+	return runErr
 }
 
 // testJSONSummaryConverter reads Go JSON test output and writes a summary that
