@@ -56,7 +56,7 @@ Subject: [PATCH] Use crypto backends
  src/crypto/internal/rand/rand.go              |   2 +-
  src/crypto/md5/md5.go                         |  10 +
  src/crypto/md5/md5_test.go                    |  18 +-
- src/crypto/mlkem/mlkem.go                     | 119 +++++++++--
+ src/crypto/mlkem/mlkem.go                     | 118 +++++++++--
  src/crypto/mlkem/mlkem_test.go                |   8 +
  src/crypto/pbkdf2/pbkdf2.go                   |   7 +
  src/crypto/pbkdf2/pbkdf2_test.go              |   6 +-
@@ -102,7 +102,7 @@ Subject: [PATCH] Use crypto backends
  src/hash/notboring_test.go                    |   9 +
  src/net/lookup_test.go                        |   3 +
  src/os/exec/exec_test.go                      |   9 +
- 98 files changed, 1628 insertions(+), 251 deletions(-)
+ 98 files changed, 1627 insertions(+), 251 deletions(-)
  create mode 100644 src/crypto/dsa/boring.go
  create mode 100644 src/crypto/dsa/notboring.go
  create mode 100644 src/crypto/ecdsa/badlinkname.go
@@ -2014,21 +2014,20 @@ index 403ff2881f4b68..5417556a86700e 100644
  
  func maybeCloner(h hash.Hash) any {
 diff --git a/src/crypto/mlkem/mlkem.go b/src/crypto/mlkem/mlkem.go
-index f0fd6a4993a8e6..db1170e82a352a 100644
+index f0fd6a4993a8e6..53600fdf265062 100644
 --- a/src/crypto/mlkem/mlkem.go
 +++ b/src/crypto/mlkem/mlkem.go
-@@ -13,7 +13,10 @@ package mlkem
+@@ -13,7 +13,9 @@ package mlkem
  
  import (
  	"crypto"
 +	boring "crypto/internal/backend"
  	"crypto/internal/fips140/mlkem"
-+	irand "crypto/internal/rand"
-+	"crypto/rand"
++	"crypto/internal/rand"
  )
  
  const (
-@@ -36,38 +39,66 @@ const (
+@@ -36,38 +38,66 @@ const (
  	EncapsulationKeySize1024 = 1568
  )
  
@@ -2042,11 +2041,11 @@ index f0fd6a4993a8e6..db1170e82a352a 100644
 +}
 +
 +func supportsBoringMLKEM768() bool {
-+	return boring.Enabled && irand.IsDefaultReader(rand.Reader) && boring.SupportsMLKEM768()
++	return boring.Enabled && rand.IsDefaultReader(rand.Reader) && boring.SupportsMLKEM768()
 +}
 +
 +func supportsBoringMLKEM1024() bool {
-+	return boring.Enabled && irand.IsDefaultReader(rand.Reader) && boring.SupportsMLKEM1024()
++	return boring.Enabled && rand.IsDefaultReader(rand.Reader) && boring.SupportsMLKEM1024()
  }
  
  // GenerateKey768 generates a new decapsulation key, drawing random bytes from
@@ -2099,7 +2098,7 @@ index f0fd6a4993a8e6..db1170e82a352a 100644
  	return dk.key.Bytes()
  }
  
-@@ -79,13 +110,19 @@ func (dk *DecapsulationKey768) Bytes() []byte {
+@@ -79,13 +109,19 @@ func (dk *DecapsulationKey768) Bytes() []byte {
  //
  // The shared key must be kept secret.
  func (dk *DecapsulationKey768) Decapsulate(ciphertext []byte) (sharedKey []byte, err error) {
@@ -2120,7 +2119,7 @@ index f0fd6a4993a8e6..db1170e82a352a 100644
  }
  
  // Encapsulator returns the encapsulation key, like
-@@ -101,22 +138,34 @@ var _ crypto.Decapsulator = (*DecapsulationKey768)(nil)
+@@ -101,22 +137,34 @@ var _ crypto.Decapsulator = (*DecapsulationKey768)(nil)
  // An EncapsulationKey768 is the public key used to produce ciphertexts to be
  // decapsulated by the corresponding DecapsulationKey768.
  type EncapsulationKey768 struct {
@@ -2157,7 +2156,7 @@ index f0fd6a4993a8e6..db1170e82a352a 100644
  	return ek.key.Bytes()
  }
  
-@@ -128,41 +177,64 @@ func (ek *EncapsulationKey768) Bytes() []byte {
+@@ -128,41 +176,64 @@ func (ek *EncapsulationKey768) Bytes() []byte {
  // For testing, derandomized encapsulation is provided by the
  // [crypto/mlkem/mlkemtest] package.
  func (ek *EncapsulationKey768) Encapsulate() (sharedKey, ciphertext []byte) {
@@ -2225,7 +2224,7 @@ index f0fd6a4993a8e6..db1170e82a352a 100644
  	return dk.key.Bytes()
  }
  
-@@ -174,13 +246,19 @@ func (dk *DecapsulationKey1024) Bytes() []byte {
+@@ -174,13 +245,19 @@ func (dk *DecapsulationKey1024) Bytes() []byte {
  //
  // The shared key must be kept secret.
  func (dk *DecapsulationKey1024) Decapsulate(ciphertext []byte) (sharedKey []byte, err error) {
@@ -2246,7 +2245,7 @@ index f0fd6a4993a8e6..db1170e82a352a 100644
  }
  
  // Encapsulator returns the encapsulation key, like
-@@ -196,22 +274,34 @@ var _ crypto.Decapsulator = (*DecapsulationKey1024)(nil)
+@@ -196,22 +273,34 @@ var _ crypto.Decapsulator = (*DecapsulationKey1024)(nil)
  // An EncapsulationKey1024 is the public key used to produce ciphertexts to be
  // decapsulated by the corresponding DecapsulationKey1024.
  type EncapsulationKey1024 struct {
@@ -2283,7 +2282,7 @@ index f0fd6a4993a8e6..db1170e82a352a 100644
  	return ek.key.Bytes()
  }
  
-@@ -223,5 +313,8 @@ func (ek *EncapsulationKey1024) Bytes() []byte {
+@@ -223,5 +312,8 @@ func (ek *EncapsulationKey1024) Bytes() []byte {
  // For testing, derandomized encapsulation is provided by the
  // [crypto/mlkem/mlkemtest] package.
  func (ek *EncapsulationKey1024) Encapsulate() (sharedKey, ciphertext []byte) {
