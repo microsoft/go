@@ -102,7 +102,7 @@ The CNG backend uses [go-crypto-winnative].
 The CommonCrypto/CryptoKit backend uses [go-crypto-darwin].
 For more general information about the backends, such as how to enable them, see the [Microsoft build of Go FIPS README](./README.md).
 
-[go-crypto-openssl]: https://github.com/microsoft/go-crypto-openssl
+[golang-fips/openssl]: https://github.com/golang-fips/openssl
 [go-crypto-winnative]: https://github.com/microsoft/go-crypto-winnative
 [go-crypto-darwin]: https://github.com/microsoft/go-crypto-darwin
 
