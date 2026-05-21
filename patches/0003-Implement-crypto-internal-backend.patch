@@ -25,7 +25,7 @@ desired goexperiments and build tags.
  src/cmd/link/internal/ld/main.go              |   2 +-
  src/cmd/link/link_test.go                     |   8 +
  src/crypto/internal/backend/backend_darwin.go | 442 ++++++++++++++++++
- src/crypto/internal/backend/backend_linux.go  | 434 +++++++++++++++++
+ src/crypto/internal/backend/backend_linux.go  | 435 +++++++++++++++++
  src/crypto/internal/backend/backend_test.go   |  56 +++
  .../internal/backend/backend_windows.go       | 442 ++++++++++++++++++
  src/crypto/internal/backend/bbig/big.go       |  17 +
@@ -54,7 +54,7 @@ desired goexperiments and build tags.
  src/go/build/deps_test.go                     |  24 +-
  src/internal/buildcfg/exp.go                  |  48 +-
  src/runtime/runtime_boring.go                 |   5 +
- 45 files changed, 2853 insertions(+), 27 deletions(-)
+ 45 files changed, 2854 insertions(+), 27 deletions(-)
  create mode 100644 src/cmd/go/systemcrypto_test.go
  create mode 100644 src/crypto/internal/backend/backend_darwin.go
  create mode 100644 src/crypto/internal/backend/backend_linux.go
@@ -1187,10 +1187,10 @@ index 00000000000000..73830cae246cbd
 +}
 diff --git a/src/crypto/internal/backend/backend_linux.go b/src/crypto/internal/backend/backend_linux.go
 new file mode 100644
-index 00000000000000..c9131d096ec32d
+index 00000000000000..a28f644c950f86
 --- /dev/null
 +++ b/src/crypto/internal/backend/backend_linux.go
-@@ -0,0 +1,434 @@
+@@ -0,0 +1,435 @@
 +// Copyright 2017 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -1213,6 +1213,7 @@ index 00000000000000..c9131d096ec32d
 +	"hash"
 +
 +	"github.com/microsoft/go-crypto-openssl/openssl"
++	"github.com/microsoft/go-crypto-openssl/osslsetup"
 +)
 +
 +// Enabled controls whether FIPS crypto is enabled.
@@ -1225,13 +1226,13 @@ index 00000000000000..c9131d096ec32d
 +	// but they configure OpenSSL to use a FIPS-compliant provider (in the case of Azure Linux 3, the SCOSSL provider).
 +	// In this cases, openssl.FIPS would return `false` and openssl.FIPSCapable would return `true`.
 +	// We don't care about the `fips=yes` property as long as the provider is FIPS-compliant, so use
-+	// openssl.FIPSCapable to determine whether FIPS mode is enabled.
-+	if err := fips140.Check(func() bool { return openssl.FIPSCapable() }); err != nil {
++	// osslsetup.FIPS to determine whether FIPS mode is enabled.
++	if err := fips140.Check(func() bool { return osslsetup.FIPS() }); err != nil {
 +		// This path can be reached for the following reasons:
 +		// - In OpenSSL 1, the active engine doesn't support FIPS mode.
 +		// - In OpenSSL 1, the active engine supports FIPS mode, but it is not enabled.
 +		// - In OpenSSL 3, the provider used by default doesn't match the `fips=yes` query.
-+		panic("opensslcrypto: " + err.Error() + ": " + openssl.VersionText())
++		panic("opensslcrypto: " + err.Error() + ": " + osslsetup.VersionText())
 +	}
 +	sig.BoringCrypto()
 +	fips140only.BackendApprovedHash = FIPSApprovedHash
@@ -1444,7 +1445,7 @@ index 00000000000000..c9131d096ec32d
 +}
 +
 +func ExpandHKDF(h func() hash.Hash, pseudorandomKey, info []byte, keyLength int) ([]byte, error) {
-+	return openssl.ExpandHKDFOneShot(h, pseudorandomKey, info, keyLength)
++	return openssl.ExpandHKDF(h, pseudorandomKey, info, keyLength)
 +}
 +
 +func ExtractHKDF(h func() hash.Hash, secret, salt []byte) ([]byte, error) {
@@ -3307,7 +3308,7 @@ index 00000000000000..7500bd3a86472b
 +	`
 +}
 diff --git a/src/go/build/deps_test.go b/src/go/build/deps_test.go
-index 02b52e2ab9c296..7794e12bc86890 100644
+index 504426b5fe97f2..a8aee3a4bccda3 100644
 --- a/src/go/build/deps_test.go
 +++ b/src/go/build/deps_test.go
 @@ -368,7 +368,7 @@ var depsRules = `
