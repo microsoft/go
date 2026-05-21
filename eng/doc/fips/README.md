@@ -36,7 +36,7 @@ The Microsoft build of Go modifies the Go runtime to call into a platform-provid
 Depending on the platform, this is done using cgo or syscalls.
 This allows Go programs to use a platform-provided FIPS 140 certified crypto library.
 
-On Linux, the fork uses [OpenSSL](https://www.openssl.org/) through the [golang-crypto-openssl] module. On Windows, [CNG](https://docs.microsoft.com/en-us/windows/win32/seccng/about-cng), using [go-crypto-winnative]. On macOS, [CommonCrypto](https://developer.apple.com/library/archive/documentation/System/Conceptual/ManPages_iPhoneOS/man3/Common%20Crypto.3cc.html) and [CryptoKit](https://developer.apple.com/documentation/cryptokit) using [go-crypto-darwin]. Similar to BoringSSL, certain OpenSSL, CNG and CommonCrypto/CryptoKit versions are FIPS 140 certified.
+On Linux, the fork uses [OpenSSL](https://www.openssl.org/) through the [go-crypto-openssl] module. On Windows, [CNG](https://docs.microsoft.com/en-us/windows/win32/seccng/about-cng), using [go-crypto-winnative]. On macOS, [CommonCrypto](https://developer.apple.com/library/archive/documentation/System/Conceptual/ManPages_iPhoneOS/man3/Common%20Crypto.3cc.html) and [CryptoKit](https://developer.apple.com/documentation/cryptokit) using [go-crypto-darwin]. Similar to BoringSSL, certain OpenSSL, CNG and CommonCrypto/CryptoKit versions are FIPS 140 certified.
 
 > [!IMPORTANT]
 > An application built with Microsoft's Go toolchain and running in FIPS compatible mode is not FIPS compliant _per-se_.
