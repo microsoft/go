@@ -97,11 +97,11 @@ The Go crypto documentation is available online at https://pkg.go.dev/crypto.
 
 ## The Microsoft build of Go crypto backends
 
-The OpenSSL backend uses [golang-fips/openssl].
+The OpenSSL backend uses [go-crypto-openssl].
 The CNG backend uses [go-crypto-winnative].
 For more general information about the backends, such as how to enable them, see the [Microsoft build of Go FIPS README](./README.md).
 
-[golang-fips/openssl]: https://github.com/golang-fips/openssl
+[go-crypto-openssl]: https://github.com/microsoft/go-crypto-openssl
 [go-crypto-winnative]: https://github.com/microsoft/go-crypto-winnative
 
 > [!NOTE]
