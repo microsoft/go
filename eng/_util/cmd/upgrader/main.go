@@ -31,7 +31,7 @@ var infos = map[string]depsInfo{
 		url: "https://github.com/microsoft/go-crypto-openssl",
 		mod: "github.com/microsoft/go-crypto-openssl",
 		wd:  "./go/src",
-		ref: "main",
+		ref: "ms-go1.26-support",
 	},
 	"windows": {
 		url: "https://github.com/microsoft/go-crypto-winnative",
