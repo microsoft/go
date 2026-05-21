@@ -28,10 +28,10 @@ type depsInfo struct {
 
 var infos = map[string]depsInfo{
 	"openssl": {
-		url: "https://github.com/golang-fips/openssl",
-		mod: "github.com/golang-fips/openssl/v2",
+		url: "https://github.com/microsoft/go-crypto-openssl",
+		mod: "github.com/microsoft/go-crypto-openssl",
 		wd:  "./go/src",
-		ref: "v2",
+		ref: "main",
 	},
 	"windows": {
 		url: "https://github.com/microsoft/go-crypto-winnative",
