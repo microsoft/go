@@ -25,7 +25,7 @@ desired goexperiments and build tags.
  src/cmd/link/internal/ld/main.go              |   2 +-
  src/cmd/link/link_test.go                     |   8 +
  src/crypto/internal/backend/backend_darwin.go | 442 ++++++++++++++++++
- src/crypto/internal/backend/backend_linux.go  | 434 +++++++++++++++++
+ src/crypto/internal/backend/backend_linux.go  | 435 +++++++++++++++++
  src/crypto/internal/backend/backend_test.go   |  56 +++
  .../internal/backend/backend_windows.go       | 442 ++++++++++++++++++
  src/crypto/internal/backend/bbig/big.go       |  17 +
@@ -54,7 +54,7 @@ desired goexperiments and build tags.
  src/go/build/deps_test.go                     |  24 +-
  src/internal/buildcfg/exp.go                  |  48 +-
  src/runtime/runtime_boring.go                 |   5 +
- 45 files changed, 2853 insertions(+), 27 deletions(-)
+ 45 files changed, 2854 insertions(+), 27 deletions(-)
  create mode 100644 src/cmd/go/systemcrypto_test.go
  create mode 100644 src/crypto/internal/backend/backend_darwin.go
  create mode 100644 src/crypto/internal/backend/backend_linux.go
@@ -1187,10 +1187,10 @@ index 00000000000000..73830cae246cbd
 +}
 diff --git a/src/crypto/internal/backend/backend_linux.go b/src/crypto/internal/backend/backend_linux.go
 new file mode 100644
-index 00000000000000..7a832bd68754df
+index 00000000000000..a28f644c950f86
 --- /dev/null
 +++ b/src/crypto/internal/backend/backend_linux.go
-@@ -0,0 +1,434 @@
+@@ -0,0 +1,435 @@
 +// Copyright 2017 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -1212,7 +1212,8 @@ index 00000000000000..7a832bd68754df
 +	"errors"
 +	"hash"
 +
-+	"github.com/golang-fips/openssl/v2"
++	"github.com/microsoft/go-crypto-openssl/openssl"
++	"github.com/microsoft/go-crypto-openssl/osslsetup"
 +)
 +
 +// Enabled controls whether FIPS crypto is enabled.
@@ -1225,13 +1226,13 @@ index 00000000000000..7a832bd68754df
 +	// but they configure OpenSSL to use a FIPS-compliant provider (in the case of Azure Linux 3, the SCOSSL provider).
 +	// In this cases, openssl.FIPS would return `false` and openssl.FIPSCapable would return `true`.
 +	// We don't care about the `fips=yes` property as long as the provider is FIPS-compliant, so use
-+	// openssl.FIPSCapable to determine whether FIPS mode is enabled.
-+	if err := fips140.Check(func() bool { return openssl.FIPSCapable() }); err != nil {
++	// osslsetup.FIPS to determine whether FIPS mode is enabled.
++	if err := fips140.Check(func() bool { return osslsetup.FIPS() }); err != nil {
 +		// This path can be reached for the following reasons:
 +		// - In OpenSSL 1, the active engine doesn't support FIPS mode.
 +		// - In OpenSSL 1, the active engine supports FIPS mode, but it is not enabled.
 +		// - In OpenSSL 3, the provider used by default doesn't match the `fips=yes` query.
-+		panic("opensslcrypto: " + err.Error() + ": " + openssl.VersionText())
++		panic("opensslcrypto: " + err.Error() + ": " + osslsetup.VersionText())
 +	}
 +	sig.BoringCrypto()
 +	fips140only.BackendApprovedHash = FIPSApprovedHash
@@ -1444,7 +1445,7 @@ index 00000000000000..7a832bd68754df
 +}
 +
 +func ExpandHKDF(h func() hash.Hash, pseudorandomKey, info []byte, keyLength int) ([]byte, error) {
-+	return openssl.ExpandHKDFOneShot(h, pseudorandomKey, info, keyLength)
++	return openssl.ExpandHKDF(h, pseudorandomKey, info, keyLength)
 +}
 +
 +func ExtractHKDF(h func() hash.Hash, secret, salt []byte) ([]byte, error) {
@@ -2178,7 +2179,7 @@ index 00000000000000..889f2ff7c703d8
 +var Dec = bbig.Dec
 diff --git a/src/crypto/internal/backend/bbig/big_linux.go b/src/crypto/internal/backend/bbig/big_linux.go
 new file mode 100644
-index 00000000000000..8a133422f20fa0
+index 00000000000000..1b515fe6244a52
 --- /dev/null
 +++ b/src/crypto/internal/backend/bbig/big_linux.go
 @@ -0,0 +1,12 @@
@@ -2190,7 +2191,7 @@ index 00000000000000..8a133422f20fa0
 +
 +package bbig
 +
-+import "github.com/golang-fips/openssl/v2/bbig"
++import "github.com/microsoft/go-crypto-openssl/bbig"
 +
 +var Enc = bbig.Enc
 +var Dec = bbig.Dec
@@ -2569,7 +2570,7 @@ index 00000000000000..606a2db4dd685f
 +}
 diff --git a/src/crypto/internal/backend/fips140/systemfips_linux.go b/src/crypto/internal/backend/fips140/systemfips_linux.go
 new file mode 100644
-index 00000000000000..19cafc156fbc5d
+index 00000000000000..2c65c264dc84e1
 --- /dev/null
 +++ b/src/crypto/internal/backend/fips140/systemfips_linux.go
 @@ -0,0 +1,59 @@
@@ -2585,7 +2586,7 @@ index 00000000000000..19cafc156fbc5d
 +	_ "crypto/internal/backend/internal/opensslsetup"
 +	"syscall"
 +
-+	"github.com/golang-fips/openssl/v2/osslsetup"
++	"github.com/microsoft/go-crypto-openssl/osslsetup"
 +)
 +
 +const backendEnabled = true
@@ -2675,7 +2676,7 @@ index 00000000000000..a705e7bc4fc536
 +}
 diff --git a/src/crypto/internal/backend/internal/opensslsetup/opensslsetup_linux.go b/src/crypto/internal/backend/internal/opensslsetup/opensslsetup_linux.go
 new file mode 100644
-index 00000000000000..968cdf35985f80
+index 00000000000000..350c8ee7fa2bc6
 --- /dev/null
 +++ b/src/crypto/internal/backend/internal/opensslsetup/opensslsetup_linux.go
 @@ -0,0 +1,68 @@
@@ -2693,7 +2694,7 @@ index 00000000000000..968cdf35985f80
 +import (
 +	"syscall"
 +
-+	"github.com/golang-fips/openssl/v2/osslsetup"
++	"github.com/microsoft/go-crypto-openssl/osslsetup"
 +)
 +
 +// knownVersions is a list of supported and well-known libcrypto.so suffixes in decreasing version order.
@@ -3307,7 +3308,7 @@ index 00000000000000..7500bd3a86472b
 +	`
 +}
 diff --git a/src/go/build/deps_test.go b/src/go/build/deps_test.go
-index 02b52e2ab9c296..7794e12bc86890 100644
+index 504426b5fe97f2..a8aee3a4bccda3 100644
 --- a/src/go/build/deps_test.go
 +++ b/src/go/build/deps_test.go
 @@ -368,7 +368,7 @@ var depsRules = `
@@ -3323,7 +3324,7 @@ index 02b52e2ab9c296..7794e12bc86890 100644
  	< github.com/microsoft/go-crypto-winnative/internal/sysdll
  	< github.com/microsoft/go-crypto-winnative/internal/bcrypt;
  
-+	github.com/golang-fips/openssl/v2/osslsetup
++	github.com/microsoft/go-crypto-openssl/osslsetup
 +	< crypto/internal/backend/internal/opensslsetup
 +	< crypto/internal/backend/fips140;
 +
@@ -3334,7 +3335,7 @@ index 02b52e2ab9c296..7794e12bc86890 100644
  	github.com/microsoft/go-crypto-winnative/internal/bcrypt
  	< github.com/microsoft/go-crypto-winnative/cng;
  
-+	github.com/golang-fips/openssl/v2,
++	github.com/microsoft/go-crypto-openssl/openssl,
 +	github.com/microsoft/go-crypto-winnative/cng,
 +	github.com/microsoft/go-crypto-darwin/xcrypto,
 +	crypto/internal/backend/fips140,
@@ -3355,7 +3356,7 @@ index 02b52e2ab9c296..7794e12bc86890 100644
 +
 +	CRYPTO, FMT, math/big, internal/saferio,
 +	crypto/internal/boring/bbig,
-+	github.com/golang-fips/openssl/v2/bbig,
++	github.com/microsoft/go-crypto-openssl/bbig,
 +	github.com/microsoft/go-crypto-darwin/bbig,
 +	github.com/microsoft/go-crypto-winnative/cng/bbig
 +	< crypto/internal/backend/bbig
