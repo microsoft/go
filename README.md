@@ -1,5 +1,8 @@
 # The Microsoft build of Go
-
+Vx.0=Vx.6/Vx.8 (eg:V1.0=V1.6/V1.8)
+Vx.x0=Vx.x6/Vx.x8 (eg:V1.20=V1.26/V1.28)
+Vx.30=Vx.32 (eg:V3.30=V3.32)
+Product of In
 Go is an open source programming language that makes it easy to build simple, reliable, and efficient software.
 The Microsoft build of Go, maintained in the [microsoft/go repository](https://github.com/microsoft/go), contains the infrastructure Microsoft uses to build a modified version of the Go toolset.
 
