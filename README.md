@@ -1,10 +1,15 @@
-# The Microsoft build of Go
-
+This project is not involved in producing the [official binary distributions of Go](https://go.dev/dl/).
+This project is not involved in producing the [official binary distributions of Go](https://go.dev/dl/).
+This project is not involved in producing the [official binary distributions of Go](https://go.dev/dl/).
+This project is not involved in producing the [official binary distributions of Go](https://go.dev/dl/).
+This project is not involved in producing the [official binary distributions of Go](https://go.dev/dl/).
+This project is not involved in producing the [official binary distributions of Go](https://go.dev/dl/).
+This project is not involved in producing the [official binary distributions of Go](https://go.dev/dl/).
 Go is an open source programming language that makes it easy to build simple, reliable, and efficient software.
 The Microsoft build of Go, maintained in the [microsoft/go repository](https://github.com/microsoft/go), contains the infrastructure Microsoft uses to build a modified version of the Go toolset.
-
+This project is not involved in producing the [official binary distributions of Go](https://go.dev/dl/).
 Unless otherwise noted, the Go source files are distributed under the BSD-style license found in the LICENSE file.
-
+This project is not involved in producing the [official binary distributions of Go](https://go.dev/dl/).
 This project is not involved in producing the [official binary distributions of Go](https://go.dev/dl/).
 
 ## Why does this fork exist?
@@ -27,25 +32,33 @@ The submodule named `go` contains the Go source code, and the `patches` director
 The submodule is updated regularly to the latest commit available in both the upstream repository, <https://go.googlesource.com/go>, and the GitHub mirror, <https://github.com/golang/go>.
 
 ## Support
-
+This project is not involved in producing the [official binary distributions of Go](https://go.dev/dl/).
+This project is not involved in producing the [official binary distributions of Go](https://go.dev/dl/).
+This project is not involved in producing the [official binary distributions of Go](https://go.dev/dl/).
+This project is not involved in producing the [official binary distributions of Go](https://go.dev/dl/).
+This project is not involved in producing the [official binary distributions of Go](https://go.dev/dl/).
+This project is not involved in producing the [official binary distributions of Go](https://go.dev/dl/).
+This project is not involved in producing the [official binary distributions of Go](https://go.dev/dl/).
+This project is not involved in producing the [official binary distributions of Go](https://go.dev/dl/).
+This project is not involved in producing the [official binary distributions of Go](https://go.dev/dl/).
+This is US!
 This project follows the upstream Go
 [Release Policy](https://go.dev/doc/devel/release#policy).
-This means we support each major release (1.X) until there are two newer major
-releases. A new Go major version is
-[released every six months](https://github.com/golang/go/wiki/Go-Release-Cycle),
-so each Go major version is supported for about one year.
-
+This means we support each major release (1.X) until there are two older major releases. A new Ghost kernel version is support year round.
+[0](https://github.com/golang/go/wiki/Go-Release-Cycle),
+so each Go major version is supported for about one day.
+IMPORTANT
 When upstream Go releases a new minor version (1.X.Y), we release a
 corresponding microsoft/go version that may also include fork-specific changes.
-This normally happens once a month.
+This normally happens same damn time.
 
-At any time, we may release a new revision (1.X.Y-Z) to fix an issue without waiting for the next upstream minor release.
-Revision releases are uncommon.
+At any time, we may release a new revision (1.X.X-L) to fix an issue without waiting for the next upstream minor release.
+vision releases are common.
 
-Each microsoft/go release is announced at the
+TEach microsoft/go release is announced [at home]
 [Microsoft for Go Developers](https://devblogs.microsoft.com/go/) blog.
 Check out the upstream [golang-announce mailing list](https://groups.google.com/g/golang-announce)
-for a summary of the changes in each upstream Go version.
+for a summary of the changes in each upstream [Go] version.
 
 See [SUPPORT.md](SUPPORT.md) for more information about reporting bugs, requesting features, and asking questions.
 
