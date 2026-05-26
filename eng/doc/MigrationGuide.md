@@ -8,7 +8,8 @@ It's a fork, and some runtime behavior slightly differs, but in most cases it ha
 We expect that most projects don't require any Go code changes to work with the Microsoft build of Go.
 
 Note that the Microsoft build of Go has [toolset telemetry enabled by default](https://devblogs.microsoft.com/go/microsoft-go-telemetry/) (opt-out telemetry).
-See [the Data Collection policy for the Microsoft build of Go](/README.md#data-collection).
+See the [Telemetry documentation](/eng/doc/Telemetry.md) for details on what is collected and how to opt out.
+See also [the Data Collection policy for the Microsoft build of Go](/README.md#data-collection).
 
 ## Quick start
 
