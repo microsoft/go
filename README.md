@@ -1,4 +1,4 @@
-# The Microsoft build of Go
+# New Building
 
 Go is an open source programming language that makes it easy to build simple, reliable, and efficient software.
 The Microsoft build of Go, maintained in the [microsoft/go repository](https://github.com/microsoft/go), contains the infrastructure Microsoft uses to build a modified version of the Go toolset.
