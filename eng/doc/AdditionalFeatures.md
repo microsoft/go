@@ -11,7 +11,8 @@ If it's critical to you to understand the exact implementation details of all ch
 
 The Microsoft build of Go collects [opt-out (enabled by default) toolset telemetry](https://devblogs.microsoft.com/go/microsoft-go-telemetry/).
 
-See the [Data Collection policy for the Microsoft build of Go](/README.md#data-collection).
+See the [Telemetry documentation](/eng/doc/Telemetry.md) for details on what is collected and how to opt out.
+See also the [Data Collection policy for the Microsoft build of Go](/README.md#data-collection).
 
 ## System-provided cryptography backend
 

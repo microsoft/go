@@ -5,14 +5,14 @@ Subject: [PATCH] Add appinsights telemetry
 
 ---
  README.md                                     | 15 +++++
- .../internal/telemetrystats/telemetrystats.go | 10 ++++
+ .../internal/telemetrystats/telemetrystats.go | 17 ++++++
  src/cmd/go/main.go                            |  8 +++
  src/cmd/go/mstelemetry_test.go                | 56 +++++++++++++++++++
  src/cmd/go/script_test.go                     | 10 ++++
  src/cmd/go/scriptcmds_test.go                 | 22 ++++++++
  src/cmd/internal/telemetry/counter/counter.go | 54 +++++++++++++++++-
  .../telemetry/counter/counter_bootstrap.go    |  3 +
- 8 files changed, 177 insertions(+), 1 deletion(-)
+ 8 files changed, 184 insertions(+), 1 deletion(-)
  create mode 100644 src/cmd/go/mstelemetry_test.go
 
 diff --git a/README.md b/README.md
@@ -40,22 +40,30 @@ index 71c9d1dc299388..8cab5daec4da54 100644
 +these practices.
 \ No newline at end of file
 diff --git a/src/cmd/go/internal/telemetrystats/telemetrystats.go b/src/cmd/go/internal/telemetrystats/telemetrystats.go
-index c6e58935bb0ee2..5aec1694aaae96 100644
+index c6e58935bb0ee2..0cd7d3582c9ee6 100644
 --- a/src/cmd/go/internal/telemetrystats/telemetrystats.go
 +++ b/src/cmd/go/internal/telemetrystats/telemetrystats.go
-@@ -11,6 +11,8 @@ import (
+@@ -11,7 +11,12 @@ import (
  	"cmd/go/internal/cfg"
  	"cmd/go/internal/modload"
  	"cmd/internal/telemetry/counter"
 +	"internal/buildcfg"
 +	"internal/platform"
++	"os"
  	"strings"
++
++	"github.com/microsoft/go-infra/telemetry"
  )
  
-@@ -39,6 +41,14 @@ func incrementConfig() {
+ func Increment() {
+@@ -39,6 +44,18 @@ func incrementConfig() {
  		counter.Inc("go/cgo:disabled")
  	}
  
++	if ci := telemetry.DetectCI(os.Environ()); ci != "" {
++		counter.Inc("msgo/ci:" + ci)
++	}
++
 +	if platform.SystemCryptoSupported(cfg.Goos, cfg.Goarch) {
 +		if buildcfg.SystemCryptoDisabled {
 +			counter.Inc("msgo/systemcrypto:disabled")
@@ -68,7 +76,7 @@ index c6e58935bb0ee2..5aec1694aaae96 100644
  	counter.Inc("go/platform/target/goarch:" + cfg.Goarch)
  	counter.Inc("go/platform/target/port:" + cfg.Goos + "-" + cfg.Goarch)
 diff --git a/src/cmd/go/main.go b/src/cmd/go/main.go
-index 8cdfd9196e4cb1..3f4a4d8f912969 100644
+index bba11a2fdeaaa6..cb7801588662a2 100644
 --- a/src/cmd/go/main.go
 +++ b/src/cmd/go/main.go
 @@ -110,6 +110,14 @@ func main() {
