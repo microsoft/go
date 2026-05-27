@@ -5,14 +5,14 @@ Subject: [PATCH] Add appinsights telemetry
 
 ---
  README.md                                     | 15 +++++
- .../internal/telemetrystats/telemetrystats.go | 31 ++++++++++
- src/cmd/go/main.go                            |  8 +++
+ .../internal/telemetrystats/telemetrystats.go | 17 ++++++
+ src/cmd/go/main.go                            | 28 ++++++++-
  src/cmd/go/mstelemetry_test.go                | 56 +++++++++++++++++
  src/cmd/go/script_test.go                     | 10 +++
  src/cmd/go/scriptcmds_test.go                 | 22 +++++++
  src/cmd/internal/telemetry/counter/counter.go | 61 ++++++++++++++++++-
  .../telemetry/counter/counter_bootstrap.go    | 10 ++-
- 8 files changed, 209 insertions(+), 4 deletions(-)
+ 8 files changed, 214 insertions(+), 5 deletions(-)
  create mode 100644 src/cmd/go/mstelemetry_test.go
 
 diff --git a/README.md b/README.md
@@ -40,20 +40,15 @@ index 71c9d1dc299388..8cab5daec4da54 100644
 +these practices.
 \ No newline at end of file
 diff --git a/src/cmd/go/internal/telemetrystats/telemetrystats.go b/src/cmd/go/internal/telemetrystats/telemetrystats.go
-index c6e58935bb0ee2..5244f2e039ce98 100644
+index c6e58935bb0ee2..0cd7d3582c9ee6 100644
 --- a/src/cmd/go/internal/telemetrystats/telemetrystats.go
 +++ b/src/cmd/go/internal/telemetrystats/telemetrystats.go
-@@ -9,9 +9,17 @@ package telemetrystats
- import (
- 	"cmd/go/internal/base"
+@@ -11,7 +11,12 @@ import (
  	"cmd/go/internal/cfg"
-+	"cmd/go/internal/gover"
  	"cmd/go/internal/modload"
  	"cmd/internal/telemetry/counter"
-+	"crypto/sha256"
 +	"internal/buildcfg"
 +	"internal/platform"
-+	"math/big"
 +	"os"
  	"strings"
 +
@@ -61,7 +56,7 @@ index c6e58935bb0ee2..5244f2e039ce98 100644
  )
  
  func Increment() {
-@@ -39,6 +47,29 @@ func incrementConfig() {
+@@ -39,6 +44,18 @@ func incrementConfig() {
  		counter.Inc("go/cgo:disabled")
  	}
  
@@ -77,28 +72,37 @@ index c6e58935bb0ee2..5244f2e039ce98 100644
 +		}
 +	}
 +
-+	// Send a SHA-256 hash of the module path as a property on go/invocations.
-+	if gomod := modload.FindGoMod(base.Cwd()); gomod != "" {
-+		if data, err := os.ReadFile(gomod); err == nil {
-+			if mod := gover.GoModLookup(data, "module"); mod != "" {
-+				h := sha256.Sum256([]byte(mod))
-+				hash := new(big.Int).SetBytes(h[:]).String()
-+				counter.IncWithProperties("go/invocations", map[string]string{"msgo/module/hash": hash})
-+			}
-+		}
-+	}
-+
  	counter.Inc("go/platform/target/goos:" + cfg.Goos)
  	counter.Inc("go/platform/target/goarch:" + cfg.Goarch)
  	counter.Inc("go/platform/target/port:" + cfg.Goos + "-" + cfg.Goarch)
 diff --git a/src/cmd/go/main.go b/src/cmd/go/main.go
-index bba11a2fdeaaa6..cb7801588662a2 100644
+index bba11a2fdeaaa6..641f8ea631d992 100644
 --- a/src/cmd/go/main.go
 +++ b/src/cmd/go/main.go
-@@ -110,6 +110,14 @@ func main() {
+@@ -8,6 +8,8 @@ package main
+ 
+ import (
+ 	"context"
++	"crypto/sha256"
++	"encoding/hex"
+ 	"flag"
+ 	"fmt"
+ 	"internal/buildcfg"
+@@ -25,7 +27,9 @@ import (
+ 	"cmd/go/internal/doc"
+ 	"cmd/go/internal/envcmd"
+ 	"cmd/go/internal/fmtcmd"
++	"cmd/go/internal/fsys"
+ 	"cmd/go/internal/generate"
++	"cmd/go/internal/gover"
+ 	"cmd/go/internal/help"
+ 	"cmd/go/internal/list"
+ 	"cmd/go/internal/modcmd"
+@@ -110,7 +114,29 @@ func main() {
  	}
  	flag.Usage = base.Usage
  	flag.Parse()
+-	counter.Inc("go/invocations")
 +	if args := flag.Args(); len(args) > 0 {
 +		switch args[0] {
 +		case "build", "install", "run":
@@ -107,9 +111,24 @@ index bba11a2fdeaaa6..cb7801588662a2 100644
 +			base.AtExit(counter.CloseMicrosoft)
 +		}
 +	}
- 	counter.Inc("go/invocations")
++	// Send a SHA-256 hash of the module path as a property on go/invocations.
++	var moduleHash string
++	if gomod := modload.FindGoMod(base.Cwd()); gomod != "" {
++		if data, err := fsys.ReadFile(gomod); err == nil {
++			if mod := gover.GoModLookup(data, "module"); mod != "" {
++				h := sha256.Sum256([]byte(mod))
++				moduleHash = hex.EncodeToString(h[:])
++			}
++		}
++	}
++	if moduleHash != "" {
++		counter.IncWithProperties("go/invocations", map[string]string{"msgo/module/hash": moduleHash})
++	} else {
++		counter.Inc("go/invocations")
++	}
  	counter.CountFlags("go/flag:", *flag.CommandLine)
  
+ 	args := flag.Args()
 diff --git a/src/cmd/go/mstelemetry_test.go b/src/cmd/go/mstelemetry_test.go
 new file mode 100644
 index 00000000000000..010270fb6ad4cf
