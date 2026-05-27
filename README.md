@@ -32,8 +32,8 @@ See [SUPPORT.md](SUPPORT.md) for more information about reporting bugs, requesti
 
 There are a few additional support resources internal to Microsoft:
 
-* [Languages at Microsoft: Introduction to Go](https://eng.ms/docs/more/languages-at-microsoft/go/articles/overview).
-* [Languages at Microsoft: Get Help with Go](https://eng.ms/docs/more/languages-at-microsoft/go/articles/support).
+* [(Microsoft-internal) Languages at Microsoft: Introduction to Go](https://eng.ms/docs/more/languages-at-microsoft/go/articles/overview).
+* [(Microsoft-internal) Languages at Microsoft: Get Help with Go](https://eng.ms/docs/more/languages-at-microsoft/go/articles/support).
   * Includes internal Microsoft support channels such as an email contact for our team and a community Teams group.
 
 ## Release cycle and policy
