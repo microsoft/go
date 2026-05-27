@@ -28,32 +28,33 @@ The submodule is updated regularly to the latest commit available in both the up
 
 ## Support
 
-This project follows the upstream Go
-[Release Policy](https://go.dev/doc/devel/release#policy).
-This means we support each major release (1.X) until there are two newer major
-releases. A new Go major version is
-[released every six months](https://github.com/golang/go/wiki/Go-Release-Cycle),
-so each Go major version is supported for about one year.
+See [SUPPORT.md](SUPPORT.md) for more information about reporting bugs, requesting features, and asking questions.
 
-When upstream Go releases a new minor version (1.X.Y), we release a
-corresponding microsoft/go version that may also include fork-specific changes.
+There are a few additional support resources internal to Microsoft:
+
+* [Languages at Microsoft: Introduction to Go](https://eng.ms/docs/more/languages-at-microsoft/go/articles/overview).
+* [Languages at Microsoft: Get Help with Go](https://eng.ms/docs/more/languages-at-microsoft/go/articles/support).
+  * Includes internal Microsoft support channels such as an email contact for our team and a community Teams group.
+
+## Release cycle and policy
+
+This project follows the upstream Go [Release Policy](https://go.dev/doc/devel/release#policy).
+This means we support each major release (1.X) until there are two newer major releases.
+A new Go major version is [released every six months](https://github.com/golang/go/wiki/Go-Release-Cycle), so each Go major version is supported for about one year.
+
+When upstream Go releases a new minor version (1.X.Y), we release a corresponding microsoft/go version that may also include fork-specific changes.
 This normally happens once a month.
 
 At any time, we may release a new revision (1.X.Y-Z) to fix an issue without waiting for the next upstream minor release.
 Revision releases are uncommon.
 
-Each microsoft/go release is announced at the
-[Microsoft for Go Developers](https://devblogs.microsoft.com/go/) blog.
-Check out the upstream [golang-announce mailing list](https://groups.google.com/g/golang-announce)
-for a summary of the changes in each upstream Go version.
+We announce each Microsoft build of Go release through the following channels:
 
-See [SUPPORT.md](SUPPORT.md) for more information about reporting bugs, requesting features, and asking questions.
+* [Microsoft for Go Developers blog](https://devblogs.microsoft.com/go/).
+* [Microsoft-internal email distribution list 📧 (instant join link)](https://idwebelements.microsoft.com/GroupManagement.aspx?Group=golang-announce&Operation=join).
 
-There are a few additional support resources internal to Microsoft:
-
-* [Languages at Microsoft: Go](https://eng.ms/docs/more/languages-at-microsoft/go/articles/overview).
-* [A Microsoft-internal email distribution list 📧 (instant join link)](https://idwebelements.microsoft.com/GroupManagement.aspx?Group=golang-announce&Operation=join)
-  for release announcements.
+The Go team announces upstream releases on the [golang-announce mailing list](https://groups.google.com/g/golang-announce).
+These announcement emails include a carefully written summary of the changes that may not be found elsewhere.
 
 ## Download and install
 
@@ -76,7 +77,7 @@ The [Installation](eng/doc/Installation.md) documentation contains sections desc
 * [Azure Pipelines `GoTool@0` task](eng/doc/Installation.md#azure-pipelines-gotool0-task)
 * [GitHub Actions `setup-go` action](eng/doc/Installation.md#github-actions-setup-go-action)
 * [The `go-install.ps1` script](eng/doc/Installation.md#the-go-installps1-script)
-* [Binary archive](eng/doc/Installation.md#binary-archive)
+* [Binary archive](eng/doc/Installation.md#binary-archive) (`tar.gz` and `zip`)
 * [Build from source](eng/doc/Installation.md#build-from-source)
 
 ## Contributing
