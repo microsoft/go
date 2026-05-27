@@ -4,7 +4,7 @@ The Microsoft build of Go collects opt-out (enabled by default) toolset telemetr
 Telemetry is sent to Microsoft via Azure Application Insights when `go build`, `go install`, or `go run` is executed.
 No telemetry is collected for other `go` subcommands (e.g. `go test`, `go vet`, `go fmt`).
 
-For the blog post announcing this feature, see [Microsoft Go Telemetry](https://devblogs.microsoft.com/go/microsoft-go-telemetry/).
+For the blog post announcing this feature, see [Microsoft build of Go Telemetry](https://devblogs.microsoft.com/go/microsoft-go-telemetry/).
 
 ## What is collected
 
