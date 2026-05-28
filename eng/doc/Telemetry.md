@@ -8,17 +8,23 @@ For the blog post announcing this feature, see [Microsoft build of Go Telemetry]
 
 ## What is collected
 
-All telemetry data consists of **counters** — simple event names that are incremented.
+Telemetry data consists of **counters** (simple event names that are incremented) and **properties** (key-value custom dimensions attached to a counter event).
 No source code, file paths, module contents, or personally identifiable information is collected.
 Each telemetry session is assigned a random session ID that cannot be linked back to a user.
 
-The counters collected are defined in the [telemetry upload configuration](/go/src/cmd/vendor/github.com/microsoft/go-infra/telemetry/config/config.json) and are listed below.
+The counters and properties collected are defined in the [telemetry upload configuration](https://github.com/microsoft/go-infra/blob/main/telemetry/config/config.json) and are listed below.
 
 ### Invocation counter
 
 | Counter | Description |
 |---|---|
 | `go/invocations` | Incremented once per `go` command invocation. |
+
+#### Properties on `go/invocations`
+
+| Property | Description |
+|---|---|
+| `msgo/module/hash` | A SHA-256 hash of the Go module path from the nearest `go.mod` file, found using [`modload.FindGoMod`](https://pkg.go.dev/cmd/go/internal/modload#FindGoMod). Only sent when a `go.mod` file is found. |
 
 ### Subcommand
 
@@ -55,6 +61,7 @@ The counters collected are defined in the [telemetry upload configuration](/go/s
 
 - No source code or file contents.
 - No file paths from the local file system.
+- No textual module names or paths (a one-way SHA-256 hash of the module path is collected).
 - No environment variable values (only the presence of specific CI-related variables is checked).
 - No network or authentication information.
 - No personally identifiable information (PII).

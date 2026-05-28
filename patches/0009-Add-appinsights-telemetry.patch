@@ -6,13 +6,13 @@ Subject: [PATCH] Add appinsights telemetry
 ---
  README.md                                     | 15 +++++
  .../internal/telemetrystats/telemetrystats.go | 17 ++++++
- src/cmd/go/main.go                            |  8 +++
- src/cmd/go/mstelemetry_test.go                | 56 +++++++++++++++++++
- src/cmd/go/script_test.go                     | 10 ++++
- src/cmd/go/scriptcmds_test.go                 | 22 ++++++++
- src/cmd/internal/telemetry/counter/counter.go | 54 +++++++++++++++++-
- .../telemetry/counter/counter_bootstrap.go    |  3 +
- 8 files changed, 184 insertions(+), 1 deletion(-)
+ src/cmd/go/main.go                            | 28 ++++++++-
+ src/cmd/go/mstelemetry_test.go                | 56 +++++++++++++++++
+ src/cmd/go/script_test.go                     | 10 +++
+ src/cmd/go/scriptcmds_test.go                 | 22 +++++++
+ src/cmd/internal/telemetry/counter/counter.go | 61 ++++++++++++++++++-
+ .../telemetry/counter/counter_bootstrap.go    | 10 ++-
+ 8 files changed, 214 insertions(+), 5 deletions(-)
  create mode 100644 src/cmd/go/mstelemetry_test.go
 
 diff --git a/README.md b/README.md
@@ -76,13 +76,33 @@ index c6e58935bb0ee2..0cd7d3582c9ee6 100644
  	counter.Inc("go/platform/target/goarch:" + cfg.Goarch)
  	counter.Inc("go/platform/target/port:" + cfg.Goos + "-" + cfg.Goarch)
 diff --git a/src/cmd/go/main.go b/src/cmd/go/main.go
-index bba11a2fdeaaa6..cb7801588662a2 100644
+index bba11a2fdeaaa6..641f8ea631d992 100644
 --- a/src/cmd/go/main.go
 +++ b/src/cmd/go/main.go
-@@ -110,6 +110,14 @@ func main() {
+@@ -8,6 +8,8 @@ package main
+ 
+ import (
+ 	"context"
++	"crypto/sha256"
++	"encoding/hex"
+ 	"flag"
+ 	"fmt"
+ 	"internal/buildcfg"
+@@ -25,7 +27,9 @@ import (
+ 	"cmd/go/internal/doc"
+ 	"cmd/go/internal/envcmd"
+ 	"cmd/go/internal/fmtcmd"
++	"cmd/go/internal/fsys"
+ 	"cmd/go/internal/generate"
++	"cmd/go/internal/gover"
+ 	"cmd/go/internal/help"
+ 	"cmd/go/internal/list"
+ 	"cmd/go/internal/modcmd"
+@@ -110,7 +114,29 @@ func main() {
  	}
  	flag.Usage = base.Usage
  	flag.Parse()
+-	counter.Inc("go/invocations")
 +	if args := flag.Args(); len(args) > 0 {
 +		switch args[0] {
 +		case "build", "install", "run":
@@ -91,9 +111,24 @@ index bba11a2fdeaaa6..cb7801588662a2 100644
 +			base.AtExit(counter.CloseMicrosoft)
 +		}
 +	}
- 	counter.Inc("go/invocations")
++	// Send a SHA-256 hash of the module path as a property on go/invocations.
++	var moduleHash string
++	if gomod := modload.FindGoMod(base.Cwd()); gomod != "" {
++		if data, err := fsys.ReadFile(gomod); err == nil {
++			if mod := gover.GoModLookup(data, "module"); mod != "" {
++				h := sha256.Sum256([]byte(mod))
++				moduleHash = hex.EncodeToString(h[:])
++			}
++		}
++	}
++	if moduleHash != "" {
++		counter.IncWithProperties("go/invocations", map[string]string{"msgo/module/hash": moduleHash})
++	} else {
++		counter.Inc("go/invocations")
++	}
  	counter.CountFlags("go/flag:", *flag.CommandLine)
  
+ 	args := flag.Args()
 diff --git a/src/cmd/go/mstelemetry_test.go b/src/cmd/go/mstelemetry_test.go
 new file mode 100644
 index 00000000000000..010270fb6ad4cf
@@ -232,7 +267,7 @@ index 8195e830caa31b..882aeecfa562b9 100644
  	})
  }
 diff --git a/src/cmd/internal/telemetry/counter/counter.go b/src/cmd/internal/telemetry/counter/counter.go
-index 5cef0b0041551a..8c2bae0e613c92 100644
+index 5cef0b0041551a..a81daf56c9e991 100644
 --- a/src/cmd/internal/telemetry/counter/counter.go
 +++ b/src/cmd/internal/telemetry/counter/counter.go
 @@ -7,10 +7,24 @@
@@ -260,7 +295,7 @@ index 5cef0b0041551a..8c2bae0e613c92 100644
  )
  
  var openCalled bool
-@@ -24,9 +38,44 @@ func Open() {
+@@ -24,9 +38,51 @@ func Open() {
  	counter.OpenDir(os.Getenv("TEST_TELEMETRY_DIR"))
  }
  
@@ -302,10 +337,17 @@ index 5cef0b0041551a..8c2bae0e613c92 100644
  func Inc(name string) {
  	counter.Inc(name)
 +	mscounter.Inc(name)
++}
++
++// IncWithProperties increments the counter with the given name and custom properties.
++// Properties are sent as custom dimensions in Application Insights.
++func IncWithProperties(name string, properties map[string]string) {
++	counter.Inc(name)
++	mscounter.NewWithProperties(name, properties).Inc()
  }
  
  // New returns a counter with the given name.
-@@ -44,6 +93,7 @@ func NewStack(name string, depth int) *counter.StackCounter {
+@@ -44,6 +100,7 @@ func NewStack(name string, depth int) *counter.StackCounter {
  // the concatenation of prefix and the flag name.
  func CountFlags(prefix string, flagSet flag.FlagSet) {
  	counter.CountFlags(prefix, flagSet)
@@ -313,7 +355,7 @@ index 5cef0b0041551a..8c2bae0e613c92 100644
  }
  
  // CountFlagValue creates a counter for the flag value
-@@ -56,7 +106,9 @@ func CountFlagValue(prefix string, flagSet flag.FlagSet, flagName string) {
+@@ -56,7 +113,9 @@ func CountFlagValue(prefix string, flagSet flag.FlagSet, flagName string) {
  	// TODO(matloob): Add this to x/telemetry?
  	flagSet.Visit(func(f *flag.Flag) {
  		if f.Name == flagName {
@@ -325,10 +367,20 @@ index 5cef0b0041551a..8c2bae0e613c92 100644
  	})
  }
 diff --git a/src/cmd/internal/telemetry/counter/counter_bootstrap.go b/src/cmd/internal/telemetry/counter/counter_bootstrap.go
-index 00808294053c23..e19970cf926e16 100644
+index 00808294053c23..0780b24792c795 100644
 --- a/src/cmd/internal/telemetry/counter/counter_bootstrap.go
 +++ b/src/cmd/internal/telemetry/counter/counter_bootstrap.go
-@@ -18,3 +18,6 @@ func New(name string) dummyCounter                                        { retu
+@@ -12,9 +12,13 @@ type dummyCounter struct{}
+ 
+ func (dc dummyCounter) Inc() {}
+ 
+-func Open()                                                               {}
+-func Inc(name string)                                                     {}
+-func New(name string) dummyCounter                                        { return dummyCounter{} }
++func Open()                                                                          {}
++func Inc(name string)                                                                {}
++func IncWithProperties(name string, properties map[string]string)                    {}
++func New(name string) dummyCounter                                                   { return dummyCounter{} }
  func NewStack(name string, depth int) dummyCounter                        { return dummyCounter{} }
  func CountFlags(name string, flagSet flag.FlagSet)                        {}
  func CountFlagValue(prefix string, flagSet flag.FlagSet, flagName string) {}
