@@ -24,7 +24,7 @@ The counters and properties collected are defined in the [telemetry upload confi
 
 | Property | Description |
 |---|---|
-| `msgo/module/hash` | A SHA-256 hash of the Go module path from the nearest `go.mod` file. This is a one-way hash — the original module path cannot be recovered from it. Only sent when a `go.mod` file is found in the current directory or a parent directory. |
+| `msgo/module/hash` | A SHA-256 hash of the Go module path from the nearest `go.mod` file. Only sent when a `go.mod` file is found in the current directory or a parent directory. |
 
 ### Subcommand
 
@@ -61,7 +61,7 @@ The counters and properties collected are defined in the [telemetry upload confi
 
 - No source code or file contents.
 - No file paths from the local file system.
-- No module names or paths — only a one-way SHA-256 hash of the module path is collected.
+- No textual module names or paths (a one-way SHA-256 hash of the module path is collected).
 - No environment variable values (only the presence of specific CI-related variables is checked).
 - No network or authentication information.
 - No personally identifiable information (PII).
