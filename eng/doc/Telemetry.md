@@ -24,7 +24,7 @@ The counters and properties collected are defined in the [telemetry upload confi
 
 | Property | Description |
 |---|---|
-| `msgo/module/hash` | A SHA-256 hash of the Go module path from the nearest `go.mod` file. Only sent when a `go.mod` file is found in the current directory or a parent directory. |
+| `msgo/module/hash` | A SHA-256 hash of the Go module path from the nearest `go.mod` file, found using [`modload.FindGoMod`](https://pkg.go.dev/cmd/go/internal/modload#FindGoMod). Only sent when a `go.mod` file is found. |
 
 ### Subcommand
 
