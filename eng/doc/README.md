@@ -1,10 +1,23 @@
-This directory, `/eng/doc`, contains documents describing the Microsoft
-infrastructure used to build Go, in particular any designs that are not obvious
-by reading the infrastructure code itself.
+# `/eng/doc` - Documentation for the Microsoft build of Go
 
-For cryptography information, see the [CrossPlatformCryptography.md](CrossPlatformCryptography.md) doc.
-For dev scenario documentation, see the [DeveloperGuide.md](DeveloperGuide.md) doc.
-For telemetry details, see the [Telemetry.md](Telemetry.md) doc.
+This directory, `/eng/doc`, contains detailed documents describing the Microsoft build of Go.
 
-The [Downloads.md](Downloads.md) doc contains a table of links to the latest assets for each supported Go release branch.
-The [release-branch-links.json](release-branch-links.json) file contains the same data in JSON format suitable for parsing.
+> [!IMPORTANT]
+> These documents are only actively maintained in the `microsoft/main` branch.
+> If you're viewing this file in a release branch, it may be stale.
+> [If you're not sure, click here to go to the maintained version of this document.](https://github.com/microsoft/go/blob/microsoft/main/eng/doc/README.md)
+
+## Setup
+
+* [Migration Guide](MigrationGuide.md)
+* [Installation](Installation.md)
+  * [Downloading a binary release](Downloads.md)
+* [Developer Guide](DeveloperGuide.md) (for new contributors to the Microsoft build of Go)
+
+## Features
+
+* [Additional Features Provided by the Microsoft build of Go](AdditionalFeatures.md)
+* [Cross-Platform Cryptography in the Microsoft build of Go](CrossPlatformCryptography.md)
+* [Microsoft Toolset Identification](MicrosoftToolsetIdentification.md)
+* [No-cgo OpenSSL Backend](NocgoOpenSSL.md)
+* [Telemetry in the Microsoft build of Go](Telemetry.md)
