@@ -8,7 +8,7 @@ parameters:
   - name: ctx
     type: object
 
-  # { id, os, arch, hostArch, config, distro?, experiment?, fips?, broken? }
+  # { id, os, arch, hostArch, config, distro?, experiment?, nosystemcrypto?, fips?, broken? }
   - name: builder
     type: object
 
@@ -38,11 +38,11 @@ stages:
   - stage: ${{ parameters.builder.id }}
     # For display name, try for readability. Use some parameters set by
     # shorthand-builders-to-builders.yml that let us add some formatting.
-    displayName: ${{ parameters.builder.os }}-${{ parameters.builder.arch }} ${{ parameters.builder.hostParens}} ${{ parameters.builder.config }} ${{ parameters.builder.distroParens}} ${{ parameters.builder.experimentBrackets }} ${{ parameters.builder.fipsAcronym }}
+    displayName: ${{ parameters.builder.os }}-${{ parameters.builder.arch }} ${{ parameters.builder.hostParens}} ${{ parameters.builder.config }} ${{ parameters.builder.distroParens}} ${{ parameters.builder.experimentBrackets }} ${{ parameters.builder.nosystemcryptoBrackets }} ${{ parameters.builder.fipsAcronym }}
     dependsOn: []
     jobs:
       - job: ${{ parameters.builder.id }}
-        displayName: ${{ parameters.builder.os }}-${{ parameters.builder.arch }} ${{ parameters.builder.hostParens}} ${{ parameters.builder.config }} ${{ parameters.builder.distroParens}} ${{ parameters.builder.experimentBrackets }} ${{ parameters.builder.fipsAcronym }}
+        displayName: ${{ parameters.builder.os }}-${{ parameters.builder.arch }} ${{ parameters.builder.hostParens}} ${{ parameters.builder.config }} ${{ parameters.builder.distroParens}} ${{ parameters.builder.experimentBrackets }} ${{ parameters.builder.nosystemcryptoBrackets }} ${{ parameters.builder.fipsAcronym }}
         workspace:
           clean: all
 
@@ -180,6 +180,8 @@ stages:
                   PACK_SOURCE_ARG: '-packsource'
                 ${{ if eq(variables.createPDB, true) }}:
                   CREATE_PDB_ARG: '-pdb'
+                ${{ if parameters.builder.nosystemcrypto }}:
+                  MS_GO_NOSYSTEMCRYPTO: 1
               displayName: Build and Pack
 
             # We want to create a checksum as early as possible, but Windows signing involves
@@ -237,6 +239,9 @@ stages:
                     -builder '${{ parameters.builder.os }}-${{ parameters.builder.arch }}-${{ parameters.builder.config }}' `
                     $(if ('${{ parameters.builder.experiment }}') { '-experiment'; '${{ parameters.builder.experiment }}' }) `
                     $(if ('${{ parameters.builder.fips }}') { '-fipsmode' })
+              ${{ if parameters.builder.nosystemcrypto }}:
+                env:
+                  MS_GO_NOSYSTEMCRYPTO: 1
               displayName: Build
 
             # Run each test retry attempt in its own step. Benefits over a single step:
@@ -267,6 +272,9 @@ stages:
                       $(if ('${{ parameters.builder.fips }}') { '-fipsmode' }) `
                       -junitout '$(Build.SourcesDirectory)/eng/artifacts/RawTestOutput/TestResults-attempt-${{ attempt }}.xml' `
                       -rawtestout '$(Build.SourcesDirectory)/eng/artifacts/RawTestOutput/raw-json-attempt-${{ attempt }}.txt'
+                ${{ if parameters.builder.nosystemcrypto }}:
+                  env:
+                    MS_GO_NOSYSTEMCRYPTO: 1
                 ${{ if eq(length(parameters.retryAttempts), 1) }}:
                   displayName: Test
                 ${{ else }}:
