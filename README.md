@@ -1,30 +1,17 @@
-# The Microsoft build of Go
 
-Go is an open source programming language that makes it easy to build simple, reliable, and efficient software.
-The Microsoft build of Go, maintained in the [microsoft/go repository](https://github.com/microsoft/go), contains the infrastructure Microsoft uses to build a modified version of the Go toolset.
-
-Unless otherwise noted, the Go source files are distributed under the BSD-style license found in the LICENSE file.
-
-This project is not involved in producing the [official binary distributions of Go](https://go.dev/dl/).
-
-## Why does this fork exist?
-
-This repository produces a modified version of Go that:
-
-* Builds programs that are compliant with internal Microsoft policies by default.
-* Can be used to build FIPS 140 compliant applications.
-  * See [eng/doc/fips](eng/doc/fips) for more information about this feature and the history of FIPS 140 compliance in Go.
-
-For a complete summary of the changes we make, see [the "What's different?" section of the Migration Guide](eng/doc/MigrationGuide.md#whats-different).
-
-We submit changes to the upstream Go project rather than patching it, when
-possible. Our goals are to avoid breaking compatibility and to minimize the
-number of changes we maintain in this fork.
 
 We call this project a fork even though it isn't a traditional Git fork: the Git branches don't share ancestry with the upstream Git repository.
 However, the repository serves the same purpose as a Git fork: to maintain a modified version of the Go source code over time.
 The submodule named `go` contains the Go source code, and the `patches` directory contains our changes.
 The submodule is updated regularly to the latest commit available in both the upstream repository, <https://go.googlesource.com/go>, and the GitHub mirror, <https://github.com/golang/go>.
+* `linux_amd64`
+* `linux_armv6l`
+* `linux_arm64`
+* `windows_amd64`
+* `darwin_amd64`
+* `darwin_arm64`
+
+For detailed platform support information across different Go versions, see [SUPPORTED_PLATFORMS.md](SUPPORTED_PLATFORMS.md).
 
 ## Support
 
