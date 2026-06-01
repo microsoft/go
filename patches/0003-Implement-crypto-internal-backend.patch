@@ -13,7 +13,7 @@ desired goexperiments and build tags.
  .../compile/internal/logopt/logopt_test.go    |   5 +
  src/cmd/compile/script_test.go                |   8 +
  src/cmd/dist/build.go                         |  80 +++-
- src/cmd/dist/test.go                          |  27 +-
+ src/cmd/dist/test.go                          |  47 +-
  src/cmd/go/go_test.go                         |  11 +
  src/cmd/go/internal/cfg/cfg.go                |  16 +
  src/cmd/go/internal/load/pkg.go               |   3 +
@@ -54,7 +54,7 @@ desired goexperiments and build tags.
  src/go/build/deps_test.go                     |  24 +-
  src/internal/buildcfg/exp.go                  |  48 +-
  src/runtime/runtime_boring.go                 |   5 +
- 45 files changed, 2861 insertions(+), 29 deletions(-)
+ 45 files changed, 2881 insertions(+), 29 deletions(-)
  create mode 100644 src/cmd/go/systemcrypto_test.go
  create mode 100644 src/crypto/internal/backend/backend_darwin.go
  create mode 100644 src/crypto/internal/backend/backend_linux.go
@@ -247,18 +247,10 @@ index 78d55bec559987..bb3119ef0823d7 100644
  	if debug {
  		run("", ShowOutput|CheckExit, pathf("%s/compile", tooldir), "-V=full")
 diff --git a/src/cmd/dist/test.go b/src/cmd/dist/test.go
-index aadb1ff52b067f..2ef0d4219b57d1 100644
+index aadb1ff52b067f..53d661338f2d72 100644
 --- a/src/cmd/dist/test.go
 +++ b/src/cmd/dist/test.go
-@@ -9,6 +9,7 @@ import (
- 	"encoding/json"
- 	"flag"
- 	"fmt"
-+	"internal/systemcrypto"
- 	"io"
- 	"io/fs"
- 	"log"
-@@ -158,10 +159,12 @@ func (t *tester) run() {
+@@ -158,10 +158,12 @@ func (t *tester) run() {
  		}
  	}
  
@@ -272,7 +264,7 @@ index aadb1ff52b067f..2ef0d4219b57d1 100644
  	}
  
  	if !t.listMode {
-@@ -178,9 +181,9 @@ func (t *tester) run() {
+@@ -178,9 +180,9 @@ func (t *tester) run() {
  			// and virtualization we usually start with a clean GOCACHE, so we would
  			// end up rebuilding large parts of the standard library that aren't
  			// otherwise relevant to the actual set of packages under test.
@@ -285,7 +277,7 @@ index aadb1ff52b067f..2ef0d4219b57d1 100644
  		}
  	}
  
-@@ -774,7 +777,9 @@ func (t *tester) registerTests() {
+@@ -774,7 +776,9 @@ func (t *tester) registerTests() {
  	}
  
  	// Test ios/amd64 for the iOS simulator.
@@ -296,7 +288,7 @@ index aadb1ff52b067f..2ef0d4219b57d1 100644
  		t.registerTest("GOOS=ios on darwin/amd64",
  			&goTest{
  				variant:  "amd64ios",
-@@ -1023,7 +1028,9 @@ func (t *tester) registerTests() {
+@@ -1023,7 +1027,9 @@ func (t *tester) registerTests() {
  		t.registerRaceTests()
  	}
  
@@ -307,7 +299,7 @@ index aadb1ff52b067f..2ef0d4219b57d1 100644
  		// Only start multiple test dir shards on builders,
  		// where they get distributed to multiple machines.
  		// See issues 20141 and 31834.
-@@ -1380,9 +1387,9 @@ func (t *tester) registerCgoTests(heading string) {
+@@ -1380,9 +1386,9 @@ func (t *tester) registerCgoTests(heading string) {
  			// a C linker warning on Linux.
  			// in function `bio_ip_and_port_to_socket_and_addr':
  			// warning: Using 'getaddrinfo' in statically linked applications requires at runtime the shared libraries from the glibc version used for linking
@@ -319,13 +311,34 @@ index aadb1ff52b067f..2ef0d4219b57d1 100644
  				}
  			}
  
-@@ -1908,3 +1915,7 @@ func goexperiments(exps ...string) string {
+@@ -1908,3 +1914,28 @@ func goexperiments(exps ...string) string {
  	return existing + strings.Join(exps, ",")
  
  }
 +
 +func systemCryptoEnabled() bool {
-+	return systemcrypto.EnabledFor(goos, goarch)
++	// Keep this in sync with internal/systemcrypto.EnabledFor. cmd/dist is built
++	// by the bootstrap toolchain before internal/systemcrypto exists, so it can't
++	// import that package until the minimum bootstrap Go version is Go 1.27.
++	if os.Getenv("MS_GO_NOSYSTEMCRYPTO") == "1" {
++		return false
++	}
++	var enabled bool
++	switch goos {
++	case "linux", "darwin":
++		enabled = true
++	case "windows":
++		enabled = goarch == "amd64" || goarch == "arm64"
++	}
++	for _, exp := range strings.Split(goexperiment, ",") {
++		switch exp {
++		case "none", "nosystemcrypto":
++			enabled = false
++		case "systemcrypto":
++			enabled = true
++		}
++	}
++	return enabled
 +}
 diff --git a/src/cmd/go/go_test.go b/src/cmd/go/go_test.go
 index 47839e0229b951..2d1a7fa99d551e 100644
