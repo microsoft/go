@@ -17,6 +17,7 @@ maintain this feature. For more information, see the test files.
  src/cmd/go/internal/modindex/build_test.go    | 73 +++++++++++++++++++
  src/cmd/go/testdata/script/env_changed.txt    |  3 +
  src/go/build/buildbackend_test.go             | 50 +++++++++++++
+ src/go/build/deps_test.go                     |  2 +
  .../build/testdata/backendtags_system/main.go |  3 +
  .../backendtags_system/systemcrypto.go        |  3 +
  src/internal/buildcfg/cfg.go                  |  2 +
@@ -32,7 +33,9 @@ maintain this feature. For more information, see the test files.
  .../goexperiment/exp_systemcrypto_on.go       |  8 ++
  src/internal/goexperiment/flags.go            | 18 +++++
  src/internal/platform/supported.go            | 12 +++
- 21 files changed, 271 insertions(+), 1 deletion(-)
+ src/internal/systemcrypto/systemcrypto.go     | 20 +++++
+ .../systemcrypto/systemcrypto_test.go         | 58 +++++++++++++++
+ 24 files changed, 351 insertions(+), 1 deletion(-)
  create mode 100644 src/cmd/go/internal/modindex/build_test.go
  create mode 100644 src/go/build/buildbackend_test.go
  create mode 100644 src/go/build/testdata/backendtags_system/main.go
@@ -45,6 +48,8 @@ maintain this feature. For more information, see the test files.
  create mode 100644 src/internal/goexperiment/exp_opensslcrypto_on.go
  create mode 100644 src/internal/goexperiment/exp_systemcrypto_off.go
  create mode 100644 src/internal/goexperiment/exp_systemcrypto_on.go
+ create mode 100644 src/internal/systemcrypto/systemcrypto.go
+ create mode 100644 src/internal/systemcrypto/systemcrypto_test.go
 
 diff --git a/src/cmd/go/alldocs.go b/src/cmd/go/alldocs.go
 index 74cafe9613917d..31ce076273aba2 100644
@@ -258,6 +263,19 @@ index 00000000000000..ffb835ce34a2f7
 +		t.Errorf("GoFiles = %v, want %v", p.GoFiles, wantFiles)
 +	}
 +}
+diff --git a/src/go/build/deps_test.go b/src/go/build/deps_test.go
+index 920e72e5cdbb9d..7834d307b0426d 100644
+--- a/src/go/build/deps_test.go
++++ b/src/go/build/deps_test.go
+@@ -370,6 +370,8 @@ var depsRules = `
+ 
+ 	FMT, internal/goexperiment
+ 	< internal/buildcfg;
++	internal/buildcfg
++	< internal/systemcrypto;
+ 
+ 	# The vast majority of standard library packages should not be resorting to regexp.
+ 	# go/types is a good chokepoint. It shouldn't use regexp, nor should anything
 diff --git a/src/go/build/testdata/backendtags_system/main.go b/src/go/build/testdata/backendtags_system/main.go
 new file mode 100644
 index 00000000000000..38dd16da61accb
@@ -539,5 +557,95 @@ index 6f37e368596498..471c5cc430bb29 100644
 +		return goarch == "amd64" || goarch == "arm64"
 +	default:
 +		return false
++	}
++}
+diff --git a/src/internal/systemcrypto/systemcrypto.go b/src/internal/systemcrypto/systemcrypto.go
+new file mode 100644
+index 00000000000000..71c1923a270646
+--- /dev/null
++++ b/src/internal/systemcrypto/systemcrypto.go
+@@ -0,0 +1,20 @@
++// Copyright 2026 The Go Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style
++// license that can be found in the LICENSE file.
++
++package systemcrypto
++
++import (
++	"internal/buildcfg"
++	"internal/platform"
++)
++
++// Enabled reports whether system crypto is enabled for the current build target.
++func Enabled() bool {
++	return EnabledFor(buildcfg.GOOS, buildcfg.GOARCH)
++}
++
++// EnabledFor reports whether system crypto is enabled for goos/goarch.
++func EnabledFor(goos, goarch string) bool {
++	return platform.SystemCryptoSupported(goos, goarch) && !buildcfg.SystemCryptoDisabled
++}
+diff --git a/src/internal/systemcrypto/systemcrypto_test.go b/src/internal/systemcrypto/systemcrypto_test.go
+new file mode 100644
+index 00000000000000..c37e436bf274e4
+--- /dev/null
++++ b/src/internal/systemcrypto/systemcrypto_test.go
+@@ -0,0 +1,58 @@
++// Copyright 2026 The Go Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style
++// license that can be found in the LICENSE file.
++
++package systemcrypto
++
++import (
++	"internal/buildcfg"
++	"internal/platform"
++	"testing"
++)
++
++func TestEnabledFor(t *testing.T) {
++	old := buildcfg.SystemCryptoDisabled
++	t.Cleanup(func() { buildcfg.SystemCryptoDisabled = old })
++
++	buildcfg.SystemCryptoDisabled = false
++	tests := []struct {
++		goos   string
++		goarch string
++		want   bool
++	}{
++		{"linux", "amd64", true},
++		{"linux", "386", true},
++		{"darwin", "arm64", true},
++		{"windows", "amd64", true},
++		{"windows", "386", false},
++		{"freebsd", "amd64", false},
++	}
++	for _, tt := range tests {
++		if got := EnabledFor(tt.goos, tt.goarch); got != tt.want {
++			t.Errorf("EnabledFor(%q, %q) = %v, want %v", tt.goos, tt.goarch, got, tt.want)
++		}
++	}
++
++	buildcfg.SystemCryptoDisabled = true
++	for _, tt := range tests {
++		if got := EnabledFor(tt.goos, tt.goarch); got {
++			t.Errorf("EnabledFor(%q, %q) with SystemCryptoDisabled = true = %v, want false", tt.goos, tt.goarch, got)
++		}
++	}
++}
++
++func TestEnabledUsesBuildConfig(t *testing.T) {
++	old := buildcfg.SystemCryptoDisabled
++	t.Cleanup(func() { buildcfg.SystemCryptoDisabled = old })
++
++	buildcfg.SystemCryptoDisabled = false
++	want := platform.SystemCryptoSupported(buildcfg.GOOS, buildcfg.GOARCH)
++	if got := Enabled(); got != want {
++		t.Fatalf("Enabled() = %v, want %v", got, want)
++	}
++
++	buildcfg.SystemCryptoDisabled = true
++	if got := Enabled(); got {
++		t.Fatalf("Enabled() with SystemCryptoDisabled = true = %v, want false", got)
 +	}
 +}
