@@ -13,7 +13,7 @@ desired goexperiments and build tags.
  .../compile/internal/logopt/logopt_test.go    |   5 +
  src/cmd/compile/script_test.go                |   8 +
  src/cmd/dist/build.go                         |  80 +++-
- src/cmd/dist/test.go                          |  18 +-
+ src/cmd/dist/test.go                          |  27 +-
  src/cmd/go/go_test.go                         |  11 +
  src/cmd/go/internal/cfg/cfg.go                |  16 +
  src/cmd/go/internal/load/pkg.go               |   3 +
@@ -54,7 +54,7 @@ desired goexperiments and build tags.
  src/go/build/deps_test.go                     |  24 +-
  src/internal/buildcfg/exp.go                  |  48 +-
  src/runtime/runtime_boring.go                 |   5 +
- 45 files changed, 2854 insertions(+), 27 deletions(-)
+ 45 files changed, 2861 insertions(+), 29 deletions(-)
  create mode 100644 src/cmd/go/systemcrypto_test.go
  create mode 100644 src/crypto/internal/backend/backend_darwin.go
  create mode 100644 src/crypto/internal/backend/backend_linux.go
@@ -247,10 +247,18 @@ index 78d55bec559987..bb3119ef0823d7 100644
  	if debug {
  		run("", ShowOutput|CheckExit, pathf("%s/compile", tooldir), "-V=full")
 diff --git a/src/cmd/dist/test.go b/src/cmd/dist/test.go
-index aadb1ff52b067f..dab28b6f1ced0a 100644
+index aadb1ff52b067f..2ef0d4219b57d1 100644
 --- a/src/cmd/dist/test.go
 +++ b/src/cmd/dist/test.go
-@@ -158,10 +158,12 @@ func (t *tester) run() {
+@@ -9,6 +9,7 @@ import (
+ 	"encoding/json"
+ 	"flag"
+ 	"fmt"
++	"internal/systemcrypto"
+ 	"io"
+ 	"io/fs"
+ 	"log"
+@@ -158,10 +159,12 @@ func (t *tester) run() {
  		}
  	}
  
@@ -264,7 +272,7 @@ index aadb1ff52b067f..dab28b6f1ced0a 100644
  	}
  
  	if !t.listMode {
-@@ -178,9 +180,9 @@ func (t *tester) run() {
+@@ -178,9 +181,9 @@ func (t *tester) run() {
  			// and virtualization we usually start with a clean GOCACHE, so we would
  			// end up rebuilding large parts of the standard library that aren't
  			// otherwise relevant to the actual set of packages under test.
@@ -277,28 +285,48 @@ index aadb1ff52b067f..dab28b6f1ced0a 100644
  		}
  	}
  
-@@ -774,7 +776,9 @@ func (t *tester) registerTests() {
+@@ -774,7 +777,9 @@ func (t *tester) registerTests() {
  	}
  
  	// Test ios/amd64 for the iOS simulator.
 -	if goos == "darwin" && goarch == "amd64" && t.cgoEnabled {
 +	if goos == "darwin" && goarch == "amd64" && t.cgoEnabled &&
 +		// IOS is not supported with systemcrypto.
-+		!strings.Contains(goexperiment, "systemcrypto") {
++		!systemCryptoEnabled() {
  		t.registerTest("GOOS=ios on darwin/amd64",
  			&goTest{
  				variant:  "amd64ios",
-@@ -1023,7 +1027,9 @@ func (t *tester) registerTests() {
+@@ -1023,7 +1028,9 @@ func (t *tester) registerTests() {
  		t.registerRaceTests()
  	}
  
 -	if goos != "android" && !t.iOS() {
 +	// cmd/internal/testdir uses -buildmode=exe on darwin,
 +	// which is not supported by systemcrypto.
-+	if goos != "android" && !t.iOS() && !strings.Contains(goexperiment, "systemcrypto") {
++	if goos != "android" && !t.iOS() && !systemCryptoEnabled() {
  		// Only start multiple test dir shards on builders,
  		// where they get distributed to multiple machines.
  		// See issues 20141 and 31834.
+@@ -1380,9 +1387,9 @@ func (t *tester) registerCgoTests(heading string) {
+ 			// a C linker warning on Linux.
+ 			// in function `bio_ip_and_port_to_socket_and_addr':
+ 			// warning: Using 'getaddrinfo' in statically linked applications requires at runtime the shared libraries from the glibc version used for linking
+-			if staticCheck.skip == nil && goos == "linux" && strings.Contains(goexperiment, "boringcrypto") {
++			if staticCheck.skip == nil && goos == "linux" && systemCryptoEnabled() {
+ 				staticCheck.skip = func(*distTest) (string, bool) {
+-					return "skipping static linking check on Linux when using boringcrypto to avoid C linker warning about getaddrinfo", true
++					return "skipping static linking check on Linux when using systemcrypto to avoid C linker warning about getaddrinfo", true
+ 				}
+ 			}
+ 
+@@ -1908,3 +1915,7 @@ func goexperiments(exps ...string) string {
+ 	return existing + strings.Join(exps, ",")
+ 
+ }
++
++func systemCryptoEnabled() bool {
++	return systemcrypto.EnabledFor(goos, goarch)
++}
 diff --git a/src/cmd/go/go_test.go b/src/cmd/go/go_test.go
 index 47839e0229b951..2d1a7fa99d551e 100644
 --- a/src/cmd/go/go_test.go
@@ -384,7 +412,7 @@ index 1d90061b065f5f..0d5d4fe0556564 100644
  	appendSetting("-compiler", cfg.BuildContext.Compiler)
  	if gccgoflags := BuildGccgoflags.String(); gccgoflags != "" && cfg.BuildContext.Compiler == "gccgo" {
 diff --git a/src/cmd/go/internal/tool/tool.go b/src/cmd/go/internal/tool/tool.go
-index 094c5b719bb291..4d2ab9e00395a8 100644
+index 97c27c8caa44d6..bb18bb112a314a 100644
 --- a/src/cmd/go/internal/tool/tool.go
 +++ b/src/cmd/go/internal/tool/tool.go
 @@ -335,6 +335,10 @@ func buildAndRunBuiltinTool(ld *modload.Loader, ctx context.Context, toolName, t
@@ -3308,7 +3336,7 @@ index 00000000000000..7500bd3a86472b
 +	`
 +}
 diff --git a/src/go/build/deps_test.go b/src/go/build/deps_test.go
-index 920e72e5cdbb9d..2135c64d86664d 100644
+index 7834d307b0426d..148fff74886a58 100644
 --- a/src/go/build/deps_test.go
 +++ b/src/go/build/deps_test.go
 @@ -368,7 +368,7 @@ var depsRules = `
@@ -3318,9 +3346,9 @@ index 920e72e5cdbb9d..2135c64d86664d 100644
 -	FMT, internal/goexperiment
 +	FMT, internal/goexperiment, internal/platform
  	< internal/buildcfg;
- 
- 	# The vast majority of standard library packages should not be resorting to regexp.
-@@ -553,6 +553,10 @@ var depsRules = `
+ 	internal/buildcfg
+ 	< internal/systemcrypto;
+@@ -555,6 +555,10 @@ var depsRules = `
  	< github.com/microsoft/go-crypto-winnative/internal/sysdll
  	< github.com/microsoft/go-crypto-winnative/internal/bcrypt;
  
@@ -3331,7 +3359,7 @@ index 920e72e5cdbb9d..2135c64d86664d 100644
  	FIPS, internal/godebug, embed
  	< crypto/internal/fips140only
  	< crypto
-@@ -573,6 +577,13 @@ var depsRules = `
+@@ -575,6 +579,13 @@ var depsRules = `
  	github.com/microsoft/go-crypto-winnative/internal/bcrypt
  	< github.com/microsoft/go-crypto-winnative/cng;
  
@@ -3345,7 +3373,7 @@ index 920e72e5cdbb9d..2135c64d86664d 100644
  	FIPS, internal/godebug, embed,
  	crypto/internal/boring/sig,
  	crypto/internal/boring/syso,
-@@ -612,8 +623,15 @@ var depsRules = `
+@@ -614,8 +625,15 @@ var depsRules = `
  	math/big, github.com/microsoft/go-crypto-darwin/xcrypto < github.com/microsoft/go-crypto-darwin/bbig;
  	math/big, github.com/microsoft/go-crypto-winnative/cng < github.com/microsoft/go-crypto-winnative/cng/bbig;
  
