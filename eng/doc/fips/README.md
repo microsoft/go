@@ -461,10 +461,8 @@ This list of major changes is intended for quick reference and for access to his
 - The per-platform GOEXPERIMENTs (`opensslcrypto`, `cngcrypto`, `darwincrypto`) have been removed.
   - Using any of the removed experiments will result in a build error.
   - The `systemcrypto` GOEXPERIMENT has been the preferred way to select a crypto backend since it was introduced in Go 1.21. It is now the only way.
-  - The build tags (build constraints) associated with the removed GOEXPERIMENTs are no longer supported.
-    - The per-platform tags are not set by the Microsoft build of Go when `systemcrypto` is enabled.
-    - Manually using `-tags` to enable a per-platform backend tag no longer has any effect on the standard library.
-    - The `goexperiment.systemcrypto` build tag remains supported, and its behavior has not changed.
+  - The build tags associated with the removed GOEXPERIMENTs remain supported for legacy source compatibility.
+  - The `goexperiment.systemcrypto` build tag remains supported, and its behavior has not changed.
 
 ### Go 1.26.3
 
