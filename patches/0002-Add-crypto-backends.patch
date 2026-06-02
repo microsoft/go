@@ -14,7 +14,7 @@ Subject: [PATCH] Add crypto backends
  src/cmd/go/alldocs.go                         |   3 +
  src/cmd/go/go_boring_test.go                  |   6 +-
  src/cmd/go/go_test.go                         |  11 +
- src/cmd/go/internal/cfg/cfg.go                |  22 +-
+ src/cmd/go/internal/cfg/cfg.go                |  32 +-
  src/cmd/go/internal/envcmd/env.go             |   3 +-
  src/cmd/go/internal/help/helpdoc.go           |   3 +
  src/cmd/go/internal/load/pkg.go               |   4 +
@@ -22,7 +22,7 @@ Subject: [PATCH] Add crypto backends
  src/cmd/go/internal/tool/tool.go              |   9 +-
  .../verylongtest/testdata/script/README       |   2 +
  src/cmd/go/script_test.go                     |   3 +
- src/cmd/go/systemcrypto_test.go               | 250 ++++++++++
+ src/cmd/go/systemcrypto_test.go               | 272 +++++++++++
  src/cmd/go/testdata/script/README             |   2 +
  src/cmd/go/testdata/script/darwin_no_cgo.txt  |   1 +
  src/cmd/go/testdata/script/env_changed.txt    |   3 +
@@ -164,7 +164,7 @@ Subject: [PATCH] Add crypto backends
  src/net/lookup_test.go                        |   3 +
  src/os/exec/exec_test.go                      |   9 +
  src/runtime/runtime_boring.go                 |   5 +
- 160 files changed, 4795 insertions(+), 269 deletions(-)
+ 160 files changed, 4827 insertions(+), 269 deletions(-)
  create mode 100644 src/cmd/go/internal/modindex/build_test.go
  create mode 100644 src/cmd/go/systemcrypto_test.go
  create mode 100644 src/crypto/dsa/boring.go
@@ -562,7 +562,7 @@ index 47839e0229b951..99ac16a3951934 100644
  	tg.parallel()
  	defer tg.cleanup()
 diff --git a/src/cmd/go/internal/cfg/cfg.go b/src/cmd/go/internal/cfg/cfg.go
-index 78cbbb949e7c27..80c8211ed03100 100644
+index 78cbbb949e7c27..f8b16160f50713 100644
 --- a/src/cmd/go/internal/cfg/cfg.go
 +++ b/src/cmd/go/internal/cfg/cfg.go
 @@ -14,11 +14,13 @@ import (
@@ -601,17 +601,27 @@ index 78cbbb949e7c27..80c8211ed03100 100644
  	// Recompute experiments: the settings determined depend on GOOS and GOARCH.
  	// This will also update the BuildContext's tool tags to include the new
  	// experiment tags.
-@@ -311,10 +328,13 @@ func computeExperiment() {
+@@ -311,10 +328,23 @@ func computeExperiment() {
  
  	// Add build tags based on the experiments in effect.
  	exps := Experiment.Enabled()
 -	expTags := make([]string, 0, len(exps)+len(BuildContext.ToolTags))
-+	expTags := make([]string, 0, len(exps)+len(BuildContext.ToolTags)+1)
++	expTags := make([]string, 0, len(exps)+len(BuildContext.ToolTags)+2)
  	for _, exp := range exps {
  		expTags = append(expTags, "goexperiment."+exp)
  	}
 +	if systemcrypto.EnabledFor(Goos, Goarch) {
 +		expTags = append(expTags, "goexperiment.systemcrypto")
++		// The per-platform crypto GOEXPERIMENT values have been removed,
++		// but their build tags remain supported for legacy source compatibility.
++		switch Goos {
++		case "darwin":
++			expTags = append(expTags, "goexperiment.darwincrypto")
++		case "linux":
++			expTags = append(expTags, "goexperiment.opensslcrypto")
++		case "windows":
++			expTags = append(expTags, "goexperiment.cngcrypto")
++		}
 +	}
  	BuildContext.ToolTags = append(expTags, BuildContext.ToolTags...)
  }
@@ -652,7 +662,7 @@ index 4f76f7f9c1fc68..783d11609c0bf4 100644
  Additional information available from 'go env' but not read from the environment:
  
 diff --git a/src/cmd/go/internal/load/pkg.go b/src/cmd/go/internal/load/pkg.go
-index 1d90061b065f5f..ba582cf1d0773e 100644
+index 96bf64a71ff1ed..ebfbdd0edbc3db 100644
 --- a/src/cmd/go/internal/load/pkg.go
 +++ b/src/cmd/go/internal/load/pkg.go
 @@ -16,6 +16,7 @@ import (
@@ -663,7 +673,7 @@ index 1d90061b065f5f..ba582cf1d0773e 100644
  	"io/fs"
  	"os"
  	pathpkg "path"
-@@ -2417,6 +2418,9 @@ func (p *Package) setBuildInfo(ctx context.Context, f *modfetch.Fetcher, autoVCS
+@@ -2448,6 +2449,9 @@ func (p *Package) setBuildInfo(ctx context.Context, f *modfetch.Fetcher, autoVCS
  			buildmode = "archive"
  		}
  	}
@@ -809,10 +819,10 @@ index 088b9a8b5fdb2e..4e1e545367afef 100644
  // updateSum runs 'go mod tidy', 'go list -mod=mod -m all', or
 diff --git a/src/cmd/go/systemcrypto_test.go b/src/cmd/go/systemcrypto_test.go
 new file mode 100644
-index 00000000000000..fa5c5b76024ab1
+index 00000000000000..eeb0ee9c3c9396
 --- /dev/null
 +++ b/src/cmd/go/systemcrypto_test.go
-@@ -0,0 +1,250 @@
+@@ -0,0 +1,272 @@
 +// Copyright 2025 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -1020,6 +1030,9 @@ index 00000000000000..fa5c5b76024ab1
 +		"go.mod":            "module example.com/systemcrypto-tag\n\ngo 1.27\n",
 +		"always.go":         "package main\n",
 +		"with_system.go":    "//go:build goexperiment.systemcrypto\n\npackage main\n",
++		"with_openssl.go":   "//go:build goexperiment.opensslcrypto\n\npackage main\n",
++		"with_cng.go":       "//go:build goexperiment.cngcrypto\n\npackage main\n",
++		"with_darwin.go":    "//go:build goexperiment.darwincrypto\n\npackage main\n",
 +		"without_system.go": "//go:build !goexperiment.systemcrypto\n\npackage main\n",
 +	}
 +	for name, content := range files {
@@ -1029,36 +1042,55 @@ index 00000000000000..fa5c5b76024ab1
 +	}
 +
 +	tests := []struct {
-+		name     string
-+		env      []string
-+		wantFile string
-+		badFile  string
++		name      string
++		env       []string
++		wantFiles []string
++		badFiles  []string
 +	}{
 +		{
-+			name:     "supported",
-+			env:      []string{"GOOS=linux", "GOARCH=amd64", "MS_GO_NOSYSTEMCRYPTO=0"},
-+			wantFile: "with_system.go",
-+			badFile:  "without_system.go",
++			name:      "linux_supported",
++			env:       []string{"GOOS=linux", "GOARCH=amd64", "MS_GO_NOSYSTEMCRYPTO=0"},
++			wantFiles: []string{"with_system.go", "with_openssl.go"},
++			badFiles:  []string{"without_system.go", "with_cng.go", "with_darwin.go"},
 +		},
 +		{
-+			name:     "disabled",
-+			env:      []string{"GOOS=linux", "GOARCH=amd64", "MS_GO_NOSYSTEMCRYPTO=1"},
-+			wantFile: "without_system.go",
-+			badFile:  "with_system.go",
++			name:      "darwin_supported",
++			env:       []string{"GOOS=darwin", "GOARCH=arm64", "MS_GO_NOSYSTEMCRYPTO=0"},
++			wantFiles: []string{"with_system.go", "with_darwin.go"},
++			badFiles:  []string{"without_system.go", "with_openssl.go", "with_cng.go"},
 +		},
 +		{
-+			name:     "unsupported",
-+			env:      []string{"GOOS=windows", "GOARCH=386", "MS_GO_NOSYSTEMCRYPTO=0"},
-+			wantFile: "without_system.go",
-+			badFile:  "with_system.go",
++			name:      "windows_supported",
++			env:       []string{"GOOS=windows", "GOARCH=amd64", "MS_GO_NOSYSTEMCRYPTO=0"},
++			wantFiles: []string{"with_system.go", "with_cng.go"},
++			badFiles:  []string{"without_system.go", "with_openssl.go", "with_darwin.go"},
++		},
++		{
++			name:      "disabled",
++			env:       []string{"GOOS=linux", "GOARCH=amd64", "MS_GO_NOSYSTEMCRYPTO=1"},
++			wantFiles: []string{"without_system.go"},
++			badFiles:  []string{"with_system.go", "with_openssl.go", "with_cng.go", "with_darwin.go"},
++		},
++		{
++			name:      "unsupported",
++			env:       []string{"GOOS=windows", "GOARCH=386", "MS_GO_NOSYSTEMCRYPTO=0"},
++			wantFiles: []string{"without_system.go"},
++			badFiles:  []string{"with_system.go", "with_openssl.go", "with_cng.go", "with_darwin.go"},
 +		},
 +	}
 +	for _, tt := range tests {
 +		t.Run(tt.name, func(t *testing.T) {
 +			t.Parallel()
 +			out, _ := execGoToolInDir(t, dir, false, tt.env, "list", "-f", "{{.GoFiles}}", ".")
-+			if !strings.Contains(out, tt.wantFile) || strings.Contains(out, tt.badFile) {
-+				t.Fatalf("go list .GoFiles = %q, want %s and not %s", out, tt.wantFile, tt.badFile)
++			for _, wantFile := range tt.wantFiles {
++				if !strings.Contains(out, wantFile) {
++					t.Fatalf("go list .GoFiles = %q, want %s", out, wantFile)
++				}
++			}
++			for _, badFile := range tt.badFiles {
++				if strings.Contains(out, badFile) {
++					t.Fatalf("go list .GoFiles = %q, did not want %s", out, badFile)
++				}
 +			}
 +		})
 +	}
@@ -8027,10 +8059,10 @@ index 00000000000000..ffb835ce34a2f7
 +	}
 +}
 diff --git a/src/go/build/deps_test.go b/src/go/build/deps_test.go
-index 920e72e5cdbb9d..5d3f4a9850e259 100644
+index a71759adcb7363..5ede9a29a82750 100644
 --- a/src/go/build/deps_test.go
 +++ b/src/go/build/deps_test.go
-@@ -368,8 +368,10 @@ var depsRules = `
+@@ -372,8 +372,10 @@ var depsRules = `
  	math/big, go/token
  	< go/constant;
  
@@ -8042,7 +8074,7 @@ index 920e72e5cdbb9d..5d3f4a9850e259 100644
  
  	# The vast majority of standard library packages should not be resorting to regexp.
  	# go/types is a good chokepoint. It shouldn't use regexp, nor should anything
-@@ -533,7 +535,7 @@ var depsRules = `
+@@ -537,7 +539,7 @@ var depsRules = `
  	< crypto/internal/fips140/edwards25519
  	< crypto/internal/fips140/ed25519
  	< crypto/internal/fips140/rsa
@@ -8051,7 +8083,7 @@ index 920e72e5cdbb9d..5d3f4a9850e259 100644
  
  	crypto !< FIPS;
  
-@@ -553,7 +555,16 @@ var depsRules = `
+@@ -557,7 +559,16 @@ var depsRules = `
  	< github.com/microsoft/go-crypto-winnative/internal/sysdll
  	< github.com/microsoft/go-crypto-winnative/internal/bcrypt;
  
@@ -8069,7 +8101,7 @@ index 920e72e5cdbb9d..5d3f4a9850e259 100644
  	< crypto/internal/fips140only
  	< crypto
  	< crypto/subtle
-@@ -573,6 +584,13 @@ var depsRules = `
+@@ -577,6 +588,13 @@ var depsRules = `
  	github.com/microsoft/go-crypto-winnative/internal/bcrypt
  	< github.com/microsoft/go-crypto-winnative/cng;
  
@@ -8083,7 +8115,7 @@ index 920e72e5cdbb9d..5d3f4a9850e259 100644
  	FIPS, internal/godebug, embed,
  	crypto/internal/boring/sig,
  	crypto/internal/boring/syso,
-@@ -580,7 +598,8 @@ var depsRules = `
+@@ -584,7 +602,8 @@ var depsRules = `
  	crypto/internal/fips140only,
  	crypto,
  	crypto/subtle,
@@ -8093,7 +8125,7 @@ index 920e72e5cdbb9d..5d3f4a9850e259 100644
  	< crypto/sha3
  	< crypto/internal/fips140hash
  	< crypto/internal/boring
-@@ -599,6 +618,7 @@ var depsRules = `
+@@ -603,6 +622,7 @@ var depsRules = `
  	  crypto/ecdh,
  	  crypto/mlkem,
  	  crypto/mldsa
@@ -8101,7 +8133,7 @@ index 920e72e5cdbb9d..5d3f4a9850e259 100644
  	< CRYPTO;
  
  	CRYPTO
-@@ -612,8 +632,15 @@ var depsRules = `
+@@ -616,8 +636,15 @@ var depsRules = `
  	math/big, github.com/microsoft/go-crypto-darwin/xcrypto < github.com/microsoft/go-crypto-darwin/bbig;
  	math/big, github.com/microsoft/go-crypto-winnative/cng < github.com/microsoft/go-crypto-winnative/cng/bbig;
  
