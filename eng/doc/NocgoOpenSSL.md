@@ -1,21 +1,21 @@
 # No-cgo OpenSSL Backend
 
-This document describes how to enable and use the cgo-less OpenSSL backend for the Microsoft build of Go, available as an experimental feature starting in Go 1.26.
+This document describes how the Microsoft build of Go uses the cgo-less OpenSSL backend on Linux.
 
 ## Overview
 
-In Go 1.26, there is a cgo-less experiment available for Linux: `ms_nocgo_opensslcrypto`.
+In Go 1.27 and later, the cgo-less OpenSSL backend is part of `systemcrypto` on Linux.
+It is selected automatically when cgo is disabled and the target architecture is supported.
 
 > [!NOTE]
-> While `systemcrypto` is a fully supported `GOEXPERIMENT` value (it is not "experimental"), `ms_nocgo_opensslcrypto` **is** experimental in Go 1.26 and may have limitations.
-
-In Go 1.27, the experiment will be removed and the cgo requirement for `systemcrypto` on Linux will be lifted by default.
+> In Go 1.26, this backend was available as the experimental `GOEXPERIMENT=ms_nocgo_opensslcrypto` feature.
+> In Go 1.27, that experiment has been removed because the cgo-less backend is selected automatically when needed.
 
 This allows the use of OpenSSL without requiring cgo.
 
 ## Supported architectures
 
-Currently this experiment is supported on the following architectures:
+The cgo-less OpenSSL backend is supported on the following architectures:
 
 - 386
 - **amd64**
@@ -31,6 +31,9 @@ Architectures are added based on demand and available resources.
 To see existing requests or request support for additional architectures, use the [![](https://img.shields.io/github/labels/microsoft/go/Area-Nocgo)](https://github.com/microsoft/go/labels/Area-Nocgo) label.
 
 ## How the backend is selected
+
+Starting in Go 1.27, these rules apply without any additional `GOEXPERIMENT` value.
+In Go 1.26, they apply when `GOEXPERIMENT=ms_nocgo_opensslcrypto` is set.
 
 * If cgo is explicitly enabled with `CGO_ENABLED=1`, the cgo-based OpenSSL backend is used.
 * If cgo is disabled with `CGO_ENABLED=0`, then:

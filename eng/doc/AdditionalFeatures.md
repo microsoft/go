@@ -19,10 +19,10 @@ See also the [Data Collection policy for the Microsoft build of Go](/README.md#d
 We have implemented changes to the Go standard library to call a platform-specific system-provided cryptography library rather than running the pure Go implementation.
 Its main purposes are to comply with Microsoft's internal cryptography policies and implement FIPS 140 compliance.
 
-As of Go 1.25, this feature is enabled by default.
+As of Go 1.25 on Linux and Windows, and Go 1.26 on macOS, this feature is enabled by default on supported platforms.
 
-Prior to Go 1.25, this feature can be enabled by setting the `GOEXPERIMENT` environment variable to `systemcrypto` before building a Go program.
-Other methods of changing goexperiment settings also work.
+As of Go 1.27, `systemcrypto` is no longer configured with `GOEXPERIMENT`: `GOEXPERIMENT=systemcrypto` and `GOEXPERIMENT=nosystemcrypto` are rejected.
+If you need to disable the system-provided cryptography backend, set `MS_GO_NOSYSTEMCRYPTO=1` before building the program.
 
 See [the Migration Guide](/eng/doc/MigrationGuide.md) for more information about when, and how, to configure this feature.
 
