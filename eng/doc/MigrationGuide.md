@@ -251,7 +251,7 @@ GOEXPERIMENT=systemcrypto has been removed; system crypto is enabled automatical
 ```
 
 ```
-GOEXPERIMENT=nosystemcrypto has been removed; use MS_GO_NOSYSTEMCRYPTO=1 to disable system crypto
+GOEXPERIMENT=nosystemcrypto has been removed; use MS_GO_NOSYSTEMCRYPTO=1 to disable system crypto; note that systemcrypto supports CGO_ENABLED=0 since Go 1.27
 ```
 
 These errors happen when the `GOEXPERIMENT` environment variable includes `systemcrypto` or `nosystemcrypto`.
