@@ -12,8 +12,10 @@ Includes new tests in "build_test.go" and "buildbackend_test.go" to help
 maintain this feature. For more information, see the test files.
 ---
  src/cmd/go/alldocs.go                         |  3 +
+ src/cmd/go/internal/cfg/cfg.go                |  6 +-
  src/cmd/go/internal/envcmd/env.go             |  3 +-
  src/cmd/go/internal/help/helpdoc.go           |  3 +
+ src/cmd/go/internal/load/pkg.go               |  4 +
  src/cmd/go/internal/modindex/build_test.go    | 73 +++++++++++++++++++
  src/cmd/go/testdata/script/env_changed.txt    |  3 +
  src/go/build/buildbackend_test.go             | 50 +++++++++++++
@@ -21,33 +23,17 @@ maintain this feature. For more information, see the test files.
  .../build/testdata/backendtags_system/main.go |  3 +
  .../backendtags_system/systemcrypto.go        |  3 +
  src/internal/buildcfg/cfg.go                  |  2 +
- src/internal/buildcfg/exp.go                  | 34 +++++++++
+ src/internal/buildcfg/cfg_test.go             | 44 +++++++++++
+ src/internal/buildcfg/exp.go                  | 20 +++++
  src/internal/cfg/cfg.go                       |  1 +
- .../goexperiment/exp_cngcrypto_off.go         |  8 ++
- src/internal/goexperiment/exp_cngcrypto_on.go |  8 ++
- .../goexperiment/exp_darwincrypto_off.go      |  8 ++
- .../goexperiment/exp_darwincrypto_on.go       |  8 ++
- .../goexperiment/exp_opensslcrypto_off.go     |  8 ++
- .../goexperiment/exp_opensslcrypto_on.go      |  8 ++
- .../goexperiment/exp_systemcrypto_off.go      |  8 ++
- .../goexperiment/exp_systemcrypto_on.go       |  8 ++
- src/internal/goexperiment/flags.go            | 18 +++++
  src/internal/platform/supported.go            | 12 +++
  src/internal/systemcrypto/systemcrypto.go     | 20 +++++
  .../systemcrypto/systemcrypto_test.go         | 58 +++++++++++++++
- 24 files changed, 351 insertions(+), 1 deletion(-)
+ 18 files changed, 308 insertions(+), 2 deletions(-)
  create mode 100644 src/cmd/go/internal/modindex/build_test.go
  create mode 100644 src/go/build/buildbackend_test.go
  create mode 100644 src/go/build/testdata/backendtags_system/main.go
  create mode 100644 src/go/build/testdata/backendtags_system/systemcrypto.go
- create mode 100644 src/internal/goexperiment/exp_cngcrypto_off.go
- create mode 100644 src/internal/goexperiment/exp_cngcrypto_on.go
- create mode 100644 src/internal/goexperiment/exp_darwincrypto_off.go
- create mode 100644 src/internal/goexperiment/exp_darwincrypto_on.go
- create mode 100644 src/internal/goexperiment/exp_opensslcrypto_off.go
- create mode 100644 src/internal/goexperiment/exp_opensslcrypto_on.go
- create mode 100644 src/internal/goexperiment/exp_systemcrypto_off.go
- create mode 100644 src/internal/goexperiment/exp_systemcrypto_on.go
  create mode 100644 src/internal/systemcrypto/systemcrypto.go
  create mode 100644 src/internal/systemcrypto/systemcrypto_test.go
 
@@ -65,6 +51,33 @@ index 74cafe9613917d..31ce076273aba2 100644
  //
  // Additional information available from 'go env' but not read from the environment:
  //
+diff --git a/src/cmd/go/internal/cfg/cfg.go b/src/cmd/go/internal/cfg/cfg.go
+index 78cbbb949e7c27..9bdbfb29c2752b 100644
+--- a/src/cmd/go/internal/cfg/cfg.go
++++ b/src/cmd/go/internal/cfg/cfg.go
+@@ -14,6 +14,7 @@ import (
+ 	"internal/buildcfg"
+ 	"internal/cfg"
+ 	"internal/platform"
++	"internal/systemcrypto"
+ 	"io"
+ 	"io/fs"
+ 	"os"
+@@ -311,10 +312,13 @@ func computeExperiment() {
+ 
+ 	// Add build tags based on the experiments in effect.
+ 	exps := Experiment.Enabled()
+-	expTags := make([]string, 0, len(exps)+len(BuildContext.ToolTags))
++	expTags := make([]string, 0, len(exps)+len(BuildContext.ToolTags)+1)
+ 	for _, exp := range exps {
+ 		expTags = append(expTags, "goexperiment."+exp)
+ 	}
++	if systemcrypto.EnabledFor(Goos, Goarch) {
++		expTags = append(expTags, "goexperiment.systemcrypto")
++	}
+ 	BuildContext.ToolTags = append(expTags, BuildContext.ToolTags...)
+ }
+ 
 diff --git a/src/cmd/go/internal/envcmd/env.go b/src/cmd/go/internal/envcmd/env.go
 index 3d72c368b088a2..4fe28740a6e3c2 100644
 --- a/src/cmd/go/internal/envcmd/env.go
@@ -100,6 +113,28 @@ index 4f76f7f9c1fc68..783d11609c0bf4 100644
  
  Additional information available from 'go env' but not read from the environment:
  
+diff --git a/src/cmd/go/internal/load/pkg.go b/src/cmd/go/internal/load/pkg.go
+index 1d90061b065f5f..ba582cf1d0773e 100644
+--- a/src/cmd/go/internal/load/pkg.go
++++ b/src/cmd/go/internal/load/pkg.go
+@@ -16,6 +16,7 @@ import (
+ 	"go/token"
+ 	"internal/godebug"
+ 	"internal/platform"
++	"internal/systemcrypto"
+ 	"io/fs"
+ 	"os"
+ 	pathpkg "path"
+@@ -2417,6 +2418,9 @@ func (p *Package) setBuildInfo(ctx context.Context, f *modfetch.Fetcher, autoVCS
+ 			buildmode = "archive"
+ 		}
+ 	}
++	if systemcrypto.EnabledFor(cfg.Goos, cfg.Goarch) {
++		appendSetting("microsoft_systemcrypto", "1")
++	}
+ 	appendSetting("-buildmode", buildmode)
+ 	appendSetting("-compiler", cfg.BuildContext.Compiler)
+ 	if gccgoflags := BuildGccgoflags.String(); gccgoflags != "" && cfg.BuildContext.Compiler == "gccgo" {
 diff --git a/src/cmd/go/internal/modindex/build_test.go b/src/cmd/go/internal/modindex/build_test.go
 new file mode 100644
 index 00000000000000..1756c5d027fee0
@@ -307,77 +342,110 @@ index 89fd74eb823162..6d266ff641d721 100644
  // Error is one of the errors found (if any) in the build configuration.
  var Error error
  
-diff --git a/src/internal/buildcfg/exp.go b/src/internal/buildcfg/exp.go
-index 8eeef17c1f470e..d474ed1d4d466d 100644
---- a/src/internal/buildcfg/exp.go
-+++ b/src/internal/buildcfg/exp.go
-@@ -6,6 +6,7 @@ package buildcfg
+diff --git a/src/internal/buildcfg/cfg_test.go b/src/internal/buildcfg/cfg_test.go
+index 2bbd478280241e..77eaacdc38756d 100644
+--- a/src/internal/buildcfg/cfg_test.go
++++ b/src/internal/buildcfg/cfg_test.go
+@@ -6,6 +6,8 @@ package buildcfg
  
  import (
- 	"fmt"
-+	"os"
- 	"reflect"
- 	"strings"
+ 	"os"
++	"slices"
++	"strings"
+ 	"testing"
+ )
  
-@@ -29,6 +30,19 @@ type ExperimentFlags struct {
- // default in the current toolchain. This is, in effect, the "control"
- // configuration and any variation from this is an experiment.
- var Experiment ExperimentFlags = func() ExperimentFlags {
-+	if SystemCryptoDisabled {
-+		// If MS_GO_NOSYSTEMCRYPTO is set, ensure that nosystemcrypto is in GOEXPERIMENT.
-+		// We do it here because it is the earliest point where the toolchain tries to retrive
-+		// the GOEXPERIMENT value.
-+		// The environment variable is updated rather than appending "nosystemcrypto" to the
-+		// result of ParseGOEXPERIMENT because the latter will be moved at some point to
-+		// internal/goexperiment, which can't import the os package.
-+		v := os.Getenv("GOEXPERIMENT")
-+		if v != "" {
-+			v += ","
-+		}
-+		os.Setenv("GOEXPERIMENT", v+"nosystemcrypto")
+@@ -128,6 +130,48 @@ func TestGogoarchTags(t *testing.T) {
+ 	GOARM64 = old_goarm64
+ }
+ 
++func TestSystemCryptoNotGoExperiment(t *testing.T) {
++	flags, err := ParseGOEXPERIMENT("windows", "amd64", "")
++	if err != nil {
++		t.Fatal(err)
 +	}
- 	flags, err := ParseGOEXPERIMENT(GOOS, GOARCH, envOr("GOEXPERIMENT", defaultGOEXPERIMENT))
- 	if err != nil {
- 		Error = err
-@@ -67,6 +81,18 @@ func ParseGOEXPERIMENT(goos, goarch, goexp string) (*ExperimentFlags, error) {
- 		regabiSupported = true
- 	}
- 
-+	// These are the goos/goarch combinations where systemcrypto is
-+	// enabled by default.
-+	var systemCryptoSupported bool
-+	switch goos {
-+	case "windows":
-+		systemCryptoSupported = goarch == "amd64" || goarch == "arm64"
-+	case "linux":
-+		systemCryptoSupported = true
-+	case "darwin":
-+		systemCryptoSupported = true
++	if slices.Contains(flags.Enabled(), "systemcrypto") {
++		t.Fatalf("Enabled() = %v, want no systemcrypto", flags.Enabled())
++	}
++	if got := flags.String(); got != "" {
++		t.Fatalf("String() = %q, want empty string", got)
 +	}
 +
- 	// Older versions (anything before V16) of dsymutil don't handle
- 	// the .debug_rnglists section in DWARF5. See
- 	// https://github.com/golang/go/issues/26379#issuecomment-2677068742
-@@ -79,6 +105,7 @@ func ParseGOEXPERIMENT(goos, goarch, goexp string) (*ExperimentFlags, error) {
- 	dwarf5Supported := (goos != "darwin" && goos != "ios" && goos != "aix")
++	if slices.Contains(flags.All(), "systemcrypto") || slices.Contains(flags.All(), "nosystemcrypto") {
++		t.Fatalf("All() = %v, want no systemcrypto setting", flags.All())
++	}
++	for _, exp := range []string{"opensslcrypto", "cngcrypto", "darwincrypto"} {
++		if slices.Contains(flags.All(), exp) || slices.Contains(flags.All(), "no"+exp) {
++			t.Fatalf("All() = %v, want no %s setting", flags.All(), exp)
++		}
++		if _, err := ParseGOEXPERIMENT("windows", "386", exp); err == nil {
++			t.Fatalf("ParseGOEXPERIMENT accepted %s", exp)
++		}
++	}
++	if _, err := ParseGOEXPERIMENT("windows", "386", "systemcrypto"); err == nil {
++		t.Fatal("ParseGOEXPERIMENT accepted systemcrypto")
++	} else if !strings.Contains(err.Error(), "enabled automatically") || !strings.Contains(err.Error(), "MS_GO_NOSYSTEMCRYPTO=1") {
++		t.Fatalf("ParseGOEXPERIMENT systemcrypto error = %q", err)
++	}
++	if _, err := ParseGOEXPERIMENT("windows", "amd64", "nosystemcrypto"); err == nil {
++		t.Fatal("ParseGOEXPERIMENT accepted nosystemcrypto")
++	} else if !strings.Contains(err.Error(), "MS_GO_NOSYSTEMCRYPTO=1") || !strings.Contains(err.Error(), "systemcrypto supports CGO_ENABLED=0 since Go 1.27") {
++		t.Fatalf("ParseGOEXPERIMENT nosystemcrypto error = %q", err)
++	}
++
++	t.Setenv("CGO_ENABLED", "0")
++	if _, err := ParseGOEXPERIMENT("windows", "amd64", "systemcrypto"); err == nil {
++		t.Fatal("ParseGOEXPERIMENT accepted systemcrypto with CGO_ENABLED=0")
++	} else if strings.Contains(err.Error(), "systemcrypto supports CGO_ENABLED=0 since Go 1.27") {
++		t.Fatalf("ParseGOEXPERIMENT systemcrypto CGO_ENABLED=0 error = %q", err)
++	}
++}
++
+ var goodFIPS = []string{
+ 	"v1.0.0",
+ 	"v1.0.1",
+diff --git a/src/internal/buildcfg/exp.go b/src/internal/buildcfg/exp.go
+index 8eeef17c1f470e..dda96ef5b15616 100644
+--- a/src/internal/buildcfg/exp.go
++++ b/src/internal/buildcfg/exp.go
+@@ -10,12 +10,14 @@ import (
+ 	"strings"
  
- 	baseline := goexperiment.Flags{
-+		SystemCrypto:          systemCryptoSupported,
- 		RegabiWrappers:        regabiSupported,
- 		RegabiArgs:            regabiSupported,
- 		Dwarf5:                dwarf5Supported,
-@@ -126,6 +153,10 @@ func ParseGOEXPERIMENT(goos, goarch, goexp string) (*ExperimentFlags, error) {
- 				// to build with any experiment flags.
- 				flags.Flags = goexperiment.Flags{}
- 				continue
-+			} else if f == "nosystemcrypto" {
-+				// GOEXPERIMENT=nosystemcrypto disables system crypto.
-+				flags.Flags.SystemCrypto = false
-+				continue
- 			}
- 			val := true
+ 	"internal/goexperiment"
++	goplatform "internal/platform"
+ )
+ 
+ // ExperimentFlags represents a set of GOEXPERIMENT flags relative to a baseline
+ // (platform-default) experiment configuration.
+ type ExperimentFlags struct {
+ 	goexperiment.Flags
++
+ 	baseline goexperiment.Flags
+ }
+ 
+@@ -131,6 +133,21 @@ func ParseGOEXPERIMENT(goos, goarch, goexp string) (*ExperimentFlags, error) {
  			if strings.HasPrefix(f, "no") {
-@@ -152,6 +183,9 @@ func ParseGOEXPERIMENT(goos, goarch, goexp string) (*ExperimentFlags, error) {
+ 				f, val = f[2:], false
+ 			}
++			// Check for removed crypto experiments.
++			switch f {
++			case "systemcrypto":
++				if val {
++					return nil, fmt.Errorf("GOEXPERIMENT=systemcrypto has been removed; system crypto is enabled automatically on supported platforms and can be disabled with MS_GO_NOSYSTEMCRYPTO=1")
++				}
++				return nil, fmt.Errorf("GOEXPERIMENT=nosystemcrypto has been removed; use MS_GO_NOSYSTEMCRYPTO=1 to disable system crypto; note that systemcrypto supports CGO_ENABLED=0 since Go 1.27")
++			case "opensslcrypto", "cngcrypto", "darwincrypto":
++				switch {
++				case goplatform.SystemCryptoSupported(goos, goarch):
++					return nil, fmt.Errorf("systemcrypto is enabled by default, GOEXPERIMENT %s is not necessary", f)
++				default:
++					return nil, fmt.Errorf("GOEXPERIMENT %s has been removed; system crypto is enabled automatically on supported platforms", f)
++				}
++			}
+ 			set, ok := names[f]
+ 			if !ok {
+ 				return nil, fmt.Errorf("unknown GOEXPERIMENT %s", f)
+@@ -152,6 +169,9 @@ func ParseGOEXPERIMENT(goos, goarch, goexp string) (*ExperimentFlags, error) {
  	if flags.RegabiArgs && !flags.RegabiWrappers {
  		return nil, fmt.Errorf("GOEXPERIMENT regabiargs requires regabiwrappers")
  	}
@@ -398,147 +466,6 @@ index 9329769721b7de..1724afb71b851e 100644
 +	MS_GO_NOSYSTEMCRYPTO
  	PKG_CONFIG
  `
-diff --git a/src/internal/goexperiment/exp_cngcrypto_off.go b/src/internal/goexperiment/exp_cngcrypto_off.go
-new file mode 100644
-index 00000000000000..eb879f94fa0c42
---- /dev/null
-+++ b/src/internal/goexperiment/exp_cngcrypto_off.go
-@@ -0,0 +1,8 @@
-+// Code generated by mkconsts.go. DO NOT EDIT.
-+
-+//go:build !goexperiment.cngcrypto
-+
-+package goexperiment
-+
-+const CNGCrypto = false
-+const CNGCryptoInt = 0
-diff --git a/src/internal/goexperiment/exp_cngcrypto_on.go b/src/internal/goexperiment/exp_cngcrypto_on.go
-new file mode 100644
-index 00000000000000..5b0a55d6c5772e
---- /dev/null
-+++ b/src/internal/goexperiment/exp_cngcrypto_on.go
-@@ -0,0 +1,8 @@
-+// Code generated by mkconsts.go. DO NOT EDIT.
-+
-+//go:build goexperiment.cngcrypto
-+
-+package goexperiment
-+
-+const CNGCrypto = true
-+const CNGCryptoInt = 1
-diff --git a/src/internal/goexperiment/exp_darwincrypto_off.go b/src/internal/goexperiment/exp_darwincrypto_off.go
-new file mode 100644
-index 00000000000000..331111ce4759f7
---- /dev/null
-+++ b/src/internal/goexperiment/exp_darwincrypto_off.go
-@@ -0,0 +1,8 @@
-+// Code generated by mkconsts.go. DO NOT EDIT.
-+
-+//go:build !goexperiment.darwincrypto
-+
-+package goexperiment
-+
-+const DarwinCrypto = false
-+const DarwinCryptoInt = 0
-diff --git a/src/internal/goexperiment/exp_darwincrypto_on.go b/src/internal/goexperiment/exp_darwincrypto_on.go
-new file mode 100644
-index 00000000000000..4bf785b999ecce
---- /dev/null
-+++ b/src/internal/goexperiment/exp_darwincrypto_on.go
-@@ -0,0 +1,8 @@
-+// Code generated by mkconsts.go. DO NOT EDIT.
-+
-+//go:build goexperiment.darwincrypto
-+
-+package goexperiment
-+
-+const DarwinCrypto = true
-+const DarwinCryptoInt = 1
-diff --git a/src/internal/goexperiment/exp_opensslcrypto_off.go b/src/internal/goexperiment/exp_opensslcrypto_off.go
-new file mode 100644
-index 00000000000000..b28c0976a94cb0
---- /dev/null
-+++ b/src/internal/goexperiment/exp_opensslcrypto_off.go
-@@ -0,0 +1,8 @@
-+// Code generated by mkconsts.go. DO NOT EDIT.
-+
-+//go:build !goexperiment.opensslcrypto
-+
-+package goexperiment
-+
-+const OpenSSLCrypto = false
-+const OpenSSLCryptoInt = 0
-diff --git a/src/internal/goexperiment/exp_opensslcrypto_on.go b/src/internal/goexperiment/exp_opensslcrypto_on.go
-new file mode 100644
-index 00000000000000..154386b3de81ea
---- /dev/null
-+++ b/src/internal/goexperiment/exp_opensslcrypto_on.go
-@@ -0,0 +1,8 @@
-+// Code generated by mkconsts.go. DO NOT EDIT.
-+
-+//go:build goexperiment.opensslcrypto
-+
-+package goexperiment
-+
-+const OpenSSLCrypto = true
-+const OpenSSLCryptoInt = 1
-diff --git a/src/internal/goexperiment/exp_systemcrypto_off.go b/src/internal/goexperiment/exp_systemcrypto_off.go
-new file mode 100644
-index 00000000000000..6afc2ef2c5822e
---- /dev/null
-+++ b/src/internal/goexperiment/exp_systemcrypto_off.go
-@@ -0,0 +1,8 @@
-+// Code generated by mkconsts.go. DO NOT EDIT.
-+
-+//go:build !goexperiment.systemcrypto
-+
-+package goexperiment
-+
-+const SystemCrypto = false
-+const SystemCryptoInt = 0
-diff --git a/src/internal/goexperiment/exp_systemcrypto_on.go b/src/internal/goexperiment/exp_systemcrypto_on.go
-new file mode 100644
-index 00000000000000..fcd4cb9da0d162
---- /dev/null
-+++ b/src/internal/goexperiment/exp_systemcrypto_on.go
-@@ -0,0 +1,8 @@
-+// Code generated by mkconsts.go. DO NOT EDIT.
-+
-+//go:build goexperiment.systemcrypto
-+
-+package goexperiment
-+
-+const SystemCrypto = true
-+const SystemCryptoInt = 1
-diff --git a/src/internal/goexperiment/flags.go b/src/internal/goexperiment/flags.go
-index 17fe15270aba60..5f09ad11a701e2 100644
---- a/src/internal/goexperiment/flags.go
-+++ b/src/internal/goexperiment/flags.go
-@@ -60,6 +60,24 @@ type Flags struct {
- 	StaticLockRanking bool
- 	BoringCrypto      bool
- 
-+	// SystemCrypto enables the system crypto backend for the target GOOS.
-+	// The specific backend used depends on the platform:
-+	//   - Linux: OpenSSL
-+	//   - Windows: CNG
-+	//   - Darwin: CommonCrypto/Security.framework
-+	//
-+	// Platform-specific code should use build constraints like:
-+	//   //go:build goexperiment.systemcrypto && linux
-+	//   //go:build goexperiment.systemcrypto && windows
-+	//   //go:build goexperiment.systemcrypto && darwin
-+	SystemCrypto bool
-+
-+	// OpenSSLCrypto, CNGCrypto, and DarwinCrypto are deprecated.
-+	// Use SystemCrypto instead.
-+	OpenSSLCrypto bool
-+	CNGCrypto     bool
-+	DarwinCrypto  bool
-+
- 	// Regabi is split into several sub-experiments that can be
- 	// enabled individually. Not all combinations work.
- 	// The "regabi" GOEXPERIMENT is an alias for all "working"
 diff --git a/src/internal/platform/supported.go b/src/internal/platform/supported.go
 index 6f37e368596498..471c5cc430bb29 100644
 --- a/src/internal/platform/supported.go
