@@ -22,7 +22,7 @@ The backend is gated by the `goexperiment.systemcrypto` build tag. When disabled
 - Prefer filename suffixes (`_linux.go`, `_windows.go`, `_darwin.go`) over build tag OS constraints.
   - **Do**: `foo_linux.go` with `//go:build goexperiment.systemcrypto`
   - **Don't**: `foo.go` with `//go:build goexperiment.systemcrypto && linux`
-- The `boring.go` / `notboring.go` file pair in crypto packages uses `systemcrypto` / `!systemcrypto` tags respectively.
+- The `boring.go` / `notboring.go` file pair in crypto packages uses `goexperiment.systemcrypto` / `!goexperiment.systemcrypto` build tags respectively.
 - Legacy build tags (`goexperiment.opensslcrypto`, `goexperiment.cngcrypto`, `goexperiment.darwincrypto`) are still emitted for source compatibility but must not be used in new code.
 
 ## Import alias convention
@@ -77,19 +77,13 @@ If an operation is not supported on a platform (e.g., Darwin doesn't support DSA
 
 ### 2. Integrate into the crypto package
 
-Add a backend key field to the key struct. **Use value types, not pointers**:
+Add a backend key field to the key struct. **Be conscious of allocations** — avoid unnecessary pointer indirection when the backend type can be stored by value, but note that some backend pointers' lifetimes may be tied to system-provided objects, so this must be a deliberate decision per type:
 
 ```go
-// CORRECT — value type
+// Prefer value types when the backend type allows it
 type DecapsulationKey768 struct {
     key       *mlkem.DecapsulationKey768
     boringKey boring.DecapsulationKeyMLKEM768
-}
-
-// WRONG — pointer type
-type PrivateKey struct {
-    k      mldsa.PrivateKey
-    boring *boring.PrivateKeyMLDSA  // Don't do this
 }
 ```
 
@@ -160,15 +154,24 @@ When an operation isn't supported by all backends (e.g., deterministic signing),
 
 ```go
 func (sk *PrivateKey) goKey() (*mldsa.PrivateKey, error) {
-    if sk.boring == nil {
+    if sk.boringKey.Bytes() == nil {
         return &sk.k, nil
     }
-    seed := sk.boring.Bytes()
-    switch sk.boring.Parameters().String() {
+    // Cache the reconstructed key so subsequent calls reuse it.
+    if sk.k != (mldsa.PrivateKey{}) {
+        return &sk.k, nil
+    }
+    seed := sk.boringKey.Bytes()
+    var err error
+    switch sk.boringKey.Parameters().String() {
     case "ML-DSA-44":
-        return mldsa.NewPrivateKey44(seed)
+        sk.k, err = mldsa.NewPrivateKey44(seed)
     // ...
     }
+    if err != nil {
+        return nil, err
+    }
+    return &sk.k, nil
 }
 ```
 
