@@ -119,12 +119,12 @@ That page provides links that redirect to the latest version and also immutable 
 
 ## Enable `systemcrypto`
 
-Starting with Go 1.25 on Linux and Windows, and Go 1.26 on macOS, `systemcrypto` is enabled by default on supported platforms.
-Most projects don't need to set anything to enable it.
+`systemcrypto` is enabled by default on supported platforms in currently supported versions of the Microsoft build of Go.
+You don't need to set `GOEXPERIMENT=systemcrypto`.
 
-
-Starting with Go 1.27, `systemcrypto` is no longer a `GOEXPERIMENT` setting.
-Remove `GOEXPERIMENT=systemcrypto` and `GOEXPERIMENT=nosystemcrypto` from build scripts when moving to Go 1.27 or later; the go command rejects both because system crypto is selected automatically on supported platforms and disabled with `MS_GO_NOSYSTEMCRYPTO=1`.
+Starting with Go 1.27, `systemcrypto` and `nosystemcrypto` are no longer `GOEXPERIMENT` values.
+Remove them from `GOEXPERIMENT` when moving to Go 1.27 or later.
+If you need to opt out of `systemcrypto`, see [Disabling `systemcrypto`](#disabling-systemcrypto).
 
 See [the FIPS documentation sections about build configuration](fips/README.md#usage-common-configurations) for more detailed instructions.
 Even if you don't need FIPS compliance, the `systemcrypto` build configuration instructions are located in that document.
@@ -235,7 +235,7 @@ Alternatively, the `build-essential` package contains all of these packages and 
 
 If this isn't feasible, see [disabling systemcrypto](#disabling-systemcrypto).
 
-#### Unknown or removed GOEXPERIMENT systemcrypto
+#### Unknown GOEXPERIMENT systemcrypto
 
 ```
 go: unknown GOEXPERIMENT systemcrypto
@@ -245,7 +245,19 @@ go: unknown GOEXPERIMENT systemcrypto
 go.exe: unknown GOEXPERIMENT systemcrypto
 ```
 
-In Go 1.27 or later, the Microsoft build of Go reports a different error for the same obsolete build setting:
+This error usually indicates you aren't using the Microsoft build of Go.
+
+If you're trying to migrate to the Microsoft build of Go, check your build environment to ensure that the `go` command is the Microsoft build of Go.
+See [Microsoft Toolset Identification](./MicrosoftToolsetIdentification.md).
+
+If you're trying to make a build command compliant with Microsoft crypto policy but still compatible with **both the Microsoft build of Go and the official Go distribution**, remove `systemcrypto` from `GOEXPERIMENT`.
+`systemcrypto` is enabled by default in the Microsoft build of Go, so it's not necessary to specify it using `GOEXPERIMENT`.
+
+See [Disabling `systemcrypto`](#disabling-systemcrypto) for information about how to disable `systemcrypto` if you need to temporarily avoid migrating to it.
+
+#### Removed GOEXPERIMENT systemcrypto or nosystemcrypto
+
+In Go 1.27 or later, the Microsoft build of Go reports these errors when obsolete `GOEXPERIMENT` values are used:
 
 ```
 GOEXPERIMENT=systemcrypto has been removed; system crypto is enabled automatically on supported platforms and can be disabled with MS_GO_NOSYSTEMCRYPTO=1
@@ -257,15 +269,7 @@ GOEXPERIMENT=nosystemcrypto has been removed; use MS_GO_NOSYSTEMCRYPTO=1 to disa
 
 These errors happen when the `GOEXPERIMENT` environment variable includes `systemcrypto` or `nosystemcrypto`.
 In Go 1.27 and later, remove both values from `GOEXPERIMENT`.
-System crypto is enabled automatically on supported platforms, and it can be disabled with `MS_GO_NOSYSTEMCRYPTO=1` if you have an approved exception.
-
-The `unknown GOEXPERIMENT systemcrypto` form usually indicates you aren't using the Microsoft build of Go.
-
-If you're trying to migrate to the Microsoft build of Go, check your build environment to ensure that the `go` command is the Microsoft build of Go.
-See [Microsoft Toolset Identification](./MicrosoftToolsetIdentification.md).
-
-If you're trying to make a build command compliant with Microsoft crypto policy but still compatible with **both the Microsoft build of Go and the official Go distribution**, remove `systemcrypto` from `GOEXPERIMENT`.
-`systemcrypto` is enabled by default in the Microsoft build of Go, so it's not necessary to specify it using `GOEXPERIMENT`.
+The `systemcrypto` backend is enabled automatically on supported platforms, and it can be disabled with `MS_GO_NOSYSTEMCRYPTO=1` if you have an approved exception.
 
 See [Disabling `systemcrypto`](#disabling-systemcrypto) for information about how to disable `systemcrypto` if you need to temporarily avoid migrating to it.
 
