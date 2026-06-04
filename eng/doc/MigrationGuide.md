@@ -169,19 +169,20 @@ In Go 1.25, you may see this similar error:
 
 > [!NOTE]
 > In Go 1.26, there is a cgo-less experiment available for Linux: `ms_nocgo_opensslcrypto`.
-> In Go 1.27 and later, this behavior is part of `systemcrypto` and is selected automatically when cgo is disabled on a supported Linux architecture.
+>
+> In Go 1.27 and later, cgo-less behavior is part of `systemcrypto` and is selected automatically when cgo is disabled on a supported Linux architecture.
 >
 > For more details, see [cgo-less OpenSSL Backend](NocgoOpenSSL.md).
 
 When building a Go program that imports a `crypto` package (or has a dependency that imports a `crypto` package), the build will check that the build environment and target are compatible with the crypto backend being used.
 If it's incompatible, the build will fail with an error like the above.
 
-In Go 1.26 and earlier, targeting Linux with `systemcrypto` usually requires cgo unless the `ms_nocgo_opensslcrypto` experiment is enabled.
+In Go 1.26 and earlier, using `systemcrypto` on Linux requires cgo unless the `ms_nocgo_opensslcrypto` experiment is enabled.
 Cgo is disabled by default on some platforms or when a C compiler is not detected.
 Sometimes a project's build scripts might explicitly disable cgo.
 
 In this case, you should first try upgrading to Go 1.27 or later.
-If you need or want the cgo-based OpenSSL backend, install a C compiler, like `gcc`.
+If you need or want the cgo-based OpenSSL backend or the pre-1.27 Go version, install a C compiler, like `gcc`.
 
 You may also need to set the `CGO_ENABLED` environment variable to `1` or [otherwise enable cgo](https://pkg.go.dev/cmd/cgo).
 

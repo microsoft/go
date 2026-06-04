@@ -71,8 +71,13 @@ The following table summarizes common configurations and how suitable each one i
 > This document assumes the use of a supported version of the Microsoft build of Go: 1.25 or later.
 
 > [!NOTE]
-> Since Go 1.25, `systemcrypto` is enabled by default on Linux and Windows. There is no need to manually enable using OpenSSL/CNG under the hood anymore. See also [the Go 1.25 changelog](#go-125-aug-2025). Since Go 1.26, `systemcrypto` is also enabled by default on macOS.
+> Since Go 1.25, `systemcrypto` is enabled by default on Linux and Windows. There is no need to manually enable using OpenSSL/CNG under the hood anymore.
+> See also [the Go 1.25 changelog](#go-125-aug-2025).
+>
+> Since Go 1.26, `systemcrypto` is also enabled by default on macOS.
+>
 > Since Go 1.27, `systemcrypto` is no longer a `GOEXPERIMENT` setting. Supported platforms use it automatically unless it is disabled with `MS_GO_NOSYSTEMCRYPTO=1`.
+> See also [the Go 1.27 changelog](#go-127-aug-2026).
 
 > [!TIP]
 > If an app uses no cryptography, FIPS compliance is not relevant and the internal Microsoft crypto policy doesn't apply.
@@ -107,7 +112,7 @@ If `systemcrypto` is disabled (see [build option to use Go crypto](#build-option
 > Prior to Go 1.27, `systemcrypto` could be selected with `GOEXPERIMENT=systemcrypto`. In Go 1.27 and later, `systemcrypto` is no longer a `GOEXPERIMENT` setting. It is enabled automatically on supported platforms, `go env GOEXPERIMENT` doesn't report it, and `GOEXPERIMENT=systemcrypto` is rejected.
 
 > [!NOTE]
-> Prior to Go 1.27, per-platform experiments (`opensslcrypto`, `cngcrypto`, `darwincrypto`) were available. These have been removed in Go 1.27. The build tags associated with those names remain available for source compatibility when `systemcrypto` is enabled.
+> Prior to Go 1.27, per-platform experiments (`opensslcrypto`, `cngcrypto`, `darwincrypto`) were available. These experiments have been removed in Go 1.27, but the build tag associated with each experiment remains supported, ensuring source compatibility.
 
 The `systemcrypto` experiment uses platform-specific code via build constraints. The platform is determined by the target platform (`GOOS`), and the appropriate system cryptography library is used:
 
@@ -120,7 +125,9 @@ The `systemcrypto` experiment uses platform-specific code via build constraints.
 In a cross-build scenario, such as using Linux to build an app that will run on Windows, `GOOS=windows` will correctly use CNG-based code for the `systemcrypto` backend.
 
 A cross-build to Windows or macOS will typically work, because these backends use approaches like syscalls to call the crypto library rather than cgo.
-On Linux in Go 1.27 and later, `systemcrypto` can also be used when cgo is disabled by selecting the [cgo-less OpenSSL backend](../NocgoOpenSSL.md) on supported architectures.
+
+A cross-build to Linux in Go 1.27 and later will work if the [cgo-less OpenSSL backend](../NocgoOpenSSL.md) is used.
+The cgo-less backend may be unavailable for some processor architectures that aren't commonly used at Microsoft.
 If cgo is enabled on Linux, the cgo-based OpenSSL backend is used.
 
 The Linux cgo-based backend introduces the glibc compatibility problem.
@@ -465,10 +472,10 @@ This list of major changes is intended for quick reference and for access to his
   - The build tags associated with the removed GOEXPERIMENTs remain supported for legacy source compatibility.
   - The `goexperiment.systemcrypto` build tag remains supported, and its behavior has not changed.
 - `GOEXPERIMENT=systemcrypto` and `GOEXPERIMENT=nosystemcrypto` have been removed.
-  - System crypto is enabled automatically on supported platforms.
-  - To disable system crypto, set `MS_GO_NOSYSTEMCRYPTO=1`.
+  - `systemcrypto` is enabled automatically on supported platforms.
+  - To disable `systemcrypto`, set `MS_GO_NOSYSTEMCRYPTO=1`.
   - `systemcrypto` is no longer included in `go env GOEXPERIMENT`, `goexperiment.Flags`, or other GOEXPERIMENT-derived output.
-  - The `goexperiment.systemcrypto` build tag is still emitted when system crypto is enabled.
+  - The `goexperiment.systemcrypto` build tag is still emitted when `systemcrypto` is enabled.
 - On Linux, `systemcrypto` now supports `CGO_ENABLED=0` on supported cgo-less OpenSSL architectures.
   - The Go 1.26 `GOEXPERIMENT=ms_nocgo_opensslcrypto` experiment has been removed because this behavior is now part of the default `systemcrypto` backend selection.
 
@@ -499,7 +506,7 @@ This list of major changes is intended for quick reference and for access to his
 
 ### Go 1.25 (Aug 2025)
 
-- The `systemcrypto` goexperiment is now enabled by default on Windows and Linux. In current releases, disable it with `MS_GO_NOSYSTEMCRYPTO=1`; in early Go 1.25 releases, `GOEXPERIMENT=nosystemcrypto` was the available disable knob.
+- The `systemcrypto` goexperiment is now enabled by default on Windows and Linux. In Go 1.25.0, `GOEXPERIMENT=nosystemcrypto` was the available disable knob, but the current supported disable knob is documented by the [Build option to use Go crypto](#build-option-to-use-go-crypto) section.
 
 - Running `go version -m` on a binary which uses a system crypto backend now shows the `microsoft_systemcrypto=1` build setting.
 
@@ -513,7 +520,7 @@ This list of major changes is intended for quick reference and for access to his
 
 - `GOEXPERIMENT=boringcrypto` has been removed.
 
-- `GOEXPERIMENT=allowcryptofallback` has been removed. Instead, if it's necessary to opt out from using a system crypto backend, use `MS_GO_NOSYSTEMCRYPTO=1` in current releases. This is an internal mechanism that is not intended for use when building a Go application. This document has always recommended against using it, so we anticipate that this change won't affect users of the Microsoft build of Go. Please [contact the maintainers of the Microsoft build of Go](https://github.com/microsoft/go/blob/microsoft/main/SUPPORT.md) if you need to use it so we can understand the scenario and help find a safer alternative.
+- `GOEXPERIMENT=allowcryptofallback` has been removed. Instead, if it's necessary to opt out from using a system crypto backend, use the disable knob documented by the [Build option to use Go crypto](#build-option-to-use-go-crypto) section. `allowcryptofallback` is an internal mechanism that is not intended for use when building a Go application. This document has always recommended against using it, so we anticipate that this change won't affect users of the Microsoft build of Go. Please [contact the maintainers of the Microsoft build of Go](https://github.com/microsoft/go/blob/microsoft/main/SUPPORT.md) if you need to use it so we can understand the scenario and help find a safer alternative.
 
 - The OpenSSL backend [no longer supports OpenSSL 1.0](https://github.com/golang-fips/openssl/issues/244). The supported versions are now OpenSSL 1.1.0, 1.1.1, and 3.x.
 

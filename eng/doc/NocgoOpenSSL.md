@@ -9,6 +9,7 @@ It is selected automatically when cgo is disabled and the target architecture is
 
 > [!NOTE]
 > In Go 1.26, this backend was available as the experimental `GOEXPERIMENT=ms_nocgo_opensslcrypto` feature.
+>
 > In Go 1.27, that experiment has been removed because the cgo-less backend is selected automatically when needed.
 
 This allows the use of OpenSSL without requiring cgo.

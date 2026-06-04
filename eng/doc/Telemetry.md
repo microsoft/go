@@ -55,7 +55,7 @@ The counters and properties collected are defined in the [telemetry upload confi
 
 | Counter | Description |
 |---|---|
-| `msgo/systemcrypto:{enabled,disabled}` | Whether the system cryptography backend is enabled on platforms that support it. This reflects the default platform selection and the `MS_GO_NOSYSTEMCRYPTO=1` opt-out. |
+| `msgo/systemcrypto:{enabled,disabled}` | Whether the system cryptography backend is enabled. |
 
 ## What is NOT collected
 
