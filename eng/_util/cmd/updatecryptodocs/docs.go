@@ -266,7 +266,7 @@ var doc = Document{
 		},
 		{
 			Title:       "Asymmetric encryption",
-			Packages:    []string{"RSA", "ECDSA", "ECDH", "Ed25519", "DSA"},
+			Packages:    []string{"RSA", "ECDSA", "ECDH", "Ed25519", "ML-DSA", "DSA"},
 			Description: "",
 			Subsections: []Section{
 				{
@@ -482,6 +482,39 @@ var doc = Document{
 								Windows: PlatformStatus{Supported: NotSupported},
 								Linux:   PlatformStatus{Supported: NotSupported},
 								MacOS:   PlatformStatus{Supported: NotSupported},
+							},
+						},
+					},
+				},
+				{
+					Title:        "ML-DSA",
+					ColumnHeader: "Parameters",
+					Packages:     []string{"crypto/mldsa"},
+					MinGoVersion: "1.27",
+					Description:  "Operations that require random numbers (rand io.Reader) only support [rand.Reader](https://pkg.go.dev/crypto/rand#Reader). Deterministic signing is always performed by the Go cryptographic module. External-mu signing falls back to the Go cryptographic module on platforms whose backend does not implement it (currently macOS).",
+					Items: []Item{
+						{
+							Name: "44",
+							Platforms: Platforms{
+								Windows: PlatformStatus{MinVersion: "11 (24H2)"},
+								Linux:   PlatformStatus{MinVersion: "3.5.0"},
+								MacOS:   PlatformStatus{Supported: NotSupported},
+							},
+						},
+						{
+							Name: "65",
+							Platforms: Platforms{
+								Windows: PlatformStatus{MinVersion: "11 (24H2)"},
+								Linux:   PlatformStatus{MinVersion: "3.5.0"},
+								MacOS:   PlatformStatus{MinVersion: "26"},
+							},
+						},
+						{
+							Name: "87",
+							Platforms: Platforms{
+								Windows: PlatformStatus{MinVersion: "11 (24H2)"},
+								Linux:   PlatformStatus{MinVersion: "3.5.0"},
+								MacOS:   PlatformStatus{MinVersion: "26"},
 							},
 						},
 					},

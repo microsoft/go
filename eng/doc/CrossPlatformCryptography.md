@@ -136,6 +136,7 @@ This section includes the following subsections:
 - [ECDSA](#ecdsa)
 - [ECDH](#ecdh)
 - [Ed25519](#ed25519)
+- [ML-DSA](#ml-dsa)
 - [DSA](#dsa)
 
 ### RSA
@@ -233,6 +234,28 @@ Operations that require random numbers (rand io.Reader) only support [rand.Reade
 | Ed25519    | ❌️      | ✔️    | ✔️    |
 | Ed25519ctx | ❌️      | ❌️    | ❌️    |
 | Ed25519ph  | ❌️      | ❌️    | ❌️    |
+
+### ML-DSA
+
+This section includes the following packages:
+
+- [crypto/mldsa](https://pkg.go.dev/crypto/mldsa)
+
+ML-DSA is available starting from the Microsoft build of Go 1.27.
+
+Operations that require random numbers (rand io.Reader) only support [rand.Reader](https://pkg.go.dev/crypto/rand#Reader). Deterministic signing is always performed by the Go cryptographic module. External-mu signing falls back to the Go cryptographic module on platforms whose backend does not implement it (currently macOS).
+
+| Parameters | Windows        | Linux          | macOS          |
+| ---------- | -------------- | -------------- | -------------- |
+| 44         | ✔️<sup>1</sup> | ✔️<sup>2</sup> | ❌️             |
+| 65         | ✔️<sup>1</sup> | ✔️<sup>2</sup> | ✔️<sup>3</sup> |
+| 87         | ✔️<sup>1</sup> | ✔️<sup>2</sup> | ✔️<sup>3</sup> |
+
+<sup>1</sup>Requires Windows 11 (24H2) or later.
+
+<sup>2</sup>Requires OpenSSL 3.5.0 or later.
+
+<sup>3</sup>Requires macOS 26 or later.
 
 ### DSA
 
