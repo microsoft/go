@@ -51,14 +51,14 @@ Subject: [PATCH] Add crypto backends
  src/crypto/dsa/notboring.go                   |  16 +
  src/crypto/ecdh/ecdh.go                       |   2 +-
  src/crypto/ecdh/ecdh_test.go                  |  17 +-
- src/crypto/ecdh/nist.go                       |  30 +-
+ src/crypto/ecdh/nist.go                       |  42 +-
  src/crypto/ecdh/x25519.go                     |  49 ++
  src/crypto/ecdsa/badlinkname.go               |  19 +
  src/crypto/ecdsa/boring.go                    |   6 +-
  src/crypto/ecdsa/ecdsa.go                     |  10 +-
  src/crypto/ecdsa/notboring.go                 |   4 +-
  src/crypto/ed25519/boring.go                  |  71 +++
- src/crypto/ed25519/ed25519.go                 |  70 +++
+ src/crypto/ed25519/ed25519.go                 |  71 +++
  src/crypto/ed25519/ed25519_test.go            |  14 +-
  src/crypto/ed25519/notboring.go               |  16 +
  src/crypto/fips140/enforcement_test.go        |   4 +
@@ -69,7 +69,7 @@ Subject: [PATCH] Add crypto backends
  src/crypto/hmac/hmac_test.go                  |   2 +-
  src/crypto/hpke/aead.go                       |  14 +-
  src/crypto/internal/backend/backend_darwin.go | 441 ++++++++++++++++++
-src/crypto/internal/backend/backend_linux.go  | 434 +++++++++++++++++
+ src/crypto/internal/backend/backend_linux.go  | 434 +++++++++++++++++
  src/crypto/internal/backend/backend_test.go   |  56 +++
  .../internal/backend/backend_windows.go       | 441 ++++++++++++++++++
  src/crypto/internal/backend/bbig/big.go       |  17 +
@@ -78,15 +78,15 @@ src/crypto/internal/backend/backend_linux.go  | 434 +++++++++++++++++
  .../internal/backend/bbig/big_windows.go      |  12 +
  src/crypto/internal/backend/common.go         |  51 ++
  .../internal/backend/fips140/fips140.go       |  15 +
- .../internal/fips140state/nosystemcrypto.go   |  11 +
  .../internal/fips140state/isrequirefips.go    |   9 +
  .../internal/fips140state/norequirefips.go    |   9 +
- .../backend/internal/fips140state/state.go    |  91 ++++
- .../backend/internal/fips140state/state_test.go |  75 +++
- .../internal/fips140state/skipfipscheck_off.go |   9 +
+ .../internal/fips140state/nosystemcrypto.go   |  11 +
+ .../requirefips_nosystemcrypto.go             |  15 +
+ .../fips140state/skipfipscheck_off.go         |   9 +
  .../internal/fips140state/skipfipscheck_on.go |   9 +
- .../fips140state/requirefips_nosystemcrypto.go |  15 +
- .../internal/fips140state/systemfips_darwin.go |  11 +
+ .../backend/internal/fips140state/state.go    |  91 ++++
+ .../internal/fips140state/state_test.go       |  75 +++
+ .../fips140state/systemfips_darwin.go         |  11 +
  .../internal/fips140state/systemfips_linux.go |  57 +++
  .../fips140state/systemfips_windows.go        |  33 ++
  .../opensslsetup/opensslsetup_linux.go        |  68 +++
@@ -117,12 +117,12 @@ src/crypto/internal/backend/backend_linux.go  | 434 +++++++++++++++++
  src/crypto/rc4/rc4.go                         |  18 +
  src/crypto/rsa/boring.go                      |  12 +-
  src/crypto/rsa/boring_test.go                 |   2 +-
- src/crypto/rsa/fips.go                        |  94 ++--
+ src/crypto/rsa/fips.go                        | 156 +++----
  src/crypto/rsa/notboring.go                   |   4 +-
  src/crypto/rsa/pkcs1v15.go                    |  10 +-
  src/crypto/rsa/pkcs1v15_test.go               |   5 +
  src/crypto/rsa/pss_test.go                    |  14 +-
- src/crypto/rsa/rsa.go                         |  29 +-
+ src/crypto/rsa/rsa.go                         |  40 +-
  src/crypto/rsa/rsa_darwin.go                  |  71 +++
  src/crypto/rsa/rsa_test.go                    |   7 +-
  src/crypto/sha1/sha1.go                       |  11 +-
@@ -148,7 +148,7 @@ src/crypto/internal/backend/backend_linux.go  | 434 +++++++++++++++++
  src/crypto/tls/prf_test.go                    |   9 +
  src/crypto/x509/verify_test.go                |   2 +-
  src/go/build/buildbackend_test.go             |  50 ++
- src/go/build/deps_test.go                     |  39 +-
+ src/go/build/deps_test.go                     |  44 +-
  .../build/testdata/backendtags_system/main.go |   3 +
  .../backendtags_system/systemcrypto.go        |   3 +
  src/hash/boring_test.go                       |   9 +
@@ -165,7 +165,7 @@ src/crypto/internal/backend/backend_linux.go  | 434 +++++++++++++++++
  src/net/lookup_test.go                        |   3 +
  src/os/exec/exec_test.go                      |   9 +
  src/runtime/runtime_boring.go                 |   5 +
- 161 files changed, 4834 insertions(+), 269 deletions(-)
+ 161 files changed, 4879 insertions(+), 312 deletions(-)
  create mode 100644 src/cmd/go/internal/modindex/build_test.go
  create mode 100644 src/cmd/go/systemcrypto_test.go
  create mode 100644 src/crypto/dsa/boring.go
@@ -184,13 +184,13 @@ src/crypto/internal/backend/backend_linux.go  | 434 +++++++++++++++++
  create mode 100644 src/crypto/internal/backend/common.go
  create mode 100644 src/crypto/internal/backend/fips140/fips140.go
  create mode 100644 src/crypto/internal/backend/internal/fips140state/isrequirefips.go
- create mode 100644 src/crypto/internal/backend/internal/fips140state/nosystemcrypto.go
  create mode 100644 src/crypto/internal/backend/internal/fips140state/norequirefips.go
+ create mode 100644 src/crypto/internal/backend/internal/fips140state/nosystemcrypto.go
  create mode 100644 src/crypto/internal/backend/internal/fips140state/requirefips_nosystemcrypto.go
- create mode 100644 src/crypto/internal/backend/internal/fips140state/state.go
- create mode 100644 src/crypto/internal/backend/internal/fips140state/state_test.go
  create mode 100644 src/crypto/internal/backend/internal/fips140state/skipfipscheck_off.go
  create mode 100644 src/crypto/internal/backend/internal/fips140state/skipfipscheck_on.go
+ create mode 100644 src/crypto/internal/backend/internal/fips140state/state.go
+ create mode 100644 src/crypto/internal/backend/internal/fips140state/state_test.go
  create mode 100644 src/crypto/internal/backend/internal/fips140state/systemfips_darwin.go
  create mode 100644 src/crypto/internal/backend/internal/fips140state/systemfips_linux.go
  create mode 100644 src/crypto/internal/backend/internal/fips140state/systemfips_windows.go
@@ -389,7 +389,7 @@ index 78d55bec559987..decf356a449ba9 100644
  	if debug {
  		run("", ShowOutput|CheckExit, pathf("%s/compile", tooldir), "-V=full")
 diff --git a/src/cmd/dist/test.go b/src/cmd/dist/test.go
-index aadb1ff52b067f..89101acdbe6d73 100644
+index 56ec2558530b84..34e937e8111062 100644
 --- a/src/cmd/dist/test.go
 +++ b/src/cmd/dist/test.go
 @@ -158,10 +158,12 @@ func (t *tester) run() {
@@ -428,7 +428,7 @@ index aadb1ff52b067f..89101acdbe6d73 100644
  		// Test standard crypto packages with fips140=on.
  		t.registerTest("GOFIPS140=latest go test crypto/...", &goTest{
  			variant: "gofips140",
-@@ -774,7 +776,9 @@ func (t *tester) registerTests() {
+@@ -784,7 +786,9 @@ func (t *tester) registerTests() {
  	}
  
  	// Test ios/amd64 for the iOS simulator.
@@ -439,7 +439,7 @@ index aadb1ff52b067f..89101acdbe6d73 100644
  		t.registerTest("GOOS=ios on darwin/amd64",
  			&goTest{
  				variant:  "amd64ios",
-@@ -1023,7 +1027,9 @@ func (t *tester) registerTests() {
+@@ -1033,7 +1037,9 @@ func (t *tester) registerTests() {
  		t.registerRaceTests()
  	}
  
@@ -450,7 +450,7 @@ index aadb1ff52b067f..89101acdbe6d73 100644
  		// Only start multiple test dir shards on builders,
  		// where they get distributed to multiple machines.
  		// See issues 20141 and 31834.
-@@ -1380,12 +1386,11 @@ func (t *tester) registerCgoTests(heading string) {
+@@ -1390,12 +1396,11 @@ func (t *tester) registerCgoTests(heading string) {
  			// a C linker warning on Linux.
  			// in function `bio_ip_and_port_to_socket_and_addr':
  			// warning: Using 'getaddrinfo' in statically linked applications requires at runtime the shared libraries from the glibc version used for linking
@@ -464,7 +464,7 @@ index aadb1ff52b067f..89101acdbe6d73 100644
  			// Static linking tests
  			if goos != "android" && p != "netbsd/arm" && !t.msan && !t.asan {
  				// TODO(#56629): Why does this fail on netbsd-arm?
-@@ -1908,3 +1913,28 @@ func goexperiments(exps ...string) string {
+@@ -1918,3 +1923,28 @@ func goexperiments(exps ...string) string {
  	return existing + strings.Join(exps, ",")
  
  }
@@ -2032,7 +2032,7 @@ index cfa919ade97ad0..40e316387173dc 100644
  
  func BenchmarkECDH(b *testing.B) {
 diff --git a/src/crypto/ecdh/nist.go b/src/crypto/ecdh/nist.go
-index 13865ea7012989..fb46bf4822fb6a 100644
+index 13865ea7012989..3b6cc8131d6a4d 100644
 --- a/src/crypto/ecdh/nist.go
 +++ b/src/crypto/ecdh/nist.go
 @@ -6,7 +6,7 @@ package ecdh
@@ -2044,6 +2044,32 @@ index 13865ea7012989..fb46bf4822fb6a 100644
  	"crypto/internal/fips140/ecdh"
  	"crypto/internal/fips140only"
  	"crypto/internal/rand"
+@@ -27,6 +27,12 @@ func (c *nistCurve) String() string {
+ }
+ 
+ func (c *nistCurve) GenerateKey(r io.Reader) (*PrivateKey, error) {
++	r = rand.CustomReader(r)
++
++	if fips140only.Enforced() && !fips140only.ApprovedRandomReader(r) {
++		return nil, errors.New("crypto/ecdh: only crypto/rand.Reader is allowed in FIPS 140-only mode")
++	}
++
+ 	if boring.Enabled && rand.IsDefaultReader(r) {
+ 		key, bytes, err := boring.GenerateKeyECDH(c.name)
+ 		if err != nil {
+@@ -45,12 +51,6 @@ func (c *nistCurve) GenerateKey(r io.Reader) (*PrivateKey, error) {
+ 		return k, nil
+ 	}
+ 
+-	r = rand.CustomReader(r)
+-
+-	if fips140only.Enforced() && !fips140only.ApprovedRandomReader(r) {
+-		return nil, errors.New("crypto/ecdh: only crypto/rand.Reader is allowed in FIPS 140-only mode")
+-	}
+-
+ 	privateKey, err := c.generate(r)
+ 	if err != nil {
+ 		return nil, err
 @@ -123,24 +123,26 @@ func (c *nistCurve) NewPublicKey(key []byte) (*PublicKey, error) {
  	if len(key) == 0 || key[0] != 4 {
  		return nil, errors.New("crypto/ecdh: invalid public key")
@@ -2356,7 +2382,7 @@ index 00000000000000..4e18cdfbaad4fd
 +	return key, nil
 +}
 diff --git a/src/crypto/ed25519/ed25519.go b/src/crypto/ed25519/ed25519.go
-index ed599ad2908dfb..b3106b9ed83811 100644
+index ed599ad2908dfb..44c31ef145387d 100644
 --- a/src/crypto/ed25519/ed25519.go
 +++ b/src/crypto/ed25519/ed25519.go
 @@ -17,6 +17,7 @@ package ed25519
@@ -2375,10 +2401,10 @@ index ed599ad2908dfb..b3106b9ed83811 100644
  )
  
  const (
-@@ -159,6 +161,19 @@ func GenerateKey(random io.Reader) (PublicKey, PrivateKey, error) {
- 			random = rand.Reader
- 		}
+@@ -164,6 +166,20 @@ func GenerateKey(random io.Reader) (PublicKey, PrivateKey, error) {
+ 		return nil, nil, errors.New("crypto/ed25519: only crypto/rand.Reader is allowed in FIPS 140-only mode")
  	}
+ 
 +	if boring.Enabled && rand.IsDefaultReader(random) && boring.SupportsEd25519() {
 +		priv, err := boring.GenerateKeyEd25519()
 +		if err != nil {
@@ -2392,10 +2418,11 @@ index ed599ad2908dfb..b3106b9ed83811 100644
 +		pubKey := privKey.Public().(PublicKey)
 +		return pubKey, privKey, err
 +	}
- 
- 	if fips140only.Enforced() && !fips140only.ApprovedRandomReader(random) {
- 		return nil, nil, errors.New("crypto/ed25519: only crypto/rand.Reader is allowed in FIPS 140-only mode")
-@@ -188,6 +203,17 @@ func GenerateKey(random io.Reader) (PublicKey, PrivateKey, error) {
++
+ 	if rand.IsDefaultReader(random) {
+ 		privateKey, err := ed25519.GenerateKey()
+ 		if err != nil {
+@@ -188,6 +204,17 @@ func GenerateKey(random io.Reader) (PublicKey, PrivateKey, error) {
  // with RFC 8032. RFC 8032's private keys correspond to seeds in this
  // package.
  func NewKeyFromSeed(seed []byte) PrivateKey {
@@ -2413,7 +2440,7 @@ index ed599ad2908dfb..b3106b9ed83811 100644
  	// Outline the function body so that the returned key can be stack-allocated.
  	privateKey := make([]byte, PrivateKeySize)
  	newKeyFromSeed(privateKey, seed)
-@@ -206,6 +232,17 @@ func newKeyFromSeed(privateKey, seed []byte) {
+@@ -206,6 +233,17 @@ func newKeyFromSeed(privateKey, seed []byte) {
  // Sign signs the message with privateKey and returns a signature. It will
  // panic if len(privateKey) is not [PrivateKeySize].
  func Sign(privateKey PrivateKey, message []byte) []byte {
@@ -2431,7 +2458,7 @@ index ed599ad2908dfb..b3106b9ed83811 100644
  	// Outline the function body so that the returned signature can be
  	// stack-allocated.
  	signature := make([]byte, SignatureSize)
-@@ -235,6 +272,32 @@ func Verify(publicKey PublicKey, message, sig []byte) bool {
+@@ -235,6 +273,32 @@ func Verify(publicKey PublicKey, message, sig []byte) bool {
  	return VerifyWithOptions(publicKey, message, sig, &Options{Hash: crypto.Hash(0)}) == nil
  }
  
@@ -2464,7 +2491,7 @@ index ed599ad2908dfb..b3106b9ed83811 100644
  // VerifyWithOptions reports whether sig is a valid signature of message by
  // publicKey. A valid signature is indicated by returning a nil error. It will
  // panic if len(publicKey) is not [PublicKeySize].
-@@ -263,6 +326,13 @@ func VerifyWithOptions(publicKey PublicKey, message, sig []byte, opts *Options)
+@@ -263,6 +327,13 @@ func VerifyWithOptions(publicKey PublicKey, message, sig []byte, opts *Options)
  		}
  		return ed25519.VerifyCtx(k, message, sig, opts.Context)
  	case opts.Hash == crypto.Hash(0): // Ed25519
@@ -4291,6 +4318,201 @@ index 00000000000000..436cb00f359bcf
 +func Enabled() bool {
 +	return fips140state.Enabled()
 +}
+diff --git a/src/crypto/internal/backend/internal/fips140state/isrequirefips.go b/src/crypto/internal/backend/internal/fips140state/isrequirefips.go
+new file mode 100644
+index 00000000000000..122185bb417d3c
+--- /dev/null
++++ b/src/crypto/internal/backend/internal/fips140state/isrequirefips.go
+@@ -0,0 +1,9 @@
++// Copyright 2024 The Go Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style
++// license that can be found in the LICENSE file.
++
++//go:build requirefips
++
++package fips140state
++
++const isRequireFIPS = true
+diff --git a/src/crypto/internal/backend/internal/fips140state/norequirefips.go b/src/crypto/internal/backend/internal/fips140state/norequirefips.go
+new file mode 100644
+index 00000000000000..1967f167d30436
+--- /dev/null
++++ b/src/crypto/internal/backend/internal/fips140state/norequirefips.go
+@@ -0,0 +1,9 @@
++// Copyright 2024 The Go Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style
++// license that can be found in the LICENSE file.
++
++//go:build !requirefips
++
++package fips140state
++
++const isRequireFIPS = false
+diff --git a/src/crypto/internal/backend/internal/fips140state/nosystemcrypto.go b/src/crypto/internal/backend/internal/fips140state/nosystemcrypto.go
+new file mode 100644
+index 00000000000000..28ec07f7b20eaf
+--- /dev/null
++++ b/src/crypto/internal/backend/internal/fips140state/nosystemcrypto.go
+@@ -0,0 +1,11 @@
++// Copyright 2024 The Go Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style
++// license that can be found in the LICENSE file.
++
++//go:build !goexperiment.systemcrypto
++
++package fips140state
++
++func systemFIPSMode() bool {
++	return false
++}
+diff --git a/src/crypto/internal/backend/internal/fips140state/requirefips_nosystemcrypto.go b/src/crypto/internal/backend/internal/fips140state/requirefips_nosystemcrypto.go
+new file mode 100644
+index 00000000000000..4fe623e27e1d35
+--- /dev/null
++++ b/src/crypto/internal/backend/internal/fips140state/requirefips_nosystemcrypto.go
+@@ -0,0 +1,15 @@
++// Copyright 2025 The Go Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style
++// license that can be found in the LICENSE file.
++
++//go:build requirefips && !goexperiment.systemcrypto
++
++package fips140state
++
++func init() {
++	`
++	The requirefips tag is enabled, but no crypto backend is enabled.
++	A crypto backend is required to enable FIPS mode.
++	For more information, visit https://github.com/microsoft/go/tree/microsoft/main/eng/doc/fips
++	`
++}
+diff --git a/src/crypto/internal/backend/internal/fips140state/skipfipscheck_off.go b/src/crypto/internal/backend/internal/fips140state/skipfipscheck_off.go
+new file mode 100644
+index 00000000000000..b8458bb58011d5
+--- /dev/null
++++ b/src/crypto/internal/backend/internal/fips140state/skipfipscheck_off.go
+@@ -0,0 +1,9 @@
++// Copyright 2026 The Go Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style
++// license that can be found in the LICENSE file.
++
++//go:build !ms_skipfipscheck
++
++package fips140state
++
++const isSkipFIPSCheck = false
+diff --git a/src/crypto/internal/backend/internal/fips140state/skipfipscheck_on.go b/src/crypto/internal/backend/internal/fips140state/skipfipscheck_on.go
+new file mode 100644
+index 00000000000000..d13b8a7d07916e
+--- /dev/null
++++ b/src/crypto/internal/backend/internal/fips140state/skipfipscheck_on.go
+@@ -0,0 +1,9 @@
++// Copyright 2026 The Go Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style
++// license that can be found in the LICENSE file.
++
++//go:build ms_skipfipscheck
++
++package fips140state
++
++const isSkipFIPSCheck = true
+diff --git a/src/crypto/internal/backend/internal/fips140state/state.go b/src/crypto/internal/backend/internal/fips140state/state.go
+new file mode 100644
+index 00000000000000..8b16a033e83ef8
+--- /dev/null
++++ b/src/crypto/internal/backend/internal/fips140state/state.go
+@@ -0,0 +1,91 @@
++// Copyright 2026 The Go Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style
++// license that can be found in the LICENSE file.
++
++package fips140state
++
++import (
++	"errors"
++	"internal/godebug"
++	"runtime"
++	"syscall"
++)
++
++var fips140GODEBUG = godebug.New("fips140")
++
++var enabled bool
++
++// message is a human-readable message about how [Enabled] was set.
++var message string
++
++func init() {
++	// TODO: Decide which environment variable to use.
++	// See https://github.com/microsoft/go/issues/397.
++	enabled, message = detect(fips140GODEBUG.Value(), syscall.Getenv, systemFIPSMode)
++}
++
++func Enabled() bool {
++	return enabled
++}
++
++func Check(backendEnabled bool, fips func() bool) error {
++	if isRequireFIPS {
++		if isSkipFIPSCheck {
++			panic("the 'requirefips' build tag is enabled, but it conflicts " +
++				"with the 'ms_skipfipscheck' build tag")
++		}
++		message = "requirefips tag set"
++		enabled = true
++	}
++	if isSkipFIPSCheck || !enabled {
++		return nil
++	}
++	if !backendEnabled {
++		if runtime.GOOS != "linux" && runtime.GOOS != "windows" && runtime.GOOS != "darwin" {
++			return errors.New("FIPS mode requested (" + message + ") but no crypto backend is supported on " + runtime.GOOS)
++		}
++		return errors.New("FIPS mode requested (" + message + ") but no supported crypto backend is enabled")
++	}
++	if !fips() {
++		return errors.New("FIPS mode requested (" + message + ") but not available")
++	}
++	return nil
++}
++
++// detect reports whether FIPS 140 mode should be enabled and returns a
++// human-readable message describing how the decision was made.
++//
++// godebug is the value of the fips140 GODEBUG setting. getenv is used to look
++// up the GOFIPS and GOLANG_FIPS environment variables and mirrors the
++// semantics of [syscall.Getenv]. systemFIPS reports whether the platform
++// indicates that FIPS mode should be enabled (e.g. the Linux kernel FIPS flag).
++//
++// The inputs are taken as parameters, rather than read directly, to make the
++// detection logic easy to test without depending on process state.
++func detect(godebug string, getenv func(string) (string, bool), systemFIPS func() bool) (enabled bool, message string) {
++	switch godebug {
++	case "on", "only", "debug":
++		return true, "environment variable GODEBUG=fips140=" + godebug
++	case "off":
++		// GODEBUG=fips140=off explicitly disables FIPS mode and bypasses
++		// the platform-specific FIPS detection (e.g. the Linux kernel FIPS flag).
++		// This is the only supported way to skip the platform FIPS detection.
++		return false, "environment variable GODEBUG=fips140=off"
++	}
++	// Only "1" is a meaningful value for GOFIPS and GOLANG_FIPS. Any other
++	// value (including "0" and the empty string) is treated as if the
++	// variable were unset, to match the documented behavior and to avoid
++	// silently bypassing the platform FIPS detection due to a typo or
++	// accidental setting. To explicitly disable FIPS mode and skip the
++	// platform FIPS detection, use GODEBUG=fips140=off.
++	if v, ok := getenv("GOFIPS"); ok && v == "1" {
++		return true, "environment variable GOFIPS=1"
++	}
++	if v, ok := getenv("GOLANG_FIPS"); ok && v == "1" {
++		return true, "environment variable GOLANG_FIPS=1"
++	}
++	if systemFIPS() {
++		return true, "system FIPS mode"
++	}
++	return false, ""
++}
 diff --git a/src/crypto/internal/backend/internal/fips140state/state_test.go b/src/crypto/internal/backend/internal/fips140state/state_test.go
 new file mode 100644
 index 00000000000000..254a27594b578a
@@ -4371,23 +4593,6 @@ index 00000000000000..254a27594b578a
 +			}
 +		})
 +	}
-+}
-diff --git a/src/crypto/internal/backend/internal/fips140state/nosystemcrypto.go b/src/crypto/internal/backend/internal/fips140state/nosystemcrypto.go
-new file mode 100644
-index 00000000000000..28ec07f7b20eaf
---- /dev/null
-+++ b/src/crypto/internal/backend/internal/fips140state/nosystemcrypto.go
-@@ -0,0 +1,11 @@
-+// Copyright 2024 The Go Authors. All rights reserved.
-+// Use of this source code is governed by a BSD-style
-+// license that can be found in the LICENSE file.
-+
-+//go:build !goexperiment.systemcrypto
-+
-+package fips140state
-+
-+func systemFIPSMode() bool {
-+	return false
 +}
 diff --git a/src/crypto/internal/backend/internal/fips140state/systemfips_darwin.go b/src/crypto/internal/backend/internal/fips140state/systemfips_darwin.go
 new file mode 100644
@@ -4507,103 +4712,6 @@ index 00000000000000..2ef633391eb9ab
 +		return false
 +	}
 +	return enabled != 0
-+}
-diff --git a/src/crypto/internal/backend/internal/fips140state/state.go b/src/crypto/internal/backend/internal/fips140state/state.go
-new file mode 100644
-index 00000000000000..8b16a033e83ef8
---- /dev/null
-+++ b/src/crypto/internal/backend/internal/fips140state/state.go
-@@ -0,0 +1,91 @@
-+// Copyright 2026 The Go Authors. All rights reserved.
-+// Use of this source code is governed by a BSD-style
-+// license that can be found in the LICENSE file.
-+
-+package fips140state
-+
-+import (
-+	"errors"
-+	"internal/godebug"
-+	"runtime"
-+	"syscall"
-+)
-+
-+var fips140GODEBUG = godebug.New("fips140")
-+
-+var enabled bool
-+
-+// message is a human-readable message about how [Enabled] was set.
-+var message string
-+
-+func init() {
-+	// TODO: Decide which environment variable to use.
-+	// See https://github.com/microsoft/go/issues/397.
-+	enabled, message = detect(fips140GODEBUG.Value(), syscall.Getenv, systemFIPSMode)
-+}
-+
-+func Enabled() bool {
-+	return enabled
-+}
-+
-+func Check(backendEnabled bool, fips func() bool) error {
-+	if isRequireFIPS {
-+		if isSkipFIPSCheck {
-+			panic("the 'requirefips' build tag is enabled, but it conflicts " +
-+				"with the 'ms_skipfipscheck' build tag")
-+		}
-+		message = "requirefips tag set"
-+		enabled = true
-+	}
-+	if isSkipFIPSCheck || !enabled {
-+		return nil
-+	}
-+	if !backendEnabled {
-+		if runtime.GOOS != "linux" && runtime.GOOS != "windows" && runtime.GOOS != "darwin" {
-+			return errors.New("FIPS mode requested (" + message + ") but no crypto backend is supported on " + runtime.GOOS)
-+		}
-+		return errors.New("FIPS mode requested (" + message + ") but no supported crypto backend is enabled")
-+	}
-+	if !fips() {
-+		return errors.New("FIPS mode requested (" + message + ") but not available")
-+	}
-+	return nil
-+}
-+
-+// detect reports whether FIPS 140 mode should be enabled and returns a
-+// human-readable message describing how the decision was made.
-+//
-+// godebug is the value of the fips140 GODEBUG setting. getenv is used to look
-+// up the GOFIPS and GOLANG_FIPS environment variables and mirrors the
-+// semantics of [syscall.Getenv]. systemFIPS reports whether the platform
-+// indicates that FIPS mode should be enabled (e.g. the Linux kernel FIPS flag).
-+//
-+// The inputs are taken as parameters, rather than read directly, to make the
-+// detection logic easy to test without depending on process state.
-+func detect(godebug string, getenv func(string) (string, bool), systemFIPS func() bool) (enabled bool, message string) {
-+	switch godebug {
-+	case "on", "only", "debug":
-+		return true, "environment variable GODEBUG=fips140=" + godebug
-+	case "off":
-+		// GODEBUG=fips140=off explicitly disables FIPS mode and bypasses
-+		// the platform-specific FIPS detection (e.g. the Linux kernel FIPS flag).
-+		// This is the only supported way to skip the platform FIPS detection.
-+		return false, "environment variable GODEBUG=fips140=off"
-+	}
-+	// Only "1" is a meaningful value for GOFIPS and GOLANG_FIPS. Any other
-+	// value (including "0" and the empty string) is treated as if the
-+	// variable were unset, to match the documented behavior and to avoid
-+	// silently bypassing the platform FIPS detection due to a typo or
-+	// accidental setting. To explicitly disable FIPS mode and skip the
-+	// platform FIPS detection, use GODEBUG=fips140=off.
-+	if v, ok := getenv("GOFIPS"); ok && v == "1" {
-+		return true, "environment variable GOFIPS=1"
-+	}
-+	if v, ok := getenv("GOLANG_FIPS"); ok && v == "1" {
-+		return true, "environment variable GOLANG_FIPS=1"
-+	}
-+	if systemFIPS() {
-+		return true, "system FIPS mode"
-+	}
-+	return false, ""
 +}
 diff --git a/src/crypto/internal/backend/internal/opensslsetup/opensslsetup_linux.go b/src/crypto/internal/backend/internal/opensslsetup/opensslsetup_linux.go
 new file mode 100644
@@ -4791,21 +4899,6 @@ index 00000000000000..19fd29e19e7b96
 +// without cgo enabled or without goexperiment.systemcrypto on linux.
 +
 +package opensslsetup
-diff --git a/src/crypto/internal/backend/internal/fips140state/isrequirefips.go b/src/crypto/internal/backend/internal/fips140state/isrequirefips.go
-new file mode 100644
-index 00000000000000..122185bb417d3c
---- /dev/null
-+++ b/src/crypto/internal/backend/internal/fips140state/isrequirefips.go
-@@ -0,0 +1,9 @@
-+// Copyright 2024 The Go Authors. All rights reserved.
-+// Use of this source code is governed by a BSD-style
-+// license that can be found in the LICENSE file.
-+
-+//go:build requirefips
-+
-+package fips140state
-+
-+const isRequireFIPS = true
 diff --git a/src/crypto/internal/backend/nobackend.go b/src/crypto/internal/backend/nobackend.go
 new file mode 100644
 index 00000000000000..84a73fc5c2d523
@@ -5187,72 +5280,6 @@ index 00000000000000..84a73fc5c2d523
 +func NewChaCha20Poly1305(key []byte) (cipher.AEAD, error) {
 +	panic("cryptobackend: not available")
 +}
-diff --git a/src/crypto/internal/backend/internal/fips140state/norequirefips.go b/src/crypto/internal/backend/internal/fips140state/norequirefips.go
-new file mode 100644
-index 00000000000000..1967f167d30436
---- /dev/null
-+++ b/src/crypto/internal/backend/internal/fips140state/norequirefips.go
-@@ -0,0 +1,9 @@
-+// Copyright 2024 The Go Authors. All rights reserved.
-+// Use of this source code is governed by a BSD-style
-+// license that can be found in the LICENSE file.
-+
-+//go:build !requirefips
-+
-+package fips140state
-+
-+const isRequireFIPS = false
-diff --git a/src/crypto/internal/backend/internal/fips140state/requirefips_nosystemcrypto.go b/src/crypto/internal/backend/internal/fips140state/requirefips_nosystemcrypto.go
-new file mode 100644
-index 00000000000000..4fe623e27e1d35
---- /dev/null
-+++ b/src/crypto/internal/backend/internal/fips140state/requirefips_nosystemcrypto.go
-@@ -0,0 +1,15 @@
-+// Copyright 2025 The Go Authors. All rights reserved.
-+// Use of this source code is governed by a BSD-style
-+// license that can be found in the LICENSE file.
-+
-+//go:build requirefips && !goexperiment.systemcrypto
-+
-+package fips140state
-+
-+func init() {
-+	`
-+	The requirefips tag is enabled, but no crypto backend is enabled.
-+	A crypto backend is required to enable FIPS mode.
-+	For more information, visit https://github.com/microsoft/go/tree/microsoft/main/eng/doc/fips
-+	`
-+}
-diff --git a/src/crypto/internal/backend/internal/fips140state/skipfipscheck_off.go b/src/crypto/internal/backend/internal/fips140state/skipfipscheck_off.go
-new file mode 100644
-index 00000000000000..b8458bb58011d5
---- /dev/null
-+++ b/src/crypto/internal/backend/internal/fips140state/skipfipscheck_off.go
-@@ -0,0 +1,9 @@
-+// Copyright 2026 The Go Authors. All rights reserved.
-+// Use of this source code is governed by a BSD-style
-+// license that can be found in the LICENSE file.
-+
-+//go:build !ms_skipfipscheck
-+
-+package fips140state
-+
-+const isSkipFIPSCheck = false
-diff --git a/src/crypto/internal/backend/internal/fips140state/skipfipscheck_on.go b/src/crypto/internal/backend/internal/fips140state/skipfipscheck_on.go
-new file mode 100644
-index 00000000000000..d13b8a7d07916e
---- /dev/null
-+++ b/src/crypto/internal/backend/internal/fips140state/skipfipscheck_on.go
-@@ -0,0 +1,9 @@
-+// Copyright 2026 The Go Authors. All rights reserved.
-+// Use of this source code is governed by a BSD-style
-+// license that can be found in the LICENSE file.
-+
-+//go:build ms_skipfipscheck
-+
-+package fips140state
-+
-+const isSkipFIPSCheck = true
 diff --git a/src/crypto/internal/backend/stub.s b/src/crypto/internal/backend/stub.s
 new file mode 100644
 index 00000000000000..5e4b436554d44d
@@ -6183,7 +6210,7 @@ index 838fcc1244bdbe..d89f732345e8a3 100644
  // Note: Can run these tests against the non-BoringCrypto
  // version of the code by using "CGO_ENABLED=0 go test".
 diff --git a/src/crypto/rsa/fips.go b/src/crypto/rsa/fips.go
-index e756512fecd6d5..9b35eab6e3a811 100644
+index e756512fecd6d5..a87d9c8851685d 100644
 --- a/src/crypto/rsa/fips.go
 +++ b/src/crypto/rsa/fips.go
 @@ -6,7 +6,7 @@ package rsa
@@ -6213,21 +6240,35 @@ index e756512fecd6d5..9b35eab6e3a811 100644
  	if !hash.Available() {
  		return nil, errors.New("crypto/rsa: requested hash function unavailable: " + hash.String())
  	}
-@@ -97,6 +86,14 @@ func SignPSS(random io.Reader, priv *PrivateKey, hash crypto.Hash, digest []byte
+@@ -96,16 +85,24 @@ func SignPSS(random io.Reader, priv *PrivateKey, hash crypto.Hash, digest []byte
+ 	if fips140only.Enforced() && !fips140only.ApprovedRandomReader(random) {
  		return nil, errors.New("crypto/rsa: only crypto/rand.Reader is allowed in FIPS 140-only mode")
  	}
- 
-+	if boring.Enabled && rand.IsDefaultReader(random) && boring.SupportsRSASaltLength(true, opts.saltLength()) && boring.SupportsRSAPrivateKey(priv.N.BitLen(), len(priv.Primes)) && boring.SupportsHash(hash) {
++	saltLength := opts.saltLength()
++	if fips140only.Enforced() && saltLength > h.Size() {
++		return nil, errors.New("crypto/rsa: use of PSS salt longer than the hash is not allowed in FIPS 140-only mode")
++	}
++
++	if boring.Enabled && rand.IsDefaultReader(random) && boring.SupportsRSASaltLength(true, saltLength) && boring.SupportsRSAPrivateKey(priv.N.BitLen(), len(priv.Primes)) && boring.SupportsHash(hash) {
 +		bkey, err := boringPrivateKey(priv)
 +		if err != nil {
 +			return nil, err
 +		}
-+		return boring.SignRSAPSS(bkey, hash, digest, opts.saltLength())
++		return boring.SignRSAPSS(bkey, hash, digest, saltLength)
 +	}
-+
+ 
  	k, err := fipsPrivateKey(priv)
  	if err != nil {
  		return nil, err
+ 	}
+ 
+-	saltLength := opts.saltLength()
+-	if fips140only.Enforced() && saltLength > h.Size() {
+-		return nil, errors.New("crypto/rsa: use of PSS salt longer than the hash is not allowed in FIPS 140-only mode")
+-	}
+ 	switch saltLength {
+ 	case PSSSaltLengthAuto:
+ 		saltLength, err = rsa.PSSMaxSaltLength(k.PublicKey(), h)
 @@ -139,17 +136,6 @@ func VerifyPSS(pub *PublicKey, hash crypto.Hash, digest []byte, sig []byte, opts
  		return err
  	}
@@ -6246,24 +6287,38 @@ index e756512fecd6d5..9b35eab6e3a811 100644
  	if !hash.Available() {
  		return errors.New("crypto/rsa: requested hash function unavailable: " + hash.String())
  	}
-@@ -162,6 +148,17 @@ func VerifyPSS(pub *PublicKey, hash crypto.Hash, digest []byte, sig []byte, opts
+@@ -161,16 +147,27 @@ func VerifyPSS(pub *PublicKey, hash crypto.Hash, digest []byte, sig []byte, opts
+ 	if fips140only.Enforced() && !fips140only.ApprovedHash(h) {
  		return errors.New("crypto/rsa: use of hash functions other than SHA-2 or SHA-3 is not allowed in FIPS 140-only mode")
  	}
- 
-+	if boring.Enabled && boring.SupportsRSASaltLength(false, opts.saltLength()) && boring.SupportsRSAPublicKey(pub.N.BitLen()) && boring.SupportsHash(hash) {
++	saltLength := opts.saltLength()
++	if fips140only.Enforced() && saltLength > h.Size() {
++		return errors.New("crypto/rsa: use of PSS salt longer than the hash is not allowed in FIPS 140-only mode")
++	}
++
++	if boring.Enabled && boring.SupportsRSASaltLength(false, saltLength) && boring.SupportsRSAPublicKey(pub.N.BitLen()) && boring.SupportsHash(hash) {
 +		bkey, err := boringPublicKey(pub)
 +		if err != nil {
 +			return err
 +		}
-+		if err := boring.VerifyRSAPSS(bkey, hash, digest, sig, opts.saltLength()); err != nil {
++		if err := boring.VerifyRSAPSS(bkey, hash, digest, sig, saltLength); err != nil {
 +			return ErrVerification
 +		}
 +		return nil
 +	}
-+
+ 
  	k, err := fipsPublicKey(pub)
  	if err != nil {
  		return err
+ 	}
+ 
+-	saltLength := opts.saltLength()
+-	if fips140only.Enforced() && saltLength > h.Size() {
+-		return errors.New("crypto/rsa: use of PSS salt longer than the hash is not allowed in FIPS 140-only mode")
+-	}
+ 	switch saltLength {
+ 	case PSSSaltLengthAuto:
+ 		return fipsError(rsa.VerifyPSS(k, h, digest, sig))
 @@ -217,10 +214,12 @@ func EncryptOAEPWithOptions(random io.Reader, pub *PublicKey, msg []byte, opts *
  	if opts.MGFHash != 0 && !opts.MGFHash.Available() {
  		return nil, errors.New("crypto/rsa: requested hash function unavailable: " + opts.MGFHash.String())
@@ -6280,32 +6335,85 @@ index e756512fecd6d5..9b35eab6e3a811 100644
  }
  
  func encryptOAEP(hash hash.Hash, mgfHash hash.Hash, random io.Reader, pub *PublicKey, msg []byte, label []byte) ([]byte, error) {
-@@ -231,7 +230,7 @@ func encryptOAEP(hash hash.Hash, mgfHash hash.Hash, random io.Reader, pub *Publi
+@@ -231,19 +230,6 @@ func encryptOAEP(hash hash.Hash, mgfHash hash.Hash, random io.Reader, pub *Publi
  	defer hash.Reset()
  	defer mgfHash.Reset()
  
 -	if boring.Enabled && rand.IsDefaultReader(random) {
-+	if boring.Enabled && rand.IsDefaultReader(random) && boring.SupportsRSAPublicKey(pub.N.BitLen()) && boring.SupportsRSAOAEPLabel(label) && hash == mgfHash {
- 		k := pub.Size()
- 		if len(msg) > k-2*hash.Size()-2 {
- 			return nil, ErrMessageTooLong
-@@ -242,7 +241,6 @@ func encryptOAEP(hash hash.Hash, mgfHash hash.Hash, random io.Reader, pub *Publi
- 		}
- 		return boring.EncryptRSAOAEP(hash, mgfHash, bkey, msg, label)
- 	}
+-		k := pub.Size()
+-		if len(msg) > k-2*hash.Size()-2 {
+-			return nil, ErrMessageTooLong
+-		}
+-		bkey, err := boringPublicKey(pub)
+-		if err != nil {
+-			return nil, err
+-		}
+-		return boring.EncryptRSAOAEP(hash, mgfHash, bkey, msg, label)
+-	}
 -	boring.UnreachableExceptTests()
- 
+-
  	hash = fips140hash.Unwrap(hash)
  
-@@ -283,7 +281,7 @@ func decryptOAEP(hash, mgfHash hash.Hash, priv *PrivateKey, ciphertext []byte, l
+ 	if err := checkFIPS140OnlyPublicKey(pub); err != nil {
+@@ -256,6 +242,18 @@ func encryptOAEP(hash hash.Hash, mgfHash hash.Hash, random io.Reader, pub *Publi
+ 		return nil, errors.New("crypto/rsa: only crypto/rand.Reader is allowed in FIPS 140-only mode")
+ 	}
+ 
++	if boring.Enabled && rand.IsDefaultReader(random) && boring.SupportsRSAPublicKey(pub.N.BitLen()) && boring.SupportsRSAOAEPLabel(label) && hash == mgfHash {
++		k := pub.Size()
++		if len(msg) > k-2*hash.Size()-2 {
++			return nil, ErrMessageTooLong
++		}
++		bkey, err := boringPublicKey(pub)
++		if err != nil {
++			return nil, err
++		}
++		return boring.EncryptRSAOAEP(hash, mgfHash, bkey, msg, label)
++	}
++
+ 	k, err := fipsPublicKey(pub)
+ 	if err != nil {
+ 		return nil, err
+@@ -283,7 +281,19 @@ func decryptOAEP(hash, mgfHash hash.Hash, priv *PrivateKey, ciphertext []byte, l
  		return nil, err
  	}
  
 -	if boring.Enabled && priv.N.BitLen() >= 1024 {
++	hash = fips140hash.Unwrap(hash)
++	mgfHash = fips140hash.Unwrap(mgfHash)
++
++	if err := checkFIPS140OnlyPrivateKey(priv); err != nil {
++		return nil, err
++	}
++	if fips140only.Enforced() {
++		if !fips140only.ApprovedHash(hash) || !fips140only.ApprovedHash(mgfHash) {
++			return nil, errors.New("crypto/rsa: use of hash functions other than SHA-2 or SHA-3 is not allowed in FIPS 140-only mode")
++		}
++	}
++
 +	if boring.Enabled && boring.SupportsRSAPrivateKey(priv.N.BitLen(), len(priv.Primes)) && boring.SupportsRSAOAEPLabel(label) && hash == mgfHash {
  		k := priv.Size()
  		if len(ciphertext) > k ||
  			k < hash.Size()*2+2 {
+@@ -300,18 +310,6 @@ func decryptOAEP(hash, mgfHash hash.Hash, priv *PrivateKey, ciphertext []byte, l
+ 		return out, nil
+ 	}
+ 
+-	hash = fips140hash.Unwrap(hash)
+-	mgfHash = fips140hash.Unwrap(mgfHash)
+-
+-	if err := checkFIPS140OnlyPrivateKey(priv); err != nil {
+-		return nil, err
+-	}
+-	if fips140only.Enforced() {
+-		if !fips140only.ApprovedHash(hash) || !fips140only.ApprovedHash(mgfHash) {
+-			return nil, errors.New("crypto/rsa: use of hash functions other than SHA-2 or SHA-3 is not allowed in FIPS 140-only mode")
+-		}
+-	}
+-
+ 	k, err := fipsPrivateKey(priv)
+ 	if err != nil {
+ 		return nil, err
 @@ -345,23 +343,23 @@ func SignPKCS1v15(random io.Reader, priv *PrivateKey, hash crypto.Hash, hashed [
  		return nil, err
  	}
@@ -6518,7 +6626,7 @@ index e03f4ab06603c6..088f87ee6a536e 100644
  		t.Fatal(err)
  	}
 diff --git a/src/crypto/rsa/rsa.go b/src/crypto/rsa/rsa.go
-index 93e08ed6cd8f71..2e8392c7ac34cf 100644
+index 93e08ed6cd8f71..40d81bf150d8f5 100644
 --- a/src/crypto/rsa/rsa.go
 +++ b/src/crypto/rsa/rsa.go
 @@ -43,8 +43,8 @@ package rsa
@@ -6549,7 +6657,7 @@ index 93e08ed6cd8f71..2e8392c7ac34cf 100644
  
  	case *PKCS1v15DecryptOptions:
  		if l := opts.SessionKeyLen; l > 0 {
-@@ -320,8 +321,14 @@ func GenerateKey(random io.Reader, bits int) (*PrivateKey, error) {
+@@ -320,8 +321,19 @@ func GenerateKey(random io.Reader, bits int) (*PrivateKey, error) {
  		return nil, err
  	}
  
@@ -6561,24 +6669,35 @@ index 93e08ed6cd8f71..2e8392c7ac34cf 100644
 +	if fips140only.Enforced() && bits%2 == 1 {
 +		return nil, errors.New("crypto/rsa: use of keys with odd size is not allowed in FIPS 140-only mode")
 +	}
++	random = rand.CustomReader(random)
++
++	if fips140only.Enforced() && !fips140only.ApprovedRandomReader(random) {
++		return nil, errors.New("crypto/rsa: only crypto/rand.Reader is allowed in FIPS 140-only mode")
++	}
 +
 +	if boring.Enabled && rand.IsDefaultReader(random) && boring.SupportsRSAPublicKey(bits) {
  		bN, bE, bD, bP, bQ, bDp, bDq, bQinv, err := boring.GenerateKeyRSA(bits)
  		if err != nil {
  			return nil, err
-@@ -358,12 +365,6 @@ func GenerateKey(random io.Reader, bits int) (*PrivateKey, error) {
+@@ -356,18 +368,6 @@ func GenerateKey(random io.Reader, bits int) (*PrivateKey, error) {
+ 		return key, nil
+ 	}
  
- 	random = rand.CustomReader(random)
- 
+-	random = rand.CustomReader(random)
+-
 -	if fips140only.Enforced() && bits < 2048 {
 -		return nil, errors.New("crypto/rsa: use of keys smaller than 2048 bits is not allowed in FIPS 140-only mode")
 -	}
 -	if fips140only.Enforced() && bits%2 == 1 {
 -		return nil, errors.New("crypto/rsa: use of keys with odd size is not allowed in FIPS 140-only mode")
 -	}
- 	if fips140only.Enforced() && !fips140only.ApprovedRandomReader(random) {
- 		return nil, errors.New("crypto/rsa: only crypto/rand.Reader is allowed in FIPS 140-only mode")
- 	}
+-	if fips140only.Enforced() && !fips140only.ApprovedRandomReader(random) {
+-		return nil, errors.New("crypto/rsa: only crypto/rand.Reader is allowed in FIPS 140-only mode")
+-	}
+-
+ 	k, err := rsa.GenerateKey(random, bits)
+ 	if bits < 256 && err != nil {
+ 		// Toy-sized keys have a non-negligible chance of hitting two hard
 diff --git a/src/crypto/rsa/rsa_darwin.go b/src/crypto/rsa/rsa_darwin.go
 new file mode 100644
 index 00000000000000..b549c6e3b17484
@@ -8069,7 +8188,7 @@ index 00000000000000..ffb835ce34a2f7
 +	}
 +}
 diff --git a/src/go/build/deps_test.go b/src/go/build/deps_test.go
-index a71759adcb7363..ffe6279a6942d7 100644
+index a71759adcb7363..a1dfd73a9c1622 100644
 --- a/src/go/build/deps_test.go
 +++ b/src/go/build/deps_test.go
 @@ -372,8 +372,10 @@ var depsRules = `
@@ -8130,7 +8249,7 @@ index a71759adcb7363..ffe6279a6942d7 100644
  	FIPS, internal/godebug, embed,
  	crypto/internal/boring/sig,
  	crypto/internal/boring/syso,
-@@ -584,7 +601,8 @@ var depsRules = `
+@@ -584,7 +607,8 @@ var depsRules = `
  	crypto/internal/fips140only,
  	crypto,
  	crypto/subtle,
@@ -8140,7 +8259,7 @@ index a71759adcb7363..ffe6279a6942d7 100644
  	< crypto/sha3
  	< crypto/internal/fips140hash
  	< crypto/internal/boring
-@@ -603,6 +621,7 @@ var depsRules = `
+@@ -603,6 +627,7 @@ var depsRules = `
  	  crypto/ecdh,
  	  crypto/mlkem,
  	  crypto/mldsa
@@ -8148,7 +8267,7 @@ index a71759adcb7363..ffe6279a6942d7 100644
  	< CRYPTO;
  
  	CRYPTO
-@@ -616,8 +636,15 @@ var depsRules = `
+@@ -616,8 +641,15 @@ var depsRules = `
  	math/big, github.com/microsoft/go-crypto-darwin/xcrypto < github.com/microsoft/go-crypto-darwin/bbig;
  	math/big, github.com/microsoft/go-crypto-winnative/cng < github.com/microsoft/go-crypto-winnative/cng/bbig;
  
