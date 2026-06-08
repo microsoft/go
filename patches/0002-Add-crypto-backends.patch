@@ -107,8 +107,8 @@ Subject: [PATCH] Add crypto backends
  src/crypto/internal/rand/rand.go              |   2 +-
  src/crypto/md5/md5.go                         |  10 +
  src/crypto/md5/md5_test.go                    |  18 +-
- src/crypto/mldsa/mldsa_fips140v1.26.go        | 173 ++++++-
- src/crypto/mldsa/mldsa_test.go                |  64 ++-
+ src/crypto/mldsa/mldsa_fips140v1.26.go        | 175 ++++++-
+ src/crypto/mldsa/mldsa_test.go                |  65 ++-
  src/crypto/mlkem/mlkem.go                     | 118 ++++-
  src/crypto/mlkem/mlkem_test.go                |   8 +
  src/crypto/pbkdf2/pbkdf2.go                   |   7 +
@@ -167,7 +167,7 @@ Subject: [PATCH] Add crypto backends
  src/net/lookup_test.go                        |   3 +
  src/os/exec/exec_test.go                      |   9 +
  src/runtime/runtime_boring.go                 |   5 +
- 163 files changed, 5288 insertions(+), 320 deletions(-)
+ 163 files changed, 5292 insertions(+), 319 deletions(-)
  create mode 100644 src/cmd/go/internal/modindex/build_test.go
  create mode 100644 src/cmd/go/systemcrypto_test.go
  create mode 100644 src/crypto/dsa/boring.go
@@ -5864,7 +5864,7 @@ index 403ff2881f4b68..5417556a86700e 100644
  
  func maybeCloner(h hash.Hash) any {
 diff --git a/src/crypto/mldsa/mldsa_fips140v1.26.go b/src/crypto/mldsa/mldsa_fips140v1.26.go
-index 2c36fe191e9149..0aa1abf30015da 100644
+index 2c36fe191e9149..1eb974c8e351a5 100644
 --- a/src/crypto/mldsa/mldsa_fips140v1.26.go
 +++ b/src/crypto/mldsa/mldsa_fips140v1.26.go
 @@ -8,9 +8,12 @@ package mldsa
@@ -5880,17 +5880,18 @@ index 2c36fe191e9149..0aa1abf30015da 100644
  )
  
  // PrivateKey is an in-memory ML-DSA private key. It implements [crypto.Signer]
-@@ -19,12 +22,62 @@ import (
+@@ -19,12 +22,63 @@ import (
  // A PrivateKey is safe for concurrent use.
  type PrivateKey struct {
  	k mldsa.PrivateKey
 +
-+	// boring holds the crypto backend key when backed is true. For backend-backed
-+	// keys, k is lazily reconstructed from the seed by goKey (guarded by
-+	// goKeyOnce) for the operations the backend does not implement on every
-+	// platform.
-+	boring    boring.PrivateKeyMLDSA
-+	backed    bool
++	// boring holds the crypto backend key, or nil if this key is implemented by
++	// the Go module. It is a pointer because the backend key structs are large,
++	// and storing one by value would make PrivateKey too big to keep on the stack
++	// even on the Go path. For backend-backed keys, k is lazily reconstructed from
++	// the seed by goKey (guarded by goKeyOnce) for the operations the backend does
++	// not implement on every platform.
++	boring    *boring.PrivateKeyMLDSA
 +	goKeyOnce sync.Once
 +	goKeyErr  error
  }
@@ -5938,12 +5939,12 @@ index 2c36fe191e9149..0aa1abf30015da 100644
 +		if err != nil {
 +			return nil, err
 +		}
-+		return &PrivateKey{boring: *key, backed: true}, nil
++		return &PrivateKey{boring: key}, nil
 +	}
  	switch params {
  	case MLDSA44():
  		return &PrivateKey{k: *mldsa.GenerateKey44()}, nil
-@@ -41,6 +94,13 @@ func GenerateKey(params Parameters) (*PrivateKey, error) {
+@@ -41,6 +95,13 @@ func GenerateKey(params Parameters) (*PrivateKey, error) {
  //
  // The seed must be exactly [PrivateKeySize] bytes long.
  func NewPrivateKey(params Parameters, seed []byte) (*PrivateKey, error) {
@@ -5952,40 +5953,40 @@ index 2c36fe191e9149..0aa1abf30015da 100644
 +		if err != nil {
 +			return nil, err
 +		}
-+		return &PrivateKey{boring: *key, backed: true}, nil
++		return &PrivateKey{boring: key}, nil
 +	}
  	var err error
  	var k *mldsa.PrivateKey
  	switch params {
-@@ -75,11 +135,23 @@ func (sk *PrivateKey) Equal(x crypto.PrivateKey) bool {
+@@ -75,11 +136,23 @@ func (sk *PrivateKey) Equal(x crypto.PrivateKey) bool {
  	if !ok || other == nil {
  		return false
  	}
 +	// Two keys of the same parameter set are either both backed by the crypto
 +	// backend or both standard library keys, so a differing backing implies
 +	// differing parameter sets, and hence different keys.
-+	if sk.backed != other.backed {
++	if (sk.boring == nil) != (other.boring == nil) {
 +		return false
 +	}
-+	if sk.backed {
-+		return sk.boring.Equal(&other.boring)
++	if sk.boring != nil {
++		return sk.boring.Equal(other.boring)
 +	}
  	return sk.k.Equal(&other.k)
  }
  
  // PublicKey returns the corresponding [PublicKey] for this private key.
  func (sk *PrivateKey) PublicKey() *PublicKey {
-+	if sk.backed {
-+		return &PublicKey{boring: *sk.boring.PublicKey(), backed: true}
++	if sk.boring != nil {
++		return &PublicKey{boring: sk.boring.PublicKey()}
 +	}
  	// Making a copy severs the pointer relationship between the private and
  	// public keys, so that keeping the public key around doesn't keep the
  	// private key alive. This costs a copy and an allocation.
-@@ -88,9 +160,49 @@ func (sk *PrivateKey) PublicKey() *PublicKey {
+@@ -88,9 +161,49 @@ func (sk *PrivateKey) PublicKey() *PublicKey {
  
  // Bytes returns the private key seed.
  func (sk *PrivateKey) Bytes() []byte {
-+	if sk.backed {
++	if sk.boring != nil {
 +		return sk.boring.Bytes()
 +	}
  	return sk.k.Bytes()
@@ -5998,7 +5999,7 @@ index 2c36fe191e9149..0aa1abf30015da 100644
 +// external-mu signing, which then run through the FIPS 140-3 Go Cryptographic
 +// Module.
 +func (sk *PrivateKey) goKey() (*mldsa.PrivateKey, error) {
-+	if !sk.backed {
++	if sk.boring == nil {
 +		return &sk.k, nil
 +	}
 +	sk.goKeyOnce.Do(func() {
@@ -6031,17 +6032,17 @@ index 2c36fe191e9149..0aa1abf30015da 100644
  var errInvalidSignerOpts = errors.New("mldsa: invalid SignerOpts")
  
  // Sign returns a signature of the given message using this private key.
-@@ -112,9 +224,21 @@ func (sk *PrivateKey) Sign(_ io.Reader, message []byte, opts crypto.SignerOpts)
+@@ -112,9 +225,21 @@ func (sk *PrivateKey) Sign(_ io.Reader, message []byte, opts crypto.SignerOpts)
  		if opts, ok := opts.(*Options); ok {
  			context = opts.Context
  		}
-+		if sk.backed {
++		if sk.boring != nil {
 +			return sk.boring.Sign(message, context)
 +		}
  		return mldsa.Sign(&sk.k, message, context)
  	case crypto.MLDSAMu:
 -		return mldsa.SignExternalMu(&sk.k, message)
-+		if sk.backed && boring.SupportsMLDSAExternalMu() {
++		if sk.boring != nil && boring.SupportsMLDSAExternalMu() {
 +			return sk.boring.SignExternalMu(message)
 +		}
 +		// The backend does not implement external-mu signing on this platform,
@@ -6054,7 +6055,7 @@ index 2c36fe191e9149..0aa1abf30015da 100644
  	default:
  		return nil, errInvalidSignerOpts
  	}
-@@ -126,15 +250,21 @@ func (sk *PrivateKey) SignDeterministic(message []byte, opts crypto.SignerOpts)
+@@ -126,15 +251,21 @@ func (sk *PrivateKey) SignDeterministic(message []byte, opts crypto.SignerOpts)
  	if opts == nil {
  		opts = &Options{}
  	}
@@ -6078,18 +6079,20 @@ index 2c36fe191e9149..0aa1abf30015da 100644
  	default:
  		return nil, errInvalidSignerOpts
  	}
-@@ -145,7 +275,9 @@ func (sk *PrivateKey) SignDeterministic(message []byte, opts crypto.SignerOpts)
- //
+@@ -146,6 +277,12 @@ func (sk *PrivateKey) SignDeterministic(message []byte, opts crypto.SignerOpts)
  // A PublicKey is safe for concurrent use.
  type PublicKey struct {
--	p mldsa.PublicKey
-+	p      mldsa.PublicKey
-+	boring boring.PublicKeyMLDSA
-+	backed bool
+ 	p mldsa.PublicKey
++
++	// boring holds the crypto backend key, or nil if this key is implemented by
++	// the Go module. It is a pointer because [boring.PublicKeyMLDSA] is large (it
++	// embeds a full-size public key buffer), and storing one by value would make
++	// PublicKey too big to keep on the stack even on the Go path.
++	boring *boring.PublicKeyMLDSA
  }
  
  // NewPublicKey creates a new ML-DSA public key from the given encoding.
-@@ -154,6 +286,15 @@ func NewPublicKey(params Parameters, encoding []byte) (*PublicKey, error) {
+@@ -154,6 +291,14 @@ func NewPublicKey(params Parameters, encoding []byte) (*PublicKey, error) {
  }
  
  func newPublicKey(pub *PublicKey, params Parameters, encoding []byte) (*PublicKey, error) {
@@ -6098,39 +6101,38 @@ index 2c36fe191e9149..0aa1abf30015da 100644
 +		if err != nil {
 +			return nil, err
 +		}
-+		pub.boring = *key
-+		pub.backed = true
++		pub.boring = key
 +		return pub, nil
 +	}
  	var err error
  	var pk *mldsa.PublicKey
  	switch params {
-@@ -175,6 +316,9 @@ func newPublicKey(pub *PublicKey, params Parameters, encoding []byte) (*PublicKe
+@@ -175,6 +320,9 @@ func newPublicKey(pub *PublicKey, params Parameters, encoding []byte) (*PublicKe
  
  // Bytes returns the public key encoding.
  func (pk *PublicKey) Bytes() []byte {
-+	if pk.backed {
++	if pk.boring != nil {
 +		return pk.boring.Bytes()
 +	}
  	return pk.p.Bytes()
  }
  
-@@ -187,11 +331,29 @@ func (pk *PublicKey) Equal(x crypto.PublicKey) bool {
+@@ -187,11 +335,29 @@ func (pk *PublicKey) Equal(x crypto.PublicKey) bool {
  	if !ok || other == nil {
  		return false
  	}
-+	if pk.backed != other.backed {
++	if (pk.boring == nil) != (other.boring == nil) {
 +		return false
 +	}
-+	if pk.backed {
-+		return pk.boring.Equal(&other.boring)
++	if pk.boring != nil {
++		return pk.boring.Equal(other.boring)
 +	}
  	return pk.p.Equal(&other.p)
  }
  
  // Parameters returns the parameters associated with this public key.
  func (pk *PublicKey) Parameters() Parameters {
-+	if pk.backed {
++	if pk.boring != nil {
 +		switch pk.boring.Parameters().String() {
 +		case "ML-DSA-44":
 +			return MLDSA44()
@@ -6145,17 +6147,17 @@ index 2c36fe191e9149..0aa1abf30015da 100644
  	switch pk.p.Parameters() {
  	case "ML-DSA-44":
  		return MLDSA44()
-@@ -213,5 +375,8 @@ func Verify(pk *PublicKey, message []byte, signature []byte, opts *Options) erro
+@@ -213,5 +379,8 @@ func Verify(pk *PublicKey, message []byte, signature []byte, opts *Options) erro
  	if opts == nil {
  		opts = &Options{}
  	}
-+	if pk.backed {
++	if pk.boring != nil {
 +		return pk.boring.Verify(message, signature, opts.Context)
 +	}
  	return mldsa.Verify(&pk.p, message, signature, opts.Context)
  }
 diff --git a/src/crypto/mldsa/mldsa_test.go b/src/crypto/mldsa/mldsa_test.go
-index 375333a70cf686..e89556b3ab9806 100644
+index 375333a70cf686..32ce2066b0ae9d 100644
 --- a/src/crypto/mldsa/mldsa_test.go
 +++ b/src/crypto/mldsa/mldsa_test.go
 @@ -9,6 +9,7 @@ package mldsa_test
@@ -6166,15 +6168,7 @@ index 375333a70cf686..e89556b3ab9806 100644
  	"crypto/fips140"
  	"crypto/internal/cryptotest"
  	. "crypto/mldsa"
-@@ -16,6 +17,7 @@ import (
- 	"encoding/hex"
- 	"flag"
- 	"math/rand/v2"
-+	"runtime"
- 	"strings"
- 	"testing"
- )
-@@ -105,7 +107,7 @@ func testAccumulated(t *testing.T, params Parameters, n int, expected string) {
+@@ -105,7 +106,7 @@ func testAccumulated(t *testing.T, params Parameters, n int, expected string) {
  		if err != nil {
  			t.Fatalf("NewPublicKey: %v", err)
  		}
@@ -6183,7 +6177,7 @@ index 375333a70cf686..e89556b3ab9806 100644
  			t.Fatalf("public key mismatch")
  		}
  		if err := Verify(dk.PublicKey(), msg, sig, nil); err != nil {
-@@ -154,6 +156,41 @@ func testGenerateKey(t *testing.T, params Parameters) {
+@@ -154,6 +155,41 @@ func testGenerateKey(t *testing.T, params Parameters) {
  	}
  }
  
@@ -6225,35 +6219,30 @@ index 375333a70cf686..e89556b3ab9806 100644
  func TestAllocations(t *testing.T) {
  	// We allocate
  	//
-@@ -171,6 +208,10 @@ func TestAllocations(t *testing.T) {
- 		// The PCT does a sign/verify cycle, which allocates a signature slice.
- 		expected += 1
- 	}
-+	if runtime.GOOS == "linux" && fips140.Enabled() {
-+		// Linux FIPS runs take one additional allocation in the Go path.
-+		expected += 1
-+	}
- 	if fips140.Version() == "v1.26.0" {
- 		// The v1.26.0 implementation precomputes PublicKey, making it large
- 		// enough to require heap allocation. Add pk, its inner struct, and the
-@@ -178,13 +219,28 @@ func TestAllocations(t *testing.T) {
+@@ -178,13 +214,34 @@ func TestAllocations(t *testing.T) {
  		expected += 3
  	}
  	cryptotest.SkipTestAllocations(t)
-+	// ML-DSA-65 is implemented by every crypto backend. When one is enabled, key
-+	// generation, parsing, signing, and verification route through the backend,
-+	// whose allocation profile differs by platform and backend implementation.
 +	params := MLDSA65()
-+	if boring.Enabled && boring.SupportsMLDSA(boring.MLDSA65()) {
-+		switch runtime.GOOS {
-+		case "darwin", "windows":
-+			expected = 16
-+		case "linux":
-+			// OpenSSL-backed ML-DSA may allocate extra wrapper/import objects.
-+			expected = 32
-+		default:
-+			t.Fatalf("unexpected GOOS for systemcrypto backend test: %q", runtime.GOOS)
-+		}
++	switch {
++	case boring.Enabled && boring.SupportsMLDSA(boring.MLDSA65()):
++		// The crypto backend implements ML-DSA-65 on this host, so key
++		// generation, parsing, signing, and verification route through it rather
++		// than the Go module. The backend's allocation count is
++		// implementation-defined, so it replaces the Go expectation above. This
++		// count was measured with the darwin/CryptoKit backend; the OpenSSL and
++		// CNG backends are only reachable where the system cryptography library
++		// implements ML-DSA, which no CI runner currently provides, so they share
++		// this expectation until they can be measured.
++		expected = 12
++	case boring.Enabled:
++		// The crypto backend is built in but does not implement ML-DSA on this
++		// host (for example an OpenSSL, Windows, or macOS release that predates
++		// ML-DSA support), so the operations fall back to the Go module. The
++		// wrapper key structs hold a pointer to the backend key rather than
++		// embedding it, so they are only one word larger than upstream, which
++		// costs at most one extra allocation.
++		expected += 1
 +	}
  	if allocs := testing.AllocsPerRun(100, func() {
 -		k, err := GenerateKey(MLDSA44())
@@ -6267,7 +6256,7 @@ index 375333a70cf686..e89556b3ab9806 100644
  		if err != nil {
  			t.Fatalf("NewPrivateKey: %v", err)
  		}
-@@ -192,7 +248,7 @@ func TestAllocations(t *testing.T) {
+@@ -192,7 +249,7 @@ func TestAllocations(t *testing.T) {
  			t.Fatalf("keys not equal")
  		}
  		pkBytes := k.PublicKey().Bytes()
