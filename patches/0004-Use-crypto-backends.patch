@@ -38,7 +38,7 @@ Subject: [PATCH] Use crypto backends
  src/crypto/fips140/enforcement_test.go        |   4 +
  src/crypto/fips140/fips140.go                 |   3 +-
  src/crypto/hkdf/hkdf.go                       |  14 ++
- src/crypto/hkdf/hkdf_test.go                  |  25 ++-
+ src/crypto/hkdf/hkdf_test.go                  |  32 ++-
  src/crypto/hmac/hmac.go                       |  16 +-
  src/crypto/hmac/hmac_test.go                  |  25 ++-
  src/crypto/hpke/aead.go                       |  14 +-
@@ -101,7 +101,7 @@ Subject: [PATCH] Use crypto backends
  src/hash/notboring_test.go                    |   9 +
  src/net/lookup_test.go                        |   3 +
  src/os/exec/exec_test.go                      |   9 +
- 97 files changed, 1562 insertions(+), 190 deletions(-)
+ 97 files changed, 1569 insertions(+), 190 deletions(-)
  create mode 100644 src/crypto/dsa/boring.go
  create mode 100644 src/crypto/dsa/notboring.go
  create mode 100644 src/crypto/ecdsa/badlinkname.go
@@ -1480,14 +1480,15 @@ index 88439922a5032e..5a3ae17e80efbc 100644
  }
  
 diff --git a/src/crypto/hkdf/hkdf_test.go b/src/crypto/hkdf/hkdf_test.go
-index 57d90f88e93e75..8306dbbf5ad515 100644
+index 57d90f88e93e75..772530c071c45a 100644
 --- a/src/crypto/hkdf/hkdf_test.go
 +++ b/src/crypto/hkdf/hkdf_test.go
-@@ -6,13 +6,15 @@ package hkdf
+@@ -6,13 +6,17 @@ package hkdf
  
  import (
  	"bytes"
 -	"crypto/internal/boring"
++	"crypto"
 +	boring "crypto/internal/backend"
  	"crypto/internal/fips140"
  	"crypto/md5"
@@ -1496,11 +1497,12 @@ index 57d90f88e93e75..8306dbbf5ad515 100644
 +	"crypto/sha3"
  	"crypto/sha512"
  	"hash"
++	"runtime"
 +	"strings"
  	"testing"
  )
  
-@@ -345,6 +347,27 @@ func TestHKDFLimit(t *testing.T) {
+@@ -345,6 +349,32 @@ func TestHKDFLimit(t *testing.T) {
  	}
  }
  
@@ -1516,9 +1518,14 @@ index 57d90f88e93e75..8306dbbf5ad515 100644
 +		if strings.Contains(err.Error(), "too large") {
 +			t.Fatalf("issue #2356 regression: %v", err)
 +		}
-+		// Some backends (for example macOS CryptoKit) do not implement HKDF
-+		// with SHA-3 at all. That is a separate limitation, not issue #2356.
-+		t.Skipf("backend does not support HKDF with SHA-3: %v", err)
++		// The macOS CryptoKit backend does not implement HKDF with SHA-3; that
++		// is a separate backend limitation, not issue #2356. Every other
++		// configuration is expected to succeed, so only skip in that known case
++		// and fail otherwise rather than hiding an unexpected error.
++		if boring.Enabled && runtime.GOOS == "darwin" && boring.SupportsHash(crypto.SHA3_256) {
++			t.Skipf("CryptoKit backend does not support HKDF with SHA-3: %v", err)
++		}
++		t.Fatalf("HKDF with SHA3-256 failed: %v", err)
 +	}
 +	if len(out) != 32 {
 +		t.Fatalf("HKDF with SHA3-256 produced %d bytes, want 32", len(out))
