@@ -50,11 +50,14 @@ Then, look for a line that contains `microsoft_toolset_version`.
 Otherwise, look for one of these clues:
 
 * `microsoft_systemcrypto=1`
-* `GOEXPERIMENT=systemcrypto`
+* `GOEXPERIMENT=systemcrypto` in binaries built with Go 1.26 or earlier
 
 `systemcrypto` is unique to the Microsoft build of Go, so if either of these strings is present, it confirms that the binary is built by the Microsoft build of Go.
 
 If `GOEXPERIMENT=nosystemcrypto` is present (note the `no` prefix), it also confirms that the binary was built with the Microsoft build of Go, but it shows that `systemcrypto` was explicitly disabled.
+
+> [!NOTE]
+> In Go 1.27 and later, `systemcrypto` and `nosystemcrypto` are no longer `GOEXPERIMENT` values, so it is expected that `microsoft_systemcrypto=1` will appear without a `GOEXPERIMENT` string.
 
 If none of the above are present, we can't confirm which build of Go was used.
 However, this situation means that the application doesn't meet Microsoft internal crypto policy, which may be enough information in some cases.

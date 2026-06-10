@@ -119,14 +119,15 @@ That page provides links that redirect to the latest version and also immutable 
 
 ## Enable `systemcrypto`
 
-These instructions are for projects using versions of Go that don't enable `systemcrypto` by default.
-Starting with 1.25 (Linux and Windows) and 1.26 (macOS), `systemcrypto` is enabled by default.
+`systemcrypto` is enabled by default on supported platforms in currently supported versions of the Microsoft build of Go.
+You don't need to set `GOEXPERIMENT=systemcrypto`.
 
-To comply with Microsoft internal cryptography policy, enable the `systemcrypto` feature in your build environment before building your project.
-This is done by setting the `GOEXPERIMENT` environment variable to `systemcrypto`.
+Starting with Go 1.27, `systemcrypto` and `nosystemcrypto` are no longer `GOEXPERIMENT` values.
+Remove them from `GOEXPERIMENT` when moving to Go 1.27 or later.
+If you need to opt out of `systemcrypto`, see [Disabling `systemcrypto`](#disabling-systemcrypto).
 
 See [the FIPS documentation sections about build configuration](fips/README.md#usage-common-configurations) for more detailed instructions.
-Even if you don't need FIPS compliance, the `GOEXPERIMENT` instructions are located in that document.
+Even if you don't need FIPS compliance, the `systemcrypto` build configuration instructions are located in that document.
 
 ## Testing
 
@@ -141,7 +142,8 @@ After switching to the Microsoft build of Go, you may encounter new build errors
 
 #### Cgo is not enabled
 
-You may see this error message if cgo is not enabled:
+In Go 1.27 and later, Linux `systemcrypto` can build with `CGO_ENABLED=0` on supported cgo-less OpenSSL architectures.
+If you're using Go 1.26 or earlier, you may see this error message if cgo is not enabled:
 
 ```
 # crypto
@@ -168,16 +170,19 @@ In Go 1.25, you may see this similar error:
 > [!NOTE]
 > In Go 1.26, there is a cgo-less experiment available for Linux: `ms_nocgo_opensslcrypto`.
 >
+> In Go 1.27 and later, cgo-less behavior is part of `systemcrypto` and is selected automatically when cgo is disabled on a supported Linux architecture.
+>
 > For more details, see [cgo-less OpenSSL Backend](NocgoOpenSSL.md).
 
 When building a Go program that imports a `crypto` package (or has a dependency that imports a `crypto` package), the build will check that the build environment and target are compatible with the crypto backend being used.
 If it's incompatible, the build will fail with an error like the above.
 
-When targeting Linux, `systemcrypto` requires cgo.
+In Go 1.26 and earlier, using `systemcrypto` on Linux requires cgo unless the `ms_nocgo_opensslcrypto` experiment is enabled.
 Cgo is disabled by default on some platforms or when a C compiler is not detected.
 Sometimes a project's build scripts might explicitly disable cgo.
 
-In this case, you should first try to install a C compiler, like `gcc`.
+In this case, you should first try upgrading to Go 1.27 or later.
+If you need or want the cgo-based OpenSSL backend or the pre-1.27 Go version, install a C compiler, like `gcc`.
 
 You may also need to set the `CGO_ENABLED` environment variable to `1` or [otherwise enable cgo](https://pkg.go.dev/cmd/cgo).
 
@@ -185,7 +190,8 @@ If this isn't feasible, see [disabling systemcrypto](#disabling-systemcrypto).
 
 #### Missing C toolchain and dependencies
 
-A C toolchain is required to build programs that use `systemcrypto` on Linux.
+A C toolchain is required to build programs that use the cgo-based `systemcrypto` backend on Linux.
+In Go 1.27 and later, Linux builds with `CGO_ENABLED=0` use the cgo-less OpenSSL backend on supported architectures and don't require a C toolchain.
 The errors shown with a partially missing C toolchain can be unintuitive, so some errors and corresponding missing packages with the names they have on Azure Linux 3 are listed below.
 
 ```
@@ -239,14 +245,31 @@ go: unknown GOEXPERIMENT systemcrypto
 go.exe: unknown GOEXPERIMENT systemcrypto
 ```
 
-This error indicates you aren't using the Microsoft build of Go.
-It happens when the `GOEXPERIMENT` environment variable includes `systemcrypto` (or `nosystemcrypto`) and the Go toolset doesn't recognize it.
+This error usually indicates you aren't using the Microsoft build of Go.
 
 If you're trying to migrate to the Microsoft build of Go, check your build environment to ensure that the `go` command is the Microsoft build of Go.
 See [Microsoft Toolset Identification](./MicrosoftToolsetIdentification.md).
 
 If you're trying to make a build command compliant with Microsoft crypto policy but still compatible with **both the Microsoft build of Go and the official Go distribution**, remove `systemcrypto` from `GOEXPERIMENT`.
-`systemcrypto` is enabled by default, so it's not necessary to specify it using `GOEXPERIMENT`.
+`systemcrypto` is enabled by default in the Microsoft build of Go, so it's not necessary to specify it using `GOEXPERIMENT`.
+
+See [Disabling `systemcrypto`](#disabling-systemcrypto) for information about how to disable `systemcrypto` if you need to temporarily avoid migrating to it.
+
+#### Removed GOEXPERIMENT systemcrypto or nosystemcrypto
+
+In Go 1.27 or later, the Microsoft build of Go reports these errors when obsolete `GOEXPERIMENT` values are used:
+
+```
+GOEXPERIMENT=systemcrypto has been removed; system crypto is enabled automatically on supported platforms and can be disabled with MS_GO_NOSYSTEMCRYPTO=1
+```
+
+```
+GOEXPERIMENT=nosystemcrypto has been removed; use MS_GO_NOSYSTEMCRYPTO=1 to disable system crypto; note that systemcrypto supports CGO_ENABLED=0 since Go 1.27
+```
+
+These errors happen when the `GOEXPERIMENT` environment variable includes `systemcrypto` or `nosystemcrypto`.
+In Go 1.27 and later, remove both values from `GOEXPERIMENT`.
+The `systemcrypto` backend is enabled automatically on supported platforms, and it can be disabled with `MS_GO_NOSYSTEMCRYPTO=1` if you have an approved exception.
 
 See [Disabling `systemcrypto`](#disabling-systemcrypto) for information about how to disable `systemcrypto` if you need to temporarily avoid migrating to it.
 
@@ -315,7 +338,7 @@ Application code and libraries that use Windows paths may need to be updated to 
 ./app: /lib/x86_64-linux-gnu/libc.so.6: version `GLIBC_2.34' not found (required by ./app)
 ```
 
-When building a program with cgo on Linux (required when using `systemcrypto`), the system's glibc version is linked into the binary.
+When building a program with the cgo-based `systemcrypto` backend on Linux, the system's glibc version is linked into the binary.
 When the program runs on a different system with an older version of glibc, it may fail to start with an error like the above.
 
 There are several approaches to resolve this problem:
