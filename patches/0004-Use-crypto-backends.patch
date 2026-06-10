@@ -38,9 +38,9 @@ Subject: [PATCH] Use crypto backends
  src/crypto/fips140/enforcement_test.go        |   4 +
  src/crypto/fips140/fips140.go                 |   3 +-
  src/crypto/hkdf/hkdf.go                       |  14 ++
- src/crypto/hkdf/hkdf_test.go                  |   2 +-
+ src/crypto/hkdf/hkdf_test.go                  |  25 ++-
  src/crypto/hmac/hmac.go                       |  16 +-
- src/crypto/hmac/hmac_test.go                  |   2 +-
+ src/crypto/hmac/hmac_test.go                  |  25 ++-
  src/crypto/hpke/aead.go                       |  14 +-
  src/crypto/internal/cryptotest/allocations.go |   6 -
  src/crypto/internal/cryptotest/fips140.go     |   8 +
@@ -101,7 +101,7 @@ Subject: [PATCH] Use crypto backends
  src/hash/notboring_test.go                    |   9 +
  src/net/lookup_test.go                        |   3 +
  src/os/exec/exec_test.go                      |   9 +
- 97 files changed, 1516 insertions(+), 190 deletions(-)
+ 97 files changed, 1562 insertions(+), 190 deletions(-)
  create mode 100644 src/crypto/dsa/boring.go
  create mode 100644 src/crypto/dsa/notboring.go
  create mode 100644 src/crypto/ecdsa/badlinkname.go
@@ -1480,10 +1480,10 @@ index 88439922a5032e..5a3ae17e80efbc 100644
  }
  
 diff --git a/src/crypto/hkdf/hkdf_test.go b/src/crypto/hkdf/hkdf_test.go
-index 57d90f88e93e75..4069ab057a2525 100644
+index 57d90f88e93e75..8306dbbf5ad515 100644
 --- a/src/crypto/hkdf/hkdf_test.go
 +++ b/src/crypto/hkdf/hkdf_test.go
-@@ -6,7 +6,7 @@ package hkdf
+@@ -6,13 +6,15 @@ package hkdf
  
  import (
  	"bytes"
@@ -1492,6 +1492,42 @@ index 57d90f88e93e75..4069ab057a2525 100644
  	"crypto/internal/fips140"
  	"crypto/md5"
  	"crypto/sha1"
+ 	"crypto/sha256"
++	"crypto/sha3"
+ 	"crypto/sha512"
+ 	"hash"
++	"strings"
+ 	"testing"
+ )
+ 
+@@ -345,6 +347,27 @@ func TestHKDFLimit(t *testing.T) {
+ 	}
+ }
+ 
++// TestHKDFSHA3 is a regression test for
++// https://github.com/microsoft/go/issues/2356. When a system crypto backend
++// provided SHA-3, the hash returned by [sha3.New256] reported Size() == 0 after
++// being unwrapped for the FIPS module, so HKDF computed a maximum output length
++// of 0 and rejected any positive key length with "requested key length too
++// large".
++func TestHKDFSHA3(t *testing.T) {
++	out, err := Key(sha3.New256, []byte("hkdf sha3 secret"), nil, "", 32)
++	if err != nil {
++		if strings.Contains(err.Error(), "too large") {
++			t.Fatalf("issue #2356 regression: %v", err)
++		}
++		// Some backends (for example macOS CryptoKit) do not implement HKDF
++		// with SHA-3 at all. That is a separate limitation, not issue #2356.
++		t.Skipf("backend does not support HKDF with SHA-3: %v", err)
++	}
++	if len(out) != 32 {
++		t.Fatalf("HKDF with SHA3-256 produced %d bytes, want 32", len(out))
++	}
++}
++
+ func Benchmark16ByteMD5Single(b *testing.B) {
+ 	benchmarkHKDF(md5.New, 16, b)
+ }
 diff --git a/src/crypto/hmac/hmac.go b/src/crypto/hmac/hmac.go
 index e7976e25193dfe..58b357ee52c328 100644
 --- a/src/crypto/hmac/hmac.go
@@ -1534,18 +1570,53 @@ index e7976e25193dfe..58b357ee52c328 100644
  }
  
 diff --git a/src/crypto/hmac/hmac_test.go b/src/crypto/hmac/hmac_test.go
-index 4046a9555a8e35..4721a2a7ac04f7 100644
+index 4046a9555a8e35..3915869b84a69b 100644
 --- a/src/crypto/hmac/hmac_test.go
 +++ b/src/crypto/hmac/hmac_test.go
-@@ -5,7 +5,7 @@
+@@ -5,15 +5,18 @@
  package hmac
  
  import (
 -	"crypto/internal/boring"
++	"crypto"
 +	boring "crypto/internal/backend"
  	"crypto/internal/cryptotest"
  	"crypto/md5"
  	"crypto/sha1"
+ 	"crypto/sha256"
++	"crypto/sha3"
+ 	"crypto/sha512"
+ 	"errors"
+ 	"fmt"
+ 	"hash"
++	"runtime"
+ 	"testing"
+ )
+ 
+@@ -693,3 +696,23 @@ func BenchmarkNewWriteSum(b *testing.B) {
+ 		buf[0] = mac[0]
+ 	}
+ }
++
++// TestHMACSHA3 is a regression test for
++// https://github.com/microsoft/go/issues/2356. [New] used to spin forever when
++// given a SHA-3 hash under a system crypto backend, because the backend HMAC
++// constructor received the still-wrapped *sha3.SHA3 instead of the unwrapped
++// hash. The hash must now be unwrapped before the backend sees it.
++func TestHMACSHA3(t *testing.T) {
++	if boring.Enabled && runtime.GOOS == "darwin" && boring.SupportsHash(crypto.SHA3_256) {
++		// The macOS CryptoKit backend advertises SHA-3 hashing but aborts the
++		// process when asked for HMAC-SHA3. That is a separate backend
++		// limitation tracked on its own; skip so this regression test stays
++		// portable.
++		t.Skip("CryptoKit backend does not support HMAC-SHA3")
++	}
++	h := New(func() hash.Hash { return sha3.New256() }, []byte("key"))
++	h.Write([]byte("message"))
++	if got := len(h.Sum(nil)); got != 32 {
++		t.Fatalf("HMAC with SHA3-256 produced %d bytes, want 32", got)
++	}
++}
 diff --git a/src/crypto/hpke/aead.go b/src/crypto/hpke/aead.go
 index fb55c97ddf20c9..fb036863cde2dd 100644
 --- a/src/crypto/hpke/aead.go
