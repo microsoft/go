@@ -7,27 +7,26 @@ investigate issues. Platforms outside this scope are provided support on a
 best-effort basis with no guarantees.
 
 For information about which platforms have prebuilt toolset binaries available,
-see [eng/doc/Downloads.md](eng/doc/Downloads.md).
+see [Downloads.md](Downloads.md).
 
 ## Platform Support Matrix
 
 | OS/Arch | Minimum Versions | Crypto Backend | Notes |
 |---------|-----------------|----------------|-------|
-| linux-amd64 | Azure Linux 3.0+, Ubuntu 22.04+ | OpenSSL | |
-| linux-arm64 | Azure Linux 3.0+, Ubuntu 22.04+ | OpenSSL | |
-| linux-armv6l | Ubuntu 22.04+ | OpenSSL | |
-| windows-amd64 | Windows 10+, Windows Server 2016+ | CNG | |
-| windows-arm64 | Windows 11+, Windows Server 2025+ | CNG | |
-| darwin-amd64 | macOS 13+ | CryptoKit/CommonCrypto | Added in Go 1.24 |
-| darwin-arm64 | macOS 13+ | CryptoKit/CommonCrypto | Added in Go 1.24 |
+| linux/amd64 | Azure Linux 3.0+, Ubuntu 22.04+ | OpenSSL | |
+| linux/arm64 | Azure Linux 3.0+, Ubuntu 22.04+ | OpenSSL | |
+| linux/arm32 | Ubuntu 22.04+ | OpenSSL | |
+| windows/amd64 | Windows 10+, Windows Server 2016+ | CNG | |
+| windows/arm64 | Windows 11+, Windows Server 2025+ | CNG | |
+| darwin/amd64 | macOS 13+ | CryptoKit/CommonCrypto | Added in Go 1.24 |
+| darwin/arm64 | macOS 13+ | CryptoKit/CommonCrypto | Added in Go 1.24 |
 
 ## OpenSSL Versions
 
 The following OpenSSL versions are supported on Linux platforms:
 
-- OpenSSL 1.1.1
-- OpenSSL 3.x (built-in providers, or SymCrypt provider v1.6.0+)
-- OpenSSL 4.x (built-in providers)
+- OpenSSL 1.1.0 and 1.1.1
+- OpenSSL 3.x (built-in providers, or SymCrypt provider v1.6.1+)
 
 ## Getting Help
 
