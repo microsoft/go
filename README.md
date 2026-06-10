@@ -70,7 +70,7 @@ cross-compilation may be necessary.
 * `darwin_amd64`
 * `darwin_arm64`
 
-For detailed platform support information across different Go versions, see [SUPPORTED_PLATFORMS.md](SUPPORTED_PLATFORMS.md).
+For detailed platform support information across different Go versions, see [eng/doc/SupportedPlatforms.md](eng/doc/SupportedPlatforms.md).
 
 The following sections list the ways to get a build of the Microsoft fork of Go.
 
