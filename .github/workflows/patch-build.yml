@@ -10,17 +10,35 @@ on:
   pull_request:
     branches: [ microsoft/* ]
 
+# Cancel existing runs if user makes another push.
 concurrency:
-  group: ${{ github.ref }}
-  cancel-in-progress: ${{ github.ref != 'refs/heads/microsoft/main' }}
+  group: "${{ github.ref }}-${{ github.workflow}}"
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  build_patches:
-    name: Patches Build in Order
+  list_patches:
+    name: Generate patch build matrix
     runs-on: ubuntu-latest
+    outputs:
+      patches: ${{ steps.list.outputs.patches }}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+
+      - name: Write patch matrix
+        id: list
+        run: pwsh eng/run.ps1 write-patch-matrix -github-actions
+
+  build_patches:
+    name: "Build up to ${{ matrix.patch.name }}"
+    needs: list_patches
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        patch: ${{ fromJson(needs.list_patches.outputs.patches) }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
           submodules: true
 
@@ -29,19 +47,17 @@ jobs:
           git config --global user.email "joe@blogs.com"
           git config --global user.name "Joe Blogs"
 
-      - name: Build patches
+      - name: Apply patches 1-${{ matrix.patch.number }}
+        run: pwsh eng/run.ps1 submodule-refresh -commits -take ${{ matrix.patch.number }}
+
+      - name: Build
         run: |
-          for file in $(ls -v patches/*.patch); do
-            echo "::group::Building $file"
-            cd ${{ github.workspace }}/go
-            git am --whitespace=nowarn ${{ github.workspace }}/$file
-            cd ${{ github.workspace }}/go/src
-            bash make.bash
-            ${{ github.workspace }}/go/bin/go mod vendor
-            cd ${{ github.workspace }}/go/src/cmd
-            ${{ github.workspace }}/go/bin/go mod vendor
-            cd ${{ github.workspace }}/go/src
-            # Check if the vendor directory is clean
-            git diff --exit-code vendor cmd/vendor || (echo "Vendor directories are not clean. Please run 'go mod vendor' in the appropriate directories and commit the changes." && exit 1)
-            echo "::endgroup::"
-          done
+          set -x
+          pwsh eng/run.ps1 build
+          cd ${{ github.workspace }}/go/src
+          ${{ github.workspace }}/go/bin/go mod vendor
+          cd ${{ github.workspace }}/go/src/cmd
+          ${{ github.workspace }}/go/bin/go mod vendor
+          cd ${{ github.workspace }}/go/src
+          # Check if the vendor directory is clean
+          git diff --exit-code vendor cmd/vendor || (echo "Vendor directories are not clean. Please run 'go mod vendor' in the appropriate directories and commit the changes." && exit 1)

@@ -1,0 +1,403 @@
+# Migration Guide: Microsoft build of Go
+
+This guide provides high-level guidance to help migrate from the [official Go distribution](https://go.dev/) to the [Microsoft build of Go](https://github.com/microsoft/go), comply with Microsoft internal cryptography policy, and (in some cases) build a FIPS compliant Go program.
+It's intended for developers who work on a Go project at Microsoft.
+
+The Microsoft build of Go is designed to be a drop-in replacement for official Go.
+It's a fork, and some runtime behavior slightly differs, but in most cases it has full compatibility with ordinary Go projects.
+We expect that most projects don't require any Go code changes to work with the Microsoft build of Go.
+
+Note that the Microsoft build of Go has [toolset telemetry enabled by default](https://devblogs.microsoft.com/go/microsoft-go-telemetry/) (opt-out telemetry).
+See the [Telemetry documentation](/eng/doc/Telemetry.md) for details on what is collected and how to opt out.
+See also [the Data Collection policy for the Microsoft build of Go](/README.md#data-collection).
+
+## Quick start
+
+To comply with Microsoft internal policy for the use of Go, most projects need to:
+
+1. [Use the Microsoft build of Go **for CI (Continuous Integration) and build environments.**](#ci-and-build-environment-migration-steps)
+    - See [Microsoft Toolset Identification](./MicrosoftToolsetIdentification.md) if it's not clear which distribution of Go you're currently using.
+1. [**Test** your program.](#testing)
+    - It's important to test on all target platforms. The changes to runtime behavior are platform-specific.
+1. Consider **whether your project must be FIPS compliant** and if so, [**review your project**](#review-project-for-fips-compliance).
+    - For example, FedRAMP approval generally requires FIPS compliance.
+    - Using `systemcrypto` is not sufficient to claim FIPS compliance. A specific review is necessary.
+
+For local development, it's not required to use the Microsoft build of Go.
+Consider [installing the toolset](/README.md#download-and-install) on a developer machine if you need to use it to debug behavior that's specific to the Microsoft build.
+
+Like the official Go distribution, the Microsoft build of Go has no Go runtime component that must be installed in the target environment.
+Your Go application is still a single executable binary.
+However, in some cases, it may now have additional dependencies.
+
+> [!TIP]
+> Regardless of which method you use to install Go, we recommend picking a specific major version of Go and setting up your build system to use the latest update to that major version.
+> (For example, `1.26.*`. This is also called "pinning" to major version `26`.)
+> Both official Go and the Microsoft build of Go occasionally have breaking changes in new major versions, and pinning lets you migrate to the next major version at your own pace.
+>
+> However, pinning increases maintenance burden when there are no breaking changes, because you are responsible for making sure you aren't using a version of Go that is past End-of-Life (EOL) and insecure.
+> Some projects may prefer to always use the latest version of Go to be sure they never miss maintenance, even though this puts the project at risk of unexpected breaks when a new major version is released.
+> Ultimately, these risks must be evaluated in the context of each project.
+
+## What's different?
+
+The Microsoft build of Go includes [patches](/patches/) that:
+
+- **Integrate `crypto` packages with system-provided cryptographic engines** on Linux, Windows and macOS.
+- **Enable FIPS compliance** in a way compatible with Microsoft internal crypto policy: using system-provided engines.
+- **Enhance FIPS mode runtime behavior** for scenarios we have encountered in Microsoft's and others' Go applications.
+- **Add [toolset telemetry](https://devblogs.microsoft.com/go/microsoft-go-telemetry/)**, enabled by default.
+- **Disable [GOTOOLCHAIN](https://go.dev/doc/toolchain) by default** to avoid mixups with the official Go distribution.
+- **Remove use of undocumented Windows APIs** for compatibility, security, and compliance.
+- **Embed Microsoft-specific version information** into built Go binaries for [easier identification](./MicrosoftToolsetIdentification.md).
+
+For a detailed description of every feature, see the [Additional Features](./AdditionalFeatures.md) document.
+
+## CI and build environment migration steps
+
+This section describes some migration scenarios we know about and the path we recommend following for each one.
+
+> [!NOTE]
+> Any method of installing the Microsoft build of Go specified [in the Installation guide](Installation.md) is valid.
+> If you see a good fit, go ahead and use it.
+>
+> The scenarios in the following sections simply offer targeted guidance to help find the easiest approach.
+
+### A CI task or action that installs Go
+
+If your CI system has a built-in task or action that installs Go, it may support installing the Microsoft build of Go:
+
+* **Azure Pipelines:** use the [`GoTool@0` task](Installation.md#azure-pipelines-gotool0-task).
+* **GitHub Actions:** use the [`actions/setup-go` action](Installation.md#github-actions-setup-go-action).
+
+### A `go` toolset that happens to be on my build agent
+
+Some build agents (VMs, containers, etc.) have `go` conveniently pre-installed, but it's the official distribution of Go rather than the Microsoft build.
+A universal migration is to use [the cross-platform `go-install.ps1` script](Installation.md#the-go-installps1-script).
+However, we recommend looking at these options first:
+
+* Request that your agent provider includes the Microsoft build of Go.
+* Pick a different agent.
+* Run a [container job that uses Microsoft build of Go container image](#an-azure-pipelines-container-job-referring-to-the-official-golang-container-image).
+
+### An Azure Pipelines container job referring to the official `golang` container image
+
+If you use [container jobs](https://learn.microsoft.com/en-us/azure/devops/pipelines/process/container-phases?view=azure-devops&tabs=linux) with the official Go container images on Dockerhub (or a mirror), swap the image to a Microsoft build of Go container image hosted on MAR (Microsoft Artifact Registry).
+
+You may be able to simply prepend `mcr.microsoft.com/oss/go/microsoft/` to your tag reference.
+
+See the [Microsoft build of Go container image documentation](https://github.com/microsoft/go-images/blob/microsoft/main/README.md) for more information about available container images.
+
+### A Dockerfile based on the official `golang` image
+
+You may be able to simply prepend `mcr.microsoft.com/oss/go/microsoft/` to your `BASE` tag reference.
+See the [Microsoft build of Go container image documentation](https://github.com/microsoft/go-images/blob/microsoft/main/README.md) for more information about available container images.
+
+> [!Note]
+> Make sure to [use a multi-stage Dockerfile](https://docs.docker.com/build/building/multi-stage/) so you don't deploy all build dependencies to production.
+> The Microsoft build of Go's container images are designed to be used for the build stage, not the final, deployment, stage.
+
+### The Azure Linux 3 `golang` package
+
+The `golang` package in the Azure Linux 3 Linux distribution is the Microsoft build of Go.
+If you're using it, no action is needed.
+
+### An Ubuntu `golang` package
+
+Ubuntu packages for the Microsoft build of Go are `msft-golang` on the [Linux Software Repository for Microsoft Products](https://learn.microsoft.com/en-us/linux/packages), also known as PMC (packages.microsoft.com).
+Install instructions [are in the Installation Guide](Installation.md#ubuntu).
+
+### A OneBranch Azure Pipeline
+
+We are not aware of an enhanced migration path for OneBranch pipelines that should be preferred over the Azure Pipelines migrations mentioned above.
+See the above sections for [`GoTool@0`](#the-gotool0-azure-pipelines-task) and [container jobs](#an-azure-pipelines-container-job-referring-to-the-official-golang-container-image) to find the best fit for your project.
+
+### Direct download of the Go `tar.gz` or `zip` file
+
+If you currently download an archived binary release of Go directly, you can switch to [Microsoft build of Go binary archives](https://github.com/microsoft/go/blob/microsoft/main/eng/doc/Downloads.md).
+That page provides links that redirect to the latest version and also immutable links to specific releases.
+
+## Enable `systemcrypto`
+
+`systemcrypto` is enabled by default on supported platforms in currently supported versions of the Microsoft build of Go.
+You don't need to set `GOEXPERIMENT=systemcrypto`.
+
+Starting with Go 1.27, `systemcrypto` and `nosystemcrypto` are no longer `GOEXPERIMENT` values.
+Remove them from `GOEXPERIMENT` when moving to Go 1.27 or later.
+If you need to opt out of `systemcrypto`, see [Disabling `systemcrypto`](#disabling-systemcrypto).
+
+See [the FIPS documentation sections about build configuration](fips/README.md#usage-common-configurations) for more detailed instructions.
+Even if you don't need FIPS compliance, the `systemcrypto` build configuration instructions are located in that document.
+
+## Testing
+
+Make sure pipelines that run `go test` also use the Microsoft build of Go.
+It's important that tests exercise the same runtime behavior as a build that is eventually deployed or shipped.
+
+We recommend that in addition to your normal tests, you [examine your final binary](./MicrosoftToolsetIdentification.md#examining-go-binaries) to confirm that it was built with the Microsoft build of Go.
+
+### Common build issues
+
+After switching to the Microsoft build of Go, you may encounter new build errors.
+
+#### Cgo is not enabled
+
+In Go 1.27 and later, Linux `systemcrypto` can build with `CGO_ENABLED=0` on supported cgo-less OpenSSL architectures.
+If you're using Go 1.26 or earlier, you may see this error message if cgo is not enabled:
+
+```
+# crypto
+../../../sdk/msgo1.26.0-1/src/crypto/systemcrypto_nocgo_linux.go:10:2: `
+        Using GOEXPERIMENT=systemcrypto on Linux requires CGO_ENABLED=1.
+
+        Consider using our cgo-less experiment by setting GOEXPERIMENT=ms_nocgo_opensslcrypto.
+
+        For more information, visit https://github.com/microsoft/go/blob/microsoft/main/eng/doc/MigrationGuide.md#cgo-is-not-enabled
+        ` (untyped string constant "\n\tUsing GOEXPERIMENT=systemcrypto on Linux requires CGO_ENABLED=1....) is not used
+```
+
+In Go 1.25, you may see this similar error:
+
+```
+# crypto
+../../../sdk/msgo1.25.7-1/src/crypto/systemcrypto_nocgo.go:10:2: `
+        Using a crypto backend requires CGO_ENABLED=1.
+
+        For more information, visit https://github.com/microsoft/go/tree/microsoft/main/eng/doc/fips
+        ` (untyped string constant "\n\tUsing a crypto backend requires CGO_ENABLED=1.\n\t\n\tFor more i...) is not used
+```
+
+> [!NOTE]
+> In Go 1.26, there is a cgo-less experiment available for Linux: `ms_nocgo_opensslcrypto`.
+>
+> In Go 1.27 and later, cgo-less behavior is part of `systemcrypto` and is selected automatically when cgo is disabled on a supported Linux architecture.
+>
+> For more details, see [cgo-less OpenSSL Backend](NocgoOpenSSL.md).
+
+When building a Go program that imports a `crypto` package (or has a dependency that imports a `crypto` package), the build will check that the build environment and target are compatible with the crypto backend being used.
+If it's incompatible, the build will fail with an error like the above.
+
+In Go 1.26 and earlier, using `systemcrypto` on Linux requires cgo unless the `ms_nocgo_opensslcrypto` experiment is enabled.
+Cgo is disabled by default on some platforms or when a C compiler is not detected.
+Sometimes a project's build scripts might explicitly disable cgo.
+
+In this case, you should first try upgrading to Go 1.27 or later.
+If you need or want the cgo-based OpenSSL backend or the pre-1.27 Go version, install a C compiler, like `gcc`.
+
+You may also need to set the `CGO_ENABLED` environment variable to `1` or [otherwise enable cgo](https://pkg.go.dev/cmd/cgo).
+
+If this isn't feasible, see [disabling systemcrypto](#disabling-systemcrypto).
+
+#### Missing C toolchain and dependencies
+
+A C toolchain is required to build programs that use the cgo-based `systemcrypto` backend on Linux.
+In Go 1.27 and later, Linux builds with `CGO_ENABLED=0` use the cgo-less OpenSSL backend on supported architectures and don't require a C toolchain.
+The errors shown with a partially missing C toolchain can be unintuitive, so some errors and corresponding missing packages with the names they have on Azure Linux 3 are listed below.
+
+```
+# runtime/cgo
+cgo: C compiler "gcc" not found: exec: "gcc": executable file not found in $PATH
+```
+
+`gcc`
+
+```
+_cgo_export.c:3:10: fatal error: stdlib.h: No such file or directory
+    3 | #include <stdlib.h>
+      |          ^~~~~~~~~~
+```
+
+`glibc-devel`
+
+```
+gcc: fatal error: cannot execute ‘as’: execvp: No such file or directory
+```
+
+`binutils`
+
+```
+In file included from /usr/include/errno.h:28,
+                 from cgo-gcc-prolog:32:
+/usr/include/bits/errno.h:26:11: fatal error: linux/errno.h: No such file or directory
+   26 | # include <linux/errno.h>
+      |           ^~~~~~~~~~~~~~~
+```
+
+`kernel-headers`
+
+If you're using Azure Linux 3, you can run this command to make sure all required C toolchain packages are installed:
+
+```bash
+sudo tdnf install gcc glibc-devel binutils kernel-headers
+```
+
+Alternatively, the `build-essential` package contains all of these packages and more.
+
+If this isn't feasible, see [disabling systemcrypto](#disabling-systemcrypto).
+
+#### Unknown GOEXPERIMENT systemcrypto
+
+```
+go: unknown GOEXPERIMENT systemcrypto
+```
+
+```
+go.exe: unknown GOEXPERIMENT systemcrypto
+```
+
+This error usually indicates you aren't using the Microsoft build of Go.
+
+If you're trying to migrate to the Microsoft build of Go, check your build environment to ensure that the `go` command is the Microsoft build of Go.
+See [Microsoft Toolset Identification](./MicrosoftToolsetIdentification.md).
+
+If you're trying to make a build command compliant with Microsoft crypto policy but still compatible with **both the Microsoft build of Go and the official Go distribution**, remove `systemcrypto` from `GOEXPERIMENT`.
+`systemcrypto` is enabled by default in the Microsoft build of Go, so it's not necessary to specify it using `GOEXPERIMENT`.
+
+See [Disabling `systemcrypto`](#disabling-systemcrypto) for information about how to disable `systemcrypto` if you need to temporarily avoid migrating to it.
+
+#### Removed GOEXPERIMENT systemcrypto or nosystemcrypto
+
+In Go 1.27 or later, the Microsoft build of Go reports these errors when obsolete `GOEXPERIMENT` values are used:
+
+```
+GOEXPERIMENT=systemcrypto has been removed; system crypto is enabled automatically on supported platforms and can be disabled with MS_GO_NOSYSTEMCRYPTO=1
+```
+
+```
+GOEXPERIMENT=nosystemcrypto has been removed; use MS_GO_NOSYSTEMCRYPTO=1 to disable system crypto; note that systemcrypto supports CGO_ENABLED=0 since Go 1.27
+```
+
+These errors happen when the `GOEXPERIMENT` environment variable includes `systemcrypto` or `nosystemcrypto`.
+In Go 1.27 and later, remove both values from `GOEXPERIMENT`.
+The `systemcrypto` backend is enabled automatically on supported platforms, and it can be disabled with `MS_GO_NOSYSTEMCRYPTO=1` if you have an approved exception.
+
+See [Disabling `systemcrypto`](#disabling-systemcrypto) for information about how to disable `systemcrypto` if you need to temporarily avoid migrating to it.
+
+### Common test or runtime issues
+
+#### Missing OpenSSL or SymCrypt dependencies
+
+```
+panic: opensslcrypto: can't initialize OpenSSL libcrypto.so: openssl: can't load libcrypto.so: libcrypto.so: cannot open shared object file: No such file or directory
+```
+
+You may be missing a required runtime dependency.
+Required OpenSSL packages on Azure Linux 3 are:
+
+- `openssl`
+- `symcrypt` `>=` 103.6.0-1
+- `symcrypt-openssl` (SCOSSL) `>=` 1.6.1-1
+
+You may need to run `tdnf install -y openssl symcrypt symcrypt-openssl`.
+Otherwise, identify why these packages are not present.
+
+If your system has a `libcrypto.so[...]` file that doesn't follow [the expected naming conventions, you can set the `GO_OPENSSL_VERSION_OVERRIDE` environment variable](fips/README.md#runtime-openssl-version-override) to make your Go program look for a specific suffix.
+
+If this isn't feasible, see [disabling systemcrypto](#disabling-systemcrypto).
+
+#### FIPS mode requested but not available
+
+```
+panic: opensslcrypto: FIPS mode requested (environment variable GODEBUG=fips140=on) but not available: OpenSSL 3.3.3 11 Feb 2025
+```
+
+```
+panic: opensslcrypto: FIPS mode requested (requirefips tag set) but not available: OpenSSL 3.3.3 11 Feb 2025
+```
+
+```
+panic: opensslcrypto: FIPS mode requested (system FIPS mode) but not available: OpenSSL 3.3.3 11 Feb 2025
+```
+
+These error messages indicate that the program is attempting to run in FIPS mode, but FIPS mode isn't available on the current system.
+The message in parentheses indicates why the Go program has requested FIPS mode.
+
+On Azure Linux 3, this may be caused by [missing OpenSSL or SymCrypt dependencies](#missing-openssl-or-symcrypt-dependencies).
+
+#### Performance seems significantly worse
+
+We expect performance to be comparable to standard Go.
+Some patterns of using `crypto` may be more particularly impacted than others.
+
+Please [contact us](/SUPPORT.md) for help with specific performance problems.
+
+#### Long path errors on Windows
+
+Removing the use of undocumented Windows APIs unfortunately removed a feature that allows long paths to work by default for Go programs.
+Long paths do work in many scenarios, because the Go standard library uses the `\\?\` prefix when possible.
+However, some use of long paths, in particular outside of the `os` package, may fail.
+
+See [the upstream proposal golang/go#66560](https://github.com/golang/go/issues/66560) for more information on this limitation and why the official Go distribution uses the undocumented API.
+
+Application code and libraries that use Windows paths may need to be updated to [use the `\\?\` prefix to exceed the long path limit](https://learn.microsoft.com/en-us/windows/win32/fileio/naming-a-file#win32-file-namespaces).
+
+#### glibc resolution failure on Linux
+
+```
+./app: /lib/x86_64-linux-gnu/libc.so.6: version `GLIBC_2.32' not found (required by ./app)
+./app: /lib/x86_64-linux-gnu/libc.so.6: version `GLIBC_2.34' not found (required by ./app)
+```
+
+When building a program with the cgo-based `systemcrypto` backend on Linux, the system's glibc version is linked into the binary.
+When the program runs on a different system with an older version of glibc, it may fail to start with an error like the above.
+
+There are several approaches to resolve this problem:
+
+- **Always build on the same platform as the target system.** This may be feasible for services, but it makes shipping an application that can run on a variety of Linux systems difficult to manage.
+- **Build on the oldest possible Linux distribution.** This is a common approach, and often works well. However, it may pose a challenge for maintenance, because you need to keep an older system available for builds, and the upgrade window is narrow: you need to upgrade to avoid Linux distro EOL, but not too far in advance to break your compatibility goal.
+- **Use a rootfs that links against an old version of glibc.** This is very effective and also allows cross-compilation, but it requires more complicated setup.
+    - For more information about how to implement this approach, see [microsoft/go#1866](https://github.com/microsoft/go/issues/1866).
+
+On Alpine Linux, `glibc` isn't present at all.
+It uses `musl` instead of `glibc`.
+Try installing the `gcompat` or `libc6-compat` Alpine packages to use a `glibc` compatibility layer.
+Gathering more information about behavior on Alpine is tracked by [microsoft/go#1867](https://github.com/microsoft/go/issues/1867).
+
+If this isn't feasible, see [disabling systemcrypto](#disabling-systemcrypto).
+
+#### Cryptography package failures while in FIPS mode
+
+While in FIPS mode:
+
+- Some crypto algorithms may be restricted.
+- TLS connections use FIPS-approved ciphers only.
+- Some legacy crypto operations may not be available.
+
+If you encounter an unexpected failure while using a `crypto` package, find the function in the [FIPS User Guide](fips/UserGuide.md) to see any known limitations.
+A summary of compatible algorithms for each supported platform can be found at [Cross-Platform Cryptography in the Microsoft build of Go](CrossPlatformCryptography.md).
+
+## Review project for FIPS compliance
+
+If your project targets FIPS compliance, you need to do additional manual validation to ensure your project meets FIPS requirements.
+These resources may help:
+
+- Read the [FIPS Overview](fips/README.md) for background and additional build and runtime configuration
+- See [CrossPlatformCryptography.md](CrossPlatformCryptography.md) for an overview of supported algorithms on various platforms.
+- Review the [FIPS User Guide](fips/UserGuide.md) for deep API-specific guidance
+
+For specific guidance within Microsoft:
+
+- Read [Microsoft.Security.Cryptography.10010 on the Liquid Microsoft-internal site.][msc10010]
+- Contact the crypto board
+
+## Disabling `systemcrypto`
+
+The difficulty of migrating to using `systemcrypto` can vary significantly depending on the Go project.
+If this change requires further planning, and if it's acceptable for your project to be temporarily out of compliance with Microsoft cryptography policy, you can disable `systemcrypto`.
+
+After disabling `systemcrypto`, build commands won't encounter errors related to `systemcrypto`, and the built program won't attempt to use system-provided cryptography at runtime, instead using the ordinary Go crypto implementation.
+
+To disable `systemcrypto`, see the instructions in [the "Build option to use Go crypto" section of the FIPS README](fips/README.md#build-option-to-use-go-crypto).
+
+> [!NOTE]
+> `systemcrypto` is the most impactful change in the Microsoft build of Go compared to upstream Go, and the only change that adds additional runtime dependencies.
+>
+> However, the Microsoft build of Go does apply [other changes](#whats-different) to the official Go distribution that may cause an issue.
+> If you disable `systemcrypto` and still encounter a problem, it may be caused by another change.
+
+## Additional Resources
+
+The [project README](/README.md) provides more links to specialized documentation, context, and support resources for the Microsoft build of Go.
+We recommend reading this migration guide for a broad overview of the process, then following applicable links in this document and the README for more specific details.
+
+[msc10010]: https://liquid.microsoft.com/Web/Object/Read/MS.Security/Requirements/Microsoft.Security.Cryptography.10010

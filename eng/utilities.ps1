@@ -24,11 +24,16 @@ function Download-Stage0() {
   # pre-installed (or the right version pre-installed). This CI script installs a consistent version
   # of Go to handle this. This also makes it easier to locally repro issues in CI that involve a
   # specific version of Go. The downloaded copy of Go is called the "stage 0" version.
-  $stage0_go_version = 'go1.24.0-1'
+  $stage0_go_version = 'go1.25.0-1'
+
+  # Install stage 0 Go inside the repository (under "eng/artifacts/") to avoid modifying the user's
+  # home directory, and to make cleanup easy (included in "git clean -xdf"). The "_" prefix prevents
+  # Go's moddeps_test from traversing into this directory. See https://github.com/microsoft/go/issues/12
+  $stage0_install_dir = Join-Path $PSScriptRoot "artifacts" "_goStage0"
 
   # Source the install script so that we can use the PATH it assigns.
   $installScriptPath = Join-Path $PSScriptRoot "_util" "go-install.ps1"
-  . $installScriptPath -Version $stage0_go_version
+  . $installScriptPath -Version $stage0_go_version -InstallDir $stage0_install_dir
 }
 
 # Copied from https://github.com/dotnet/install-scripts/blob/49d5da7f7d313aa65d24fe95cc29767faef553fd/src/dotnet-install.ps1#L180-L197

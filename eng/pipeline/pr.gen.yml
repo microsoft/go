@@ -1,0 +1,49 @@
+# Copyright (c) Microsoft Corporation.
+# Use of this source code is governed by a BSD-style
+# license that can be found in the LICENSE file.
+
+# PR validation pipelines: innerloop and outerloop.
+# The outerloop pipeline can be triggered via PR comment to run outerloop builders.
+# The outerloop pipeline definition must be adjusted using the AzDO UI to require
+# a comment before running the build. There is unfortunately no way to configure
+# this from YAML.
+
+# innerloop: https://dev.azure.com/dnceng-public/public/_build?definitionId=191
+# outerloop: https://dev.azure.com/dnceng-public/public/_build?definitionId=192
+
+pipelineymlgen:
+  data:
+    containers:
+      ${ inlinetemplate "data/containers.yml" }
+  output:
+    - file: pr-pipeline.yml
+      data:
+        outerloop: false
+    - file: pr-outerloop-pipeline.yml
+      data:
+        outerloop: true
+---
+
+trigger: none
+pr:
+  - microsoft/*
+  - dev/*
+
+variables:
+  - template: variables/pipeline.yml
+
+resources:
+  containers:
+    - ${ inlinerange .containers }:
+      - container: ${ .container }
+        image: ${ .image }
+
+stages:
+  - template: stages/go-builder-matrix-stages.yml
+    parameters:
+      ctx: {}
+      ${ inlineif .outerloop }:
+        outerloop: true
+      ${ inlineelse }:
+        innerloop: true
+        buildandpack: true

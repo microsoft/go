@@ -8,6 +8,12 @@
 # stage involved, and then executes some provided steps.
 
 parameters:
+  - name: ctx
+    type: object
+
+  - name: pool
+    type: object
+
   - name: id 
     type: string
 
@@ -32,8 +38,7 @@ stages:
 
     jobs:
       - job: ${{ parameters.id }}
-        pool:
-          name: DotNet-Publishing-1ES-MI
+        pool: ${{ parameters.pool }}
         workspace:
           clean: all
         timeoutInMinutes: 240 # 4hr
@@ -41,18 +46,18 @@ stages:
           templateContext: ${{ parameters.templateContext }}
         variables:
           # Group includes these relevant variables:
-          # - MI_ClientId
           # - ReleaseStudioPublishOwnerAliases
           - group: go-release-config
-
-          - name: GoBinariesDir
-            value: $(Pipeline.Workspace)/Binaries Signed
-          - name: NetCorePublishingScripts
-            value: $(Build.SourcesDirectory)/eng/release-studio/bin/MsGoPublishingScripts
 
           # This is read directly by release studio scripts through env.
           - name: RMExecutionEnvironment
             value: Production
+
+          - name: GoBinariesDir
+            value: $(Pipeline.Workspace)/Binaries Signed
+
+          - name: NetCorePublishingScriptsPackages
+            value: $(Build.SourcesDirectory)/eng/artifacts/MsGoPublishingScripts/Packages
 
           - ${{ each variable in parameters.variables }}:
             - ${{ variable }}
@@ -60,19 +65,34 @@ stages:
           - template: ../steps/checkout-windows-task.yml
           - template: ../steps/find-PublishBranchAlias-task.yml
 
-          - task: NuGetAuthenticate@1
-            displayName: 'Authenticate to AzDO Feeds'
-
-          - task: DotNetCoreCLI@2
-            displayName: 'Acquire tools using csproj'
+          # Install the latest version of the publish tools package. The
+          # floating dependency is recommended by the RM team to allow them to
+          # make updates to the system. UI to fetch the package as a dev is at:
+          # https://dev.azure.com/dnceng/internal/_artifacts/feed/MicroBuildToolset/NuGet/DevDiv.RM.MS.Go.Publishing
+          - task: NuGetCommand@2
+            displayName: NuGet install RM Tools Package
             inputs:
               command: custom
-              projects: '$(Build.SourcesDirectory)/eng/release-studio/ReleaseStudio.csproj'
-              custom: build
+              feedRestore: MicroBuildToolset
               arguments: >-
-                /p:NetCorePublishingScripts=$(NetCorePublishingScripts)
-                /bl:eng/release-studio/Build.binlog
-                /v:n
+                install DevDiv.RM.MS.Go.Publishing
+                -Source https://pkgs.dev.azure.com/dnceng/_packaging/MicroBuildToolset/nuget/v3/index.json
+                -OutputDirectory $(NetCorePublishingScriptsPackages)
+                -Verbosity Detailed
+
+          - pwsh: |
+              $packageDir = Get-ChildItem `
+                -Path $(NetCorePublishingScriptsPackages) `
+                -Filter "DevDiv.RM.MS.Go.Publishing*" `
+                -Directory
+
+              Write-Host "Tools package dir: $packageDir"
+              if ($packageDir.Count -ne 1) {
+                throw "Expected exactly one publishing tools package installed, found $($packageDir.Count)."
+              }
+
+              Write-Output "##vso[task.setvariable variable=NetCorePublishingScripts]$packageDir\scripts"
+            displayName: Find RM Tools scripts directory
 
           - ${{ each step in parameters.steps }}:
             - ${{ step }}

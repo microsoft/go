@@ -6,6 +6,8 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -34,12 +36,16 @@ See /eng/_util/cmd/sign/README.md for more information.
 `
 
 var (
-	filesGlob        = flag.String("files", "eng/signing/tosign/*", "Glob of Go archives to sign.")
-	destinationDir   = flag.String("o", "eng/signing/signed", "Directory to store signed files.")
-	tempDir          = flag.String("temp-dir", "eng/signing/signing-temp", "Directory to store temporary files.")
-	signingCsprojDir = flag.String("signing-csproj-dir", "eng/signing", "Directory containing Sign.csproj and related files.")
+	filesGlob          = flag.String("files", "eng/signing/tosign/*", "Glob of Go archives to sign.")
+	destinationDir     = flag.String("o", "eng/signing/signed", "Directory to store signed files.")
+	consolidateDiagDir = flag.String("consolidate-diag-dir", "eng/signing/diag", "Directory to store consolidated diagnostic files.")
+	tempDir            = flag.String("temp-dir", "eng/signing/signing-temp", "Directory to store temporary files.")
+	signingCsprojDir   = flag.String("signing-csproj-dir", "eng/signing", "Directory containing Sign.csproj and related files.")
 
-	signType = flag.String("sign-type", "test", "Type of signing to perform. Options: test, real.")
+	signType = flag.String("sign-type", "test",
+		"Type of signing to perform. Options: test, real. "+
+			// https://github.com/microsoft/go-lab/issues/231
+			"Test signing skips using MicroBuild tooling because it throws exception 'The test signing method for cert (8020) has NOT been implemented.'")
 
 	timeout = flag.Duration("timeout", 0,
 		"Timeout for signing operations. Zero means no timeout. "+
@@ -69,7 +75,7 @@ func main() {
 	}
 }
 
-func run() error {
+func run() (err error) {
 	// A context for timeout. This timeout is mainly here to make sure child MSBuild processes are
 	// terminated. There are some ctx.Err() checks sprinkled into the Go code, but canceling
 	// quickly during the packaging/repackaging work in Go is not currently important: the Go work
@@ -82,6 +88,14 @@ func run() error {
 		ctx, cancel = context.WithDeadline(context.Background(), time.Now().Add(*timeout))
 		defer cancel()
 	}
+
+	defer func() {
+		log.Println("Consolidating diagnostic files")
+		log.Printf("Consolidated diagnostic directory: %q", *consolidateDiagDir)
+
+		consolidateErr := consolidateDiagnosticFiles()
+		err = errors.Join(err, consolidateErr)
+	}()
 
 	archives, err := findArchives(ctx, *filesGlob)
 	if err != nil {
@@ -106,6 +120,9 @@ func run() error {
 	individualFilesToNotarize, err := flatMapSlice(archives, func(a *archive) ([]*fileToSign, error) {
 		return a.prepareIndividualNotarize(ctx)
 	})
+	if err != nil {
+		return err
+	}
 
 	if err := sign(ctx, "2-Notarize-Individual", individualFilesToNotarize); err != nil {
 		return err
@@ -150,6 +167,7 @@ func run() error {
 	}
 
 	log.Println("Copying finished files to destination")
+	log.Printf("Destination directory: %q", *destinationDir)
 
 	for _, a := range archives {
 		if err := a.copyToDestination(ctx); err != nil {
@@ -230,6 +248,29 @@ func sign(ctx context.Context, step string, files []*fileToSign) error {
 	log.Printf("Signing with props file content:\n%s\n", sb.String())
 	if *dryRun {
 		log.Printf("Dry run: skipping signing.")
+		return nil
+	}
+	if *signType == "test" {
+		log.Printf("Testing signing: skipping MicroBuild tooling.")
+		for _, f := range files {
+			if strings.HasSuffix(f.fullPath, ".sig") {
+				log.Printf("Replacing file with placeholder content to reduce size and simulate signature: %q", f.fullPath)
+				// Get a checksum to make the file content unique. Otherwise,
+				// publishing rejects the repeated file content.
+				data, err := os.ReadFile(f.fullPath)
+				if err != nil {
+					return fmt.Errorf("failed to read file %q: %v", f.fullPath, err)
+				}
+				checksum := fmt.Sprintf("%x", sha256.Sum256(data))
+				if err := os.WriteFile(
+					f.fullPath,
+					fmt.Appendf(nil, "This is a placeholder test signature file. Original content checksum: %v\n", checksum),
+					0o666,
+				); err != nil {
+					return fmt.Errorf("failed to write test signature file %q: %v", f.fullPath, err)
+				}
+			}
+		}
 		return nil
 	}
 

@@ -5,6 +5,9 @@
 # This template defines the build/test matrix of jobs/stages based on the given flags.
 
 parameters:
+  - name: ctx
+    type: object
+
   # buildandpack builders build the tar.gz/zips of our distribution.
   # Minimal dependencies, and runnable in the official pipeline.
   - name: buildandpack
@@ -25,9 +28,6 @@ parameters:
     default: false
 
   # Passthrough to the build job.
-  - name: official
-    type: boolean
-    default: false
   - name: sign
     type: boolean
     default: false
@@ -46,9 +46,6 @@ parameters:
   - name: releaseVersion
     type: string
     default: 'nil'
-  - name: publishReleaseStudio
-    type: boolean
-    default: false
   - name: publishExistingRunID
     type: string
     default: 'nil'
@@ -56,13 +53,12 @@ parameters:
 stages:
   - template: shorthand-builders-to-builders.yml
     parameters:
+      ctx: ${{ parameters.ctx }}
       jobsTemplate: builders-to-stages.yml
       jobsParameters:
-        official: ${{ parameters.official }}
         sign: ${{ parameters.sign }}
         signExistingRunID: ${{ parameters.signExistingRunID }}
         publish: ${{ parameters.publish }}
-        publishReleaseStudio: ${{ parameters.publishReleaseStudio }}
         publishExistingRunID: ${{ parameters.publishExistingRunID }}
         createSourceArchive: ${{ parameters.createSourceArchive }}
         createSymbols: ${{ parameters.createSymbols }}
@@ -75,49 +71,56 @@ stages:
           - { os: windows, arch: amd64, config: buildandpack }
           - { os: linux, arch: arm, hostArch: amd64, config: buildandpack }
           - { os: linux, arch: arm64, hostArch: amd64, config: buildandpack }
+          - { os: windows, arch: arm64, hostArch: amd64, config: buildandpack }
           - { os: darwin, arch: amd64, config: buildandpack }
-          - { os: darwin, arch: arm64, hostArch: amd64, config: buildandpack }
+          - { os: darwin, arch: arm64, config: buildandpack }
           - ${{ if parameters.includeArm64Host }}:
             - { os: linux, arch: arm64, config: buildandpack }
         - ${{ if parameters.innerloop }}:
-          - { experiment: nosystemcrypto, os: darwin, arch: amd64, config: devscript }
-          - { experiment: nosystemcrypto, os: darwin, arch: amd64, config: test }
-          - { experiment: systemcrypto, os: darwin, arch: amd64, config: test }
-          - { experiment: systemcrypto, os: darwin, arch: amd64, config: test, fips: true }
-          # - { experiment: nosystemcrypto, os: darwin, arch: arm64, config: devscript }
-          # - { experiment: nosystemcrypto, os: darwin, arch: arm64, config: test }
-          # - { experiment: systemcrypto, os: darwin, arch: arm64, config: test }
-          # - { experiment: systemcrypto, os: darwin, arch: arm64, config: test, fips: true }
-          - { experiment: nosystemcrypto, os: linux, arch: amd64, config: devscript }
-          - { experiment: nosystemcrypto, os: linux, arch: amd64, config: test }
-          - { experiment: nosystemcrypto, os: linux, arch: amd64, config: test, distro: ubuntu }
-          - { experiment: nosystemcrypto, os: linux, arch: amd64, config: test, distro: azurelinux3 }
-          - { experiment: systemcrypto, os: linux, arch: amd64, config: test }
-          - { experiment: systemcrypto, os: linux, arch: amd64, config: test, fips: true }
-          - { experiment: systemcrypto, os: linux, arch: amd64, config: test, distro: ubuntu }
-          - { experiment: systemcrypto, os: linux, arch: amd64, config: test, distro: azurelinux3 }
-          - { experiment: systemcrypto, os: linux, arch: amd64, config: test, distro: azurelinux3, fips: true }
-          - { experiment: nosystemcrypto, os: windows, arch: amd64, config: devscript }
-          - { experiment: nosystemcrypto, os: windows, arch: amd64, config: test }
-          - { experiment: systemcrypto, os: windows, arch: amd64, config: test }
-          - { experiment: systemcrypto, os: windows, arch: amd64, config: test, fips: true }
-          - { experiment: systemcrypto, os: windows, arch: amd64, config: test, distro: '2019', broken: true } # Affected by https://golang.org/issue/10842.
+          - { nosystemcrypto: true, os: darwin, arch: amd64, config: devscript }
+          - { nosystemcrypto: true, os: darwin, arch: amd64, config: test }
+          - { os: darwin, arch: amd64, config: test }
+          - { os: darwin, arch: amd64, config: nocgo }
+          - { os: darwin, arch: amd64, config: test, fips: true }
+          - { nosystemcrypto: true, os: darwin, arch: arm64, config: devscript }
+          - { nosystemcrypto: true, os: darwin, arch: arm64, config: test }
+          - { os: darwin, arch: arm64, config: test }
+          - { os: darwin, arch: arm64, config: test, fips: true }
+          # - { nosystemcrypto: true, os: windows, arch: arm64, config: test }
+          - { nosystemcrypto: true, os: linux, arch: amd64, config: devscript }
+          - { nosystemcrypto: true, os: linux, arch: amd64, config: test }
+          - { nosystemcrypto: true, os: linux, arch: amd64, config: test, distro: ubuntu }
+          - { nosystemcrypto: true, os: linux, arch: amd64, config: test, distro: azurelinux3 }
+          - { os: linux, arch: amd64, config: test }
+          - { os: linux, arch: amd64, config: test, fips: true }
+          - { os: linux, arch: amd64, config: nocgo, fips: true }
+          - { os: linux, arch: amd64, config: test, distro: ubuntu }
+          - { os: linux, arch: amd64, config: nocgo, distro: ubuntu }
+          - { os: linux, arch: amd64, config: test, distro: azurelinux3 }
+          - { os: linux, arch: amd64, config: nocgo, distro: azurelinux3 }
+          - { os: linux, arch: amd64, config: test, distro: azurelinux3, fips: true }
+          - { os: linux, arch: amd64, config: nocgo, distro: azurelinux3, fips: true }
+          - { nosystemcrypto: true, os: windows, arch: amd64, config: devscript }
+          - { nosystemcrypto: true, os: windows, arch: amd64, config: test }
+          - { os: windows, arch: amd64, config: test }
+          - { os: windows, arch: amd64, config: test, fips: true }
+          - { experiment: ms_tls_config_schannel, os: windows, arch: amd64, config: test }
           # Test that buildandpack works on Windows x86-32, but don't release it.
-          - { experiment: nosystemcrypto, os: windows, hostArch: amd64, arch: 386, config: buildandpack }
+          - { nosystemcrypto: true, os: windows, hostArch: amd64, arch: 386, config: buildandpack }
         - ${{ if parameters.outerloop }}:
           # Upstream builders.
-          # - { experiment: nosystemcrypto, os: linux, arch: amd64, config: clang } https://github.com/microsoft/go/issues/342
-          - { experiment: nosystemcrypto, os: linux, arch: amd64, config: longtest }
-          - { experiment: nosystemcrypto, os: linux, arch: amd64, config: nocgo }
-          - { experiment: nosystemcrypto, os: linux, arch: amd64, config: noopt }
-          - { experiment: nosystemcrypto, os: linux, arch: amd64, config: race }
-          # - { os: experiment: nosystemcrypto, linux, arch: amd64, config: racecompile } https://github.com/microsoft/go/issues/54
-          - { experiment: nosystemcrypto, os: linux, arch: amd64, config: regabi }
-          - { experiment: nosystemcrypto, os: linux, arch: amd64, config: ssacheck }
-          - { experiment: nosystemcrypto, os: linux, arch: amd64, config: staticlockranking }
-          # - { experiment: systemcrypto, os: linux, arch: amd64, config: clang } https://github.com/microsoft/go/issues/342
-          - { experiment: systemcrypto, os: linux, arch: amd64, config: longtest }
-          - { experiment: systemcrypto, os: linux, arch: amd64, config: race }
-          - { experiment: systemcrypto, os: linux, arch: amd64, config: regabi }
-          - { experiment: systemcrypto, os: linux, arch: amd64, config: ssacheck }
-          - { experiment: systemcrypto, os: linux, arch: amd64, config: staticlockranking }
+          # - { nosystemcrypto: true, os: linux, arch: amd64, config: clang } https://github.com/microsoft/go/issues/342
+          - { nosystemcrypto: true, os: linux, arch: amd64, config: longtest }
+          - { nosystemcrypto: true, os: linux, arch: amd64, config: nocgo }
+          - { nosystemcrypto: true, os: linux, arch: amd64, config: noopt }
+          - { nosystemcrypto: true, os: linux, arch: amd64, config: race }
+          # - { nosystemcrypto: true, os: linux, arch: amd64, config: racecompile } https://github.com/microsoft/go/issues/54
+          - { nosystemcrypto: true, os: linux, arch: amd64, config: regabi }
+          - { nosystemcrypto: true, os: linux, arch: amd64, config: ssacheck }
+          - { nosystemcrypto: true, os: linux, arch: amd64, config: staticlockranking }
+          # - { os: linux, arch: amd64, config: clang } https://github.com/microsoft/go/issues/342
+          - { os: linux, arch: amd64, config: longtest }
+          - { os: linux, arch: amd64, config: race }
+          - { os: linux, arch: amd64, config: regabi }
+          - { os: linux, arch: amd64, config: ssacheck }
+          - { os: linux, arch: amd64, config: staticlockranking }

@@ -1,0 +1,78 @@
+# Copyright (c) Microsoft Corporation.
+# Use of this source code is governed by a BSD-style
+# license that can be found in the LICENSE file.
+
+# Rolling test pipelines: innerloop and outerloop.
+# The innerloop pipeline runs reliable, relatively quick tests.
+# If the innerloop pipeline fails, it should block official release for a good reason.
+# The outerloop pipeline runs tests that may be unreliable or very slow.
+
+# innerloop: https://dev.azure.com/dnceng/internal/_build?definitionId=1342
+# outerloop: https://dev.azure.com/dnceng/internal/_build?definitionId=987
+
+pipelineymlgen:
+  data:
+    containers:
+      ${ inlinetemplate "data/containers.yml" }
+  output:
+    - file: rolling-innerloop-pipeline.yml
+      data:
+        innerloop: true
+    - file: rolling-pipeline.yml
+      data:
+        innerloop: false
+---
+
+trigger:
+  batch: true
+  branches:
+    include:
+      - microsoft/*
+      - dev/official/*
+pr: none
+
+${ inlineif .innerloop }:
+  parameters:
+    # By default, don't use the shared, potentially constrained linux-arm64 pool.
+    - name: includeArm64Host
+      displayName: 'Include Linux arm64 host builders'
+      type: boolean
+      default: false
+
+variables:
+  - template: variables/pipeline.yml
+
+resources:
+  repositories:
+    - repository: 1ESPipelineTemplates
+      type: git
+      name: 1ESPipelineTemplates/1ESPipelineTemplates
+      ref: refs/tags/release
+
+extends:
+  template: v1/1ES.Unofficial.PipelineTemplate.yml@1ESPipelineTemplates
+  parameters:
+    sdl:
+      sourceAnalysisPool:
+        name: NetCore1ESPool-Internal
+        image: 1es-windows-2022
+        os: windows
+      suppression:
+        suppressionFile: $(Build.SourcesDirectory)/.config/guardian/.gdnsuppress
+    containers:
+      ${ inlinerange .containers }:
+        ${ .container }:
+          image: ${ .image }
+
+    stages:
+      - template: stages/go-builder-matrix-stages.yml
+        parameters:
+          ctx: {}
+          ${ inlineif .innerloop }:
+            innerloop: true
+            # Include buildandpack builders. The official internal build uses slightly different build
+            # machines than this pipeline. This one tests against our minimum requirements.
+            buildandpack: true
+            includeArm64Host: ${{ parameters.includeArm64Host }}
+          ${ inlineelse }:
+            outerloop: true

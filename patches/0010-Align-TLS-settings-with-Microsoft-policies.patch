@@ -1,0 +1,946 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: bot-for-go[bot] <199222863+bot-for-go[bot]@users.noreply.github.com>
+Date: Fri, 12 Dec 2025 16:46:44 +0100
+Subject: [PATCH] Align TLS settings with Microsoft policies
+
+---
+ doc/godebug.md                                |   9 +
+ src/crypto/tls/common.go                      |   9 +-
+ src/crypto/tls/defaults.go                    |  37 +-
+ src/crypto/tls/defaults_microsoft.go          | 144 ++++++
+ src/crypto/tls/handshake_client.go            |  21 +-
+ src/crypto/tls/handshake_client_test.go       |  17 +-
+ src/crypto/tls/handshake_server_tls13.go      |  22 +-
+ src/crypto/tls/handshake_test.go              |   5 +-
+ src/crypto/tls/microsoft_test.go              | 486 ++++++++++++++++++
+ src/crypto/tls/schannel_windows.go            |   7 +
+ src/internal/godebugs/table.go                |   2 +
+ src/net/http/internal/http2/transport_test.go |   2 +
+ 12 files changed, 737 insertions(+), 24 deletions(-)
+ create mode 100644 src/crypto/tls/defaults_microsoft.go
+ create mode 100644 src/crypto/tls/microsoft_test.go
+
+diff --git a/doc/godebug.md b/doc/godebug.md
+index 9c5c01d3b27670..1dac34c151305b 100644
+--- a/doc/godebug.md
++++ b/doc/godebug.md
+@@ -225,6 +225,15 @@ APIs ignore the random `io.Reader` parameter. For Go 1.26, it defaults
+ to `cryptocustomrand=0`, ignoring the random parameters. Using `cryptocustomrand=1`
+ reverts to the pre-Go 1.26 behavior.
+ 
++Microsoft build of Go 1.26 added a new `ms_tlsx25519` setting that controls whether
++`crypto/tls` enables the X25519 and X25519MLKEM768 TLS groups by default. Setting
++`ms_tlsx25519=0` disables these groups. The default value is `ms_tlsx25519=1`.
++
++Microsoft build of Go 1.26 added a new `ms_tlsprofile` setting that controls the
++`crypto/tls` settings. The possible values are:
++- "default": use the recommended Microsoft TLS settings. This is the default.
++- "off": use the default upstream Go TLS settings.
++
+ ### Go 1.25
+ 
+ Go 1.25 added a new `decoratemappings` setting that controls whether the Go
+diff --git a/src/crypto/tls/common.go b/src/crypto/tls/common.go
+index b2cb869650ca97..1c01df4067b1be 100644
+--- a/src/crypto/tls/common.go
++++ b/src/crypto/tls/common.go
+@@ -1194,7 +1194,14 @@ func (c *Config) cipherSuites(aesGCMPreferred bool) []uint16 {
+ 	}
+ 	if fips140tls.Required() {
+ 		cipherSuites = slices.DeleteFunc(cipherSuites, func(id uint16) bool {
+-			return !slices.Contains(allowedCipherSuitesFIPS, id)
++			switch ms_tlsprofile.Value() {
++			case "default", "":
++				return !slices.Contains(msAllowedCipherSuitesFIPS, id)
++			case "off":
++				return !slices.Contains(allowedCipherSuitesFIPS, id)
++			default:
++				panic("unreachable")
++			}
+ 		})
+ 	}
+ 	return cipherSuites
+diff --git a/src/crypto/tls/defaults.go b/src/crypto/tls/defaults.go
+index c89036047ad5a3..5ae76aca239600 100644
+--- a/src/crypto/tls/defaults.go
++++ b/src/crypto/tls/defaults.go
+@@ -18,14 +18,17 @@ var tlsmlkem = godebug.New("tlsmlkem")
+ 
+ // tlssecpmlkem=0 restores the pre-Go 1.26 default key exchanges.
+ var tlssecpmlkem = godebug.New("tlssecpmlkem")
++var ms_tlsx25519 = godebug.New("ms_tlsx25519")
+ 
+ // defaultCurveEnabled returns whether the key exchange c is enabled by default.
+ func defaultCurveEnabled(c CurveID) bool {
+ 	switch c {
+-	case X25519, CurveP256, CurveP384, CurveP521:
++	case X25519:
++		return ms_tlsx25519.Value() != "0"
++	case CurveP256, CurveP384, CurveP521:
+ 		return true
+ 	case X25519MLKEM768:
+-		return tlsmlkem.Value() != "0"
++		return tlsmlkem.Value() != "0" && ms_tlsx25519.Value() != "0"
+ 	case SecP256r1MLKEM768, SecP384r1MLKEM1024:
+ 		return tlsmlkem.Value() != "0" && tlssecpmlkem.Value() != "0"
+ 	default:
+@@ -36,6 +39,9 @@ func defaultCurveEnabled(c CurveID) bool {
+ // curvePreferenceOrder is the fixed preference order of key exchanges. It must
+ // include every supported key exchange.
+ func curvePreferenceOrder() []CurveID {
++	if ms_tlsprofile.Value() != "off" {
++		return microsoftCurvePreferences()
++	}
+ 	return []CurveID{
+ 		X25519MLKEM768, SecP256r1MLKEM768, SecP384r1MLKEM1024, MLKEM1024,
+ 		X25519, CurveP256, CurveP384, CurveP521,
+@@ -66,18 +72,35 @@ func defaultSupportedSignatureAlgorithms() []SignatureScheme {
+ 	}
+ }
+ 
++var tlsrsakex = godebug.New("tlsrsakex")
++var tls3des = godebug.New("tls3des")
++
+ func supportedCipherSuites(aesGCMPreferred bool) []uint16 {
+-	if aesGCMPreferred {
+-		return slices.Clone(cipherSuitesPreferenceOrder)
+-	} else {
+-		return slices.Clone(cipherSuitesPreferenceOrderNoAES)
++	switch ms_tlsprofile.Value() {
++	case "default", "":
++		return slices.Clone(msCipherSuitesPreferenceOrder)
++	case "off":
++		if aesGCMPreferred {
++			return slices.Clone(cipherSuitesPreferenceOrder)
++		} else {
++			return slices.Clone(cipherSuitesPreferenceOrderNoAES)
++		}
++	default:
++		panic("unreachable")
+ 	}
+ }
+ 
+ func defaultCipherSuites(aesGCMPreferred bool) []uint16 {
+ 	cipherSuites := supportedCipherSuites(aesGCMPreferred)
+ 	return slices.DeleteFunc(cipherSuites, func(c uint16) bool {
+-		return disabledCipherSuites[c]
++		switch ms_tlsprofile.Value() {
++		case "default", "":
++			return msDisabledCipherSuites[c]
++		case "off":
++			return disabledCipherSuites[c]
++		default:
++			panic("unreachable")
++		}
+ 	})
+ }
+ 
+diff --git a/src/crypto/tls/defaults_microsoft.go b/src/crypto/tls/defaults_microsoft.go
+new file mode 100644
+index 00000000000000..bfa39c963b08fb
+--- /dev/null
++++ b/src/crypto/tls/defaults_microsoft.go
+@@ -0,0 +1,144 @@
++// Copyright 2025 The Go Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style
++// license that can be found in the LICENSE file.
++
++package tls
++
++import (
++	boring "crypto/internal/backend"
++	"internal/godebug"
++	"slices"
++)
++
++var ms_tlsprofile = godebug.New("ms_tlsprofile")
++
++// Support* functions are cached, so calling them multiple times is cheap.
++var supportedGroups = map[CurveID]bool{
++	CurveP256:          true,
++	CurveP384:          true,
++	CurveP521:          true,
++	X25519:             !boring.Enabled || boring.SupportsCurve("X25519"),
++	X25519MLKEM768:     !boring.Enabled || boring.SupportsCurve("X25519") && boring.SupportsMLKEM768(),
++	SecP256r1MLKEM768:  !boring.Enabled || boring.SupportsMLKEM768(),
++	SecP384r1MLKEM1024: !boring.Enabled || boring.SupportsMLKEM1024(),
++	MLKEM1024:          !boring.Enabled || boring.SupportsMLKEM1024(),
++}
++
++func init() {
++	switch ms_tlsprofile.Value() {
++	case "default", "":
++		// OK, Microsoft recommended behavior
++	case "off":
++		// OK, upstream behavior
++	default:
++		panic("unknown GODEBUG setting ms_tlsprofile=" + ms_tlsprofile.Value())
++	}
++}
++
++func microsoftCurvePreferences() []CurveID {
++	groups := []CurveID{
++		X25519MLKEM768, SecP384r1MLKEM1024, SecP256r1MLKEM768, MLKEM1024,
++		CurveP384, CurveP256, CurveP521, X25519,
++	}
++	// Move unsupported groups to the end while preserving order for supported groups.
++	slices.SortStableFunc(groups, func(a, b CurveID) int {
++		supportedA, supportedB := supportedGroups[a], supportedGroups[b]
++		if supportedA && !supportedB {
++			return -1
++		}
++		if !supportedA && supportedB {
++			return 1
++		}
++		return 0
++	})
++	return groups
++}
++
++// msDefaultCipherSuitesTLS13 is like [defaultCipherSuitesTLS13] with
++// the following changes:
++//
++//   - AES-256 comes before AES-128
++var msDefaultCipherSuitesTLS13 = []uint16{
++	TLS_AES_256_GCM_SHA384,
++	TLS_AES_128_GCM_SHA256,
++	TLS_CHACHA20_POLY1305_SHA256,
++}
++
++// msAllowedCipherSuitesTLS13FIPS is like [allowedCipherSuitesTLS13FIPS] with
++// the following changes:
++//
++//   - AES-256 comes before AES-128
++var msAllowedCipherSuitesTLS13FIPS = []uint16{
++	TLS_AES_256_GCM_SHA384,
++	TLS_AES_128_GCM_SHA256,
++}
++
++// msCipherSuitesPreferenceOrder is like [cipherSuitesPreferenceOrder] with
++// the following changes:
++//
++//   - AES-256 comes before AES-128
++//   - CBC_SHA256 comes before CBC_SHA, neither have Lucky13 mitigations when using the crypto backends,
++//     so better pick the stronger one first
++var msCipherSuitesPreferenceOrder = []uint16{
++	// AEADs w/ ECDHE
++	TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384, TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
++	TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256, TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
++	TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256, TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256,
++
++	// CBC w/ ECDHE
++	TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA256, TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA256,
++	TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA, TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA,
++	TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA, TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA,
++
++	// AEADs w/o ECDHE
++	TLS_RSA_WITH_AES_256_GCM_SHA384,
++	TLS_RSA_WITH_AES_128_GCM_SHA256,
++
++	// CBC w/o ECDHE
++	TLS_RSA_WITH_AES_128_CBC_SHA256,
++	TLS_RSA_WITH_AES_256_CBC_SHA,
++	TLS_RSA_WITH_AES_128_CBC_SHA,
++
++	// 3DES
++	TLS_ECDHE_RSA_WITH_3DES_EDE_CBC_SHA,
++	TLS_RSA_WITH_3DES_EDE_CBC_SHA,
++
++	// RC4
++	TLS_ECDHE_ECDSA_WITH_RC4_128_SHA, TLS_ECDHE_RSA_WITH_RC4_128_SHA,
++	TLS_RSA_WITH_RC4_128_SHA,
++}
++
++// msAllowedCipherSuitesFIPS is like [allowedCipherSuitesFIPS] with
++// the following changes:
++//
++//   - AES-256 comes before AES-128
++var msAllowedCipherSuitesFIPS = []uint16{
++	TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
++	TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
++	TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
++	TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
++	TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA256,
++	TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA256,
++}
++
++// msDisabledCipherSuites is like [disabledCipherSuites] with
++// the following changes:
++//
++//   - CBC_SHA is disabled because they lack Lucky13 mitigations when using the crypto backends
++var msDisabledCipherSuites = map[uint16]bool{
++	// CBC_SHA
++	TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA: true,
++	TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA:   true,
++	TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA: true,
++	TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA:   true,
++
++	// CBC_SHA256
++	TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA256: true,
++	TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA256:   true,
++	TLS_RSA_WITH_AES_128_CBC_SHA256:         true,
++
++	// RC4
++	TLS_ECDHE_ECDSA_WITH_RC4_128_SHA: true,
++	TLS_ECDHE_RSA_WITH_RC4_128_SHA:   true,
++	TLS_RSA_WITH_RC4_128_SHA:         true,
++}
+diff --git a/src/crypto/tls/handshake_client.go b/src/crypto/tls/handshake_client.go
+index 6d97d1fba0dfa9..eb88634f275ce8 100644
+--- a/src/crypto/tls/handshake_client.go
++++ b/src/crypto/tls/handshake_client.go
+@@ -131,12 +131,21 @@ func (c *Conn) makeClientHello() (*clientHelloMsg, *keySharePrivateKeys, *echCli
+ 			hello.cipherSuites = nil
+ 		}
+ 
+-		if fips140tls.Required() {
+-			hello.cipherSuites = append(hello.cipherSuites, allowedCipherSuitesTLS13FIPS...)
+-		} else if hasAESGCMHardwareSupport {
+-			hello.cipherSuites = append(hello.cipherSuites, defaultCipherSuitesTLS13...)
+-		} else {
+-			hello.cipherSuites = append(hello.cipherSuites, defaultCipherSuitesTLS13NoAES...)
++		switch ms_tlsprofile.Value() {
++		case "default", "":
++			if fips140tls.Required() {
++				hello.cipherSuites = append(hello.cipherSuites, msAllowedCipherSuitesTLS13FIPS...)
++			} else {
++				hello.cipherSuites = append(hello.cipherSuites, msDefaultCipherSuitesTLS13...)
++			}
++		case "off":
++			if fips140tls.Required() {
++				hello.cipherSuites = append(hello.cipherSuites, allowedCipherSuitesTLS13FIPS...)
++			} else if hasAESGCMHardwareSupport {
++				hello.cipherSuites = append(hello.cipherSuites, defaultCipherSuitesTLS13...)
++			} else {
++				hello.cipherSuites = append(hello.cipherSuites, defaultCipherSuitesTLS13NoAES...)
++			}
+ 		}
+ 
+ 		if len(hello.supportedCurves) == 0 {
+diff --git a/src/crypto/tls/handshake_client_test.go b/src/crypto/tls/handshake_client_test.go
+index 64a668eae9b512..b5d20522f36903 100644
+--- a/src/crypto/tls/handshake_client_test.go
++++ b/src/crypto/tls/handshake_client_test.go
+@@ -2701,9 +2701,20 @@ func testTLS13OnlyClientHelloCipherSuite(t *testing.T, ciphers []uint16) {
+ 	serverConfig := &Config{
+ 		Certificates: testConfigServer.Certificates,
+ 		GetConfigForClient: func(chi *ClientHelloInfo) (*Config, error) {
+-			expectedCiphersuites := defaultCipherSuitesTLS13NoAES
+-			if fips140tls.Required() {
+-				expectedCiphersuites = allowedCipherSuitesTLS13FIPS
++			var expectedCiphersuites []uint16
++			switch ms_tlsprofile.Value() {
++			case "default", "":
++				if fips140tls.Required() {
++					expectedCiphersuites = msAllowedCipherSuitesTLS13FIPS
++				} else {
++					expectedCiphersuites = msDefaultCipherSuitesTLS13
++				}
++			case "off":
++				if fips140tls.Required() {
++					expectedCiphersuites = allowedCipherSuitesTLS13FIPS
++				} else {
++					expectedCiphersuites = defaultCipherSuitesTLS13NoAES
++				}
+ 			}
+ 			if len(chi.CipherSuites) != len(expectedCiphersuites) {
+ 				t.Errorf("only TLS 1.3 suites should be advertised, got=%x", chi.CipherSuites)
+diff --git a/src/crypto/tls/handshake_server_tls13.go b/src/crypto/tls/handshake_server_tls13.go
+index ed7c2de8db51f1..cf3a3af4d1204b 100644
+--- a/src/crypto/tls/handshake_server_tls13.go
++++ b/src/crypto/tls/handshake_server_tls13.go
+@@ -176,12 +176,22 @@ func (hs *serverHandshakeStateTLS13) processClientHello() error {
+ 	hs.hello.sessionId = hs.clientHello.sessionId
+ 	hs.hello.compressionMethod = compressionNone
+ 
+-	preferenceList := defaultCipherSuitesTLS13
+-	if !hasAESGCMHardwareSupport || !isAESGCMPreferred(hs.clientHello.cipherSuites) {
+-		preferenceList = defaultCipherSuitesTLS13NoAES
+-	}
+-	if fips140tls.Required() {
+-		preferenceList = allowedCipherSuitesTLS13FIPS
++	var preferenceList []uint16
++	switch ms_tlsprofile.Value() {
++	case "default", "":
++		if fips140tls.Required() {
++			preferenceList = msAllowedCipherSuitesTLS13FIPS
++		} else {
++			preferenceList = msDefaultCipherSuitesTLS13
++		}
++	case "off":
++		preferenceList = defaultCipherSuitesTLS13
++		if !hasAESGCMHardwareSupport || !isAESGCMPreferred(hs.clientHello.cipherSuites) {
++			preferenceList = defaultCipherSuitesTLS13NoAES
++		}
++		if fips140tls.Required() {
++			preferenceList = allowedCipherSuitesTLS13FIPS
++		}
+ 	}
+ 	for _, suiteID := range preferenceList {
+ 		hs.suite = mutualCipherSuiteTLS13(hs.clientHello.cipherSuites, suiteID)
+diff --git a/src/crypto/tls/handshake_test.go b/src/crypto/tls/handshake_test.go
+index 3205dd97d68f40..8a2e262cadec11 100644
+--- a/src/crypto/tls/handshake_test.go
++++ b/src/crypto/tls/handshake_test.go
+@@ -8,7 +8,7 @@ import (
+ 	"bufio"
+ 	"bytes"
+ 	"context"
+-	"crypto/internal/boring"
++	boring "crypto/internal/backend"
+ 	"encoding/hex"
+ 	"errors"
+ 	"flag"
+@@ -449,6 +449,9 @@ func runMain(m *testing.M) int {
+ 		"-naccept", "1", "-verify_return_error", "-verifyCAfile", clientRootCAPath,
+ 		"-attime", fmt.Sprint(testTime().Unix())}
+ 
++	// Disable Microsoft TLS profile to have consistent test results.
++	os.Setenv("GODEBUG", "ms_tlsprofile=off,"+os.Getenv("GODEBUG"))
++
+ 	if *keyFile != "" {
+ 		f, err := os.OpenFile(*keyFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+ 		if err != nil {
+diff --git a/src/crypto/tls/microsoft_test.go b/src/crypto/tls/microsoft_test.go
+new file mode 100644
+index 00000000000000..044b8008328567
+--- /dev/null
++++ b/src/crypto/tls/microsoft_test.go
+@@ -0,0 +1,486 @@
++// Copyright 2025 The Go Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style
++// license that can be found in the LICENSE file.
++
++package tls
++
++import (
++	boring "crypto/internal/backend"
++	"crypto/tls/internal/fips140tls"
++	"internal/goexperiment"
++	"internal/testenv"
++	"maps"
++	"os"
++	"runtime"
++	"slices"
++	"strings"
++	"testing"
++)
++
++func TestMicrosoftGroupSupport(t *testing.T) {
++	supported := slices.Collect(maps.Keys(supportedGroups))
++	slices.Sort(supported)
++	for _, group := range supported {
++		t.Run(group.String(), func(t *testing.T) {
++			if !boring.Enabled {
++				// In non-systemcrypto builds, all groups must be supported.
++				if !supportedGroups[group] {
++					t.Errorf("expected group %v to be supported", group)
++				}
++				return
++			}
++			if !supportedGroups[group] {
++				switch group {
++				case CurveP256, CurveP384, CurveP521:
++					// These curves are always supported.
++					t.Errorf("must be supported")
++				case X25519:
++					// X25519 is always supported on Windows and macOS.
++					if runtime.GOOS != "linux" {
++						t.Skipf("must be supported")
++					}
++				}
++			}
++		})
++	}
++}
++
++func TestMicrosoftHandshakeGroups(t *testing.T) {
++	// This test is designed to verify the default Microsoft TLS profile's group preferences
++	// and behavior during the handshake. It is based on TestHandshakeMLKEM.
++
++	enableMicrosoftProfile(t)
++
++	defaultWithPQ := []CurveID{X25519MLKEM768, SecP384r1MLKEM1024, SecP256r1MLKEM768,
++		CurveP384, CurveP256, CurveP521, X25519}
++	if boring.Enabled {
++		// Adjust expectations based on supported groups.
++		// Be explicit about the order to test the preference order under different scenarios.
++		switch {
++		case !boring.SupportsCurve("X25519") && !boring.SupportsMLKEM768() && !boring.SupportsMLKEM1024():
++			defaultWithPQ = []CurveID{CurveP384, CurveP256, CurveP521, X25519MLKEM768, SecP384r1MLKEM1024, SecP256r1MLKEM768, X25519}
++		case !boring.SupportsCurve("X25519") && !boring.SupportsMLKEM768():
++			defaultWithPQ = []CurveID{SecP384r1MLKEM1024, CurveP384, CurveP256, CurveP521, X25519MLKEM768, SecP256r1MLKEM768, X25519}
++		case !boring.SupportsCurve("X25519") && !boring.SupportsMLKEM1024():
++			defaultWithPQ = []CurveID{SecP256r1MLKEM768, CurveP384, CurveP256, CurveP521, X25519MLKEM768, SecP384r1MLKEM1024, X25519}
++		case !boring.SupportsMLKEM768() && !boring.SupportsMLKEM1024():
++			defaultWithPQ = []CurveID{CurveP384, CurveP256, CurveP521, X25519, X25519MLKEM768, SecP384r1MLKEM1024, SecP256r1MLKEM768}
++		case !boring.SupportsCurve("X25519"):
++			defaultWithPQ = []CurveID{SecP384r1MLKEM1024, SecP256r1MLKEM768, CurveP384, CurveP256, CurveP521, X25519MLKEM768, X25519}
++		case !boring.SupportsMLKEM768():
++			defaultWithPQ = []CurveID{SecP384r1MLKEM1024, CurveP384, CurveP256, CurveP521, X25519, X25519MLKEM768, SecP256r1MLKEM768}
++		case !boring.SupportsMLKEM1024():
++			defaultWithPQ = []CurveID{X25519MLKEM768, SecP256r1MLKEM768, CurveP384, CurveP256, CurveP521, X25519, SecP384r1MLKEM1024}
++		}
++	}
++	defaultWithoutPQ := []CurveID{CurveP384, CurveP256, CurveP521, X25519}
++
++	var tests = []struct {
++		name           string
++		clientConfig   func(*Config)
++		serverConfig   func(*Config)
++		preparation    func(*testing.T)
++		expectClient   []CurveID
++		expectSelected CurveID
++		expectHRR      bool
++	}{
++		{
++			name:           "Default",
++			expectClient:   defaultWithPQ,
++			expectSelected: X25519MLKEM768,
++		},
++		{
++			name: "ClientCurvePreferences",
++			clientConfig: func(config *Config) {
++				config.CurvePreferences = []CurveID{X25519}
++			},
++			expectClient:   []CurveID{X25519},
++			expectSelected: X25519,
++		},
++		{
++			name: "ServerCurvePreferencesX25519",
++			serverConfig: func(config *Config) {
++				config.CurvePreferences = []CurveID{X25519}
++			},
++			expectClient:   defaultWithPQ,
++			expectSelected: X25519,
++			expectHRR:      boring.Enabled && !boring.SupportsMLKEM768(),
++		},
++		{
++			name: "ServerCurvePreferencesHRR",
++			serverConfig: func(config *Config) {
++				config.CurvePreferences = []CurveID{CurveP256}
++			},
++			expectClient:   defaultWithPQ,
++			expectSelected: CurveP256,
++			expectHRR:      defaultWithPQ[0] != SecP256r1MLKEM768 && defaultWithPQ[0] != CurveP256,
++		},
++		{
++			name: "SecP256r1MLKEM768-Only",
++			clientConfig: func(config *Config) {
++				config.CurvePreferences = []CurveID{SecP256r1MLKEM768}
++			},
++			expectClient:   []CurveID{SecP256r1MLKEM768},
++			expectSelected: SecP256r1MLKEM768,
++		},
++		{
++			name: "SecP256r1MLKEM768-HRR",
++			serverConfig: func(config *Config) {
++				config.CurvePreferences = []CurveID{SecP256r1MLKEM768, CurveP256}
++			},
++			expectClient:   defaultWithPQ,
++			expectSelected: SecP256r1MLKEM768,
++			expectHRR:      defaultWithPQ[0] != SecP256r1MLKEM768,
++		},
++		{
++			name: "SecP384r1MLKEM1024",
++			clientConfig: func(config *Config) {
++				config.CurvePreferences = []CurveID{SecP384r1MLKEM1024, CurveP384}
++			},
++			expectClient:   []CurveID{SecP384r1MLKEM1024, CurveP384},
++			expectSelected: SecP384r1MLKEM1024,
++		},
++		{
++			name: "CurveP256NoHRR",
++			clientConfig: func(config *Config) {
++				config.CurvePreferences = []CurveID{SecP256r1MLKEM768, CurveP256}
++			},
++			serverConfig: func(config *Config) {
++				config.CurvePreferences = []CurveID{CurveP256}
++			},
++			expectClient: slices.DeleteFunc(slices.Clone(defaultWithPQ), func(c CurveID) bool {
++				return c != SecP256r1MLKEM768 && c != CurveP256
++			}),
++			expectSelected: CurveP256,
++		},
++		{
++			name: "ClientMLKEMOnly",
++			clientConfig: func(config *Config) {
++				config.CurvePreferences = []CurveID{X25519MLKEM768}
++			},
++			expectClient:   []CurveID{X25519MLKEM768},
++			expectSelected: X25519MLKEM768,
++		},
++		{
++			name: "ClientSortedCurvePreferences",
++			clientConfig: func(config *Config) {
++				config.CurvePreferences = []CurveID{CurveP256, X25519MLKEM768}
++			},
++			expectClient:   []CurveID{X25519MLKEM768, CurveP256},
++			expectSelected: X25519MLKEM768,
++		},
++		{
++			name: "ClientTLSv12",
++			clientConfig: func(config *Config) {
++				config.MaxVersion = VersionTLS12
++			},
++			expectClient:   defaultWithoutPQ,
++			expectSelected: CurveP384,
++		},
++		{
++			name: "ServerTLSv12",
++			serverConfig: func(config *Config) {
++				config.MaxVersion = VersionTLS12
++			},
++			expectClient:   defaultWithPQ,
++			expectSelected: CurveP384,
++		},
++		{
++			name: "GODEBUG tlsmlkem=0",
++			preparation: func(t *testing.T) {
++				testenv.SetGODEBUG(t, "tlsmlkem=0")
++			},
++			expectClient:   defaultWithoutPQ,
++			expectSelected: CurveP384,
++		},
++		{
++			name: "GODEBUG tlssecpmlkem=0",
++			preparation: func(t *testing.T) {
++				testenv.SetGODEBUG(t, "tlssecpmlkem=0")
++			},
++			expectClient:   []CurveID{X25519MLKEM768, CurveP384, CurveP256, CurveP521, X25519},
++			expectSelected: X25519MLKEM768,
++		},
++		{
++			name: "GODEBUG ms_tlsx25519=0",
++			preparation: func(t *testing.T) {
++				testenv.SetGODEBUG(t, "ms_tlsx25519=0")
++			},
++			expectClient: slices.DeleteFunc(slices.Clone(defaultWithPQ), func(c CurveID) bool {
++				return c == X25519MLKEM768 || c == X25519
++			}),
++			expectSelected: SecP384r1MLKEM1024,
++		},
++		{
++			name: "GODEBUG ms_tlsx25519=0,tlsmlkem=0",
++			preparation: func(t *testing.T) {
++				testenv.SetGODEBUG(t, "ms_tlsx25519=0,tlsmlkem=0")
++			},
++			expectClient:   []CurveID{CurveP384, CurveP256, CurveP521},
++			expectSelected: CurveP384,
++		},
++		{
++			name: "GODEBUG ms_tlsx25519=0,tlssecpmlkem=0",
++			preparation: func(t *testing.T) {
++				testenv.SetGODEBUG(t, "ms_tlsx25519=0,tlssecpmlkem=0")
++			},
++			expectClient:   []CurveID{CurveP384, CurveP256, CurveP521},
++			expectSelected: CurveP384,
++		},
++	}
++
++	baseClientConfig := testConfigClient.Clone()
++	baseClientConfig.CurvePreferences = nil
++	baseServerConfig := testConfigServer.Clone()
++	baseServerConfig.CurvePreferences = nil
++	for _, test := range tests {
++		t.Run(test.name, func(t *testing.T) {
++			if fips140tls.Required() && test.expectSelected == X25519 {
++				t.Skip("X25519 not supported in FIPS mode")
++			}
++			if test.preparation != nil {
++				test.preparation(t)
++			} else {
++				t.Parallel()
++			}
++			serverConfig := baseServerConfig.Clone()
++			if test.serverConfig != nil {
++				test.serverConfig(serverConfig)
++			}
++			x25519Enabled := !strings.Contains(os.Getenv("GODEBUG"), "ms_tlsx25519=0")
++			if !supportedGroups[test.expectSelected] {
++				t.Skipf("%v not supported", test.expectSelected)
++			}
++			serverConfig.GetConfigForClient = func(hello *ClientHelloInfo) (*Config, error) {
++				expectClient := slices.Clone(test.expectClient)
++				expectClient = slices.DeleteFunc(expectClient, func(c CurveID) bool {
++					if !x25519Enabled && (c == X25519MLKEM768 || c == X25519) {
++						return true
++					}
++					return fips140tls.Required() && c == X25519
++				})
++				if !slices.Equal(hello.SupportedCurves, expectClient) {
++					t.Errorf("got client curves %v, expected %v", hello.SupportedCurves, expectClient)
++				}
++				return nil, nil
++			}
++			clientConfig := baseClientConfig.Clone()
++			if test.clientConfig != nil {
++				test.clientConfig(clientConfig)
++			}
++			ss, cs, err := testHandshake(t, clientConfig, serverConfig)
++			if err != nil {
++				t.Fatal(err)
++			}
++			if ss.CurveID != test.expectSelected {
++				t.Errorf("server selected curve %v, expected %v", ss.CurveID, test.expectSelected)
++			}
++			if cs.CurveID != test.expectSelected {
++				t.Errorf("client selected curve %v, expected %v", cs.CurveID, test.expectSelected)
++			}
++			if test.expectHRR {
++				if !ss.HelloRetryRequest {
++					t.Error("server did not use HRR")
++				}
++				if !cs.HelloRetryRequest {
++					t.Error("client did not use HRR")
++				}
++			} else {
++				if ss.HelloRetryRequest {
++					t.Error("server used HRR")
++				}
++				if cs.HelloRetryRequest {
++					t.Error("client used HRR")
++				}
++			}
++		})
++	}
++}
++
++func TestMicrosoftCipherSuiteNoAES(t *testing.T) {
++	if fips140tls.Required() {
++		t.Skip("ChaCha20Poly1305 cipher suites not supported in FIPS mode")
++	}
++
++	enableMicrosoftProfile(t)
++
++	t.Run("TLS13", func(t *testing.T) {
++		t.Parallel()
++		clientConfig := testConfigClient.Clone()
++		clientConfig.MaxVersion = VersionTLS13
++
++		serverConfig := testConfigServer.Clone()
++		serverConfig.MaxVersion = VersionTLS13
++
++		// Check cipher suite order in ClientHello
++		// With Microsoft TLS profile, TLS 1.3 should always prefer AES over ChaCha20
++		serverConfig.GetConfigForClient = func(hello *ClientHelloInfo) (*Config, error) {
++			if len(hello.CipherSuites) == 0 {
++				t.Error("no cipher suites advertised")
++				return nil, nil
++			}
++
++			aes128Index := -1
++			aes256Index := -1
++			chachaIndex := -1
++			for i, cs := range hello.CipherSuites {
++				if cs == TLS_AES_128_GCM_SHA256 {
++					aes128Index = i
++				}
++				if cs == TLS_AES_256_GCM_SHA384 {
++					aes256Index = i
++				}
++				if cs == TLS_CHACHA20_POLY1305_SHA256 {
++					chachaIndex = i
++				}
++			}
++
++			// Microsoft profile should prefer AES over ChaCha20 in TLS 1.3
++			if chachaIndex != -1 {
++				if (aes128Index != -1 && aes128Index > chachaIndex) || (aes256Index != -1 && aes256Index > chachaIndex) {
++					t.Errorf("TLS 1.3 with Microsoft profile: AES cipher suites should come before CHACHA20_POLY1305_SHA256, got AES_128 at %d, AES_256 at %d, ChaCha at %d", aes128Index, aes256Index, chachaIndex)
++				}
++			}
++			return nil, nil
++		}
++
++		ss, cs, err := testHandshake(t, clientConfig, serverConfig)
++		if err != nil {
++			t.Fatal(err)
++		}
++
++		if ss.CipherSuite != TLS_AES_128_GCM_SHA256 &&
++			ss.CipherSuite != TLS_AES_256_GCM_SHA384 &&
++			ss.CipherSuite != TLS_CHACHA20_POLY1305_SHA256 {
++			t.Errorf("unexpected TLS 1.3 cipher suite: %x", ss.CipherSuite)
++		}
++		if ss.CipherSuite != cs.CipherSuite {
++			t.Errorf("cipher suite mismatch: server=%x, client=%x", ss.CipherSuite, cs.CipherSuite)
++		}
++	})
++
++	t.Run("TLS12", func(t *testing.T) {
++		t.Parallel()
++		clientConfig := testConfigClient.Clone()
++		clientConfig.MaxVersion = VersionTLS12
++
++		serverConfig := testConfigServer.Clone()
++		serverConfig.MaxVersion = VersionTLS12
++
++		// For TLS 1.2, cipher suite ordering depends on hardware AES support.
++		// We verify that the handshake works and appropriate cipher suites are used.
++		serverConfig.GetConfigForClient = func(hello *ClientHelloInfo) (*Config, error) {
++			if len(hello.CipherSuites) == 0 {
++				t.Error("no cipher suites advertised")
++				return nil, nil
++			}
++
++			// Verify that both AES and ChaCha20 cipher suites are present
++			hasAES := false
++			hasChaCha := false
++			for _, cs := range hello.CipherSuites {
++				if cs == TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256 ||
++					cs == TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384 ||
++					cs == TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256 ||
++					cs == TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384 {
++					hasAES = true
++				}
++				if cs == TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256 ||
++					cs == TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256 {
++					hasChaCha = true
++				}
++			}
++
++			if !hasAES {
++				t.Error("TLS 1.2: no AES-GCM cipher suites advertised")
++			}
++			expectChaCha := !goexperiment.MS_TLS_Config_Schannel ||
++				isSchannelCipherSuite(TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256) ||
++				isSchannelCipherSuite(TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256)
++			if expectChaCha && !hasChaCha {
++				t.Error("TLS 1.2: no ChaCha20 cipher suites advertised")
++			}
++			return nil, nil
++		}
++
++		ss, cs, err := testHandshake(t, clientConfig, serverConfig)
++		if err != nil {
++			t.Fatal(err)
++		}
++
++		// Verify a reasonable TLS 1.2 cipher suite was selected
++		if ss.CipherSuite != TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256 &&
++			ss.CipherSuite != TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384 &&
++			ss.CipherSuite != TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256 &&
++			ss.CipherSuite != TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384 &&
++			ss.CipherSuite != TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256 &&
++			ss.CipherSuite != TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256 {
++			t.Errorf("unexpected TLS 1.2 cipher suite: %x", ss.CipherSuite)
++		}
++		if ss.CipherSuite != cs.CipherSuite {
++			t.Errorf("cipher suite mismatch: server=%x, client=%x", ss.CipherSuite, cs.CipherSuite)
++		}
++	})
++}
++
++func TestMicrosoftTLS13OnlyClientHelloCipherSuite(t *testing.T) {
++	enableMicrosoftProfile(t)
++
++	testTLS13OnlyClientHelloCipherSuite(t, nil)
++}
++
++func TestMicrosoftCipherSuitePreferenceGCM256(t *testing.T) {
++	enableMicrosoftProfile(t)
++
++	testCipherSuitePreferenceOrder(t, VersionTLS12, TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
++		[]uint16{TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256, TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384},
++		nil,
++	)
++}
++
++func TestMicrosoftCipherSuitePreferenceCBCSHA1(t *testing.T) {
++	skipFIPS(t) // CBC_SHA1 cipher suites not supported in FIPS mode
++
++	enableMicrosoftProfile(t)
++
++	testCipherSuitePreferenceOrder(t, VersionTLS12, TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA,
++		[]uint16{TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA, TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA},
++		[]uint16{TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA, TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA},
++	)
++}
++
++func TestMicrosoftCipherSuitePreferenceCBC256(t *testing.T) {
++	enableMicrosoftProfile(t)
++
++	testCipherSuitePreferenceOrder(t, VersionTLS12, TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA256,
++		[]uint16{TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA, TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA, TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA256},
++		[]uint16{TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA, TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA, TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA256},
++	)
++}
++
++func testCipherSuitePreferenceOrder(t *testing.T, maxVersion uint16, expected uint16, client, server []uint16) {
++	serverConfig := testConfigServer.Clone()
++	serverConfig.MaxVersion = maxVersion
++	serverConfig.CipherSuites = server
++	serverConfig.GetConfigForClient = func(chi *ClientHelloInfo) (*Config, error) {
++		if chi.CipherSuites[0] != expected {
++			t.Error("the advertised order should not depend on Config.CipherSuites")
++		}
++		return nil, nil
++	}
++	clientConfig := testConfigClient.Clone()
++	clientConfig.CipherSuites = client
++	clientConfig.MaxVersion = maxVersion
++	clientConfig.InsecureSkipVerify = true
++	state, _, err := testHandshake(t, clientConfig, serverConfig)
++	if err != nil {
++		t.Fatalf("handshake failed: %s", err)
++	}
++	if state.CipherSuite != expected {
++		t.Error("the preference order should not depend on Config.CipherSuites")
++	}
++}
++
++func enableMicrosoftProfile(t *testing.T) {
++	t.Setenv("GODEBUG", strings.ReplaceAll(os.Getenv("GODEBUG"), "ms_tlsprofile=off", "")+",ms_tlsprofile=default")
++}
+diff --git a/src/crypto/tls/schannel_windows.go b/src/crypto/tls/schannel_windows.go
+index cccfb8866f88ab..b2896e95e74686 100644
+--- a/src/crypto/tls/schannel_windows.go
++++ b/src/crypto/tls/schannel_windows.go
+@@ -40,6 +40,13 @@ func setSchannelCipherSuites(suites, versions []uint16) {
+ 	defaultCipherSuitesTLS13 = filterCipherSuites(suites, defaultCipherSuitesTLS13)
+ 	allowedCipherSuitesTLS13FIPS = filterCipherSuites(suites, allowedCipherSuitesTLS13FIPS)
+ 
++	// Update MS-specific variables too.
++	msDefaultCipherSuitesTLS13 = defaultCipherSuitesTLS13
++	msAllowedCipherSuitesTLS13FIPS = allowedCipherSuitesTLS13FIPS
++	msCipherSuitesPreferenceOrder = cipherSuitesPreferenceOrder
++	msAllowedCipherSuitesFIPS = allowedCipherSuitesFIPS
++	msDisabledCipherSuites = disabledCipherSuites
++
+ 	// Schannel doesn't have a separate preference order without AES.
+ 	cipherSuitesPreferenceOrderNoAES = cipherSuitesPreferenceOrder
+ 	defaultCipherSuitesTLS13NoAES = defaultCipherSuitesTLS13
+diff --git a/src/internal/godebugs/table.go b/src/internal/godebugs/table.go
+index 10b3919d51e10d..d15034728ffafd 100644
+--- a/src/internal/godebugs/table.go
++++ b/src/internal/godebugs/table.go
+@@ -49,6 +49,8 @@ var All = []Info{
+ 	{Name: "httpservecontentkeepheaders", Package: "net/http", Changed: 23, Old: "1"},
+ 	{Name: "installgoroot", Package: "go/build"},
+ 	{Name: "jstmpllitinterp", Package: "html/template", Opaque: true}, // bug #66217: remove Opaque
++	{Name: "ms_tlsprofile", Package: "crypto/tls", Opaque: true},
++	{Name: "ms_tlsx25519", Package: "crypto/tls", Opaque: true},
+ 	//{Name: "multipartfiles", Package: "mime/multipart"},
+ 	{Name: "multipartmaxheaders", Package: "mime/multipart"},
+ 	{Name: "multipartmaxparts", Package: "mime/multipart"},
+diff --git a/src/net/http/internal/http2/transport_test.go b/src/net/http/internal/http2/transport_test.go
+index 4863054a019ad9..42b7f94f1f2da7 100644
+--- a/src/net/http/internal/http2/transport_test.go
++++ b/src/net/http/internal/http2/transport_test.go
+@@ -15,6 +15,7 @@ import (
+ 	"errors"
+ 	"flag"
+ 	"fmt"
++	"internal/testenv"
+ 	"io"
+ 	"log"
+ 	"math/rand"
+@@ -2755,6 +2756,7 @@ func testTransportCloseAfterLostPing(t testing.TB) {
+ }
+ 
+ func TestTransportPingWriteBlocks(t *testing.T) {
++	testenv.SetGODEBUG(t, "ms_tlsprofile=off")
+ 	ts := newTestServer(t,
+ 		func(w http.ResponseWriter, r *http.Request) {},
+ 	)

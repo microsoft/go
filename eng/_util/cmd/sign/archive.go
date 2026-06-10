@@ -9,8 +9,10 @@ import (
 	"archive/zip"
 	"cmp"
 	"context"
+	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"log"
 	"os"
 	"path/filepath"
@@ -44,6 +46,8 @@ type archive struct {
 	notarizedPath string
 }
 
+const signingWorkingDirPrefix = "sign-work-"
+
 func newArchive(p string) (*archive, error) {
 	name := filepath.Base(p)
 	a := archive{
@@ -65,7 +69,7 @@ func newArchive(p string) (*archive, error) {
 	if err := os.MkdirAll(*tempDir, 0o777); err != nil {
 		return nil, err
 	}
-	workDir, err := os.MkdirTemp(*tempDir, "sign-work-"+name)
+	workDir, err := os.MkdirTemp(*tempDir, signingWorkingDirPrefix+name)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create work directory: %v", err)
 	}
@@ -100,10 +104,6 @@ func (a *archive) macHardenPackPath() string {
 
 func (a *archive) macIndividualNotarizePackPath() string {
 	return filepath.Join(a.workDir, a.name+".FilesToNotarize.zip")
-}
-
-func (a *archive) macBundleNotarizePackPath() string {
-	return filepath.Join(a.workDir, a.name+".BundlesToNotarize.zip")
 }
 
 // entrySignInfo returns signing details for a given file in the Go archive, or nil if the given
@@ -462,4 +462,74 @@ func (a *archive) copyToDestination(ctx context.Context) error {
 		return err
 	}
 	return nil
+}
+
+func consolidateDiagnosticFiles() error {
+	// Do as much as possible, accumulating errors to report to the user.
+	var err error
+	// Signing process logs.
+	err = errors.Join(err, copyGlobFilesToDir(
+		*consolidateDiagDir,
+		filepath.Join(*signingCsprojDir, "*.log"),
+		filepath.Join(*tempDir, "*.binlog"),
+		filepath.Join(*tempDir, "*.props"),
+	))
+	// .NET diag data, for package versions etc.
+	err = errors.Join(err, copyGlobFilesToDir(
+		filepath.Join(*consolidateDiagDir, "obj"),
+		filepath.Join(*signingCsprojDir, "obj", "*"),
+	))
+
+	// Signing working dirs. These contain the files actually sent to sign. Make
+	// it clear that they're not production-ready files through the filename.
+	cleanTempDir := filepath.Clean(*tempDir)
+	err = errors.Join(err, withTarGzCreate(
+		filepath.Join(*consolidateDiagDir, "sign-work-archives.nonproduction.tar.gz"),
+		func(tw *tar.Writer) error {
+			if err := filepath.WalkDir(cleanTempDir, func(path string, d fs.DirEntry, err error) error {
+				if err != nil {
+					return err
+				}
+				// At the top level, only walk into working dirs.
+				if d.IsDir() &&
+					filepath.Dir(path) == cleanTempDir &&
+					!strings.HasPrefix(d.Name(), signingWorkingDirPrefix) {
+
+					return filepath.SkipDir
+				}
+				// Inside a given working dir, we are free to walk recursively.
+				if d.IsDir() {
+					return nil
+				}
+				// This is a file: archive it.
+				df, err := d.Info()
+				if err != nil {
+					return err
+				}
+				// Basic sanity checks.
+				if !filepath.IsLocal(path) {
+					return fmt.Errorf("path %q is not a local path", path)
+				}
+				tarPath, ok := strings.CutPrefix(path, cleanTempDir+string(filepath.Separator))
+				if !ok {
+					return fmt.Errorf("path %q is not under temp dir %q", path, *tempDir)
+				}
+				tarPath = filepath.ToSlash(tarPath)
+
+				err = tw.WriteHeader(&tar.Header{
+					Name: tarPath,
+					Size: df.Size(),
+					Mode: 0o644,
+				})
+				if err != nil {
+					return err
+				}
+				return copyFromFile(tw, path)
+			}); err != nil {
+				return err
+			}
+			return nil
+		},
+	))
+	return err
 }

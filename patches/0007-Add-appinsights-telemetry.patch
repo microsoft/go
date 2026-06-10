@@ -1,0 +1,389 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: bot-for-go[bot] <199222863+bot-for-go[bot]@users.noreply.github.com>
+Date: Thu, 29 May 2025 14:53:58 +0200
+Subject: [PATCH] Add appinsights telemetry
+
+---
+ README.md                                     | 15 +++++
+ .../internal/telemetrystats/telemetrystats.go | 17 ++++++
+ src/cmd/go/main.go                            | 28 ++++++++-
+ src/cmd/go/mstelemetry_test.go                | 56 +++++++++++++++++
+ src/cmd/go/script_test.go                     | 10 +++
+ src/cmd/go/scriptcmds_test.go                 | 22 +++++++
+ src/cmd/internal/telemetry/counter/counter.go | 61 ++++++++++++++++++-
+ .../telemetry/counter/counter_bootstrap.go    | 10 ++-
+ 8 files changed, 214 insertions(+), 5 deletions(-)
+ create mode 100644 src/cmd/go/mstelemetry_test.go
+
+diff --git a/README.md b/README.md
+index 71c9d1dc299388..8cab5daec4da54 100644
+--- a/README.md
++++ b/README.md
+@@ -40,3 +40,18 @@ places to ask questions about the Go language.
+ 
+ [rf]: https://reneefrench.blogspot.com/
+ [cc4-by]: https://creativecommons.org/licenses/by/4.0/
++
++### Data Collection
++
++The software may collect information about you and your use of the software and
++send it to Microsoft. Microsoft may use this information to provide services
++and improve our products and services. You may turn off the telemetry by
++setting the `MS_GOTOOLCHAIN_TELEMETRY_ENABLED` environment variable to `0`.
++There are also some features in the software that may enable you and Microsoft
++to collect data from users of your applications. If you use these features,
++you must comply with applicable law, including providing appropriate notices to
++users of your applications together with a copy of Microsoft’s privacy
++statement. Our privacy statement is located at https://go.microsoft.com/fwlink/?LinkID=824704.
++You can learn more about data collection and use in the help documentation and
++our privacy statement. Your use of the software operates as your consent to
++these practices.
+\ No newline at end of file
+diff --git a/src/cmd/go/internal/telemetrystats/telemetrystats.go b/src/cmd/go/internal/telemetrystats/telemetrystats.go
+index c6e58935bb0ee2..82651441fe61fd 100644
+--- a/src/cmd/go/internal/telemetrystats/telemetrystats.go
++++ b/src/cmd/go/internal/telemetrystats/telemetrystats.go
+@@ -11,7 +11,12 @@ import (
+ 	"cmd/go/internal/cfg"
+ 	"cmd/go/internal/modload"
+ 	"cmd/internal/telemetry/counter"
++	"internal/platform"
++	"internal/systemcrypto"
++	"os"
+ 	"strings"
++
++	"github.com/microsoft/go-infra/telemetry"
+ )
+ 
+ func Increment() {
+@@ -39,6 +44,18 @@ func incrementConfig() {
+ 		counter.Inc("go/cgo:disabled")
+ 	}
+ 
++	if ci := telemetry.DetectCI(os.Environ()); ci != "" {
++		counter.Inc("msgo/ci:" + ci)
++	}
++
++	if platform.SystemCryptoSupported(cfg.Goos, cfg.Goarch) {
++		if systemcrypto.EnabledFor(cfg.Goos, cfg.Goarch) {
++			counter.Inc("msgo/systemcrypto:enabled")
++		} else {
++			counter.Inc("msgo/systemcrypto:disabled")
++		}
++	}
++
+ 	counter.Inc("go/platform/target/goos:" + cfg.Goos)
+ 	counter.Inc("go/platform/target/goarch:" + cfg.Goarch)
+ 	counter.Inc("go/platform/target/port:" + cfg.Goos + "-" + cfg.Goarch)
+diff --git a/src/cmd/go/main.go b/src/cmd/go/main.go
+index bba11a2fdeaaa6..641f8ea631d992 100644
+--- a/src/cmd/go/main.go
++++ b/src/cmd/go/main.go
+@@ -8,6 +8,8 @@ package main
+ 
+ import (
+ 	"context"
++	"crypto/sha256"
++	"encoding/hex"
+ 	"flag"
+ 	"fmt"
+ 	"internal/buildcfg"
+@@ -25,7 +27,9 @@ import (
+ 	"cmd/go/internal/doc"
+ 	"cmd/go/internal/envcmd"
+ 	"cmd/go/internal/fmtcmd"
++	"cmd/go/internal/fsys"
+ 	"cmd/go/internal/generate"
++	"cmd/go/internal/gover"
+ 	"cmd/go/internal/help"
+ 	"cmd/go/internal/list"
+ 	"cmd/go/internal/modcmd"
+@@ -110,7 +114,29 @@ func main() {
+ 	}
+ 	flag.Usage = base.Usage
+ 	flag.Parse()
+-	counter.Inc("go/invocations")
++	if args := flag.Args(); len(args) > 0 {
++		switch args[0] {
++		case "build", "install", "run":
++			// Don't start Microsoft telemetry for commands that don't build anything.
++			counter.OpenMicrosoft()
++			base.AtExit(counter.CloseMicrosoft)
++		}
++	}
++	// Send a SHA-256 hash of the module path as a property on go/invocations.
++	var moduleHash string
++	if gomod := modload.FindGoMod(base.Cwd()); gomod != "" {
++		if data, err := fsys.ReadFile(gomod); err == nil {
++			if mod := gover.GoModLookup(data, "module"); mod != "" {
++				h := sha256.Sum256([]byte(mod))
++				moduleHash = hex.EncodeToString(h[:])
++			}
++		}
++	}
++	if moduleHash != "" {
++		counter.IncWithProperties("go/invocations", map[string]string{"msgo/module/hash": moduleHash})
++	} else {
++		counter.Inc("go/invocations")
++	}
+ 	counter.CountFlags("go/flag:", *flag.CommandLine)
+ 
+ 	args := flag.Args()
+diff --git a/src/cmd/go/mstelemetry_test.go b/src/cmd/go/mstelemetry_test.go
+new file mode 100644
+index 00000000000000..010270fb6ad4cf
+--- /dev/null
++++ b/src/cmd/go/mstelemetry_test.go
+@@ -0,0 +1,56 @@
++// Copyright 2025 The Go Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style
++// license that can be found in the LICENSE file.
++
++package main_test
++
++import (
++	"flag"
++	"fmt"
++	"log"
++	"net"
++	"net/http"
++	"os"
++	"sync"
++	"sync/atomic"
++)
++
++var (
++	appInsightsAddr = flag.String("appInsights", "", "run a fake App Insights server on this network address")
++	appInsightsURL  string
++)
++
++var appInsightsOnce sync.Once
++
++var appInsightsRequests atomic.Int64
++
++// StartAppInsightsServer starts a fake App Insights server running on *appInsightsAddr (like "localhost:1234")
++// and sets appInsightsURL to the MS_GOTOOLCHAIN_TELEMETRY_ENDPOINT setting to use to access the server.
++// Subsequent calls are no-ops.
++func StartAppInsightsServer() {
++	appInsightsOnce.Do(func() {
++		addr := *appInsightsAddr
++		if addr == "" {
++			addr = "localhost:0"
++		}
++		l, err := net.Listen("tcp", addr)
++		if err != nil {
++			log.Fatal(err)
++		}
++		*appInsightsAddr = l.Addr().String()
++		appInsightsURL = "http://" + *appInsightsAddr
++		fmt.Fprintf(os.Stderr, "go test App Insights server running at MS_GOTOOLCHAIN_TELEMETRY_ENDPOINT=%s\n", appInsightsURL)
++		go func() {
++			log.Fatalf("App Insights: http.Serve: %v", http.Serve(l, http.HandlerFunc(appInsightsHandler)))
++		}()
++	})
++}
++
++func appInsightsHandler(w http.ResponseWriter, r *http.Request) {
++	appInsightsRequests.Add(1)
++	fmt.Fprint(w, `{"itemsReceived": 1, "itemsAccepted": 1}`)
++}
++
++func appInsightsTotalRequests() int64 {
++	return appInsightsRequests.Load()
++}
+diff --git a/src/cmd/go/script_test.go b/src/cmd/go/script_test.go
+index f84a42352c5768..7521ce3db4af9f 100644
+--- a/src/cmd/go/script_test.go
++++ b/src/cmd/go/script_test.go
+@@ -62,6 +62,7 @@ func TestScript(t *testing.T) {
+ 	}
+ 
+ 	StartProxy()
++	StartAppInsightsServer()
+ 
+ 	var (
+ 		ctx         = context.Background()
+@@ -256,6 +257,10 @@ func scriptEnv(srv *vcstest.Server, srvCertFile string) ([]string, error) {
+ 		"HGRCPATH=",
+ 		"GOTOOLCHAIN=auto",
+ 		"MS_GOTOOLCHAIN_ALLOW_NON_LOCAL=1", // allow non-local toolchains, some tests expect GOTOOLCHAIN to be honored
++		"MS_GOTOOLCHAIN_TELEMETRY_ENDPOINT=" + appInsightsURL,
++		"MS_GOTOOLCHAIN_TELEMETRY_ALLOW_GO_DEVEL=1",   // allow telemetry for Go development versions
++		"MS_GOTOOLCHAIN_TELEMETRY_VERBOSE=2",          // enable verbose telemetry logging to help diagnose test failures
++		"MS_GOTOOLCHAIN_TELEMETRY_TRIM_TEST_SUFFIX=1", // trim ".test" suffix from program name for telemetry purposes when running tests
+ 		"newline=\n",
+ 	}
+ 
+@@ -410,6 +415,11 @@ func checkCounters(t *testing.T, telemetryDir string) {
+ 			t.Fatal("go was invoked but no counters were incremented")
+ 		}
+ 	}
++	if _, ok := scriptGoBuildSucceeded.Load(testing.TB(t)); ok {
++		if appInsightsTotalRequests() == 0 {
++			t.Fatal("go was invoked but no App Insights request were recorded")
++		}
++	}
+ }
+ 
+ // Copied from https://go.googlesource.com/telemetry/+/5f08a0cbff3f/internal/telemetry/mode.go#122
+diff --git a/src/cmd/go/scriptcmds_test.go b/src/cmd/go/scriptcmds_test.go
+index 8195e830caa31b..882aeecfa562b9 100644
+--- a/src/cmd/go/scriptcmds_test.go
++++ b/src/cmd/go/scriptcmds_test.go
+@@ -72,6 +72,7 @@ func scriptCC(cmdExec script.Cmd) script.Cmd {
+ }
+ 
+ var scriptGoInvoked sync.Map // testing.TB → go command was invoked
++var scriptGoBuildSucceeded sync.Map
+ 
+ // scriptGo runs the go command.
+ func scriptGo(cancel func(*exec.Cmd) error, waitDelay time.Duration) script.Cmd {
+@@ -86,6 +87,27 @@ func scriptGo(cancel func(*exec.Cmd) error, waitDelay time.Duration) script.Cmd
+ 		if !dup {
+ 			t.Cleanup(func() { scriptGoInvoked.Delete(t) })
+ 		}
++		if len(s) > 0 {
++			// If the first argument is a subcommand, record it.
++			switch s[0] {
++			case "build", "install", "run":
++				wait, err := cmd.Run(state, s...)
++				if err != nil {
++					return wait, err
++				}
++				waitAndRecord := func(state *script.State) (stdout, stderr string, err error) {
++					stdout, stderr, err = wait(state)
++					if err == nil {
++						_, dup = scriptGoBuildSucceeded.LoadOrStore(t, true)
++						if !dup {
++							t.Cleanup(func() { scriptGoBuildSucceeded.Delete(t) })
++						}
++					}
++					return stdout, stderr, err
++				}
++				return waitAndRecord, nil
++			}
++		}
+ 		return cmd.Run(state, s...)
+ 	})
+ }
+diff --git a/src/cmd/internal/telemetry/counter/counter.go b/src/cmd/internal/telemetry/counter/counter.go
+index 5cef0b0041551a..a81daf56c9e991 100644
+--- a/src/cmd/internal/telemetry/counter/counter.go
++++ b/src/cmd/internal/telemetry/counter/counter.go
+@@ -7,10 +7,24 @@
+ package counter
+ 
+ import (
++	"cmp"
++	"context"
+ 	"flag"
++	"log"
++	"log/slog"
+ 	"os"
++	"time"
+ 
+ 	"golang.org/x/telemetry/counter"
++
++	mstelemetry "github.com/microsoft/go-infra/telemetry"
++	msconfig "github.com/microsoft/go-infra/telemetry/config"
++	mscounter "github.com/microsoft/go-infra/telemetry/counter"
++)
++
++const (
++	appInsightsInstrumentationKey = "128126c8-4e88-44c2-a70a-dfb7fbe94fb7"
++	appInsightsEndpoint           = "https://centralus-2.in.applicationinsights.azure.com/v2/track"
+ )
+ 
+ var openCalled bool
+@@ -24,9 +38,51 @@ func Open() {
+ 	counter.OpenDir(os.Getenv("TEST_TELEMETRY_DIR"))
+ }
+ 
++func OpenMicrosoft() {
++	if os.Getenv("MS_GOTOOLCHAIN_TELEMETRY_ENABLED") == "0" {
++		// Telemetry disabled.
++		return
++	}
++	var logger *slog.Logger
++	level := slog.LevelWarn
++	switch os.Getenv("MS_GOTOOLCHAIN_TELEMETRY_VERBOSE") {
++	case "2":
++		level = slog.LevelInfo
++		fallthrough
++	case "1":
++		logger = slog.New(slog.NewTextHandler(log.Default().Writer(), &slog.HandlerOptions{Level: level}))
++	}
++	mstelemetry.Start(mstelemetry.Config{
++		InstrumentationKey: appInsightsInstrumentationKey,
++		Endpoint:           cmp.Or(os.Getenv("MS_GOTOOLCHAIN_TELEMETRY_ENDPOINT"), appInsightsEndpoint), // configurable for testing purposes
++		AllowGoDevel:       os.Getenv("MS_GOTOOLCHAIN_TELEMETRY_ALLOW_GO_DEVEL") == "1",
++		UploadConfig:       msconfig.Config,
++		Logger:             logger,
++		TrimTestSuffix:     os.Getenv("MS_GOTOOLCHAIN_TELEMETRY_TRIM_TEST_SUFFIX") == "1",
++	})
++}
++
++func CloseMicrosoft() {
++	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
++	defer cancel()
++	start := time.Now()
++	mstelemetry.Close(ctx)
++	if os.Getenv("MS_GOTOOLCHAIN_TELEMETRY_VERBOSE") == "1" {
++		log.Printf("telemetry: closed in %s\n", time.Since(start))
++	}
++}
++
+ // Inc increments the counter with the given name.
+ func Inc(name string) {
+ 	counter.Inc(name)
++	mscounter.Inc(name)
++}
++
++// IncWithProperties increments the counter with the given name and custom properties.
++// Properties are sent as custom dimensions in Application Insights.
++func IncWithProperties(name string, properties map[string]string) {
++	counter.Inc(name)
++	mscounter.NewWithProperties(name, properties).Inc()
+ }
+ 
+ // New returns a counter with the given name.
+@@ -44,6 +100,7 @@ func NewStack(name string, depth int) *counter.StackCounter {
+ // the concatenation of prefix and the flag name.
+ func CountFlags(prefix string, flagSet flag.FlagSet) {
+ 	counter.CountFlags(prefix, flagSet)
++	mscounter.CountFlags(prefix, flagSet)
+ }
+ 
+ // CountFlagValue creates a counter for the flag value
+@@ -56,7 +113,9 @@ func CountFlagValue(prefix string, flagSet flag.FlagSet, flagName string) {
+ 	// TODO(matloob): Add this to x/telemetry?
+ 	flagSet.Visit(func(f *flag.Flag) {
+ 		if f.Name == flagName {
+-			counter.New(prefix + f.Name + ":" + f.Value.String()).Inc()
++			name := prefix + f.Name + ":" + f.Value.String()
++			counter.New(name).Inc()
++			mscounter.New(name).Inc()
+ 		}
+ 	})
+ }
+diff --git a/src/cmd/internal/telemetry/counter/counter_bootstrap.go b/src/cmd/internal/telemetry/counter/counter_bootstrap.go
+index 00808294053c23..0780b24792c795 100644
+--- a/src/cmd/internal/telemetry/counter/counter_bootstrap.go
++++ b/src/cmd/internal/telemetry/counter/counter_bootstrap.go
+@@ -12,9 +12,13 @@ type dummyCounter struct{}
+ 
+ func (dc dummyCounter) Inc() {}
+ 
+-func Open()                                                               {}
+-func Inc(name string)                                                     {}
+-func New(name string) dummyCounter                                        { return dummyCounter{} }
++func Open()                                                                          {}
++func Inc(name string)                                                                {}
++func IncWithProperties(name string, properties map[string]string)                    {}
++func New(name string) dummyCounter                                                   { return dummyCounter{} }
+ func NewStack(name string, depth int) dummyCounter                        { return dummyCounter{} }
+ func CountFlags(name string, flagSet flag.FlagSet)                        {}
+ func CountFlagValue(prefix string, flagSet flag.FlagSet, flagName string) {}
++
++func OpenMicrosoft()  {}
++func CloseMicrosoft() {}

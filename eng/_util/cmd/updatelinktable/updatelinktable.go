@@ -23,7 +23,7 @@ This command updates the table in ` + docPath + ` and data in ` + jsonPath + `.
 
 var supported = []version{
 	{
-		Number:       "1.24",
+		Number:       "1.26",
 		LatestStable: true,
 		Platforms: map[string]struct{}{
 			"darwin-amd64":  {},
@@ -32,14 +32,17 @@ var supported = []version{
 			"linux-arm64":   {},
 			"linux-armv6l":  {},
 			"windows-amd64": {},
+			"windows-arm64": {},
 			"src":           {},
 			"assets":        {},
 		},
 	},
 	{
-		Number:         "1.23",
+		Number:         "1.25",
 		PreviousStable: true,
 		Platforms: map[string]struct{}{
+			"darwin-amd64":  {},
+			"darwin-arm64":  {},
 			"linux-amd64":   {},
 			"linux-arm64":   {},
 			"linux-armv6l":  {},
@@ -129,21 +132,27 @@ func filename(version, platform, ext string) string {
 	return "go" + version + "." + platform + ext
 }
 
-const checksumSuffix = ".sha256"
-const checksumMsg = "Checksum (SHA256)"
-const signatureSuffix = ".sig"
-const signatureMsg = "Signature<sup>1</sup>"
+const (
+	checksumSuffix  = ".sha256"
+	checksumMsg     = "Checksum (SHA256)"
+	signatureSuffix = ".sig"
+	signatureMsg    = "Signature<sup>1</sup>"
+)
 
 const baseURL = "https://aka.ms/golang/release/latest/"
 
-var docPath = filepath.Join("eng", "doc", "Downloads.md")
-var jsonPath = filepath.Join("eng", "doc", "release-branch-links.json")
+var (
+	docPath  = filepath.Join("eng", "doc", "Downloads.md")
+	jsonPath = filepath.Join("eng", "doc", "release-branch-links.json")
+)
 
-const beginMark = "<!-- BEGIN TABLES -->"
-const endMark = "<!-- END TABLES -->"
+const (
+	beginMark = "<!-- BEGIN TABLES -->"
+	endMark   = "<!-- END TABLES -->"
+)
 
 func main() {
-	var help = flag.Bool("h", false, "Print this help message.")
+	help := flag.Bool("h", false, "Print this help message.")
 
 	flag.Usage = func() {
 		fmt.Fprintf(flag.CommandLine.Output(), "Usage:\n")
@@ -238,6 +247,9 @@ func data() (string, []supportdata.Branch) {
 				types = fileTypes("")
 			}
 			for _, f := range types {
+				if strings.HasPrefix(p, "darwin-") && v.Number == "1.25" {
+					b.WriteString("**Preview**<sup>2</sup><br/>")
+				}
 				artifact := f.ArtifactLink(v.Number, p, os, arch)
 				writeURL(f.Name, artifact.URL)
 				branch.Files = append(branch.Files, artifact)
@@ -282,9 +294,6 @@ func platforms() []string {
 func platformPrettyName(p string) string {
 	if pretty, ok := platformPrettyNames[p]; ok {
 		return pretty
-	}
-	if strings.HasPrefix(p, "darwin-") {
-		p = p + " (macOS) **Preview**<sup>2</sup>"
 	}
 	return p
 }

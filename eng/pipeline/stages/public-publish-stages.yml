@@ -6,13 +6,26 @@
 # Studio integration.
 
 parameters:
+  - name: ctx
+    type: object
+
+  - name: pool
+    type: object
+
   - name: publishExistingRunID
     type: string
     default: 'nil'
 
+  # Unused. Declared so pool selection doesn't fail when trying to pass them.
+  - name: builder
+    type: object
+
 stages:
   - template: public-publish-stage.yml
     parameters:
+      ctx: ${{ parameters.ctx }}
+      pool: ${{ parameters.pool }}
+
       id: PublishPublicBinaries
 
       ${{ if eq(parameters.publishExistingRunID, 'nil') }}:
@@ -25,13 +38,14 @@ stages:
           parameters:
             runID: ${{ parameters.publishExistingRunID }}
 
-        - task: PowerShell@2
+        - task: AzurePowerShell@5
           displayName: ➡️ Send Publishing Request To Release Studio
           inputs:
-            targetType: filePath
-            filePath: '$(NetCorePublishingScripts)/RM.MsGo.SendPublishRequest.ps1'
-            arguments:
-              -MIClientId "$(MI_ClientId)"
+            ScriptType: FilePath
+            ScriptPath: '$(NetCorePublishingScripts)/RM.MsGo.SendPublishRequest.ps1'
+            azureSubscription: 'golang-dnceng-rs-publish'
+            azurePowerShellVersion: 'LatestVersion'
+            ScriptArguments:
               -PublishingFilesPath "$(GoBinariesDir)"
               -BuildNumber "$(Build.BuildNumber)"
               -BranchName "$(PublishBranchAlias)"
@@ -45,6 +59,8 @@ stages:
 
   - template: public-publish-stage.yml
     parameters:
+      ctx: ${{ parameters.ctx }}
+      pool: ${{ parameters.pool }}
       id: WaitPublicBinaries
       dependsOn: PublishPublicBinaries
       variables:
@@ -58,30 +74,34 @@ stages:
             path: $(ReleaseStudioBinariesManifestDir)
             artifact: Release Studio Binaries Manifest
       steps:
-        - task: PowerShell@2
+        - task: AzurePowerShell@5
           displayName: ⌚ Wait for Publishing Request Completion
           inputs:
-            targetType: filePath
-            filePath: '$(NetCorePublishingScripts)/RM.MsGo.WaitForPublishingRequestToBeLive.ps1'
-            arguments:
-              -MIClientId "$(MI_ClientId)"
+            ScriptType: FilePath
+            ScriptPath: '$(NetCorePublishingScripts)/RM.MsGo.WaitForPublishingRequestToBeLive.ps1'
+            azureSubscription: 'golang-dnceng-rs-publish'
+            azurePowerShellVersion: 'LatestVersion'
+            ScriptArguments:
               -RequestId "$(RequestID)"
 
         - pwsh: New-Item "$(ReleaseStudioBinariesManifestDir)" -ItemType Directory -ErrorAction Ignore
           displayName: 'Create Publish Manifest File Output Directory'
 
-        - task: PowerShell@2
+        - task: AzurePowerShell@5
           displayName: 🗃️ Create Publish Manifest File
           inputs:
-            targetType: filePath
-            filePath: '$(NetCorePublishingScripts)/RM.MsGo.CreateOutputManifestFile.ps1'
-            arguments:
-              -MIClientId "$(MI_ClientId)"
+            ScriptType: FilePath
+            ScriptPath: '$(NetCorePublishingScripts)/RM.MsGo.CreateOutputManifestFile.ps1'
+            azureSubscription: 'golang-dnceng-rs-publish'
+            azurePowerShellVersion: 'LatestVersion'
+            ScriptArguments:
               -OutputDirectory "$(ReleaseStudioBinariesManifestDir)"
               -RequestId "$(RequestID)"
 
   - template: public-publish-stage.yml
     parameters:
+      ctx: ${{ parameters.ctx }}
+      pool: ${{ parameters.pool }}
       id: PublishAssetManifest
       dependsOn: WaitPublicBinaries
       variables:
@@ -114,13 +134,14 @@ stages:
               -o '$(BuildAssetsPrePublishDir)/assets.json'
           displayName: 🏗️ Create build asset JSON
 
-        - task: PowerShell@2
+        - task: AzurePowerShell@5
           displayName: ➡️ Send Publishing Request To Release Studio
           inputs:
-            targetType: filePath
-            filePath: '$(NetCorePublishingScripts)/RM.MsGo.SendPublishRequest.ps1'
-            arguments:
-              -MIClientId "$(MI_ClientId)"
+            ScriptType: FilePath
+            ScriptPath: '$(NetCorePublishingScripts)/RM.MsGo.SendPublishRequest.ps1'
+            azureSubscription: 'golang-dnceng-rs-publish'
+            azurePowerShellVersion: 'LatestVersion'
+            ScriptArguments:
               -PublishingFilesPath "$(BuildAssetsPrePublishDir)"
               -BuildNumber "$(Build.BuildNumber)"
               -BranchName "$(PublishBranchAlias)"
@@ -134,6 +155,8 @@ stages:
 
   - template: public-publish-stage.yml
     parameters:
+      ctx: ${{ parameters.ctx }}
+      pool: ${{ parameters.pool }}
       id: WaitAssetManifest
       dependsOn: PublishAssetManifest
       variables:
@@ -152,25 +175,27 @@ stages:
             path: $(ReleaseStudioMetaManifestDir)
             artifact: Release Studio Meta Manifest
       steps:
-        - task: PowerShell@2
+        - task: AzurePowerShell@5
           displayName: ⌚ Wait for Publishing Request Completion
           inputs:
-            targetType: filePath
-            filePath: '$(NetCorePublishingScripts)/RM.MsGo.WaitForPublishingRequestToBeLive.ps1'
-            arguments:
-              -MIClientId "$(MI_ClientId)"
+            ScriptType: FilePath
+            ScriptPath: '$(NetCorePublishingScripts)/RM.MsGo.WaitForPublishingRequestToBeLive.ps1'
+            azureSubscription: 'golang-dnceng-rs-publish'
+            azurePowerShellVersion: 'LatestVersion'
+            ScriptArguments:
               -RequestId "$(RequestID)"
 
         - pwsh: New-Item "$(ReleaseStudioMetaManifestDir)" -ItemType Directory -ErrorAction Ignore
           displayName: 'Create Meta Manifest File Output Directory'
 
-        - task: PowerShell@2
+        - task: AzurePowerShell@5
           displayName: 🗃️ Create Meta Manifest File
           inputs:
-            targetType: filePath
-            filePath: '$(NetCorePublishingScripts)/RM.MsGo.CreateOutputManifestFile.ps1'
-            arguments:
-              -MIClientId "$(MI_ClientId)"
+            ScriptType: FilePath
+            ScriptPath: '$(NetCorePublishingScripts)/RM.MsGo.CreateOutputManifestFile.ps1'
+            azureSubscription: 'golang-dnceng-rs-publish'
+            azurePowerShellVersion: 'LatestVersion'
+            ScriptArguments:
               -OutputDirectory "$(ReleaseStudioMetaManifestDir)"
               -RequestId "$(RequestID)"
 
