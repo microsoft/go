@@ -16,7 +16,7 @@ The `patches/` directory contains `git format-patch` files that are applied on t
 If the diff adds, modifies, or removes any file under a `vendor/` directory path, verify:
 - The change is in `0001-Vendor-external-dependencies.patch` only. No other patch should touch vendor files
 - The corresponding `go.mod`, `go.sum`, and `modules.txt` changes are included in the same patch
-- The vendor patch doesn't include changes other than `vendor/` files, related module files, and `src/crypto/internal/backend/deps_ignore.go`
+- The vendor patch doesn't include changes other than `vendor/` files, related module files, and `src/crypto/deps_ignore.go`
 
 ### Patch naming convention
 

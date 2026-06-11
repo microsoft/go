@@ -8,7 +8,7 @@ See [eng/doc/DeveloperGuide.md](/eng/doc/DeveloperGuide.md) for the full develop
 
 ## Architecture overview
 
-The Microsoft build of Go replaces upstream BoringCrypto (`crypto/internal/boring`) with a pluggable backend system (`crypto/internal/backend`). The backend dispatches crypto operations to platform-native libraries:
+The Microsoft build of Go replaces upstream BoringCrypto (`crypto/internal/boring`) with a pluggable backend system (`github.com/microsoft/go/cryptobackend`). The backend dispatches crypto operations to platform-native libraries:
 
 - **Linux**: OpenSSL via `github.com/microsoft/go-crypto-openssl`
 - **Windows**: CNG via `github.com/microsoft/go-crypto-winnative`
@@ -31,8 +31,8 @@ Always import the backend package as `boring`:
 
 ```go
 import (
-    boring "crypto/internal/backend"
-    "crypto/internal/backend/bbig"
+    boring "github.com/microsoft/go/cryptobackend"
+    "github.com/microsoft/go/cryptobackend/bbig"
 )
 ```
 

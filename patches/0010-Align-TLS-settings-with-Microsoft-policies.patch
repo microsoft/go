@@ -11,20 +11,20 @@ Subject: [PATCH] Align TLS settings with Microsoft policies
  src/crypto/tls/handshake_client.go            |  21 +-
  src/crypto/tls/handshake_client_test.go       |  17 +-
  src/crypto/tls/handshake_server_tls13.go      |  22 +-
- src/crypto/tls/handshake_test.go              |   5 +-
+ src/crypto/tls/handshake_test.go              |   3 +
  src/crypto/tls/microsoft_test.go              | 486 ++++++++++++++++++
  src/crypto/tls/schannel_windows.go            |   7 +
  src/internal/godebugs/table.go                |   2 +
  src/net/http/internal/http2/transport_test.go |   2 +
- 12 files changed, 737 insertions(+), 24 deletions(-)
+ 12 files changed, 736 insertions(+), 23 deletions(-)
  create mode 100644 src/crypto/tls/defaults_microsoft.go
  create mode 100644 src/crypto/tls/microsoft_test.go
 
 diff --git a/doc/godebug.md b/doc/godebug.md
-index 9c5c01d3b27670..1dac34c151305b 100644
+index 5fecfb5ccba3eb..4701102b91ec93 100644
 --- a/doc/godebug.md
 +++ b/doc/godebug.md
-@@ -225,6 +225,15 @@ APIs ignore the random `io.Reader` parameter. For Go 1.26, it defaults
+@@ -227,6 +227,15 @@ APIs ignore the random `io.Reader` parameter. For Go 1.26, it defaults
  to `cryptocustomrand=0`, ignoring the random parameters. Using `cryptocustomrand=1`
  reverts to the pre-Go 1.26 behavior.
  
@@ -41,7 +41,7 @@ index 9c5c01d3b27670..1dac34c151305b 100644
  
  Go 1.25 added a new `decoratemappings` setting that controls whether the Go
 diff --git a/src/crypto/tls/common.go b/src/crypto/tls/common.go
-index b2cb869650ca97..1c01df4067b1be 100644
+index c329ac82949081..8304282d34ec1c 100644
 --- a/src/crypto/tls/common.go
 +++ b/src/crypto/tls/common.go
 @@ -1194,7 +1194,14 @@ func (c *Config) cipherSuites(aesGCMPreferred bool) []uint16 {
@@ -137,7 +137,7 @@ index c89036047ad5a3..5ae76aca239600 100644
  
 diff --git a/src/crypto/tls/defaults_microsoft.go b/src/crypto/tls/defaults_microsoft.go
 new file mode 100644
-index 00000000000000..bfa39c963b08fb
+index 00000000000000..af5103093ce490
 --- /dev/null
 +++ b/src/crypto/tls/defaults_microsoft.go
 @@ -0,0 +1,144 @@
@@ -148,7 +148,7 @@ index 00000000000000..bfa39c963b08fb
 +package tls
 +
 +import (
-+	boring "crypto/internal/backend"
++	boring "github.com/microsoft/go/cryptobackend"
 +	"internal/godebug"
 +	"slices"
 +)
@@ -318,10 +318,10 @@ index 6d97d1fba0dfa9..eb88634f275ce8 100644
  
  		if len(hello.supportedCurves) == 0 {
 diff --git a/src/crypto/tls/handshake_client_test.go b/src/crypto/tls/handshake_client_test.go
-index 64a668eae9b512..b5d20522f36903 100644
+index d8ac7f232590ca..cb418356d2887b 100644
 --- a/src/crypto/tls/handshake_client_test.go
 +++ b/src/crypto/tls/handshake_client_test.go
-@@ -2701,9 +2701,20 @@ func testTLS13OnlyClientHelloCipherSuite(t *testing.T, ciphers []uint16) {
+@@ -2722,9 +2722,20 @@ func testTLS13OnlyClientHelloCipherSuite(t *testing.T, ciphers []uint16) {
  	serverConfig := &Config{
  		Certificates: testConfigServer.Certificates,
  		GetConfigForClient: func(chi *ClientHelloInfo) (*Config, error) {
@@ -379,19 +379,10 @@ index ed7c2de8db51f1..cf3a3af4d1204b 100644
  	for _, suiteID := range preferenceList {
  		hs.suite = mutualCipherSuiteTLS13(hs.clientHello.cipherSuites, suiteID)
 diff --git a/src/crypto/tls/handshake_test.go b/src/crypto/tls/handshake_test.go
-index 3205dd97d68f40..8a2e262cadec11 100644
+index d9424c374eab88..d56331d6268321 100644
 --- a/src/crypto/tls/handshake_test.go
 +++ b/src/crypto/tls/handshake_test.go
-@@ -8,7 +8,7 @@ import (
- 	"bufio"
- 	"bytes"
- 	"context"
--	"crypto/internal/boring"
-+	boring "crypto/internal/backend"
- 	"encoding/hex"
- 	"errors"
- 	"flag"
-@@ -449,6 +449,9 @@ func runMain(m *testing.M) int {
+@@ -450,6 +450,9 @@ func runMain(m *testing.M) int {
  		"-naccept", "1", "-verify_return_error", "-verifyCAfile", clientRootCAPath,
  		"-attime", fmt.Sprint(testTime().Unix())}
  
@@ -403,7 +394,7 @@ index 3205dd97d68f40..8a2e262cadec11 100644
  		if err != nil {
 diff --git a/src/crypto/tls/microsoft_test.go b/src/crypto/tls/microsoft_test.go
 new file mode 100644
-index 00000000000000..044b8008328567
+index 00000000000000..b43573f05ed3a0
 --- /dev/null
 +++ b/src/crypto/tls/microsoft_test.go
 @@ -0,0 +1,486 @@
@@ -414,8 +405,8 @@ index 00000000000000..044b8008328567
 +package tls
 +
 +import (
-+	boring "crypto/internal/backend"
 +	"crypto/tls/internal/fips140tls"
++	boring "github.com/microsoft/go/cryptobackend"
 +	"internal/goexperiment"
 +	"internal/testenv"
 +	"maps"
@@ -912,10 +903,10 @@ index cccfb8866f88ab..b2896e95e74686 100644
  	cipherSuitesPreferenceOrderNoAES = cipherSuitesPreferenceOrder
  	defaultCipherSuitesTLS13NoAES = defaultCipherSuitesTLS13
 diff --git a/src/internal/godebugs/table.go b/src/internal/godebugs/table.go
-index 10b3919d51e10d..d15034728ffafd 100644
+index c0b2ab933addbe..d075fcf60e053f 100644
 --- a/src/internal/godebugs/table.go
 +++ b/src/internal/godebugs/table.go
-@@ -49,6 +49,8 @@ var All = []Info{
+@@ -48,6 +48,8 @@ var All = []Info{
  	{Name: "httpservecontentkeepheaders", Package: "net/http", Changed: 23, Old: "1"},
  	{Name: "installgoroot", Package: "go/build"},
  	{Name: "jstmpllitinterp", Package: "html/template", Opaque: true}, // bug #66217: remove Opaque

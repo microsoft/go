@@ -163,6 +163,19 @@ A Git GUI that supports submodules shows the statuses of both the main repositor
 At this point, you can make changes, run tests, rebuild, and use the built Go toolchain in external projects.
 Most of the interesting Go code to modify is in `go/src`.
 
+### Working with `cryptobackend`
+
+Most Microsoft build of Go changes live in `go/src`, but `cryptobackend` has two copies to know about:
+
+* [`cryptobackend`](../../cryptobackend) is the source module in this repository.
+* `go/src/vendor/github.com/microsoft/go/cryptobackend` is the copy that gets built into the Go standard library.
+
+If you change cryptobackend code, run `go mod vendor` from `go/src` before running `git go-patch extract`; that copies the source module into `go/src/vendor/github.com/microsoft/go/cryptobackend` and updates the vendor metadata.
+
+The vendored copy has one special rule: it is allowed to import selected `crypto/internal/...` packages because the Microsoft `go` command treats it as part of the standard-library build.
+The source module under [`cryptobackend`](../../cryptobackend) does not get that special access when it is built like a normal external module.
+See the [`cryptobackend` README](../../cryptobackend/README.md) for more detail.
+
 Once you have made changes that work as you expect, move on to the next step.
 
 ### Generating new patch files
