@@ -38,9 +38,9 @@ Subject: [PATCH] Use crypto backends
  src/crypto/fips140/enforcement_test.go        |   4 +
  src/crypto/fips140/fips140.go                 |   3 +-
  src/crypto/hkdf/hkdf.go                       |  14 ++
- src/crypto/hkdf/hkdf_test.go                  |  32 ++-
+ src/crypto/hkdf/hkdf_test.go                  |  33 ++-
  src/crypto/hmac/hmac.go                       |  16 +-
- src/crypto/hmac/hmac_test.go                  |  25 ++-
+ src/crypto/hmac/hmac_test.go                  |  24 ++-
  src/crypto/hpke/aead.go                       |  14 +-
  src/crypto/internal/cryptotest/allocations.go |   6 -
  src/crypto/internal/cryptotest/fips140.go     |   8 +
@@ -1480,15 +1480,14 @@ index 88439922a5032e..5a3ae17e80efbc 100644
  }
  
 diff --git a/src/crypto/hkdf/hkdf_test.go b/src/crypto/hkdf/hkdf_test.go
-index 57d90f88e93e75..772530c071c45a 100644
+index 57d90f88e93e75..6d65a53579b83e 100644
 --- a/src/crypto/hkdf/hkdf_test.go
 +++ b/src/crypto/hkdf/hkdf_test.go
-@@ -6,13 +6,17 @@ package hkdf
+@@ -6,13 +6,16 @@ package hkdf
  
  import (
  	"bytes"
 -	"crypto/internal/boring"
-+	"crypto"
 +	boring "crypto/internal/backend"
  	"crypto/internal/fips140"
  	"crypto/md5"
@@ -1502,7 +1501,7 @@ index 57d90f88e93e75..772530c071c45a 100644
  	"testing"
  )
  
-@@ -345,6 +349,32 @@ func TestHKDFLimit(t *testing.T) {
+@@ -345,6 +348,34 @@ func TestHKDFLimit(t *testing.T) {
  	}
  }
  
@@ -1518,11 +1517,13 @@ index 57d90f88e93e75..772530c071c45a 100644
 +		if strings.Contains(err.Error(), "too large") {
 +			t.Fatalf("issue #2356 regression: %v", err)
 +		}
-+		// The macOS CryptoKit backend does not implement HKDF with SHA-3; that
-+		// is a separate backend limitation, not issue #2356. Every other
-+		// configuration is expected to succeed, so only skip in that known case
-+		// and fail otherwise rather than hiding an unexpected error.
-+		if boring.Enabled && runtime.GOOS == "darwin" && boring.SupportsHash(crypto.SHA3_256) {
++		// The macOS CryptoKit backend does not implement HKDF with SHA-3 (it
++		// supports only SHA-1 and the SHA-2 family), so it returns an error here
++		// regardless of macOS version. That is a separate backend limitation,
++		// not issue #2356. OpenSSL, CNG, and the pure Go path all support it, so
++		// only skip on the CryptoKit backend and fail otherwise rather than
++		// hiding an unexpected error.
++		if boring.Enabled && runtime.GOOS == "darwin" {
 +			t.Skipf("CryptoKit backend does not support HKDF with SHA-3: %v", err)
 +		}
 +		t.Fatalf("HKDF with SHA3-256 failed: %v", err)
@@ -1577,15 +1578,14 @@ index e7976e25193dfe..58b357ee52c328 100644
  }
  
 diff --git a/src/crypto/hmac/hmac_test.go b/src/crypto/hmac/hmac_test.go
-index 4046a9555a8e35..3915869b84a69b 100644
+index 4046a9555a8e35..2341c958cab497 100644
 --- a/src/crypto/hmac/hmac_test.go
 +++ b/src/crypto/hmac/hmac_test.go
-@@ -5,15 +5,18 @@
+@@ -5,15 +5,17 @@
  package hmac
  
  import (
 -	"crypto/internal/boring"
-+	"crypto"
 +	boring "crypto/internal/backend"
  	"crypto/internal/cryptotest"
  	"crypto/md5"
@@ -1600,7 +1600,7 @@ index 4046a9555a8e35..3915869b84a69b 100644
  	"testing"
  )
  
-@@ -693,3 +696,23 @@ func BenchmarkNewWriteSum(b *testing.B) {
+@@ -693,3 +695,23 @@ func BenchmarkNewWriteSum(b *testing.B) {
  		buf[0] = mac[0]
  	}
  }
@@ -1611,12 +1611,12 @@ index 4046a9555a8e35..3915869b84a69b 100644
 +// constructor received the still-wrapped *sha3.SHA3 instead of the unwrapped
 +// hash. The hash must now be unwrapped before the backend sees it.
 +func TestHMACSHA3(t *testing.T) {
-+	if boring.Enabled && runtime.GOOS == "darwin" && boring.SupportsHash(crypto.SHA3_256) {
-+		// The macOS CryptoKit backend advertises SHA-3 hashing but aborts the
-+		// process when asked for HMAC-SHA3. That is a separate backend
-+		// limitation tracked on its own; skip so this regression test stays
-+		// portable.
-+		t.Skip("CryptoKit backend does not support HMAC-SHA3")
++	if boring.Enabled && runtime.GOOS == "darwin" {
++		// The macOS CryptoKit backend cannot compute HMAC with SHA-3. With the
++		// current backend, asking for it on newer macOS aborts the process, so
++		// skip on the CryptoKit backend; the OpenSSL and CNG builders exercise
++		// the backend HMAC path.
++		t.Skip("CryptoKit backend does not support HMAC with SHA-3")
 +	}
 +	h := New(func() hash.Hash { return sha3.New256() }, []byte("key"))
 +	h.Write([]byte("message"))
