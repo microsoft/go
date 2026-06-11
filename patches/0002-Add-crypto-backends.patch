@@ -99,7 +99,7 @@ Subject: [PATCH] Add crypto backends
  src/crypto/rsa/pkcs1v15_test.go               |   5 +
  src/crypto/rsa/pss_test.go                    |  14 +-
  src/crypto/rsa/rsa.go                         |  40 +--
- src/crypto/rsa/rsa_darwin.go                  |  70 +++++
+ src/crypto/rsa/rsa_darwin.go                  |  72 +++++
  src/crypto/rsa/rsa_test.go                    |   7 +-
  src/crypto/sha1/sha1.go                       |  11 +-
  src/crypto/sha1/sha1_test.go                  |  11 +-
@@ -143,7 +143,7 @@ Subject: [PATCH] Add crypto backends
  src/os/exec/exec_test.go                      |   9 +
  src/runtime/runtime_boring.go                 |   5 +
  src/syscall/syscall_windows.go                |   3 +
- 139 files changed, 2788 insertions(+), 323 deletions(-)
+ 139 files changed, 2790 insertions(+), 323 deletions(-)
  create mode 100644 src/cmd/go/internal/modindex/build_test.go
  create mode 100644 src/cmd/go/systemcrypto_test.go
  create mode 100644 src/crypto/dsa/boring.go
@@ -4651,10 +4651,10 @@ index 93e08ed6cd8f71..7c16002bc8d2b2 100644
  		// Toy-sized keys have a non-negligible chance of hitting two hard
 diff --git a/src/crypto/rsa/rsa_darwin.go b/src/crypto/rsa/rsa_darwin.go
 new file mode 100644
-index 00000000000000..5618fe37f59a11
+index 00000000000000..e7f102618393e4
 --- /dev/null
 +++ b/src/crypto/rsa/rsa_darwin.go
-@@ -0,0 +1,70 @@
+@@ -0,0 +1,72 @@
 +// Copyright 2017 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -4665,17 +4665,19 @@ index 00000000000000..5618fe37f59a11
 +
 +import (
 +	"errors"
-+	"github.com/microsoft/go/cryptobackend/bbig"
 +	"math/big"
 +	_ "unsafe"
++
++	boring "github.com/microsoft/go/cryptobackend"
++	"github.com/microsoft/go/cryptobackend/bbig"
 +
 +	"golang.org/x/crypto/cryptobyte"
 +	"golang.org/x/crypto/cryptobyte/asn1"
 +)
 +
 +//go:linkname decodeKey
-+func decodeKey(data []byte) (N, E, D, P, Q, Dp, Dq, Qinv backend.BigInt, err error) {
-+	bad := func(e error) (N, E, D, P, Q, Dp, Dq, Qinv backend.BigInt, err error) {
++func decodeKey(data []byte) (N, E, D, P, Q, Dp, Dq, Qinv boring.BigInt, err error) {
++	bad := func(e error) (N, E, D, P, Q, Dp, Dq, Qinv boring.BigInt, err error) {
 +		return nil, nil, nil, nil, nil, nil, nil, nil, e
 +	}
 +	input := cryptobyte.String(data)
@@ -4700,7 +4702,7 @@ index 00000000000000..5618fe37f59a11
 +}
 +
 +//go:linkname encodeKey
-+func encodeKey(N, E, D, P, Q, Dp, Dq, Qinv backend.BigInt) ([]byte, error) {
++func encodeKey(N, E, D, P, Q, Dp, Dq, Qinv boring.BigInt) ([]byte, error) {
 +	builder := cryptobyte.NewBuilder(nil)
 +	builder.AddASN1(asn1.SEQUENCE, func(b *cryptobyte.Builder) {
 +		b.AddASN1Int64(0)               // Add version as int64
@@ -4717,7 +4719,7 @@ index 00000000000000..5618fe37f59a11
 +}
 +
 +//go:linkname encodePublicKey
-+func encodePublicKey(N, E backend.BigInt) ([]byte, error) {
++func encodePublicKey(N, E boring.BigInt) ([]byte, error) {
 +	builder := cryptobyte.NewBuilder(nil)
 +	builder.AddASN1(asn1.SEQUENCE, func(b *cryptobyte.Builder) {
 +		b.AddASN1BigInt(bbig.Dec(N)) // Add modulus
