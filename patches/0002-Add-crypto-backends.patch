@@ -65,9 +65,9 @@ Subject: [PATCH] Add crypto backends
  src/crypto/fips140/enforcement_test.go        |   4 +
  src/crypto/fips140/fips140.go                 |   3 +-
  src/crypto/hkdf/hkdf.go                       |  14 +
- src/crypto/hkdf/hkdf_test.go                  |   2 +-
+ src/crypto/hkdf/hkdf_test.go                  |  30 +-
  src/crypto/hmac/hmac.go                       |  16 +-
- src/crypto/hmac/hmac_test.go                  |   2 +-
+ src/crypto/hmac/hmac_test.go                  |  21 +-
  src/crypto/hpke/aead.go                       |  14 +-
  src/crypto/internal/cryptotest/allocations.go |   6 -
  src/crypto/internal/cryptotest/fips140.go     |   8 +
@@ -144,7 +144,7 @@ Subject: [PATCH] Add crypto backends
  src/os/exec/exec_test.go                      |   9 +
  src/runtime/runtime_boring.go                 |   5 +
  src/syscall/syscall_windows.go                |   3 +
- 140 files changed, 2786 insertions(+), 325 deletions(-)
+ 140 files changed, 2833 insertions(+), 325 deletions(-)
  create mode 100644 src/cmd/go/internal/modindex/build_test.go
  create mode 100644 src/cmd/go/systemcrypto_test.go
  create mode 100644 src/crypto/dsa/boring.go
@@ -1291,7 +1291,7 @@ index 6702e9279b106b..09b92a3ed98df1 100644
  	if err != nil {
  		return false, err
 diff --git a/src/cmd/internal/testdir/testdir_test.go b/src/cmd/internal/testdir/testdir_test.go
-index d81b3a849cb975..f051b6dfa209dd 100644
+index 56842845a1d05e..f633c188719a4f 100644
 --- a/src/cmd/internal/testdir/testdir_test.go
 +++ b/src/cmd/internal/testdir/testdir_test.go
 @@ -14,6 +14,7 @@ import (
@@ -1302,7 +1302,7 @@ index d81b3a849cb975..f051b6dfa209dd 100644
  	"internal/testenv"
  	"io"
  	"io/fs"
-@@ -118,6 +119,11 @@ func Test(t *testing.T) {
+@@ -122,6 +123,11 @@ func Test(t *testing.T) {
  	goDebug = env.GODEBUG
  	tmpDir = t.TempDir()
  
@@ -2729,10 +2729,10 @@ index 88439922a5032e..dc202fb94b4b95 100644
  }
  
 diff --git a/src/crypto/hkdf/hkdf_test.go b/src/crypto/hkdf/hkdf_test.go
-index 57d90f88e93e75..da5a26c770800b 100644
+index 57d90f88e93e75..0298c7e9ffcd65 100644
 --- a/src/crypto/hkdf/hkdf_test.go
 +++ b/src/crypto/hkdf/hkdf_test.go
-@@ -6,12 +6,12 @@ package hkdf
+@@ -6,13 +6,15 @@ package hkdf
  
  import (
  	"bytes"
@@ -2741,11 +2741,47 @@ index 57d90f88e93e75..da5a26c770800b 100644
  	"crypto/md5"
  	"crypto/sha1"
  	"crypto/sha256"
++	"crypto/sha3"
  	"crypto/sha512"
 +	boring "github.com/microsoft/go/cryptobackend"
  	"hash"
++	"strings"
  	"testing"
  )
+ 
+@@ -345,6 +347,32 @@ func TestHKDFLimit(t *testing.T) {
+ 	}
+ }
+ 
++// TestHKDFSHA3 is a regression test for
++// https://github.com/microsoft/go/issues/2356. When a system crypto backend
++// provided SHA-3, the hash returned by [sha3.New256] reported Size() == 0 after
++// being unwrapped for the FIPS module, so HKDF computed a maximum output length
++// of 0 and rejected any positive key length with "requested key length too
++// large".
++func TestHKDFSHA3(t *testing.T) {
++	out, err := Key(sha3.New256, []byte("hkdf sha3 secret"), nil, "", 32)
++	if err != nil {
++		if strings.Contains(err.Error(), "too large") {
++			t.Fatalf("issue #2356 regression: %v", err)
++		}
++		// A system crypto backend can lack HKDF support for SHA-3 (for example
++		// CryptoKit). The backend reports this with an "unsupported hash
++		// function" error, so skip when that happens instead of hardcoding which
++		// platforms are affected. Any other error is unexpected and fails.
++		if boring.Enabled && strings.Contains(err.Error(), "unsupported hash function") {
++			t.Skipf("system backend does not support HKDF with SHA-3: %v", err)
++		}
++		t.Fatalf("HKDF with SHA3-256 failed: %v", err)
++	}
++	if len(out) != 32 {
++		t.Fatalf("HKDF with SHA3-256 produced %d bytes, want 32", len(out))
++	}
++}
++
+ func Benchmark16ByteMD5Single(b *testing.B) {
+ 	benchmarkHKDF(md5.New, 16, b)
+ }
 diff --git a/src/crypto/hmac/hmac.go b/src/crypto/hmac/hmac.go
 index e7976e25193dfe..364abe2d81054b 100644
 --- a/src/crypto/hmac/hmac.go
@@ -2792,7 +2828,7 @@ index e7976e25193dfe..364abe2d81054b 100644
  }
  
 diff --git a/src/crypto/hmac/hmac_test.go b/src/crypto/hmac/hmac_test.go
-index b324d1f02cda7d..f0b829d0ccabd6 100644
+index b324d1f02cda7d..adcd28ea5a59bd 100644
 --- a/src/crypto/hmac/hmac_test.go
 +++ b/src/crypto/hmac/hmac_test.go
 @@ -5,7 +5,6 @@
@@ -2811,6 +2847,32 @@ index b324d1f02cda7d..f0b829d0ccabd6 100644
  	"hash"
  	"testing"
  )
+@@ -616,6 +616,25 @@ func TestSHA3Hash(t *testing.T) {
+ 	}
+ }
+ 
++// TestHMACSHA3 is a regression test for
++// https://github.com/microsoft/go/issues/2356. [New] used to spin forever when
++// given a SHA-3 hash under a system crypto backend, because the backend HMAC
++// constructor received the still-wrapped *sha3.SHA3 instead of the unwrapped
++// hash. The hash must now be unwrapped before the backend sees it.
++func TestHMACSHA3(t *testing.T) {
++	if boring.Enabled {
++		// Probe backend support directly instead of OS-gating the test.
++		if hm := boring.NewHMAC(fips140hash.UnwrapNew(func() hash.Hash { return sha3.New256() }), []byte("key")); hm == nil {
++			t.Skip("system backend does not support HMAC with SHA-3")
++		}
++	}
++	h := New(func() hash.Hash { return sha3.New256() }, []byte("key"))
++	h.Write([]byte("message"))
++	if got := len(h.Sum(nil)); got != 32 {
++		t.Fatalf("HMAC with SHA3-256 produced %d bytes, want 32", got)
++	}
++}
++
+ func TestNonUniqueHash(t *testing.T) {
+ 	if boring.Enabled {
+ 		t.Skip("hash.Hash provided by boringcrypto are not comparable")
 diff --git a/src/crypto/hpke/aead.go b/src/crypto/hpke/aead.go
 index fb55c97ddf20c9..6265ff84e1f1d2 100644
 --- a/src/crypto/hpke/aead.go
@@ -6118,7 +6180,7 @@ index 8233985a62bd22..70fb5c9c4b8c2d 100644
  		in, _ := hex.DecodeString(test.preMasterSecret)
  		clientRandom, _ := hex.DecodeString(test.clientRandom)
 diff --git a/src/crypto/x509/verify_test.go b/src/crypto/x509/verify_test.go
-index 1d3e845d0f0a9c..eb4318faf13f7b 100644
+index d32d815261d9e1..0911f6bb20e2d2 100644
 --- a/src/crypto/x509/verify_test.go
 +++ b/src/crypto/x509/verify_test.go
 @@ -3127,7 +3127,7 @@ func dsaSelfSignedCNX(t *testing.T) []byte {
