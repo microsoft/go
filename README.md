@@ -66,6 +66,8 @@ We build the Microsoft build of Go toolset with the following OS/Arch combinatio
 | `windows` | ✓ | ✓ | |
 | `darwin` (macOS) | ✓ | ✓ | |
 
+For detailed platform support information across different Go versions, see [eng/doc/SupportedPlatforms.md](eng/doc/SupportedPlatforms.md).
+
 Visit the [Migration Guide](eng/doc/MigrationGuide.md) for guidance about how we recommend migrating existing Go projects to use the Microsoft build of Go.
 This guide also helps resolve commonly encountered issues.
 
