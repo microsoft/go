@@ -27,9 +27,10 @@ Subject: [PATCH] Add crypto backends
  src/cmd/go/testdata/script/darwin_no_cgo.txt  |   1 +
  src/cmd/go/testdata/script/env_changed.txt    |   3 +
  .../go/testdata/script/env_cross_build.txt    |   2 +
- .../go/testdata/script/gopath_std_vendor.txt  |   9 +
+ .../go/testdata/script/gopath_std_vendor.txt  |   4 +-
  .../script/test_android_issue62123.txt        |   2 +
  .../internal/fuzztest/testdata/script/README  |   2 +
+ src/cmd/internal/moddeps/moddeps_test.go      |   3 +
  .../internal/script/scripttest/conditions.go  |  10 +-
  src/cmd/internal/testdir/testdir_test.go      |   6 +
  src/cmd/link/internal/ld/config.go            |   7 +
@@ -143,7 +144,7 @@ Subject: [PATCH] Add crypto backends
  src/os/exec/exec_test.go                      |   9 +
  src/runtime/runtime_boring.go                 |   5 +
  src/syscall/syscall_windows.go                |   3 +
- 139 files changed, 2790 insertions(+), 323 deletions(-)
+ 140 files changed, 2786 insertions(+), 325 deletions(-)
  create mode 100644 src/cmd/go/internal/modindex/build_test.go
  create mode 100644 src/cmd/go/systemcrypto_test.go
  create mode 100644 src/crypto/dsa/boring.go
@@ -1197,24 +1198,23 @@ index 91d1cb936d3652..cca75b4be873d0 100644
  # explicitly configure these, and #46815 doesn't repro if they are.
  env GOOS=
 diff --git a/src/cmd/go/testdata/script/gopath_std_vendor.txt b/src/cmd/go/testdata/script/gopath_std_vendor.txt
-index 4aaf46b5d0f0dc..46d03fcd4aeae3 100644
+index 4aaf46b5d0f0dc..c231e299d9970f 100644
 --- a/src/cmd/go/testdata/script/gopath_std_vendor.txt
 +++ b/src/cmd/go/testdata/script/gopath_std_vendor.txt
-@@ -1,5 +1,14 @@
- env GO111MODULE=off
+@@ -21,11 +21,11 @@ go build .
  
-+# Disable systemcrypto while evaluating test dependencies to avoid importing
-+# vendored crypto module dependencies like go-crypto-openssl. This test script
-+# is not set up to handle any vendored libraries being imported other than
-+# golang.org/x/net/http2/hpack, so we must make sure it is the only one.
-+#
-+# See https://github.com/microsoft/go/issues/481 for more details, such as the
-+# dependency chain that would cause the failure if systemcrypto isn't disabled.
-+env MS_GO_NOSYSTEMCRYPTO=1
-+
- [!compiler:gc] skip
+ go list -deps -f '{{.ImportPath}} {{.Dir}}' .
+ stdout $GOPATH[/\\]src[/\\]vendor[/\\]golang.org[/\\]x[/\\]net[/\\]http2[/\\]hpack
+-! stdout $GOROOT[/\\]src[/\\]vendor
++! stdout $GOROOT[/\\]src[/\\]vendor[/\\]golang.org[/\\]x[/\\]net[/\\]http2[/\\]hpack
  
- go list -f '{{.Dir}}' vendor/golang.org/x/net/http2/hpack
+ go list -test -deps -f '{{.ImportPath}} {{.Dir}}' .
+ stdout $GOPATH[/\\]src[/\\]vendor[/\\]golang.org[/\\]x[/\\]net[/\\]http2[/\\]hpack
+-! stdout $GOROOT[/\\]src[/\\]vendor
++! stdout $GOROOT[/\\]src[/\\]vendor[/\\]golang.org[/\\]x[/\\]net[/\\]http2[/\\]hpack
+ 
+ -- issue16333/issue16333.go --
+ package vendoring17
 diff --git a/src/cmd/go/testdata/script/test_android_issue62123.txt b/src/cmd/go/testdata/script/test_android_issue62123.txt
 index 2f46a6b44bffe1..b036dde70ed36e 100644
 --- a/src/cmd/go/testdata/script/test_android_issue62123.txt
@@ -1238,6 +1238,20 @@ index 9ec997a138f0f2..09c4e7955ec162 100644
  [verbose]
  	testing.Verbose()
  
+diff --git a/src/cmd/internal/moddeps/moddeps_test.go b/src/cmd/internal/moddeps/moddeps_test.go
+index 0467b0ebbf000c..cc64435d5f7b01 100644
+--- a/src/cmd/internal/moddeps/moddeps_test.go
++++ b/src/cmd/internal/moddeps/moddeps_test.go
+@@ -378,6 +378,9 @@ func TestDependencyVersionsConsistent(t *testing.T) {
+ 			if len(parts) < 3 || parts[0] != "#" {
+ 				continue
+ 			}
++			if parts[1] == "github.com/microsoft/go/cryptobackend" {
++				continue
++			}
+ 
+ 			// This line is of the form "# module version [=> replacement [version]]".
+ 			var r requirement
 diff --git a/src/cmd/internal/script/scripttest/conditions.go b/src/cmd/internal/script/scripttest/conditions.go
 index 6702e9279b106b..09b92a3ed98df1 100644
 --- a/src/cmd/internal/script/scripttest/conditions.go
