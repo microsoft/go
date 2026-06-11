@@ -38,7 +38,7 @@ Subject: [PATCH] Use crypto backends
  src/crypto/fips140/enforcement_test.go        |   4 +
  src/crypto/fips140/fips140.go                 |   3 +-
  src/crypto/hkdf/hkdf.go                       |  14 ++
- src/crypto/hkdf/hkdf_test.go                  |  33 ++-
+ src/crypto/hkdf/hkdf_test.go                  |  30 ++-
  src/crypto/hmac/hmac.go                       |  16 +-
  src/crypto/hmac/hmac_test.go                  |  23 ++-
  src/crypto/hpke/aead.go                       |  14 +-
@@ -101,7 +101,7 @@ Subject: [PATCH] Use crypto backends
  src/hash/notboring_test.go                    |   9 +
  src/net/lookup_test.go                        |   3 +
  src/os/exec/exec_test.go                      |   9 +
- 97 files changed, 1568 insertions(+), 190 deletions(-)
+ 97 files changed, 1565 insertions(+), 190 deletions(-)
  create mode 100644 src/crypto/dsa/boring.go
  create mode 100644 src/crypto/dsa/notboring.go
  create mode 100644 src/crypto/ecdsa/badlinkname.go
@@ -1480,10 +1480,10 @@ index 88439922a5032e..5a3ae17e80efbc 100644
  }
  
 diff --git a/src/crypto/hkdf/hkdf_test.go b/src/crypto/hkdf/hkdf_test.go
-index 57d90f88e93e75..6d65a53579b83e 100644
+index 57d90f88e93e75..3d67a56bf61dad 100644
 --- a/src/crypto/hkdf/hkdf_test.go
 +++ b/src/crypto/hkdf/hkdf_test.go
-@@ -6,13 +6,16 @@ package hkdf
+@@ -6,13 +6,15 @@ package hkdf
  
  import (
  	"bytes"
@@ -1496,12 +1496,11 @@ index 57d90f88e93e75..6d65a53579b83e 100644
 +	"crypto/sha3"
  	"crypto/sha512"
  	"hash"
-+	"runtime"
 +	"strings"
  	"testing"
  )
  
-@@ -345,6 +348,34 @@ func TestHKDFLimit(t *testing.T) {
+@@ -345,6 +347,32 @@ func TestHKDFLimit(t *testing.T) {
  	}
  }
  
@@ -1517,12 +1516,12 @@ index 57d90f88e93e75..6d65a53579b83e 100644
 +		if strings.Contains(err.Error(), "too large") {
 +			t.Fatalf("issue #2356 regression: %v", err)
 +		}
-+		// Some system backends currently return an "unsupported hash function"
-+		// error for HKDF with SHA-3. That backend limitation is separate from
-+		// issue #2356; still fail on all other errors so regressions are visible.
-+		if boring.Enabled && strings.Contains(err.Error(), "unsupported hash function") &&
-+			(runtime.GOOS == "darwin" || runtime.GOOS == "windows") {
-+			t.Skipf("system backend does not support HKDF with SHA-3 on %s: %v", runtime.GOOS, err)
++		// A system crypto backend can lack HKDF support for SHA-3 (for example
++		// CryptoKit). The backend reports this with an "unsupported hash
++		// function" error, so skip when that happens instead of hardcoding which
++		// platforms are affected. Any other error is unexpected and fails.
++		if boring.Enabled && strings.Contains(err.Error(), "unsupported hash function") {
++			t.Skipf("system backend does not support HKDF with SHA-3: %v", err)
 +		}
 +		t.Fatalf("HKDF with SHA3-256 failed: %v", err)
 +	}
