@@ -24,7 +24,7 @@ var vendorOnlyPaths = []string{
 	"src/cmd/go.mod",
 	"src/cmd/go.sum",
 	"src/go/build/vendor_test.go",
-	"src/crypto/internal/backend/deps_ignore.go",
+	"src/crypto/deps_ignore.go",
 	"src/cmd/internal/telemetry/counter/deps_ignore.go",
 }
 
