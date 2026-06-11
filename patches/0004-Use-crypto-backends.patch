@@ -40,7 +40,7 @@ Subject: [PATCH] Use crypto backends
  src/crypto/hkdf/hkdf.go                       |  14 ++
  src/crypto/hkdf/hkdf_test.go                  |  33 ++-
  src/crypto/hmac/hmac.go                       |  16 +-
- src/crypto/hmac/hmac_test.go                  |  24 ++-
+ src/crypto/hmac/hmac_test.go                  |  23 ++-
  src/crypto/hpke/aead.go                       |  14 +-
  src/crypto/internal/cryptotest/allocations.go |   6 -
  src/crypto/internal/cryptotest/fips140.go     |   8 +
@@ -101,7 +101,7 @@ Subject: [PATCH] Use crypto backends
  src/hash/notboring_test.go                    |   9 +
  src/net/lookup_test.go                        |   3 +
  src/os/exec/exec_test.go                      |   9 +
- 97 files changed, 1569 insertions(+), 190 deletions(-)
+ 97 files changed, 1568 insertions(+), 190 deletions(-)
  create mode 100644 src/crypto/dsa/boring.go
  create mode 100644 src/crypto/dsa/notboring.go
  create mode 100644 src/crypto/ecdsa/badlinkname.go
@@ -1578,16 +1578,17 @@ index e7976e25193dfe..58b357ee52c328 100644
  }
  
 diff --git a/src/crypto/hmac/hmac_test.go b/src/crypto/hmac/hmac_test.go
-index 4046a9555a8e35..2341c958cab497 100644
+index 4046a9555a8e35..6ad429e98c5d86 100644
 --- a/src/crypto/hmac/hmac_test.go
 +++ b/src/crypto/hmac/hmac_test.go
-@@ -5,15 +5,17 @@
+@@ -5,11 +5,13 @@
  package hmac
  
  import (
 -	"crypto/internal/boring"
 +	boring "crypto/internal/backend"
  	"crypto/internal/cryptotest"
++	"crypto/internal/fips140hash"
  	"crypto/md5"
  	"crypto/sha1"
  	"crypto/sha256"
@@ -1595,12 +1596,7 @@ index 4046a9555a8e35..2341c958cab497 100644
  	"crypto/sha512"
  	"errors"
  	"fmt"
- 	"hash"
-+	"runtime"
- 	"testing"
- )
- 
-@@ -693,3 +695,23 @@ func BenchmarkNewWriteSum(b *testing.B) {
+@@ -693,3 +695,22 @@ func BenchmarkNewWriteSum(b *testing.B) {
  		buf[0] = mac[0]
  	}
  }
@@ -1611,12 +1607,11 @@ index 4046a9555a8e35..2341c958cab497 100644
 +// constructor received the still-wrapped *sha3.SHA3 instead of the unwrapped
 +// hash. The hash must now be unwrapped before the backend sees it.
 +func TestHMACSHA3(t *testing.T) {
-+	if boring.Enabled && runtime.GOOS == "darwin" {
-+		// The macOS CryptoKit backend cannot compute HMAC with SHA-3. With the
-+		// current backend, asking for it on newer macOS aborts the process, so
-+		// skip on the CryptoKit backend; the OpenSSL and CNG builders exercise
-+		// the backend HMAC path.
-+		t.Skip("CryptoKit backend does not support HMAC with SHA-3")
++	if boring.Enabled {
++		// Probe backend support directly instead of OS-gating the test.
++		if hm := boring.NewHMAC(fips140hash.UnwrapNew(func() hash.Hash { return sha3.New256() }), []byte("key")); hm == nil {
++			t.Skip("system backend does not support HMAC with SHA-3")
++		}
 +	}
 +	h := New(func() hash.Hash { return sha3.New256() }, []byte("key"))
 +	h.Write([]byte("message"))
