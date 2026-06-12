@@ -15,6 +15,6 @@ import (
 func Supports224() bool { return false }
 
 func New() hash.Hash              { return cng.NewSHA256() }
-func New224() hash.Hash           { panic("cngcrypto: not available") }
+func New224() hash.Hash           { panic("cryptobackend: not available") }
 func Sum256(data []byte) [32]byte { return cng.SHA256(data) }
-func Sum224(data []byte) [28]byte { panic("cngcrypto: not available") }
+func Sum224(data []byte) [28]byte { panic("cryptobackend: not available") }
