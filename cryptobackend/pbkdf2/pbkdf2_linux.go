@@ -13,6 +13,6 @@ import (
 )
 
 func Supports() bool { return openssl.SupportsPBKDF2() }
-func Key[H hash.Hash](h func() H, password, salt []byte, iter, keyLen int) ([]byte, error) {
-	return openssl.PBKDF2(password, salt, iter, keyLen, h)
+func Key[H hash.Hash](h func() H, password string, salt []byte, iter, keyLength int) ([]byte, error) {
+	return openssl.PBKDF2([]byte(password), salt, iter, keyLength, h)
 }

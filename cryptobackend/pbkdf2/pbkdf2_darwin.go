@@ -13,6 +13,6 @@ import (
 )
 
 func Supports() bool { return true }
-func Key[H hash.Hash](h func() H, password, salt []byte, iter, keyLen int) ([]byte, error) {
-	return xcrypto.PBKDF2(password, salt, iter, keyLen, h)
+func Key[H hash.Hash](h func() H, password string, salt []byte, iter, keyLength int) ([]byte, error) {
+	return xcrypto.PBKDF2([]byte(password), salt, iter, keyLength, h)
 }

@@ -9,6 +9,6 @@ package tls12
 import "hash"
 
 func SupportsPRF() bool { panic("cryptobackend: not available") }
-func PRF(result, secret, label, seed []byte, h func() hash.Hash) error {
+func PRF(result, secret []byte, label string, seed []byte, h func() hash.Hash) error {
 	panic("cryptobackend: not available")
 }

@@ -64,7 +64,7 @@ Subject: [PATCH] Add crypto backends
  src/crypto/ed25519/notboring.go               |  16 ++
  src/crypto/fips140/enforcement_test.go        |   4 +
  src/crypto/fips140/fips140.go                 |   3 +-
- src/crypto/hkdf/hkdf.go                       |  16 ++
+ src/crypto/hkdf/hkdf.go                       |  12 +
  src/crypto/hkdf/hkdf_test.go                  |   2 +-
  src/crypto/hmac/hmac.go                       |  18 +-
  src/crypto/hmac/hmac_test.go                  |   2 +-
@@ -144,7 +144,7 @@ Subject: [PATCH] Add crypto backends
  src/os/exec/exec_test.go                      |   9 +
  src/runtime/runtime_boring.go                 |   5 +
  src/syscall/syscall_windows.go                |   3 +
- 141 files changed, 2943 insertions(+), 376 deletions(-)
+ 140 files changed, 2938 insertions(+), 376 deletions(-)
  create mode 100644 src/cmd/go/internal/modindex/build_test.go
  create mode 100644 src/cmd/go/systemcrypto_test.go
  create mode 100644 src/crypto/dsa/boring.go
@@ -1291,7 +1291,7 @@ index 6702e9279b106b..09b92a3ed98df1 100644
  	if err != nil {
  		return false, err
 diff --git a/src/cmd/internal/testdir/testdir_test.go b/src/cmd/internal/testdir/testdir_test.go
-index d81b3a849cb975..f051b6dfa209dd 100644
+index 56842845a1d05e..f633c188719a4f 100644
 --- a/src/cmd/internal/testdir/testdir_test.go
 +++ b/src/cmd/internal/testdir/testdir_test.go
 @@ -14,6 +14,7 @@ import (
@@ -1302,7 +1302,7 @@ index d81b3a849cb975..f051b6dfa209dd 100644
  	"internal/testenv"
  	"io"
  	"io/fs"
-@@ -118,6 +119,11 @@ func Test(t *testing.T) {
+@@ -122,6 +123,11 @@ func Test(t *testing.T) {
  	goDebug = env.GODEBUG
  	tmpDir = t.TempDir()
  
@@ -2833,7 +2833,7 @@ index d3f63d3bf18fcb..bc6d8b62ae2103 100644
  
  // Version returns the FIPS 140-3 Go Cryptographic Module version (such as
 diff --git a/src/crypto/hkdf/hkdf.go b/src/crypto/hkdf/hkdf.go
-index 88439922a5032e..e6869c122e807e 100644
+index 88439922a5032e..33d41a773eff51 100644
 --- a/src/crypto/hkdf/hkdf.go
 +++ b/src/crypto/hkdf/hkdf.go
 @@ -16,6 +16,9 @@ import (
@@ -2861,21 +2861,17 @@ index 88439922a5032e..e6869c122e807e 100644
  	}
  
 +	if boring.Enabled && bhkdf.Supports() {
-+		return bhkdf.Expand(fh, pseudorandomKey, []byte(info), keyLength)
++		return bhkdf.Expand(fh, pseudorandomKey, info, keyLength)
 +	}
  	return hkdf.Expand(fh, pseudorandomKey, info, keyLength), nil
  }
  
-@@ -67,6 +76,13 @@ func Key[Hash hash.Hash](h func() Hash, secret, salt []byte, info string, keyLen
+@@ -67,6 +76,9 @@ func Key[Hash hash.Hash](h func() Hash, secret, salt []byte, info string, keyLen
  		return nil, errors.New("hkdf: requested key length too large")
  	}
  
 +	if boring.Enabled && bhkdf.Supports() {
-+		pseudorandomKey, err := bhkdf.Extract(fh, secret, salt)
-+		if err != nil {
-+			return nil, err
-+		}
-+		return bhkdf.Expand(fh, pseudorandomKey, []byte(info), keyLength)
++		return bhkdf.Key(fh, secret, salt, info, keyLength)
 +	}
  	return hkdf.Key(fh, secret, salt, info, keyLength), nil
  }
@@ -4127,7 +4123,7 @@ index e1c2ef49f15ce0..4635cc347880ec 100644
  	rand.Read(seed)
  	dk, err := NewDecapsulationKey768(seed)
 diff --git a/src/crypto/pbkdf2/pbkdf2.go b/src/crypto/pbkdf2/pbkdf2.go
-index 0bc14be888d9d6..f21f4559d2eb70 100644
+index 0bc14be888d9d6..d23a31b7582bd1 100644
 --- a/src/crypto/pbkdf2/pbkdf2.go
 +++ b/src/crypto/pbkdf2/pbkdf2.go
 @@ -16,6 +16,9 @@ import (
@@ -4148,7 +4144,7 @@ index 0bc14be888d9d6..f21f4559d2eb70 100644
 +		if keyLength <= 0 {
 +			return nil, errors.New("pkbdf2: keyLength must be larger than 0")
 +		}
-+		return bpbkdf2.Key(fh, []byte(password), salt, iter, keyLength)
++		return bpbkdf2.Key(fh, password, salt, iter, keyLength)
 +	}
  	return pbkdf2.Key(fh, password, salt, iter, keyLength)
  }
@@ -6215,7 +6211,7 @@ index 00000000000000..acfa551001af9c
 +package tls13
 diff --git a/src/crypto/tls/internal/tls13/tls13.go b/src/crypto/tls/internal/tls13/tls13.go
 new file mode 100644
-index 00000000000000..59c5933ade1d86
+index 00000000000000..535da69062b113
 --- /dev/null
 +++ b/src/crypto/tls/internal/tls13/tls13.go
 @@ -0,0 +1,197 @@
@@ -6258,7 +6254,7 @@ index 00000000000000..59c5933ade1d86
 +
 +	if boring.Enabled && btls13.SupportsKDF() {
 +		fh := fips140hash.UnwrapNew(hash)
-+		key, err := btls13.ExpandKDF(fh, secret, []byte(label), context, length)
++		key, err := btls13.ExpandKDF(fh, secret, label, context, length)
 +		if err != nil {
 +			panic(err)
 +		}
@@ -6431,7 +6427,7 @@ index 652a6489b899d6..36528e93156bef 100644
  	"hash"
  	"io"
 diff --git a/src/crypto/tls/prf.go b/src/crypto/tls/prf.go
-index bc59300f41c762..2512fa7f9e0bc7 100644
+index bc59300f41c762..a78e10c65cfa7e 100644
 --- a/src/crypto/tls/prf.go
 +++ b/src/crypto/tls/prf.go
 @@ -15,6 +15,9 @@ import (
@@ -6462,7 +6458,7 @@ index bc59300f41c762..2512fa7f9e0bc7 100644
  func prf10(secret []byte, label string, seed []byte, keyLen int) []byte {
  	result := make([]byte, keyLen)
 +	if boring.Enabled && btls12.SupportsPRF() {
-+		if err := btls12.PRF(result, secret, []byte(label), seed, nil); err != nil {
++		if err := btls12.PRF(result, secret, label, seed, nil); err != nil {
 +			panic(boringPRFError{fmt.Errorf("crypto/tls: prf10: %v", err)})
 +		}
 +		return result
@@ -6476,7 +6472,7 @@ index bc59300f41c762..2512fa7f9e0bc7 100644
  	return func(secret []byte, label string, seed []byte, keyLen int) []byte {
 +		if boring.Enabled && btls12.SupportsPRF() {
 +			result := make([]byte, keyLen)
-+			if err := btls12.PRF(result, secret, []byte(label), seed, hashFunc); err != nil {
++			if err := btls12.PRF(result, secret, label, seed, hashFunc); err != nil {
 +				panic(boringPRFError{fmt.Errorf("crypto/tls: prf12: %v", err)})
 +			}
 +			return result
@@ -6513,7 +6509,7 @@ index 8233985a62bd22..70fb5c9c4b8c2d 100644
  		in, _ := hex.DecodeString(test.preMasterSecret)
  		clientRandom, _ := hex.DecodeString(test.clientRandom)
 diff --git a/src/crypto/x509/verify_test.go b/src/crypto/x509/verify_test.go
-index 1d3e845d0f0a9c..eb4318faf13f7b 100644
+index d32d815261d9e1..0911f6bb20e2d2 100644
 --- a/src/crypto/x509/verify_test.go
 +++ b/src/crypto/x509/verify_test.go
 @@ -3127,7 +3127,7 @@ func dsaSelfSignedCNX(t *testing.T) []byte {

@@ -12,6 +12,6 @@ func Supports() bool { panic("cryptobackend: not available") }
 func Extract[H hash.Hash](h func() H, secret, salt []byte) ([]byte, error) {
 	panic("cryptobackend: not available")
 }
-func Expand[H hash.Hash](h func() H, pseudorandomKey, info []byte, keyLen int) ([]byte, error) {
+func Expand[H hash.Hash](h func() H, pseudorandomKey []byte, info string, keyLen int) ([]byte, error) {
 	panic("cryptobackend: not available")
 }
