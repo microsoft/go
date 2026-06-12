@@ -38,14 +38,15 @@ Subject: [PATCH] Use crypto backends
  src/crypto/fips140/enforcement_test.go        |   4 +
  src/crypto/fips140/fips140.go                 |   3 +-
  src/crypto/hkdf/hkdf.go                       |  14 ++
- src/crypto/hkdf/hkdf_test.go                  |   2 +-
- src/crypto/hmac/hmac.go                       |   2 +-
- src/crypto/hmac/hmac_test.go                  |   2 +-
+ src/crypto/hkdf/hkdf_test.go                  |  30 ++-
+ src/crypto/hmac/hmac.go                       |  16 +-
+ src/crypto/hmac/hmac_test.go                  |  23 ++-
  src/crypto/hpke/aead.go                       |  14 +-
  src/crypto/internal/cryptotest/allocations.go |   6 -
  src/crypto/internal/cryptotest/fips140.go     |   8 +
  src/crypto/internal/cryptotest/hash.go        |   3 +-
  .../internal/cryptotest/implementations.go    |   2 +-
+ src/crypto/internal/fips140hash/hash.go       |   3 +-
  .../internal/fips140only/fips140only_test.go  |   6 +
  src/crypto/internal/fips140test/acvp_test.go  |   6 +
  src/crypto/internal/fips140test/cast_test.go  |   2 +
@@ -75,7 +76,7 @@ Subject: [PATCH] Use crypto backends
  src/crypto/sha1/sha1_test.go                  |  11 +-
  src/crypto/sha256/sha256.go                   |   6 +-
  src/crypto/sha256/sha256_test.go              |  44 ++--
- src/crypto/sha3/sha3.go                       | 124 +++++++++--
+ src/crypto/sha3/sha3.go                       | 129 ++++++++++--
  src/crypto/sha3/sha3_test.go                  |  18 +-
  src/crypto/sha512/sha512.go                   |   2 +-
  src/crypto/sha512/sha512_test.go              |  32 ++-
@@ -100,7 +101,7 @@ Subject: [PATCH] Use crypto backends
  src/hash/notboring_test.go                    |   9 +
  src/net/lookup_test.go                        |   3 +
  src/os/exec/exec_test.go                      |   9 +
- 96 files changed, 1504 insertions(+), 180 deletions(-)
+ 97 files changed, 1565 insertions(+), 190 deletions(-)
  create mode 100644 src/crypto/dsa/boring.go
  create mode 100644 src/crypto/dsa/notboring.go
  create mode 100644 src/crypto/ecdsa/badlinkname.go
@@ -199,7 +200,7 @@ index fa445925b7c374..e36ac86fcaa58d 100644
  ! stdout runtime/cgo
  
 diff --git a/src/cmd/go/testdata/script/gopath_std_vendor.txt b/src/cmd/go/testdata/script/gopath_std_vendor.txt
-index 4aaf46b5d0f0dc..ec58a217400caa 100644
+index 4aaf46b5d0f0dc..995d53d0fed9aa 100644
 --- a/src/cmd/go/testdata/script/gopath_std_vendor.txt
 +++ b/src/cmd/go/testdata/script/gopath_std_vendor.txt
 @@ -1,5 +1,14 @@
@@ -244,7 +245,7 @@ index 802fb35aee4e65..4416731b69ec26 100644
  			*mode = BuildModePIE
  		default:
 diff --git a/src/cmd/link/internal/ld/lib.go b/src/cmd/link/internal/ld/lib.go
-index 1427f9c7bc62dc..a00ada13a5d745 100644
+index 1427f9c7bc62dc..5a9d911ea36a6c 100644
 --- a/src/cmd/link/internal/ld/lib.go
 +++ b/src/cmd/link/internal/ld/lib.go
 @@ -1176,6 +1176,12 @@ var hostobj []Hostobj
@@ -1479,10 +1480,10 @@ index 88439922a5032e..5a3ae17e80efbc 100644
  }
  
 diff --git a/src/crypto/hkdf/hkdf_test.go b/src/crypto/hkdf/hkdf_test.go
-index 57d90f88e93e75..4069ab057a2525 100644
+index 57d90f88e93e75..3d67a56bf61dad 100644
 --- a/src/crypto/hkdf/hkdf_test.go
 +++ b/src/crypto/hkdf/hkdf_test.go
-@@ -6,7 +6,7 @@ package hkdf
+@@ -6,13 +6,15 @@ package hkdf
  
  import (
  	"bytes"
@@ -1491,8 +1492,49 @@ index 57d90f88e93e75..4069ab057a2525 100644
  	"crypto/internal/fips140"
  	"crypto/md5"
  	"crypto/sha1"
+ 	"crypto/sha256"
++	"crypto/sha3"
+ 	"crypto/sha512"
+ 	"hash"
++	"strings"
+ 	"testing"
+ )
+ 
+@@ -345,6 +347,32 @@ func TestHKDFLimit(t *testing.T) {
+ 	}
+ }
+ 
++// TestHKDFSHA3 is a regression test for
++// https://github.com/microsoft/go/issues/2356. When a system crypto backend
++// provided SHA-3, the hash returned by [sha3.New256] reported Size() == 0 after
++// being unwrapped for the FIPS module, so HKDF computed a maximum output length
++// of 0 and rejected any positive key length with "requested key length too
++// large".
++func TestHKDFSHA3(t *testing.T) {
++	out, err := Key(sha3.New256, []byte("hkdf sha3 secret"), nil, "", 32)
++	if err != nil {
++		if strings.Contains(err.Error(), "too large") {
++			t.Fatalf("issue #2356 regression: %v", err)
++		}
++		// A system crypto backend can lack HKDF support for SHA-3 (for example
++		// CryptoKit). The backend reports this with an "unsupported hash
++		// function" error, so skip when that happens instead of hardcoding which
++		// platforms are affected. Any other error is unexpected and fails.
++		if boring.Enabled && strings.Contains(err.Error(), "unsupported hash function") {
++			t.Skipf("system backend does not support HKDF with SHA-3: %v", err)
++		}
++		t.Fatalf("HKDF with SHA3-256 failed: %v", err)
++	}
++	if len(out) != 32 {
++		t.Fatalf("HKDF with SHA3-256 produced %d bytes, want 32", len(out))
++	}
++}
++
+ func Benchmark16ByteMD5Single(b *testing.B) {
+ 	benchmarkHKDF(md5.New, 16, b)
+ }
 diff --git a/src/crypto/hmac/hmac.go b/src/crypto/hmac/hmac.go
-index e7976e25193dfe..9578e1e985c02d 100644
+index e7976e25193dfe..58b357ee52c328 100644
 --- a/src/crypto/hmac/hmac.go
 +++ b/src/crypto/hmac/hmac.go
 @@ -22,7 +22,7 @@ timing side-channels:
@@ -1504,19 +1546,76 @@ index e7976e25193dfe..9578e1e985c02d 100644
  	"crypto/internal/fips140/hmac"
  	"crypto/internal/fips140hash"
  	"crypto/internal/fips140only"
+@@ -37,13 +37,6 @@ import (
+ // the returned Hash does not implement [encoding.BinaryMarshaler]
+ // or [encoding.BinaryUnmarshaler].
+ func New(h func() hash.Hash, key []byte) hash.Hash {
+-	if boring.Enabled {
+-		hm := boring.NewHMAC(h, key)
+-		if hm != nil {
+-			return hm
+-		}
+-		// BoringCrypto did not recognize h, so fall through to standard Go code.
+-	}
+ 	h = fips140hash.UnwrapNew(h)
+ 	if fips140only.Enforced() {
+ 		if len(key) < 112/8 {
+@@ -53,6 +46,13 @@ func New(h func() hash.Hash, key []byte) hash.Hash {
+ 			panic("crypto/hmac: use of hash functions other than SHA-2 or SHA-3 is not allowed in FIPS 140-only mode")
+ 		}
+ 	}
++	if boring.Enabled {
++		hm := boring.NewHMAC(h, key)
++		if hm != nil {
++			return hm
++		}
++		// BoringCrypto did not recognize h, so fall through to standard Go code.
++	}
+ 	return hmac.New(h, key)
+ }
+ 
 diff --git a/src/crypto/hmac/hmac_test.go b/src/crypto/hmac/hmac_test.go
-index 4046a9555a8e35..4721a2a7ac04f7 100644
+index 4046a9555a8e35..6ad429e98c5d86 100644
 --- a/src/crypto/hmac/hmac_test.go
 +++ b/src/crypto/hmac/hmac_test.go
-@@ -5,7 +5,7 @@
+@@ -5,11 +5,13 @@
  package hmac
  
  import (
 -	"crypto/internal/boring"
 +	boring "crypto/internal/backend"
  	"crypto/internal/cryptotest"
++	"crypto/internal/fips140hash"
  	"crypto/md5"
  	"crypto/sha1"
+ 	"crypto/sha256"
++	"crypto/sha3"
+ 	"crypto/sha512"
+ 	"errors"
+ 	"fmt"
+@@ -693,3 +695,22 @@ func BenchmarkNewWriteSum(b *testing.B) {
+ 		buf[0] = mac[0]
+ 	}
+ }
++
++// TestHMACSHA3 is a regression test for
++// https://github.com/microsoft/go/issues/2356. [New] used to spin forever when
++// given a SHA-3 hash under a system crypto backend, because the backend HMAC
++// constructor received the still-wrapped *sha3.SHA3 instead of the unwrapped
++// hash. The hash must now be unwrapped before the backend sees it.
++func TestHMACSHA3(t *testing.T) {
++	if boring.Enabled {
++		// Probe backend support directly instead of OS-gating the test.
++		if hm := boring.NewHMAC(fips140hash.UnwrapNew(func() hash.Hash { return sha3.New256() }), []byte("key")); hm == nil {
++			t.Skip("system backend does not support HMAC with SHA-3")
++		}
++	}
++	h := New(func() hash.Hash { return sha3.New256() }, []byte("key"))
++	h.Write([]byte("message"))
++	if got := len(h.Sum(nil)); got != 32 {
++		t.Fatalf("HMAC with SHA3-256 produced %d bytes, want 32", got)
++	}
++}
 diff --git a/src/crypto/hpke/aead.go b/src/crypto/hpke/aead.go
 index fb55c97ddf20c9..fb036863cde2dd 100644
 --- a/src/crypto/hpke/aead.go
@@ -1633,6 +1732,26 @@ index 2b6cf4b75fc6b7..3a1b9e5cc67ecc 100644
  	"crypto/internal/impl"
  	"internal/goarch"
  	"internal/goos"
+diff --git a/src/crypto/internal/fips140hash/hash.go b/src/crypto/internal/fips140hash/hash.go
+index 6d67ee8b3429a1..8f8d5937ea913c 100644
+--- a/src/crypto/internal/fips140hash/hash.go
++++ b/src/crypto/internal/fips140hash/hash.go
+@@ -5,14 +5,13 @@
+ package fips140hash
+ 
+ import (
+-	fsha3 "crypto/internal/fips140/sha3"
+ 	"crypto/sha3"
+ 	"hash"
+ 	_ "unsafe"
+ )
+ 
+ //go:linkname sha3Unwrap
+-func sha3Unwrap(*sha3.SHA3) *fsha3.Digest
++func sha3Unwrap(*sha3.SHA3) hash.Hash
+ 
+ // Unwrap returns h, or a crypto/internal/fips140 inner implementation of h.
+ //
 diff --git a/src/crypto/internal/fips140only/fips140only_test.go b/src/crypto/internal/fips140only/fips140only_test.go
 index 96df536d56f345..5ed6026962a17c 100644
 --- a/src/crypto/internal/fips140only/fips140only_test.go
@@ -2935,7 +3054,7 @@ index a18a536ba2896f..7b3b37c3b0c10d 100644
  	}
  }
 diff --git a/src/crypto/sha3/sha3.go b/src/crypto/sha3/sha3.go
-index 48c67e9fe11005..3fe46309e0fda8 100644
+index 48c67e9fe11005..1ab7ae42462ef6 100644
 --- a/src/crypto/sha3/sha3.go
 +++ b/src/crypto/sha3/sha3.go
 @@ -8,6 +8,7 @@ package sha3
@@ -3006,7 +3125,7 @@ index 48c67e9fe11005..3fe46309e0fda8 100644
  	// Outline the allocation for up to 512 bits of output to the caller's stack.
  	out := make([]byte, 64)
  	return sumSHAKE256(out, data, length)
-@@ -99,7 +118,9 @@ func sumSHAKE256(out, data []byte, length int) []byte {
+@@ -99,36 +118,53 @@ func sumSHAKE256(out, data []byte, length int) []byte {
  // SHA3 is an instance of a SHA-3 hash. It implements [hash.Hash].
  // The zero value is a usable SHA3-256 hash.
  type SHA3 struct {
@@ -3017,7 +3136,13 @@ index 48c67e9fe11005..3fe46309e0fda8 100644
  }
  
  //go:linkname fips140hash_sha3Unwrap crypto/internal/fips140hash.sha3Unwrap
-@@ -109,26 +130,38 @@ func fips140hash_sha3Unwrap(sha3 *SHA3) *sha3.Digest {
+-func fips140hash_sha3Unwrap(sha3 *SHA3) *sha3.Digest {
++func fips140hash_sha3Unwrap(sha3 *SHA3) hash.Hash {
++	if sha3.boringS != nil {
++		return sha3.boringS
++	}
+ 	return &sha3.s
+ }
  
  // New224 creates a new SHA3-224 hash.
  func New224() *SHA3 {
@@ -3061,7 +3186,7 @@ index 48c67e9fe11005..3fe46309e0fda8 100644
  		*s = *New256()
  	}
  }
-@@ -136,53 +169,81 @@ func (s *SHA3) init() {
+@@ -136,53 +172,81 @@ func (s *SHA3) init() {
  // Write absorbs more data into the hash's state.
  func (s *SHA3) Write(p []byte) (n int, err error) {
  	s.init()
@@ -3144,7 +3269,7 @@ index 48c67e9fe11005..3fe46309e0fda8 100644
  	r := *d
  	return &r, nil
  }
-@@ -190,23 +251,30 @@ func (d *SHA3) Clone() (hash.Cloner, error) {
+@@ -190,23 +254,30 @@ func (d *SHA3) Clone() (hash.Cloner, error) {
  // SHAKE is an instance of a SHAKE extendable output function.
  // The zero value is a usable SHAKE256 hash.
  type SHAKE struct {
@@ -3179,7 +3304,7 @@ index 48c67e9fe11005..3fe46309e0fda8 100644
  }
  
  // NewCSHAKE128 creates a new cSHAKE128 XOF.
-@@ -215,7 +283,10 @@ func NewSHAKE256() *SHAKE {
+@@ -215,7 +286,10 @@ func NewSHAKE256() *SHAKE {
  // cSHAKE is desired. S is a customization byte string used for domain
  // separation. When N and S are both empty, this is equivalent to NewSHAKE128.
  func NewCSHAKE128(N, S []byte) *SHAKE {
@@ -3191,7 +3316,7 @@ index 48c67e9fe11005..3fe46309e0fda8 100644
  }
  
  // NewCSHAKE256 creates a new cSHAKE256 XOF.
-@@ -224,7 +295,10 @@ func NewCSHAKE128(N, S []byte) *SHAKE {
+@@ -224,7 +298,10 @@ func NewCSHAKE128(N, S []byte) *SHAKE {
  // cSHAKE is desired. S is a customization byte string used for domain
  // separation. When N and S are both empty, this is equivalent to NewSHAKE256.
  func NewCSHAKE256(N, S []byte) *SHAKE {
@@ -3203,7 +3328,7 @@ index 48c67e9fe11005..3fe46309e0fda8 100644
  }
  
  // Write absorbs more data into the XOF's state.
-@@ -232,6 +306,9 @@ func NewCSHAKE256(N, S []byte) *SHAKE {
+@@ -232,6 +309,9 @@ func NewCSHAKE256(N, S []byte) *SHAKE {
  // It panics if any output has already been read.
  func (s *SHAKE) Write(p []byte) (n int, err error) {
  	s.init()
@@ -3213,7 +3338,7 @@ index 48c67e9fe11005..3fe46309e0fda8 100644
  	return s.s.Write(p)
  }
  
-@@ -240,35 +317,54 @@ func (s *SHAKE) Write(p []byte) (n int, err error) {
+@@ -240,35 +320,54 @@ func (s *SHAKE) Write(p []byte) (n int, err error) {
  // Any call to Write after a call to Read will panic.
  func (s *SHAKE) Read(p []byte) (n int, err error) {
  	s.init()
@@ -3966,7 +4091,7 @@ index 1d3e845d0f0a9c..eb4318faf13f7b 100644
  
  	var dsaPriv dsa.PrivateKey
 diff --git a/src/go/build/deps_test.go b/src/go/build/deps_test.go
-index f52b6b1ac71711..f6f962f38b5d00 100644
+index 71f5fae52bd306..6e72b4dde85609 100644
 --- a/src/go/build/deps_test.go
 +++ b/src/go/build/deps_test.go
 @@ -545,7 +545,7 @@ var depsRules = `
