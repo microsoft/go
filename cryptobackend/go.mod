@@ -1,6 +1,6 @@
 module github.com/microsoft/go/cryptobackend
 
-go 1.27
+go 1.26
 
 require (
 	github.com/microsoft/go-crypto-darwin v0.0.2

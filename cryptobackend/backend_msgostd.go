@@ -7,12 +7,11 @@
 package backend
 
 import (
-	"crypto/internal/boring/sig"
 	"crypto/internal/fips140only"
-	_ "unsafe"
+
+	bhash "github.com/microsoft/go/cryptobackend/hash"
 )
 
 func init() {
-	sig.BoringCrypto()
-	fips140only.BackendApprovedHash = FIPSApprovedHash
+	fips140only.BackendApprovedHash = bhash.Approved
 }

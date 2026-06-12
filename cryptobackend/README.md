@@ -13,3 +13,9 @@ Normally, Go's `internal` package rule would reject imports such as `crypto/inte
 The same loader hook also adds the `msgostd` tool tag when cryptobackend is imported by the standard library, or when the package directory is the GOROOT-vendored copy. Files guarded by that tag, such as `backend_windows_msgostd.go`, can therefore contain the std-only glue that wires the backend into packages like `crypto/internal/fips140only`.
 
 The exception is deliberately scoped to the GOROOT-vendored copy. Building this module directly as an ordinary external dependency should not rely on importing `crypto/internal` packages.
+
+## Algorithm package shape
+
+The algorithm subpackages under `cryptobackend` mirror the algorithm-oriented layout of `crypto/internal/fips140/...`. Each package owns its platform-specific bindings directly: Linux packages call `go-crypto-openssl`, Windows packages call `go-crypto-winnative`, and Darwin packages call `go-crypto-darwin`.
+
+These packages are intended as a migration step toward making cryptobackend usable as a drop-in replacement for `crypto/internal/fips140` without changing the backend implementation model all at once.
