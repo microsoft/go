@@ -116,10 +116,15 @@ func refresh(rootDir string) error {
 		return err
 	}
 
+	// Collect all auto-vendor module directories so we can run a final vendor
+	// pass after all patches are applied.
+	var allVendorDirs []string
+
 	if len(autoVendorMap) > 0 {
 		amend := mode == patch.ApplyModeCommits
 		if err := patch.ApplyIndividually(config, mode, func(patchPath string) error {
 			if dirs, ok := autoVendorMap[patchPath]; ok {
+				allVendorDirs = append(allVendorDirs, dirs...)
 				return patch.RunGoModVendor(goDir, dirs, amend)
 			}
 			return nil
@@ -131,6 +136,19 @@ func refresh(rootDir string) error {
 			return err
 		}
 	}
+
+	// After all patches are applied, run vendor one final time. Later patches
+	// may add new imports that weren't present when the auto-vendor patch was
+	// applied (e.g. patch 0002 imports cryptobackend/sha1 which wasn't imported
+	// at patch 0001 time). This final pass ensures vendor/ has everything.
+	// Don't amend — leave the changes in the working tree so the build can use them.
+	if len(allVendorDirs) > 0 {
+		log.Println("Running final vendor pass after all patches are applied...")
+		if err := patch.RunGoModVendor(goDir, allVendorDirs, false); err != nil {
+			return err
+		}
+	}
+
 	return nil
 }
 
