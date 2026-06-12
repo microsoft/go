@@ -13,6 +13,6 @@ import (
 )
 
 func SupportsPRF() bool { return true }
-func PRF(result, secret, label, seed []byte, h func() hash.Hash) error {
-	return cng.TLS1PRF(result, secret, label, seed, h)
+func PRF(result, secret []byte, label string, seed []byte, h func() hash.Hash) error {
+	return cng.TLS1PRF(result, secret, []byte(label), seed, h)
 }

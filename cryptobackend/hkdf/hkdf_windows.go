@@ -16,6 +16,6 @@ func Supports() bool { return cng.SupportsHKDF() }
 func Extract[H hash.Hash](h func() H, secret, salt []byte) ([]byte, error) {
 	return cng.ExtractHKDF(h, secret, salt)
 }
-func Expand[H hash.Hash](h func() H, pseudorandomKey, info []byte, keyLen int) ([]byte, error) {
-	return cng.ExpandHKDF(h, pseudorandomKey, info, keyLen)
+func Expand[H hash.Hash](h func() H, pseudorandomKey []byte, info string, keyLen int) ([]byte, error) {
+	return cng.ExpandHKDF(h, pseudorandomKey, []byte(info), keyLen)
 }

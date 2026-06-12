@@ -6,7 +6,7 @@ package hkdf
 
 import "hash"
 
-func Key[H hash.Hash](h func() H, secret, salt, info []byte, keyLen int) ([]byte, error) {
+func Key[H hash.Hash](h func() H, secret, salt []byte, info string, keyLen int) ([]byte, error) {
 	prk, err := Extract(h, secret, salt)
 	if err != nil {
 		return nil, err
