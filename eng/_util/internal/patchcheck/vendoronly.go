@@ -6,8 +6,11 @@ package patchcheck
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/microsoft/go-infra/patch"
 )
 
 // vendorPatchGlob matches the vendor patch filename.
@@ -28,6 +31,13 @@ var vendorOnlyPaths = []string{
 	"src/cmd/internal/telemetry/counter/deps_ignore.go",
 }
 
+// autoVendorOmittedPaths are vendor-only paths that are expected to be absent
+// from the patch when it uses auto-vendor (they are generated at apply time).
+var autoVendorOmittedPaths = []string{
+	"src/vendor/",
+	"src/cmd/vendor/",
+}
+
 // vendorSharedPaths must appear in the vendor patch, but may also appear in
 // non-vendor patches.
 var vendorSharedPaths = []string{
@@ -39,6 +49,20 @@ func appendVendorOnlyIssues(issues []*PatchIssue, patchFile string, mods []patch
 	isVendorPatch, err := filepath.Match(vendorPatchGlob, patchName)
 	if err != nil {
 		return nil, err
+	}
+
+	// Detect whether the vendor patch uses auto-vendor. If it does, vendor
+	// directory diffs (src/vendor/, src/cmd/vendor/) are generated at apply
+	// time and won't appear in the patch file.
+	usesAutoVendor := false
+	if isVendorPatch {
+		content, err := os.ReadFile(patchFile)
+		if err != nil {
+			return nil, fmt.Errorf("reading patch file %s: %w", patchFile, err)
+		}
+		if strings.Contains(string(content), patch.AutoVendorPrefix) {
+			usesAutoVendor = true
+		}
 	}
 
 	for _, mod := range mods {
@@ -60,6 +84,11 @@ func appendVendorOnlyIssues(issues []*PatchIssue, patchFile string, mods []patch
 
 	if isVendorPatch {
 		for _, required := range append(vendorOnlyPaths, vendorSharedPaths...) {
+			// When using auto-vendor, vendor directory diffs are generated
+			// at apply time and won't be in the patch file.
+			if usesAutoVendor && matchPathList(autoVendorOmittedPaths, required) {
+				continue
+			}
 			found := false
 			for _, mod := range mods {
 				if matchPathList([]string{required}, mod.path) {

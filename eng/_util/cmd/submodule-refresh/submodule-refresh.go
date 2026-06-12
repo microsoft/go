@@ -108,8 +108,28 @@ func refresh(rootDir string) error {
 		config.PatchesDir = tmpDirRelative
 	}
 
-	if err := patch.Apply(config, mode); err != nil {
+	// Check if any patches have auto-vendor commands. If so, apply patches
+	// one at a time so we can run "go mod vendor" between patches.
+	_, goDir := config.FullProjectRoots()
+	autoVendorMap, err := patch.ScanAutoVendorPatches(config)
+	if err != nil {
 		return err
+	}
+
+	if len(autoVendorMap) > 0 {
+		amend := mode == patch.ApplyModeCommits
+		if err := patch.ApplyIndividually(config, mode, func(patchPath string) error {
+			if dirs, ok := autoVendorMap[patchPath]; ok {
+				return patch.RunGoModVendor(goDir, dirs, amend)
+			}
+			return nil
+		}); err != nil {
+			return err
+		}
+	} else {
+		if err := patch.Apply(config, mode); err != nil {
+			return err
+		}
 	}
 	return nil
 }
