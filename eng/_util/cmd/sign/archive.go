@@ -427,7 +427,7 @@ func (a *archive) prepareArchiveSignatures(ctx context.Context) ([]*fileToSign, 
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	// Copy the archive file with a ".sig" suffix. The signing process sends this file to get a
+	// Copy the archive file and add a ".sig" suffix. The signing process sends this new file to get a
 	// signature, then replaces its content in-place with the result. We need to preemptively make
 	// a renamed copy of the file so we end up with both the original file and signature on the
 	// machine.
