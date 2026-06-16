@@ -15,9 +15,9 @@ func GenerateParameters(l, n int) (p, q, g BigInt, err error) { panic("cryptobac
 func GenerateKey(p, q, g BigInt) (x, y BigInt, err error)     { panic("cryptobackend: not available") }
 func NewPrivateKey(p, q, g, x, y BigInt) (*PrivateKey, error) { panic("cryptobackend: not available") }
 func NewPublicKey(p, q, g, y BigInt) (*PublicKey, error)      { panic("cryptobackend: not available") }
-func Sign(priv *PrivateKey, hash []byte, parseSignature func([]byte) (BigInt, BigInt, error)) (r, s BigInt, err error) {
+func Sign(priv *PrivateKey, hash []byte) (r, s BigInt, err error) {
 	panic("cryptobackend: not available")
 }
-func Verify(pub *PublicKey, hashed []byte, r, s BigInt, encodeSignature func(r, s BigInt) ([]byte, error)) bool {
+func Verify(pub *PublicKey, hashed []byte, r, s BigInt) bool {
 	panic("cryptobackend: not available")
 }

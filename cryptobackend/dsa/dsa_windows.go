@@ -29,9 +29,9 @@ func NewPrivateKey(p, q, g, x, y BigInt) (*PrivateKey, error) {
 func NewPublicKey(p, q, g, y BigInt) (*PublicKey, error) {
 	return cng.NewPublicKeyDSA(cng.DSAParameters{P: p, Q: q, G: g}, y)
 }
-func Sign(priv *PrivateKey, hash []byte, parseSignature func([]byte) (BigInt, BigInt, error)) (r, s BigInt, err error) {
+func Sign(priv *PrivateKey, hash []byte) (r, s BigInt, err error) {
 	return cng.SignDSA(priv, hash)
 }
-func Verify(pub *PublicKey, hashed []byte, r, s BigInt, encodeSignature func(r, s BigInt) ([]byte, error)) bool {
+func Verify(pub *PublicKey, hashed []byte, r, s BigInt) bool {
 	return cng.VerifyDSA(pub, hashed, r, s)
 }

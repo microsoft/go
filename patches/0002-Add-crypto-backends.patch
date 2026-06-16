@@ -47,7 +47,7 @@ Subject: [PATCH] Add crypto backends
  src/crypto/cipher/gcm_test.go                 |   9 +-
  src/crypto/des/cipher.go                      |   9 +
  src/crypto/dsa/boring.go                      | 114 ++++++++
- src/crypto/dsa/dsa.go                         |  90 ++++++
+ src/crypto/dsa/dsa.go                         |  47 +++
  src/crypto/dsa/dsa_test.go                    |   8 +
  src/crypto/dsa/notboring.go                   |  16 ++
  src/crypto/ecdh/ecdh.go                       |   7 +-
@@ -56,7 +56,7 @@ Subject: [PATCH] Add crypto backends
  src/crypto/ecdh/x25519.go                     |  51 ++++
  src/crypto/ecdsa/badlinkname.go               |  19 ++
  src/crypto/ecdsa/boring.go                    |  19 +-
- src/crypto/ecdsa/ecdsa.go                     |  33 ++-
+ src/crypto/ecdsa/ecdsa.go                     |  19 +-
  src/crypto/ecdsa/notboring.go                 |   8 +-
  src/crypto/ed25519/boring.go                  |  73 +++++
  src/crypto/ed25519/ed25519.go                 |  73 +++++
@@ -100,7 +100,6 @@ Subject: [PATCH] Add crypto backends
  src/crypto/rsa/pkcs1v15_test.go               |   5 +
  src/crypto/rsa/pss_test.go                    |  14 +-
  src/crypto/rsa/rsa.go                         |  44 +--
- src/crypto/rsa/rsa_darwin.go                  |  72 +++++
  src/crypto/rsa/rsa_test.go                    |   7 +-
  src/crypto/sha1/sha1.go                       |  15 +-
  src/crypto/sha1/sha1_test.go                  |  11 +-
@@ -126,7 +125,7 @@ Subject: [PATCH] Add crypto backends
  src/crypto/tls/prf_test.go                    |   9 +
  src/crypto/x509/verify_test.go                |   2 +-
  src/go/build/buildbackend_test.go             |  50 ++++
- src/go/build/deps_test.go                     |  86 +++++-
+ src/go/build/deps_test.go                     |  90 +++++-
  .../build/testdata/backendtags_system/main.go |   3 +
  .../backendtags_system/systemcrypto.go        |   3 +
  src/hash/boring_test.go                       |   9 +
@@ -144,7 +143,7 @@ Subject: [PATCH] Add crypto backends
  src/os/exec/exec_test.go                      |   9 +
  src/runtime/runtime_boring.go                 |   5 +
  src/syscall/syscall_windows.go                |   3 +
- 140 files changed, 2953 insertions(+), 376 deletions(-)
+ 139 files changed, 2827 insertions(+), 377 deletions(-)
  create mode 100644 src/cmd/go/internal/modindex/build_test.go
  create mode 100644 src/cmd/go/systemcrypto_test.go
  create mode 100644 src/crypto/dsa/boring.go
@@ -152,7 +151,6 @@ Subject: [PATCH] Add crypto backends
  create mode 100644 src/crypto/ecdsa/badlinkname.go
  create mode 100644 src/crypto/ed25519/boring.go
  create mode 100644 src/crypto/ed25519/notboring.go
- create mode 100644 src/crypto/rsa/rsa_darwin.go
  create mode 100644 src/crypto/systemcrypto_nocgo_linux.go
  create mode 100644 src/crypto/tls/internal/tls13/doc.go
  create mode 100644 src/crypto/tls/internal/tls13/tls13.go
@@ -342,7 +340,7 @@ index 78d55bec559987..decf356a449ba9 100644
  	if debug {
  		run("", ShowOutput|CheckExit, pathf("%s/compile", tooldir), "-V=full")
 diff --git a/src/cmd/dist/test.go b/src/cmd/dist/test.go
-index 56ec2558530b84..34e937e8111062 100644
+index 43ac003c7907c7..4daeb1a5ced0eb 100644
 --- a/src/cmd/dist/test.go
 +++ b/src/cmd/dist/test.go
 @@ -158,10 +158,12 @@ func (t *tester) run() {
@@ -372,7 +370,7 @@ index 56ec2558530b84..34e937e8111062 100644
  		}
  	}
  
-@@ -720,7 +722,7 @@ func (t *tester) registerTests() {
+@@ -731,7 +733,7 @@ func (t *tester) registerTests() {
  	})
  
  	// Check that all crypto packages compile (and test correctly, in longmode) with fips.
@@ -381,7 +379,7 @@ index 56ec2558530b84..34e937e8111062 100644
  		// Test standard crypto packages with fips140=on.
  		t.registerTest("GOFIPS140=latest go test crypto/...", &goTest{
  			variant: "gofips140",
-@@ -784,7 +786,9 @@ func (t *tester) registerTests() {
+@@ -795,7 +797,9 @@ func (t *tester) registerTests() {
  	}
  
  	// Test ios/amd64 for the iOS simulator.
@@ -392,7 +390,7 @@ index 56ec2558530b84..34e937e8111062 100644
  		t.registerTest("GOOS=ios on darwin/amd64",
  			&goTest{
  				variant:  "amd64ios",
-@@ -1033,7 +1037,9 @@ func (t *tester) registerTests() {
+@@ -1044,7 +1048,9 @@ func (t *tester) registerTests() {
  		t.registerRaceTests()
  	}
  
@@ -403,7 +401,7 @@ index 56ec2558530b84..34e937e8111062 100644
  		// Only start multiple test dir shards on builders,
  		// where they get distributed to multiple machines.
  		// See issues 20141 and 31834.
-@@ -1390,12 +1396,11 @@ func (t *tester) registerCgoTests(heading string) {
+@@ -1401,12 +1407,11 @@ func (t *tester) registerCgoTests(heading string) {
  			// a C linker warning on Linux.
  			// in function `bio_ip_and_port_to_socket_and_addr':
  			// warning: Using 'getaddrinfo' in statically linked applications requires at runtime the shared libraries from the glibc version used for linking
@@ -417,7 +415,7 @@ index 56ec2558530b84..34e937e8111062 100644
  			// Static linking tests
  			if goos != "android" && p != "netbsd/arm" && !t.msan && !t.asan {
  				// TODO(#56629): Why does this fail on netbsd-arm?
-@@ -1918,3 +1923,28 @@ func goexperiments(exps ...string) string {
+@@ -1929,3 +1934,28 @@ func goexperiments(exps ...string) string {
  	return existing + strings.Join(exps, ",")
  
  }
@@ -617,7 +615,7 @@ index 4f76f7f9c1fc68..783d11609c0bf4 100644
  Additional information available from 'go env' but not read from the environment:
  
 diff --git a/src/cmd/go/internal/load/pkg.go b/src/cmd/go/internal/load/pkg.go
-index 1a2adcf4bf7c65..cbcca50146fabe 100644
+index 2985cff67cec0b..d345585b33be9a 100644
 --- a/src/cmd/go/internal/load/pkg.go
 +++ b/src/cmd/go/internal/load/pkg.go
 @@ -16,6 +16,7 @@ import (
@@ -1851,10 +1849,10 @@ index 00000000000000..a6f50a16df8dda
 +	}
 +}
 diff --git a/src/crypto/dsa/dsa.go b/src/crypto/dsa/dsa.go
-index 6724f861b7f2f0..e4cf1440a40b59 100644
+index 6724f861b7f2f0..7d0bd731b16081 100644
 --- a/src/crypto/dsa/dsa.go
 +++ b/src/crypto/dsa/dsa.go
-@@ -20,6 +20,13 @@ import (
+@@ -20,6 +20,10 @@ import (
  
  	"crypto/internal/fips140only"
  	"crypto/internal/rand"
@@ -1862,13 +1860,10 @@ index 6724f861b7f2f0..e4cf1440a40b59 100644
 +	boring "github.com/microsoft/go/cryptobackend"
 +	"github.com/microsoft/go/cryptobackend/bbig"
 +	bdsa "github.com/microsoft/go/cryptobackend/dsa"
-+
-+	"golang.org/x/crypto/cryptobyte"
-+	"golang.org/x/crypto/cryptobyte/asn1"
  )
  
  // Parameters represents the domain parameters for a key. These parameters can
-@@ -91,6 +98,17 @@ func GenerateParameters(params *Parameters, rand io.Reader, sizes ParameterSizes
+@@ -91,6 +95,17 @@ func GenerateParameters(params *Parameters, rand io.Reader, sizes ParameterSizes
  		return errors.New("crypto/dsa: invalid ParameterSizes")
  	}
  
@@ -1886,7 +1881,7 @@ index 6724f861b7f2f0..e4cf1440a40b59 100644
  	qBytes := make([]byte, N/8)
  	pBytes := make([]byte, L/8)
  
-@@ -170,6 +188,17 @@ func GenerateKey(priv *PrivateKey, rand io.Reader) error {
+@@ -170,6 +185,17 @@ func GenerateKey(priv *PrivateKey, rand io.Reader) error {
  		return errors.New("crypto/dsa: parameters not set up before generating key")
  	}
  
@@ -1904,7 +1899,7 @@ index 6724f861b7f2f0..e4cf1440a40b59 100644
  	x := new(big.Int)
  	xBytes := make([]byte, priv.Q.BitLen()/8)
  
-@@ -229,6 +258,18 @@ func Sign(random io.Reader, priv *PrivateKey, hash []byte) (r, s *big.Int, err e
+@@ -229,6 +255,18 @@ func Sign(random io.Reader, priv *PrivateKey, hash []byte) (r, s *big.Int, err e
  		err = ErrInvalidPublicKey
  		return
  	}
@@ -1915,7 +1910,7 @@ index 6724f861b7f2f0..e4cf1440a40b59 100644
 +			return nil, nil, err
 +		}
 +
-+		r, s, err := bdsa.Sign(b, hash, parseSignature)
++		r, s, err := bdsa.Sign(b, hash)
 +
 +		return bbig.Dec(r), bbig.Dec(s), err
 +	}
@@ -1923,8 +1918,8 @@ index 6724f861b7f2f0..e4cf1440a40b59 100644
  	n >>= 3
  
  	var attempts int
-@@ -292,6 +333,14 @@ func Verify(pub *PublicKey, hash []byte, r, s *big.Int) bool {
- 		panic("crypto/dsa: use of DSA is not allowed in FIPS 140-only mode")
+@@ -305,6 +343,15 @@ func Verify(pub *PublicKey, hash []byte, r, s *big.Int) bool {
+ 		return false
  	}
  
 +	if boring.Enabled && bdsa.Supports(pub.P.BitLen(), pub.Q.BitLen()) {
@@ -1933,56 +1928,12 @@ index 6724f861b7f2f0..e4cf1440a40b59 100644
 +			return false
 +		}
 +
-+		return bdsa.Verify(bkey, hash, bbig.Enc(r), bbig.Enc(s), encodeSignature)
++		return bdsa.Verify(bkey, hash, bbig.Enc(r), bbig.Enc(s))
 +	}
- 	// FIPS 186-3, section 4.7
- 
- 	if pub.P.Sign() == 0 {
-@@ -328,3 +377,44 @@ func Verify(pub *PublicKey, hash []byte, r, s *big.Int) bool {
- 
- 	return v.Cmp(r) == 0
- }
 +
-+func parseSignature(sig []byte) (bdsa.BigInt, bdsa.BigInt, error) {
-+	var r, s []byte
-+	var inner cryptobyte.String
-+	input := cryptobyte.String(sig)
-+	if !input.ReadASN1(&inner, asn1.SEQUENCE) ||
-+		!input.Empty() ||
-+		!inner.ReadASN1Integer(&r) ||
-+		!inner.ReadASN1Integer(&s) ||
-+		!inner.Empty() {
-+		return nil, nil, errors.New("invalid ASN.1")
-+	}
-+	return bbig.Enc(new(big.Int).SetBytes(r)), bbig.Enc(new(big.Int).SetBytes(s)), nil
-+}
-+
-+func encodeSignature(r, s bdsa.BigInt) ([]byte, error) {
-+	var b cryptobyte.Builder
-+	b.AddASN1(asn1.SEQUENCE, func(b *cryptobyte.Builder) {
-+		addASN1IntBytes(b, bbig.Dec(r).Bytes())
-+		addASN1IntBytes(b, bbig.Dec(s).Bytes())
-+	})
-+	return b.Bytes()
-+}
-+
-+// addASN1IntBytes encodes in ASN.1 a positive integer represented as
-+// a big-endian byte slice with zero or more leading zeroes.
-+func addASN1IntBytes(b *cryptobyte.Builder, bytes []byte) {
-+	for len(bytes) > 0 && bytes[0] == 0 {
-+		bytes = bytes[1:]
-+	}
-+	if len(bytes) == 0 {
-+		b.SetError(errors.New("invalid integer"))
-+		return
-+	}
-+	b.AddASN1(asn1.INTEGER, func(c *cryptobyte.Builder) {
-+		if bytes[0]&0x80 != 0 {
-+			c.AddUint8(0)
-+		}
-+		c.AddBytes(bytes)
-+	})
-+}
+ 	w := new(big.Int).ModInverse(s, pub.Q)
+ 	if w == nil {
+ 		return false
 diff --git a/src/crypto/dsa/dsa_test.go b/src/crypto/dsa/dsa_test.go
 index ad85eac0a7f0b1..a4cc9c067e3f2c 100644
 --- a/src/crypto/dsa/dsa_test.go
@@ -2433,7 +2384,7 @@ index 275c60b4de49eb..a5b6ae9dc90505 100644
  		return nil, err
  	}
 diff --git a/src/crypto/ecdsa/ecdsa.go b/src/crypto/ecdsa/ecdsa.go
-index 40a89017570171..3b621083d54ac1 100644
+index 40a89017570171..24b8ae80344ee8 100644
 --- a/src/crypto/ecdsa/ecdsa.go
 +++ b/src/crypto/ecdsa/ecdsa.go
 @@ -20,8 +20,6 @@ import (
@@ -2467,7 +2418,7 @@ index 40a89017570171..3b621083d54ac1 100644
  		if err != nil {
  			return nil, err
  		}
-@@ -389,12 +391,19 @@ func SignASN1(r io.Reader, priv *PrivateKey, hash []byte) ([]byte, error) {
+@@ -389,12 +391,12 @@ func SignASN1(r io.Reader, priv *PrivateKey, hash []byte) ([]byte, error) {
  		return nil, errors.New("ecdsa: hash cannot be empty")
  	}
  
@@ -2478,18 +2429,11 @@ index 40a89017570171..3b621083d54ac1 100644
  			return nil, err
  		}
 -		return boring.SignMarshalECDSA(b, hash)
-+		if sig, err := becdsa.SignASN1(b, hash); err != errors.ErrUnsupported {
-+			return sig, err
-+		}
-+		rs, ss, err := becdsa.Sign(b, hash)
-+		if err != nil {
-+			return nil, err
-+		}
-+		return encodeSignature(rs, ss)
++		return becdsa.SignASN1(b, hash)
  	}
  	boring.UnreachableExceptTests()
  
-@@ -510,12 +519,20 @@ func VerifyASN1(pub *PublicKey, hash, sig []byte) bool {
+@@ -510,12 +512,13 @@ func VerifyASN1(pub *PublicKey, hash, sig []byte) bool {
  		return false
  	}
  
@@ -2500,14 +2444,7 @@ index 40a89017570171..3b621083d54ac1 100644
  			return false
  		}
 -		return boring.VerifyECDSA(key, hash, sig)
-+		if ok, err := becdsa.VerifyASN1(key, hash, sig); err != errors.ErrUnsupported {
-+			return err == nil && ok
-+		}
-+		r, s, err := parseSignature(sig)
-+		if err != nil {
-+			return false
-+		}
-+		ok, err := becdsa.Verify(key, hash, r, s)
++		ok, err := becdsa.VerifyASN1(key, hash, sig)
 +		return err == nil && ok
  	}
  	boring.UnreachableExceptTests()
@@ -4972,84 +4909,6 @@ index 93e08ed6cd8f71..0052585b9e7c63 100644
  	k, err := rsa.GenerateKey(random, bits)
  	if bits < 256 && err != nil {
  		// Toy-sized keys have a non-negligible chance of hitting two hard
-diff --git a/src/crypto/rsa/rsa_darwin.go b/src/crypto/rsa/rsa_darwin.go
-new file mode 100644
-index 00000000000000..717fe71a1886d5
---- /dev/null
-+++ b/src/crypto/rsa/rsa_darwin.go
-@@ -0,0 +1,72 @@
-+// Copyright 2017 The Go Authors. All rights reserved.
-+// Use of this source code is governed by a BSD-style
-+// license that can be found in the LICENSE file.
-+
-+//go:build goexperiment.systemcrypto
-+
-+package rsa
-+
-+import (
-+	"errors"
-+	"math/big"
-+	_ "unsafe"
-+
-+	"github.com/microsoft/go/cryptobackend/bbig"
-+	brsa "github.com/microsoft/go/cryptobackend/rsa"
-+
-+	"golang.org/x/crypto/cryptobyte"
-+	"golang.org/x/crypto/cryptobyte/asn1"
-+)
-+
-+//go:linkname decodeKey
-+func decodeKey(data []byte) (N, E, D, P, Q, Dp, Dq, Qinv brsa.BigInt, err error) {
-+	bad := func(e error) (N, E, D, P, Q, Dp, Dq, Qinv brsa.BigInt, err error) {
-+		return nil, nil, nil, nil, nil, nil, nil, nil, e
-+	}
-+	input := cryptobyte.String(data)
-+	var version int
-+	n, e, d, p, q, dp, dq, qinv := new(big.Int), new(big.Int), new(big.Int), new(big.Int),
-+		new(big.Int), new(big.Int), new(big.Int), new(big.Int)
-+	// Parse the ASN.1 sequence
-+	if !input.ReadASN1(&input, asn1.SEQUENCE) {
-+		return bad(errors.New("invalid ASN.1 structure: not a sequence"))
-+	}
-+	if !input.ReadASN1Integer(&version) || version != 0 {
-+		return bad(errors.New("invalid ASN.1 structure: unsupported version"))
-+	}
-+	if !input.ReadASN1Integer(n) || !input.ReadASN1Integer(e) ||
-+		!input.ReadASN1Integer(d) || !input.ReadASN1Integer(p) ||
-+		!input.ReadASN1Integer(q) || !input.ReadASN1Integer(dp) ||
-+		!input.ReadASN1Integer(dq) || !input.ReadASN1Integer(qinv) {
-+		return bad(errors.New("invalid ASN.1 structure"))
-+	}
-+	return bbig.Enc(n), bbig.Enc(e), bbig.Enc(d), bbig.Enc(p), bbig.Enc(q),
-+		bbig.Enc(dp), bbig.Enc(dq), bbig.Enc(qinv), nil
-+}
-+
-+//go:linkname encodeKey
-+func encodeKey(N, E, D, P, Q, Dp, Dq, Qinv brsa.BigInt) ([]byte, error) {
-+	builder := cryptobyte.NewBuilder(nil)
-+	builder.AddASN1(asn1.SEQUENCE, func(b *cryptobyte.Builder) {
-+		b.AddASN1Int64(0)               // Add version as int64
-+		b.AddASN1BigInt(bbig.Dec(N))    // Add modulus
-+		b.AddASN1BigInt(bbig.Dec(E))    // Add public exponent
-+		b.AddASN1BigInt(bbig.Dec(D))    // Add private exponent
-+		b.AddASN1BigInt(bbig.Dec(P))    // Add prime1
-+		b.AddASN1BigInt(bbig.Dec(Q))    // Add prime2
-+		b.AddASN1BigInt(bbig.Dec(Dp))   // Add exponent1
-+		b.AddASN1BigInt(bbig.Dec(Dq))   // Add exponent2
-+		b.AddASN1BigInt(bbig.Dec(Qinv)) // Add coefficient
-+	})
-+	return builder.Bytes()
-+}
-+
-+//go:linkname encodePublicKey
-+func encodePublicKey(N, E brsa.BigInt) ([]byte, error) {
-+	builder := cryptobyte.NewBuilder(nil)
-+	builder.AddASN1(asn1.SEQUENCE, func(b *cryptobyte.Builder) {
-+		b.AddASN1BigInt(bbig.Dec(N)) // Add modulus
-+		b.AddASN1BigInt(bbig.Dec(E)) // Add public exponent
-+	})
-+	return builder.Bytes()
-+}
 diff --git a/src/crypto/rsa/rsa_test.go b/src/crypto/rsa/rsa_test.go
 index 8c1b22bf4f41b4..386016b33f717a 100644
 --- a/src/crypto/rsa/rsa_test.go
@@ -6075,7 +5934,7 @@ index 027bc22c33c921..eba08da985f832 100644
  package fipsonly
  
 diff --git a/src/crypto/tls/handshake_client.go b/src/crypto/tls/handshake_client.go
-index 52bf6087b62955..6d97d1fba0dfa9 100644
+index 54227aabfb698c..89b973986e4485 100644
 --- a/src/crypto/tls/handshake_client.go
 +++ b/src/crypto/tls/handshake_client.go
 @@ -11,11 +11,11 @@ import (
@@ -6114,7 +5973,7 @@ index 52bf6087b62955..6d97d1fba0dfa9 100644
  
  	// If we did not load a session (hs.session == nil), but we did set a
 diff --git a/src/crypto/tls/handshake_client_tls13.go b/src/crypto/tls/handshake_client_tls13.go
-index d367020c2066bf..6a83eda3573245 100644
+index f55150697d96f6..552b82a476aea9 100644
 --- a/src/crypto/tls/handshake_client_tls13.go
 +++ b/src/crypto/tls/handshake_client_tls13.go
 @@ -10,9 +10,9 @@ import (
@@ -6129,7 +5988,7 @@ index d367020c2066bf..6a83eda3573245 100644
  	"hash"
  	"slices"
 diff --git a/src/crypto/tls/handshake_server.go b/src/crypto/tls/handshake_server.go
-index cde70463ef0fa4..4df9e6f5aac92c 100644
+index a4544a13051f51..f889d38b5e922c 100644
 --- a/src/crypto/tls/handshake_server.go
 +++ b/src/crypto/tls/handshake_server.go
 @@ -64,7 +64,20 @@ func (c *Conn) serverHandshake(ctx context.Context) error {
@@ -6155,7 +6014,7 @@ index cde70463ef0fa4..4df9e6f5aac92c 100644
  
  	if err := hs.processClientHello(); err != nil {
 diff --git a/src/crypto/tls/handshake_server_tls13.go b/src/crypto/tls/handshake_server_tls13.go
-index 3175d74587d83a..ed7c2de8db51f1 100644
+index 2c96e2435ae156..462afaeae882c1 100644
 --- a/src/crypto/tls/handshake_server_tls13.go
 +++ b/src/crypto/tls/handshake_server_tls13.go
 @@ -11,9 +11,9 @@ import (
@@ -6593,7 +6452,7 @@ index 00000000000000..ffb835ce34a2f7
 +	}
 +}
 diff --git a/src/go/build/deps_test.go b/src/go/build/deps_test.go
-index a71759adcb7363..fac04fccb099c1 100644
+index a71759adcb7363..abba83862c5ae1 100644
 --- a/src/go/build/deps_test.go
 +++ b/src/go/build/deps_test.go
 @@ -372,8 +372,10 @@ var depsRules = `
@@ -6639,7 +6498,7 @@ index a71759adcb7363..fac04fccb099c1 100644
  	< crypto/internal/fips140only
  	< crypto
  	< crypto/subtle
-@@ -577,6 +592,54 @@ var depsRules = `
+@@ -577,6 +592,51 @@ var depsRules = `
  	github.com/microsoft/go-crypto-winnative/internal/bcrypt
  	< github.com/microsoft/go-crypto-winnative/cng;
  
@@ -6671,9 +6530,7 @@ index a71759adcb7363..fac04fccb099c1 100644
 +	  github.com/microsoft/go/cryptobackend/chacha20poly1305,
 +	  github.com/microsoft/go/cryptobackend/des,
 +	  github.com/microsoft/go/cryptobackend/drbg,
-+	  github.com/microsoft/go/cryptobackend/dsa,
 +	  github.com/microsoft/go/cryptobackend/ecdh,
-+	  github.com/microsoft/go/cryptobackend/ecdsa,
 +	  github.com/microsoft/go/cryptobackend/ed25519,
 +	  github.com/microsoft/go/cryptobackend/hkdf,
 +	  github.com/microsoft/go/cryptobackend/hmac,
@@ -6682,7 +6539,6 @@ index a71759adcb7363..fac04fccb099c1 100644
 +	  github.com/microsoft/go/cryptobackend/mlkem,
 +	  github.com/microsoft/go/cryptobackend/pbkdf2,
 +	  github.com/microsoft/go/cryptobackend/rc4,
-+	  github.com/microsoft/go/cryptobackend/rsa,
 +	  github.com/microsoft/go/cryptobackend/sha1,
 +	  github.com/microsoft/go/cryptobackend/sha256,
 +	  github.com/microsoft/go/cryptobackend/sha3,
@@ -6694,7 +6550,7 @@ index a71759adcb7363..fac04fccb099c1 100644
  	FIPS, internal/godebug, embed,
  	crypto/internal/boring/sig,
  	crypto/internal/boring/syso,
-@@ -584,7 +647,9 @@ var depsRules = `
+@@ -584,7 +644,9 @@ var depsRules = `
  	crypto/internal/fips140only,
  	crypto,
  	crypto/subtle,
@@ -6705,7 +6561,7 @@ index a71759adcb7363..fac04fccb099c1 100644
  	< crypto/sha3
  	< crypto/internal/fips140hash
  	< crypto/internal/boring
-@@ -603,6 +668,7 @@ var depsRules = `
+@@ -603,6 +665,7 @@ var depsRules = `
  	  crypto/ecdh,
  	  crypto/mlkem,
  	  crypto/mldsa
@@ -6713,7 +6569,7 @@ index a71759adcb7363..fac04fccb099c1 100644
  	< CRYPTO;
  
  	CRYPTO
-@@ -616,8 +682,16 @@ var depsRules = `
+@@ -616,15 +679,28 @@ var depsRules = `
  	math/big, github.com/microsoft/go-crypto-darwin/xcrypto < github.com/microsoft/go-crypto-darwin/bbig;
  	math/big, github.com/microsoft/go-crypto-winnative/cng < github.com/microsoft/go-crypto-winnative/cng/bbig;
  
@@ -6732,6 +6588,19 @@ index a71759adcb7363..fac04fccb099c1 100644
  	< crypto/internal/fips140cache
  	< crypto/rand
  	< crypto/ed25519 # depends on crypto/rand.Reader
+ 	< encoding/asn1
+ 	< golang.org/x/crypto/cryptobyte/asn1
+ 	< golang.org/x/crypto/cryptobyte
+-	< crypto/dsa, crypto/elliptic, crypto/rsa
++	< github.com/microsoft/go/cryptobackend/dsa,
++	  github.com/microsoft/go/cryptobackend/ecdsa,
++	  github.com/microsoft/go/cryptobackend/rsa,
++	  crypto/elliptic
++	< crypto/dsa
++	< crypto/rsa
+ 	< crypto/ecdsa
+ 	< CRYPTO-MATH;
+ 
 diff --git a/src/go/build/testdata/backendtags_system/main.go b/src/go/build/testdata/backendtags_system/main.go
 new file mode 100644
 index 00000000000000..38dd16da61accb
@@ -6891,7 +6760,7 @@ index 2bbd478280241e..77eaacdc38756d 100644
  	"v1.0.0",
  	"v1.0.1",
 diff --git a/src/internal/buildcfg/exp.go b/src/internal/buildcfg/exp.go
-index 8eeef17c1f470e..dda96ef5b15616 100644
+index bf411a8dbbfcde..9b6ca9feb0b23b 100644
 --- a/src/internal/buildcfg/exp.go
 +++ b/src/internal/buildcfg/exp.go
 @@ -10,12 +10,14 @@ import (
@@ -6909,7 +6778,7 @@ index 8eeef17c1f470e..dda96ef5b15616 100644
  	baseline goexperiment.Flags
  }
  
-@@ -131,6 +133,21 @@ func ParseGOEXPERIMENT(goos, goarch, goexp string) (*ExperimentFlags, error) {
+@@ -130,6 +132,21 @@ func ParseGOEXPERIMENT(goos, goarch, goexp string) (*ExperimentFlags, error) {
  			if strings.HasPrefix(f, "no") {
  				f, val = f[2:], false
  			}
@@ -6931,7 +6800,7 @@ index 8eeef17c1f470e..dda96ef5b15616 100644
  			set, ok := names[f]
  			if !ok {
  				return nil, fmt.Errorf("unknown GOEXPERIMENT %s", f)
-@@ -152,6 +169,9 @@ func ParseGOEXPERIMENT(goos, goarch, goexp string) (*ExperimentFlags, error) {
+@@ -151,6 +168,9 @@ func ParseGOEXPERIMENT(goos, goarch, goexp string) (*ExperimentFlags, error) {
  	if flags.RegabiArgs && !flags.RegabiWrappers {
  		return nil, fmt.Errorf("GOEXPERIMENT regabiargs requires regabiwrappers")
  	}
