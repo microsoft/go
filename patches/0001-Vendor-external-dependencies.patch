@@ -307,7 +307,7 @@ Use a 'go' that was recently built by the current branch to ensure stable result
  .../go/cryptobackend/drbg/rand_linux.go       |   19 +
  .../go/cryptobackend/drbg/rand_windows.go     |   19 +
  .../go/cryptobackend/dsa/dsa_darwin.go        |   25 +
- .../go/cryptobackend/dsa/dsa_linux.go         |   46 +
+ .../go/cryptobackend/dsa/dsa_linux.go         |   93 +
  .../go/cryptobackend/dsa/dsa_windows.go       |   37 +
  .../microsoft/go/cryptobackend/dsa/init.go    |    7 +
  .../go/cryptobackend/dsa/nobackend.go         |   23 +
@@ -316,11 +316,11 @@ Use a 'go' that was recently built by the current branch to ensure stable result
  .../go/cryptobackend/ecdh/ecdh_windows.go     |   32 +
  .../microsoft/go/cryptobackend/ecdh/init.go   |    7 +
  .../go/cryptobackend/ecdh/nobackend.go        |   22 +
- .../go/cryptobackend/ecdsa/ecdsa_darwin.go    |   51 +
- .../go/cryptobackend/ecdsa/ecdsa_linux.go     |   45 +
- .../go/cryptobackend/ecdsa/ecdsa_windows.go   |   51 +
+ .../go/cryptobackend/ecdsa/ecdsa_darwin.go    |   39 +
+ .../go/cryptobackend/ecdsa/ecdsa_linux.go     |   33 +
+ .../go/cryptobackend/ecdsa/ecdsa_windows.go   |   91 +
  .../microsoft/go/cryptobackend/ecdsa/init.go  |    7 +
- .../go/cryptobackend/ecdsa/nobackend.go       |   32 +
+ .../go/cryptobackend/ecdsa/nobackend.go       |   26 +
  .../cryptobackend/ed25519/ed25519_darwin.go   |   24 +
  .../go/cryptobackend/ed25519/ed25519_linux.go |   24 +
  .../cryptobackend/ed25519/ed25519_windows.go  |   21 +
@@ -384,7 +384,7 @@ Use a 'go' that was recently built by the current branch to ensure stable result
  .../go/cryptobackend/rc4/rc4_windows.go       |   15 +
  .../microsoft/go/cryptobackend/rsa/init.go    |    7 +
  .../go/cryptobackend/rsa/nobackend.go         |   61 +
- .../go/cryptobackend/rsa/rsa_darwin.go        |  100 +
+ .../go/cryptobackend/rsa/rsa_darwin.go        |  150 +
  .../go/cryptobackend/rsa/rsa_linux.go         |   85 +
  .../go/cryptobackend/rsa/rsa_windows.go       |   77 +
  .../microsoft/go/cryptobackend/sha1/init.go   |    7 +
@@ -419,7 +419,7 @@ Use a 'go' that was recently built by the current branch to ensure stable result
  .../go/cryptobackend/tls13/tls13_linux.go     |   18 +
  .../go/cryptobackend/tls13/tls13_windows.go   |   14 +
  src/vendor/modules.txt                        |   55 +
- 411 files changed, 39323 insertions(+), 11 deletions(-)
+ 411 files changed, 39430 insertions(+), 11 deletions(-)
  create mode 100644 src/cmd/internal/telemetry/counter/deps_ignore.go
  create mode 100644 src/cmd/vendor/github.com/microsoft/go-infra/telemetry/LICENSE
  create mode 100644 src/cmd/vendor/github.com/microsoft/go-infra/telemetry/README.md
@@ -41451,7 +41451,7 @@ index 00000000000000..e1e2192cdf5b6d
 +}
 diff --git a/src/vendor/github.com/microsoft/go/cryptobackend/dsa/dsa_darwin.go b/src/vendor/github.com/microsoft/go/cryptobackend/dsa/dsa_darwin.go
 new file mode 100644
-index 00000000000000..0654c1962dd371
+index 00000000000000..36db87c344ad67
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go/cryptobackend/dsa/dsa_darwin.go
 @@ -0,0 +1,25 @@
@@ -41474,18 +41474,18 @@ index 00000000000000..0654c1962dd371
 +func GenerateKey(p, q, g BigInt) (x, y BigInt, err error)     { panic("cryptobackend: not available") }
 +func NewPrivateKey(p, q, g, x, y BigInt) (*PrivateKey, error) { panic("cryptobackend: not available") }
 +func NewPublicKey(p, q, g, y BigInt) (*PublicKey, error)      { panic("cryptobackend: not available") }
-+func Sign(priv *PrivateKey, hash []byte, parseSignature func([]byte) (BigInt, BigInt, error)) (r, s BigInt, err error) {
++func Sign(priv *PrivateKey, hash []byte) (r, s BigInt, err error) {
 +	panic("cryptobackend: not available")
 +}
-+func Verify(pub *PublicKey, hashed []byte, r, s BigInt, encodeSignature func(r, s BigInt) ([]byte, error)) bool {
++func Verify(pub *PublicKey, hashed []byte, r, s BigInt) bool {
 +	panic("cryptobackend: not available")
 +}
 diff --git a/src/vendor/github.com/microsoft/go/cryptobackend/dsa/dsa_linux.go b/src/vendor/github.com/microsoft/go/cryptobackend/dsa/dsa_linux.go
 new file mode 100644
-index 00000000000000..e6d47ef708758b
+index 00000000000000..b4f281495b2713
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go/cryptobackend/dsa/dsa_linux.go
-@@ -0,0 +1,46 @@
+@@ -0,0 +1,93 @@
 +// Copyright 2026 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -41494,7 +41494,15 @@ index 00000000000000..e6d47ef708758b
 +
 +package dsa
 +
-+import "github.com/microsoft/go-crypto-openssl/openssl"
++import (
++	"errors"
++	"math/big"
++
++	"github.com/microsoft/go-crypto-openssl/openssl"
++	"github.com/microsoft/go/cryptobackend/bbig"
++	"golang.org/x/crypto/cryptobyte"
++	"golang.org/x/crypto/cryptobyte/asn1"
++)
 +
 +type BigInt = openssl.BigInt
 +type PrivateKey = openssl.PrivateKeyDSA
@@ -41514,27 +41522,66 @@ index 00000000000000..e6d47ef708758b
 +func NewPublicKey(p, q, g, y BigInt) (*PublicKey, error) {
 +	return openssl.NewPublicKeyDSA(openssl.DSAParameters{P: p, Q: q, G: g}, y)
 +}
-+func Sign(priv *PrivateKey, hash []byte, parseSignature func([]byte) (BigInt, BigInt, error)) (r, s BigInt, err error) {
++func Sign(priv *PrivateKey, hash []byte) (r, s BigInt, err error) {
 +	sig, err := openssl.SignDSA(priv, hash)
 +	if err != nil {
 +		return nil, nil, err
 +	}
-+	r, s, err = parseSignature(sig)
-+	if err != nil {
-+		return nil, nil, err
-+	}
-+	return BigInt(r), BigInt(s), nil
++	return parseSignature(sig)
 +}
-+func Verify(pub *PublicKey, hashed []byte, r, s BigInt, encodeSignature func(r, s BigInt) ([]byte, error)) bool {
++func Verify(pub *PublicKey, hashed []byte, r, s BigInt) bool {
 +	sig, err := encodeSignature(r, s)
 +	if err != nil {
 +		return false
 +	}
 +	return openssl.VerifyDSA(pub, hashed, sig)
 +}
++
++func parseSignature(sig []byte) (BigInt, BigInt, error) {
++	var r, s []byte
++	var inner cryptobyte.String
++	input := cryptobyte.String(sig)
++	if !input.ReadASN1(&inner, asn1.SEQUENCE) ||
++		!input.Empty() ||
++		!inner.ReadASN1Integer(&r) ||
++		!inner.ReadASN1Integer(&s) ||
++		!inner.Empty() {
++		return nil, nil, errors.New("invalid ASN.1")
++	}
++	return bbig.Enc(new(big.Int).SetBytes(r)), bbig.Enc(new(big.Int).SetBytes(s)), nil
++}
++
++func encodeSignature(r, s BigInt) ([]byte, error) {
++	rb, sb := bbig.Dec(r), bbig.Dec(s)
++	if rb == nil || rb.Sign() <= 0 || sb == nil || sb.Sign() <= 0 {
++		return nil, errors.New("invalid integer")
++	}
++	var b cryptobyte.Builder
++	b.AddASN1(asn1.SEQUENCE, func(b *cryptobyte.Builder) {
++		addASN1IntBytes(b, rb.Bytes())
++		addASN1IntBytes(b, sb.Bytes())
++	})
++	return b.Bytes()
++}
++
++func addASN1IntBytes(b *cryptobyte.Builder, bytes []byte) {
++	for len(bytes) > 0 && bytes[0] == 0 {
++		bytes = bytes[1:]
++	}
++	if len(bytes) == 0 {
++		b.SetError(errors.New("invalid integer"))
++		return
++	}
++	b.AddASN1(asn1.INTEGER, func(c *cryptobyte.Builder) {
++		if bytes[0]&0x80 != 0 {
++			c.AddUint8(0)
++		}
++		c.AddBytes(bytes)
++	})
++}
 diff --git a/src/vendor/github.com/microsoft/go/cryptobackend/dsa/dsa_windows.go b/src/vendor/github.com/microsoft/go/cryptobackend/dsa/dsa_windows.go
 new file mode 100644
-index 00000000000000..30f19c4dfa4c92
+index 00000000000000..181d015ef11058
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go/cryptobackend/dsa/dsa_windows.go
 @@ -0,0 +1,37 @@
@@ -41569,10 +41616,10 @@ index 00000000000000..30f19c4dfa4c92
 +func NewPublicKey(p, q, g, y BigInt) (*PublicKey, error) {
 +	return cng.NewPublicKeyDSA(cng.DSAParameters{P: p, Q: q, G: g}, y)
 +}
-+func Sign(priv *PrivateKey, hash []byte, parseSignature func([]byte) (BigInt, BigInt, error)) (r, s BigInt, err error) {
++func Sign(priv *PrivateKey, hash []byte) (r, s BigInt, err error) {
 +	return cng.SignDSA(priv, hash)
 +}
-+func Verify(pub *PublicKey, hashed []byte, r, s BigInt, encodeSignature func(r, s BigInt) ([]byte, error)) bool {
++func Verify(pub *PublicKey, hashed []byte, r, s BigInt) bool {
 +	return cng.VerifyDSA(pub, hashed, r, s)
 +}
 diff --git a/src/vendor/github.com/microsoft/go/cryptobackend/dsa/init.go b/src/vendor/github.com/microsoft/go/cryptobackend/dsa/init.go
@@ -41590,7 +41637,7 @@ index 00000000000000..198bc973ae790c
 +import _ "github.com/microsoft/go/cryptobackend"
 diff --git a/src/vendor/github.com/microsoft/go/cryptobackend/dsa/nobackend.go b/src/vendor/github.com/microsoft/go/cryptobackend/dsa/nobackend.go
 new file mode 100644
-index 00000000000000..0dba0c2a39d8a5
+index 00000000000000..5a3d7ed9322674
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go/cryptobackend/dsa/nobackend.go
 @@ -0,0 +1,23 @@
@@ -41611,10 +41658,10 @@ index 00000000000000..0dba0c2a39d8a5
 +func GenerateKey(p, q, g BigInt) (x, y BigInt, err error)     { panic("cryptobackend: not available") }
 +func NewPrivateKey(p, q, g, x, y BigInt) (*PrivateKey, error) { panic("cryptobackend: not available") }
 +func NewPublicKey(p, q, g, y BigInt) (*PublicKey, error)      { panic("cryptobackend: not available") }
-+func Sign(priv *PrivateKey, hash []byte, parseSignature func([]byte) (BigInt, BigInt, error)) (r, s BigInt, err error) {
++func Sign(priv *PrivateKey, hash []byte) (r, s BigInt, err error) {
 +	panic("cryptobackend: not available")
 +}
-+func Verify(pub *PublicKey, hashed []byte, r, s BigInt, encodeSignature func(r, s BigInt) ([]byte, error)) bool {
++func Verify(pub *PublicKey, hashed []byte, r, s BigInt) bool {
 +	panic("cryptobackend: not available")
 +}
 diff --git a/src/vendor/github.com/microsoft/go/cryptobackend/ecdh/ecdh_darwin.go b/src/vendor/github.com/microsoft/go/cryptobackend/ecdh/ecdh_darwin.go
@@ -41768,10 +41815,10 @@ index 00000000000000..e168a1b84d7532
 +func ECDH(priv *PrivateKey, pub *PublicKey) ([]byte, error) { panic("cryptobackend: not available") }
 diff --git a/src/vendor/github.com/microsoft/go/cryptobackend/ecdsa/ecdsa_darwin.go b/src/vendor/github.com/microsoft/go/cryptobackend/ecdsa/ecdsa_darwin.go
 new file mode 100644
-index 00000000000000..80d4dcb6ef577f
+index 00000000000000..2bce40cb490cdb
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go/cryptobackend/ecdsa/ecdsa_darwin.go
-@@ -0,0 +1,51 @@
+@@ -0,0 +1,39 @@
 +// Copyright 2024 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -41780,11 +41827,7 @@ index 00000000000000..80d4dcb6ef577f
 +
 +package ecdsa
 +
-+import (
-+	"errors"
-+
-+	"github.com/microsoft/go-crypto-darwin/xcrypto"
-+)
++import "github.com/microsoft/go-crypto-darwin/xcrypto"
 +
 +type BigInt = xcrypto.BigInt
 +type PrivateKey = xcrypto.PrivateKeyECDSA
@@ -41808,10 +41851,6 @@ index 00000000000000..80d4dcb6ef577f
 +	return xcrypto.NewPublicKeyECDSA(curve, X, Y)
 +}
 +
-+func Sign(priv *PrivateKey, hash []byte) (r, s []byte, err error) {
-+	return nil, nil, errors.ErrUnsupported
-+}
-+
 +func SignASN1(priv *PrivateKey, hash []byte) ([]byte, error) {
 +	return xcrypto.SignMarshalECDSA(priv, hash)
 +}
@@ -41819,16 +41858,12 @@ index 00000000000000..80d4dcb6ef577f
 +func VerifyASN1(pub *PublicKey, hash, sig []byte) (bool, error) {
 +	return xcrypto.VerifyECDSA(pub, hash, sig), nil
 +}
-+
-+func Verify(pub *PublicKey, hash, r, s []byte) (bool, error) {
-+	return false, errors.ErrUnsupported
-+}
 diff --git a/src/vendor/github.com/microsoft/go/cryptobackend/ecdsa/ecdsa_linux.go b/src/vendor/github.com/microsoft/go/cryptobackend/ecdsa/ecdsa_linux.go
 new file mode 100644
-index 00000000000000..bf9978d2d4c68e
+index 00000000000000..5781c3280d6c78
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go/cryptobackend/ecdsa/ecdsa_linux.go
-@@ -0,0 +1,45 @@
+@@ -0,0 +1,33 @@
 +// Copyright 2024 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -41837,11 +41872,7 @@ index 00000000000000..bf9978d2d4c68e
 +
 +package ecdsa
 +
-+import (
-+	"errors"
-+
-+	"github.com/microsoft/go-crypto-openssl/openssl"
-+)
++import "github.com/microsoft/go-crypto-openssl/openssl"
 +
 +type BigInt = openssl.BigInt
 +type PrivateKey = openssl.PrivateKeyECDSA
@@ -41859,10 +41890,6 @@ index 00000000000000..bf9978d2d4c68e
 +	return openssl.NewPublicKeyECDSA(curve, X, Y)
 +}
 +
-+func Sign(priv *PrivateKey, hash []byte) (r, s []byte, err error) {
-+	return nil, nil, errors.ErrUnsupported
-+}
-+
 +func SignASN1(priv *PrivateKey, hash []byte) ([]byte, error) {
 +	return openssl.SignMarshalECDSA(priv, hash)
 +}
@@ -41870,16 +41897,12 @@ index 00000000000000..bf9978d2d4c68e
 +func VerifyASN1(pub *PublicKey, hash, sig []byte) (bool, error) {
 +	return openssl.VerifyECDSA(pub, hash, sig), nil
 +}
-+
-+func Verify(pub *PublicKey, hash, r, s []byte) (bool, error) {
-+	return false, errors.ErrUnsupported
-+}
 diff --git a/src/vendor/github.com/microsoft/go/cryptobackend/ecdsa/ecdsa_windows.go b/src/vendor/github.com/microsoft/go/cryptobackend/ecdsa/ecdsa_windows.go
 new file mode 100644
-index 00000000000000..6a282cd4eb7ed5
+index 00000000000000..6c5c85197a6a07
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go/cryptobackend/ecdsa/ecdsa_windows.go
-@@ -0,0 +1,51 @@
+@@ -0,0 +1,91 @@
 +// Copyright 2024 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -41892,6 +41915,8 @@ index 00000000000000..6a282cd4eb7ed5
 +	"errors"
 +
 +	"github.com/microsoft/go-crypto-winnative/cng"
++	"golang.org/x/crypto/cryptobyte"
++	"golang.org/x/crypto/cryptobyte/asn1"
 +)
 +
 +type BigInt = cng.BigInt
@@ -41916,20 +41941,58 @@ index 00000000000000..6a282cd4eb7ed5
 +	return cng.NewPublicKeyECDSA(curve, X, Y)
 +}
 +
-+func Sign(priv *PrivateKey, hash []byte) (r, s []byte, err error) {
-+	return cng.SignECDSA(priv, hash)
-+}
-+
 +func SignASN1(priv *PrivateKey, hash []byte) ([]byte, error) {
-+	return nil, errors.ErrUnsupported
++	r, s, err := cng.SignECDSA(priv, hash)
++	if err != nil {
++		return nil, err
++	}
++	return encodeSignature(r, s)
 +}
 +
 +func VerifyASN1(pub *PublicKey, hash, sig []byte) (bool, error) {
-+	return false, errors.ErrUnsupported
++	r, s, err := parseSignature(sig)
++	if err != nil {
++		return false, err
++	}
++	return cng.VerifyECDSA(pub, hash, cng.BigInt(r), cng.BigInt(s)), nil
 +}
 +
-+func Verify(pub *PublicKey, hash, r, s []byte) (bool, error) {
-+	return cng.VerifyECDSA(pub, hash, cng.BigInt(r), cng.BigInt(s)), nil
++func encodeSignature(r, s []byte) ([]byte, error) {
++	var b cryptobyte.Builder
++	b.AddASN1(asn1.SEQUENCE, func(b *cryptobyte.Builder) {
++		addASN1IntBytes(b, r)
++		addASN1IntBytes(b, s)
++	})
++	return b.Bytes()
++}
++
++func addASN1IntBytes(b *cryptobyte.Builder, bytes []byte) {
++	for len(bytes) > 0 && bytes[0] == 0 {
++		bytes = bytes[1:]
++	}
++	if len(bytes) == 0 {
++		b.SetError(errors.New("invalid integer"))
++		return
++	}
++	b.AddASN1(asn1.INTEGER, func(c *cryptobyte.Builder) {
++		if bytes[0]&0x80 != 0 {
++			c.AddUint8(0)
++		}
++		c.AddBytes(bytes)
++	})
++}
++
++func parseSignature(sig []byte) (r, s []byte, err error) {
++	var inner cryptobyte.String
++	input := cryptobyte.String(sig)
++	if !input.ReadASN1(&inner, asn1.SEQUENCE) ||
++		!input.Empty() ||
++		!inner.ReadASN1Integer(&r) ||
++		!inner.ReadASN1Integer(&s) ||
++		!inner.Empty() {
++		return nil, nil, errors.New("invalid ASN.1")
++	}
++	return r, s, nil
 +}
 diff --git a/src/vendor/github.com/microsoft/go/cryptobackend/ecdsa/init.go b/src/vendor/github.com/microsoft/go/cryptobackend/ecdsa/init.go
 new file mode 100644
@@ -41946,10 +42009,10 @@ index 00000000000000..9d257ffe06362e
 +import _ "github.com/microsoft/go/cryptobackend"
 diff --git a/src/vendor/github.com/microsoft/go/cryptobackend/ecdsa/nobackend.go b/src/vendor/github.com/microsoft/go/cryptobackend/ecdsa/nobackend.go
 new file mode 100644
-index 00000000000000..9698c57e46aa79
+index 00000000000000..984ceac4040ee3
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go/cryptobackend/ecdsa/nobackend.go
-@@ -0,0 +1,32 @@
+@@ -0,0 +1,26 @@
 +// Copyright 2024 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -41970,16 +42033,10 @@ index 00000000000000..9698c57e46aa79
 +func NewPublicKey(curve string, X, Y BigInt) (*PublicKey, error) {
 +	panic("cryptobackend: not available")
 +}
-+func Sign(priv *PrivateKey, hash []byte) (r, s []byte, err error) {
-+	panic("cryptobackend: not available")
-+}
 +func SignASN1(priv *PrivateKey, hash []byte) ([]byte, error) {
 +	panic("cryptobackend: not available")
 +}
 +func VerifyASN1(pub *PublicKey, hash, sig []byte) (bool, error) {
-+	panic("cryptobackend: not available")
-+}
-+func Verify(pub *PublicKey, hash, r, s []byte) (bool, error) {
 +	panic("cryptobackend: not available")
 +}
 diff --git a/src/vendor/github.com/microsoft/go/cryptobackend/ed25519/ed25519_darwin.go b/src/vendor/github.com/microsoft/go/cryptobackend/ed25519/ed25519_darwin.go
@@ -43636,10 +43693,10 @@ index 00000000000000..0ea9f01be8ec8c
 +}
 diff --git a/src/vendor/github.com/microsoft/go/cryptobackend/rsa/rsa_darwin.go b/src/vendor/github.com/microsoft/go/cryptobackend/rsa/rsa_darwin.go
 new file mode 100644
-index 00000000000000..22ca259a1833bf
+index 00000000000000..b932d97b59d71a
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go/cryptobackend/rsa/rsa_darwin.go
-@@ -0,0 +1,100 @@
+@@ -0,0 +1,150 @@
 +// Copyright 2024 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -43650,10 +43707,15 @@ index 00000000000000..22ca259a1833bf
 +
 +import (
 +	"crypto"
++	"errors"
 +	"hash"
-+	_ "unsafe"
++	"math/big"
 +
 +	"github.com/microsoft/go-crypto-darwin/xcrypto"
++	"github.com/microsoft/go/cryptobackend/bbig"
++
++	"golang.org/x/crypto/cryptobyte"
++	"golang.org/x/crypto/cryptobyte/asn1"
 +)
 +
 +type BigInt = xcrypto.BigInt
@@ -43675,14 +43737,59 @@ index 00000000000000..22ca259a1833bf
 +
 +func SupportsPSSHash(h crypto.Hash) bool { return xcrypto.SupportsHash(h) }
 +
-+//go:linkname decodeKey crypto/rsa.decodeKey
-+func decodeKey(data []byte) (N, E, D, P, Q, Dp, Dq, Qinv BigInt, err error)
++func decodeKey(data []byte) (N, E, D, P, Q, Dp, Dq, Qinv BigInt, err error) {
++	bad := func(e error) (N, E, D, P, Q, Dp, Dq, Qinv BigInt, err error) {
++		return nil, nil, nil, nil, nil, nil, nil, nil, e
++	}
++	input := cryptobyte.String(data)
++	var seq cryptobyte.String
++	var version int
++	n, e, d, p, q, dp, dq, qinv := new(big.Int), new(big.Int), new(big.Int), new(big.Int),
++		new(big.Int), new(big.Int), new(big.Int), new(big.Int)
++	if !input.ReadASN1(&seq, asn1.SEQUENCE) {
++		return bad(errors.New("invalid ASN.1 structure: not a sequence"))
++	}
++	if !input.Empty() {
++		return bad(errors.New("invalid ASN.1 structure: trailing data"))
++	}
++	if !seq.ReadASN1Integer(&version) || version != 0 {
++		return bad(errors.New("invalid ASN.1 structure: unsupported version"))
++	}
++	if !seq.ReadASN1Integer(n) || !seq.ReadASN1Integer(e) ||
++		!seq.ReadASN1Integer(d) || !seq.ReadASN1Integer(p) ||
++		!seq.ReadASN1Integer(q) || !seq.ReadASN1Integer(dp) ||
++		!seq.ReadASN1Integer(dq) || !seq.ReadASN1Integer(qinv) ||
++		!seq.Empty() {
++		return bad(errors.New("invalid ASN.1 structure"))
++	}
++	return bbig.Enc(n), bbig.Enc(e), bbig.Enc(d), bbig.Enc(p), bbig.Enc(q),
++		bbig.Enc(dp), bbig.Enc(dq), bbig.Enc(qinv), nil
++}
 +
-+//go:linkname encodeKey crypto/rsa.encodeKey
-+func encodeKey(N, E, D, P, Q, Dp, Dq, Qinv BigInt) ([]byte, error)
++func encodeKey(N, E, D, P, Q, Dp, Dq, Qinv BigInt) ([]byte, error) {
++	builder := cryptobyte.NewBuilder(nil)
++	builder.AddASN1(asn1.SEQUENCE, func(b *cryptobyte.Builder) {
++		b.AddASN1Int64(0)
++		b.AddASN1BigInt(bbig.Dec(N))
++		b.AddASN1BigInt(bbig.Dec(E))
++		b.AddASN1BigInt(bbig.Dec(D))
++		b.AddASN1BigInt(bbig.Dec(P))
++		b.AddASN1BigInt(bbig.Dec(Q))
++		b.AddASN1BigInt(bbig.Dec(Dp))
++		b.AddASN1BigInt(bbig.Dec(Dq))
++		b.AddASN1BigInt(bbig.Dec(Qinv))
++	})
++	return builder.Bytes()
++}
 +
-+//go:linkname encodePublicKey crypto/rsa.encodePublicKey
-+func encodePublicKey(N, E BigInt) ([]byte, error)
++func encodePublicKey(N, E BigInt) ([]byte, error) {
++	builder := cryptobyte.NewBuilder(nil)
++	builder.AddASN1(asn1.SEQUENCE, func(b *cryptobyte.Builder) {
++		b.AddASN1BigInt(bbig.Dec(N))
++		b.AddASN1BigInt(bbig.Dec(E))
++	})
++	return builder.Bytes()
++}
 +
 +func GenerateKey(bits int) (N, E, D, P, Q, Dp, Dq, Qinv BigInt, err error) {
 +	data, err := xcrypto.GenerateKeyRSA(bits)

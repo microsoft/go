@@ -8,10 +8,15 @@ package rsa
 
 import (
 	"crypto"
+	"errors"
 	"hash"
-	_ "unsafe"
+	"math/big"
 
 	"github.com/microsoft/go-crypto-darwin/xcrypto"
+	"github.com/microsoft/go/cryptobackend/bbig"
+
+	"golang.org/x/crypto/cryptobyte"
+	"golang.org/x/crypto/cryptobyte/asn1"
 )
 
 type BigInt = xcrypto.BigInt
@@ -33,14 +38,59 @@ func SupportsPKCS1v15Signature(h crypto.Hash) bool {
 
 func SupportsPSSHash(h crypto.Hash) bool { return xcrypto.SupportsHash(h) }
 
-//go:linkname decodeKey crypto/rsa.decodeKey
-func decodeKey(data []byte) (N, E, D, P, Q, Dp, Dq, Qinv BigInt, err error)
+func decodeKey(data []byte) (N, E, D, P, Q, Dp, Dq, Qinv BigInt, err error) {
+	bad := func(e error) (N, E, D, P, Q, Dp, Dq, Qinv BigInt, err error) {
+		return nil, nil, nil, nil, nil, nil, nil, nil, e
+	}
+	input := cryptobyte.String(data)
+	var seq cryptobyte.String
+	var version int
+	n, e, d, p, q, dp, dq, qinv := new(big.Int), new(big.Int), new(big.Int), new(big.Int),
+		new(big.Int), new(big.Int), new(big.Int), new(big.Int)
+	if !input.ReadASN1(&seq, asn1.SEQUENCE) {
+		return bad(errors.New("invalid ASN.1 structure: not a sequence"))
+	}
+	if !input.Empty() {
+		return bad(errors.New("invalid ASN.1 structure: trailing data"))
+	}
+	if !seq.ReadASN1Integer(&version) || version != 0 {
+		return bad(errors.New("invalid ASN.1 structure: unsupported version"))
+	}
+	if !seq.ReadASN1Integer(n) || !seq.ReadASN1Integer(e) ||
+		!seq.ReadASN1Integer(d) || !seq.ReadASN1Integer(p) ||
+		!seq.ReadASN1Integer(q) || !seq.ReadASN1Integer(dp) ||
+		!seq.ReadASN1Integer(dq) || !seq.ReadASN1Integer(qinv) ||
+		!seq.Empty() {
+		return bad(errors.New("invalid ASN.1 structure"))
+	}
+	return bbig.Enc(n), bbig.Enc(e), bbig.Enc(d), bbig.Enc(p), bbig.Enc(q),
+		bbig.Enc(dp), bbig.Enc(dq), bbig.Enc(qinv), nil
+}
 
-//go:linkname encodeKey crypto/rsa.encodeKey
-func encodeKey(N, E, D, P, Q, Dp, Dq, Qinv BigInt) ([]byte, error)
+func encodeKey(N, E, D, P, Q, Dp, Dq, Qinv BigInt) ([]byte, error) {
+	builder := cryptobyte.NewBuilder(nil)
+	builder.AddASN1(asn1.SEQUENCE, func(b *cryptobyte.Builder) {
+		b.AddASN1Int64(0)
+		b.AddASN1BigInt(bbig.Dec(N))
+		b.AddASN1BigInt(bbig.Dec(E))
+		b.AddASN1BigInt(bbig.Dec(D))
+		b.AddASN1BigInt(bbig.Dec(P))
+		b.AddASN1BigInt(bbig.Dec(Q))
+		b.AddASN1BigInt(bbig.Dec(Dp))
+		b.AddASN1BigInt(bbig.Dec(Dq))
+		b.AddASN1BigInt(bbig.Dec(Qinv))
+	})
+	return builder.Bytes()
+}
 
-//go:linkname encodePublicKey crypto/rsa.encodePublicKey
-func encodePublicKey(N, E BigInt) ([]byte, error)
+func encodePublicKey(N, E BigInt) ([]byte, error) {
+	builder := cryptobyte.NewBuilder(nil)
+	builder.AddASN1(asn1.SEQUENCE, func(b *cryptobyte.Builder) {
+		b.AddASN1BigInt(bbig.Dec(N))
+		b.AddASN1BigInt(bbig.Dec(E))
+	})
+	return builder.Bytes()
+}
 
 func GenerateKey(bits int) (N, E, D, P, Q, Dp, Dq, Qinv BigInt, err error) {
 	data, err := xcrypto.GenerateKeyRSA(bits)
