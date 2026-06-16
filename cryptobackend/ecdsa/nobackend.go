@@ -18,7 +18,15 @@ func NewPrivateKey(curve string, X, Y, D BigInt) (*PrivateKey, error) {
 func NewPublicKey(curve string, X, Y BigInt) (*PublicKey, error) {
 	panic("cryptobackend: not available")
 }
-func SignMarshal(priv *PrivateKey, hash []byte) ([]byte, error) {
+func Sign(priv *PrivateKey, hash []byte) (r, s []byte, err error) {
 	panic("cryptobackend: not available")
 }
-func Verify(pub *PublicKey, hash, sig []byte) bool { panic("cryptobackend: not available") }
+func SignASN1(priv *PrivateKey, hash []byte) ([]byte, error) {
+	panic("cryptobackend: not available")
+}
+func VerifyASN1(pub *PublicKey, hash, sig []byte) (bool, error) {
+	panic("cryptobackend: not available")
+}
+func Verify(pub *PublicKey, hash, r, s []byte) (bool, error) {
+	panic("cryptobackend: not available")
+}

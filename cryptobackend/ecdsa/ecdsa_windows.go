@@ -7,7 +7,7 @@
 package ecdsa
 
 import (
-	_ "unsafe"
+	"errors"
 
 	"github.com/microsoft/go-crypto-winnative/cng"
 )
@@ -34,24 +34,18 @@ func NewPublicKey(curve string, X, Y BigInt) (*PublicKey, error) {
 	return cng.NewPublicKeyECDSA(curve, X, Y)
 }
 
-//go:linkname encodeSignature crypto/ecdsa.encodeSignature
-func encodeSignature(r, s []byte) ([]byte, error)
-
-//go:linkname parseSignature crypto/ecdsa.parseSignature
-func parseSignature(sig []byte) (r, s []byte, err error)
-
-func SignMarshal(priv *PrivateKey, hash []byte) ([]byte, error) {
-	r, s, err := cng.SignECDSA(priv, hash)
-	if err != nil {
-		return nil, err
-	}
-	return encodeSignature(r, s)
+func Sign(priv *PrivateKey, hash []byte) (r, s []byte, err error) {
+	return cng.SignECDSA(priv, hash)
 }
 
-func Verify(pub *PublicKey, hash, sig []byte) bool {
-	r, s, err := parseSignature(sig)
-	if err != nil {
-		return false
-	}
-	return cng.VerifyECDSA(pub, hash, cng.BigInt(r), cng.BigInt(s))
+func SignASN1(priv *PrivateKey, hash []byte) ([]byte, error) {
+	return nil, errors.ErrUnsupported
+}
+
+func VerifyASN1(pub *PublicKey, hash, sig []byte) (bool, error) {
+	return false, errors.ErrUnsupported
+}
+
+func Verify(pub *PublicKey, hash, r, s []byte) (bool, error) {
+	return cng.VerifyECDSA(pub, hash, cng.BigInt(r), cng.BigInt(s)), nil
 }
