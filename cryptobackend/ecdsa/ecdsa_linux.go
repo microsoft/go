@@ -6,7 +6,11 @@
 
 package ecdsa
 
-import "github.com/microsoft/go-crypto-openssl/openssl"
+import (
+	"errors"
+
+	"github.com/microsoft/go-crypto-openssl/openssl"
+)
 
 type BigInt = openssl.BigInt
 type PrivateKey = openssl.PrivateKeyECDSA
@@ -24,8 +28,18 @@ func NewPublicKey(curve string, X, Y BigInt) (*PublicKey, error) {
 	return openssl.NewPublicKeyECDSA(curve, X, Y)
 }
 
-func SignMarshal(priv *PrivateKey, hash []byte) ([]byte, error) {
+func Sign(priv *PrivateKey, hash []byte) (r, s []byte, err error) {
+	return nil, nil, errors.ErrUnsupported
+}
+
+func SignASN1(priv *PrivateKey, hash []byte) ([]byte, error) {
 	return openssl.SignMarshalECDSA(priv, hash)
 }
 
-func Verify(pub *PublicKey, hash, sig []byte) bool { return openssl.VerifyECDSA(pub, hash, sig) }
+func VerifyASN1(pub *PublicKey, hash, sig []byte) (bool, error) {
+	return openssl.VerifyECDSA(pub, hash, sig), nil
+}
+
+func Verify(pub *PublicKey, hash, r, s []byte) (bool, error) {
+	return false, errors.ErrUnsupported
+}

@@ -316,11 +316,11 @@ Use a 'go' that was recently built by the current branch to ensure stable result
  .../go/cryptobackend/ecdh/ecdh_windows.go     |   32 +
  .../microsoft/go/cryptobackend/ecdh/init.go   |    7 +
  .../go/cryptobackend/ecdh/nobackend.go        |   22 +
- .../go/cryptobackend/ecdsa/ecdsa_darwin.go    |   37 +
- .../go/cryptobackend/ecdsa/ecdsa_linux.go     |   31 +
- .../go/cryptobackend/ecdsa/ecdsa_windows.go   |   57 +
+ .../go/cryptobackend/ecdsa/ecdsa_darwin.go    |   51 +
+ .../go/cryptobackend/ecdsa/ecdsa_linux.go     |   45 +
+ .../go/cryptobackend/ecdsa/ecdsa_windows.go   |   51 +
  .../microsoft/go/cryptobackend/ecdsa/init.go  |    7 +
- .../go/cryptobackend/ecdsa/nobackend.go       |   24 +
+ .../go/cryptobackend/ecdsa/nobackend.go       |   32 +
  .../cryptobackend/ed25519/ed25519_darwin.go   |   24 +
  .../go/cryptobackend/ed25519/ed25519_linux.go |   24 +
  .../cryptobackend/ed25519/ed25519_windows.go  |   21 +
@@ -419,7 +419,7 @@ Use a 'go' that was recently built by the current branch to ensure stable result
  .../go/cryptobackend/tls13/tls13_linux.go     |   18 +
  .../go/cryptobackend/tls13/tls13_windows.go   |   14 +
  src/vendor/modules.txt                        |   55 +
- 411 files changed, 39293 insertions(+), 11 deletions(-)
+ 411 files changed, 39323 insertions(+), 11 deletions(-)
  create mode 100644 src/cmd/internal/telemetry/counter/deps_ignore.go
  create mode 100644 src/cmd/vendor/github.com/microsoft/go-infra/telemetry/LICENSE
  create mode 100644 src/cmd/vendor/github.com/microsoft/go-infra/telemetry/README.md
@@ -41768,10 +41768,10 @@ index 00000000000000..e168a1b84d7532
 +func ECDH(priv *PrivateKey, pub *PublicKey) ([]byte, error) { panic("cryptobackend: not available") }
 diff --git a/src/vendor/github.com/microsoft/go/cryptobackend/ecdsa/ecdsa_darwin.go b/src/vendor/github.com/microsoft/go/cryptobackend/ecdsa/ecdsa_darwin.go
 new file mode 100644
-index 00000000000000..5c4fe0ba43beed
+index 00000000000000..80d4dcb6ef577f
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go/cryptobackend/ecdsa/ecdsa_darwin.go
-@@ -0,0 +1,37 @@
+@@ -0,0 +1,51 @@
 +// Copyright 2024 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -41780,7 +41780,11 @@ index 00000000000000..5c4fe0ba43beed
 +
 +package ecdsa
 +
-+import "github.com/microsoft/go-crypto-darwin/xcrypto"
++import (
++	"errors"
++
++	"github.com/microsoft/go-crypto-darwin/xcrypto"
++)
 +
 +type BigInt = xcrypto.BigInt
 +type PrivateKey = xcrypto.PrivateKeyECDSA
@@ -41804,17 +41808,27 @@ index 00000000000000..5c4fe0ba43beed
 +	return xcrypto.NewPublicKeyECDSA(curve, X, Y)
 +}
 +
-+func SignMarshal(priv *PrivateKey, hash []byte) ([]byte, error) {
++func Sign(priv *PrivateKey, hash []byte) (r, s []byte, err error) {
++	return nil, nil, errors.ErrUnsupported
++}
++
++func SignASN1(priv *PrivateKey, hash []byte) ([]byte, error) {
 +	return xcrypto.SignMarshalECDSA(priv, hash)
 +}
 +
-+func Verify(pub *PublicKey, hash, sig []byte) bool { return xcrypto.VerifyECDSA(pub, hash, sig) }
++func VerifyASN1(pub *PublicKey, hash, sig []byte) (bool, error) {
++	return xcrypto.VerifyECDSA(pub, hash, sig), nil
++}
++
++func Verify(pub *PublicKey, hash, r, s []byte) (bool, error) {
++	return false, errors.ErrUnsupported
++}
 diff --git a/src/vendor/github.com/microsoft/go/cryptobackend/ecdsa/ecdsa_linux.go b/src/vendor/github.com/microsoft/go/cryptobackend/ecdsa/ecdsa_linux.go
 new file mode 100644
-index 00000000000000..dedc0491ce3072
+index 00000000000000..bf9978d2d4c68e
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go/cryptobackend/ecdsa/ecdsa_linux.go
-@@ -0,0 +1,31 @@
+@@ -0,0 +1,45 @@
 +// Copyright 2024 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -41823,7 +41837,11 @@ index 00000000000000..dedc0491ce3072
 +
 +package ecdsa
 +
-+import "github.com/microsoft/go-crypto-openssl/openssl"
++import (
++	"errors"
++
++	"github.com/microsoft/go-crypto-openssl/openssl"
++)
 +
 +type BigInt = openssl.BigInt
 +type PrivateKey = openssl.PrivateKeyECDSA
@@ -41841,17 +41859,27 @@ index 00000000000000..dedc0491ce3072
 +	return openssl.NewPublicKeyECDSA(curve, X, Y)
 +}
 +
-+func SignMarshal(priv *PrivateKey, hash []byte) ([]byte, error) {
++func Sign(priv *PrivateKey, hash []byte) (r, s []byte, err error) {
++	return nil, nil, errors.ErrUnsupported
++}
++
++func SignASN1(priv *PrivateKey, hash []byte) ([]byte, error) {
 +	return openssl.SignMarshalECDSA(priv, hash)
 +}
 +
-+func Verify(pub *PublicKey, hash, sig []byte) bool { return openssl.VerifyECDSA(pub, hash, sig) }
++func VerifyASN1(pub *PublicKey, hash, sig []byte) (bool, error) {
++	return openssl.VerifyECDSA(pub, hash, sig), nil
++}
++
++func Verify(pub *PublicKey, hash, r, s []byte) (bool, error) {
++	return false, errors.ErrUnsupported
++}
 diff --git a/src/vendor/github.com/microsoft/go/cryptobackend/ecdsa/ecdsa_windows.go b/src/vendor/github.com/microsoft/go/cryptobackend/ecdsa/ecdsa_windows.go
 new file mode 100644
-index 00000000000000..d19262f7369ba6
+index 00000000000000..6a282cd4eb7ed5
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go/cryptobackend/ecdsa/ecdsa_windows.go
-@@ -0,0 +1,57 @@
+@@ -0,0 +1,51 @@
 +// Copyright 2024 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -41861,7 +41889,7 @@ index 00000000000000..d19262f7369ba6
 +package ecdsa
 +
 +import (
-+	_ "unsafe"
++	"errors"
 +
 +	"github.com/microsoft/go-crypto-winnative/cng"
 +)
@@ -41888,26 +41916,20 @@ index 00000000000000..d19262f7369ba6
 +	return cng.NewPublicKeyECDSA(curve, X, Y)
 +}
 +
-+//go:linkname encodeSignature crypto/ecdsa.encodeSignature
-+func encodeSignature(r, s []byte) ([]byte, error)
-+
-+//go:linkname parseSignature crypto/ecdsa.parseSignature
-+func parseSignature(sig []byte) (r, s []byte, err error)
-+
-+func SignMarshal(priv *PrivateKey, hash []byte) ([]byte, error) {
-+	r, s, err := cng.SignECDSA(priv, hash)
-+	if err != nil {
-+		return nil, err
-+	}
-+	return encodeSignature(r, s)
++func Sign(priv *PrivateKey, hash []byte) (r, s []byte, err error) {
++	return cng.SignECDSA(priv, hash)
 +}
 +
-+func Verify(pub *PublicKey, hash, sig []byte) bool {
-+	r, s, err := parseSignature(sig)
-+	if err != nil {
-+		return false
-+	}
-+	return cng.VerifyECDSA(pub, hash, cng.BigInt(r), cng.BigInt(s))
++func SignASN1(priv *PrivateKey, hash []byte) ([]byte, error) {
++	return nil, errors.ErrUnsupported
++}
++
++func VerifyASN1(pub *PublicKey, hash, sig []byte) (bool, error) {
++	return false, errors.ErrUnsupported
++}
++
++func Verify(pub *PublicKey, hash, r, s []byte) (bool, error) {
++	return cng.VerifyECDSA(pub, hash, cng.BigInt(r), cng.BigInt(s)), nil
 +}
 diff --git a/src/vendor/github.com/microsoft/go/cryptobackend/ecdsa/init.go b/src/vendor/github.com/microsoft/go/cryptobackend/ecdsa/init.go
 new file mode 100644
@@ -41924,10 +41946,10 @@ index 00000000000000..9d257ffe06362e
 +import _ "github.com/microsoft/go/cryptobackend"
 diff --git a/src/vendor/github.com/microsoft/go/cryptobackend/ecdsa/nobackend.go b/src/vendor/github.com/microsoft/go/cryptobackend/ecdsa/nobackend.go
 new file mode 100644
-index 00000000000000..e435806685c325
+index 00000000000000..9698c57e46aa79
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go/cryptobackend/ecdsa/nobackend.go
-@@ -0,0 +1,24 @@
+@@ -0,0 +1,32 @@
 +// Copyright 2024 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -41948,10 +41970,18 @@ index 00000000000000..e435806685c325
 +func NewPublicKey(curve string, X, Y BigInt) (*PublicKey, error) {
 +	panic("cryptobackend: not available")
 +}
-+func SignMarshal(priv *PrivateKey, hash []byte) ([]byte, error) {
++func Sign(priv *PrivateKey, hash []byte) (r, s []byte, err error) {
 +	panic("cryptobackend: not available")
 +}
-+func Verify(pub *PublicKey, hash, sig []byte) bool { panic("cryptobackend: not available") }
++func SignASN1(priv *PrivateKey, hash []byte) ([]byte, error) {
++	panic("cryptobackend: not available")
++}
++func VerifyASN1(pub *PublicKey, hash, sig []byte) (bool, error) {
++	panic("cryptobackend: not available")
++}
++func Verify(pub *PublicKey, hash, r, s []byte) (bool, error) {
++	panic("cryptobackend: not available")
++}
 diff --git a/src/vendor/github.com/microsoft/go/cryptobackend/ed25519/ed25519_darwin.go b/src/vendor/github.com/microsoft/go/cryptobackend/ed25519/ed25519_darwin.go
 new file mode 100644
 index 00000000000000..339ad263058c45

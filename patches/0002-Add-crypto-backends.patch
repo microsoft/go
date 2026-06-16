@@ -56,7 +56,7 @@ Subject: [PATCH] Add crypto backends
  src/crypto/ecdh/x25519.go                     |  51 ++++
  src/crypto/ecdsa/badlinkname.go               |  19 ++
  src/crypto/ecdsa/boring.go                    |  19 +-
- src/crypto/ecdsa/ecdsa.go                     |  18 +-
+ src/crypto/ecdsa/ecdsa.go                     |  33 ++-
  src/crypto/ecdsa/notboring.go                 |   8 +-
  src/crypto/ed25519/boring.go                  |  73 +++++
  src/crypto/ed25519/ed25519.go                 |  73 +++++
@@ -144,7 +144,7 @@ Subject: [PATCH] Add crypto backends
  src/os/exec/exec_test.go                      |   9 +
  src/runtime/runtime_boring.go                 |   5 +
  src/syscall/syscall_windows.go                |   3 +
- 140 files changed, 2938 insertions(+), 376 deletions(-)
+ 140 files changed, 2953 insertions(+), 376 deletions(-)
  create mode 100644 src/cmd/go/internal/modindex/build_test.go
  create mode 100644 src/cmd/go/systemcrypto_test.go
  create mode 100644 src/crypto/dsa/boring.go
@@ -2433,7 +2433,7 @@ index 275c60b4de49eb..a5b6ae9dc90505 100644
  		return nil, err
  	}
 diff --git a/src/crypto/ecdsa/ecdsa.go b/src/crypto/ecdsa/ecdsa.go
-index 40a89017570171..9a0a7d2cde03ba 100644
+index 40a89017570171..3b621083d54ac1 100644
 --- a/src/crypto/ecdsa/ecdsa.go
 +++ b/src/crypto/ecdsa/ecdsa.go
 @@ -20,8 +20,6 @@ import (
@@ -2467,7 +2467,7 @@ index 40a89017570171..9a0a7d2cde03ba 100644
  		if err != nil {
  			return nil, err
  		}
-@@ -389,12 +391,12 @@ func SignASN1(r io.Reader, priv *PrivateKey, hash []byte) ([]byte, error) {
+@@ -389,12 +391,19 @@ func SignASN1(r io.Reader, priv *PrivateKey, hash []byte) ([]byte, error) {
  		return nil, errors.New("ecdsa: hash cannot be empty")
  	}
  
@@ -2478,11 +2478,18 @@ index 40a89017570171..9a0a7d2cde03ba 100644
  			return nil, err
  		}
 -		return boring.SignMarshalECDSA(b, hash)
-+		return becdsa.SignMarshal(b, hash)
++		if sig, err := becdsa.SignASN1(b, hash); err != errors.ErrUnsupported {
++			return sig, err
++		}
++		rs, ss, err := becdsa.Sign(b, hash)
++		if err != nil {
++			return nil, err
++		}
++		return encodeSignature(rs, ss)
  	}
  	boring.UnreachableExceptTests()
  
-@@ -510,12 +512,12 @@ func VerifyASN1(pub *PublicKey, hash, sig []byte) bool {
+@@ -510,12 +519,20 @@ func VerifyASN1(pub *PublicKey, hash, sig []byte) bool {
  		return false
  	}
  
@@ -2493,7 +2500,15 @@ index 40a89017570171..9a0a7d2cde03ba 100644
  			return false
  		}
 -		return boring.VerifyECDSA(key, hash, sig)
-+		return becdsa.Verify(key, hash, sig)
++		if ok, err := becdsa.VerifyASN1(key, hash, sig); err != errors.ErrUnsupported {
++			return err == nil && ok
++		}
++		r, s, err := parseSignature(sig)
++		if err != nil {
++			return false
++		}
++		ok, err := becdsa.Verify(key, hash, r, s)
++		return err == nil && ok
  	}
  	boring.UnreachableExceptTests()
  

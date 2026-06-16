@@ -6,7 +6,11 @@
 
 package ecdsa
 
-import "github.com/microsoft/go-crypto-darwin/xcrypto"
+import (
+	"errors"
+
+	"github.com/microsoft/go-crypto-darwin/xcrypto"
+)
 
 type BigInt = xcrypto.BigInt
 type PrivateKey = xcrypto.PrivateKeyECDSA
@@ -30,8 +34,18 @@ func NewPublicKey(curve string, X, Y BigInt) (*PublicKey, error) {
 	return xcrypto.NewPublicKeyECDSA(curve, X, Y)
 }
 
-func SignMarshal(priv *PrivateKey, hash []byte) ([]byte, error) {
+func Sign(priv *PrivateKey, hash []byte) (r, s []byte, err error) {
+	return nil, nil, errors.ErrUnsupported
+}
+
+func SignASN1(priv *PrivateKey, hash []byte) ([]byte, error) {
 	return xcrypto.SignMarshalECDSA(priv, hash)
 }
 
-func Verify(pub *PublicKey, hash, sig []byte) bool { return xcrypto.VerifyECDSA(pub, hash, sig) }
+func VerifyASN1(pub *PublicKey, hash, sig []byte) (bool, error) {
+	return xcrypto.VerifyECDSA(pub, hash, sig), nil
+}
+
+func Verify(pub *PublicKey, hash, r, s []byte) (bool, error) {
+	return false, errors.ErrUnsupported
+}
