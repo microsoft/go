@@ -415,11 +415,12 @@ Use a 'go' that was recently built by the current branch to ensure stable result
  .../go/cryptobackend/tls12/tls12_windows.go   |   18 +
  .../microsoft/go/cryptobackend/tls13/init.go  |    7 +
  .../go/cryptobackend/tls13/nobackend.go       |   14 +
+ .../microsoft/go/cryptobackend/tls13/tls13.go |  192 ++
  .../go/cryptobackend/tls13/tls13_darwin.go    |   14 +
  .../go/cryptobackend/tls13/tls13_linux.go     |   18 +
  .../go/cryptobackend/tls13/tls13_windows.go   |   14 +
  src/vendor/modules.txt                        |   55 +
- 411 files changed, 39430 insertions(+), 11 deletions(-)
+ 412 files changed, 39622 insertions(+), 11 deletions(-)
  create mode 100644 src/cmd/internal/telemetry/counter/deps_ignore.go
  create mode 100644 src/cmd/vendor/github.com/microsoft/go-infra/telemetry/LICENSE
  create mode 100644 src/cmd/vendor/github.com/microsoft/go-infra/telemetry/README.md
@@ -820,6 +821,7 @@ Use a 'go' that was recently built by the current branch to ensure stable result
  create mode 100644 src/vendor/github.com/microsoft/go/cryptobackend/tls12/tls12_windows.go
  create mode 100644 src/vendor/github.com/microsoft/go/cryptobackend/tls13/init.go
  create mode 100644 src/vendor/github.com/microsoft/go/cryptobackend/tls13/nobackend.go
+ create mode 100644 src/vendor/github.com/microsoft/go/cryptobackend/tls13/tls13.go
  create mode 100644 src/vendor/github.com/microsoft/go/cryptobackend/tls13/tls13_darwin.go
  create mode 100644 src/vendor/github.com/microsoft/go/cryptobackend/tls13/tls13_linux.go
  create mode 100644 src/vendor/github.com/microsoft/go/cryptobackend/tls13/tls13_windows.go
@@ -44719,7 +44721,7 @@ index 00000000000000..7e1cd12b92cbdb
 +import _ "github.com/microsoft/go/cryptobackend"
 diff --git a/src/vendor/github.com/microsoft/go/cryptobackend/tls13/nobackend.go b/src/vendor/github.com/microsoft/go/cryptobackend/tls13/nobackend.go
 new file mode 100644
-index 00000000000000..a3d1aabebb382a
+index 00000000000000..3560553d0867a0
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go/cryptobackend/tls13/nobackend.go
 @@ -0,0 +1,14 @@
@@ -44733,13 +44735,211 @@ index 00000000000000..a3d1aabebb382a
 +
 +import "hash"
 +
-+func SupportsKDF() bool { panic("cryptobackend: not available") }
-+func ExpandKDF[H hash.Hash](h func() H, pseudorandomKey []byte, label string, context []byte, keyLen int) ([]byte, error) {
++func supportsKDF() bool { panic("cryptobackend: not available") }
++func expandKDF[H hash.Hash](h func() H, pseudorandomKey []byte, label string, context []byte, keyLen int) ([]byte, error) {
 +	panic("cryptobackend: not available")
++}
+diff --git a/src/vendor/github.com/microsoft/go/cryptobackend/tls13/tls13.go b/src/vendor/github.com/microsoft/go/cryptobackend/tls13/tls13.go
+new file mode 100644
+index 00000000000000..2fe15b1448b313
+--- /dev/null
++++ b/src/vendor/github.com/microsoft/go/cryptobackend/tls13/tls13.go
+@@ -0,0 +1,192 @@
++// Copyright 2024 The Go Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style
++// license that can be found in the LICENSE file.
++
++// Package tls13 implements the TLS 1.3 Key Schedule as specified in RFC 8446,
++// Section 7.1 and allowed by FIPS 140-3 IG 2.4.B Resolution 7.
++package tls13
++
++import (
++	"crypto/hkdf"
++	"hash"
++
++	boring "github.com/microsoft/go/cryptobackend"
++)
++
++// We don't set the service indicator in this package but we delegate that to
++// the underlying functions because the TLS 1.3 KDF does not have a standard of
++// its own.
++
++// ExpandLabel implements HKDF-Expand-Label from RFC 8446, Section 7.1.
++func ExpandLabel[H hash.Hash](hash func() H, secret []byte, label string, context []byte, length int) []byte {
++	if len("tls13 ")+len(label) > 255 || len(context) > 255 {
++		// It should be impossible for this to panic: labels are fixed strings,
++		// and context is either a fixed-length computed hash, or parsed from a
++		// field which has the same length limitation.
++		//
++		// Another reasonable approach might be to return a randomized slice if
++		// we encounter an error, which would break the connection, but avoid
++		// panicking. This would perhaps be safer but significantly more
++		// confusing to users.
++		panic("tls13: label or context too long")
++	}
++
++	if boring.Enabled && supportsKDF() {
++		key, err := expandKDF(hash, secret, label, context, length)
++		if err != nil {
++			panic(err)
++		}
++		return key
++	}
++
++	hkdfLabel := make([]byte, 0, 2+1+len("tls13 ")+len(label)+1+len(context))
++	hkdfLabel = append(hkdfLabel, byte(length>>8), byte(length))
++	hkdfLabel = append(hkdfLabel, byte(len("tls13 ")+len(label)))
++	hkdfLabel = append(hkdfLabel, "tls13 "...)
++	hkdfLabel = append(hkdfLabel, label...)
++	hkdfLabel = append(hkdfLabel, byte(len(context)))
++	hkdfLabel = append(hkdfLabel, context...)
++	key, err := hkdf.Expand(hash, secret, string(hkdfLabel), length)
++	if err != nil {
++		panic(err)
++	}
++	return key
++}
++
++func extract[H hash.Hash](hash func() H, newSecret, currentSecret []byte) []byte {
++	if newSecret == nil {
++		newSecret = make([]byte, hash().Size())
++	}
++	prk, err := hkdf.Extract(hash, newSecret, currentSecret)
++	if err != nil {
++		panic(err)
++	}
++	return prk
++}
++
++func deriveSecret[H hash.Hash](hash func() H, secret []byte, label string, transcript hash.Hash) []byte {
++	if transcript == nil {
++		transcript = hash()
++	}
++	return ExpandLabel(hash, secret, label, transcript.Sum(nil), transcript.Size())
++}
++
++const (
++	resumptionBinderLabel         = "res binder"
++	clientEarlyTrafficLabel       = "c e traffic"
++	clientHandshakeTrafficLabel   = "c hs traffic"
++	serverHandshakeTrafficLabel   = "s hs traffic"
++	clientApplicationTrafficLabel = "c ap traffic"
++	serverApplicationTrafficLabel = "s ap traffic"
++	earlyExporterLabel            = "e exp master"
++	exporterLabel                 = "exp master"
++	resumptionLabel               = "res master"
++)
++
++type EarlySecret struct {
++	secret []byte
++	hash   func() hash.Hash
++}
++
++func NewEarlySecret[H hash.Hash](h func() H, psk []byte) *EarlySecret {
++	return &EarlySecret{
++		secret: extract(h, psk, nil),
++		hash:   func() hash.Hash { return h() },
++	}
++}
++
++func (s *EarlySecret) ResumptionBinderKey() []byte {
++	return deriveSecret(s.hash, s.secret, resumptionBinderLabel, nil)
++}
++
++// ClientEarlyTrafficSecret derives the client_early_traffic_secret from the
++// early secret and the transcript up to the ClientHello.
++func (s *EarlySecret) ClientEarlyTrafficSecret(transcript hash.Hash) []byte {
++	return deriveSecret(s.hash, s.secret, clientEarlyTrafficLabel, transcript)
++}
++
++type HandshakeSecret struct {
++	secret []byte
++	hash   func() hash.Hash
++}
++
++func (s *EarlySecret) HandshakeSecret(sharedSecret []byte) *HandshakeSecret {
++	derived := deriveSecret(s.hash, s.secret, "derived", nil)
++	return &HandshakeSecret{
++		secret: extract(s.hash, sharedSecret, derived),
++		hash:   s.hash,
++	}
++}
++
++// ClientHandshakeTrafficSecret derives the client_handshake_traffic_secret from
++// the handshake secret and the transcript up to the ServerHello.
++func (s *HandshakeSecret) ClientHandshakeTrafficSecret(transcript hash.Hash) []byte {
++	return deriveSecret(s.hash, s.secret, clientHandshakeTrafficLabel, transcript)
++}
++
++// ServerHandshakeTrafficSecret derives the server_handshake_traffic_secret from
++// the handshake secret and the transcript up to the ServerHello.
++func (s *HandshakeSecret) ServerHandshakeTrafficSecret(transcript hash.Hash) []byte {
++	return deriveSecret(s.hash, s.secret, serverHandshakeTrafficLabel, transcript)
++}
++
++type MasterSecret struct {
++	secret []byte
++	hash   func() hash.Hash
++}
++
++func (s *HandshakeSecret) MasterSecret() *MasterSecret {
++	derived := deriveSecret(s.hash, s.secret, "derived", nil)
++	return &MasterSecret{
++		secret: extract(s.hash, nil, derived),
++		hash:   s.hash,
++	}
++}
++
++// ClientApplicationTrafficSecret derives the client_application_traffic_secret_0
++// from the master secret and the transcript up to the server Finished.
++func (s *MasterSecret) ClientApplicationTrafficSecret(transcript hash.Hash) []byte {
++	return deriveSecret(s.hash, s.secret, clientApplicationTrafficLabel, transcript)
++}
++
++// ServerApplicationTrafficSecret derives the server_application_traffic_secret_0
++// from the master secret and the transcript up to the server Finished.
++func (s *MasterSecret) ServerApplicationTrafficSecret(transcript hash.Hash) []byte {
++	return deriveSecret(s.hash, s.secret, serverApplicationTrafficLabel, transcript)
++}
++
++// ResumptionMasterSecret derives the resumption_master_secret from the master secret
++// and the transcript up to the client Finished.
++func (s *MasterSecret) ResumptionMasterSecret(transcript hash.Hash) []byte {
++	return deriveSecret(s.hash, s.secret, resumptionLabel, transcript)
++}
++
++type ExporterMasterSecret struct {
++	secret []byte
++	hash   func() hash.Hash
++}
++
++// ExporterMasterSecret derives the exporter_master_secret from the master secret
++// and the transcript up to the server Finished.
++func (s *MasterSecret) ExporterMasterSecret(transcript hash.Hash) *ExporterMasterSecret {
++	return &ExporterMasterSecret{
++		secret: deriveSecret(s.hash, s.secret, exporterLabel, transcript),
++		hash:   s.hash,
++	}
++}
++
++// EarlyExporterMasterSecret derives the exporter_master_secret from the early secret
++// and the transcript up to the ClientHello.
++func (s *EarlySecret) EarlyExporterMasterSecret(transcript hash.Hash) *ExporterMasterSecret {
++	return &ExporterMasterSecret{
++		secret: deriveSecret(s.hash, s.secret, earlyExporterLabel, transcript),
++		hash:   s.hash,
++	}
++}
++
++func (s *ExporterMasterSecret) Exporter(label string, context []byte, length int) []byte {
++	secret := deriveSecret(s.hash, s.secret, label, nil)
++	h := s.hash()
++	h.Write(context)
++	return ExpandLabel(s.hash, secret, "exporter", h.Sum(nil), length)
 +}
 diff --git a/src/vendor/github.com/microsoft/go/cryptobackend/tls13/tls13_darwin.go b/src/vendor/github.com/microsoft/go/cryptobackend/tls13/tls13_darwin.go
 new file mode 100644
-index 00000000000000..26d9e3256415a0
+index 00000000000000..b7ffeea07c6b8d
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go/cryptobackend/tls13/tls13_darwin.go
 @@ -0,0 +1,14 @@
@@ -44753,13 +44953,13 @@ index 00000000000000..26d9e3256415a0
 +
 +import "hash"
 +
-+func SupportsKDF() bool { return false }
-+func ExpandKDF[H hash.Hash](h func() H, pseudorandomKey []byte, label string, context []byte, keyLen int) ([]byte, error) {
++func supportsKDF() bool { return false }
++func expandKDF[H hash.Hash](h func() H, pseudorandomKey []byte, label string, context []byte, keyLen int) ([]byte, error) {
 +	panic("cryptobackend: not available")
 +}
 diff --git a/src/vendor/github.com/microsoft/go/cryptobackend/tls13/tls13_linux.go b/src/vendor/github.com/microsoft/go/cryptobackend/tls13/tls13_linux.go
 new file mode 100644
-index 00000000000000..8b37e51156d27e
+index 00000000000000..08a66f65da98e6
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go/cryptobackend/tls13/tls13_linux.go
 @@ -0,0 +1,18 @@
@@ -44777,13 +44977,13 @@ index 00000000000000..8b37e51156d27e
 +	"github.com/microsoft/go-crypto-openssl/openssl"
 +)
 +
-+func SupportsKDF() bool { return openssl.SupportsTLS13KDF() }
-+func ExpandKDF[H hash.Hash](h func() H, pseudorandomKey []byte, label string, context []byte, keyLen int) ([]byte, error) {
++func supportsKDF() bool { return openssl.SupportsTLS13KDF() }
++func expandKDF[H hash.Hash](h func() H, pseudorandomKey []byte, label string, context []byte, keyLen int) ([]byte, error) {
 +	return openssl.ExpandTLS13KDF(h, pseudorandomKey, []byte(label), context, keyLen)
 +}
 diff --git a/src/vendor/github.com/microsoft/go/cryptobackend/tls13/tls13_windows.go b/src/vendor/github.com/microsoft/go/cryptobackend/tls13/tls13_windows.go
 new file mode 100644
-index 00000000000000..26d9e3256415a0
+index 00000000000000..b7ffeea07c6b8d
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go/cryptobackend/tls13/tls13_windows.go
 @@ -0,0 +1,14 @@
@@ -44797,8 +44997,8 @@ index 00000000000000..26d9e3256415a0
 +
 +import "hash"
 +
-+func SupportsKDF() bool { return false }
-+func ExpandKDF[H hash.Hash](h func() H, pseudorandomKey []byte, label string, context []byte, keyLen int) ([]byte, error) {
++func supportsKDF() bool { return false }
++func expandKDF[H hash.Hash](h func() H, pseudorandomKey []byte, label string, context []byte, keyLen int) ([]byte, error) {
 +	panic("cryptobackend: not available")
 +}
 diff --git a/src/vendor/modules.txt b/src/vendor/modules.txt
