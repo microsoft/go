@@ -12,7 +12,7 @@ import (
 	"github.com/microsoft/go-crypto-openssl/openssl"
 )
 
-func SupportsKDF() bool { return openssl.SupportsTLS13KDF() }
-func ExpandKDF[H hash.Hash](h func() H, pseudorandomKey []byte, label string, context []byte, keyLen int) ([]byte, error) {
+func supportsKDF() bool { return openssl.SupportsTLS13KDF() }
+func expandKDF[H hash.Hash](h func() H, pseudorandomKey []byte, label string, context []byte, keyLen int) ([]byte, error) {
 	return openssl.ExpandTLS13KDF(h, pseudorandomKey, []byte(label), context, keyLen)
 }

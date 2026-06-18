@@ -18,7 +18,6 @@ Subject: [PATCH] Add crypto backends
  src/cmd/go/internal/envcmd/env.go             |   3 +-
  src/cmd/go/internal/help/helpdoc.go           |   3 +
  src/cmd/go/internal/load/pkg.go               |  50 +++-
- src/cmd/go/internal/modindex/build_test.go    |  73 +++++
  src/cmd/go/internal/tool/tool.go              |   9 +-
  .../verylongtest/testdata/script/README       |   2 +
  src/cmd/go/script_test.go                     |   3 +
@@ -112,25 +111,21 @@ Subject: [PATCH] Add crypto backends
  src/crypto/tls/cipher_suites.go               |  17 +-
  src/crypto/tls/fipsonly/fipsonly.go           |   2 +-
  src/crypto/tls/fipsonly/fipsonly_test.go      |   2 +-
- src/crypto/tls/handshake_client.go            |  17 +-
- src/crypto/tls/handshake_client_tls13.go      |   2 +-
+ src/crypto/tls/handshake_client.go            |  18 +-
+ src/crypto/tls/handshake_client_tls13.go      |   3 +-
  src/crypto/tls/handshake_server.go            |  15 +-
- src/crypto/tls/handshake_server_tls13.go      |   5 +-
+ src/crypto/tls/handshake_server_tls13.go      |   6 +-
  src/crypto/tls/handshake_test.go              |   3 +-
- src/crypto/tls/internal/tls13/doc.go          |  18 ++
- src/crypto/tls/internal/tls13/tls13.go        | 197 +++++++++++++
- src/crypto/tls/key_schedule.go                |   2 +-
+ src/crypto/tls/key_schedule.go                |   3 +-
  src/crypto/tls/prf.go                         |  26 ++
  src/crypto/tls/prf_test.go                    |   9 +
  src/crypto/x509/verify_test.go                |   2 +-
  src/go/build/buildbackend_test.go             |  50 ++++
- src/go/build/deps_test.go                     |  90 +++++-
+ src/go/build/deps_test.go                     |  94 +++++-
  .../build/testdata/backendtags_system/main.go |   3 +
  .../backendtags_system/systemcrypto.go        |   3 +
- src/hash/boring_test.go                       |   9 +
  src/hash/example_test.go                      |   2 +
  src/hash/marshal_test.go                      |   4 +
- src/hash/notboring_test.go                    |   9 +
  src/internal/buildcfg/cfg.go                  |   2 +
  src/internal/buildcfg/cfg_test.go             |  44 +++
  src/internal/buildcfg/exp.go                  |  20 ++
@@ -142,21 +137,16 @@ Subject: [PATCH] Add crypto backends
  src/os/exec/exec_test.go                      |   9 +
  src/runtime/runtime_boring.go                 |   5 +
  src/syscall/syscall_windows.go                |   3 +
- 138 files changed, 2808 insertions(+), 377 deletions(-)
- create mode 100644 src/cmd/go/internal/modindex/build_test.go
+ 133 files changed, 2509 insertions(+), 378 deletions(-)
  create mode 100644 src/cmd/go/systemcrypto_test.go
  create mode 100644 src/crypto/dsa/boring.go
  create mode 100644 src/crypto/dsa/notboring.go
  create mode 100644 src/crypto/ed25519/boring.go
  create mode 100644 src/crypto/ed25519/notboring.go
  create mode 100644 src/crypto/systemcrypto_nocgo_linux.go
- create mode 100644 src/crypto/tls/internal/tls13/doc.go
- create mode 100644 src/crypto/tls/internal/tls13/tls13.go
  create mode 100644 src/go/build/buildbackend_test.go
  create mode 100644 src/go/build/testdata/backendtags_system/main.go
  create mode 100644 src/go/build/testdata/backendtags_system/systemcrypto.go
- create mode 100644 src/hash/boring_test.go
- create mode 100644 src/hash/notboring_test.go
  create mode 100644 src/internal/systemcrypto/systemcrypto.go
  create mode 100644 src/internal/systemcrypto/systemcrypto_test.go
 
@@ -715,85 +705,6 @@ index 2985cff67cec0b..d345585b33be9a 100644
  	appendSetting("-buildmode", buildmode)
  	appendSetting("-compiler", cfg.BuildContext.Compiler)
  	if gccgoflags := BuildGccgoflags.String(); gccgoflags != "" && cfg.BuildContext.Compiler == "gccgo" {
-diff --git a/src/cmd/go/internal/modindex/build_test.go b/src/cmd/go/internal/modindex/build_test.go
-new file mode 100644
-index 00000000000000..1756c5d027fee0
---- /dev/null
-+++ b/src/cmd/go/internal/modindex/build_test.go
-@@ -0,0 +1,73 @@
-+// Copyright 2023 The Go Authors. All rights reserved.
-+// Use of this source code is governed by a BSD-style
-+// license that can be found in the LICENSE file.
-+
-+// This file is not a copy. It tests that the copied code in this directory is
-+// maintained. Specifically, it tests areas that are modified by microsoft/go.
-+// The files also contain intentional modifications, so it isn't reasonable (as
-+// of writing) to test that the entire file is identical.
-+
-+package modindex
-+
-+import (
-+	"flag"
-+	"os"
-+	"strings"
-+	"testing"
-+)
-+
-+var fixCopy = flag.Bool("fixcopy", false, "if true, update some copied code in build.go")
-+
-+func TestCopyIdentical(t *testing.T) {
-+	originalBytes, err := os.ReadFile("../../../../go/build/build.go")
-+	if err != nil {
-+		t.Fatal(err)
-+	}
-+	wantCode := string(originalBytes)
-+
-+	gotBytes, err := os.ReadFile("build.go")
-+	if err != nil {
-+		t.Fatal(err)
-+	}
-+	gotCode := string(gotBytes)
-+
-+	tests := []struct {
-+		name   string
-+		prefix string
-+		suffix string
-+	}{
-+		{"matchTag", "func (ctxt *Context) matchTag(name string, allTags map[string]bool) bool {", "\n}"},
-+	}
-+	for _, tt := range tests {
-+		t.Run(tt.name, func(t *testing.T) {
-+			var want, got string
-+			if _, after, ok := strings.Cut(wantCode, tt.prefix); ok {
-+				if before, _, ok := strings.Cut(after, tt.suffix); ok {
-+					want = before
-+				} else {
-+					t.Fatal("suffix not found in original file")
-+				}
-+			} else {
-+				t.Fatal("prefix not found in original file")
-+			}
-+			if _, after, ok := strings.Cut(gotCode, tt.prefix); ok {
-+				if before, _, ok := strings.Cut(after, tt.suffix); ok {
-+					got = before
-+				} else {
-+					t.Fatal("suffix not found in copied file")
-+				}
-+			} else {
-+				t.Fatal("prefix not found in copied file")
-+			}
-+			if got != want {
-+				if *fixCopy {
-+					if err := os.WriteFile("build.go", []byte(strings.Replace(gotCode, got, want, 1)), 0o666); err != nil {
-+						t.Fatal(err)
-+					}
-+				} else {
-+					t.Error("copy is not the same as original; use '-fixcopy' to replace copied code with the code from the original file")
-+				}
-+			}
-+		})
-+	}
-+}
 diff --git a/src/cmd/go/internal/tool/tool.go b/src/cmd/go/internal/tool/tool.go
 index 97c27c8caa44d6..bb18bb112a314a 100644
 --- a/src/cmd/go/internal/tool/tool.go
@@ -5907,10 +5818,10 @@ index 027bc22c33c921..eba08da985f832 100644
  package fipsonly
  
 diff --git a/src/crypto/tls/handshake_client.go b/src/crypto/tls/handshake_client.go
-index 54227aabfb698c..89b973986e4485 100644
+index 54227aabfb698c..e99bd9bcc49bbf 100644
 --- a/src/crypto/tls/handshake_client.go
 +++ b/src/crypto/tls/handshake_client.go
-@@ -11,11 +11,11 @@ import (
+@@ -11,7 +11,6 @@ import (
  	"crypto/ecdsa"
  	"crypto/ed25519"
  	"crypto/hpke"
@@ -5918,12 +5829,16 @@ index 54227aabfb698c..89b973986e4485 100644
  	"crypto/mldsa"
  	"crypto/rsa"
  	"crypto/subtle"
- 	"crypto/tls/internal/fips140tls"
-+	"crypto/tls/internal/tls13"
- 	"crypto/x509"
- 	"errors"
- 	"fmt"
-@@ -524,7 +524,20 @@ func (c *Conn) pickTLSVersion(serverHello *serverHelloMsg) error {
+@@ -27,6 +26,8 @@ import (
+ 	"strconv"
+ 	"strings"
+ 	"time"
++
++	"github.com/microsoft/go/cryptobackend/tls13"
+ )
+ 
+ type clientHandshakeState struct {
+@@ -524,7 +525,20 @@ func (c *Conn) pickTLSVersion(serverHello *serverHelloMsg) error {
  
  // Does the handshake, either a full one or resumes old session. Requires hs.c,
  // hs.hello, hs.serverHello, and, optionally, hs.session to be set.
@@ -5946,20 +5861,25 @@ index 54227aabfb698c..89b973986e4485 100644
  
  	// If we did not load a session (hs.session == nil), but we did set a
 diff --git a/src/crypto/tls/handshake_client_tls13.go b/src/crypto/tls/handshake_client_tls13.go
-index f55150697d96f6..552b82a476aea9 100644
+index f55150697d96f6..b4a89941749d99 100644
 --- a/src/crypto/tls/handshake_client_tls13.go
 +++ b/src/crypto/tls/handshake_client_tls13.go
-@@ -10,9 +10,9 @@ import (
+@@ -10,13 +10,14 @@ import (
  	"crypto"
  	"crypto/hkdf"
  	"crypto/hmac"
 -	"crypto/internal/fips140/tls13"
  	"crypto/rsa"
  	"crypto/subtle"
-+	"crypto/tls/internal/tls13"
  	"errors"
  	"hash"
  	"slices"
+ 	"time"
++
++	"github.com/microsoft/go/cryptobackend/tls13"
+ )
+ 
+ type clientHandshakeStateTLS13 struct {
 diff --git a/src/crypto/tls/handshake_server.go b/src/crypto/tls/handshake_server.go
 index a4544a13051f51..f889d38b5e922c 100644
 --- a/src/crypto/tls/handshake_server.go
@@ -5987,21 +5907,27 @@ index a4544a13051f51..f889d38b5e922c 100644
  
  	if err := hs.processClientHello(); err != nil {
 diff --git a/src/crypto/tls/handshake_server_tls13.go b/src/crypto/tls/handshake_server_tls13.go
-index 2c96e2435ae156..462afaeae882c1 100644
+index 2c96e2435ae156..7fcab7bf82f618 100644
 --- a/src/crypto/tls/handshake_server_tls13.go
 +++ b/src/crypto/tls/handshake_server_tls13.go
-@@ -11,9 +11,9 @@ import (
+@@ -11,7 +11,6 @@ import (
  	"crypto/hkdf"
  	"crypto/hmac"
  	"crypto/hpke"
 -	"crypto/internal/fips140/tls13"
  	"crypto/rsa"
  	"crypto/tls/internal/fips140tls"
-+	"crypto/tls/internal/tls13"
  	"crypto/x509"
- 	"errors"
- 	"fmt"
-@@ -453,9 +453,6 @@ func cloneHash(in hash.Hash, h crypto.Hash) hash.Hash {
+@@ -23,6 +22,8 @@ import (
+ 	"slices"
+ 	"sort"
+ 	"time"
++
++	"github.com/microsoft/go/cryptobackend/tls13"
+ )
+ 
+ // maxClientPSKIdentities is the number of client PSK identities the server will
+@@ -453,9 +454,6 @@ func cloneHash(in hash.Hash, h crypto.Hash) hash.Hash {
  		UnmarshalBinary(data []byte) error
  	}
  	marshaler, ok := in.(binaryMarshaler)
@@ -6032,247 +5958,24 @@ index 3205dd97d68f40..d9424c374eab88 100644
  )
  
  // TLS reference tests run a connection against a reference implementation
-diff --git a/src/crypto/tls/internal/tls13/doc.go b/src/crypto/tls/internal/tls13/doc.go
-new file mode 100644
-index 00000000000000..acfa551001af9c
---- /dev/null
-+++ b/src/crypto/tls/internal/tls13/doc.go
-@@ -0,0 +1,18 @@
-+// Copyright 2024 The Go Authors. All rights reserved.
-+// Use of this source code is governed by a BSD-style
-+// license that can be found in the LICENSE file.
-+
-+/*
-+Microsoft build of Go only package.
-+
-+TLS 1.3 Key Schedule is normally not part of the FIPS boundary, but upstream Go
-+decided to include it in the FIPS boundary to facilitate the FIPS 140-3 certification
-+process.
-+
-+The problem is that crypto/internal/fips140/tls13 uses crypto/internal/fips140/hkdf,
-+which can't be patched to use other backends.
-+
-+To solve this problem, we created this package, which is a direct copy of
-+crypto/internal/fips140/tls13, but uses crypto/hkdf instead of crypto/internal/fips140/hkdf.
-+*/
-+package tls13
-diff --git a/src/crypto/tls/internal/tls13/tls13.go b/src/crypto/tls/internal/tls13/tls13.go
-new file mode 100644
-index 00000000000000..535da69062b113
---- /dev/null
-+++ b/src/crypto/tls/internal/tls13/tls13.go
-@@ -0,0 +1,197 @@
-+// Copyright 2024 The Go Authors. All rights reserved.
-+// Use of this source code is governed by a BSD-style
-+// license that can be found in the LICENSE file.
-+
-+// Package tls13 implements the TLS 1.3 Key Schedule as specified in RFC 8446,
-+// Section 7.1 and allowed by FIPS 140-3 IG 2.4.B Resolution 7.
-+package tls13
-+
-+import (
-+	"crypto/internal/fips140hash"
-+
-+	boring "github.com/microsoft/go/cryptobackend"
-+	btls13 "github.com/microsoft/go/cryptobackend/tls13"
-+
-+	"crypto/hkdf"
-+	"hash"
-+	"internal/byteorder"
-+)
-+
-+// We don't set the service indicator in this package but we delegate that to
-+// the underlying functions because the TLS 1.3 KDF does not have a standard of
-+// its own.
-+
-+// ExpandLabel implements HKDF-Expand-Label from RFC 8446, Section 7.1.
-+func ExpandLabel[H hash.Hash](hash func() H, secret []byte, label string, context []byte, length int) []byte {
-+	if len("tls13 ")+len(label) > 255 || len(context) > 255 {
-+		// It should be impossible for this to panic: labels are fixed strings,
-+		// and context is either a fixed-length computed hash, or parsed from a
-+		// field which has the same length limitation.
-+		//
-+		// Another reasonable approach might be to return a randomized slice if
-+		// we encounter an error, which would break the connection, but avoid
-+		// panicking. This would perhaps be safer but significantly more
-+		// confusing to users.
-+		panic("tls13: label or context too long")
-+	}
-+
-+	if boring.Enabled && btls13.SupportsKDF() {
-+		fh := fips140hash.UnwrapNew(hash)
-+		key, err := btls13.ExpandKDF(fh, secret, label, context, length)
-+		if err != nil {
-+			panic(err)
-+		}
-+		return key
-+	}
-+
-+	hkdfLabel := make([]byte, 0, 2+1+len("tls13 ")+len(label)+1+len(context))
-+	hkdfLabel = byteorder.BEAppendUint16(hkdfLabel, uint16(length))
-+	hkdfLabel = append(hkdfLabel, byte(len("tls13 ")+len(label)))
-+	hkdfLabel = append(hkdfLabel, "tls13 "...)
-+	hkdfLabel = append(hkdfLabel, label...)
-+	hkdfLabel = append(hkdfLabel, byte(len(context)))
-+	hkdfLabel = append(hkdfLabel, context...)
-+	key, err := hkdf.Expand(hash, secret, string(hkdfLabel), length)
-+	if err != nil {
-+		panic(err)
-+	}
-+	return key
-+}
-+
-+func extract[H hash.Hash](hash func() H, newSecret, currentSecret []byte) []byte {
-+	if newSecret == nil {
-+		newSecret = make([]byte, hash().Size())
-+	}
-+	prk, err := hkdf.Extract(hash, newSecret, currentSecret)
-+	if err != nil {
-+		panic(err)
-+	}
-+	return prk
-+}
-+
-+func deriveSecret[H hash.Hash](hash func() H, secret []byte, label string, transcript hash.Hash) []byte {
-+	if transcript == nil {
-+		transcript = hash()
-+	}
-+	return ExpandLabel(hash, secret, label, transcript.Sum(nil), transcript.Size())
-+}
-+
-+const (
-+	resumptionBinderLabel         = "res binder"
-+	clientEarlyTrafficLabel       = "c e traffic"
-+	clientHandshakeTrafficLabel   = "c hs traffic"
-+	serverHandshakeTrafficLabel   = "s hs traffic"
-+	clientApplicationTrafficLabel = "c ap traffic"
-+	serverApplicationTrafficLabel = "s ap traffic"
-+	earlyExporterLabel            = "e exp master"
-+	exporterLabel                 = "exp master"
-+	resumptionLabel               = "res master"
-+)
-+
-+type EarlySecret struct {
-+	secret []byte
-+	hash   func() hash.Hash
-+}
-+
-+func NewEarlySecret[H hash.Hash](h func() H, psk []byte) *EarlySecret {
-+	return &EarlySecret{
-+		secret: extract(h, psk, nil),
-+		hash:   func() hash.Hash { return h() },
-+	}
-+}
-+
-+func (s *EarlySecret) ResumptionBinderKey() []byte {
-+	return deriveSecret(s.hash, s.secret, resumptionBinderLabel, nil)
-+}
-+
-+// ClientEarlyTrafficSecret derives the client_early_traffic_secret from the
-+// early secret and the transcript up to the ClientHello.
-+func (s *EarlySecret) ClientEarlyTrafficSecret(transcript hash.Hash) []byte {
-+	return deriveSecret(s.hash, s.secret, clientEarlyTrafficLabel, transcript)
-+}
-+
-+type HandshakeSecret struct {
-+	secret []byte
-+	hash   func() hash.Hash
-+}
-+
-+func (s *EarlySecret) HandshakeSecret(sharedSecret []byte) *HandshakeSecret {
-+	derived := deriveSecret(s.hash, s.secret, "derived", nil)
-+	return &HandshakeSecret{
-+		secret: extract(s.hash, sharedSecret, derived),
-+		hash:   s.hash,
-+	}
-+}
-+
-+// ClientHandshakeTrafficSecret derives the client_handshake_traffic_secret from
-+// the handshake secret and the transcript up to the ServerHello.
-+func (s *HandshakeSecret) ClientHandshakeTrafficSecret(transcript hash.Hash) []byte {
-+	return deriveSecret(s.hash, s.secret, clientHandshakeTrafficLabel, transcript)
-+}
-+
-+// ServerHandshakeTrafficSecret derives the server_handshake_traffic_secret from
-+// the handshake secret and the transcript up to the ServerHello.
-+func (s *HandshakeSecret) ServerHandshakeTrafficSecret(transcript hash.Hash) []byte {
-+	return deriveSecret(s.hash, s.secret, serverHandshakeTrafficLabel, transcript)
-+}
-+
-+type MasterSecret struct {
-+	secret []byte
-+	hash   func() hash.Hash
-+}
-+
-+func (s *HandshakeSecret) MasterSecret() *MasterSecret {
-+	derived := deriveSecret(s.hash, s.secret, "derived", nil)
-+	return &MasterSecret{
-+		secret: extract(s.hash, nil, derived),
-+		hash:   s.hash,
-+	}
-+}
-+
-+// ClientApplicationTrafficSecret derives the client_application_traffic_secret_0
-+// from the master secret and the transcript up to the server Finished.
-+func (s *MasterSecret) ClientApplicationTrafficSecret(transcript hash.Hash) []byte {
-+	return deriveSecret(s.hash, s.secret, clientApplicationTrafficLabel, transcript)
-+}
-+
-+// ServerApplicationTrafficSecret derives the server_application_traffic_secret_0
-+// from the master secret and the transcript up to the server Finished.
-+func (s *MasterSecret) ServerApplicationTrafficSecret(transcript hash.Hash) []byte {
-+	return deriveSecret(s.hash, s.secret, serverApplicationTrafficLabel, transcript)
-+}
-+
-+// ResumptionMasterSecret derives the resumption_master_secret from the master secret
-+// and the transcript up to the client Finished.
-+func (s *MasterSecret) ResumptionMasterSecret(transcript hash.Hash) []byte {
-+	return deriveSecret(s.hash, s.secret, resumptionLabel, transcript)
-+}
-+
-+type ExporterMasterSecret struct {
-+	secret []byte
-+	hash   func() hash.Hash
-+}
-+
-+// ExporterMasterSecret derives the exporter_master_secret from the master secret
-+// and the transcript up to the server Finished.
-+func (s *MasterSecret) ExporterMasterSecret(transcript hash.Hash) *ExporterMasterSecret {
-+	return &ExporterMasterSecret{
-+		secret: deriveSecret(s.hash, s.secret, exporterLabel, transcript),
-+		hash:   s.hash,
-+	}
-+}
-+
-+// EarlyExporterMasterSecret derives the exporter_master_secret from the early secret
-+// and the transcript up to the ClientHello.
-+func (s *EarlySecret) EarlyExporterMasterSecret(transcript hash.Hash) *ExporterMasterSecret {
-+	return &ExporterMasterSecret{
-+		secret: deriveSecret(s.hash, s.secret, earlyExporterLabel, transcript),
-+		hash:   s.hash,
-+	}
-+}
-+
-+func (s *ExporterMasterSecret) Exporter(label string, context []byte, length int) []byte {
-+	secret := deriveSecret(s.hash, s.secret, label, nil)
-+	h := s.hash()
-+	h.Write(context)
-+	return ExpandLabel(s.hash, secret, "exporter", h.Sum(nil), length)
-+}
 diff --git a/src/crypto/tls/key_schedule.go b/src/crypto/tls/key_schedule.go
-index 652a6489b899d6..36528e93156bef 100644
+index 652a6489b899d6..f25da189bf72c9 100644
 --- a/src/crypto/tls/key_schedule.go
 +++ b/src/crypto/tls/key_schedule.go
-@@ -9,8 +9,8 @@ import (
+@@ -9,11 +9,12 @@ import (
  	"crypto/ecdh"
  	"crypto/fips140"
  	"crypto/hmac"
 -	"crypto/internal/fips140/tls13"
  	"crypto/mlkem"
-+	"crypto/tls/internal/tls13"
  	"errors"
  	"hash"
  	"io"
++
++	"github.com/microsoft/go/cryptobackend/tls13"
+ )
+ 
+ // This file contains the functions necessary to compute the TLS 1.3 key
 diff --git a/src/crypto/tls/prf.go b/src/crypto/tls/prf.go
 index bc59300f41c762..a78e10c65cfa7e 100644
 --- a/src/crypto/tls/prf.go
@@ -6425,7 +6128,7 @@ index 00000000000000..ffb835ce34a2f7
 +	}
 +}
 diff --git a/src/go/build/deps_test.go b/src/go/build/deps_test.go
-index a71759adcb7363..abba83862c5ae1 100644
+index a71759adcb7363..ab31931e34b495 100644
 --- a/src/go/build/deps_test.go
 +++ b/src/go/build/deps_test.go
 @@ -372,8 +372,10 @@ var depsRules = `
@@ -6471,7 +6174,7 @@ index a71759adcb7363..abba83862c5ae1 100644
  	< crypto/internal/fips140only
  	< crypto
  	< crypto/subtle
-@@ -577,6 +592,51 @@ var depsRules = `
+@@ -577,6 +592,50 @@ var depsRules = `
  	github.com/microsoft/go-crypto-winnative/internal/bcrypt
  	< github.com/microsoft/go-crypto-winnative/cng;
  
@@ -6516,14 +6219,13 @@ index a71759adcb7363..abba83862c5ae1 100644
 +	  github.com/microsoft/go/cryptobackend/sha256,
 +	  github.com/microsoft/go/cryptobackend/sha3,
 +	  github.com/microsoft/go/cryptobackend/sha512,
-+	  github.com/microsoft/go/cryptobackend/tls12,
-+	  github.com/microsoft/go/cryptobackend/tls13
++	  github.com/microsoft/go/cryptobackend/tls12
 +	< CRYPTOBACKEND;
 +
  	FIPS, internal/godebug, embed,
  	crypto/internal/boring/sig,
  	crypto/internal/boring/syso,
-@@ -584,7 +644,9 @@ var depsRules = `
+@@ -584,7 +643,9 @@ var depsRules = `
  	crypto/internal/fips140only,
  	crypto,
  	crypto/subtle,
@@ -6534,15 +6236,17 @@ index a71759adcb7363..abba83862c5ae1 100644
  	< crypto/sha3
  	< crypto/internal/fips140hash
  	< crypto/internal/boring
-@@ -603,6 +665,7 @@ var depsRules = `
- 	  crypto/ecdh,
- 	  crypto/mlkem,
- 	  crypto/mldsa
-+	< crypto/tls/internal/tls13
- 	< CRYPTO;
- 
+@@ -608,6 +669,9 @@ var depsRules = `
  	CRYPTO
-@@ -616,15 +679,28 @@ var depsRules = `
+ 	< golang.org/x/crypto/hkdf;
+ 
++	crypto/hkdf
++	< github.com/microsoft/go/cryptobackend/tls13;
++
+ 	CGO, fmt, net !< CRYPTO;
+ 
+ 	# CRYPTO-MATH is crypto that exposes math/big APIs - no cgo, net; fmt now ok.
+@@ -616,15 +680,28 @@ var depsRules = `
  	math/big, github.com/microsoft/go-crypto-darwin/xcrypto < github.com/microsoft/go-crypto-darwin/bbig;
  	math/big, github.com/microsoft/go-crypto-winnative/cng < github.com/microsoft/go-crypto-winnative/cng/bbig;
  
@@ -6574,6 +6278,16 @@ index a71759adcb7363..abba83862c5ae1 100644
  	< crypto/ecdsa
  	< CRYPTO-MATH;
  
+@@ -658,7 +735,8 @@ var depsRules = `
+ 	< crypto/hpke;
+ 
+ 	CRYPTO-MATH, NET, container/list, encoding/hex, encoding/pem, crypto/hpke,
+-	golang.org/x/crypto/chacha20poly1305, crypto/tls/internal/fips140tls
++	golang.org/x/crypto/chacha20poly1305, crypto/tls/internal/fips140tls,
++	github.com/microsoft/go/cryptobackend/tls13
+ 	< crypto/x509/internal/macos
+ 	< crypto/x509/pkix
+ 	< crypto/x509
 diff --git a/src/go/build/testdata/backendtags_system/main.go b/src/go/build/testdata/backendtags_system/main.go
 new file mode 100644
 index 00000000000000..38dd16da61accb
@@ -6592,21 +6306,6 @@ index 00000000000000..eb8a026982259c
 +//go:build goexperiment.systemcrypto
 +
 +package main
-diff --git a/src/hash/boring_test.go b/src/hash/boring_test.go
-new file mode 100644
-index 00000000000000..52748c44698076
---- /dev/null
-+++ b/src/hash/boring_test.go
-@@ -0,0 +1,9 @@
-+// Copyright 2024 The Go Authors. All rights reserved.
-+// Use of this source code is governed by a BSD-style
-+// license that can be found in the LICENSE file.
-+
-+//go:build goexperiment.systemcrypto
-+
-+package hash_test
-+
-+const boringEnabled = true
 diff --git a/src/hash/example_test.go b/src/hash/example_test.go
 index f07b9aaa2c4898..b380537215634d 100644
 --- a/src/hash/example_test.go
@@ -6642,21 +6341,6 @@ index 3091f7a67acede..fa3f0fd82cfd30 100644
  				t.Fatalf("MarshalBinary: %v", err)
  			}
  			if !bytes.Equal(enc, tt.golden) {
-diff --git a/src/hash/notboring_test.go b/src/hash/notboring_test.go
-new file mode 100644
-index 00000000000000..11dc691600b110
---- /dev/null
-+++ b/src/hash/notboring_test.go
-@@ -0,0 +1,9 @@
-+// Copyright 2024 The Go Authors. All rights reserved.
-+// Use of this source code is governed by a BSD-style
-+// license that can be found in the LICENSE file.
-+
-+//go:build !goexperiment.systemcrypto
-+
-+package hash_test
-+
-+const boringEnabled = false
 diff --git a/src/internal/buildcfg/cfg.go b/src/internal/buildcfg/cfg.go
 index 89fd74eb823162..6d266ff641d721 100644
 --- a/src/internal/buildcfg/cfg.go
