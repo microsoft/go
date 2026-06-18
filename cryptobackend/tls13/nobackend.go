@@ -8,7 +8,7 @@ package tls13
 
 import "hash"
 
-func SupportsKDF() bool { panic("cryptobackend: not available") }
-func ExpandKDF[H hash.Hash](h func() H, pseudorandomKey []byte, label string, context []byte, keyLen int) ([]byte, error) {
+func supportsKDF() bool { panic("cryptobackend: not available") }
+func expandKDF[H hash.Hash](h func() H, pseudorandomKey []byte, label string, context []byte, keyLen int) ([]byte, error) {
 	panic("cryptobackend: not available")
 }
