@@ -1,0 +1,46 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: qmuntal <quimmuntal@gmail.com>
+Date: Mon, 29 Jun 2026 16:43:27 +0200
+Subject: [PATCH] cmd/internal/objfile: fix PE BSS symbol classification
+
+The PE symbol reader uses runtime.bss to distinguish initialized data from BSS
+when Windows internal linking places BSS at the end of a writable data section.
+
+For externally linked PE files, symbol values are section-relative, so comparing
+a symbol in one section against runtime.bss from another section can misclassify
+initialized data such as runtime.noptrdata as BSS.
+
+Remember the section containing runtime.bss and only apply the BSS-boundary
+heuristic to symbols from that same section.
+---
+ src/cmd/internal/objfile/pe.go | 4 +++-
+ 1 file changed, 3 insertions(+), 1 deletion(-)
+
+diff --git a/src/cmd/internal/objfile/pe.go b/src/cmd/internal/objfile/pe.go
+index ca8add70ba..7bbfaa54d1 100644
+--- a/src/cmd/internal/objfile/pe.go
++++ b/src/cmd/internal/objfile/pe.go
+@@ -44,9 +44,11 @@ func (f *peFile) symbols() ([]Sym, error) {
+ 	// That is, there can be BSS symbols at the end of the page
+ 	// that holds the last data symbols.
+ 	var bssAddr uint32
++	var bssSectionNumber int16
+ 	for _, s := range f.pe.Symbols {
+ 		if s.Name == "runtime.bss" {
+ 			bssAddr = s.Value
++			bssSectionNumber = s.SectionNumber
+ 			break
+ 		}
+ 	}
+@@ -84,7 +86,7 @@ func (f *peFile) symbols() ([]Sym, error) {
+ 			case ch&data != 0:
+ 				if ch&permW == 0 {
+ 					sym.Code = 'R'
+-				} else if bssAddr > 0 && s.Value >= bssAddr {
++				} else if bssSectionNumber == s.SectionNumber && bssAddr > 0 && s.Value >= bssAddr {
+ 					// Past runtime.bss is BSS.
+ 					sym.Code = 'B'
+ 				} else if s.Value >= sect.Size {
+-- 
+2.54.0.windows.1
+
