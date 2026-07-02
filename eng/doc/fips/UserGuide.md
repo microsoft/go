@@ -6,7 +6,7 @@ The Go crypto documentation is available online at https://pkg.go.dev/crypto.
 
 <!-- The following table of contents is maintained using https://marketplace.visualstudio.com/items?itemName=yzhang.markdown-all-in-one -->
 
-- [FIPS 140-2 User Guide](#fips-140-2-user-guide)
+- [FIPS 140-2 User Guide](#fips-140-3-user-guide)
   - [The Microsoft build of Go crypto backends](#the-microsoft-build-of-go-crypto-backends)
   - [Using Go crypto APIs](#using-go-crypto-apis)
     - [crypto/aes](#cryptoaes)
@@ -49,12 +49,30 @@ The Go crypto documentation is available online at https://pkg.go.dev/crypto.
       - [func NewKeyFromSeed](#func-newkeyfromseed)
       - [func PrivateKey.Sign](#func-privatekeysign-1)
     - [crypto/elliptic](#cryptoelliptic)
+    - [crypto/hkdf](#cryptohkdf)
+      - [func Extract](#func-extract)
+      - [func Expand](#func-expand)
+      - [func Key](#func-key)
     - [crypto/hmac](#cryptohmac)
       - [func Equal](#func-equal)
       - [func New](#func-new)
     - [crypto/md5](#cryptomd5)
       - [func New](#func-new-1)
       - [func Sum](#func-sum)
+    - [crypto/mldsa](#cryptomldsa)
+      - [func GenerateKey](#func-generatekey-2)
+      - [func NewPrivateKey](#func-newprivatekey)
+      - [func NewPublicKey](#func-newpublickey)
+      - [func PrivateKey.Sign](#func-privatekeysign-2)
+      - [func PrivateKey.SignDeterministic](#func-privatekeysigndeterministic)
+      - [func Verify](#func-verify-2)
+    - [crypto/mlkem](#cryptomlkem)
+      - [func GenerateKey768](#func-generatekey768)
+      - [func GenerateKey1024](#func-generatekey1024)
+      - [func EncapsulationKey768.Encapsulate](#func-encapsulationkey768encapsulate)
+      - [func DecapsulationKey768.Decapsulate](#func-decapsulationkey768decapsulate)
+    - [crypto/pbkdf2](#cryptopbkdf2)
+      - [func Key](#func-key-1)
     - [crypto/rand](#cryptorand)
       - [var Reader](#var-reader)
       - [func Int](#func-int)
@@ -79,6 +97,15 @@ The Go crypto documentation is available online at https://pkg.go.dev/crypto.
       - [func Sum512](#func-sum512)
       - [func Sum512\_224](#func-sum512_224)
       - [func Sum512\_256](#func-sum512_256)
+    - [crypto/sha3](#cryptosha3)
+      - [func New224](#func-new224-1)
+      - [func New256](#func-new256)
+      - [func New384](#func-new384-1)
+      - [func New512](#func-new512)
+      - [func NewSHAKE128](#func-newshake128)
+      - [func NewSHAKE256](#func-newshake256)
+      - [func NewCSHAKE128](#func-newcshake128)
+      - [func NewCSHAKE256](#func-newcshake256)
     - [crypto/rsa](#cryptorsa)
       - [func DecryptOAEP](#func-decryptoaep)
       - [func DecryptPKCS1v15](#func-decryptpkcs1v15)
@@ -88,10 +115,10 @@ The Go crypto documentation is available online at https://pkg.go.dev/crypto.
       - [func SignPSS](#func-signpss)
       - [func VerifyPKCS1v15](#func-verifypkcs1v15)
       - [func VerifyPSS](#func-verifypss)
-      - [func GenerateKey](#func-generatekey-2)
+      - [func GenerateKey](#func-generatekey-3)
       - [func GenerateMultiPrimeKey](#func-generatemultiprimekey)
       - [func PrivateKey.Decrypt](#func-privatekeydecrypt)
-      - [func PrivateKey.Sign](#func-privatekeysign-2)
+      - [func PrivateKey.Sign](#func-privatekeysign-3)
     - [crypto/subtle](#cryptosubtle)
     - [crypto/tls](#cryptotls)
 
@@ -902,6 +929,77 @@ func elliptic.P384() elliptic.Curve
 func elliptic.P521() elliptic.Curve
 ```
 
+### [crypto/hkdf](https://pkg.go.dev/crypto/hkdf)
+
+Package hkdf implements the HMAC-based Extract-and-Expand Key Derivation Function (HKDF) as defined in RFC 5869.
+
+The hash function passed to the HKDF APIs must be one supported by the crypto backend (see [crypto/sha1](#cryptosha1), [crypto/sha256](#cryptosha256), [crypto/sha512](#cryptosha512), and [crypto/sha3](#cryptosha3)). If the hash is not supported by the backend, the operation falls back to standard Go crypto.
+
+#### func [Extract](https://pkg.go.dev/crypto/hkdf#Extract)
+
+```go
+func hkdf.Extract[H hash.Hash](h func() H, secret, salt []byte) ([]byte, error)
+```
+
+Extract generates a pseudorandom key for use with [hkdf.Expand](#func-expand) from the input `secret` and an optional `salt`.
+
+**Requirements**
+
+- `h` must return a hash supported by the crypto backend.
+
+**Implementation**
+
+<details><summary>OpenSSL (click for details)</summary>
+
+The pseudorandom key is derived using the HKDF KDF in extract-only mode.
+On OpenSSL 1.x this uses [EVP_PKEY_derive] with an `EVP_PKEY_HKDF` context configured with `EVP_PKEY_HKDF_MODE_EXTRACT_ONLY`.
+On OpenSSL 3.x this uses [EVP_KDF_derive] with the `HKDF` KDF set to extract-only mode.
+
+</details>
+
+<details><summary>CNG (click for details)</summary>
+
+The pseudorandom key is derived using [BCryptKeyDerivation] with the `BCRYPT_HKDF_ALGORITHM` [algorithm identifier], setting the hash with the `BCRYPT_HKDF_HASH_ALGORITHM` property and finalizing with the `BCRYPT_HKDF_SALT_AND_FINALIZE` property.
+
+</details>
+
+#### func [Expand](https://pkg.go.dev/crypto/hkdf#Expand)
+
+```go
+func hkdf.Expand[H hash.Hash](h func() H, pseudorandomKey []byte, info string, keyLength int) ([]byte, error)
+```
+
+Expand derives a key of `keyLength` bytes from the given `pseudorandomKey` and optional `info`, returned by [hkdf.Extract](#func-extract).
+
+**Requirements**
+
+- `h` must return a hash supported by the crypto backend.
+
+**Implementation**
+
+<details><summary>OpenSSL (click for details)</summary>
+
+The key is derived using the HKDF KDF in expand-only mode.
+On OpenSSL 1.x this uses [EVP_PKEY_derive] with an `EVP_PKEY_HKDF` context configured with `EVP_PKEY_HKDF_MODE_EXPAND_ONLY`.
+On OpenSSL 3.x this uses [EVP_KDF_derive] with the `HKDF` KDF set to expand-only mode.
+
+</details>
+
+<details><summary>CNG (click for details)</summary>
+
+The key is derived using [BCryptKeyDerivation] with the `BCRYPT_HKDF_ALGORITHM` [algorithm identifier], setting the pseudorandom key with the `BCRYPT_HKDF_PRK_AND_FINALIZE` property and the info with the `BCRYPT_HKDF_INFO` parameter.
+
+</details>
+
+#### func [Key](https://pkg.go.dev/crypto/hkdf#Key)
+
+```go
+func hkdf.Key[H hash.Hash](h func() H, secret, salt []byte, info string, keyLength int) ([]byte, error)
+```
+
+Key derives a key of `keyLength` bytes from the given `secret`, `salt`, and `info`.
+It is a convenience function that internally calls [hkdf.Extract](#func-extract) followed by [hkdf.Expand](#func-expand), and is subject to the same requirements.
+
 ### [crypto/hmac](https://pkg.go.dev/crypto/hmac)
 
 Package hmac implements the Keyed-Hash Message Authentication Code (HMAC) as defined in U.S. Federal Information Processing Standards Publication 198.
@@ -1022,6 +1120,221 @@ func md5.Sum(data []byte) [15]byte
 
 Sum returns the MD5 checksum of the data.
 It internally uses md5.New() to compute the checksum.
+
+### [crypto/mldsa](https://pkg.go.dev/crypto/mldsa)
+
+Package mldsa implements the post-quantum ML-DSA signature scheme as defined in FIPS 204.
+
+The parameter set is selected with one of `mldsa.MLDSA44()`, `mldsa.MLDSA65()`, or `mldsa.MLDSA87()`.
+
+#### func [GenerateKey](https://pkg.go.dev/crypto/mldsa#GenerateKey)
+
+```go
+func mldsa.GenerateKey(params mldsa.Parameters) (*mldsa.PrivateKey, error)
+```
+
+GenerateKey generates a new random ML-DSA private key for the given parameter set.
+
+**Implementation**
+
+<details><summary>OpenSSL (click for details)</summary>
+
+`priv` is a wrapper around an [EVP_PKEY] generated using [EVP_PKEY_keygen] with the `ML-DSA-44`, `ML-DSA-65`, or `ML-DSA-87` key type.
+
+</details>
+
+<details><summary>CNG (click for details)</summary>
+
+`priv` is generated using [BCryptGenerateKeyPair] with the `BCRYPT_MLDSA_ALGORITHM` [algorithm identifier] and the parameter set name (`44`, `65`, or `87`) set via the `BCRYPT_PARAMETER_SET_NAME` property.
+
+</details>
+
+#### func [NewPrivateKey](https://pkg.go.dev/crypto/mldsa#NewPrivateKey)
+
+```go
+func mldsa.NewPrivateKey(params mldsa.Parameters, seed []byte) (*mldsa.PrivateKey, error)
+```
+
+NewPrivateKey decodes an ML-DSA private key from the given `seed`, which must be exactly `mldsa.PrivateKeySize` bytes long. The key is reconstructed from the seed using the same backend primitives as [mldsa.GenerateKey](#func-generatekey-2).
+
+#### func [NewPublicKey](https://pkg.go.dev/crypto/mldsa#NewPublicKey)
+
+```go
+func mldsa.NewPublicKey(params mldsa.Parameters, encoding []byte) (*mldsa.PublicKey, error)
+```
+
+NewPublicKey decodes an ML-DSA public key from the given `encoding`, whose length must match `params.PublicKeySize()`.
+
+#### func [PrivateKey.Sign](https://pkg.go.dev/crypto/mldsa#PrivateKey.Sign)
+
+```go
+func (sk *mldsa.PrivateKey) Sign(_ io.Reader, message []byte, opts crypto.SignerOpts) (signature []byte, err error)
+```
+
+Sign returns a signature of `message` using `sk`. The `io.Reader` argument is ignored.
+
+**Requirements**
+
+- If `opts` is nil or `opts.HashFunc()` returns zero, `message` is signed directly.
+- If `opts.HashFunc()` returns `crypto.MLDSAMu`, `message` must be a pre-hashed μ message representative (external-mu, as defined in RFC 9881).
+- An optional context string can be supplied through `*mldsa.Options`.
+
+**Implementation**
+
+<details><summary>OpenSSL (click for details)</summary>
+
+The message is signed using [EVP_PKEY_sign].
+
+</details>
+
+<details><summary>CNG (click for details)</summary>
+
+The message is signed using [BCryptSignHash].
+
+</details>
+
+#### func [PrivateKey.SignDeterministic](https://pkg.go.dev/crypto/mldsa#PrivateKey.SignDeterministic)
+
+```go
+func (sk *mldsa.PrivateKey) SignDeterministic(message []byte, opts crypto.SignerOpts) (signature []byte, err error)
+```
+
+SignDeterministic behaves as [mldsa.PrivateKey.Sign](#func-privatekeysign-2) but produces a deterministic signature. It is subject to the same requirements.
+
+#### func [Verify](https://pkg.go.dev/crypto/mldsa#Verify)
+
+```go
+func mldsa.Verify(pk *mldsa.PublicKey, message []byte, signature []byte, opts *mldsa.Options) error
+```
+
+Verify reports whether `signature` is a valid signature of `message` by `pk`. A valid signature is indicated by returning a nil error.
+
+**Implementation**
+
+<details><summary>OpenSSL (click for details)</summary>
+
+The signature is verified using [EVP_PKEY_verify].
+
+</details>
+
+<details><summary>CNG (click for details)</summary>
+
+The signature is verified using [BCryptVerifySignature].
+
+</details>
+
+### [crypto/mlkem](https://pkg.go.dev/crypto/mlkem)
+
+Package mlkem implements the post-quantum ML-KEM key encapsulation method as defined in FIPS 203.
+
+ML-KEM-768 and ML-KEM-1024 are supported by all backends.
+
+#### func [GenerateKey768](https://pkg.go.dev/crypto/mlkem#GenerateKey768)
+
+```go
+func mlkem.GenerateKey768() (*mlkem.DecapsulationKey768, error)
+```
+
+GenerateKey768 generates a new ML-KEM-768 decapsulation key. The corresponding encapsulation key is obtained with the `EncapsulationKey` method.
+
+**Implementation**
+
+<details><summary>OpenSSL (click for details)</summary>
+
+The key is a wrapper around an [EVP_PKEY] generated using [EVP_PKEY_keygen] with the `ML-KEM-768` key type.
+
+</details>
+
+<details><summary>CNG (click for details)</summary>
+
+The key is generated using [BCryptGenerateKeyPair] with the `BCRYPT_MLKEM_ALGORITHM` [algorithm identifier] and the `768` parameter set name set via the `BCRYPT_PARAMETER_SET_NAME` property.
+
+</details>
+
+#### func [GenerateKey1024](https://pkg.go.dev/crypto/mlkem#GenerateKey1024)
+
+```go
+func mlkem.GenerateKey1024() (*mlkem.DecapsulationKey1024, error)
+```
+
+GenerateKey1024 generates a new ML-KEM-1024 decapsulation key. It behaves as [mlkem.GenerateKey768](#func-generatekey768) but uses the `ML-KEM-1024` key type (OpenSSL) or the `1024` parameter set name (CNG).
+
+Decapsulation keys can also be reconstructed from a seed using `mlkem.NewDecapsulationKey768` and `mlkem.NewDecapsulationKey1024`, and encapsulation keys can be decoded with `mlkem.NewEncapsulationKey768` and `mlkem.NewEncapsulationKey1024`.
+
+#### func [EncapsulationKey768.Encapsulate](https://pkg.go.dev/crypto/mlkem#EncapsulationKey768.Encapsulate)
+
+```go
+func (ek *mlkem.EncapsulationKey768) Encapsulate() (sharedKey, ciphertext []byte)
+```
+
+Encapsulate generates a shared key and an associated ciphertext from the encapsulation key. The same shared key is recovered by the holder of the decapsulation key via [mlkem.DecapsulationKey768.Decapsulate](#func-decapsulationkey768decapsulate). The shared key must be kept secret.
+
+**Implementation**
+
+<details><summary>OpenSSL (click for details)</summary>
+
+The shared key and ciphertext are generated using [EVP_PKEY_encapsulate].
+
+</details>
+
+<details><summary>CNG (click for details)</summary>
+
+The shared key and ciphertext are generated using the CNG ML-KEM encapsulation operation.
+
+</details>
+
+#### func [DecapsulationKey768.Decapsulate](https://pkg.go.dev/crypto/mlkem#DecapsulationKey768.Decapsulate)
+
+```go
+func (dk *mlkem.DecapsulationKey768) Decapsulate(ciphertext []byte) (sharedKey []byte, err error)
+```
+
+Decapsulate recovers the shared key from `ciphertext` using the decapsulation key. The ML-KEM-1024 keys expose analogous `Encapsulate` and `Decapsulate` methods.
+
+**Implementation**
+
+<details><summary>OpenSSL (click for details)</summary>
+
+The shared key is recovered using [EVP_PKEY_decapsulate].
+
+</details>
+
+<details><summary>CNG (click for details)</summary>
+
+The shared key is recovered using the CNG ML-KEM decapsulation operation.
+
+</details>
+
+### [crypto/pbkdf2](https://pkg.go.dev/crypto/pbkdf2)
+
+Package pbkdf2 implements the key derivation function PBKDF2 as defined in RFC 8018 (PKCS #5 v2.1).
+
+#### func [Key](https://pkg.go.dev/crypto/pbkdf2#Key)
+
+```go
+func pbkdf2.Key[H hash.Hash](h func() H, password string, salt []byte, iter, keyLength int) ([]byte, error)
+```
+
+Key derives a key of `keyLength` bytes from `password` and `salt` by applying the pseudorandom function `iter` times.
+
+**Requirements**
+
+- `h` must return a hash supported by the crypto backend.
+
+**Implementation**
+
+<details><summary>OpenSSL (click for details)</summary>
+
+On OpenSSL 1.x the key is derived using [PKCS5_PBKDF2_HMAC].
+On OpenSSL 3.x the key is derived using [EVP_KDF_derive] with the `PBKDF2` KDF.
+
+</details>
+
+<details><summary>CNG (click for details)</summary>
+
+The key is derived using [BCryptKeyDerivation] with the `BCRYPT_PBKDF2_ALGORITHM` [algorithm identifier], setting the iteration count, hash algorithm, and salt through key derivation parameters.
+
+</details>
 
 ### [crypto/rand](https://pkg.go.dev/crypto/rand)
 
@@ -1369,6 +1682,169 @@ sha512.Sum512_224 is not implemented by any backend.
 
 sha512.Sum512_256 is not implemented by any backend.
 
+### [crypto/sha3](https://pkg.go.dev/crypto/sha3)
+
+Package sha3 implements the SHA-3 hash functions and the SHAKE and cSHAKE extendable-output functions (XOFs) as defined in FIPS 202.
+
+The `sha3.Sum224`, `sha3.Sum256`, `sha3.Sum384`, and `sha3.Sum512` one-shot helpers internally use the corresponding `New*` constructor, and `sha3.SumSHAKE128` and `sha3.SumSHAKE256` internally use the corresponding SHAKE constructor.
+
+#### func [New224](https://pkg.go.dev/crypto/sha3#New224)
+
+```go
+func sha3.New224() *sha3.SHA3
+```
+
+New224 returns a new hash.Hash computing the SHA3-224 checksum.
+
+**Requirements**
+
+- The CNG backend does not implement this function.
+
+**Implementation**
+
+<details><summary>OpenSSL (click for details)</summary>
+
+The hash is generated using [EVP_MD_CTX_new] and [EVP_DigestInit_ex] with the algorithm [EVP_sha3_224].
+
+The hash.Hash methods are implemented as follows:
+
+- `Write` using [EVP_DigestUpdate].
+- `Sum` using [EVP_DigestFinal].
+- `Reset` using [EVP_DigestInit].
+
+</details>
+
+#### func [New256](https://pkg.go.dev/crypto/sha3#New256)
+
+```go
+func sha3.New256() *sha3.SHA3
+```
+
+New256 returns a new hash.Hash computing the SHA3-256 checksum.
+
+**Implementation**
+
+<details><summary>OpenSSL (click for details)</summary>
+
+The hash is generated using [EVP_MD_CTX_new] and [EVP_DigestInit_ex] with the algorithm [EVP_sha3_256].
+
+The hash.Hash methods are implemented as follows:
+
+- `Write` using [EVP_DigestUpdate].
+- `Sum` using [EVP_DigestFinal].
+- `Reset` using [EVP_DigestInit].
+
+</details>
+
+<details><summary>CNG (click for details)</summary>
+
+The hash is generated using [BCryptCreateHash] with the [algorithm identifier] `BCRYPT_SHA3_256_ALGORITHM`.
+
+The hash.Hash methods are implemented as follows:
+
+- `Write` using [BCryptHashData].
+- `Sum` using [BCryptFinishHash].
+- `Reset` using [BCryptDestroyHash] and [BCryptCreateHash].
+
+</details>
+
+#### func [New384](https://pkg.go.dev/crypto/sha3#New384)
+
+```go
+func sha3.New384() *sha3.SHA3
+```
+
+New384 returns a new hash.Hash computing the SHA3-384 checksum.
+It is implemented as [sha3.New256](#func-new256) but with the `EVP_sha3_384` algorithm (OpenSSL) or the `BCRYPT_SHA3_384_ALGORITHM` [algorithm identifier] (CNG).
+
+#### func [New512](https://pkg.go.dev/crypto/sha3#New512)
+
+```go
+func sha3.New512() *sha3.SHA3
+```
+
+New512 returns a new hash.Hash computing the SHA3-512 checksum.
+It is implemented as [sha3.New256](#func-new256) but with the `EVP_sha3_512` algorithm (OpenSSL) or the `BCRYPT_SHA3_512_ALGORITHM` [algorithm identifier] (CNG).
+
+#### func [NewSHAKE128](https://pkg.go.dev/crypto/sha3#NewSHAKE128)
+
+```go
+func sha3.NewSHAKE128() *sha3.SHAKE
+```
+
+NewSHAKE128 returns a new SHAKE128 XOF.
+
+**Requirements**
+
+- The OpenSSL backend requires OpenSSL 3.3 or higher.
+
+**Implementation**
+
+<details><summary>OpenSSL (click for details)</summary>
+
+The XOF is generated using [EVP_MD_CTX_new] and [EVP_DigestInit_ex] with the SHAKE128 algorithm.
+
+The XOF methods are implemented as follows:
+
+- `Write` using [EVP_DigestUpdate].
+- `Read` using [EVP_DigestSqueeze].
+
+</details>
+
+<details><summary>CNG (click for details)</summary>
+
+The XOF is generated using [BCryptCreateHash] with the `BCRYPT_CSHAKE128_ALGORITHM` [algorithm identifier].
+
+The XOF methods are implemented as follows:
+
+- `Write` using [BCryptHashData].
+- `Read` using [BCryptFinishHash].
+
+</details>
+
+#### func [NewSHAKE256](https://pkg.go.dev/crypto/sha3#NewSHAKE256)
+
+```go
+func sha3.NewSHAKE256() *sha3.SHAKE
+```
+
+NewSHAKE256 returns a new SHAKE256 XOF.
+It is implemented as [sha3.NewSHAKE128](#func-newshake128) but with the SHAKE256 algorithm (OpenSSL) or the `BCRYPT_CSHAKE256_ALGORITHM` [algorithm identifier] (CNG). It is subject to the same requirements.
+
+#### func [NewCSHAKE128](https://pkg.go.dev/crypto/sha3#NewCSHAKE128)
+
+```go
+func sha3.NewCSHAKE128(N, S []byte) *sha3.SHAKE
+```
+
+NewCSHAKE128 returns a new cSHAKE128 XOF, customized with the function-name string `N` and the customization string `S`. When both `N` and `S` are empty it is equivalent to [sha3.NewSHAKE128](#func-newshake128).
+
+**Requirements**
+
+- The OpenSSL backend does not implement this function.
+
+**Implementation**
+
+<details><summary>CNG (click for details)</summary>
+
+The XOF is generated using [BCryptCreateHash] with the `BCRYPT_CSHAKE128_ALGORITHM` [algorithm identifier]. The function-name string `N` and the customization string `S` are set with the `BCRYPT_FUNCTION_NAME_STRING` and `BCRYPT_CUSTOMIZATION_STRING` properties.
+
+The XOF methods are implemented as follows:
+
+- `Write` using [BCryptHashData].
+- `Read` using [BCryptFinishHash].
+
+</details>
+
+#### func [NewCSHAKE256](https://pkg.go.dev/crypto/sha3#NewCSHAKE256)
+
+```go
+func sha3.NewCSHAKE256(N, S []byte) *sha3.SHAKE
+```
+
+NewCSHAKE256 returns a new cSHAKE256 XOF.
+It is implemented as [sha3.NewCSHAKE128](#func-newcshake128) but with the `BCRYPT_CSHAKE256_ALGORITHM` [algorithm identifier], and is subject to the same requirements.
+
 ### [crypto/rsa](https://pkg.go.dev/crypto/rsa)
 
 Package rsa implements RSA encryption as specified in PKCS #1 and RFC 8017.
@@ -1702,23 +2178,35 @@ Package tls will automatically use FIPS compliant primitives implemented in othe
 Since Go 1.22, the Microsoft build of Go runtime automatically enforces that tls only uses FIPS-approved settings when running in FIPS mode.
 Prior to Go 1.22, a program using tls must import the `crypto/tls/fipsonly` package to be compliant with these restrictions.
 
+Since Go 1.26, the Microsoft build of Go applies a set of Microsoft-recommended TLS defaults (for example, preferring AES-256 over AES-128 and enabling ML-KEM-based key exchange groups). This is controlled by the `ms_tlsprofile` GODEBUG setting, which defaults to `ms_tlsprofile=default` and can be set to `ms_tlsprofile=off` to restore the upstream Go defaults. The `ms_tlsx25519` GODEBUG setting (default `ms_tlsx25519=1`) controls whether the X25519 and X25519MLKEM768 groups are enabled by default. These settings affect the default selection only; the FIPS-only restrictions below are always enforced in FIPS mode.
+
 When using TLS in FIPS-only mode the TLS handshake has the following restrictions:
 
 - TLS versions:
   - `tls.VersionTLS12`
   - `tls.VersionTLS13`
-- ECDSA elliptic curves:
+- Key exchange groups:
   - `tls.CurveP256`
   - `tls.CurveP384`
   - `tls.CurveP521`
+  - `tls.X25519MLKEM768`
+  - `tls.SecP256r1MLKEM768`
+  - `tls.SecP384r1MLKEM1024`
+  - `tls.MLKEM1024`
+
+  The standalone `tls.X25519` group is not used in FIPS mode; only the ML-KEM-based hybrid and pure groups above (whose security relies on the FIPS-approved ML-KEM component) and the NIST curves are used. The ML-KEM groups are only offered when supported by the crypto backend.
 - Cipher suites for TLS 1.2:
-  - `tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256`
   - `tls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384`
-  - `tls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256`
+  - `tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256`
   - `tls.TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384`
+  - `tls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256`
+  - `tls.TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA256`
+  - `tls.TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA256`
 - Cipher suites for TLS 1.3:
-  - `tls.TLS_AES_128_GCM_SHA256`
   - `tls.TLS_AES_256_GCM_SHA384`
+  - `tls.TLS_AES_128_GCM_SHA256`
+
+  The ChaCha20-Poly1305 cipher suites (such as `tls.TLS_CHACHA20_POLY1305_SHA256`) are offered by default outside FIPS mode but are not permitted in FIPS-only mode, as ChaCha20-Poly1305 is not a FIPS-approved algorithm.
 - x509 certificate public key:
   - `rsa.PublicKey` with a bit length of 2048 or 3072. Bit length of 4096 is still not supported, see [this issue](https://github.com/golang/go/issues/41147) for more info.
   - `ecdsa.PublicKey`  with a supported elliptic curve.
@@ -1813,3 +2301,13 @@ When using TLS in FIPS-only mode the TLS handshake has the following restriction
 [BCRYPT_PSS_PADDING_INFO]: https://docs.microsoft.com/en-us/windows/win32/api/Bcrypt/ns-bcrypt-bcrypt_pss_padding_info
 [BCryptDeriveKey]: https://docs.microsoft.com/en-us/windows/win32/api/bcrypt/nf-bcrypt-bcryptderivekey
 [BCryptDestroyKey]: https://docs.microsoft.com/en-us/windows/win32/api/bcrypt/nf-bcrypt-bcryptdestroykey
+[BCryptKeyDerivation]: https://docs.microsoft.com/en-us/windows/win32/api/bcrypt/nf-bcrypt-bcryptkeyderivation
+[EVP_sha3_224]: https://www.openssl.org/docs/man3.0/man3/EVP_sha3_224.html
+[EVP_sha3_256]: https://www.openssl.org/docs/man3.0/man3/EVP_sha3_256.html
+[EVP_sha3_384]: https://www.openssl.org/docs/man3.0/man3/EVP_sha3_384.html
+[EVP_sha3_512]: https://www.openssl.org/docs/man3.0/man3/EVP_sha3_512.html
+[EVP_DigestSqueeze]: https://www.openssl.org/docs/man3.3/man3/EVP_DigestSqueeze.html
+[EVP_PKEY_encapsulate]: https://www.openssl.org/docs/man3.0/man3/EVP_PKEY_encapsulate.html
+[EVP_PKEY_decapsulate]: https://www.openssl.org/docs/man3.0/man3/EVP_PKEY_decapsulate.html
+[EVP_KDF_derive]: https://www.openssl.org/docs/man3.0/man3/EVP_KDF_derive.html
+[PKCS5_PBKDF2_HMAC]: https://www.openssl.org/docs/man3.0/man3/PKCS5_PBKDF2_HMAC.html
