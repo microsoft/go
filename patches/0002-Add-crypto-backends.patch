@@ -17,11 +17,11 @@ Subject: [PATCH] Add crypto backends
  src/cmd/go/internal/cfg/cfg.go                |  32 +-
  src/cmd/go/internal/envcmd/env.go             |   3 +-
  src/cmd/go/internal/help/helpdoc.go           |   3 +
- src/cmd/go/internal/load/pkg.go               |  50 +++-
+ src/cmd/go/internal/load/pkg.go               |  50 ++-
  src/cmd/go/internal/tool/tool.go              |   9 +-
  .../verylongtest/testdata/script/README       |   2 +
  src/cmd/go/script_test.go                     |   3 +
- src/cmd/go/systemcrypto_test.go               | 278 ++++++++++++++++++
+ src/cmd/go/systemcrypto_test.go               | 284 ++++++++++++++++++
  src/cmd/go/testdata/script/README             |   2 +
  src/cmd/go/testdata/script/darwin_no_cgo.txt  |   1 +
  src/cmd/go/testdata/script/env_changed.txt    |   3 +
@@ -104,7 +104,7 @@ Subject: [PATCH] Add crypto backends
  src/crypto/sha1/sha1_test.go                  |  11 +-
  src/crypto/sha256/sha256.go                   |  16 +-
  src/crypto/sha256/sha256_test.go              |  44 ++-
- src/crypto/sha3/sha3.go                       | 131 ++++++++-
+ src/crypto/sha3/sha3.go                       | 131 +++++++-
  src/crypto/sha3/sha3_test.go                  |  18 +-
  src/crypto/sha512/sha512.go                   |  24 +-
  src/crypto/sha512/sha512_test.go              |  32 +-
@@ -121,7 +121,7 @@ Subject: [PATCH] Add crypto backends
  src/crypto/tls/prf.go                         |  26 ++
  src/crypto/tls/prf_test.go                    |   9 +
  src/crypto/x509/verify_test.go                |   2 +-
- src/go/build/buildbackend_test.go             |  50 ++++
+ src/go/build/buildbackend_test.go             |  50 +++
  src/go/build/deps_test.go                     |  94 +++++-
  .../build/testdata/backendtags_system/main.go |   3 +
  .../backendtags_system/systemcrypto.go        |   3 +
@@ -138,7 +138,7 @@ Subject: [PATCH] Add crypto backends
  src/os/exec/exec_test.go                      |   9 +
  src/runtime/runtime_boring.go                 |   5 +
  src/syscall/syscall_windows.go                |   3 +
- 134 files changed, 2519 insertions(+), 378 deletions(-)
+ 134 files changed, 2525 insertions(+), 378 deletions(-)
  create mode 100644 src/cmd/go/systemcrypto_test.go
  create mode 100644 src/crypto/dsa/boring.go
  create mode 100644 src/crypto/dsa/notboring.go
@@ -504,7 +504,7 @@ index 47839e0229b951..99ac16a3951934 100644
  	tg.parallel()
  	defer tg.cleanup()
 diff --git a/src/cmd/go/internal/cfg/cfg.go b/src/cmd/go/internal/cfg/cfg.go
-index 78cbbb949e7c27..f8b16160f50713 100644
+index 78cbbb949e7c27..38bf1efb8794da 100644
 --- a/src/cmd/go/internal/cfg/cfg.go
 +++ b/src/cmd/go/internal/cfg/cfg.go
 @@ -14,11 +14,13 @@ import (
@@ -559,7 +559,7 @@ index 78cbbb949e7c27..f8b16160f50713 100644
 +		switch Goos {
 +		case "darwin":
 +			expTags = append(expTags, "goexperiment.darwincrypto")
-+		case "linux":
++		case "linux", "freebsd":
 +			expTags = append(expTags, "goexperiment.opensslcrypto")
 +		case "windows":
 +			expTags = append(expTags, "goexperiment.cngcrypto")
@@ -763,10 +763,10 @@ index 088b9a8b5fdb2e..4e1e545367afef 100644
  // updateSum runs 'go mod tidy', 'go list -mod=mod -m all', or
 diff --git a/src/cmd/go/systemcrypto_test.go b/src/cmd/go/systemcrypto_test.go
 new file mode 100644
-index 00000000000000..797d560bd74929
+index 00000000000000..8e7f07fe1f758c
 --- /dev/null
 +++ b/src/cmd/go/systemcrypto_test.go
-@@ -0,0 +1,278 @@
+@@ -0,0 +1,284 @@
 +// Copyright 2025 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -1014,6 +1014,12 @@ index 00000000000000..797d560bd74929
 +			env:       []string{"GOOS=windows", "GOARCH=amd64", "MS_GO_NOSYSTEMCRYPTO=0"},
 +			wantFiles: []string{"with_system.go", "with_cng.go"},
 +			badFiles:  []string{"without_system.go", "with_openssl.go", "with_darwin.go"},
++		},
++		{
++			name:      "freebsd_supported",
++			env:       []string{"GOOS=freebsd", "GOARCH=amd64", "MS_GO_NOSYSTEMCRYPTO=0"},
++			wantFiles: []string{"with_system.go", "with_openssl.go"},
++			badFiles:  []string{"without_system.go", "with_cng.go", "with_darwin.go"},
 +		},
 +		{
 +			name:      "disabled",
@@ -6546,7 +6552,7 @@ index 00000000000000..71c1923a270646
 +}
 diff --git a/src/internal/systemcrypto/systemcrypto_test.go b/src/internal/systemcrypto/systemcrypto_test.go
 new file mode 100644
-index 00000000000000..5e95772e82cf6e
+index 00000000000000..38c7bfa3c0b7b1
 --- /dev/null
 +++ b/src/internal/systemcrypto/systemcrypto_test.go
 @@ -0,0 +1,60 @@
@@ -6611,7 +6617,7 @@ index 00000000000000..5e95772e82cf6e
 +	}
 +}
 diff --git a/src/net/lookup_test.go b/src/net/lookup_test.go
-index 42211ed099ed1e..e6d185374ffe6d 100644
+index afa7e4c14aaf1f..0583582295c751 100644
 --- a/src/net/lookup_test.go
 +++ b/src/net/lookup_test.go
 @@ -1500,6 +1500,9 @@ func TestLookupPortIPNetworkString(t *testing.T) {

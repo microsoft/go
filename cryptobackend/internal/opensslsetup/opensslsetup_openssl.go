@@ -2,7 +2,7 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-//go:build goexperiment.systemcrypto && (linux || freebsd)
+//go:build goexperiment.opensslcrypto
 
 // opensslsetup is a package that initializes the OpenSSL library.
 // It doesn't export any symbol, but blank importing it has the
