@@ -119,6 +119,7 @@ The `systemcrypto` experiment uses platform-specific code via build constraints.
 | Target platform | Library |
 | --- | --- |
 | Linux | OpenSSL |
+| FreeBSD (amd64 and arm64, since Go 1.27) | OpenSSL |
 | Windows | CNG |
 | macOS | CommonCrypto & CryptoKit |
 

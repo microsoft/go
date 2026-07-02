@@ -2,14 +2,16 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-//go:build goexperiment.systemcrypto
+//go:build goexperiment.opensslcrypto
 
-package aes
+package hmac
 
 import (
-	"crypto/cipher"
+	"hash"
 
 	"github.com/microsoft/go-crypto-openssl/openssl"
 )
 
-func New(key []byte) (cipher.Block, error) { return openssl.NewAESCipher(key) }
+func New[H hash.Hash](h func() H, key []byte) hash.Hash {
+	return openssl.NewHMAC(h, key)
+}

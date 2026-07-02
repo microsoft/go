@@ -1,22 +1,26 @@
 # No-cgo OpenSSL Backend
 
-This document describes how the Microsoft build of Go uses the cgo-less OpenSSL backend on Linux.
+This document describes how the Microsoft build of Go uses the cgo-less OpenSSL backend on Linux and FreeBSD.
 
 ## Overview
 
-In Go 1.27 and later, the cgo-less OpenSSL backend is part of `systemcrypto` on Linux.
+In Go 1.27 and later, the cgo-less OpenSSL backend is part of `systemcrypto` on Linux and FreeBSD.
 It is selected automatically when cgo is disabled and the target architecture is supported.
 
 > [!NOTE]
-> In Go 1.26, this backend was available as the experimental `GOEXPERIMENT=ms_nocgo_opensslcrypto` feature.
+> In Go 1.26, this backend was available as the experimental `GOEXPERIMENT=ms_nocgo_opensslcrypto` feature on Linux only.
 >
 > In Go 1.27, that experiment has been removed because the cgo-less backend is selected automatically when needed.
+>
+> FreeBSD support was added in Go 1.27.
 
 This allows the use of OpenSSL without requiring cgo.
 
 ## Supported architectures
 
-The cgo-less OpenSSL backend is supported on the following architectures:
+The cgo-less OpenSSL backend is supported on the following architectures.
+
+On Linux:
 
 - 386
 - **amd64**
@@ -26,6 +30,11 @@ The cgo-less OpenSSL backend is supported on the following architectures:
 - ppc64le
 - riscv64
 - s390x (added in Go 1.27)
+
+On FreeBSD (added in Go 1.27):
+
+- **amd64**
+- **arm64**
 
 The set of supported architectures is limited because each architecture requires a unique assembly implementation to call OpenSSL.
 Architectures are added based on demand and available resources.
