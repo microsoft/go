@@ -2,9 +2,9 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-//go:build goexperiment.systemcrypto
+//go:build goexperiment.systemcrypto && (linux || freebsd)
 
-package sha1
+package hash
 
 import (
 	"hash"
@@ -12,6 +12,4 @@ import (
 	"github.com/microsoft/go-crypto-openssl/openssl"
 )
 
-func New() hash.Hash { return openssl.NewSHA1() }
-
-func Sum(data []byte) [20]byte { return openssl.SHA1(data) }
+func Approved(h hash.Hash) bool { return openssl.FIPSApprovedHash(h) }
