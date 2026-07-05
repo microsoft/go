@@ -30,3 +30,23 @@ func TestUpdateCryptoDocsReproducible(t *testing.T) {
 		t.Errorf("Generated document does not match checked-in document. Run this command to update:\n  pwsh eng/run.ps1 updatecryptodocs")
 	}
 }
+
+func TestUpdateUserGuideReproducible(t *testing.T) {
+	checkedInPath := filepath.Join("..", "..", "..", "..", *userGuidePath)
+	checkedIn, err := os.ReadFile(checkedInPath)
+	if err != nil {
+		t.Fatalf("Failed to read checked-in document at %q: %v", checkedInPath, err)
+	}
+
+	generated, err := generateUserGuide()
+	if err != nil {
+		t.Fatalf("Failed to generate document: %v", err)
+	}
+
+	// Normalize Git-checked-out line endings to LF for comparison.
+	actual := strings.ReplaceAll(string(checkedIn), "\r\n", "\n")
+
+	if actual != generated {
+		t.Errorf("Generated document does not match checked-in document. Run this command to update:\n  pwsh eng/run.ps1 updatecryptodocs")
+	}
+}

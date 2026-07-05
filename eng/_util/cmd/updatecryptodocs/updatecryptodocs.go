@@ -17,7 +17,25 @@ import (
 
 var docPath = flag.String("path", filepath.Join("eng", "doc", "CrossPlatformCryptography.md"), "Path to CrossPlatformCryptography.md")
 
+var userGuidePath = flag.String("userguide-path", filepath.Join("eng", "doc", "fips", "UserGuide.md"), "Path to fips/UserGuide.md")
+
+var whichDoc = flag.String("doc", "all", "Which document to generate: crossplatform, userguide, or all")
+
 var useStdout = flag.Bool("stdout", false, "Write to stdout instead of file")
+
+// document couples a generator function with its output path.
+type document struct {
+	name     string
+	path     string
+	generate func() (string, error)
+}
+
+func documents() []document {
+	return []document{
+		{name: "crossplatform", path: *docPath, generate: generate},
+		{name: "userguide", path: *userGuidePath, generate: generateUserGuide},
+	}
+}
 
 func main() {
 	flag.Parse()
@@ -29,16 +47,33 @@ func main() {
 }
 
 func write() error {
-	s, err := generate()
-	if err != nil {
-		return fmt.Errorf("failed to generate document: %v", err)
+	var selected []document
+	for _, d := range documents() {
+		if *whichDoc == "all" || *whichDoc == d.name {
+			selected = append(selected, d)
+		}
+	}
+	if len(selected) == 0 {
+		return fmt.Errorf("unknown document %q: expected crossplatform, userguide, or all", *whichDoc)
+	}
+	if *useStdout && len(selected) != 1 {
+		return fmt.Errorf("-stdout requires selecting a single document with -doc")
 	}
 
-	if *useStdout {
-		fmt.Print(s)
-		return nil
+	for _, d := range selected {
+		s, err := d.generate()
+		if err != nil {
+			return fmt.Errorf("failed to generate %s document: %v", d.name, err)
+		}
+		if *useStdout {
+			fmt.Print(s)
+			continue
+		}
+		if err := os.WriteFile(d.path, []byte(s), 0o644); err != nil {
+			return err
+		}
 	}
-	return os.WriteFile(*docPath, []byte(s), 0o644)
+	return nil
 }
 
 func generate() (string, error) {
@@ -74,10 +109,8 @@ func printSection(w io.Writer, section Section, level int) {
 		fmt.Fprintln(w, "This section includes the following packages:")
 		fmt.Fprintln(w)
 		for _, pkg := range validPackages {
-			if strings.HasPrefix(pkg, "crypto/") {
-				fmt.Fprintf(w, "- [%s](https://pkg.go.dev/%s)\n", pkg, pkg)
-			} else if strings.HasPrefix(pkg, "golang.org/") {
-				fmt.Fprintf(w, "- [%s](https://pkg.go.dev/%s)\n", pkg, pkg)
+			if isRegisteredPackage(pkg) {
+				fmt.Fprintf(w, "- [%s](%s)\n", pkg, packageLink(pkg))
 			} else {
 				// Fallback
 				fmt.Fprintf(w, "- %s\n", pkg)
@@ -312,6 +345,17 @@ func validate(doc Document) error {
 func validateSection(section Section) error {
 	if section.Title == "" {
 		return fmt.Errorf("section missing title")
+	}
+
+	// Every package link must resolve through the shared registry so that the
+	// generated documents cannot reference packages that are not tracked in the
+	// single source of truth.
+	for _, pkg := range section.Packages {
+		if strings.Contains(pkg, "/") || strings.Contains(pkg, ".") {
+			if !isRegisteredPackage(pkg) {
+				return fmt.Errorf("package %q in section %q is not registered in cryptoPackages", pkg, section.Title)
+			}
+		}
 	}
 
 	seenNames := make(map[string]bool)
