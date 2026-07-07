@@ -37,24 +37,24 @@ var cryptoPackages = []CryptoPackage{
 	{ImportPath: "crypto/ecdsa", InUserGuide: true},
 	{ImportPath: "crypto/ed25519", InUserGuide: true},
 	{ImportPath: "crypto/elliptic", InUserGuide: true},
+	{ImportPath: "crypto/hkdf", InUserGuide: true},
 	{ImportPath: "crypto/hmac", InUserGuide: true},
 	{ImportPath: "crypto/md5", InUserGuide: true},
+	{ImportPath: "crypto/mldsa", InUserGuide: true},
+	{ImportPath: "crypto/mlkem", InUserGuide: true},
+	{ImportPath: "crypto/pbkdf2", InUserGuide: true},
 	{ImportPath: "crypto/rand", InUserGuide: true},
 	{ImportPath: "crypto/rc4", InUserGuide: true},
 	{ImportPath: "crypto/sha1", InUserGuide: true},
 	{ImportPath: "crypto/sha256", InUserGuide: true},
+	{ImportPath: "crypto/sha3", InUserGuide: true},
 	{ImportPath: "crypto/sha512", InUserGuide: true},
 	{ImportPath: "crypto/rsa", InUserGuide: true},
 	{ImportPath: "crypto/subtle", InUserGuide: true},
 	{ImportPath: "crypto/tls", InUserGuide: true},
 
 	// Packages referenced only by CrossPlatformCryptography.md.
-	{ImportPath: "crypto/sha3"},
-	{ImportPath: "crypto/mldsa"},
-	{ImportPath: "crypto/mlkem"},
 	{ImportPath: "crypto/hpke"},
-	{ImportPath: "crypto/hkdf"},
-	{ImportPath: "crypto/pbkdf2"},
 }
 
 // packagesByImportPath indexes cryptoPackages by import path.
