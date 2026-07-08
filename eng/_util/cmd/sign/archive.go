@@ -427,10 +427,10 @@ func (a *archive) prepareArchiveSignatures(ctx context.Context) ([]*fileToSign, 
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	// Copy the archive file to have .sig suffix, e.g. "tar.gz" to "tar.gz.sig". The signing
-	// process sends the "tar.gz.sig" file to get a signature, then replaces the "tar.gz.sig"
-	// file's content in-place with the result. We need to preemptively make a renamed copy of the
-	// file so we end up with both the original file and sig on the machine.
+	// Copy the archive file and add a ".sig" suffix. The signing process sends this new file to get a
+	// signature, then replaces its content in-place with the result. We need to preemptively make
+	// a renamed copy of the file so we end up with both the original file and signature on the
+	// machine.
 	log.Printf("Copying file for signature generation: %q -> %q", a.latestPath(), a.sigPath())
 	if err := copyFile(a.sigPath(), a.latestPath()); err != nil {
 		return nil, err
@@ -458,6 +458,10 @@ func (a *archive) copyToDestination(ctx context.Context) error {
 		return err
 	}
 	if err := copyFile(filepath.Join(*destinationDir, a.name+".sig"), a.sigPath()); err != nil {
+		return err
+	}
+	// Also produce an .asc file (same content) to match upstream Go's convention.
+	if err := copyFile(filepath.Join(*destinationDir, a.name+".asc"), a.sigPath()); err != nil {
 		return err
 	}
 	return nil
