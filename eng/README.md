@@ -21,6 +21,9 @@ implements part of the infrastructure used to build Go, and more tools for
 project maintenance. For example, it implements code flow: updating the
 submodule to new Go commits.
 
+Azure DevOps pipeline definitions and related pipeline documentation live in
+[eng/pipeline](pipeline).
+
 ## Building Go
 
 Prerequisites:
