@@ -1,4 +1,4 @@
-## Pipelines
+# Microsoft build of Go pipelines
 
 This directory contains Azure DevOps (AzDO) YAML pipelines for CI.
 
