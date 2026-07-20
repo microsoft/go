@@ -24,7 +24,7 @@ function Download-Stage0() {
   # pre-installed (or the right version pre-installed). This CI script installs a consistent version
   # of Go to handle this. This also makes it easier to locally repro issues in CI that involve a
   # specific version of Go. The downloaded copy of Go is called the "stage 0" version.
-  $stage0_go_version = 'go1.25.0-1'
+  $stage0_go_version = 'go1.26.0-1'
 
   # Install stage 0 Go inside the repository (under "eng/artifacts/") to avoid modifying the user's
   # home directory, and to make cleanup easy (included in "git clean -xdf"). The "_" prefix prevents
