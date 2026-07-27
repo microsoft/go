@@ -85,7 +85,6 @@ Delaying the upgrade until *previous* is out of support allows compatibility iss
 
 In ["What version should I use?"](#what-version-should-i-use), we described how to pick between *previous* and *current*.
 Once you do, we recommend that you use the numeric version, so that when a new major version is released, you can upgrade your project at your own pace.
-
 For example, if *current* is 1.26, we recommend that you configure your dependency upgrade tool to use the latest `1.26.*` version.
 
 Both official Go and the Microsoft build of Go occasionally have breaking changes in new major versions, and pinning lets you migrate to the next major version at your own pace while continuing to receive security updates.
