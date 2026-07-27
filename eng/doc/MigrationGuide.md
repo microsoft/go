@@ -53,8 +53,8 @@ See the [Microsoft build of Go release cycle and policy](https://github.com/micr
 
 > [!NOTE]
 > "Current" and "previous" are also known as `N` and `N-1`, "stable" and "oldstable", and "latest" and "previous".
-> It only refers to the major version.
-> Old patch versions should not be used.
+> These terms refer only to the major version.
+> Do not use old patch versions.
 
 Check the [Microsoft build of Go binary archives table](https://github.com/microsoft/go/blob/microsoft/main/eng/doc/Downloads.md) to see the currently supported *current* and *previous* versions.
 
