@@ -139,10 +139,10 @@ Use a 'go' that was recently built by the current branch to ensure stable result
  .../internal/fakecgo/fakecgo.lock             |    3 +
  .../internal/fakecgo/freebsd.go               |   29 +
  .../internal/fakecgo/generate.go              |    6 +
- .../internal/fakecgo/go_darwin.go             |   90 +
- .../internal/fakecgo/go_freebsd.go            |   81 +
+ .../internal/fakecgo/go_darwin.go             |   88 +
+ .../internal/fakecgo/go_freebsd.go            |   79 +
  .../internal/fakecgo/go_libinit.go            |   74 +
- .../internal/fakecgo/go_linux.go              |   81 +
+ .../internal/fakecgo/go_linux.go              |   79 +
  .../internal/fakecgo/go_setenv.go             |   20 +
  .../internal/fakecgo/go_util.go               |   40 +
  .../internal/fakecgo/iscgo.go                 |   21 +
@@ -152,8 +152,10 @@ Use a 'go' that was recently built by the current branch to ensure stable result
  .../internal/fakecgo/libcgo_linux.go          |   22 +
  .../internal/fakecgo/linux.go                 |  186 ++
  .../internal/fakecgo/setenv.go                |   21 +
+ .../internal/fakecgo/threadentry_amd64.go     |   17 +
+ .../internal/fakecgo/threadentry_noasm.go     |   26 +
  .../internal/fakecgo/trampolines_386.s        |  123 +
- .../internal/fakecgo/trampolines_amd64.s      |  109 +
+ .../internal/fakecgo/trampolines_amd64.s      |  126 +
  .../internal/fakecgo/trampolines_arm.s        |  124 +
  .../internal/fakecgo/trampolines_arm64.s      |   83 +
  .../internal/fakecgo/trampolines_linux_386.s  |   80 +
@@ -420,7 +422,7 @@ Use a 'go' that was recently built by the current branch to ensure stable result
  .../go/cryptobackend/tls13/tls13_openssl.go   |   18 +
  .../go/cryptobackend/tls13/tls13_windows.go   |   14 +
  src/vendor/modules.txt                        |   55 +
- 412 files changed, 39651 insertions(+), 11 deletions(-)
+ 414 files changed, 39705 insertions(+), 11 deletions(-)
  create mode 100644 src/cmd/internal/telemetry/counter/deps_ignore.go
  create mode 100644 src/cmd/vendor/github.com/microsoft/go-infra/telemetry/LICENSE
  create mode 100644 src/cmd/vendor/github.com/microsoft/go-infra/telemetry/README.md
@@ -558,6 +560,8 @@ Use a 'go' that was recently built by the current branch to ensure stable result
  create mode 100644 src/vendor/github.com/microsoft/go-crypto-openssl/internal/fakecgo/libcgo_linux.go
  create mode 100644 src/vendor/github.com/microsoft/go-crypto-openssl/internal/fakecgo/linux.go
  create mode 100644 src/vendor/github.com/microsoft/go-crypto-openssl/internal/fakecgo/setenv.go
+ create mode 100644 src/vendor/github.com/microsoft/go-crypto-openssl/internal/fakecgo/threadentry_amd64.go
+ create mode 100644 src/vendor/github.com/microsoft/go-crypto-openssl/internal/fakecgo/threadentry_noasm.go
  create mode 100644 src/vendor/github.com/microsoft/go-crypto-openssl/internal/fakecgo/trampolines_386.s
  create mode 100644 src/vendor/github.com/microsoft/go-crypto-openssl/internal/fakecgo/trampolines_amd64.s
  create mode 100644 src/vendor/github.com/microsoft/go-crypto-openssl/internal/fakecgo/trampolines_arm.s
@@ -2734,7 +2738,7 @@ index 00000000000000..d4671e1584dfa8
 +// This file is here just to declare cryptobackend dependencies.
 +// This allows tracking their versions in a single patch file.
 diff --git a/src/go.mod b/src/go.mod
-index 31cff08cfb0658..4fbf327344f9f2 100644
+index 5cd65aa1cd3b98..6c38eb85ec32be 100644
 --- a/src/go.mod
 +++ b/src/go.mod
 @@ -3,11 +3,17 @@ module std
@@ -2742,9 +2746,9 @@ index 31cff08cfb0658..4fbf327344f9f2 100644
  
  require (
 -	golang.org/x/crypto v0.54.1-0.20260714033321-10b54ffa51b1
--	golang.org/x/net v0.57.1-0.20260714001123-e7e2eb826435
+-	golang.org/x/net v0.57.1-0.20260720200444-a02ddfa7eacb
 +	github.com/microsoft/go-crypto-darwin v0.0.3-0.20260619075948-e554deeefa9f // indirect
-+	github.com/microsoft/go-crypto-openssl v0.5.1-0.20260728092821-b4aef158c3ae // indirect
++	github.com/microsoft/go-crypto-openssl v0.5.1-0.20260731132607-9fc2a2ab131d // indirect
 +	github.com/microsoft/go-crypto-winnative v0.0.0-20260605073512-713d2add0825 // indirect
 +	golang.org/x/sys v0.47.0 // indirect
 +	golang.org/x/text v0.40.0 // indirect
@@ -2755,24 +2759,24 @@ index 31cff08cfb0658..4fbf327344f9f2 100644
 -	golang.org/x/text v0.40.0 // indirect
 +	github.com/microsoft/go/cryptobackend v0.0.0
 +	golang.org/x/crypto v0.54.1-0.20260714033321-10b54ffa51b1
-+	golang.org/x/net v0.57.1-0.20260714001123-e7e2eb826435
++	golang.org/x/net v0.57.1-0.20260720200444-a02ddfa7eacb
  )
 +
 +replace github.com/microsoft/go/cryptobackend => ../../cryptobackend
 diff --git a/src/go.sum b/src/go.sum
-index 829e8fbf4b3026..fe83c8851ce90d 100644
+index f540571ca5387d..363dffe7c44517 100644
 --- a/src/go.sum
 +++ b/src/go.sum
 @@ -1,3 +1,9 @@
 +github.com/microsoft/go-crypto-darwin v0.0.3-0.20260619075948-e554deeefa9f h1:ksW7MznRoTYAoBaNIKyjqxR0Tp0aUqY1eALRaerngnk=
 +github.com/microsoft/go-crypto-darwin v0.0.3-0.20260619075948-e554deeefa9f/go.mod h1:QahyqOoEDhEJ08aC1WtiWq691LyNgXq3qrjI4QmdPzM=
-+github.com/microsoft/go-crypto-openssl v0.5.1-0.20260728092821-b4aef158c3ae h1:xSoD74/EAMa3AWS7h6+fWoBzTu4Yqh5J5X7dYdYNxkg=
-+github.com/microsoft/go-crypto-openssl v0.5.1-0.20260728092821-b4aef158c3ae/go.mod h1:gJrjX+yWGi9pkbfPVDDh+ZbgjtQoRSXHjb/ZyjwKk34=
++github.com/microsoft/go-crypto-openssl v0.5.1-0.20260731132607-9fc2a2ab131d h1:Whi7ZQB1mjFKhFHiKtyxCYg0OlI+MnNpwcH47+T/Vdw=
++github.com/microsoft/go-crypto-openssl v0.5.1-0.20260731132607-9fc2a2ab131d/go.mod h1:gJrjX+yWGi9pkbfPVDDh+ZbgjtQoRSXHjb/ZyjwKk34=
 +github.com/microsoft/go-crypto-winnative v0.0.0-20260605073512-713d2add0825 h1:nmQ1K/L5GISW8UwbUwE376h3WXREEpREFdc3fNklcXc=
 +github.com/microsoft/go-crypto-winnative v0.0.0-20260605073512-713d2add0825/go.mod h1:a1Z07CJIuWa8WT/pzFIGNTTKS96s8o1B1TPOziAHUxw=
  golang.org/x/crypto v0.54.1-0.20260714033321-10b54ffa51b1 h1:vGPAn+SBeT/HVkWqXTwgapJgtGQJztG0WR0OTuHzMAI=
  golang.org/x/crypto v0.54.1-0.20260714033321-10b54ffa51b1/go.mod h1:KWL8ny2AZdGR2cWmzeHrp2azQPGogOv+HeQaVEXC2dk=
- golang.org/x/net v0.57.1-0.20260714001123-e7e2eb826435 h1:F2VkyVpi+/NElkyxEdnKyWzMLTGeSpJBbLgHJKS1rJ0=
+ golang.org/x/net v0.57.1-0.20260720200444-a02ddfa7eacb h1:4Zpnuj4Vkh1c0wOa1MvxIp+I66KR18NRN08y9bN5zL0=
 diff --git a/src/go/build/deps_test.go b/src/go/build/deps_test.go
 index 4959a421892996..67627cdb93ff22 100644
 --- a/src/go/build/deps_test.go
@@ -15620,12 +15624,12 @@ index 00000000000000..17c6f83475ce5e
 +func call5(fn, a1, a2, a3, a4, a5 uintptr) uintptr
 diff --git a/src/vendor/github.com/microsoft/go-crypto-openssl/internal/fakecgo/fakecgo.lock b/src/vendor/github.com/microsoft/go-crypto-openssl/internal/fakecgo/fakecgo.lock
 new file mode 100644
-index 00000000000000..b835f8a4ac2e89
+index 00000000000000..eaf9e8639e2c13
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go-crypto-openssl/internal/fakecgo/fakecgo.lock
 @@ -0,0 +1,3 @@
 +{
-+  "commit_hash": "d476432ce7e3d8bb64b7cd257d332ee221ed6e7b"
++  "commit_hash": "077e9d53635a94054efc341688c8e1e7ed499382"
 +}
 diff --git a/src/vendor/github.com/microsoft/go-crypto-openssl/internal/fakecgo/freebsd.go b/src/vendor/github.com/microsoft/go-crypto-openssl/internal/fakecgo/freebsd.go
 new file mode 100644
@@ -15676,10 +15680,10 @@ index 00000000000000..88c4cdf9ec04cc
 +//go:generate go run update_tool.go
 diff --git a/src/vendor/github.com/microsoft/go-crypto-openssl/internal/fakecgo/go_darwin.go b/src/vendor/github.com/microsoft/go-crypto-openssl/internal/fakecgo/go_darwin.go
 new file mode 100644
-index 00000000000000..e49117058f381e
+index 00000000000000..45b3a058e2b5f1
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go-crypto-openssl/internal/fakecgo/go_darwin.go
-@@ -0,0 +1,90 @@
+@@ -0,0 +1,88 @@
 +// Code generated by update_tool.go from ebitengine/purego; DO NOT EDIT.
 +
 +// Copyright 2011 The Go Authors. All rights reserved.
@@ -15739,9 +15743,7 @@ index 00000000000000..e49117058f381e
 +	//#endif
 +	setg_trampoline(setg_func, uintptr(unsafe.Pointer(ts.g)))
 +
-+	// faking funcs in go is a bit a... involved - but the following works :)
-+	fn := uintptr(unsafe.Pointer(&ts.fn))
-+	(*(*func())(unsafe.Pointer(&fn)))()
++	callThreadEntryFn(ts.fn)
 +
 +	return nil
 +}
@@ -15772,10 +15774,10 @@ index 00000000000000..e49117058f381e
 +}
 diff --git a/src/vendor/github.com/microsoft/go-crypto-openssl/internal/fakecgo/go_freebsd.go b/src/vendor/github.com/microsoft/go-crypto-openssl/internal/fakecgo/go_freebsd.go
 new file mode 100644
-index 00000000000000..37c6b50e2e6e85
+index 00000000000000..92f946ddbbf415
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go-crypto-openssl/internal/fakecgo/go_freebsd.go
-@@ -0,0 +1,81 @@
+@@ -0,0 +1,79 @@
 +// Code generated by update_tool.go from ebitengine/purego; DO NOT EDIT.
 +
 +// Copyright 2011 The Go Authors. All rights reserved.
@@ -15829,9 +15831,7 @@ index 00000000000000..37c6b50e2e6e85
 +
 +	setg_trampoline(setg_func, uintptr(unsafe.Pointer(ts.g)))
 +
-+	// faking funcs in go is a bit a... involved - but the following works :)
-+	fn := uintptr(unsafe.Pointer(&ts.fn))
-+	(*(*func())(unsafe.Pointer(&fn)))()
++	callThreadEntryFn(ts.fn)
 +
 +	return nil
 +}
@@ -15939,10 +15939,10 @@ index 00000000000000..38ba01bb4f273d
 +}
 diff --git a/src/vendor/github.com/microsoft/go-crypto-openssl/internal/fakecgo/go_linux.go b/src/vendor/github.com/microsoft/go-crypto-openssl/internal/fakecgo/go_linux.go
 new file mode 100644
-index 00000000000000..2018c6dc2e1b85
+index 00000000000000..781915f77d67c9
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go-crypto-openssl/internal/fakecgo/go_linux.go
-@@ -0,0 +1,81 @@
+@@ -0,0 +1,79 @@
 +// Code generated by update_tool.go from ebitengine/purego; DO NOT EDIT.
 +
 +// Copyright 2011 The Go Authors. All rights reserved.
@@ -15996,9 +15996,7 @@ index 00000000000000..2018c6dc2e1b85
 +
 +	setg_trampoline(setg_func, uintptr(unsafe.Pointer(ts.g)))
 +
-+	// faking funcs in go is a bit a... involved - but the following works :)
-+	fn := uintptr(unsafe.Pointer(&ts.fn))
-+	(*(*func())(unsafe.Pointer(&fn)))()
++	callThreadEntryFn(ts.fn)
 +
 +	return nil
 +}
@@ -16479,6 +16477,61 @@ index 00000000000000..30b9e8eb88c83d
 +//go:linkname _cgo_unsetenv runtime._cgo_unsetenv
 +var x_cgo_unsetenv_trampoline byte
 +var _cgo_unsetenv = &x_cgo_unsetenv_trampoline
+diff --git a/src/vendor/github.com/microsoft/go-crypto-openssl/internal/fakecgo/threadentry_amd64.go b/src/vendor/github.com/microsoft/go-crypto-openssl/internal/fakecgo/threadentry_amd64.go
+new file mode 100644
+index 00000000000000..5c5b4625b90f62
+--- /dev/null
++++ b/src/vendor/github.com/microsoft/go-crypto-openssl/internal/fakecgo/threadentry_amd64.go
+@@ -0,0 +1,17 @@
++// Code generated by update_tool.go from ebitengine/purego; DO NOT EDIT.
++
++// SPDX-License-Identifier: Apache-2.0
++// SPDX-FileCopyrightText: 2026 The Ebitengine Authors
++
++//go:build !cgo && amd64 && (darwin || freebsd || linux)
++
++package fakecgo
++
++// callThreadEntryFn calls fn (runtime.mstart) while saving and restoring the
++// frame pointer and other callee-saved registers around the call. mstart
++// returns with BP clobbered, so without this shim the caller's frame-pointer
++// epilogue would fault. Implemented in trampolines_amd64.s.
++//
++//go:nosplit
++//go:norace
++func callThreadEntryFn(fn uintptr)
+diff --git a/src/vendor/github.com/microsoft/go-crypto-openssl/internal/fakecgo/threadentry_noasm.go b/src/vendor/github.com/microsoft/go-crypto-openssl/internal/fakecgo/threadentry_noasm.go
+new file mode 100644
+index 00000000000000..f73a6cd2d6780b
+--- /dev/null
++++ b/src/vendor/github.com/microsoft/go-crypto-openssl/internal/fakecgo/threadentry_noasm.go
+@@ -0,0 +1,26 @@
++// Code generated by update_tool.go from ebitengine/purego; DO NOT EDIT.
++
++// SPDX-License-Identifier: Apache-2.0
++// SPDX-FileCopyrightText: 2026 The Ebitengine Authors
++
++//go:build !cgo && !amd64 && (darwin || freebsd || linux)
++
++package fakecgo
++
++import "unsafe"
++
++// callThreadEntryFn calls fn (runtime.mstart). On architectures without the
++// amd64 frame-pointer epilogue issue this is a plain indirect call. It must be
++// nosplit and norace like the threadentry callers so it neither inserts a
++// morestack preamble nor runs race instrumentation during the fragile
++// thread-bootstrap window.
++//
++//go:nosplit
++//go:norace
++func callThreadEntryFn(fn uintptr) {
++	// fn is the code pointer. Build a func value whose first word is fn by
++	// pointing the closure at &fn, then call it (same trick fakecgo has always
++	// used to call a raw PC from Go).
++	fnPtr := uintptr(unsafe.Pointer(&fn))
++	(*(*func())(unsafe.Pointer(&fnPtr)))()
++}
 diff --git a/src/vendor/github.com/microsoft/go-crypto-openssl/internal/fakecgo/trampolines_386.s b/src/vendor/github.com/microsoft/go-crypto-openssl/internal/fakecgo/trampolines_386.s
 new file mode 100644
 index 00000000000000..80a9e968c6a8cd
@@ -16610,10 +16663,10 @@ index 00000000000000..80a9e968c6a8cd
 +	RET
 diff --git a/src/vendor/github.com/microsoft/go-crypto-openssl/internal/fakecgo/trampolines_amd64.s b/src/vendor/github.com/microsoft/go-crypto-openssl/internal/fakecgo/trampolines_amd64.s
 new file mode 100644
-index 00000000000000..049e2bbb1e7f44
+index 00000000000000..f6f09c6b2fc7d6
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go-crypto-openssl/internal/fakecgo/trampolines_amd64.s
-@@ -0,0 +1,109 @@
+@@ -0,0 +1,126 @@
 +// Code generated by update_tool.go from ebitengine/purego; DO NOT EDIT.
 +
 +// SPDX-License-Identifier: Apache-2.0
@@ -16696,6 +16749,23 @@ index 00000000000000..049e2bbb1e7f44
 +	MOVQ DI, AX
 +	MOVQ ·threadentry_call(SB), R11
 +	MOVQ (R11), R11
++	CALL R11
++
++	POP_REGS_HOST_TO_ABI0()
++	RET
++
++// func callThreadEntryFn(fn uintptr)
++// Calls fn (runtime.mstart) with the frame pointer and other callee-saved
++// registers saved on the stack across the call. mstart returns with BP
++// clobbered (BP==0); saving/restoring BP here (as real cgo's crosscall does)
++// keeps the caller's frame-pointer LEAVE epilogue valid on return.
++TEXT ·callThreadEntryFn(SB), NOSPLIT, $0-8
++	MOVQ fn+0(FP), R11
++	PUSH_REGS_HOST_TO_ABI0()
++
++	// X15 is designated by Go as a fixed zero register.
++	PXOR X15, X15
++
 +	CALL R11
 +
 +	POP_REGS_HOST_TO_ABI0()
@@ -45251,7 +45321,7 @@ index 00000000000000..b7ffeea07c6b8d
 +	panic("cryptobackend: not available")
 +}
 diff --git a/src/vendor/modules.txt b/src/vendor/modules.txt
-index 3592a83513f392..7e4233d48fc0ec 100644
+index 6a02c35f7fafa9..d46e368a70e8f2 100644
 --- a/src/vendor/modules.txt
 +++ b/src/vendor/modules.txt
 @@ -1,3 +1,57 @@
@@ -45264,7 +45334,7 @@ index 3592a83513f392..7e4233d48fc0ec 100644
 +github.com/microsoft/go-crypto-darwin/internal/security
 +github.com/microsoft/go-crypto-darwin/internal/xsyscall
 +github.com/microsoft/go-crypto-darwin/xcrypto
-+# github.com/microsoft/go-crypto-openssl v0.5.1-0.20260728092821-b4aef158c3ae
++# github.com/microsoft/go-crypto-openssl v0.5.1-0.20260731132607-9fc2a2ab131d
 +## explicit; go 1.25
 +github.com/microsoft/go-crypto-openssl/bbig
 +github.com/microsoft/go-crypto-openssl/internal/fakecgo
