@@ -17,6 +17,7 @@ To comply with Microsoft internal policy for the use of Go, most projects need t
 
 1. [Use the Microsoft build of Go **for CI (Continuous Integration) and build environments.**](#ci-and-build-environment-migration-steps)
     - See [Microsoft Toolset Identification](./MicrosoftToolsetIdentification.md) if it's not clear which distribution of Go you're currently using.
+    - Not sure what version to use? See [What version should I use?](#what-version-should-i-use)
 1. [**Test** your program.](#testing)
     - It's important to test on all target platforms. The changes to runtime behavior are platform-specific.
 1. Consider **whether your project must be FIPS compliant** and if so, [**review your project**](#review-project-for-fips-compliance).
@@ -29,15 +30,6 @@ Consider [installing the toolset](/README.md#download-and-install) on a develope
 Like the official Go distribution, the Microsoft build of Go has no Go runtime component that must be installed in the target environment.
 Your Go application is still a single executable binary.
 However, in some cases, it may now have additional dependencies.
-
-> [!TIP]
-> Regardless of which method you use to install Go, we recommend picking a specific major version of Go and setting up your build system to use the latest update to that major version.
-> (For example, `1.26.*`. This is also called "pinning" to major version `26`.)
-> Both official Go and the Microsoft build of Go occasionally have breaking changes in new major versions, and pinning lets you migrate to the next major version at your own pace.
->
-> However, pinning increases maintenance burden when there are no breaking changes, because you are responsible for making sure you aren't using a version of Go that is past End-of-Life (EOL) and insecure.
-> Some projects may prefer to always use the latest version of Go to be sure they never miss maintenance, even though this puts the project at risk of unexpected breaks when a new major version is released.
-> Ultimately, these risks must be evaluated in the context of each project.
 
 ## What's different?
 
@@ -52,6 +44,55 @@ The Microsoft build of Go includes [patches](/patches/) that:
 - **Embed Microsoft-specific version information** into built Go binaries for [easier identification](./MicrosoftToolsetIdentification.md).
 
 For a detailed description of every feature, see the [Additional Features](./AdditionalFeatures.md) document.
+
+## What version should I use?
+
+We support two major versions of the Microsoft build of Go.
+They are called the *current* and *previous* major versions.
+See the [Microsoft build of Go release cycle and policy](https://github.com/microsoft/go#release-cycle-and-policy) for details.
+
+> [!NOTE]
+> "Current" and "previous" are also known as `N` and `N-1`, "stable" and "oldstable", and "latest" and "previous".
+> These terms refer only to the major version.
+> Do not use old patch versions.
+
+Check the [Microsoft build of Go binary archives table](https://github.com/microsoft/go/blob/microsoft/main/eng/doc/Downloads.md) to see the currently supported *current* and *previous* versions.
+
+If you don't already have a reason to pick *current* or *previous*, you can use these criteria to help decide:
+
+1. For an existing project using a supported major version of Go: use the same major version of the Microsoft build of Go.
+1. For an existing project using an unsupported, old version of Go: use *previous*.
+    * It's very important that you migrate quickly to get security fixes. Using *previous* lets you avoid a few things that could delay your migration:
+      * A recently-released major version (for example, `1.26.0`) may have some initial bugs that will be fixed in the next handful of patch releases.
+      * If there have been breaking changes that affect your project, *current* may have more breaking changes than *previous*. You will need to resolve these changes eventually, but using *previous* as a stepping stone gives you security support in the meantime.
+1. For a new project or a project in early development: use the *current* version to take advantage of new features.
+    * If you encounter issues with *current*, please investigate and report the issue in the correct location based on your findings. You can try using *previous* to unblock your development workflow while the problem is worked out.
+
+In all cases, after migration to the Microsoft build of Go is completed, we recommend that you upgrade from *previous* to *current* as soon as you can.
+It's important to discover compatibility issues before *previous* reaches end of support, so the sooner you attempt to upgrade, the better.
+Delaying the upgrade until *previous* is out of support allows compatibility issues to compound with security issues, delaying your ability to address Go security vulnerabilities.
+
+> [!NOTE]
+> If you maintain a Go library, we recommend keeping it compatible with both the *previous* and *current* versions so the choice of version is left up to the library's users.
+> Testing libraries against both *previous* and *current* is recommended.
+
+> [!TIP]
+> If it seems like pointless effort to use *previous* and then quickly upgrade to *current*, simply use *current*.
+> The suggested migration path is intended to help risk-averse or complex projects, but there may be cases where even in that context, this approach doesn't make sense.
+> It's ok to use any supported version of the Microsoft build of Go.
+
+## Dependency pinning
+
+In ["What version should I use?"](#what-version-should-i-use), we described how to pick between *previous* and *current*.
+Once you do, we recommend that you use the numeric version, so that when a new major version is released, you can upgrade your project at your own pace.
+For example, if *current* is 1.26, we recommend that you configure your dependency upgrade tool to use the latest `1.26.*` version.
+
+Both official Go and the Microsoft build of Go occasionally have breaking changes in new major versions, and pinning lets you migrate to the next major version at your own pace while continuing to receive security updates.
+
+However, we recognize that in some situations, pinning may not be feasible.
+The dependency update system may not provide all features necessary to pin a dependency in the desired way.
+The maintenance cost of updating a major version pin may be too high compared to the risk and impact of encountering "live" compatibility breaks.
+Ultimately, these risks and costs must be evaluated in the context of each project.
 
 ## CI and build environment migration steps
 
