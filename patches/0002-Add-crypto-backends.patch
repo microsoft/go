@@ -76,7 +76,7 @@ Subject: [PATCH] Add crypto backends
  .../internal/fips140only/fips140only_test.go  |  47 ++-
  src/crypto/internal/fips140test/acvp_test.go  |   6 +
  src/crypto/internal/fips140test/cast_test.go  |   2 +
- src/crypto/internal/fips140test/fips_test.go  |   2 +-
+ src/crypto/internal/fips140test/fips_test.go  |   3 +-
  src/crypto/internal/rand/rand.go              |   8 +-
  src/crypto/md5/md5.go                         |  12 +
  src/crypto/md5/md5_test.go                    |  18 +-
@@ -137,7 +137,7 @@ Subject: [PATCH] Add crypto backends
  src/os/exec/exec_test.go                      |   9 +
  src/runtime/runtime_boring.go                 |   5 +
  src/syscall/syscall_windows.go                |   3 +
- 133 files changed, 2523 insertions(+), 378 deletions(-)
+ 133 files changed, 2524 insertions(+), 378 deletions(-)
  create mode 100644 src/cmd/go/systemcrypto_test.go
  create mode 100644 src/crypto/dsa/boring.go
  create mode 100644 src/crypto/dsa/notboring.go
@@ -2280,7 +2280,7 @@ index 275c60b4de49eb..a5b6ae9dc90505 100644
  		return nil, err
  	}
 diff --git a/src/crypto/ecdsa/ecdsa.go b/src/crypto/ecdsa/ecdsa.go
-index 40a89017570171..24b8ae80344ee8 100644
+index 3bd4a5e7b4adaa..48ec7d658c1bbd 100644
 --- a/src/crypto/ecdsa/ecdsa.go
 +++ b/src/crypto/ecdsa/ecdsa.go
 @@ -20,8 +20,6 @@ import (
@@ -2303,7 +2303,7 @@ index 40a89017570171..24b8ae80344ee8 100644
  	"golang.org/x/crypto/cryptobyte"
  	"golang.org/x/crypto/cryptobyte/asn1"
  )
-@@ -339,8 +341,8 @@ func (priv *PrivateKey) Sign(random io.Reader, digest []byte, opts crypto.Signer
+@@ -343,8 +345,8 @@ func (priv *PrivateKey) Sign(random io.Reader, digest []byte, opts crypto.Signer
  // ignored unless GODEBUG=cryptocustomrand=1 is set. This setting will be removed
  // in a future Go release. Instead, use [testing/cryptotest.SetGlobalRandom].
  func GenerateKey(c elliptic.Curve, r io.Reader) (*PrivateKey, error) {
@@ -2314,7 +2314,7 @@ index 40a89017570171..24b8ae80344ee8 100644
  		if err != nil {
  			return nil, err
  		}
-@@ -389,12 +391,12 @@ func SignASN1(r io.Reader, priv *PrivateKey, hash []byte) ([]byte, error) {
+@@ -393,12 +395,12 @@ func SignASN1(r io.Reader, priv *PrivateKey, hash []byte) ([]byte, error) {
  		return nil, errors.New("ecdsa: hash cannot be empty")
  	}
  
@@ -2329,7 +2329,7 @@ index 40a89017570171..24b8ae80344ee8 100644
  	}
  	boring.UnreachableExceptTests()
  
-@@ -510,12 +512,13 @@ func VerifyASN1(pub *PublicKey, hash, sig []byte) bool {
+@@ -511,12 +513,13 @@ func VerifyASN1(pub *PublicKey, hash, sig []byte) bool {
  		return false
  	}
  
@@ -3084,10 +3084,10 @@ index ebd73b146a373a..0bbcdbdb8ce931 100644
  		bsslModule    = "boringssl.googlesource.com/boringssl.git"
  		bsslVersion   = "v0.0.0-20260422110153-4ccbe2adaf4f"
 diff --git a/src/crypto/internal/fips140test/cast_test.go b/src/crypto/internal/fips140test/cast_test.go
-index 817dcb9a35a793..8efc547d0d52fc 100644
+index 99eab7e5de91e4..e5b36643ae9702 100644
 --- a/src/crypto/internal/fips140test/cast_test.go
 +++ b/src/crypto/internal/fips140test/cast_test.go
-@@ -160,6 +160,7 @@ func TestConditionals(t *testing.T) {
+@@ -162,6 +162,7 @@ func TestConditionals(t *testing.T) {
  }
  
  func TestCASTPasses(t *testing.T) {
@@ -3095,7 +3095,7 @@ index 817dcb9a35a793..8efc547d0d52fc 100644
  	moduleStatus(t)
  	cryptotest.MustSupportFIPS140(t)
  
-@@ -183,6 +184,7 @@ func TestCASTPasses(t *testing.T) {
+@@ -184,6 +185,7 @@ func TestCASTPasses(t *testing.T) {
  }
  
  func TestCASTFailures(t *testing.T) {
@@ -3104,7 +3104,7 @@ index 817dcb9a35a793..8efc547d0d52fc 100644
  	cryptotest.MustSupportFIPS140(t)
  
 diff --git a/src/crypto/internal/fips140test/fips_test.go b/src/crypto/internal/fips140test/fips_test.go
-index 7f2824ca9ac052..4937cf53bc1840 100644
+index 02f9f735ab7e01..6d82571a2f9cd3 100644
 --- a/src/crypto/internal/fips140test/fips_test.go
 +++ b/src/crypto/internal/fips140test/fips_test.go
 @@ -15,7 +15,6 @@ package fipstest
@@ -3115,14 +3115,15 @@ index 7f2824ca9ac052..4937cf53bc1840 100644
  	"crypto/internal/fips140"
  	"crypto/internal/fips140/aes"
  	"crypto/internal/fips140/aes/gcm"
-@@ -36,6 +35,7 @@ import (
- 	"crypto/internal/fips140/tls13"
- 	"crypto/rand"
- 	"encoding/hex"
-+	boring "github.com/microsoft/go/cryptobackend"
+@@ -40,6 +39,8 @@ import (
  	"runtime/debug"
  	"strings"
  	"testing"
++
++	boring "github.com/microsoft/go/cryptobackend"
+ )
+ 
+ func moduleStatus(t *testing.T) {
 diff --git a/src/crypto/internal/rand/rand.go b/src/crypto/internal/rand/rand.go
 index d12cc7586c45cc..1b0ef848bf8f7a 100644
 --- a/src/crypto/internal/rand/rand.go
@@ -5830,7 +5831,7 @@ index 027bc22c33c921..eba08da985f832 100644
  package fipsonly
  
 diff --git a/src/crypto/tls/handshake_client.go b/src/crypto/tls/handshake_client.go
-index 54227aabfb698c..e99bd9bcc49bbf 100644
+index 74389458f5b214..1c09278330beda 100644
 --- a/src/crypto/tls/handshake_client.go
 +++ b/src/crypto/tls/handshake_client.go
 @@ -11,7 +11,6 @@ import (
@@ -5850,7 +5851,7 @@ index 54227aabfb698c..e99bd9bcc49bbf 100644
  )
  
  type clientHandshakeState struct {
-@@ -524,7 +525,20 @@ func (c *Conn) pickTLSVersion(serverHello *serverHelloMsg) error {
+@@ -531,7 +532,20 @@ func (c *Conn) pickTLSVersion(serverHello *serverHelloMsg) error {
  
  // Does the handshake, either a full one or resumes old session. Requires hs.c,
  // hs.hello, hs.serverHello, and, optionally, hs.session to be set.
@@ -5893,7 +5894,7 @@ index f55150697d96f6..b4a89941749d99 100644
  
  type clientHandshakeStateTLS13 struct {
 diff --git a/src/crypto/tls/handshake_server.go b/src/crypto/tls/handshake_server.go
-index b62feef1a0d2a3..a51f06da2a4928 100644
+index a05d6c896bf02f..7e87572488da78 100644
 --- a/src/crypto/tls/handshake_server.go
 +++ b/src/crypto/tls/handshake_server.go
 @@ -64,7 +64,20 @@ func (c *Conn) serverHandshake(ctx context.Context) error {
@@ -5950,7 +5951,7 @@ index 2c96e2435ae156..7fcab7bf82f618 100644
  	if err != nil {
  		return nil
 diff --git a/src/crypto/tls/handshake_test.go b/src/crypto/tls/handshake_test.go
-index 3205dd97d68f40..d9424c374eab88 100644
+index a3478d120672bb..85f7ce951bb175 100644
 --- a/src/crypto/tls/handshake_test.go
 +++ b/src/crypto/tls/handshake_test.go
 @@ -8,7 +8,6 @@ import (
