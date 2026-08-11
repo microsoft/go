@@ -127,8 +127,8 @@ Subject: [PATCH] Add crypto backends
  src/hash/example_test.go                      |   2 +
  src/hash/marshal_test.go                      |   4 +
  src/internal/buildcfg/cfg.go                  |   2 +
- src/internal/buildcfg/cfg_test.go             |  44 +++
- src/internal/buildcfg/exp.go                  |  20 ++
+ src/internal/buildcfg/cfg_test.go             |  49 +++
+ src/internal/buildcfg/exp.go                  |  22 ++
  src/internal/cfg/cfg.go                       |   1 +
  src/internal/platform/supported.go            |  12 +
  src/internal/systemcrypto/systemcrypto.go     |  20 ++
@@ -137,7 +137,7 @@ Subject: [PATCH] Add crypto backends
  src/os/exec/exec_test.go                      |   9 +
  src/runtime/runtime_boring.go                 |   5 +
  src/syscall/syscall_windows.go                |   3 +
- 133 files changed, 2524 insertions(+), 378 deletions(-)
+ 133 files changed, 2531 insertions(+), 378 deletions(-)
  create mode 100644 src/cmd/go/systemcrypto_test.go
  create mode 100644 src/crypto/dsa/boring.go
  create mode 100644 src/crypto/dsa/notboring.go
@@ -603,7 +603,7 @@ index b305457a23d104..5154aa0be0007c 100644
  Additional information available from 'go env' but not read from the environment:
  
 diff --git a/src/cmd/go/internal/load/pkg.go b/src/cmd/go/internal/load/pkg.go
-index 6c1e51e1a3e0a8..99fa0aa07259a9 100644
+index 70616305f0defa..5f38bc0984caa9 100644
 --- a/src/cmd/go/internal/load/pkg.go
 +++ b/src/cmd/go/internal/load/pkg.go
 @@ -16,6 +16,7 @@ import (
@@ -695,7 +695,7 @@ index 6c1e51e1a3e0a8..99fa0aa07259a9 100644
  
  	if p.Module == nil {
  		parent := p.Dir[:i+len(p.Dir)-len(p.ImportPath)]
-@@ -2447,6 +2488,9 @@ func (p *Package) setBuildInfo(ctx context.Context, f *modfetch.Fetcher, autoVCS
+@@ -2450,6 +2491,9 @@ func (p *Package) setBuildInfo(ctx context.Context, f *modfetch.Fetcher, autoVCS
  			buildmode = "archive"
  		}
  	}
@@ -1038,10 +1038,10 @@ index 00000000000000..8e7f07fe1f758c
 +	}
 +}
 diff --git a/src/cmd/go/testdata/script/README b/src/cmd/go/testdata/script/README
-index 71052159b6e4f5..6e05ef51f89c17 100644
+index cd0484243fdeed..62e821defaf12c 100644
 --- a/src/cmd/go/testdata/script/README
 +++ b/src/cmd/go/testdata/script/README
-@@ -419,6 +419,8 @@ The available conditions are:
+@@ -421,6 +421,8 @@ The available conditions are:
  	testing.Short()
  [symlink]
  	testenv.HasSymlink()
@@ -5831,7 +5831,7 @@ index 027bc22c33c921..eba08da985f832 100644
  package fipsonly
  
 diff --git a/src/crypto/tls/handshake_client.go b/src/crypto/tls/handshake_client.go
-index 74389458f5b214..1c09278330beda 100644
+index 8bdef57bb42463..ae1239f632380e 100644
 --- a/src/crypto/tls/handshake_client.go
 +++ b/src/crypto/tls/handshake_client.go
 @@ -11,7 +11,6 @@ import (
@@ -5894,7 +5894,7 @@ index f55150697d96f6..b4a89941749d99 100644
  
  type clientHandshakeStateTLS13 struct {
 diff --git a/src/crypto/tls/handshake_server.go b/src/crypto/tls/handshake_server.go
-index a05d6c896bf02f..7e87572488da78 100644
+index 3991f212c1f8a1..0fb3cb69bc6581 100644
 --- a/src/crypto/tls/handshake_server.go
 +++ b/src/crypto/tls/handshake_server.go
 @@ -64,7 +64,20 @@ func (c *Conn) serverHandshake(ctx context.Context) error {
@@ -6368,7 +6368,7 @@ index 89fd74eb823162..6d266ff641d721 100644
  var Error error
  
 diff --git a/src/internal/buildcfg/cfg_test.go b/src/internal/buildcfg/cfg_test.go
-index 2bbd478280241e..77eaacdc38756d 100644
+index 2bbd478280241e..dd58604b80b77e 100644
 --- a/src/internal/buildcfg/cfg_test.go
 +++ b/src/internal/buildcfg/cfg_test.go
 @@ -6,6 +6,8 @@ package buildcfg
@@ -6380,7 +6380,7 @@ index 2bbd478280241e..77eaacdc38756d 100644
  	"testing"
  )
  
-@@ -128,6 +130,48 @@ func TestGogoarchTags(t *testing.T) {
+@@ -128,6 +130,53 @@ func TestGogoarchTags(t *testing.T) {
  	GOARM64 = old_goarm64
  }
  
@@ -6417,6 +6417,11 @@ index 2bbd478280241e..77eaacdc38756d 100644
 +	} else if !strings.Contains(err.Error(), "MS_GO_NOSYSTEMCRYPTO=1") || !strings.Contains(err.Error(), "systemcrypto supports CGO_ENABLED=0 since Go 1.27") {
 +		t.Fatalf("ParseGOEXPERIMENT nosystemcrypto error = %q", err)
 +	}
++	if _, err := ParseGOEXPERIMENT("linux", "amd64", "ms_nocgo_opensslcrypto"); err == nil {
++		t.Fatal("ParseGOEXPERIMENT accepted ms_nocgo_opensslcrypto")
++	} else if !strings.Contains(err.Error(), "has been removed") || !strings.Contains(err.Error(), "CGO_ENABLED=0 is enabled automatically") || !strings.Contains(err.Error(), "Go 1.27") {
++		t.Fatalf("ParseGOEXPERIMENT ms_nocgo_opensslcrypto error = %q", err)
++	}
 +
 +	t.Setenv("CGO_ENABLED", "0")
 +	if _, err := ParseGOEXPERIMENT("windows", "amd64", "systemcrypto"); err == nil {
@@ -6430,7 +6435,7 @@ index 2bbd478280241e..77eaacdc38756d 100644
  	"v1.0.0",
  	"v1.0.1",
 diff --git a/src/internal/buildcfg/exp.go b/src/internal/buildcfg/exp.go
-index bf411a8dbbfcde..9b6ca9feb0b23b 100644
+index bf411a8dbbfcde..daa5ceddfdfb63 100644
 --- a/src/internal/buildcfg/exp.go
 +++ b/src/internal/buildcfg/exp.go
 @@ -10,12 +10,14 @@ import (
@@ -6448,12 +6453,14 @@ index bf411a8dbbfcde..9b6ca9feb0b23b 100644
  	baseline goexperiment.Flags
  }
  
-@@ -130,6 +132,21 @@ func ParseGOEXPERIMENT(goos, goarch, goexp string) (*ExperimentFlags, error) {
+@@ -130,6 +132,23 @@ func ParseGOEXPERIMENT(goos, goarch, goexp string) (*ExperimentFlags, error) {
  			if strings.HasPrefix(f, "no") {
  				f, val = f[2:], false
  			}
 +			// Check for removed crypto experiments.
 +			switch f {
++			case "ms_nocgo_opensslcrypto":
++				return nil, fmt.Errorf("GOEXPERIMENT=ms_nocgo_opensslcrypto has been removed; system crypto with CGO_ENABLED=0 is enabled automatically on supported platforms since Go 1.27")
 +			case "systemcrypto":
 +				if val {
 +					return nil, fmt.Errorf("GOEXPERIMENT=systemcrypto has been removed; system crypto is enabled automatically on supported platforms and can be disabled with MS_GO_NOSYSTEMCRYPTO=1")
@@ -6470,7 +6477,7 @@ index bf411a8dbbfcde..9b6ca9feb0b23b 100644
  			set, ok := names[f]
  			if !ok {
  				return nil, fmt.Errorf("unknown GOEXPERIMENT %s", f)
-@@ -151,6 +168,9 @@ func ParseGOEXPERIMENT(goos, goarch, goexp string) (*ExperimentFlags, error) {
+@@ -151,6 +170,9 @@ func ParseGOEXPERIMENT(goos, goarch, goexp string) (*ExperimentFlags, error) {
  	if flags.RegabiArgs && !flags.RegabiWrappers {
  		return nil, fmt.Errorf("GOEXPERIMENT regabiargs requires regabiwrappers")
  	}
@@ -6658,7 +6665,7 @@ index 831ee67afc952d..e74790bfe70506 100644
 +	return boring_runtime_arg0()
 +}
 diff --git a/src/syscall/syscall_windows.go b/src/syscall/syscall_windows.go
-index b1062e142b7a99..499e497ff7e93e 100644
+index 7e3cdc32a8b6e6..deb054e0a59e67 100644
 --- a/src/syscall/syscall_windows.go
 +++ b/src/syscall/syscall_windows.go
 @@ -14,10 +14,13 @@ import (
