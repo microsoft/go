@@ -127,8 +127,8 @@ Subject: [PATCH] Add crypto backends
  src/hash/example_test.go                      |   2 +
  src/hash/marshal_test.go                      |   4 +
  src/internal/buildcfg/cfg.go                  |   2 +
- src/internal/buildcfg/cfg_test.go             |  44 +++
- src/internal/buildcfg/exp.go                  |  20 ++
+ src/internal/buildcfg/cfg_test.go             |  49 +++
+ src/internal/buildcfg/exp.go                  |  22 ++
  src/internal/cfg/cfg.go                       |   1 +
  src/internal/platform/supported.go            |  12 +
  src/internal/systemcrypto/systemcrypto.go     |  20 ++
@@ -137,7 +137,7 @@ Subject: [PATCH] Add crypto backends
  src/os/exec/exec_test.go                      |   9 +
  src/runtime/runtime_boring.go                 |   5 +
  src/syscall/syscall_windows.go                |   3 +
- 133 files changed, 2523 insertions(+), 378 deletions(-)
+ 133 files changed, 2530 insertions(+), 378 deletions(-)
  create mode 100644 src/cmd/go/systemcrypto_test.go
  create mode 100644 src/crypto/dsa/boring.go
  create mode 100644 src/crypto/dsa/notboring.go
@@ -6367,7 +6367,7 @@ index 89fd74eb823162..6d266ff641d721 100644
  var Error error
  
 diff --git a/src/internal/buildcfg/cfg_test.go b/src/internal/buildcfg/cfg_test.go
-index 2bbd478280241e..77eaacdc38756d 100644
+index 2bbd478280241e..dd58604b80b77e 100644
 --- a/src/internal/buildcfg/cfg_test.go
 +++ b/src/internal/buildcfg/cfg_test.go
 @@ -6,6 +6,8 @@ package buildcfg
@@ -6379,7 +6379,7 @@ index 2bbd478280241e..77eaacdc38756d 100644
  	"testing"
  )
  
-@@ -128,6 +130,48 @@ func TestGogoarchTags(t *testing.T) {
+@@ -128,6 +130,53 @@ func TestGogoarchTags(t *testing.T) {
  	GOARM64 = old_goarm64
  }
  
@@ -6416,6 +6416,11 @@ index 2bbd478280241e..77eaacdc38756d 100644
 +	} else if !strings.Contains(err.Error(), "MS_GO_NOSYSTEMCRYPTO=1") || !strings.Contains(err.Error(), "systemcrypto supports CGO_ENABLED=0 since Go 1.27") {
 +		t.Fatalf("ParseGOEXPERIMENT nosystemcrypto error = %q", err)
 +	}
++	if _, err := ParseGOEXPERIMENT("linux", "amd64", "ms_nocgo_opensslcrypto"); err == nil {
++		t.Fatal("ParseGOEXPERIMENT accepted ms_nocgo_opensslcrypto")
++	} else if !strings.Contains(err.Error(), "has been removed") || !strings.Contains(err.Error(), "supports CGO_ENABLED=0 automatically on platforms with a cgo-less OpenSSL implementation since Go 1.27") {
++		t.Fatalf("ParseGOEXPERIMENT ms_nocgo_opensslcrypto error = %q", err)
++	}
 +
 +	t.Setenv("CGO_ENABLED", "0")
 +	if _, err := ParseGOEXPERIMENT("windows", "amd64", "systemcrypto"); err == nil {
@@ -6429,7 +6434,7 @@ index 2bbd478280241e..77eaacdc38756d 100644
  	"v1.0.0",
  	"v1.0.1",
 diff --git a/src/internal/buildcfg/exp.go b/src/internal/buildcfg/exp.go
-index bf411a8dbbfcde..9b6ca9feb0b23b 100644
+index bf411a8dbbfcde..daa5ceddfdfb63 100644
 --- a/src/internal/buildcfg/exp.go
 +++ b/src/internal/buildcfg/exp.go
 @@ -10,12 +10,14 @@ import (
@@ -6447,12 +6452,14 @@ index bf411a8dbbfcde..9b6ca9feb0b23b 100644
  	baseline goexperiment.Flags
  }
  
-@@ -130,6 +132,21 @@ func ParseGOEXPERIMENT(goos, goarch, goexp string) (*ExperimentFlags, error) {
+@@ -130,6 +132,23 @@ func ParseGOEXPERIMENT(goos, goarch, goexp string) (*ExperimentFlags, error) {
  			if strings.HasPrefix(f, "no") {
  				f, val = f[2:], false
  			}
 +			// Check for removed crypto experiments.
 +			switch f {
++			case "ms_nocgo_opensslcrypto":
++				return nil, fmt.Errorf("GOEXPERIMENT=ms_nocgo_opensslcrypto has been removed; system crypto supports CGO_ENABLED=0 automatically on platforms with a cgo-less OpenSSL implementation since Go 1.27")
 +			case "systemcrypto":
 +				if val {
 +					return nil, fmt.Errorf("GOEXPERIMENT=systemcrypto has been removed; system crypto is enabled automatically on supported platforms and can be disabled with MS_GO_NOSYSTEMCRYPTO=1")
@@ -6469,7 +6476,7 @@ index bf411a8dbbfcde..9b6ca9feb0b23b 100644
  			set, ok := names[f]
  			if !ok {
  				return nil, fmt.Errorf("unknown GOEXPERIMENT %s", f)
-@@ -151,6 +168,9 @@ func ParseGOEXPERIMENT(goos, goarch, goexp string) (*ExperimentFlags, error) {
+@@ -151,6 +170,9 @@ func ParseGOEXPERIMENT(goos, goarch, goexp string) (*ExperimentFlags, error) {
  	if flags.RegabiArgs && !flags.RegabiWrappers {
  		return nil, fmt.Errorf("GOEXPERIMENT regabiargs requires regabiwrappers")
  	}
