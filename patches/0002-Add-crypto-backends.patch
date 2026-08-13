@@ -9,7 +9,7 @@ Subject: [PATCH] Add crypto backends
  .../compile/internal/logopt/logopt_test.go    |   5 +
  src/cmd/compile/script_test.go                |   8 +
  src/cmd/compile/testdata/script/README        |   2 +
- src/cmd/dist/build.go                         |  68 ++++-
+ src/cmd/dist/build.go                         |  65 ++++
  src/cmd/dist/test.go                          |  48 ++-
  src/cmd/go/alldocs.go                         |   3 +
  src/cmd/go/go_boring_test.go                  |   6 +-
@@ -137,7 +137,7 @@ Subject: [PATCH] Add crypto backends
  src/os/exec/exec_test.go                      |   9 +
  src/runtime/runtime_boring.go                 |   5 +
  src/syscall/syscall_windows.go                |   3 +
- 133 files changed, 2531 insertions(+), 378 deletions(-)
+ 133 files changed, 2531 insertions(+), 375 deletions(-)
  create mode 100644 src/cmd/go/systemcrypto_test.go
  create mode 100644 src/crypto/dsa/boring.go
  create mode 100644 src/crypto/dsa/notboring.go
@@ -239,7 +239,7 @@ index 9ec997a138f0f2..09c4e7955ec162 100644
  	testing.Verbose()
  
 diff --git a/src/cmd/dist/build.go b/src/cmd/dist/build.go
-index 78d55bec559987..decf356a449ba9 100644
+index 814d978e363f8f..2e5627549a2cff 100644
 --- a/src/cmd/dist/build.go
 +++ b/src/cmd/dist/build.go
 @@ -1399,6 +1399,68 @@ func toolenv() []string {
@@ -311,18 +311,13 @@ index 78d55bec559987..decf356a449ba9 100644
  	return env
  }
  
-@@ -1641,12 +1703,12 @@ func cmdbootstrap() {
- 		os.Setenv("CC", compilerEnvLookup("CC", defaultcc, goos, goarch))
- 		xprintf("Building packages and commands for target, %s/%s.\n", goos, goarch)
+@@ -1638,7 +1700,10 @@ func cmdbootstrap() {
+ 		goInstall(toolenv(), goBootstrap, append([]string{"-a"}, toolsToInstall...)...)
  	}
--	goInstall(nil, goBootstrap, "std")
+ 
 +	goInstall(toolenvMicrosoft(nil), goBootstrap, "std")
- 	goInstall(toolenv(), goBootstrap, toolsToInstall...)
- 	checkNotStale(toolenv(), goBootstrap, toolchain...)
--	checkNotStale(nil, goBootstrap, "std")
 +	checkNotStale(toolenvMicrosoft(nil), goBootstrap, "std")
  	checkNotStale(toolenv(), goBootstrap, toolsToInstall...)
--	checkNotStale(nil, gorootBinGo, "std")
 +	checkNotStale(toolenvMicrosoft(nil), gorootBinGo, "std")
  	checkNotStale(toolenv(), gorootBinGo, toolsToInstall...)
  	if debug {
@@ -433,10 +428,10 @@ index da2ebaabe5c82a..e3cb79ae4b8aed 100644
 +	return enabled
 +}
 diff --git a/src/cmd/go/alldocs.go b/src/cmd/go/alldocs.go
-index 44cec1ae79e710..a03f2324ba36bc 100644
+index acefe27fb38e66..dce82478fc81c8 100644
 --- a/src/cmd/go/alldocs.go
 +++ b/src/cmd/go/alldocs.go
-@@ -2620,6 +2620,9 @@
+@@ -2625,6 +2625,9 @@
  //		mentioned will be considered insecure by 'go get'.
  //		Because the variable is defined by Git, the default value cannot
  //		be set using 'go env -w'.
@@ -603,7 +598,7 @@ index b305457a23d104..5154aa0be0007c 100644
  Additional information available from 'go env' but not read from the environment:
  
 diff --git a/src/cmd/go/internal/load/pkg.go b/src/cmd/go/internal/load/pkg.go
-index 70616305f0defa..5f38bc0984caa9 100644
+index 958d79623f75b2..be3a89d8c638c1 100644
 --- a/src/cmd/go/internal/load/pkg.go
 +++ b/src/cmd/go/internal/load/pkg.go
 @@ -16,6 +16,7 @@ import (
@@ -1197,7 +1192,7 @@ index 6702e9279b106b..09b92a3ed98df1 100644
  	if err != nil {
  		return false, err
 diff --git a/src/cmd/internal/testdir/testdir_test.go b/src/cmd/internal/testdir/testdir_test.go
-index 56842845a1d05e..f633c188719a4f 100644
+index 9eb7a973bf6cc5..e9239a43f38f18 100644
 --- a/src/cmd/internal/testdir/testdir_test.go
 +++ b/src/cmd/internal/testdir/testdir_test.go
 @@ -14,6 +14,7 @@ import (
@@ -3193,7 +3188,7 @@ index f1287887ff5e25..a6db88d7200e22 100644
  	d.Reset()
  	d.Write(data)
 diff --git a/src/crypto/md5/md5_test.go b/src/crypto/md5/md5_test.go
-index 403ff2881f4b68..9cf1efbbeed819 100644
+index 674764b2121ebd..37aea88fb7fcf0 100644
 --- a/src/crypto/md5/md5_test.go
 +++ b/src/crypto/md5/md5_test.go
 @@ -9,7 +9,9 @@ import (
@@ -3218,7 +3213,7 @@ index 403ff2881f4b68..9cf1efbbeed819 100644
  		}
 @@ -183,6 +188,9 @@ func TestExtraLarge(t *testing.T) {
  
- // Tests that blockGeneric (pure Go) and block (in assembly for amd64, 386, arm) match.
+ // Tests that blockGeneric (pure Go) and block (in assembly where relevant) match.
  func TestBlockGeneric(t *testing.T) {
 +	if boring.Enabled {
 +		t.Skip("digest is not used when boring.Enabled is set")
@@ -6141,7 +6136,7 @@ index 00000000000000..ffb835ce34a2f7
 +	}
 +}
 diff --git a/src/go/build/deps_test.go b/src/go/build/deps_test.go
-index 67627cdb93ff22..3a7fc5413e2696 100644
+index 6ddb9afc7f82a4..c5620bbccf6a51 100644
 --- a/src/go/build/deps_test.go
 +++ b/src/go/build/deps_test.go
 @@ -372,8 +372,10 @@ var depsRules = `
@@ -6156,7 +6151,7 @@ index 67627cdb93ff22..3a7fc5413e2696 100644
  
  	# The vast majority of standard library packages should not be resorting to regexp.
  	# go/types is a good chokepoint. It shouldn't use regexp, nor should anything
-@@ -537,7 +539,7 @@ var depsRules = `
+@@ -538,7 +540,7 @@ var depsRules = `
  	< crypto/internal/fips140/edwards25519
  	< crypto/internal/fips140/ed25519
  	< crypto/internal/fips140/rsa
@@ -6165,7 +6160,7 @@ index 67627cdb93ff22..3a7fc5413e2696 100644
  
  	crypto !< FIPS;
  
-@@ -557,7 +559,20 @@ var depsRules = `
+@@ -558,7 +560,20 @@ var depsRules = `
  	< github.com/microsoft/go-crypto-winnative/internal/sysdll
  	< github.com/microsoft/go-crypto-winnative/internal/bcrypt;
  
@@ -6187,7 +6182,7 @@ index 67627cdb93ff22..3a7fc5413e2696 100644
  	< crypto/internal/fips140only
  	< crypto
  	< crypto/subtle
-@@ -577,6 +592,50 @@ var depsRules = `
+@@ -578,6 +593,50 @@ var depsRules = `
  	github.com/microsoft/go-crypto-winnative/internal/bcrypt
  	< github.com/microsoft/go-crypto-winnative/cng;
  
@@ -6238,7 +6233,7 @@ index 67627cdb93ff22..3a7fc5413e2696 100644
  	FIPS, internal/godebug, embed,
  	crypto/internal/boring/sig,
  	crypto/internal/boring/syso,
-@@ -584,7 +643,9 @@ var depsRules = `
+@@ -585,7 +644,9 @@ var depsRules = `
  	crypto/internal/fips140only,
  	crypto,
  	crypto/subtle,
@@ -6249,7 +6244,7 @@ index 67627cdb93ff22..3a7fc5413e2696 100644
  	< crypto/sha3
  	< crypto/internal/fips140hash
  	< crypto/internal/boring
-@@ -608,6 +669,9 @@ var depsRules = `
+@@ -609,6 +670,9 @@ var depsRules = `
  	CRYPTO
  	< golang.org/x/crypto/hkdf;
  
@@ -6259,7 +6254,7 @@ index 67627cdb93ff22..3a7fc5413e2696 100644
  	CGO, fmt, net !< CRYPTO;
  
  	# CRYPTO-MATH is crypto that exposes math/big APIs - no cgo, net; fmt now ok.
-@@ -616,15 +680,28 @@ var depsRules = `
+@@ -617,15 +681,28 @@ var depsRules = `
  	math/big, github.com/microsoft/go-crypto-darwin/xcrypto < github.com/microsoft/go-crypto-darwin/bbig;
  	math/big, github.com/microsoft/go-crypto-winnative/cng < github.com/microsoft/go-crypto-winnative/cng/bbig;
  
@@ -6291,7 +6286,7 @@ index 67627cdb93ff22..3a7fc5413e2696 100644
  	< crypto/ecdsa
  	< CRYPTO-MATH;
  
-@@ -658,7 +735,8 @@ var depsRules = `
+@@ -659,7 +736,8 @@ var depsRules = `
  	< crypto/hpke;
  
  	CRYPTO-MATH, NET, container/list, encoding/hex, encoding/pem, crypto/hpke,
@@ -6368,7 +6363,7 @@ index 89fd74eb823162..6d266ff641d721 100644
  var Error error
  
 diff --git a/src/internal/buildcfg/cfg_test.go b/src/internal/buildcfg/cfg_test.go
-index 2bbd478280241e..dd58604b80b77e 100644
+index 2bbd478280241e..313e39edf7514c 100644
 --- a/src/internal/buildcfg/cfg_test.go
 +++ b/src/internal/buildcfg/cfg_test.go
 @@ -6,6 +6,8 @@ package buildcfg
@@ -6435,7 +6430,7 @@ index 2bbd478280241e..dd58604b80b77e 100644
  	"v1.0.0",
  	"v1.0.1",
 diff --git a/src/internal/buildcfg/exp.go b/src/internal/buildcfg/exp.go
-index bf411a8dbbfcde..daa5ceddfdfb63 100644
+index d075b0f7d360f2..dec7f0c1787b76 100644
 --- a/src/internal/buildcfg/exp.go
 +++ b/src/internal/buildcfg/exp.go
 @@ -10,12 +10,14 @@ import (
@@ -6453,7 +6448,7 @@ index bf411a8dbbfcde..daa5ceddfdfb63 100644
  	baseline goexperiment.Flags
  }
  
-@@ -130,6 +132,23 @@ func ParseGOEXPERIMENT(goos, goarch, goexp string) (*ExperimentFlags, error) {
+@@ -129,6 +131,23 @@ func ParseGOEXPERIMENT(goos, goarch, goexp string) (*ExperimentFlags, error) {
  			if strings.HasPrefix(f, "no") {
  				f, val = f[2:], false
  			}
@@ -6477,7 +6472,7 @@ index bf411a8dbbfcde..daa5ceddfdfb63 100644
  			set, ok := names[f]
  			if !ok {
  				return nil, fmt.Errorf("unknown GOEXPERIMENT %s", f)
-@@ -151,6 +170,9 @@ func ParseGOEXPERIMENT(goos, goarch, goexp string) (*ExperimentFlags, error) {
+@@ -150,6 +169,9 @@ func ParseGOEXPERIMENT(goos, goarch, goexp string) (*ExperimentFlags, error) {
  	if flags.RegabiArgs && !flags.RegabiWrappers {
  		return nil, fmt.Errorf("GOEXPERIMENT regabiargs requires regabiwrappers")
  	}
