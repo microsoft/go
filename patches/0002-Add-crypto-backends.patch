@@ -2280,7 +2280,7 @@ index 275c60b4de49eb..a5b6ae9dc90505 100644
  		return nil, err
  	}
 diff --git a/src/crypto/ecdsa/ecdsa.go b/src/crypto/ecdsa/ecdsa.go
-index 40a89017570171..24b8ae80344ee8 100644
+index 3bd4a5e7b4adaa..48ec7d658c1bbd 100644
 --- a/src/crypto/ecdsa/ecdsa.go
 +++ b/src/crypto/ecdsa/ecdsa.go
 @@ -20,8 +20,6 @@ import (
@@ -2303,7 +2303,7 @@ index 40a89017570171..24b8ae80344ee8 100644
  	"golang.org/x/crypto/cryptobyte"
  	"golang.org/x/crypto/cryptobyte/asn1"
  )
-@@ -339,8 +341,8 @@ func (priv *PrivateKey) Sign(random io.Reader, digest []byte, opts crypto.Signer
+@@ -343,8 +345,8 @@ func (priv *PrivateKey) Sign(random io.Reader, digest []byte, opts crypto.Signer
  // ignored unless GODEBUG=cryptocustomrand=1 is set. This setting will be removed
  // in a future Go release. Instead, use [testing/cryptotest.SetGlobalRandom].
  func GenerateKey(c elliptic.Curve, r io.Reader) (*PrivateKey, error) {
@@ -2314,7 +2314,7 @@ index 40a89017570171..24b8ae80344ee8 100644
  		if err != nil {
  			return nil, err
  		}
-@@ -389,12 +391,12 @@ func SignASN1(r io.Reader, priv *PrivateKey, hash []byte) ([]byte, error) {
+@@ -393,12 +395,12 @@ func SignASN1(r io.Reader, priv *PrivateKey, hash []byte) ([]byte, error) {
  		return nil, errors.New("ecdsa: hash cannot be empty")
  	}
  
@@ -2329,7 +2329,7 @@ index 40a89017570171..24b8ae80344ee8 100644
  	}
  	boring.UnreachableExceptTests()
  
-@@ -510,12 +512,13 @@ func VerifyASN1(pub *PublicKey, hash, sig []byte) bool {
+@@ -511,12 +513,13 @@ func VerifyASN1(pub *PublicKey, hash, sig []byte) bool {
  		return false
  	}
  
@@ -2898,7 +2898,7 @@ index a4c9fc977bc136..116106bd0a4cfb 100644
  
  // MustMinimumFIPS140ModuleVersion skips the test if compiled against a lower
 diff --git a/src/crypto/internal/cryptotest/hash.go b/src/crypto/internal/cryptotest/hash.go
-index 37fd96a2d9d0b9..6d4b190831d57d 100644
+index 3e2efa84db720c..4e631a32de56da 100644
 --- a/src/crypto/internal/cryptotest/hash.go
 +++ b/src/crypto/internal/cryptotest/hash.go
 @@ -5,7 +5,6 @@
@@ -2909,10 +2909,10 @@ index 37fd96a2d9d0b9..6d4b190831d57d 100644
  	"crypto/internal/fips140"
  	"hash"
  	"internal/testhash"
-@@ -20,7 +19,7 @@ type MakeHash func() hash.Hash
- // TestHash performs a set of tests on hash.Hash implementations, checking the
- // documented requirements of Write, Sum, Reset, Size, and BlockSize.
- func TestHash(t *testing.T, mh MakeHash) {
+@@ -34,7 +33,7 @@ func TestHash(t *testing.T, mh MakeHash) {
+ 		h.Sum(end[:0])
+ 	})
+ 
 -	if boring.Enabled || fips140.Version() == "v1.0.0" {
 +	if fips140.Version() == "v1.0.0" {
  		testhash.TestHashWithoutClone(t, testhash.MakeHash(mh))
@@ -3254,7 +3254,7 @@ index 403ff2881f4b68..9cf1efbbeed819 100644
  
  func maybeCloner(h hash.Hash) any {
 diff --git a/src/crypto/mldsa/mldsa_fips140v1.26.go b/src/crypto/mldsa/mldsa_fips140v1.26.go
-index 2c36fe191e9149..24308c7391ee67 100644
+index d3ee1f0daec096..c37363dd9d2662 100644
 --- a/src/crypto/mldsa/mldsa_fips140v1.26.go
 +++ b/src/crypto/mldsa/mldsa_fips140v1.26.go
 @@ -9,8 +9,13 @@ package mldsa
@@ -3423,8 +3423,8 @@ index 2c36fe191e9149..24308c7391ee67 100644
  var errInvalidSignerOpts = errors.New("mldsa: invalid SignerOpts")
  
  // Sign returns a signature of the given message using this private key.
-@@ -112,9 +227,21 @@ func (sk *PrivateKey) Sign(_ io.Reader, message []byte, opts crypto.SignerOpts)
- 		if opts, ok := opts.(*Options); ok {
+@@ -115,9 +230,21 @@ func (sk *PrivateKey) Sign(_ io.Reader, message []byte, opts crypto.SignerOpts)
+ 		if opts, ok := opts.(*Options); ok && opts != nil {
  			context = opts.Context
  		}
 +		if sk.boring != nil {
@@ -3446,7 +3446,7 @@ index 2c36fe191e9149..24308c7391ee67 100644
  	default:
  		return nil, errInvalidSignerOpts
  	}
-@@ -126,15 +253,21 @@ func (sk *PrivateKey) SignDeterministic(message []byte, opts crypto.SignerOpts)
+@@ -132,15 +259,21 @@ func (sk *PrivateKey) SignDeterministic(message []byte, opts crypto.SignerOpts)
  	if opts == nil {
  		opts = &Options{}
  	}
@@ -3459,7 +3459,7 @@ index 2c36fe191e9149..24308c7391ee67 100644
  	switch opts.HashFunc() {
  	case 0:
  		var context string
- 		if opts, ok := opts.(*Options); ok {
+ 		if opts, ok := opts.(*Options); ok && opts != nil {
  			context = opts.Context
  		}
 -		return mldsa.SignDeterministic(&sk.k, message, context)
@@ -3470,7 +3470,7 @@ index 2c36fe191e9149..24308c7391ee67 100644
  	default:
  		return nil, errInvalidSignerOpts
  	}
-@@ -146,6 +279,12 @@ func (sk *PrivateKey) SignDeterministic(message []byte, opts crypto.SignerOpts)
+@@ -152,6 +285,12 @@ func (sk *PrivateKey) SignDeterministic(message []byte, opts crypto.SignerOpts)
  // A PublicKey is safe for concurrent use.
  type PublicKey struct {
  	p mldsa.PublicKey
@@ -3483,7 +3483,7 @@ index 2c36fe191e9149..24308c7391ee67 100644
  }
  
  // NewPublicKey creates a new ML-DSA public key from the given encoding.
-@@ -154,6 +293,14 @@ func NewPublicKey(params Parameters, encoding []byte) (*PublicKey, error) {
+@@ -160,6 +299,14 @@ func NewPublicKey(params Parameters, encoding []byte) (*PublicKey, error) {
  }
  
  func newPublicKey(pub *PublicKey, params Parameters, encoding []byte) (*PublicKey, error) {
@@ -3498,7 +3498,7 @@ index 2c36fe191e9149..24308c7391ee67 100644
  	var err error
  	var pk *mldsa.PublicKey
  	switch params {
-@@ -175,6 +322,9 @@ func newPublicKey(pub *PublicKey, params Parameters, encoding []byte) (*PublicKe
+@@ -181,6 +328,9 @@ func newPublicKey(pub *PublicKey, params Parameters, encoding []byte) (*PublicKe
  
  // Bytes returns the public key encoding.
  func (pk *PublicKey) Bytes() []byte {
@@ -3508,7 +3508,7 @@ index 2c36fe191e9149..24308c7391ee67 100644
  	return pk.p.Bytes()
  }
  
-@@ -187,11 +337,29 @@ func (pk *PublicKey) Equal(x crypto.PublicKey) bool {
+@@ -193,11 +343,29 @@ func (pk *PublicKey) Equal(x crypto.PublicKey) bool {
  	if !ok || other == nil {
  		return false
  	}
@@ -3538,7 +3538,7 @@ index 2c36fe191e9149..24308c7391ee67 100644
  	switch pk.p.Parameters() {
  	case "ML-DSA-44":
  		return MLDSA44()
-@@ -213,5 +381,8 @@ func Verify(pk *PublicKey, message []byte, signature []byte, opts *Options) erro
+@@ -222,5 +390,8 @@ func Verify(pk *PublicKey, message []byte, signature []byte, opts *Options) erro
  	if opts == nil {
  		opts = &Options{}
  	}
@@ -3548,7 +3548,7 @@ index 2c36fe191e9149..24308c7391ee67 100644
  	return mldsa.Verify(&pk.p, message, signature, opts.Context)
  }
 diff --git a/src/crypto/mldsa/mldsa_test.go b/src/crypto/mldsa/mldsa_test.go
-index 375333a70cf686..c319bfe3d98f42 100644
+index 0a2fc4edf11183..9c27ff51b27a4f 100644
 --- a/src/crypto/mldsa/mldsa_test.go
 +++ b/src/crypto/mldsa/mldsa_test.go
 @@ -18,6 +18,9 @@ import (
@@ -4892,7 +4892,7 @@ index 46e47df1d32cf2..48e9bd510cf92e 100644
  	d.Reset()
  	d.Write(data)
 diff --git a/src/crypto/sha1/sha1_test.go b/src/crypto/sha1/sha1_test.go
-index ef6e5ddcbb2d97..b1af8757599a9d 100644
+index 8b4618df556271..ae4abc9edfa7c1 100644
 --- a/src/crypto/sha1/sha1_test.go
 +++ b/src/crypto/sha1/sha1_test.go
 @@ -8,10 +8,11 @@ package sha1
@@ -5830,7 +5830,7 @@ index 027bc22c33c921..eba08da985f832 100644
  package fipsonly
  
 diff --git a/src/crypto/tls/handshake_client.go b/src/crypto/tls/handshake_client.go
-index 54227aabfb698c..e99bd9bcc49bbf 100644
+index 74389458f5b214..1c09278330beda 100644
 --- a/src/crypto/tls/handshake_client.go
 +++ b/src/crypto/tls/handshake_client.go
 @@ -11,7 +11,6 @@ import (
@@ -5850,7 +5850,7 @@ index 54227aabfb698c..e99bd9bcc49bbf 100644
  )
  
  type clientHandshakeState struct {
-@@ -524,7 +525,20 @@ func (c *Conn) pickTLSVersion(serverHello *serverHelloMsg) error {
+@@ -531,7 +532,20 @@ func (c *Conn) pickTLSVersion(serverHello *serverHelloMsg) error {
  
  // Does the handshake, either a full one or resumes old session. Requires hs.c,
  // hs.hello, hs.serverHello, and, optionally, hs.session to be set.
@@ -5893,7 +5893,7 @@ index f55150697d96f6..b4a89941749d99 100644
  
  type clientHandshakeStateTLS13 struct {
 diff --git a/src/crypto/tls/handshake_server.go b/src/crypto/tls/handshake_server.go
-index b62feef1a0d2a3..a51f06da2a4928 100644
+index a05d6c896bf02f..7e87572488da78 100644
 --- a/src/crypto/tls/handshake_server.go
 +++ b/src/crypto/tls/handshake_server.go
 @@ -64,7 +64,20 @@ func (c *Conn) serverHandshake(ctx context.Context) error {
@@ -6367,7 +6367,7 @@ index 89fd74eb823162..6d266ff641d721 100644
  var Error error
  
 diff --git a/src/internal/buildcfg/cfg_test.go b/src/internal/buildcfg/cfg_test.go
-index 2bbd478280241e..dd58604b80b77e 100644
+index 2bbd478280241e..313e39edf7514c 100644
 --- a/src/internal/buildcfg/cfg_test.go
 +++ b/src/internal/buildcfg/cfg_test.go
 @@ -6,6 +6,8 @@ package buildcfg
@@ -6434,7 +6434,7 @@ index 2bbd478280241e..dd58604b80b77e 100644
  	"v1.0.0",
  	"v1.0.1",
 diff --git a/src/internal/buildcfg/exp.go b/src/internal/buildcfg/exp.go
-index bf411a8dbbfcde..daa5ceddfdfb63 100644
+index bf411a8dbbfcde..99ce118524720c 100644
 --- a/src/internal/buildcfg/exp.go
 +++ b/src/internal/buildcfg/exp.go
 @@ -10,12 +10,14 @@ import (
