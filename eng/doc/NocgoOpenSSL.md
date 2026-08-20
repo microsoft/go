@@ -1,6 +1,12 @@
 # No-cgo OpenSSL Backend
 
-This document describes how the Microsoft build of Go uses the cgo-less OpenSSL backend on Linux and FreeBSD.
+This document describes how the Microsoft build of Go uses the no-cgo OpenSSL backend on Linux and FreeBSD.
+
+> [!NOTE]
+> The **no-cgo OpenSSL backend** is also known as the **cgo-less OpenSSL backend**.
+
+The no-cgo backend complements, rather than replaces, the cgo OpenSSL backend.
+The cgo backend is still available and is used when cgo is enabled.
 
 ## Overview
 
@@ -10,9 +16,7 @@ It is selected automatically when cgo is disabled and the target architecture is
 > [!NOTE]
 > In Go 1.26, this backend was available as the experimental `GOEXPERIMENT=ms_nocgo_opensslcrypto` feature on Linux only.
 >
-> In Go 1.27, that experiment has been removed because the cgo-less backend is selected automatically when needed.
->
-> FreeBSD support was added in Go 1.27.
+> In Go 1.27, the cgo-less backend is no longer experimental. The experiment has been removed and the cgo-less backend is selected automatically when needed.
 
 This allows the use of OpenSSL without requiring cgo.
 

@@ -197,17 +197,6 @@ If you're using Go 1.26 or earlier, you may see this error message if cgo is not
         ` (untyped string constant "\n\tUsing GOEXPERIMENT=systemcrypto on Linux requires CGO_ENABLED=1....) is not used
 ```
 
-In Go 1.25, you may see this similar error:
-
-```
-# crypto
-../../../sdk/msgo1.25.7-1/src/crypto/systemcrypto_nocgo.go:10:2: `
-        Using a crypto backend requires CGO_ENABLED=1.
-
-        For more information, visit https://github.com/microsoft/go/tree/microsoft/main/eng/doc/fips
-        ` (untyped string constant "\n\tUsing a crypto backend requires CGO_ENABLED=1.\n\t\n\tFor more i...) is not used
-```
-
 > [!NOTE]
 > In Go 1.26, there is a cgo-less experiment available for Linux: `ms_nocgo_opensslcrypto`.
 >
