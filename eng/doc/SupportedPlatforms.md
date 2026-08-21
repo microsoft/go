@@ -19,6 +19,7 @@ Platforms outside this scope are supported on a best-effort basis with no guaran
 | linux/amd64 | Azure Linux 3.0, Ubuntu 22.04 |
 | linux/arm64 | Azure Linux 3.0, Ubuntu 22.04 |
 | linux/arm | Ubuntu 22.04 |
+| windows/386 | Windows 10, Windows Server 2016 (since Go 1.28) |
 | windows/amd64 | Windows 10, Windows Server 2016 |
 | windows/arm64 | Windows 11, Windows Server 2025 |
 
