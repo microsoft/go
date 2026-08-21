@@ -96,7 +96,7 @@ Some configurations are invalid and intentionally result in a build error or run
 The Microsoft build of Go uses `systemcrypto` by default.
 `systemcrypto` modifies the Go runtime included in programs built by the Microsoft build of Go to use a platform-specific cryptographic library whenever it calls a Go standard library crypto API.
 
-The platform-specific libary used by `systemcrypto` is selected by build constraints.
+The platform-specific library used by `systemcrypto` is selected by build constraints.
 The target platform (`GOOS`, `GOARCH`, and cgo availability) is used to select the appropriate system-provided cryptography library.
 See [Cross-Platform Cryptography in the Microsoft build of Go](../CrossPlatformCryptography.md) for more information about how each platform is implemented and the supported cryptographic algorithms.
 
