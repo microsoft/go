@@ -37,6 +37,32 @@ On macOS, the Microsoft build of Go uses [CommonCrypto](https://developer.apple.
 CommonCrypto and CryptoKit are shipped with macOS and don't require any additional installation nor configuration.
 Currently macOS 13 and above is supported.
 
+## Cgo
+
+Sometimes, cgo is not available:
+
+* When performing a cross-platform build, a suitable C compiler for cgo is often not available or very difficult to set up correctly.
+* Cgo may be intentionally disabled to simplify the build process, or for security or performance reasons.
+* Cgo may be intentionally disabled to avoid producing a binary that depends on the build system's glibc version. The dependency may be too new, causing the program to fail to run on some target systems. See ["glibc resolution failure on Linux" in the Migration Guide](MigrationGuide.md#glibc-resolution-failure-on-linux).
+
+The Microsoft build of Go attempts to use a cgo-less `systemcrypto` backend when cgo is not enabled, but on some uncommon OS and architecture combinations, this is not supported:
+
+| Target platform | Cgo enabled | Cgo disabled |
+| --- | --- | --- |
+| Linux | ✔️ | ⚠️<sup>1</sup>  |
+| FreeBSD (since Go 1.27) | ⚠️<sup>2</sup> | ⚠️<sup>2</sup> |
+| Windows | ✔️ | ✔️ |
+| macOS | ✔️ | ✔️ |
+
+<sup>1</sup> Supported on **amd64**, **arm64**, and [many other architectures](NocgoOpenSSL.md#supported-architectures).
+
+<sup>2</sup> Supported on **amd64** and **arm64** architectures.
+
+> [!IMPORTANT]
+> When using Go 1.26 and targeting Linux or FreeBSD, the table only applies if `GOEXPERIMENT=ms_nocgo_opensslcrypto` is set.
+> Otherwise, cgo is always required.
+> See [No-cgo OpenSSL Backend](NocgoOpenSSL.md) for details.
+
 ## Table legend
 
 The following legend describes the symbols used in the tables to indicate the level of support for each cryptographic algorithm:
