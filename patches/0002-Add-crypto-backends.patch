@@ -9,7 +9,7 @@ Subject: [PATCH] Add crypto backends
  .../compile/internal/logopt/logopt_test.go    |   5 +
  src/cmd/compile/script_test.go                |   8 +
  src/cmd/compile/testdata/script/README        |   2 +
- src/cmd/dist/build.go                         |  68 ++++-
+ src/cmd/dist/build.go                         |  68 +++-
  src/cmd/dist/test.go                          |  48 ++-
  src/cmd/go/alldocs.go                         |   3 +
  src/cmd/go/go_boring_test.go                  |   6 +-
@@ -20,7 +20,7 @@ Subject: [PATCH] Add crypto backends
  src/cmd/go/internal/load/pkg.go               |  50 ++-
  src/cmd/go/internal/tool/tool.go              |   9 +-
  src/cmd/go/script_test.go                     |   3 +
- src/cmd/go/systemcrypto_test.go               | 284 ++++++++++++++++++
+ src/cmd/go/systemcrypto_test.go               | 298 ++++++++++++++++++
  src/cmd/go/testdata/script/README             |   2 +
  src/cmd/go/testdata/script/darwin_no_cgo.txt  |   1 +
  src/cmd/go/testdata/script/env_changed.txt    |   3 +
@@ -52,7 +52,7 @@ Subject: [PATCH] Add crypto backends
  src/crypto/ecdh/ecdh.go                       |   7 +-
  src/crypto/ecdh/ecdh_test.go                  |  19 +-
  src/crypto/ecdh/nist.go                       |  54 ++--
- src/crypto/ecdh/x25519.go                     |  51 ++++
+ src/crypto/ecdh/x25519.go                     |  51 +++
  src/crypto/ecdsa/boring.go                    |  19 +-
  src/crypto/ecdsa/ecdsa.go                     |  19 +-
  src/crypto/ecdsa/notboring.go                 |   8 +-
@@ -81,8 +81,8 @@ Subject: [PATCH] Add crypto backends
  src/crypto/md5/md5.go                         |  12 +
  src/crypto/md5/md5_test.go                    |  18 +-
  src/crypto/mldsa/mldsa_fips140v1.26.go        | 177 ++++++++++-
- src/crypto/mldsa/mldsa_test.go                |  67 ++++-
- src/crypto/mlkem/mlkem.go                     | 120 +++++++-
+ src/crypto/mldsa/mldsa_test.go                |  67 +++-
+ src/crypto/mlkem/mlkem.go                     | 120 ++++++-
  src/crypto/mlkem/mlkem_test.go                |   8 +
  src/crypto/pbkdf2/pbkdf2.go                   |   9 +
  src/crypto/pbkdf2/pbkdf2_test.go              |   6 +-
@@ -107,6 +107,7 @@ Subject: [PATCH] Add crypto backends
  src/crypto/sha3/sha3_test.go                  |  18 +-
  src/crypto/sha512/sha512.go                   |  24 +-
  src/crypto/sha512/sha512_test.go              |  32 +-
+ src/crypto/systemcrypto_nocgo_freebsd.go      |  17 +
  src/crypto/systemcrypto_nocgo_linux.go        |  18 ++
  src/crypto/tls/cipher_suites.go               |  17 +-
  src/crypto/tls/fipsonly/fipsonly.go           |   2 +-
@@ -137,12 +138,13 @@ Subject: [PATCH] Add crypto backends
  src/os/exec/exec_test.go                      |   9 +
  src/runtime/runtime_boring.go                 |   5 +
  src/syscall/syscall_windows.go                |   3 +
- 133 files changed, 2530 insertions(+), 378 deletions(-)
+ 134 files changed, 2561 insertions(+), 378 deletions(-)
  create mode 100644 src/cmd/go/systemcrypto_test.go
  create mode 100644 src/crypto/dsa/boring.go
  create mode 100644 src/crypto/dsa/notboring.go
  create mode 100644 src/crypto/ed25519/boring.go
  create mode 100644 src/crypto/ed25519/notboring.go
+ create mode 100644 src/crypto/systemcrypto_nocgo_freebsd.go
  create mode 100644 src/crypto/systemcrypto_nocgo_linux.go
  create mode 100644 src/go/build/buildbackend_test.go
  create mode 100644 src/go/build/testdata/backendtags_system/main.go
@@ -328,7 +330,7 @@ index 78d55bec559987..decf356a449ba9 100644
  	if debug {
  		run("", ShowOutput|CheckExit, pathf("%s/compile", tooldir), "-V=full")
 diff --git a/src/cmd/dist/test.go b/src/cmd/dist/test.go
-index 43ac003c7907c7..4daeb1a5ced0eb 100644
+index 43ac003c7907c7..e55b825598d84b 100644
 --- a/src/cmd/dist/test.go
 +++ b/src/cmd/dist/test.go
 @@ -158,10 +158,12 @@ func (t *tester) run() {
@@ -417,7 +419,7 @@ index 43ac003c7907c7..4daeb1a5ced0eb 100644
 +	}
 +	var enabled bool
 +	switch goos {
-+	case "linux", "darwin":
++	case "linux", "freebsd", "darwin":
 +		enabled = true
 +	case "windows":
 +		enabled = goarch == "amd64" || goarch == "arm64"
@@ -749,10 +751,10 @@ index 6033ec420b8452..a8374234a3f0a5 100644
  // updateSum runs 'go mod tidy', 'go list -mod=mod -m all', or
 diff --git a/src/cmd/go/systemcrypto_test.go b/src/cmd/go/systemcrypto_test.go
 new file mode 100644
-index 00000000000000..8e7f07fe1f758c
+index 00000000000000..9e69523be76c73
 --- /dev/null
 +++ b/src/cmd/go/systemcrypto_test.go
-@@ -0,0 +1,284 @@
+@@ -0,0 +1,298 @@
 +// Copyright 2025 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -866,6 +868,20 @@ index 00000000000000..8e7f07fe1f758c
 +				t.Fatalf("expected success, got failure: %s", out)
 +			}
 +		})
++	}
++}
++
++func TestSystemCryptoFreeBSDNoCgo(t *testing.T) {
++	t.Parallel()
++
++	cryptoFile := writeFile(t, fileWithCrypto)
++	env := []string{"CGO_ENABLED=0", "GOOS=freebsd", "GOARCH=386", "MS_GO_NOSYSTEMCRYPTO=0"}
++	out, ok := execGoTool(t, true, env, "build", "-o", outPath(t), cryptoFile)
++	if ok {
++		t.Fatal("expected failure, got success")
++	}
++	if !strings.Contains(out, "Using system crypto on FreeBSD requires CGO_ENABLED=1 on architectures other than amd64 and arm64") {
++		t.Fatalf("expected cgo requirement error, got: %s", out)
 +	}
 +}
 +
@@ -5723,6 +5739,30 @@ index 080bf694f03652..34cbaa0fde6eba 100644
  		})
  	})
  }
+diff --git a/src/crypto/systemcrypto_nocgo_freebsd.go b/src/crypto/systemcrypto_nocgo_freebsd.go
+new file mode 100644
+index 00000000000000..88b262f2dbadd6
+--- /dev/null
++++ b/src/crypto/systemcrypto_nocgo_freebsd.go
+@@ -0,0 +1,17 @@
++// Copyright 2026 The Go Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style
++// license that can be found in the LICENSE file.
++
++//go:build goexperiment.systemcrypto && !(cgo || amd64 || arm64)
++
++package crypto
++
++func init() {
++	`
++	Using system crypto on FreeBSD requires CGO_ENABLED=1 on architectures other than amd64 and arm64.
++
++	To build without cgo, disable system crypto by setting MS_GO_NOSYSTEMCRYPTO=1.
++
++	For more information, visit https://github.com/microsoft/go/blob/microsoft/main/eng/doc/CrossPlatformCryptography.md#freebsd
++	`
++}
+\ No newline at end of file
 diff --git a/src/crypto/systemcrypto_nocgo_linux.go b/src/crypto/systemcrypto_nocgo_linux.go
 new file mode 100644
 index 00000000000000..b3a50c0aae95af
@@ -6498,7 +6538,7 @@ index 9329769721b7de..1724afb71b851e 100644
  	PKG_CONFIG
  `
 diff --git a/src/internal/platform/supported.go b/src/internal/platform/supported.go
-index 6f37e368596498..a1f0382ea2d18b 100644
+index 6f37e368596498..20299035e3bef7 100644
 --- a/src/internal/platform/supported.go
 +++ b/src/internal/platform/supported.go
 @@ -279,3 +279,15 @@ func FirstClass(goos, goarch string) bool {
@@ -6509,9 +6549,9 @@ index 6f37e368596498..a1f0382ea2d18b 100644
 +// SystemCryptoSupported reports whether goos/goarch supports system crypto.
 +func SystemCryptoSupported(goos, goarch string) bool {
 +	switch goos {
-+	case "linux", "darwin":
++	case "linux", "freebsd", "darwin":
 +		return true
-+	case "freebsd", "windows":
++	case "windows":
 +		return goarch == "amd64" || goarch == "arm64"
 +	default:
 +		return false
@@ -6545,7 +6585,7 @@ index 00000000000000..71c1923a270646
 +}
 diff --git a/src/internal/systemcrypto/systemcrypto_test.go b/src/internal/systemcrypto/systemcrypto_test.go
 new file mode 100644
-index 00000000000000..38c7bfa3c0b7b1
+index 00000000000000..5e95772e82cf6e
 --- /dev/null
 +++ b/src/internal/systemcrypto/systemcrypto_test.go
 @@ -0,0 +1,60 @@
@@ -6578,7 +6618,7 @@ index 00000000000000..38c7bfa3c0b7b1
 +		{"windows", "386", false},
 +		{"freebsd", "amd64", true},
 +		{"freebsd", "arm64", true},
-+		{"freebsd", "386", false},
++		{"freebsd", "386", true},
 +	}
 +	for _, tt := range tests {
 +		if got := EnabledFor(tt.goos, tt.goarch); got != tt.want {
