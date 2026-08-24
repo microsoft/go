@@ -52,13 +52,15 @@ The Microsoft build of Go attempts to use a cgo-less `systemcrypto` backend when
 | Target platform | Cgo enabled | Cgo disabled |
 | --- | --- | --- |
 | Linux | ✔️ | ⚠️<sup>1</sup>  |
-| FreeBSD (since Go 1.27) | ✔️ | ⚠️<sup>2</sup> |
+| FreeBSD (since Go 1.27) | ⚠️<sup>2,3</sup> | ⚠️<sup>2</sup> |
 | Windows | ✔️ | ✔️ |
 | macOS | ✔️ | ✔️ |
 
 <sup>1</sup> Supported on **amd64**, **arm64**, and [many other architectures](NocgoOpenSSL.md#supported-architectures).
 
 <sup>2</sup> Supported on **amd64** and **arm64** architectures.
+
+<sup>3</sup> Support with cgo for all FreeBSD architectures is [expected in Go 1.27.1](https://github.com/microsoft/go/pull/2477).
 
 > [!IMPORTANT]
 > When using Go 1.26 and targeting Linux or FreeBSD, the table only applies if `GOEXPERIMENT=ms_nocgo_opensslcrypto` is set.
