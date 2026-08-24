@@ -28,7 +28,7 @@ SCOSSL is expected to be used with the default built-in provider enabled as a fa
 
 ### FreeBSD
 
-Since Go 1.27, the Microsoft build of Go uses the [OpenSSL crypto library](https://docs.openssl.org/3.0/man7/crypto/) on FreeBSD (`amd64` and `arm64`), the same backend as on Linux.
+Since Go 1.27, the Microsoft build of Go uses the [OpenSSL crypto library](https://docs.openssl.org/3.0/man7/crypto/) on FreeBSD, the same backend as on Linux.
 The algorithm support listed in the Linux column of the tables below also applies to FreeBSD.
 
 ### macOS
@@ -50,7 +50,7 @@ The Microsoft build of Go attempts to use a cgo-less `systemcrypto` backend when
 | Target platform | Cgo enabled | Cgo disabled |
 | --- | --- | --- |
 | Linux | ✔️ | ⚠️<sup>1</sup>  |
-| FreeBSD (since Go 1.27) | ⚠️<sup>2</sup> | ⚠️<sup>2</sup> |
+| FreeBSD (since Go 1.27) | ✔️ | ⚠️<sup>2</sup> |
 | Windows | ✔️ | ✔️ |
 | macOS | ✔️ | ✔️ |
 
