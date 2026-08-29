@@ -25,7 +25,7 @@ Subject: [PATCH] Implement ms_tls_config_schannel experiment
  create mode 100644 src/internal/goexperiment/exp_ms_tls_config_schannel_on.go
 
 diff --git a/src/crypto/tls/fips140_test.go b/src/crypto/tls/fips140_test.go
-index c3f6ec917b5632..fa54d22ec65057 100644
+index 91dcafa8dd5ad0..545e4b4f965fa9 100644
 --- a/src/crypto/tls/fips140_test.go
 +++ b/src/crypto/tls/fips140_test.go
 @@ -16,6 +16,7 @@ import (
@@ -36,7 +36,7 @@ index c3f6ec917b5632..fa54d22ec65057 100644
  	"internal/testenv"
  	"math/big"
  	"net"
-@@ -67,6 +68,10 @@ func generateKeyShare(group CurveID) keyShare {
+@@ -70,6 +71,10 @@ func generateKeyShare(group CurveID) keyShare {
  func TestFIPSServerProtocolVersion(t *testing.T) {
  	test := func(t *testing.T, name string, v uint16, msg string) {
  		t.Run(name, func(t *testing.T) {
@@ -44,21 +44,21 @@ index c3f6ec917b5632..fa54d22ec65057 100644
 +				// Schannel may have disabled TLS 1.0 and 1.1.
 +				t.Skip("skipping Schannel unsupported protocol version")
 +			}
- 			serverConfig := testConfigFIPS140.Clone()
+ 			serverConfig := testConfigFIPS140()
  			serverConfig.MinVersion = VersionSSL30
  			serverConfig.MaxVersion = VersionTLS13
-@@ -195,6 +200,9 @@ func isFIPSSignatureScheme(alg SignatureScheme) bool {
+@@ -198,6 +203,9 @@ func isFIPSSignatureScheme(alg SignatureScheme) bool {
  func TestFIPSServerCipherSuites(t *testing.T) {
  	for _, id := range allCipherSuitesIncludingTLS13() {
  		t.Run(fmt.Sprintf("suite=%s", CipherSuiteName(id)), func(t *testing.T) {
 +			if goexperiment.MS_TLS_Config_Schannel && !isSchannelCipherSuite(id) {
 +				t.Skip("skipping Schannel unsupported cipher suite")
 +			}
- 			serverConfig := testConfigFIPS140.Clone()
+ 			serverConfig := testConfigFIPS140()
  			clientHello := &clientHelloMsg{
  				vers:                         VersionTLS12,
 diff --git a/src/crypto/tls/handshake_client_test.go b/src/crypto/tls/handshake_client_test.go
-index 64a668eae9b512..d8ac7f232590ca 100644
+index 42485f175c435f..671d19bf8f8379 100644
 --- a/src/crypto/tls/handshake_client_test.go
 +++ b/src/crypto/tls/handshake_client_test.go
 @@ -20,6 +20,7 @@ import (
@@ -69,7 +69,7 @@ index 64a668eae9b512..d8ac7f232590ca 100644
  	"io"
  	"math/big"
  	"net"
-@@ -2400,6 +2401,11 @@ func testGetClientCertificate(t *testing.T, version uint16) {
+@@ -2427,6 +2428,11 @@ func testGetClientCertificate(t *testing.T, version uint16) {
  			t.Logf("skipping test %d for FIPS mode", i)
  			continue
  		}
@@ -81,7 +81,7 @@ index 64a668eae9b512..d8ac7f232590ca 100644
  
  		type serverResult struct {
  			cs  ConnectionState
-@@ -2444,6 +2450,21 @@ func testGetClientCertificate(t *testing.T, version uint16) {
+@@ -2471,6 +2477,21 @@ func testGetClientCertificate(t *testing.T, version uint16) {
  	}
  }
  
@@ -294,7 +294,7 @@ index 00000000000000..cccfb8866f88ab
 +}
 diff --git a/src/crypto/tls/schannel_windows_test.go b/src/crypto/tls/schannel_windows_test.go
 new file mode 100644
-index 00000000000000..c38f52f42fa26b
+index 00000000000000..b0bfaefadc6f4e
 --- /dev/null
 +++ b/src/crypto/tls/schannel_windows_test.go
 @@ -0,0 +1,226 @@
@@ -411,7 +411,7 @@ index 00000000000000..c38f52f42fa26b
 +	}, []uint16{VersionTLS12}, func() {
 +		serverConfig := &Config{
 +			CipherSuites: []uint16{TLS_RSA_WITH_RC4_128_SHA, TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256},
-+			Certificates: testConfigServer.Certificates,
++			Certificates: testConfigServer().Certificates,
 +			MaxVersion:   VersionTLS12,
 +			GetConfigForClient: func(chi *ClientHelloInfo) (*Config, error) {
 +				if chi.CipherSuites[0] != TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256 {
@@ -440,7 +440,7 @@ index 00000000000000..c38f52f42fa26b
 +		TLS_AES_256_GCM_SHA384,
 +	}, []uint16{VersionTLS13}, func() {
 +		serverConfig := &Config{
-+			Certificates: testConfigServer.Certificates,
++			Certificates: testConfigServer().Certificates,
 +		}
 +		clientConfig := &Config{
 +			InsecureSkipVerify: true,
@@ -464,7 +464,7 @@ index 00000000000000..c38f52f42fa26b
 +		TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
 +	}, []uint16{VersionTLS13, VersionTLS12}, func() {
 +		serverConfig := &Config{
-+			Certificates: testConfigServer.Certificates,
++			Certificates: testConfigServer().Certificates,
 +			MaxVersion:   VersionTLS13,
 +		}
 +		clientConfig := &Config{
@@ -485,7 +485,7 @@ index 00000000000000..c38f52f42fa26b
 +		TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
 +	}, []uint16{VersionTLS12}, func() {
 +		serverConfig := &Config{
-+			Certificates: testConfigServer.Certificates,
++			Certificates: testConfigServer().Certificates,
 +		}
 +		clientConfig := &Config{
 +			InsecureSkipVerify: true,
@@ -525,7 +525,7 @@ index 00000000000000..c38f52f42fa26b
 +	}
 +}
 diff --git a/src/crypto/tls/tls_test.go b/src/crypto/tls/tls_test.go
-index 2bfb645e2c8e60..5edb2a19c1316e 100644
+index 296b8a7b8a9676..bb8ee4968ffe12 100644
 --- a/src/crypto/tls/tls_test.go
 +++ b/src/crypto/tls/tls_test.go
 @@ -24,6 +24,7 @@ import (
@@ -536,7 +536,7 @@ index 2bfb645e2c8e60..5edb2a19c1316e 100644
  	"internal/testenv"
  	"io"
  	"math"
-@@ -243,6 +244,11 @@ func skipFIPS(t *testing.T) {
+@@ -251,6 +252,11 @@ func skipFIPS(t *testing.T) {
  	if fips140tls.Required() {
  		t.Skip("skipping test in FIPS mode")
  	}
@@ -548,7 +548,7 @@ index 2bfb645e2c8e60..5edb2a19c1316e 100644
  }
  
  func TestDialTimeout(t *testing.T) {
-@@ -1357,6 +1363,9 @@ func TestConnectionState(t *testing.T) {
+@@ -1365,6 +1371,9 @@ func TestConnectionState(t *testing.T) {
  		if !isFIPSVersion(v) && fips140tls.Required() {
  			t.Skipf("skipping test in FIPS 140-3 mode for non-FIPS version %x", v)
  		}
@@ -558,7 +558,7 @@ index 2bfb645e2c8e60..5edb2a19c1316e 100644
  		var name string
  		switch v {
  		case VersionTLS10:
-@@ -1605,6 +1614,11 @@ func TestClientHelloInfo_SupportsCertificate(t *testing.T) {
+@@ -1613,6 +1622,11 @@ func TestClientHelloInfo_SupportsCertificate(t *testing.T) {
  		}, "doesn't support ML-DSA"},
  	}
  	for i, tt := range tests {
@@ -570,7 +570,7 @@ index 2bfb645e2c8e60..5edb2a19c1316e 100644
  		err := tt.chi.SupportsCertificate(&tt.c)
  		switch {
  		case tt.wantErr == "" && err != nil:
-@@ -1618,6 +1632,11 @@ func TestClientHelloInfo_SupportsCertificate(t *testing.T) {
+@@ -1626,6 +1640,11 @@ func TestClientHelloInfo_SupportsCertificate(t *testing.T) {
  }
  
  func TestCipherSuites(t *testing.T) {
@@ -611,7 +611,7 @@ index 00000000000000..a2dbc6187da2a0
 +const MS_TLS_Config_Schannel = true
 +const MS_TLS_Config_SchannelInt = 1
 diff --git a/src/internal/goexperiment/flags.go b/src/internal/goexperiment/flags.go
-index 48f3c8f4060be8..8e16ada8b435b7 100644
+index 84a3d35266f871..412013e12800c5 100644
 --- a/src/internal/goexperiment/flags.go
 +++ b/src/internal/goexperiment/flags.go
 @@ -55,6 +55,14 @@ package goexperiment
