@@ -6,6 +6,12 @@
 
 package backend
 
+import (
+	"hash"
+
+	"github.com/microsoft/go-crypto-darwin/xcrypto"
+)
+
 func init() {
 	// Darwin is considered FIPS compliant.
 	if err := checkFIPS(func() bool { return true }); err != nil {
@@ -15,3 +21,5 @@ func init() {
 
 // Enabled controls whether FIPS crypto is enabled.
 const Enabled = true
+
+func fipsApprovedHash(h hash.Hash) bool { return xcrypto.FIPSApprovedHash(h) }

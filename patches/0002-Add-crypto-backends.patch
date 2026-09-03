@@ -73,9 +73,9 @@ Subject: [PATCH] Add crypto backends
  src/crypto/internal/cryptotest/fips140.go     |   8 +
  src/crypto/internal/cryptotest/hash.go        |   3 +-
  .../internal/cryptotest/implementations.go    |   2 +-
- src/crypto/internal/fips140hash/hash.go       |   3 +-
+ src/crypto/internal/fips140hash/hash.go       |  12 +-
  .../internal/fips140only/fips140only.go       |  11 +-
- .../internal/fips140only/fips140only_test.go  |  47 ++-
+ .../internal/fips140only/fips140only_test.go  |  20 +-
  src/crypto/internal/fips140test/acvp_test.go  |   6 +
  src/crypto/internal/fips140test/cast_test.go  |   2 +
  src/crypto/internal/fips140test/fips_test.go  |   3 +-
@@ -103,12 +103,12 @@ Subject: [PATCH] Add crypto backends
  src/crypto/rsa/rsa_test.go                    |   7 +-
  src/crypto/sha1/sha1.go                       |  15 +-
  src/crypto/sha1/sha1_test.go                  |  11 +-
- src/crypto/sha256/sha256.go                   |  16 +-
- src/crypto/sha256/sha256_test.go              |  44 ++-
- src/crypto/sha3/sha3.go                       | 131 +++++++-
- src/crypto/sha3/sha3_test.go                  |  18 +-
- src/crypto/sha512/sha512.go                   |  24 +-
- src/crypto/sha512/sha512_test.go              |  32 +-
+ src/crypto/sha256/sha256.go                   |  15 +-
+ src/crypto/sha256/sha256_test.go              |  42 ++-
+ src/crypto/sha3/sha3.go                       |  36 +--
+ src/crypto/sha3/sha3_test.go                  |  32 +-
+ src/crypto/sha512/sha512.go                   |  27 +-
+ src/crypto/sha512/sha512_test.go              |  33 +-
  src/crypto/systemcrypto_nocgo_freebsd.go      |  17 +
  src/crypto/systemcrypto_nocgo_linux.go        |  18 ++
  src/crypto/tls/cipher_suites.go               |  17 +-
@@ -120,11 +120,11 @@ Subject: [PATCH] Add crypto backends
  src/crypto/tls/handshake_server_tls13.go      |   6 +-
  src/crypto/tls/handshake_test.go              |   3 +-
  src/crypto/tls/key_schedule.go                |   3 +-
- src/crypto/tls/prf.go                         |  26 ++
+ src/crypto/tls/prf.go                         |  27 ++
  src/crypto/tls/prf_test.go                    |   9 +
  src/crypto/x509/verify_test.go                |   2 +-
  src/go/build/buildbackend_test.go             |  50 +++
- src/go/build/deps_test.go                     |  97 +++++-
+ src/go/build/deps_test.go                     |  91 +++++-
  .../build/testdata/backendtags_system/main.go |   3 +
  .../backendtags_system/systemcrypto.go        |   3 +
  src/hash/example_test.go                      |   2 +
@@ -140,7 +140,7 @@ Subject: [PATCH] Add crypto backends
  src/os/exec/exec_test.go                      |   9 +
  src/runtime/runtime_boring.go                 |   5 +
  src/syscall/syscall_windows.go                |   3 +
- 136 files changed, 2564 insertions(+), 379 deletions(-)
+ 136 files changed, 2447 insertions(+), 393 deletions(-)
  create mode 100644 src/cmd/go/systemcrypto_test.go
  create mode 100644 src/crypto/dsa/boring.go
  create mode 100644 src/crypto/dsa/notboring.go
@@ -464,7 +464,7 @@ index ed0fbf3d53d75b..a2f74c8095d449 100644
  func TestBoringInternalLink(t *testing.T) {
  	tg := testgo(t)
 diff --git a/src/cmd/go/go_test.go b/src/cmd/go/go_test.go
-index 5632b224d801f5..8967847ce9ecfa 100644
+index 4caea619a35a73..100f5ada1aff48 100644
 --- a/src/cmd/go/go_test.go
 +++ b/src/cmd/go/go_test.go
 @@ -14,6 +14,7 @@ import (
@@ -2968,10 +2968,10 @@ index 2b6cf4b75fc6b7..563452ea4c6ed0 100644
  	"internal/goos"
  	"internal/testenv"
 diff --git a/src/crypto/internal/fips140hash/hash.go b/src/crypto/internal/fips140hash/hash.go
-index 6d67ee8b3429a1..8f8d5937ea913c 100644
+index 6d67ee8b3429a1..2d1680cee21f5b 100644
 --- a/src/crypto/internal/fips140hash/hash.go
 +++ b/src/crypto/internal/fips140hash/hash.go
-@@ -5,14 +5,13 @@
+@@ -5,14 +5,16 @@
  package fips140hash
  
  import (
@@ -2979,6 +2979,9 @@ index 6d67ee8b3429a1..8f8d5937ea913c 100644
  	"crypto/sha3"
  	"hash"
  	_ "unsafe"
++
++	bsha256 "github.com/microsoft/go/cryptobackend/sha256"
++	bsha512 "github.com/microsoft/go/cryptobackend/sha512"
  )
  
  //go:linkname sha3Unwrap
@@ -2987,6 +2990,19 @@ index 6d67ee8b3429a1..8f8d5937ea913c 100644
  
  // Unwrap returns h, or a crypto/internal/fips140 inner implementation of h.
  //
+@@ -21,6 +23,12 @@ func sha3Unwrap(*sha3.SHA3) *fsha3.Digest
+ // [crypto/internal/fips140/sha512.Digest], or
+ // [crypto/internal/fips140/sha3.Digest] if it is a FIPS 140-3 approved hash.
+ func Unwrap(h hash.Hash) hash.Hash {
++	if sha256, ok := h.(*bsha256.Hash); ok {
++		return bsha256.Unwrap(sha256)
++	}
++	if sha512, ok := h.(*bsha512.Hash); ok {
++		return bsha512.Unwrap(sha512)
++	}
+ 	if sha3, ok := h.(*sha3.SHA3); ok {
+ 		return sha3Unwrap(sha3)
+ 	}
 diff --git a/src/crypto/internal/fips140only/fips140only.go b/src/crypto/internal/fips140only/fips140only.go
 index a8d840b17022cc..2a17f7da2d4aaa 100644
 --- a/src/crypto/internal/fips140only/fips140only.go
@@ -3013,10 +3029,10 @@ index a8d840b17022cc..2a17f7da2d4aaa 100644
 +	return false
  }
 diff --git a/src/crypto/internal/fips140only/fips140only_test.go b/src/crypto/internal/fips140only/fips140only_test.go
-index a940fb2a3a0010..e5b6f3615fe0c1 100644
+index a940fb2a3a0010..c5ec16cfb2885d 100644
 --- a/src/crypto/internal/fips140only/fips140only_test.go
 +++ b/src/crypto/internal/fips140only/fips140only_test.go
-@@ -38,9 +38,13 @@ import (
+@@ -38,9 +38,12 @@ import (
  	"io"
  	"math/big"
  	"os"
@@ -3025,12 +3041,11 @@ index a940fb2a3a0010..e5b6f3615fe0c1 100644
  	"testing"
  
 +	boring "github.com/microsoft/go/cryptobackend"
-+	bhash "github.com/microsoft/go/cryptobackend/hash"
 +
  	"golang.org/x/crypto/chacha20poly1305"
  )
  
-@@ -81,7 +85,12 @@ func testFIPS140Only(t *testing.T) {
+@@ -81,7 +84,12 @@ func testFIPS140Only(t *testing.T) {
  	expectPanic(t, func() { cipher.NewCFBEncrypter(aesBlock, iv) })
  	expectPanic(t, func() { cipher.NewCFBDecrypter(aesBlock, iv) })
  
@@ -3044,7 +3059,7 @@ index a940fb2a3a0010..e5b6f3615fe0c1 100644
  	expectPanic(t, func() { cipher.NewCTR(notAESBlock, iv) })
  
  	expectPanic(t, func() { cipher.NewOFB(aesBlock, iv) })
-@@ -306,10 +315,12 @@ bXVL8iKLrG91IYQByUHZIn3WVAd2bfi4MfKagRt0ggd4
+@@ -306,10 +314,12 @@ bXVL8iKLrG91IYQByUHZIn3WVAd2bfi4MfKagRt0ggd4
  	expectErr(t, errRet2(hpke.Seal(hpkeK.PublicKey(), hpke.HKDFSHA256(), hpke.ChaCha20Poly1305(), nil, nil)))
  	expectErr(t, errRet2(hpke.Open(hpkeK, hpke.HKDFSHA256(), hpke.ChaCha20Poly1305(), nil, make([]byte, 2000))))
  
@@ -3061,39 +3076,6 @@ index a940fb2a3a0010..e5b6f3615fe0c1 100644
  	}
  }
  
-@@ -322,16 +333,22 @@ type readerWrap struct {
- }
- 
- func withApprovedHash(f func(crypto.Hash)) {
--	f(crypto.SHA224)
--	f(crypto.SHA256)
--	f(crypto.SHA384)
--	f(crypto.SHA512)
--	f(crypto.SHA3_224)
--	f(crypto.SHA3_256)
--	f(crypto.SHA3_384)
--	f(crypto.SHA3_512)
--	f(crypto.SHA512_224)
--	f(crypto.SHA512_256)
-+	for _, h := range []crypto.Hash{
-+		crypto.SHA224, crypto.SHA256, crypto.SHA384, crypto.SHA512,
-+		crypto.SHA512_224, crypto.SHA512_256,
-+	} {
-+		if boring.Enabled && !bhash.Approved(h.New()) {
-+			continue
-+		}
-+		f(h)
-+	}
-+	for _, h := range []crypto.Hash{crypto.SHA3_224, crypto.SHA3_256, crypto.SHA3_384, crypto.SHA3_512} {
-+		if boring.Enabled {
-+			// TODO implement fallbacks that checks hash.Hash
-+			continue
-+		}
-+		f(h)
-+	}
- }
- 
- func withNonApprovedHash(f func(crypto.Hash)) {
 diff --git a/src/crypto/internal/fips140test/acvp_test.go b/src/crypto/internal/fips140test/acvp_test.go
 index 333dee95e3327c..9ce843895fc60e 100644
 --- a/src/crypto/internal/fips140test/acvp_test.go
@@ -4991,79 +4973,65 @@ index 8b4618df556271..ae4abc9edfa7c1 100644
  
  func maybeCloner(h hash.Hash) any {
 diff --git a/src/crypto/sha256/sha256.go b/src/crypto/sha256/sha256.go
-index 069938a22dbc5a..c8bee8f21feeba 100644
+index 069938a22dbc5a..42c8d262752bf4 100644
 --- a/src/crypto/sha256/sha256.go
 +++ b/src/crypto/sha256/sha256.go
-@@ -8,9 +8,11 @@ package sha256
- 
+@@ -9,8 +9,9 @@ package sha256
  import (
  	"crypto"
--	"crypto/internal/boring"
- 	"crypto/internal/fips140/sha256"
+ 	"crypto/internal/boring"
+-	"crypto/internal/fips140/sha256"
  	"hash"
 +
-+	boring "github.com/microsoft/go/cryptobackend"
-+	bsha256 "github.com/microsoft/go/cryptobackend/sha256"
++	"github.com/microsoft/go/cryptobackend/sha256"
  )
  
  func init() {
-@@ -33,7 +35,7 @@ const BlockSize = 64
- // state of the hash.
- func New() hash.Hash {
+@@ -54,11 +55,7 @@ func Sum256(data []byte) [Size]byte {
  	if boring.Enabled {
--		return boring.NewSHA256()
-+		return bsha256.New()
+ 		return boring.SHA256(data)
  	}
- 	return sha256.New()
+-	h := New()
+-	h.Write(data)
+-	var sum [Size]byte
+-	h.Sum(sum[:0])
+-	return sum
++	return sha256.Sum256(data)
  }
-@@ -43,8 +45,8 @@ func New() hash.Hash {
- // [encoding.BinaryUnmarshaler] to marshal and unmarshal the internal
- // state of the hash.
- func New224() hash.Hash {
--	if boring.Enabled {
--		return boring.NewSHA224()
-+	if boring.Enabled && bsha256.Supports224() {
-+		return bsha256.New224()
- 	}
- 	return sha256.New224()
- }
-@@ -52,7 +54,7 @@ func New224() hash.Hash {
- // Sum256 returns the SHA256 checksum of the data.
- func Sum256(data []byte) [Size]byte {
- 	if boring.Enabled {
--		return boring.SHA256(data)
-+		return bsha256.Sum256(data)
- 	}
- 	h := New()
- 	h.Write(data)
-@@ -63,8 +65,8 @@ func Sum256(data []byte) [Size]byte {
  
  // Sum224 returns the SHA224 checksum of the data.
- func Sum224(data []byte) [Size224]byte {
--	if boring.Enabled {
--		return boring.SHA224(data)
-+	if boring.Enabled && bsha256.Supports224() {
-+		return bsha256.Sum224(data)
+@@ -66,9 +63,5 @@ func Sum224(data []byte) [Size224]byte {
+ 	if boring.Enabled {
+ 		return boring.SHA224(data)
  	}
- 	h := New224()
- 	h.Write(data)
+-	h := New224()
+-	h.Write(data)
+-	var sum [Size224]byte
+-	h.Sum(sum[:0])
+-	return sum
++	return sha256.Sum224(data)
+ }
 diff --git a/src/crypto/sha256/sha256_test.go b/src/crypto/sha256/sha256_test.go
-index a18a536ba2896f..78d6a512f467cd 100644
+index a18a536ba2896f..7cd0da8cad4727 100644
 --- a/src/crypto/sha256/sha256_test.go
 +++ b/src/crypto/sha256/sha256_test.go
-@@ -10,8 +10,11 @@ import (
+@@ -10,10 +10,15 @@ import (
  	"bytes"
  	"crypto/internal/cryptotest"
  	"encoding"
 +	"errors"
  	"fmt"
-+	boring "github.com/microsoft/go/cryptobackend"
  	"hash"
 +	"internal/systemcrypto"
  	"io"
  	"testing"
++
++	backend "github.com/microsoft/go/cryptobackend"
++	bsha256 "github.com/microsoft/go/cryptobackend/sha256"
  )
-@@ -163,6 +166,9 @@ func testGoldenMarshal(t *testing.T) {
+ 
+ type sha256Test struct {
+@@ -163,6 +168,9 @@ func testGoldenMarshal(t *testing.T) {
  
  				state, err := h.(encoding.BinaryMarshaler).MarshalBinary()
  				if err != nil {
@@ -5073,7 +5041,7 @@ index a18a536ba2896f..78d6a512f467cd 100644
  					t.Errorf("could not marshal: %v", err)
  					continue
  				}
-@@ -256,6 +262,9 @@ func TestMarshalTypeMismatch(t *testing.T) {
+@@ -256,6 +264,9 @@ func TestMarshalTypeMismatch(t *testing.T) {
  
  	state1, err := h1.(encoding.BinaryMarshaler).MarshalBinary()
  	if err != nil {
@@ -5083,11 +5051,11 @@ index a18a536ba2896f..78d6a512f467cd 100644
  		t.Errorf("could not marshal: %v", err)
  	}
  
-@@ -325,10 +334,18 @@ func safeSum(h hash.Hash) (sum []byte, err error) {
+@@ -325,10 +336,18 @@ func safeSum(h hash.Hash) (sum []byte, err error) {
  	return h.Sum(nil), nil
  }
  func TestLargeHashes(t *testing.T) {
-+	if boring.Enabled {
++	if backend.Enabled {
 +		if _, ok := New().(encoding.BinaryUnmarshaler); !ok {
 +			t.Skip("BinaryUnmarshaler not implemented")
 +		}
@@ -5102,30 +5070,24 @@ index a18a536ba2896f..78d6a512f467cd 100644
  			t.Errorf("test %d could not unmarshal: %v", i, err)
  			continue
  		}
-@@ -347,6 +364,10 @@ func TestLargeHashes(t *testing.T) {
+@@ -347,6 +366,13 @@ func TestLargeHashes(t *testing.T) {
  
  func TestAllocations(t *testing.T) {
  	cryptotest.SkipTestAllocations(t)
 +	expectedAllocations := 0.0
-+	if boring.Enabled {
-+		expectedAllocations = 1
++	if backend.Enabled && bsha256.Supports256() {
++		expectedAllocations++
++	}
++	if backend.Enabled && bsha256.Supports224() {
++		expectedAllocations++
 +	}
  	if n := testing.AllocsPerRun(10, func() {
  		in := []byte("hello, world!")
  		out := make([]byte, 0, Size)
-@@ -357,17 +378,10 @@ func TestAllocations(t *testing.T) {
- 			h.Write(in)
- 			out = h.Sum(out[:0])
- 		}
--		{
--			h := New224()
--			h.Reset()
--			h.Write(in)
--			out = h.Sum(out[:0])
--		}
+@@ -366,8 +392,8 @@ func TestAllocations(t *testing.T) {
  
  		Sum256(in)
--		Sum224(in)
+ 		Sum224(in)
 -	}); n > 0 {
 -		t.Errorf("allocs = %v, want 0", n)
 +	}); n > expectedAllocations {
@@ -5133,7 +5095,7 @@ index a18a536ba2896f..78d6a512f467cd 100644
  	}
  }
  
-@@ -404,13 +418,13 @@ func TestExtraMethods(t *testing.T) {
+@@ -404,13 +430,13 @@ func TestExtraMethods(t *testing.T) {
  	t.Run("SHA-224", func(t *testing.T) {
  		cryptotest.TestAllImplementations(t, "sha256", func(t *testing.T) {
  			h := maybeCloner(New224())
@@ -5149,13 +5111,13 @@ index a18a536ba2896f..78d6a512f467cd 100644
  		})
  	})
  }
-@@ -481,7 +495,11 @@ func TestAllocatonsWithTypeAsserts(t *testing.T) {
+@@ -481,7 +507,11 @@ func TestAllocatonsWithTypeAsserts(t *testing.T) {
  		marshaled, _ = h.(encoding.BinaryAppender).AppendBinary(marshaled[:0])
  		h.(encoding.BinaryUnmarshaler).UnmarshalBinary(marshaled)
  	})
 -	if allocs != 0 {
 -		t.Fatalf("allocs = %v; want = 0", allocs)
-+	maxAllocs := 0
++	maxAllocs := 1
 +	if systemcrypto.Enabled() {
 +		maxAllocs = 2
 +	}
@@ -5164,401 +5126,159 @@ index a18a536ba2896f..78d6a512f467cd 100644
  	}
  }
 diff --git a/src/crypto/sha3/sha3.go b/src/crypto/sha3/sha3.go
-index f7c5549ddd113c..e0d4ec287f14df 100644
+index f7c5549ddd113c..529ecd6ae9588a 100644
 --- a/src/crypto/sha3/sha3.go
 +++ b/src/crypto/sha3/sha3.go
-@@ -11,6 +11,9 @@ import (
- 	"crypto/internal/fips140/sha3"
+@@ -8,9 +8,10 @@ package sha3
+ 
+ import (
+ 	"crypto"
+-	"crypto/internal/fips140/sha3"
  	"hash"
  	_ "unsafe"
 +
-+	boring "github.com/microsoft/go/cryptobackend"
-+	bsha3 "github.com/microsoft/go/cryptobackend/sha3"
++	"github.com/microsoft/go/cryptobackend/sha3"
  )
  
  func init() {
-@@ -22,6 +25,9 @@ func init() {
+@@ -22,38 +23,22 @@ func init() {
  
  // Sum224 returns the SHA3-224 hash of data.
  func Sum224(data []byte) [28]byte {
-+	if boring.Enabled && bsha3.Supports224() {
-+		return bsha3.Sum224(data)
-+	}
- 	var out [28]byte
- 	h := sha3.New224()
- 	h.Write(data)
-@@ -31,6 +37,9 @@ func Sum224(data []byte) [28]byte {
+-	var out [28]byte
+-	h := sha3.New224()
+-	h.Write(data)
+-	h.Sum(out[:0])
+-	return out
++	return sha3.Sum224(data)
+ }
  
  // Sum256 returns the SHA3-256 hash of data.
  func Sum256(data []byte) [32]byte {
-+	if boring.Enabled && bsha3.Supports256() {
-+		return bsha3.Sum256(data)
-+	}
- 	var out [32]byte
- 	h := sha3.New256()
- 	h.Write(data)
-@@ -40,6 +49,9 @@ func Sum256(data []byte) [32]byte {
+-	var out [32]byte
+-	h := sha3.New256()
+-	h.Write(data)
+-	h.Sum(out[:0])
+-	return out
++	return sha3.Sum256(data)
+ }
  
  // Sum384 returns the SHA3-384 hash of data.
  func Sum384(data []byte) [48]byte {
-+	if boring.Enabled && bsha3.Supports384() {
-+		return bsha3.Sum384(data)
-+	}
- 	var out [48]byte
- 	h := sha3.New384()
- 	h.Write(data)
-@@ -49,6 +61,9 @@ func Sum384(data []byte) [48]byte {
+-	var out [48]byte
+-	h := sha3.New384()
+-	h.Write(data)
+-	h.Sum(out[:0])
+-	return out
++	return sha3.Sum384(data)
+ }
  
  // Sum512 returns the SHA3-512 hash of data.
  func Sum512(data []byte) [64]byte {
-+	if boring.Enabled && bsha3.Supports512() {
-+		return bsha3.Sum512(data)
-+	}
- 	var out [64]byte
- 	h := sha3.New512()
- 	h.Write(data)
-@@ -59,6 +74,9 @@ func Sum512(data []byte) [64]byte {
+-	var out [64]byte
+-	h := sha3.New512()
+-	h.Write(data)
+-	h.Sum(out[:0])
+-	return out
++	return sha3.Sum512(data)
+ }
+ 
  // SumSHAKE128 applies the SHAKE128 extendable output function to data and
- // returns an output of the given length in bytes.
- func SumSHAKE128(data []byte, length int) []byte {
-+	if boring.Enabled && bsha3.SupportsSHAKE(128) {
-+		return bsha3.SumSHAKE128(data, length)
-+	}
- 	// Outline the allocation for up to 256 bits of output to the caller's stack.
- 	out := make([]byte, 32)
- 	return sumSHAKE128(out, data, length)
-@@ -79,6 +97,9 @@ func sumSHAKE128(out, data []byte, length int) []byte {
- // SumSHAKE256 applies the SHAKE256 extendable output function to data and
- // returns an output of the given length in bytes.
- func SumSHAKE256(data []byte, length int) []byte {
-+	if boring.Enabled && bsha3.SupportsSHAKE(256) {
-+		return bsha3.SumSHAKE256(data, length)
-+	}
- 	// Outline the allocation for up to 512 bits of output to the caller's stack.
- 	out := make([]byte, 64)
- 	return sumSHAKE256(out, data, length)
-@@ -99,37 +120,54 @@ func sumSHAKE256(out, data []byte, length int) []byte {
- // SHA3 is an instance of a SHA-3 hash. It implements [hash.Hash].
- // The zero value is a usable SHA3-256 hash.
- type SHA3 struct {
--	s sha3.Digest
-+	s         sha3.Digest
-+	boringS   *bsha3.Hash
-+	supported bool
+@@ -103,9 +88,9 @@ type SHA3 struct {
  }
  
  //go:linkname fips140hash_sha3Unwrap crypto/internal/fips140hash.sha3Unwrap
 -func fips140hash_sha3Unwrap(s *SHA3) *sha3.Digest {
 +func fips140hash_sha3Unwrap(s *SHA3) hash.Hash {
  	s.init()
-+	if s.boringS != nil {
-+		return s.boringS
-+	}
- 	return &s.s
+-	return &s.s
++	return sha3.Unwrap(&s.s)
  }
  
  // New224 creates a new SHA3-224 hash.
- func New224() *SHA3 {
--	return &SHA3{*sha3.New224()}
-+	if boring.Enabled && bsha3.Supports224() {
-+		return &SHA3{boringS: bsha3.New224(), supported: true}
-+	}
-+	return &SHA3{s: *sha3.New224()}
- }
- 
- // New256 creates a new SHA3-256 hash.
- func New256() *SHA3 {
--	return &SHA3{*sha3.New256()}
-+	if boring.Enabled && bsha3.Supports256() {
-+		return &SHA3{boringS: bsha3.New256(), supported: true}
-+	}
-+	return &SHA3{s: *sha3.New256()}
- }
- 
- // New384 creates a new SHA3-384 hash.
- func New384() *SHA3 {
--	return &SHA3{*sha3.New384()}
-+	if boring.Enabled && bsha3.Supports384() {
-+		return &SHA3{boringS: bsha3.New384(), supported: true}
-+	}
-+	return &SHA3{s: *sha3.New384()}
- }
- 
- // New512 creates a new SHA3-512 hash.
- func New512() *SHA3 {
--	return &SHA3{*sha3.New512()}
-+	if boring.Enabled && bsha3.Supports512() {
-+		return &SHA3{boringS: bsha3.New512(), supported: true}
-+	}
-+	return &SHA3{s: *sha3.New512()}
- }
- 
- func (s *SHA3) init() {
--	if s.s.Size() == 0 {
-+	if s.s.Size() == 0 && s.boringS == nil {
- 		*s = *New256()
- 	}
- }
-@@ -137,53 +175,81 @@ func (s *SHA3) init() {
- // Write absorbs more data into the hash's state.
- func (s *SHA3) Write(p []byte) (n int, err error) {
- 	s.init()
-+	if boring.Enabled && s.supported {
-+		return s.boringS.Write(p)
-+	}
- 	return s.s.Write(p)
- }
- 
- // Sum appends the current hash to b and returns the resulting slice.
- func (s *SHA3) Sum(b []byte) []byte {
- 	s.init()
-+	if boring.Enabled && s.supported {
-+		return s.boringS.Sum(b)
-+	}
- 	return s.s.Sum(b)
- }
- 
- // Reset resets the hash to its initial state.
- func (s *SHA3) Reset() {
- 	s.init()
--	s.s.Reset()
-+	if boring.Enabled && s.supported {
-+		s.boringS.Reset()
-+	} else {
-+		s.s.Reset()
-+	}
- }
- 
- // Size returns the number of bytes Sum will produce.
- func (s *SHA3) Size() int {
- 	s.init()
-+	if boring.Enabled && s.supported {
-+		return s.boringS.Size()
-+	}
- 	return s.s.Size()
- }
- 
- // BlockSize returns the hash's rate.
- func (s *SHA3) BlockSize() int {
- 	s.init()
-+	if boring.Enabled && s.supported {
-+		return s.boringS.BlockSize()
-+	}
- 	return s.s.BlockSize()
- }
- 
- // MarshalBinary implements [encoding.BinaryMarshaler].
- func (s *SHA3) MarshalBinary() ([]byte, error) {
- 	s.init()
-+	if boring.Enabled && s.supported {
-+		return s.boringS.MarshalBinary()
-+	}
- 	return s.s.MarshalBinary()
- }
- 
- // AppendBinary implements [encoding.BinaryAppender].
- func (s *SHA3) AppendBinary(p []byte) ([]byte, error) {
- 	s.init()
-+	if boring.Enabled && s.supported {
-+		return s.boringS.AppendBinary(p)
-+	}
- 	return s.s.AppendBinary(p)
- }
- 
- // UnmarshalBinary implements [encoding.BinaryUnmarshaler].
- func (s *SHA3) UnmarshalBinary(data []byte) error {
- 	s.init()
-+	if boring.Enabled && s.supported {
-+		return s.boringS.UnmarshalBinary(data)
-+	}
- 	return s.s.UnmarshalBinary(data)
- }
- 
+@@ -185,6 +170,11 @@ func (s *SHA3) UnmarshalBinary(data []byte) error {
  // Clone implements [hash.Cloner].
  func (d *SHA3) Clone() (hash.Cloner, error) {
-+	if boring.Enabled && d.supported {
-+		return d.boringS.Clone()
-+	}
  	r := *d
++	cloned, err := r.s.Clone()
++	if err != nil {
++		return nil, err
++	}
++	r.s = *cloned.(*sha3.Digest)
  	return &r, nil
  }
-@@ -191,23 +257,30 @@ func (d *SHA3) Clone() (hash.Cloner, error) {
- // SHAKE is an instance of a SHAKE extendable output function.
- // The zero value is a usable SHAKE256 hash.
- type SHAKE struct {
--	s sha3.SHAKE
-+	s       sha3.SHAKE
-+	boringS *bsha3.SHAKE
- }
  
- func (s *SHAKE) init() {
--	if s.s.Size() == 0 {
-+	if s.s.Size() == 0 && s.boringS == nil {
- 		*s = *NewSHAKE256()
- 	}
- }
- 
- // NewSHAKE128 creates a new SHAKE128 XOF.
- func NewSHAKE128() *SHAKE {
--	return &SHAKE{*sha3.NewShake128()}
-+	if boring.Enabled && bsha3.SupportsSHAKE(128) {
-+		return &SHAKE{boringS: bsha3.NewShake128()}
-+	}
-+	return &SHAKE{s: *sha3.NewShake128()}
- }
- 
- // NewSHAKE256 creates a new SHAKE256 XOF.
- func NewSHAKE256() *SHAKE {
--	return &SHAKE{*sha3.NewShake256()}
-+	if boring.Enabled && bsha3.SupportsSHAKE(256) {
-+		return &SHAKE{boringS: bsha3.NewShake256()}
-+	}
-+	return &SHAKE{s: *sha3.NewShake256()}
- }
- 
- // NewCSHAKE128 creates a new cSHAKE128 XOF.
-@@ -216,7 +289,10 @@ func NewSHAKE256() *SHAKE {
- // cSHAKE is desired. S is a customization byte string used for domain
- // separation. When N and S are both empty, this is equivalent to NewSHAKE128.
- func NewCSHAKE128(N, S []byte) *SHAKE {
--	return &SHAKE{*sha3.NewCShake128(N, S)}
-+	if boring.Enabled && bsha3.SupportsCSHAKE(128) {
-+		return &SHAKE{boringS: bsha3.NewCShake128(N, S)}
-+	}
-+	return &SHAKE{s: *sha3.NewCShake128(N, S)}
- }
- 
- // NewCSHAKE256 creates a new cSHAKE256 XOF.
-@@ -225,7 +301,10 @@ func NewCSHAKE128(N, S []byte) *SHAKE {
- // cSHAKE is desired. S is a customization byte string used for domain
- // separation. When N and S are both empty, this is equivalent to NewSHAKE256.
- func NewCSHAKE256(N, S []byte) *SHAKE {
--	return &SHAKE{*sha3.NewCShake256(N, S)}
-+	if boring.Enabled && bsha3.SupportsCSHAKE(256) {
-+		return &SHAKE{boringS: bsha3.NewCShake256(N, S)}
-+	}
-+	return &SHAKE{s: *sha3.NewCShake256(N, S)}
- }
- 
- // Write absorbs more data into the XOF's state.
-@@ -233,6 +312,9 @@ func NewCSHAKE256(N, S []byte) *SHAKE {
- // It panics if any output has already been read.
- func (s *SHAKE) Write(p []byte) (n int, err error) {
- 	s.init()
-+	if boring.Enabled && s.boringS != nil {
-+		return s.boringS.Write(p)
-+	}
- 	return s.s.Write(p)
- }
- 
-@@ -241,35 +323,54 @@ func (s *SHAKE) Write(p []byte) (n int, err error) {
- // Any call to Write after a call to Read will panic.
- func (s *SHAKE) Read(p []byte) (n int, err error) {
- 	s.init()
-+	if boring.Enabled && s.boringS != nil {
-+		return s.boringS.Read(p)
-+	}
- 	return s.s.Read(p)
- }
- 
- // Reset resets the XOF to its initial state.
- func (s *SHAKE) Reset() {
- 	s.init()
--	s.s.Reset()
-+	if boring.Enabled && s.boringS != nil {
-+		s.boringS.Reset()
-+	} else {
-+		s.s.Reset()
-+	}
- }
- 
- // BlockSize returns the rate of the XOF.
- func (s *SHAKE) BlockSize() int {
- 	s.init()
-+	if boring.Enabled && s.boringS != nil {
-+		return s.boringS.BlockSize()
-+	}
- 	return s.s.BlockSize()
- }
- 
- // MarshalBinary implements [encoding.BinaryMarshaler].
- func (s *SHAKE) MarshalBinary() ([]byte, error) {
- 	s.init()
-+	if boring.Enabled && s.boringS != nil {
-+		return s.boringS.MarshalBinary()
-+	}
- 	return s.s.MarshalBinary()
- }
- 
- // AppendBinary implements [encoding.BinaryAppender].
- func (s *SHAKE) AppendBinary(p []byte) ([]byte, error) {
- 	s.init()
-+	if boring.Enabled && s.boringS != nil {
-+		return s.boringS.AppendBinary(p)
-+	}
- 	return s.s.AppendBinary(p)
- }
- 
- // UnmarshalBinary implements [encoding.BinaryUnmarshaler].
- func (s *SHAKE) UnmarshalBinary(data []byte) error {
- 	s.init()
-+	if boring.Enabled && s.boringS != nil {
-+		return s.boringS.UnmarshalBinary(data)
-+	}
- 	return s.s.UnmarshalBinary(data)
- }
 diff --git a/src/crypto/sha3/sha3_test.go b/src/crypto/sha3/sha3_test.go
-index 3973e0afd1b935..d2ee4363d869a6 100644
+index 3973e0afd1b935..356e207a8f7824 100644
 --- a/src/crypto/sha3/sha3_test.go
 +++ b/src/crypto/sha3/sha3_test.go
-@@ -9,6 +9,8 @@ import (
+@@ -9,11 +9,15 @@ import (
  	"crypto/internal/cryptotest"
  	. "crypto/sha3"
  	"encoding/hex"
 +	"errors"
-+	boring "github.com/microsoft/go/cryptobackend"
  	"hash"
  	"io"
  	"math/rand"
-@@ -225,6 +227,10 @@ var sinkSHA3 byte
+ 	"strings"
+ 	"testing"
++
++	"github.com/microsoft/go/cryptobackend"
++	bsha3 "github.com/microsoft/go/cryptobackend/sha3"
+ )
+ 
+ const testString = "brekeccakkeccak koax koax"
+@@ -225,6 +229,16 @@ var sinkSHA3 byte
  
  func TestAllocations(t *testing.T) {
  	cryptotest.SkipTestAllocations(t)
-+	expectedAllocations := 0.0
-+	if boring.Enabled {
-+		expectedAllocations = 2
++	expectedHashAllocations := 0.0
++	expectedSHAKEAllocations := 0.0
++	if backend.Enabled {
++		if bsha3.Supports256() {
++			expectedHashAllocations = 2
++		}
++		if bsha3.SupportsSHAKE(128) {
++			expectedSHAKEAllocations = 2
++		}
 +	}
  	t.Run("New", func(t *testing.T) {
  		if allocs := testing.AllocsPerRun(10, func() {
  			h := New256()
-@@ -233,7 +239,7 @@ func TestAllocations(t *testing.T) {
+@@ -233,8 +247,8 @@ func TestAllocations(t *testing.T) {
  			out := make([]byte, 0, 32)
  			out = h.Sum(out)
  			sinkSHA3 ^= out[0]
 -		}); allocs > 0 {
-+		}); allocs > expectedAllocations {
- 			t.Errorf("expected zero allocations, got %0.1f", allocs)
+-			t.Errorf("expected zero allocations, got %0.1f", allocs)
++		}); allocs > expectedHashAllocations {
++			t.Errorf("expected at most %0.1f allocations, got %0.1f", expectedHashAllocations, allocs)
  		}
  	})
-@@ -245,7 +251,7 @@ func TestAllocations(t *testing.T) {
+ 	t.Run("NewSHAKE", func(t *testing.T) {
+@@ -245,8 +259,8 @@ func TestAllocations(t *testing.T) {
  			out := make([]byte, 32)
  			h.Read(out)
  			sinkSHA3 ^= out[0]
 -		}); allocs > 0 {
-+		}); allocs > expectedAllocations {
- 			t.Errorf("expected zero allocations, got %0.1f", allocs)
+-			t.Errorf("expected zero allocations, got %0.1f", allocs)
++		}); allocs > expectedSHAKEAllocations {
++			t.Errorf("expected at most %0.1f allocations, got %0.1f", expectedSHAKEAllocations, allocs)
  		}
  	})
-@@ -263,7 +269,7 @@ func TestAllocations(t *testing.T) {
+ 	t.Run("Sum", func(t *testing.T) {
+@@ -263,8 +277,8 @@ func TestAllocations(t *testing.T) {
  			b := []byte("ABC")
  			out := SumSHAKE128(b, 10)
  			sinkSHA3 ^= out[0]
 -		}); allocs > 0 {
-+		}); allocs > expectedAllocations {
- 			t.Errorf("expected zero allocations, got %0.1f", allocs)
+-			t.Errorf("expected zero allocations, got %0.1f", allocs)
++		}); allocs > expectedSHAKEAllocations {
++			t.Errorf("expected at most %0.1f allocations, got %0.1f", expectedSHAKEAllocations, allocs)
  		}
  	})
-@@ -413,6 +419,9 @@ func testMarshalUnmarshal(t *testing.T, h *SHA3) {
+ }
+@@ -413,6 +427,9 @@ func testMarshalUnmarshal(t *testing.T, h *SHA3) {
  	h.Write(buf[:n])
  	b, err := h.MarshalBinary()
  	if err != nil {
@@ -5568,7 +5288,7 @@ index 3973e0afd1b935..d2ee4363d869a6 100644
  		t.Errorf("MarshalBinary: %v", err)
  	}
  	h.Write(bytes.Repeat([]byte{0}, 200))
-@@ -438,6 +447,9 @@ func testMarshalUnmarshalSHAKE(t *testing.T, h *SHAKE) {
+@@ -438,6 +455,9 @@ func testMarshalUnmarshalSHAKE(t *testing.T, h *SHAKE) {
  	h.Write(buf[:n])
  	b, err := h.MarshalBinary()
  	if err != nil {
@@ -5579,113 +5299,83 @@ index 3973e0afd1b935..d2ee4363d869a6 100644
  	}
  	h.Write(bytes.Repeat([]byte{0}, 200))
 diff --git a/src/crypto/sha512/sha512.go b/src/crypto/sha512/sha512.go
-index 1435eac1f5b5dc..e088b240621964 100644
+index 1435eac1f5b5dc..0d0fbabb2eb42e 100644
 --- a/src/crypto/sha512/sha512.go
 +++ b/src/crypto/sha512/sha512.go
-@@ -12,9 +12,11 @@ package sha512
- 
+@@ -13,8 +13,9 @@ package sha512
  import (
  	"crypto"
--	"crypto/internal/boring"
- 	"crypto/internal/fips140/sha512"
+ 	"crypto/internal/boring"
+-	"crypto/internal/fips140/sha512"
  	"hash"
 +
-+	boring "github.com/microsoft/go/cryptobackend"
-+	bsha512 "github.com/microsoft/go/cryptobackend/sha512"
++	"github.com/microsoft/go/cryptobackend/sha512"
  )
  
  func init() {
-@@ -48,7 +50,7 @@ const (
- // state of the hash.
- func New() hash.Hash {
+@@ -85,11 +86,7 @@ func Sum512(data []byte) [Size]byte {
  	if boring.Enabled {
--		return boring.NewSHA512()
-+		return bsha512.New()
+ 		return boring.SHA512(data)
  	}
- 	return sha512.New()
- }
-@@ -58,6 +60,9 @@ func New() hash.Hash {
- // [encoding.BinaryUnmarshaler] to marshal and unmarshal the internal
- // state of the hash.
- func New512_224() hash.Hash {
-+	if boring.Enabled && bsha512.Supports512_224() {
-+		return bsha512.New512_224()
-+	}
- 	return sha512.New512_224()
+-	h := New()
+-	h.Write(data)
+-	var sum [Size]byte
+-	h.Sum(sum[:0])
+-	return sum
++	return sha512.Sum512(data)
  }
  
-@@ -66,6 +71,9 @@ func New512_224() hash.Hash {
- // [encoding.BinaryUnmarshaler] to marshal and unmarshal the internal
- // state of the hash.
- func New512_256() hash.Hash {
-+	if boring.Enabled && bsha512.Supports512_256() {
-+		return bsha512.New512_256()
-+	}
- 	return sha512.New512_256()
- }
- 
-@@ -75,7 +83,7 @@ func New512_256() hash.Hash {
- // state of the hash.
- func New384() hash.Hash {
- 	if boring.Enabled {
--		return boring.NewSHA384()
-+		return bsha512.New384()
- 	}
- 	return sha512.New384()
- }
-@@ -83,7 +91,7 @@ func New384() hash.Hash {
- // Sum512 returns the SHA512 checksum of the data.
- func Sum512(data []byte) [Size]byte {
- 	if boring.Enabled {
--		return boring.SHA512(data)
-+		return bsha512.Sum512(data)
- 	}
- 	h := New()
- 	h.Write(data)
-@@ -95,7 +103,7 @@ func Sum512(data []byte) [Size]byte {
  // Sum384 returns the SHA384 checksum of the data.
- func Sum384(data []byte) [Size384]byte {
+@@ -97,27 +94,15 @@ func Sum384(data []byte) [Size384]byte {
  	if boring.Enabled {
--		return boring.SHA384(data)
-+		return bsha512.Sum384(data)
+ 		return boring.SHA384(data)
  	}
- 	h := New384()
- 	h.Write(data)
-@@ -106,6 +114,9 @@ func Sum384(data []byte) [Size384]byte {
+-	h := New384()
+-	h.Write(data)
+-	var sum [Size384]byte
+-	h.Sum(sum[:0])
+-	return sum
++	return sha512.Sum384(data)
+ }
  
  // Sum512_224 returns the Sum512/224 checksum of the data.
  func Sum512_224(data []byte) [Size224]byte {
-+	if boring.Enabled && bsha512.Supports512_224() {
-+		return bsha512.Sum512_224(data)
-+	}
- 	h := New512_224()
- 	h.Write(data)
- 	var sum [Size224]byte
-@@ -115,6 +126,9 @@ func Sum512_224(data []byte) [Size224]byte {
+-	h := New512_224()
+-	h.Write(data)
+-	var sum [Size224]byte
+-	h.Sum(sum[:0])
+-	return sum
++	return sha512.Sum512_224(data)
+ }
  
  // Sum512_256 returns the Sum512/256 checksum of the data.
  func Sum512_256(data []byte) [Size256]byte {
-+	if boring.Enabled && bsha512.Supports512_256() {
-+		return bsha512.Sum512_256(data)
-+	}
- 	h := New512_256()
- 	h.Write(data)
- 	var sum [Size256]byte
+-	h := New512_256()
+-	h.Write(data)
+-	var sum [Size256]byte
+-	h.Sum(sum[:0])
+-	return sum
++	return sha512.Sum512_256(data)
+ }
 diff --git a/src/crypto/sha512/sha512_test.go b/src/crypto/sha512/sha512_test.go
-index 080bf694f03652..34cbaa0fde6eba 100644
+index 080bf694f03652..98a7b3e19792af 100644
 --- a/src/crypto/sha512/sha512_test.go
 +++ b/src/crypto/sha512/sha512_test.go
-@@ -11,7 +11,9 @@ import (
+@@ -11,10 +11,13 @@ import (
  	"crypto/internal/cryptotest"
  	"encoding"
  	"encoding/hex"
 +	"errors"
  	"fmt"
-+	boring "github.com/microsoft/go/cryptobackend"
  	"hash"
  	"io"
  	"testing"
-@@ -751,6 +753,9 @@ func testGoldenMarshal(t *testing.T) {
++
++	backend "github.com/microsoft/go/cryptobackend"
+ )
+ 
+ type sha512Test struct {
+@@ -751,6 +754,9 @@ func testGoldenMarshal(t *testing.T) {
  
  				state, err := h.(encoding.BinaryMarshaler).MarshalBinary()
  				if err != nil {
@@ -5695,7 +5385,7 @@ index 080bf694f03652..34cbaa0fde6eba 100644
  					t.Errorf("could not marshal: %v", err)
  					return
  				}
-@@ -807,6 +812,9 @@ func TestMarshalMismatch(t *testing.T) {
+@@ -807,6 +813,9 @@ func TestMarshalMismatch(t *testing.T) {
  
  			state, err := h1.(encoding.BinaryMarshaler).MarshalBinary()
  			if err != nil {
@@ -5705,11 +5395,11 @@ index 080bf694f03652..34cbaa0fde6eba 100644
  				t.Errorf("i=%d: could not marshal: %v", i, err)
  				continue
  			}
-@@ -880,10 +888,18 @@ func safeSum(h hash.Hash) (sum []byte, err error) {
+@@ -880,10 +889,18 @@ func safeSum(h hash.Hash) (sum []byte, err error) {
  }
  
  func TestLargeHashes(t *testing.T) {
-+	if boring.Enabled {
++	if backend.Enabled {
 +		if _, ok := New().(encoding.BinaryUnmarshaler); !ok {
 +			t.Skip("BinaryUnmarshaler not implemented")
 +		}
@@ -5724,18 +5414,18 @@ index 080bf694f03652..34cbaa0fde6eba 100644
  			t.Errorf("test %d could not unmarshal: %v", i, err)
  			continue
  		}
-@@ -902,6 +918,10 @@ func TestLargeHashes(t *testing.T) {
+@@ -902,6 +919,10 @@ func TestLargeHashes(t *testing.T) {
  
  func TestAllocations(t *testing.T) {
  	cryptotest.SkipTestAllocations(t)
 +	expectedAllocations := 0.0
-+	if boring.Enabled {
++	if backend.Enabled {
 +		expectedAllocations = 10
 +	}
  	if n := testing.AllocsPerRun(10, func() {
  		in := []byte("hello, world!")
  		out := make([]byte, 0, Size)
-@@ -935,8 +955,8 @@ func TestAllocations(t *testing.T) {
+@@ -935,8 +956,8 @@ func TestAllocations(t *testing.T) {
  		Sum384(in)
  		Sum512_224(in)
  		Sum512_256(in)
@@ -5746,7 +5436,7 @@ index 080bf694f03652..34cbaa0fde6eba 100644
  	}
  }
  
-@@ -967,25 +987,25 @@ func TestExtraMethods(t *testing.T) {
+@@ -967,25 +988,25 @@ func TestExtraMethods(t *testing.T) {
  	t.Run("SHA-384", func(t *testing.T) {
  		cryptotest.TestAllImplementations(t, "sha512", func(t *testing.T) {
  			h := maybeCloner(New384())
@@ -6065,10 +5755,18 @@ index 652a6489b899d6..f25da189bf72c9 100644
  
  // This file contains the functions necessary to compute the TLS 1.3 key
 diff --git a/src/crypto/tls/prf.go b/src/crypto/tls/prf.go
-index bc59300f41c762..a78e10c65cfa7e 100644
+index bc59300f41c762..5b99af426de295 100644
 --- a/src/crypto/tls/prf.go
 +++ b/src/crypto/tls/prf.go
-@@ -15,6 +15,9 @@ import (
+@@ -8,6 +8,7 @@ import (
+ 	"crypto"
+ 	"crypto/hmac"
+ 	"crypto/internal/fips140/tls12"
++	"crypto/internal/fips140hash"
+ 	"crypto/md5"
+ 	"crypto/sha1"
+ 	"crypto/sha256"
+@@ -15,6 +16,9 @@ import (
  	"errors"
  	"fmt"
  	"hash"
@@ -6078,7 +5776,7 @@ index bc59300f41c762..a78e10c65cfa7e 100644
  )
  
  type prfFunc func(secret []byte, label string, seed []byte, keyLen int) []byte
-@@ -47,9 +50,25 @@ func pHash(result, secret, seed []byte, hash func() hash.Hash) {
+@@ -47,9 +51,25 @@ func pHash(result, secret, seed []byte, hash func() hash.Hash) {
  	}
  }
  
@@ -6104,13 +5802,13 @@ index bc59300f41c762..a78e10c65cfa7e 100644
  	hashSHA1 := sha1.New
  	hashMD5 := md5.New
  
-@@ -72,6 +91,13 @@ func prf10(secret []byte, label string, seed []byte, keyLen int) []byte {
+@@ -72,6 +92,13 @@ func prf10(secret []byte, label string, seed []byte, keyLen int) []byte {
  // prf12 implements the TLS 1.2 pseudo-random function, as defined in RFC 5246, Section 5.
  func prf12(hashFunc func() hash.Hash) prfFunc {
  	return func(secret []byte, label string, seed []byte, keyLen int) []byte {
 +		if boring.Enabled && btls12.SupportsPRF() {
 +			result := make([]byte, keyLen)
-+			if err := btls12.PRF(result, secret, label, seed, hashFunc); err != nil {
++			if err := btls12.PRF(result, secret, label, seed, fips140hash.UnwrapNew(hashFunc)); err != nil {
 +				panic(boringPRFError{fmt.Errorf("crypto/tls: prf12: %v", err)})
 +			}
 +			return result
@@ -6216,7 +5914,7 @@ index 00000000000000..ffb835ce34a2f7
 +	}
 +}
 diff --git a/src/go/build/deps_test.go b/src/go/build/deps_test.go
-index 4afadfae5ad7de..77728ed043bb35 100644
+index 4afadfae5ad7de..134c1160da7794 100644
 --- a/src/go/build/deps_test.go
 +++ b/src/go/build/deps_test.go
 @@ -376,8 +376,10 @@ var depsRules = `
@@ -6262,19 +5960,13 @@ index 4afadfae5ad7de..77728ed043bb35 100644
  	< crypto/internal/fips140only
  	< crypto
  	< crypto/subtle
-@@ -582,6 +597,50 @@ var depsRules = `
+@@ -582,6 +597,44 @@ var depsRules = `
  	github.com/microsoft/go-crypto-winnative/internal/bcrypt
  	< github.com/microsoft/go-crypto-winnative/cng;
  
 +	github.com/microsoft/go-crypto-openssl/openssl,
 +	github.com/microsoft/go-crypto-winnative/cng,
-+	github.com/microsoft/go-crypto-darwin/xcrypto
-+	< github.com/microsoft/go/cryptobackend/hash;
-+
-+	github.com/microsoft/go-crypto-openssl/openssl,
-+	github.com/microsoft/go-crypto-winnative/cng,
 +	github.com/microsoft/go-crypto-darwin/xcrypto,
-+	github.com/microsoft/go/cryptobackend/hash,
 +	github.com/microsoft/go/cryptobackend/internal/fips140state,
 +	github.com/microsoft/go/cryptobackend/fips140,
 +	crypto/fips140,
@@ -6313,7 +6005,7 @@ index 4afadfae5ad7de..77728ed043bb35 100644
  	FIPS, internal/godebug, embed,
  	crypto/internal/boring/sig,
  	crypto/internal/boring/syso,
-@@ -589,7 +648,9 @@ var depsRules = `
+@@ -589,7 +642,9 @@ var depsRules = `
  	crypto/internal/fips140only,
  	crypto,
  	crypto/subtle,
@@ -6324,7 +6016,7 @@ index 4afadfae5ad7de..77728ed043bb35 100644
  	< crypto/sha3
  	< crypto/internal/fips140hash
  	< crypto/internal/boring
-@@ -606,13 +667,15 @@ var depsRules = `
+@@ -606,13 +661,15 @@ var depsRules = `
  	  crypto/hkdf,
  	  crypto/pbkdf2,
  	  crypto/ecdh,
@@ -6341,7 +6033,7 @@ index 4afadfae5ad7de..77728ed043bb35 100644
  	CGO, fmt, net !< CRYPTO;
  
  	# CRYPTO-MATH is crypto that exposes math/big APIs - no cgo, net; fmt now ok.
-@@ -621,15 +684,28 @@ var depsRules = `
+@@ -621,15 +678,28 @@ var depsRules = `
  	math/big, github.com/microsoft/go-crypto-darwin/xcrypto < github.com/microsoft/go-crypto-darwin/bbig;
  	math/big, github.com/microsoft/go-crypto-winnative/cng < github.com/microsoft/go-crypto-winnative/cng/bbig;
  
@@ -6374,7 +6066,7 @@ index 4afadfae5ad7de..77728ed043bb35 100644
  	< crypto/ecdsa
  	< CRYPTO-MATH;
  
-@@ -663,7 +739,8 @@ var depsRules = `
+@@ -663,7 +733,8 @@ var depsRules = `
  	< crypto/hpke;
  
  	CRYPTO-MATH, NET, container/list, encoding/hex, encoding/pem, crypto/hpke,

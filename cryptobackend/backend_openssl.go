@@ -6,10 +6,17 @@
 
 package backend
 
-import "github.com/microsoft/go-crypto-openssl/osslsetup"
+import (
+	"hash"
+
+	"github.com/microsoft/go-crypto-openssl/openssl"
+	"github.com/microsoft/go-crypto-openssl/osslsetup"
+)
 
 // Enabled controls whether FIPS crypto is enabled.
 const Enabled = true
+
+func fipsApprovedHash(h hash.Hash) bool { return openssl.FIPSApprovedHash(h) }
 
 func init() {
 	// Some distributions, e.g. Azure Linux 3, don't set the `fips=yes` property when running in FIPS mode,
