@@ -27,6 +27,8 @@ Subject: [PATCH] Add crypto backends
  .../go/testdata/script/env_cross_build.txt    |   2 +
  .../go/testdata/script/gopath_std_vendor.txt  |   4 +-
  .../script/test_android_issue62123.txt        |   2 +
+ src/cmd/go/testdata/script/test_buildvcs.txt  |   1 +
+ .../go/testdata/script/test_goroot_PATH.txt   |   1 +
  .../internal/fuzztest/testdata/script/README  |   2 +
  src/cmd/internal/moddeps/moddeps_test.go      |   3 +
  .../internal/script/scripttest/conditions.go  |  10 +-
@@ -138,7 +140,7 @@ Subject: [PATCH] Add crypto backends
  src/os/exec/exec_test.go                      |   9 +
  src/runtime/runtime_boring.go                 |   5 +
  src/syscall/syscall_windows.go                |   3 +
- 134 files changed, 2562 insertions(+), 379 deletions(-)
+ 136 files changed, 2564 insertions(+), 379 deletions(-)
  create mode 100644 src/cmd/go/systemcrypto_test.go
  create mode 100644 src/crypto/dsa/boring.go
  create mode 100644 src/crypto/dsa/notboring.go
@@ -241,7 +243,7 @@ index 9ec997a138f0f2..09c4e7955ec162 100644
  	testing.Verbose()
  
 diff --git a/src/cmd/dist/build.go b/src/cmd/dist/build.go
-index efa22e016787c7..270985f22e8408 100644
+index a64a80223399a1..d209f73b9e29ed 100644
 --- a/src/cmd/dist/build.go
 +++ b/src/cmd/dist/build.go
 @@ -1405,6 +1405,68 @@ func toolenv() []string {
@@ -428,10 +430,10 @@ index da2ebaabe5c82a..51be08668fb0ff 100644
 +	return enabled
 +}
 diff --git a/src/cmd/go/alldocs.go b/src/cmd/go/alldocs.go
-index acefe27fb38e66..dce82478fc81c8 100644
+index 91db03f0a426e0..4a879978e11399 100644
 --- a/src/cmd/go/alldocs.go
 +++ b/src/cmd/go/alldocs.go
-@@ -2625,6 +2625,9 @@
+@@ -2628,6 +2628,9 @@
  //		mentioned will be considered insecure by 'go get'.
  //		Because the variable is defined by Git, the default value cannot
  //		be set using 'go env -w'.
@@ -462,7 +464,7 @@ index ed0fbf3d53d75b..a2f74c8095d449 100644
  func TestBoringInternalLink(t *testing.T) {
  	tg := testgo(t)
 diff --git a/src/cmd/go/go_test.go b/src/cmd/go/go_test.go
-index 724d446833a23d..cbc491facb3491 100644
+index 5632b224d801f5..8967847ce9ecfa 100644
 --- a/src/cmd/go/go_test.go
 +++ b/src/cmd/go/go_test.go
 @@ -14,6 +14,7 @@ import (
@@ -487,7 +489,7 @@ index 724d446833a23d..cbc491facb3491 100644
  
  		if testGOROOT := os.Getenv("TESTGO_GOROOT"); testGOROOT != "" {
  			// Disallow installs to the GOROOT from which testgo was built.
-@@ -1729,6 +1737,9 @@ func TestGenerateUsesBuildContext(t *testing.T) {
+@@ -1726,6 +1734,9 @@ func TestGenerateUsesBuildContext(t *testing.T) {
  }
  
  func TestGoEnv(t *testing.T) {
@@ -598,7 +600,7 @@ index b305457a23d104..5154aa0be0007c 100644
  Additional information available from 'go env' but not read from the environment:
  
 diff --git a/src/cmd/go/internal/load/pkg.go b/src/cmd/go/internal/load/pkg.go
-index bc693ce97cbe32..42187b10439f59 100644
+index 56ad32276bb059..b3fab4bd0f358f 100644
 --- a/src/cmd/go/internal/load/pkg.go
 +++ b/src/cmd/go/internal/load/pkg.go
 @@ -16,6 +16,7 @@ import (
@@ -699,7 +701,7 @@ index bc693ce97cbe32..42187b10439f59 100644
 +	}
  	appendSetting("-buildmode", buildmode)
  	appendSetting("-compiler", cfg.BuildContext.Compiler)
- 	if gccgoflags := BuildGccgoflags.String(); gccgoflags != "" && cfg.BuildContext.Compiler == "gccgo" {
+ 	if cfg.BuildMod == "vendor" {
 diff --git a/src/cmd/go/internal/tool/tool.go b/src/cmd/go/internal/tool/tool.go
 index 018c808e54de27..5c166f90cb19bb 100644
 --- a/src/cmd/go/internal/tool/tool.go
@@ -729,10 +731,10 @@ index 018c808e54de27..5c166f90cb19bb 100644
  
  	buildAndRunTool(ld, ctx, tool, args, runFunc)
 diff --git a/src/cmd/go/script_test.go b/src/cmd/go/script_test.go
-index e9b386ec660cd0..7166e102d837ae 100644
+index ca1492f78a4b4c..0f1087de98bc3b 100644
 --- a/src/cmd/go/script_test.go
 +++ b/src/cmd/go/script_test.go
-@@ -300,6 +300,9 @@ var extraEnvKeys = []string{
+@@ -293,6 +293,9 @@ var extraEnvKeys = []string{
  	"GO_TESTING_GOTOOLS", // for gccgo testing
  	"GCCGO",              // for gccgo testing
  	"GCCGOTOOLDIR",       // for gccgo testing
@@ -1140,6 +1142,30 @@ index 2f46a6b44bffe1..b036dde70ed36e 100644
  env GOOS=android GOARCH=amd64 CGO_ENABLED=0
  
  ! go build -o $devnull cmd/buildid
+diff --git a/src/cmd/go/testdata/script/test_buildvcs.txt b/src/cmd/go/testdata/script/test_buildvcs.txt
+index a85b3f0d3da3ea..506753a0ea2834 100644
+--- a/src/cmd/go/testdata/script/test_buildvcs.txt
++++ b/src/cmd/go/testdata/script/test_buildvcs.txt
+@@ -21,6 +21,7 @@ stdout 'unexpected VCS setting: vcs\.modified=true'
+ # Remove 'git' from $PATH. The test should still build.
+ # This ensures that we aren't loading VCS metadata that
+ # we subsequently throw away.
++env CGO_ENABLED=0
+ env PATH=''
+ env path=''
+ 
+diff --git a/src/cmd/go/testdata/script/test_goroot_PATH.txt b/src/cmd/go/testdata/script/test_goroot_PATH.txt
+index aaf99c7d0b74a4..b3eb0bee7c924d 100644
+--- a/src/cmd/go/testdata/script/test_goroot_PATH.txt
++++ b/src/cmd/go/testdata/script/test_goroot_PATH.txt
+@@ -4,6 +4,7 @@
+ 
+ [GOEXPERIMENT:boringcrypto] skip 'requires gcc in path'
+ 
++env CGO_ENABLED=0
+ [!GOOS:plan9] env PATH=
+ [GOOS:plan9] env path=
+ go test .
 diff --git a/src/cmd/internal/fuzztest/testdata/script/README b/src/cmd/internal/fuzztest/testdata/script/README
 index 9ec997a138f0f2..09c4e7955ec162 100644
 --- a/src/cmd/internal/fuzztest/testdata/script/README
@@ -4833,7 +4859,7 @@ index 93e08ed6cd8f71..0052585b9e7c63 100644
  	if bits < 256 && err != nil {
  		// Toy-sized keys have a non-negligible chance of hitting two hard
 diff --git a/src/crypto/rsa/rsa_test.go b/src/crypto/rsa/rsa_test.go
-index 8c1b22bf4f41b4..386016b33f717a 100644
+index cdcd6db86469a8..82995dc0fb9578 100644
 --- a/src/crypto/rsa/rsa_test.go
 +++ b/src/crypto/rsa/rsa_test.go
 @@ -8,7 +8,6 @@ import (
