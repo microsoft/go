@@ -2,14 +2,15 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-//go:build goexperiment.systemcrypto
+//go:build msgostd
 
-package hash
+package tls13
 
 import (
+	"crypto/internal/fips140hash"
 	"hash"
-
-	"github.com/microsoft/go-crypto-darwin/xcrypto"
 )
 
-func Approved(h hash.Hash) bool { return xcrypto.FIPSApprovedHash(h) }
+func unwrapHashFunc[H hash.Hash](newHash func() H) func() hash.Hash {
+	return fips140hash.UnwrapNew(newHash)
+}

@@ -8,19 +8,22 @@ package sha512
 
 import (
 	"crypto"
-	"hash"
 
 	"github.com/microsoft/go-crypto-openssl/openssl"
 )
 
+type backendHash = openssl.Hash
+
+func Supports512() bool     { return openssl.SupportsHash(crypto.SHA512) }
+func Supports384() bool     { return openssl.SupportsHash(crypto.SHA384) }
 func Supports512_224() bool { return openssl.SupportsHash(crypto.SHA512_224) }
 func Supports512_256() bool { return openssl.SupportsHash(crypto.SHA512_256) }
 
-func New() hash.Hash                  { return openssl.NewSHA512() }
-func New512_224() hash.Hash           { return openssl.NewSHA512_224() }
-func New512_256() hash.Hash           { return openssl.NewSHA512_256() }
-func New384() hash.Hash               { return openssl.NewSHA384() }
-func Sum512(data []byte) [64]byte     { return openssl.SHA512(data) }
-func Sum384(data []byte) [48]byte     { return openssl.SHA384(data) }
-func Sum512_224(data []byte) [28]byte { return openssl.SHA512_224(data) }
-func Sum512_256(data []byte) [32]byte { return openssl.SHA512_256(data) }
+func newBackendHash512() *backendHash     { return openssl.NewSHA512() }
+func newBackendHash384() *backendHash     { return openssl.NewSHA384() }
+func newBackendHash512_224() *backendHash { return openssl.NewSHA512_224() }
+func newBackendHash512_256() *backendHash { return openssl.NewSHA512_256() }
+func sum512(data []byte) [64]byte         { return openssl.SHA512(data) }
+func sum384(data []byte) [48]byte         { return openssl.SHA384(data) }
+func sum512_224(data []byte) [28]byte     { return openssl.SHA512_224(data) }
+func sum512_256(data []byte) [32]byte     { return openssl.SHA512_256(data) }

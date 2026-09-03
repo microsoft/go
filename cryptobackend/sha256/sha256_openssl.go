@@ -8,14 +8,16 @@ package sha256
 
 import (
 	"crypto"
-	"hash"
 
 	"github.com/microsoft/go-crypto-openssl/openssl"
 )
 
+type backendHash = openssl.Hash
+
+func Supports256() bool { return openssl.SupportsHash(crypto.SHA256) }
 func Supports224() bool { return openssl.SupportsHash(crypto.SHA224) }
 
-func New() hash.Hash              { return openssl.NewSHA256() }
-func New224() hash.Hash           { return openssl.NewSHA224() }
-func Sum256(data []byte) [32]byte { return openssl.SHA256(data) }
-func Sum224(data []byte) [28]byte { return openssl.SHA224(data) }
+func newBackendHash256() *backendHash { return openssl.NewSHA256() }
+func newBackendHash224() *backendHash { return openssl.NewSHA224() }
+func sum256(data []byte) [32]byte     { return openssl.SHA256(data) }
+func sum224(data []byte) [28]byte     { return openssl.SHA224(data) }
