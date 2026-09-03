@@ -6,11 +6,12 @@
 
 package sha256
 
-import "hash"
+type backendHash = fipsHash
 
+func Supports256() bool { panic("cryptobackend: not available") }
 func Supports224() bool { panic("cryptobackend: not available") }
 
-func New() hash.Hash              { panic("cryptobackend: not available") }
-func New224() hash.Hash           { panic("cryptobackend: not available") }
-func Sum256(data []byte) [32]byte { panic("cryptobackend: not available") }
-func Sum224(data []byte) [28]byte { panic("cryptobackend: not available") }
+func newBackendHash256() *backendHash { panic("cryptobackend: not available") }
+func newBackendHash224() *backendHash { panic("cryptobackend: not available") }
+func sum256(data []byte) [32]byte     { panic("cryptobackend: not available") }
+func sum224(data []byte) [28]byte     { panic("cryptobackend: not available") }

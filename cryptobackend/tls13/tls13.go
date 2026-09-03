@@ -10,7 +10,7 @@ import (
 	"crypto/hkdf"
 	"hash"
 
-	boring "github.com/microsoft/go/cryptobackend"
+	"github.com/microsoft/go/cryptobackend"
 )
 
 // We don't set the service indicator in this package but we delegate that to
@@ -31,8 +31,8 @@ func ExpandLabel[H hash.Hash](hash func() H, secret []byte, label string, contex
 		panic("tls13: label or context too long")
 	}
 
-	if boring.Enabled && supportsKDF() {
-		key, err := expandKDF(hash, secret, label, context, length)
+	if backend.Enabled && supportsKDF() {
+		key, err := expandKDF(unwrapHashFunc(hash), secret, label, context, length)
 		if err != nil {
 			panic(err)
 		}
