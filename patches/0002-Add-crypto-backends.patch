@@ -82,7 +82,7 @@ Subject: [PATCH] Add crypto backends
  src/crypto/md5/md5_test.go                    |  18 +-
  src/crypto/mldsa/mldsa_fips140v1.26.go        | 177 ++++++++++-
  src/crypto/mldsa/mldsa_test.go                |  67 +++-
- src/crypto/mlkem/mlkem.go                     | 120 ++++++-
+ src/crypto/mlkem/mlkem.go                     | 121 ++++++-
  src/crypto/mlkem/mlkem_test.go                |   8 +
  src/crypto/pbkdf2/pbkdf2.go                   |   9 +
  src/crypto/pbkdf2/pbkdf2_test.go              |   6 +-
@@ -122,7 +122,7 @@ Subject: [PATCH] Add crypto backends
  src/crypto/tls/prf_test.go                    |   9 +
  src/crypto/x509/verify_test.go                |   2 +-
  src/go/build/buildbackend_test.go             |  50 +++
- src/go/build/deps_test.go                     |  94 +++++-
+ src/go/build/deps_test.go                     |  97 +++++-
  .../build/testdata/backendtags_system/main.go |   3 +
  .../backendtags_system/systemcrypto.go        |   3 +
  src/hash/example_test.go                      |   2 +
@@ -138,7 +138,7 @@ Subject: [PATCH] Add crypto backends
  src/os/exec/exec_test.go                      |   9 +
  src/runtime/runtime_boring.go                 |   5 +
  src/syscall/syscall_windows.go                |   3 +
- 134 files changed, 2561 insertions(+), 378 deletions(-)
+ 134 files changed, 2563 insertions(+), 380 deletions(-)
  create mode 100644 src/cmd/go/systemcrypto_test.go
  create mode 100644 src/crypto/dsa/boring.go
  create mode 100644 src/crypto/dsa/notboring.go
@@ -3675,21 +3675,22 @@ index 0a2fc4edf11183..9c27ff51b27a4f 100644
  			t.Fatalf("NewPublicKey: %v", err)
  		}
 diff --git a/src/crypto/mlkem/mlkem.go b/src/crypto/mlkem/mlkem.go
-index f0fd6a4993a8e6..a3aea9e414b913 100644
+index f0fd6a4993a8e6..7b5b3ba7bbac09 100644
 --- a/src/crypto/mlkem/mlkem.go
 +++ b/src/crypto/mlkem/mlkem.go
-@@ -14,6 +14,10 @@ package mlkem
+@@ -14,6 +14,11 @@ package mlkem
  import (
  	"crypto"
  	"crypto/internal/fips140/mlkem"
 +	"crypto/internal/rand"
++	cryptorand "crypto/rand"
 +
 +	boring "github.com/microsoft/go/cryptobackend"
 +	bmlkem "github.com/microsoft/go/cryptobackend/mlkem"
  )
  
  const (
-@@ -36,38 +40,66 @@ const (
+@@ -36,38 +41,66 @@ const (
  	EncapsulationKeySize1024 = 1568
  )
  
@@ -3703,11 +3704,11 @@ index f0fd6a4993a8e6..a3aea9e414b913 100644
 +}
 +
 +func supportsBoringMLKEM768() bool {
-+	return boring.Enabled && rand.IsDefaultReader(rand.Reader) && bmlkem.Supports768()
++	return boring.Enabled && rand.IsDefaultReader(cryptorand.Reader) && bmlkem.Supports768()
 +}
 +
 +func supportsBoringMLKEM1024() bool {
-+	return boring.Enabled && rand.IsDefaultReader(rand.Reader) && bmlkem.Supports1024()
++	return boring.Enabled && rand.IsDefaultReader(cryptorand.Reader) && bmlkem.Supports1024()
  }
  
  // GenerateKey768 generates a new decapsulation key, drawing random bytes from
@@ -3760,7 +3761,7 @@ index f0fd6a4993a8e6..a3aea9e414b913 100644
  	return dk.key.Bytes()
  }
  
-@@ -79,13 +111,19 @@ func (dk *DecapsulationKey768) Bytes() []byte {
+@@ -79,13 +112,19 @@ func (dk *DecapsulationKey768) Bytes() []byte {
  //
  // The shared key must be kept secret.
  func (dk *DecapsulationKey768) Decapsulate(ciphertext []byte) (sharedKey []byte, err error) {
@@ -3781,7 +3782,7 @@ index f0fd6a4993a8e6..a3aea9e414b913 100644
  }
  
  // Encapsulator returns the encapsulation key, like
-@@ -101,22 +139,34 @@ var _ crypto.Decapsulator = (*DecapsulationKey768)(nil)
+@@ -101,22 +140,34 @@ var _ crypto.Decapsulator = (*DecapsulationKey768)(nil)
  // An EncapsulationKey768 is the public key used to produce ciphertexts to be
  // decapsulated by the corresponding DecapsulationKey768.
  type EncapsulationKey768 struct {
@@ -3818,7 +3819,7 @@ index f0fd6a4993a8e6..a3aea9e414b913 100644
  	return ek.key.Bytes()
  }
  
-@@ -128,41 +178,64 @@ func (ek *EncapsulationKey768) Bytes() []byte {
+@@ -128,41 +179,64 @@ func (ek *EncapsulationKey768) Bytes() []byte {
  // For testing, derandomized encapsulation is provided by the
  // [crypto/mlkem/mlkemtest] package.
  func (ek *EncapsulationKey768) Encapsulate() (sharedKey, ciphertext []byte) {
@@ -3886,7 +3887,7 @@ index f0fd6a4993a8e6..a3aea9e414b913 100644
  	return dk.key.Bytes()
  }
  
-@@ -174,13 +247,19 @@ func (dk *DecapsulationKey1024) Bytes() []byte {
+@@ -174,13 +248,19 @@ func (dk *DecapsulationKey1024) Bytes() []byte {
  //
  // The shared key must be kept secret.
  func (dk *DecapsulationKey1024) Decapsulate(ciphertext []byte) (sharedKey []byte, err error) {
@@ -3907,7 +3908,7 @@ index f0fd6a4993a8e6..a3aea9e414b913 100644
  }
  
  // Encapsulator returns the encapsulation key, like
-@@ -196,22 +275,34 @@ var _ crypto.Decapsulator = (*DecapsulationKey1024)(nil)
+@@ -196,22 +276,34 @@ var _ crypto.Decapsulator = (*DecapsulationKey1024)(nil)
  // An EncapsulationKey1024 is the public key used to produce ciphertexts to be
  // decapsulated by the corresponding DecapsulationKey1024.
  type EncapsulationKey1024 struct {
@@ -3944,7 +3945,7 @@ index f0fd6a4993a8e6..a3aea9e414b913 100644
  	return ek.key.Bytes()
  }
  
-@@ -223,5 +314,8 @@ func (ek *EncapsulationKey1024) Bytes() []byte {
+@@ -223,5 +315,8 @@ func (ek *EncapsulationKey1024) Bytes() []byte {
  // For testing, derandomized encapsulation is provided by the
  // [crypto/mlkem/mlkemtest] package.
  func (ek *EncapsulationKey1024) Encapsulate() (sharedKey, ciphertext []byte) {
@@ -6180,7 +6181,7 @@ index 00000000000000..ffb835ce34a2f7
 +	}
 +}
 diff --git a/src/go/build/deps_test.go b/src/go/build/deps_test.go
-index 67627cdb93ff22..3a7fc5413e2696 100644
+index 67627cdb93ff22..37e732b2f4068f 100644
 --- a/src/go/build/deps_test.go
 +++ b/src/go/build/deps_test.go
 @@ -372,8 +372,10 @@ var depsRules = `
@@ -6288,7 +6289,14 @@ index 67627cdb93ff22..3a7fc5413e2696 100644
  	< crypto/sha3
  	< crypto/internal/fips140hash
  	< crypto/internal/boring
-@@ -608,6 +669,9 @@ var depsRules = `
+@@ -601,13 +662,15 @@ var depsRules = `
+ 	  crypto/hkdf,
+ 	  crypto/pbkdf2,
+ 	  crypto/ecdh,
+-	  crypto/mlkem,
+ 	  crypto/mldsa
+ 	< CRYPTO;
+ 
  	CRYPTO
  	< golang.org/x/crypto/hkdf;
  
@@ -6298,7 +6306,7 @@ index 67627cdb93ff22..3a7fc5413e2696 100644
  	CGO, fmt, net !< CRYPTO;
  
  	# CRYPTO-MATH is crypto that exposes math/big APIs - no cgo, net; fmt now ok.
-@@ -616,15 +680,28 @@ var depsRules = `
+@@ -616,15 +679,28 @@ var depsRules = `
  	math/big, github.com/microsoft/go-crypto-darwin/xcrypto < github.com/microsoft/go-crypto-darwin/bbig;
  	math/big, github.com/microsoft/go-crypto-winnative/cng < github.com/microsoft/go-crypto-winnative/cng/bbig;
  
@@ -6316,7 +6324,8 @@ index 67627cdb93ff22..3a7fc5413e2696 100644
 +	< github.com/microsoft/go/cryptobackend/bbig
  	< crypto/internal/fips140cache
  	< crypto/rand
- 	< crypto/ed25519 # depends on crypto/rand.Reader
+-	< crypto/ed25519 # depends on crypto/rand.Reader
++	< crypto/ed25519, crypto/mlkem # depend on crypto/rand.Reader
  	< encoding/asn1
  	< golang.org/x/crypto/cryptobyte/asn1
  	< golang.org/x/crypto/cryptobyte
@@ -6330,7 +6339,7 @@ index 67627cdb93ff22..3a7fc5413e2696 100644
  	< crypto/ecdsa
  	< CRYPTO-MATH;
  
-@@ -658,7 +735,8 @@ var depsRules = `
+@@ -658,7 +734,8 @@ var depsRules = `
  	< crypto/hpke;
  
  	CRYPTO-MATH, NET, container/list, encoding/hex, encoding/pem, crypto/hpke,
