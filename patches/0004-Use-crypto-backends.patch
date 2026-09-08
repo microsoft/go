@@ -54,7 +54,7 @@ Subject: [PATCH] Use crypto backends
  src/crypto/internal/rand/rand.go              |   2 +-
  src/crypto/md5/md5.go                         |  10 +
  src/crypto/md5/md5_test.go                    |  18 +-
- src/crypto/mlkem/mlkem.go                     | 109 ++++++++--
+ src/crypto/mlkem/mlkem.go                     | 119 +++++++++--
  src/crypto/mlkem/mlkem_test.go                |   8 +
  src/crypto/pbkdf2/pbkdf2.go                   |   7 +
  src/crypto/pbkdf2/pbkdf2_test.go              |   6 +-
@@ -94,14 +94,14 @@ Subject: [PATCH] Use crypto backends
  src/crypto/tls/prf.go                         |  24 +++
  src/crypto/tls/prf_test.go                    |   9 +
  src/crypto/x509/verify_test.go                |   2 +-
- src/go/build/deps_test.go                     |  13 +-
+ src/go/build/deps_test.go                     |  18 +-
  src/hash/boring_test.go                       |   9 +
  src/hash/example_test.go                      |   2 +
  src/hash/marshal_test.go                      |   4 +
  src/hash/notboring_test.go                    |   9 +
  src/net/lookup_test.go                        |   3 +
  src/os/exec/exec_test.go                      |   9 +
- 97 files changed, 1565 insertions(+), 190 deletions(-)
+ 97 files changed, 1577 insertions(+), 193 deletions(-)
  create mode 100644 src/crypto/dsa/boring.go
  create mode 100644 src/crypto/dsa/notboring.go
  create mode 100644 src/crypto/ecdsa/badlinkname.go
@@ -1946,18 +1946,21 @@ index 403ff2881f4b68..5417556a86700e 100644
  
  func maybeCloner(h hash.Hash) any {
 diff --git a/src/crypto/mlkem/mlkem.go b/src/crypto/mlkem/mlkem.go
-index b652e3bae9dd71..ff6cf6ff0aad0d 100644
+index b652e3bae9dd71..266cca6d02b5c1 100644
 --- a/src/crypto/mlkem/mlkem.go
 +++ b/src/crypto/mlkem/mlkem.go
-@@ -13,6 +13,7 @@ package mlkem
+@@ -13,7 +13,10 @@ package mlkem
  
  import (
  	"crypto"
 +	boring "crypto/internal/backend"
  	"crypto/internal/fips140/mlkem"
++	"crypto/internal/rand"
++	cryptorand "crypto/rand"
  )
  
-@@ -36,38 +37,58 @@ const (
+ const (
+@@ -36,38 +39,66 @@ const (
  	EncapsulationKeySize1024 = 1568
  )
  
@@ -1968,12 +1971,20 @@ index b652e3bae9dd71..ff6cf6ff0aad0d 100644
 -	key *mlkem.DecapsulationKey768
 +	key       *mlkem.DecapsulationKey768
 +	boringKey boring.DecapsulationKeyMLKEM768
++}
++
++func supportsBoringMLKEM768() bool {
++	return boring.Enabled && rand.IsDefaultReader(cryptorand.Reader) && boring.SupportsMLKEM768()
++}
++
++func supportsBoringMLKEM1024() bool {
++	return boring.Enabled && rand.IsDefaultReader(cryptorand.Reader) && boring.SupportsMLKEM1024()
  }
  
  // GenerateKey768 generates a new decapsulation key, drawing random bytes from
  // a secure source. The decapsulation key must be kept secret.
  func GenerateKey768() (*DecapsulationKey768, error) {
-+	if boring.Enabled && boring.SupportsMLKEM768() {
++	if supportsBoringMLKEM768() {
 +		key, err := boring.GenerateKeyMLKEM768()
 +		if err != nil {
 +			return nil, err
@@ -1993,7 +2004,7 @@ index b652e3bae9dd71..ff6cf6ff0aad0d 100644
  // NewDecapsulationKey768 expands a decapsulation key from a 64-byte seed in the
  // "d || z" form. The seed must be uniformly random.
  func NewDecapsulationKey768(seed []byte) (*DecapsulationKey768, error) {
-+	if boring.Enabled && boring.SupportsMLKEM768() {
++	if supportsBoringMLKEM768() {
 +		key, err := boring.NewDecapsulationKeyMLKEM768(seed)
 +		if err != nil {
 +			return nil, err
@@ -2014,17 +2025,17 @@ index b652e3bae9dd71..ff6cf6ff0aad0d 100644
  //
  // The decapsulation key must be kept secret.
  func (dk *DecapsulationKey768) Bytes() []byte {
-+	if boring.Enabled && boring.SupportsMLKEM768() {
++	if dk.key == nil {
 +		return dk.boringKey.Bytes()
 +	}
  	return dk.key.Bytes()
  }
  
-@@ -76,13 +97,19 @@ func (dk *DecapsulationKey768) Bytes() []byte {
+@@ -76,13 +107,19 @@ func (dk *DecapsulationKey768) Bytes() []byte {
  //
  // The shared key must be kept secret.
  func (dk *DecapsulationKey768) Decapsulate(ciphertext []byte) (sharedKey []byte, err error) {
-+	if boring.Enabled && boring.SupportsMLKEM768() {
++	if dk.key == nil {
 +		return dk.boringKey.Decapsulate(ciphertext)
 +	}
  	return dk.key.Decapsulate(ciphertext)
@@ -2034,14 +2045,14 @@ index b652e3bae9dd71..ff6cf6ff0aad0d 100644
  // ciphertexts.
  func (dk *DecapsulationKey768) EncapsulationKey() *EncapsulationKey768 {
 -	return &EncapsulationKey768{dk.key.EncapsulationKey()}
-+	if boring.Enabled && boring.SupportsMLKEM768() {
++	if dk.key == nil {
 +		return &EncapsulationKey768{boringKey: dk.boringKey.EncapsulationKey()}
 +	}
 +	return &EncapsulationKey768{key: dk.key.EncapsulationKey()}
  }
  
  // Encapsulator returns the encapsulation key, like
-@@ -98,22 +125,34 @@ var _ crypto.Decapsulator = (*DecapsulationKey768)(nil)
+@@ -98,22 +135,34 @@ var _ crypto.Decapsulator = (*DecapsulationKey768)(nil)
  // An EncapsulationKey768 is the public key used to produce ciphertexts to be
  // decapsulated by the corresponding DecapsulationKey768.
  type EncapsulationKey768 struct {
@@ -2053,7 +2064,7 @@ index b652e3bae9dd71..ff6cf6ff0aad0d 100644
  // NewEncapsulationKey768 parses an encapsulation key from its encoded form. If
  // the encapsulation key is not valid, NewEncapsulationKey768 returns an error.
  func NewEncapsulationKey768(encapsulationKey []byte) (*EncapsulationKey768, error) {
-+	if boring.Enabled && boring.SupportsMLKEM768() {
++	if supportsBoringMLKEM768() {
 +		key, err := boring.NewEncapsulationKeyMLKEM768(encapsulationKey)
 +		if err != nil {
 +			return nil, err
@@ -2072,17 +2083,17 @@ index b652e3bae9dd71..ff6cf6ff0aad0d 100644
  
  // Bytes returns the encapsulation key as a byte slice.
  func (ek *EncapsulationKey768) Bytes() []byte {
-+	if boring.Enabled && boring.SupportsMLKEM768() {
++	if ek.key == nil {
 +		return ek.boringKey.Bytes()
 +	}
  	return ek.key.Bytes()
  }
  
-@@ -125,41 +164,64 @@ func (ek *EncapsulationKey768) Bytes() []byte {
+@@ -125,41 +174,64 @@ func (ek *EncapsulationKey768) Bytes() []byte {
  // For testing, derandomized encapsulation is provided by the
  // [crypto/mlkem/mlkemtest] package.
  func (ek *EncapsulationKey768) Encapsulate() (sharedKey, ciphertext []byte) {
-+	if boring.Enabled && boring.SupportsMLKEM768() {
++	if ek.key == nil {
 +		return ek.boringKey.Encapsulate()
 +	}
  	return ek.key.Encapsulate()
@@ -2099,7 +2110,7 @@ index b652e3bae9dd71..ff6cf6ff0aad0d 100644
  // GenerateKey1024 generates a new decapsulation key, drawing random bytes from
  // a secure source. The decapsulation key must be kept secret.
  func GenerateKey1024() (*DecapsulationKey1024, error) {
-+	if boring.Enabled && boring.SupportsMLKEM1024() {
++	if supportsBoringMLKEM1024() {
 +		key, err := boring.GenerateKeyMLKEM1024()
 +		if err != nil {
 +			return nil, err
@@ -2119,7 +2130,7 @@ index b652e3bae9dd71..ff6cf6ff0aad0d 100644
  // NewDecapsulationKey1024 expands a decapsulation key from a 64-byte seed in the
  // "d || z" form. The seed must be uniformly random.
  func NewDecapsulationKey1024(seed []byte) (*DecapsulationKey1024, error) {
-+	if boring.Enabled && boring.SupportsMLKEM1024() {
++	if supportsBoringMLKEM1024() {
 +		key, err := boring.NewDecapsulationKeyMLKEM1024(seed)
 +		if err != nil {
 +			return nil, err
@@ -2140,17 +2151,17 @@ index b652e3bae9dd71..ff6cf6ff0aad0d 100644
  //
  // The decapsulation key must be kept secret.
  func (dk *DecapsulationKey1024) Bytes() []byte {
-+	if boring.Enabled && boring.SupportsMLKEM1024() {
++	if dk.key == nil {
 +		return dk.boringKey.Bytes()
 +	}
  	return dk.key.Bytes()
  }
  
-@@ -168,13 +230,19 @@ func (dk *DecapsulationKey1024) Bytes() []byte {
+@@ -168,13 +240,19 @@ func (dk *DecapsulationKey1024) Bytes() []byte {
  //
  // The shared key must be kept secret.
  func (dk *DecapsulationKey1024) Decapsulate(ciphertext []byte) (sharedKey []byte, err error) {
-+	if boring.Enabled && boring.SupportsMLKEM1024() {
++	if dk.key == nil {
 +		return dk.boringKey.Decapsulate(ciphertext)
 +	}
  	return dk.key.Decapsulate(ciphertext)
@@ -2160,14 +2171,14 @@ index b652e3bae9dd71..ff6cf6ff0aad0d 100644
  // ciphertexts.
  func (dk *DecapsulationKey1024) EncapsulationKey() *EncapsulationKey1024 {
 -	return &EncapsulationKey1024{dk.key.EncapsulationKey()}
-+	if boring.Enabled && boring.SupportsMLKEM1024() {
++	if dk.key == nil {
 +		return &EncapsulationKey1024{boringKey: dk.boringKey.EncapsulationKey()}
 +	}
 +	return &EncapsulationKey1024{key: dk.key.EncapsulationKey()}
  }
  
  // Encapsulator returns the encapsulation key, like
-@@ -190,22 +258,34 @@ var _ crypto.Decapsulator = (*DecapsulationKey1024)(nil)
+@@ -190,22 +268,34 @@ var _ crypto.Decapsulator = (*DecapsulationKey1024)(nil)
  // An EncapsulationKey1024 is the public key used to produce ciphertexts to be
  // decapsulated by the corresponding DecapsulationKey1024.
  type EncapsulationKey1024 struct {
@@ -2179,7 +2190,7 @@ index b652e3bae9dd71..ff6cf6ff0aad0d 100644
  // NewEncapsulationKey1024 parses an encapsulation key from its encoded form. If
  // the encapsulation key is not valid, NewEncapsulationKey1024 returns an error.
  func NewEncapsulationKey1024(encapsulationKey []byte) (*EncapsulationKey1024, error) {
-+	if boring.Enabled && boring.SupportsMLKEM1024() {
++	if supportsBoringMLKEM1024() {
 +		key, err := boring.NewEncapsulationKeyMLKEM1024(encapsulationKey)
 +		if err != nil {
 +			return nil, err
@@ -2198,17 +2209,17 @@ index b652e3bae9dd71..ff6cf6ff0aad0d 100644
  
  // Bytes returns the encapsulation key as a byte slice.
  func (ek *EncapsulationKey1024) Bytes() []byte {
-+	if boring.Enabled && boring.SupportsMLKEM1024() {
++	if ek.key == nil {
 +		return ek.boringKey.Bytes()
 +	}
  	return ek.key.Bytes()
  }
  
-@@ -217,5 +297,8 @@ func (ek *EncapsulationKey1024) Bytes() []byte {
+@@ -217,5 +307,8 @@ func (ek *EncapsulationKey1024) Bytes() []byte {
  // For testing, derandomized encapsulation is provided by the
  // [crypto/mlkem/mlkemtest] package.
  func (ek *EncapsulationKey1024) Encapsulate() (sharedKey, ciphertext []byte) {
-+	if boring.Enabled && boring.SupportsMLKEM1024() {
++	if ek.key == nil {
 +		return ek.boringKey.Encapsulate()
 +	}
  	return ek.key.Encapsulate()
@@ -3655,7 +3666,7 @@ index 027bc22c33c921..eba08da985f832 100644
  package fipsonly
  
 diff --git a/src/crypto/tls/handshake_client.go b/src/crypto/tls/handshake_client.go
-index 7d4bd5bcceba4f..697dfa1ecb792e 100644
+index b644819fb42bbc..4ce367237f343d 100644
 --- a/src/crypto/tls/handshake_client.go
 +++ b/src/crypto/tls/handshake_client.go
 @@ -11,10 +11,10 @@ import (
@@ -3670,7 +3681,7 @@ index 7d4bd5bcceba4f..697dfa1ecb792e 100644
  	"crypto/x509"
  	"errors"
  	"fmt"
-@@ -523,7 +523,20 @@ func (c *Conn) pickTLSVersion(serverHello *serverHelloMsg) error {
+@@ -530,7 +530,20 @@ func (c *Conn) pickTLSVersion(serverHello *serverHelloMsg) error {
  
  // Does the handshake, either a full one or resumes old session. Requires hs.c,
  // hs.hello, hs.serverHello, and, optionally, hs.session to be set.
@@ -3708,7 +3719,7 @@ index 65177767a05b1f..87b637a0f25602 100644
  	"hash"
  	"slices"
 diff --git a/src/crypto/tls/handshake_server.go b/src/crypto/tls/handshake_server.go
-index 34dfb13b672f79..e635079f12313f 100644
+index 46913945771072..25a1a841d7312e 100644
 --- a/src/crypto/tls/handshake_server.go
 +++ b/src/crypto/tls/handshake_server.go
 @@ -63,7 +63,20 @@ func (c *Conn) serverHandshake(ctx context.Context) error {
@@ -4091,7 +4102,7 @@ index 1d3e845d0f0a9c..eb4318faf13f7b 100644
  
  	var dsaPriv dsa.PrivateKey
 diff --git a/src/go/build/deps_test.go b/src/go/build/deps_test.go
-index 71f5fae52bd306..6e72b4dde85609 100644
+index 71f5fae52bd306..f0a567d2ad9dd5 100644
 --- a/src/go/build/deps_test.go
 +++ b/src/go/build/deps_test.go
 @@ -545,7 +545,7 @@ var depsRules = `
@@ -4127,14 +4138,26 @@ index 71f5fae52bd306..6e72b4dde85609 100644
  	< crypto/sha3
  	< crypto/internal/fips140hash
  	< crypto/internal/boring
-@@ -621,6 +627,7 @@ var depsRules = `
+@@ -619,8 +625,8 @@ var depsRules = `
+ 	  crypto/hmac,
+ 	  crypto/hkdf,
  	  crypto/pbkdf2,
- 	  crypto/ecdh,
- 	  crypto/mlkem
+-	  crypto/ecdh,
+-	  crypto/mlkem
++	  crypto/ecdh
 +	< crypto/tls/internal/tls13
  	< CRYPTO;
  
  	CGO, fmt, net !< CRYPTO;
+@@ -642,7 +648,7 @@ var depsRules = `
+ 	< crypto/internal/backend/bbig
+ 	< crypto/internal/fips140cache
+ 	< crypto/rand
+-	< crypto/ed25519 # depends on crypto/rand.Reader
++	< crypto/ed25519, crypto/mlkem # depend on crypto/rand.Reader
+ 	< encoding/asn1
+ 	< golang.org/x/crypto/cryptobyte/asn1
+ 	< golang.org/x/crypto/cryptobyte
 diff --git a/src/hash/boring_test.go b/src/hash/boring_test.go
 new file mode 100644
 index 00000000000000..52748c44698076
@@ -4201,7 +4224,7 @@ index 00000000000000..11dc691600b110
 +
 +const boringEnabled = false
 diff --git a/src/net/lookup_test.go b/src/net/lookup_test.go
-index 42211ed099ed1e..e6d185374ffe6d 100644
+index afa7e4c14aaf1f..0583582295c751 100644
 --- a/src/net/lookup_test.go
 +++ b/src/net/lookup_test.go
 @@ -1500,6 +1500,9 @@ func TestLookupPortIPNetworkString(t *testing.T) {
