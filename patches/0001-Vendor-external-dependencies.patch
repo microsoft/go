@@ -332,9 +332,9 @@ Use a 'go' that was recently built by the current branch to ensure stable result
  .../go/cryptobackend/ed25519/nobackend.go     |   21 +
  .../go/cryptobackend/fips140/fips140.go       |   15 +
  .../microsoft/go/cryptobackend/hkdf/hkdf.go   |   15 +
- .../go/cryptobackend/hkdf/hkdf_darwin.go      |   21 +
- .../go/cryptobackend/hkdf/hkdf_openssl.go     |   21 +
- .../go/cryptobackend/hkdf/hkdf_windows.go     |   21 +
+ .../go/cryptobackend/hkdf/hkdf_darwin.go      |   26 +
+ .../go/cryptobackend/hkdf/hkdf_openssl.go     |   25 +
+ .../go/cryptobackend/hkdf/hkdf_windows.go     |   25 +
  .../microsoft/go/cryptobackend/hkdf/init.go   |    7 +
  .../go/cryptobackend/hkdf/nobackend.go        |   17 +
  .../go/cryptobackend/hmac/hmac_darwin.go      |   17 +
@@ -374,9 +374,9 @@ Use a 'go' that was recently built by the current branch to ensure stable result
  .../microsoft/go/cryptobackend/nobackend.go   |   15 +
  .../microsoft/go/cryptobackend/pbkdf2/init.go |    7 +
  .../go/cryptobackend/pbkdf2/nobackend.go      |   14 +
- .../go/cryptobackend/pbkdf2/pbkdf2_darwin.go  |   18 +
- .../go/cryptobackend/pbkdf2/pbkdf2_openssl.go |   18 +
- .../go/cryptobackend/pbkdf2/pbkdf2_windows.go |   18 +
+ .../go/cryptobackend/pbkdf2/pbkdf2_darwin.go  |   23 +
+ .../go/cryptobackend/pbkdf2/pbkdf2_openssl.go |   22 +
+ .../go/cryptobackend/pbkdf2/pbkdf2_windows.go |   22 +
  .../microsoft/go/cryptobackend/rc4/init.go    |    7 +
  .../go/cryptobackend/rc4/nobackend.go         |   17 +
  .../go/cryptobackend/rc4/rc4_darwin.go        |   15 +
@@ -437,7 +437,7 @@ Use a 'go' that was recently built by the current branch to ensure stable result
  .../go/cryptobackend/tls13/tls13_openssl.go   |   18 +
  .../go/cryptobackend/tls13/tls13_windows.go   |   14 +
  src/vendor/modules.txt                        |   54 +
- 429 files changed, 40778 insertions(+), 7 deletions(-)
+ 429 files changed, 40804 insertions(+), 7 deletions(-)
  create mode 100644 src/cmd/internal/telemetry/counter/deps_ignore.go
  create mode 100644 src/cmd/vendor/github.com/microsoft/go-infra/telemetry/LICENSE
  create mode 100644 src/cmd/vendor/github.com/microsoft/go-infra/telemetry/README.md
@@ -42622,10 +42622,10 @@ index 00000000000000..8d9c6cc9fbd514
 +}
 diff --git a/src/vendor/github.com/microsoft/go/cryptobackend/hkdf/hkdf_darwin.go b/src/vendor/github.com/microsoft/go/cryptobackend/hkdf/hkdf_darwin.go
 new file mode 100644
-index 00000000000000..c6d8af02b74f53
+index 00000000000000..c3b7fe3a0bf083
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go/cryptobackend/hkdf/hkdf_darwin.go
-@@ -0,0 +1,21 @@
+@@ -0,0 +1,26 @@
 +// Copyright 2024 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -42640,7 +42640,12 @@ index 00000000000000..c6d8af02b74f53
 +	"github.com/microsoft/go-crypto-darwin/xcrypto"
 +)
 +
-+func Supports() bool { return true }
++func Supports(h hash.Hash) bool {
++	_, ok := h.(*xcrypto.Hash)
++	// CryptoKit supports HKDF with every native hash except MD5.
++	return ok && h.Size() != 16
++}
++
 +func Extract[H hash.Hash](h func() H, secret, salt []byte) ([]byte, error) {
 +	return xcrypto.ExtractHKDF(h, secret, salt)
 +}
@@ -42649,10 +42654,10 @@ index 00000000000000..c6d8af02b74f53
 +}
 diff --git a/src/vendor/github.com/microsoft/go/cryptobackend/hkdf/hkdf_openssl.go b/src/vendor/github.com/microsoft/go/cryptobackend/hkdf/hkdf_openssl.go
 new file mode 100644
-index 00000000000000..f21b6d450aabd2
+index 00000000000000..f1603e00760688
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go/cryptobackend/hkdf/hkdf_openssl.go
-@@ -0,0 +1,21 @@
+@@ -0,0 +1,25 @@
 +// Copyright 2024 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -42667,7 +42672,11 @@ index 00000000000000..f21b6d450aabd2
 +	"github.com/microsoft/go-crypto-openssl/openssl"
 +)
 +
-+func Supports() bool { return openssl.SupportsHKDF() }
++func Supports(h hash.Hash) bool {
++	_, ok := h.(*openssl.Hash)
++	return ok && openssl.SupportsHKDF()
++}
++
 +func Extract[H hash.Hash](h func() H, secret, salt []byte) ([]byte, error) {
 +	return openssl.ExtractHKDF(h, secret, salt)
 +}
@@ -42676,10 +42685,10 @@ index 00000000000000..f21b6d450aabd2
 +}
 diff --git a/src/vendor/github.com/microsoft/go/cryptobackend/hkdf/hkdf_windows.go b/src/vendor/github.com/microsoft/go/cryptobackend/hkdf/hkdf_windows.go
 new file mode 100644
-index 00000000000000..bc7e40fa2a9cce
+index 00000000000000..ee1e9fdbbdbbbf
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go/cryptobackend/hkdf/hkdf_windows.go
-@@ -0,0 +1,21 @@
+@@ -0,0 +1,25 @@
 +// Copyright 2024 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -42694,7 +42703,11 @@ index 00000000000000..bc7e40fa2a9cce
 +	"github.com/microsoft/go-crypto-winnative/cng"
 +)
 +
-+func Supports() bool { return cng.SupportsHKDF() }
++func Supports(h hash.Hash) bool {
++	_, ok := h.(*cng.Hash)
++	return ok && cng.SupportsHKDF()
++}
++
 +func Extract[H hash.Hash](h func() H, secret, salt []byte) ([]byte, error) {
 +	return cng.ExtractHKDF(h, secret, salt)
 +}
@@ -42716,7 +42729,7 @@ index 00000000000000..78838e1a5df924
 +import _ "github.com/microsoft/go/cryptobackend"
 diff --git a/src/vendor/github.com/microsoft/go/cryptobackend/hkdf/nobackend.go b/src/vendor/github.com/microsoft/go/cryptobackend/hkdf/nobackend.go
 new file mode 100644
-index 00000000000000..58fdda2aea2d45
+index 00000000000000..b3e91ec72b8810
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go/cryptobackend/hkdf/nobackend.go
 @@ -0,0 +1,17 @@
@@ -42730,7 +42743,7 @@ index 00000000000000..58fdda2aea2d45
 +
 +import "hash"
 +
-+func Supports() bool { panic("cryptobackend: not available") }
++func Supports(h hash.Hash) bool { panic("cryptobackend: not available") }
 +func Extract[H hash.Hash](h func() H, secret, salt []byte) ([]byte, error) {
 +	panic("cryptobackend: not available")
 +}
@@ -43754,7 +43767,7 @@ index 00000000000000..89a597b39369ce
 +import _ "github.com/microsoft/go/cryptobackend"
 diff --git a/src/vendor/github.com/microsoft/go/cryptobackend/pbkdf2/nobackend.go b/src/vendor/github.com/microsoft/go/cryptobackend/pbkdf2/nobackend.go
 new file mode 100644
-index 00000000000000..154fbc4f8feef2
+index 00000000000000..0581daddbf8765
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go/cryptobackend/pbkdf2/nobackend.go
 @@ -0,0 +1,14 @@
@@ -43768,16 +43781,16 @@ index 00000000000000..154fbc4f8feef2
 +
 +import "hash"
 +
-+func Supports() bool { panic("cryptobackend: not available") }
++func Supports(h hash.Hash) bool { panic("cryptobackend: not available") }
 +func Key[H hash.Hash](h func() H, password string, salt []byte, iter, keyLength int) ([]byte, error) {
 +	panic("cryptobackend: not available")
 +}
 diff --git a/src/vendor/github.com/microsoft/go/cryptobackend/pbkdf2/pbkdf2_darwin.go b/src/vendor/github.com/microsoft/go/cryptobackend/pbkdf2/pbkdf2_darwin.go
 new file mode 100644
-index 00000000000000..df3b087cbc3758
+index 00000000000000..d5fe415ec03c8e
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go/cryptobackend/pbkdf2/pbkdf2_darwin.go
-@@ -0,0 +1,18 @@
+@@ -0,0 +1,23 @@
 +// Copyright 2012 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -43792,16 +43805,21 @@ index 00000000000000..df3b087cbc3758
 +	"github.com/microsoft/go-crypto-darwin/xcrypto"
 +)
 +
-+func Supports() bool { return true }
++func Supports(h hash.Hash) bool {
++	_, ok := h.(*xcrypto.Hash)
++	// CommonCrypto only supports PBKDF2 with SHA-1 and SHA-2, not MD5 or SHA-3.
++	return ok && h.Size() != 16 && (h.BlockSize() == 64 || h.BlockSize() == 128)
++}
++
 +func Key[H hash.Hash](h func() H, password string, salt []byte, iter, keyLength int) ([]byte, error) {
 +	return xcrypto.PBKDF2([]byte(password), salt, iter, keyLength, h)
 +}
 diff --git a/src/vendor/github.com/microsoft/go/cryptobackend/pbkdf2/pbkdf2_openssl.go b/src/vendor/github.com/microsoft/go/cryptobackend/pbkdf2/pbkdf2_openssl.go
 new file mode 100644
-index 00000000000000..308d9d9b8adc2f
+index 00000000000000..32ea8f189417ec
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go/cryptobackend/pbkdf2/pbkdf2_openssl.go
-@@ -0,0 +1,18 @@
+@@ -0,0 +1,22 @@
 +// Copyright 2012 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -43816,16 +43834,20 @@ index 00000000000000..308d9d9b8adc2f
 +	"github.com/microsoft/go-crypto-openssl/openssl"
 +)
 +
-+func Supports() bool { return openssl.SupportsPBKDF2() }
++func Supports(h hash.Hash) bool {
++	_, ok := h.(*openssl.Hash)
++	return ok && openssl.SupportsPBKDF2()
++}
++
 +func Key[H hash.Hash](h func() H, password string, salt []byte, iter, keyLength int) ([]byte, error) {
 +	return openssl.PBKDF2([]byte(password), salt, iter, keyLength, h)
 +}
 diff --git a/src/vendor/github.com/microsoft/go/cryptobackend/pbkdf2/pbkdf2_windows.go b/src/vendor/github.com/microsoft/go/cryptobackend/pbkdf2/pbkdf2_windows.go
 new file mode 100644
-index 00000000000000..c83a2cdd2db95d
+index 00000000000000..df4f4c68138783
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go/cryptobackend/pbkdf2/pbkdf2_windows.go
-@@ -0,0 +1,18 @@
+@@ -0,0 +1,22 @@
 +// Copyright 2012 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -43840,7 +43862,11 @@ index 00000000000000..c83a2cdd2db95d
 +	"github.com/microsoft/go-crypto-winnative/cng"
 +)
 +
-+func Supports() bool { return true }
++func Supports(h hash.Hash) bool {
++	_, ok := h.(*cng.Hash)
++	return ok
++}
++
 +func Key[H hash.Hash](h func() H, password string, salt []byte, iter, keyLength int) ([]byte, error) {
 +	return cng.PBKDF2([]byte(password), salt, iter, keyLength, h)
 +}
@@ -46180,7 +46206,7 @@ index 00000000000000..9e50ac1bb7864f
 +}
 diff --git a/src/vendor/github.com/microsoft/go/cryptobackend/tls13/hash_msgostd.go b/src/vendor/github.com/microsoft/go/cryptobackend/tls13/hash_msgostd.go
 new file mode 100644
-index 00000000000000..45483ecaf4aac6
+index 00000000000000..5b089c9990e788
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go/cryptobackend/tls13/hash_msgostd.go
 @@ -0,0 +1,16 @@
@@ -46203,7 +46229,7 @@ index 00000000000000..45483ecaf4aac6
 \ No newline at end of file
 diff --git a/src/vendor/github.com/microsoft/go/cryptobackend/tls13/hash_nomsgostd.go b/src/vendor/github.com/microsoft/go/cryptobackend/tls13/hash_nomsgostd.go
 new file mode 100644
-index 00000000000000..cf92160ed9fbfb
+index 00000000000000..a596880fd72e5a
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go/cryptobackend/tls13/hash_nomsgostd.go
 @@ -0,0 +1,13 @@

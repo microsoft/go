@@ -12,7 +12,11 @@ import (
 	"github.com/microsoft/go-crypto-openssl/openssl"
 )
 
-func Supports() bool { return openssl.SupportsHKDF() }
+func Supports(h hash.Hash) bool {
+	_, ok := h.(*openssl.Hash)
+	return ok && openssl.SupportsHKDF()
+}
+
 func Extract[H hash.Hash](h func() H, secret, salt []byte) ([]byte, error) {
 	return openssl.ExtractHKDF(h, secret, salt)
 }

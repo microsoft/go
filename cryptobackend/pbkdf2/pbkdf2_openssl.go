@@ -12,7 +12,11 @@ import (
 	"github.com/microsoft/go-crypto-openssl/openssl"
 )
 
-func Supports() bool { return openssl.SupportsPBKDF2() }
+func Supports(h hash.Hash) bool {
+	_, ok := h.(*openssl.Hash)
+	return ok && openssl.SupportsPBKDF2()
+}
+
 func Key[H hash.Hash](h func() H, password string, salt []byte, iter, keyLength int) ([]byte, error) {
 	return openssl.PBKDF2([]byte(password), salt, iter, keyLength, h)
 }
