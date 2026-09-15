@@ -6,12 +6,8 @@
 
 package backend
 
-import (
-	"crypto/internal/fips140only"
-
-	bhash "github.com/microsoft/go/cryptobackend/hash"
-)
+import "crypto/internal/fips140only"
 
 func init() {
-	fips140only.BackendApprovedHash = bhash.Approved
+	fips140only.BackendApprovedHash = fipsApprovedHash
 }

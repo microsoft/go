@@ -8,23 +8,31 @@ package sha3
 
 import (
 	"hash"
-	"io"
 )
 
-type Digest struct{ hash.Cloner }
-type Hash = Digest
+type backendHash struct{}
 
-type SHAKE struct {
-	io.Reader
-	hash.Hash
+func (h *backendHash) Write(p []byte) (int, error)           { panic("cryptobackend: not available") }
+func (h *backendHash) Sum(p []byte) []byte                   { panic("cryptobackend: not available") }
+func (h *backendHash) Reset()                                { panic("cryptobackend: not available") }
+func (h *backendHash) Size() int                             { panic("cryptobackend: not available") }
+func (h *backendHash) BlockSize() int                        { panic("cryptobackend: not available") }
+func (h *backendHash) MarshalBinary() ([]byte, error)        { panic("cryptobackend: not available") }
+func (h *backendHash) AppendBinary(p []byte) ([]byte, error) { panic("cryptobackend: not available") }
+func (h *backendHash) UnmarshalBinary(data []byte) error     { panic("cryptobackend: not available") }
+func (h *backendHash) Clone() (hash.Cloner, error)           { panic("cryptobackend: not available") }
+
+type backendSHAKE struct{}
+
+func (*backendSHAKE) Write([]byte) (int, error)      { panic("cryptobackend: not available") }
+func (*backendSHAKE) Read([]byte) (int, error)       { panic("cryptobackend: not available") }
+func (*backendSHAKE) Reset()                         { panic("cryptobackend: not available") }
+func (*backendSHAKE) BlockSize() int                 { panic("cryptobackend: not available") }
+func (*backendSHAKE) MarshalBinary() ([]byte, error) { panic("cryptobackend: not available") }
+func (*backendSHAKE) AppendBinary([]byte) ([]byte, error) {
+	panic("cryptobackend: not available")
 }
-
-func (d *Digest) MarshalBinary() ([]byte, error)        { panic("cryptobackend: not available") }
-func (d *Digest) AppendBinary(p []byte) ([]byte, error) { panic("cryptobackend: not available") }
-func (d *Digest) UnmarshalBinary(data []byte) error     { panic("cryptobackend: not available") }
-func (s *SHAKE) MarshalBinary() ([]byte, error)         { panic("cryptobackend: not available") }
-func (s *SHAKE) AppendBinary(p []byte) ([]byte, error)  { panic("cryptobackend: not available") }
-func (s *SHAKE) UnmarshalBinary(data []byte) error      { panic("cryptobackend: not available") }
+func (*backendSHAKE) UnmarshalBinary([]byte) error { panic("cryptobackend: not available") }
 
 func Supports224() bool { panic("cryptobackend: not available") }
 func Supports256() bool { panic("cryptobackend: not available") }
@@ -34,17 +42,17 @@ func Supports512() bool { panic("cryptobackend: not available") }
 func SupportsSHAKE(securityBits int) bool  { panic("cryptobackend: not available") }
 func SupportsCSHAKE(securityBits int) bool { panic("cryptobackend: not available") }
 
-func New224() *Digest                            { panic("cryptobackend: not available") }
-func New256() *Digest                            { panic("cryptobackend: not available") }
-func New384() *Digest                            { panic("cryptobackend: not available") }
-func New512() *Digest                            { panic("cryptobackend: not available") }
-func NewShake128() *SHAKE                        { panic("cryptobackend: not available") }
-func NewShake256() *SHAKE                        { panic("cryptobackend: not available") }
-func NewCShake128(N, S []byte) *SHAKE            { panic("cryptobackend: not available") }
-func NewCShake256(N, S []byte) *SHAKE            { panic("cryptobackend: not available") }
-func Sum224(data []byte) [28]byte                { panic("cryptobackend: not available") }
-func Sum256(data []byte) [32]byte                { panic("cryptobackend: not available") }
-func Sum384(data []byte) [48]byte                { panic("cryptobackend: not available") }
-func Sum512(data []byte) [64]byte                { panic("cryptobackend: not available") }
-func SumSHAKE128(data []byte, length int) []byte { panic("cryptobackend: not available") }
-func SumSHAKE256(data []byte, length int) []byte { panic("cryptobackend: not available") }
+func newBackendHash256() *backendHash               { panic("cryptobackend: not available") }
+func newBackendHash224() *backendHash               { panic("cryptobackend: not available") }
+func newBackendHash384() *backendHash               { panic("cryptobackend: not available") }
+func newBackendHash512() *backendHash               { panic("cryptobackend: not available") }
+func newBackendShake128() *backendSHAKE             { panic("cryptobackend: not available") }
+func newBackendShake256() *backendSHAKE             { panic("cryptobackend: not available") }
+func newBackendCShake128(N, S []byte) *backendSHAKE { panic("cryptobackend: not available") }
+func newBackendCShake256(N, S []byte) *backendSHAKE { panic("cryptobackend: not available") }
+func sum224(data []byte) [28]byte                   { panic("cryptobackend: not available") }
+func sum256(data []byte) [32]byte                   { panic("cryptobackend: not available") }
+func sum384(data []byte) [48]byte                   { panic("cryptobackend: not available") }
+func sum512(data []byte) [64]byte                   { panic("cryptobackend: not available") }
+func sumSHAKE128(data []byte, length int) []byte    { panic("cryptobackend: not available") }
+func sumSHAKE256(data []byte, length int) []byte    { panic("cryptobackend: not available") }

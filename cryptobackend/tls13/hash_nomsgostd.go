@@ -2,10 +2,12 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-//go:build !goexperiment.systemcrypto
+//go:build !msgostd
 
-package hash
+package tls13
 
 import "hash"
 
-func Approved(h hash.Hash) bool { panic("cryptobackend: not available") }
+func unwrapHashFunc[H hash.Hash](newHash func() H) func() H {
+	return newHash
+}
