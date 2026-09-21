@@ -43,6 +43,7 @@ func main() {
 	flag.BoolVar(&o.SkipBuild, "skipbuild", false, "Disable building Go.")
 	flag.BoolVar(&o.SkipBuildRace, "skipbuildrace", false, "Disable building Go with race detector.")
 	flag.BoolVar(&o.Test, "test", false, "Enable running tests.")
+	flag.StringVar(&o.TestRun, "run", "", "Run only tests matching this regular expression.")
 	flag.BoolVar(&o.PackBuild, "packbuild", false, "Enable creating an archive of this build using upstream 'distpack' and placing it in eng/artifacts/bin.")
 	flag.BoolVar(&o.PackSource, "packsource", false, "Enable creating a source archive using upstream 'distpack' and placing it in eng/artifacts/bin.")
 	flag.BoolVar(&o.CreatePDB, "pdb", false, "Create PDB files for all the PE binaries in the bin and tool directories. The PE files are modified in place and PDBs are placed in eng/artifacts/symbols.")
@@ -82,6 +83,7 @@ type options struct {
 	SkipBuild     bool
 	SkipBuildRace bool
 	Test          bool
+	TestRun       string
 	PackBuild     bool
 	PackSource    bool
 	CreatePDB     bool
@@ -230,6 +232,9 @@ func build(o *options) (err error) {
 				"--no-rebuild",
 			}...,
 		)
+		if o.TestRun != "" {
+			testCommandLine = append(testCommandLine, "-run", o.TestRun)
+		}
 
 		if err := o.TestJSONFlags.RunTestCmd(testCommandLine); err != nil {
 			return err
