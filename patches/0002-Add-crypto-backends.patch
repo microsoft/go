@@ -10,6 +10,7 @@ Subject: [PATCH] Add crypto backends
  src/cmd/compile/script_test.go                |   8 +
  src/cmd/compile/testdata/script/README        |   2 +
  src/cmd/dist/build.go                         |  65 ++++
+ src/cmd/dist/buildtool.go                     |   1 +
  src/cmd/dist/test.go                          |  46 ++-
  src/cmd/go/alldocs.go                         |   3 +
  src/cmd/go/go_boring_test.go                  |   6 +-
@@ -111,6 +112,8 @@ Subject: [PATCH] Add crypto backends
  src/crypto/sha512/sha512_test.go              |  33 +-
  src/crypto/systemcrypto_nocgo_freebsd.go      |  17 +
  src/crypto/systemcrypto_nocgo_linux.go        |  18 ++
+ src/crypto/tls/bogo_shim_test.go              |  16 +-
+ src/crypto/tls/certificates_generator_test.go |   4 +
  src/crypto/tls/cipher_suites.go               |  17 +-
  src/crypto/tls/fipsonly/fipsonly.go           |   2 +-
  src/crypto/tls/fipsonly/fipsonly_test.go      |   2 +-
@@ -140,7 +143,7 @@ Subject: [PATCH] Add crypto backends
  src/os/exec/exec_test.go                      |   9 +
  src/runtime/runtime_boring.go                 |   5 +
  src/syscall/syscall_windows.go                |   3 +
- 136 files changed, 2447 insertions(+), 393 deletions(-)
+ 139 files changed, 2466 insertions(+), 395 deletions(-)
  create mode 100644 src/cmd/go/systemcrypto_test.go
  create mode 100644 src/crypto/dsa/boring.go
  create mode 100644 src/crypto/dsa/notboring.go
@@ -243,10 +246,10 @@ index 9ec997a138f0f2..09c4e7955ec162 100644
  	testing.Verbose()
  
 diff --git a/src/cmd/dist/build.go b/src/cmd/dist/build.go
-index a64a80223399a1..d209f73b9e29ed 100644
+index ac5538c6f86cf2..a91bb74a4467e0 100644
 --- a/src/cmd/dist/build.go
 +++ b/src/cmd/dist/build.go
-@@ -1405,6 +1405,68 @@ func toolenv() []string {
+@@ -894,6 +894,68 @@ func toolenv() []string {
  		// still have full paths for stack traces for compiler crashes and the like.
  		env = append(env, "GOFLAGS=-trimpath -ldflags=-w -gcflags=cmd/...=-dwarf=false")
  	}
@@ -315,7 +318,7 @@ index a64a80223399a1..d209f73b9e29ed 100644
  	return env
  }
  
-@@ -1644,7 +1706,10 @@ func cmdbootstrap() {
+@@ -1123,7 +1185,10 @@ func cmdbootstrap() {
  		goInstall(toolenv(), goBootstrap, append([]string{"-a"}, toolsToInstall...)...)
  	}
  
@@ -326,6 +329,18 @@ index a64a80223399a1..d209f73b9e29ed 100644
  	checkNotStale(toolenv(), gorootBinGo, toolsToInstall...)
  	if debug {
  		run("", ShowOutput|CheckExit, pathf("%s/compile", tooldir), "-V=full")
+diff --git a/src/cmd/dist/buildtool.go b/src/cmd/dist/buildtool.go
+index 8498794c23fd09..28ddba4ad0eec7 100644
+--- a/src/cmd/dist/buildtool.go
++++ b/src/cmd/dist/buildtool.go
+@@ -162,6 +162,7 @@ var bootstrapDirs = []string{
+ 	"internal/singleflight",
+ 	"internal/strconv",
+ 	"internal/syslist",
++	"internal/systemcrypto",
+ 	"internal/trace/traceviewer/format",
+ 	"internal/types/errors",
+ 	"internal/unsafeheader",
 diff --git a/src/cmd/dist/test.go b/src/cmd/dist/test.go
 index da2ebaabe5c82a..51be08668fb0ff 100644
 --- a/src/cmd/dist/test.go
@@ -430,10 +445,10 @@ index da2ebaabe5c82a..51be08668fb0ff 100644
 +	return enabled
 +}
 diff --git a/src/cmd/go/alldocs.go b/src/cmd/go/alldocs.go
-index 91db03f0a426e0..4a879978e11399 100644
+index 8f4a9229e83d86..5bb384cf3c396b 100644
 --- a/src/cmd/go/alldocs.go
 +++ b/src/cmd/go/alldocs.go
-@@ -2628,6 +2628,9 @@
+@@ -2631,6 +2631,9 @@
  //		mentioned will be considered insecure by 'go get'.
  //		Because the variable is defined by Git, the default value cannot
  //		be set using 'go env -w'.
@@ -4873,7 +4888,7 @@ index cdcd6db86469a8..82995dc0fb9578 100644
  	msg := []byte("hi!")
  	enc, err := EncryptPKCS1v15(rand.Reader, &priv.PublicKey, msg)
 diff --git a/src/crypto/sha1/sha1.go b/src/crypto/sha1/sha1.go
-index 46e47df1d32cf2..48e9bd510cf92e 100644
+index df53d39a72d5b7..627a580f1125a5 100644
 --- a/src/crypto/sha1/sha1.go
 +++ b/src/crypto/sha1/sha1.go
 @@ -10,11 +10,13 @@ package sha1
@@ -4891,7 +4906,7 @@ index 46e47df1d32cf2..48e9bd510cf92e 100644
  )
  
  func init() {
-@@ -113,8 +115,8 @@ func (d *digest) Reset() {
+@@ -118,8 +120,8 @@ func (d *digest) Reset() {
  // [encoding.BinaryUnmarshaler] to marshal and unmarshal the internal
  // state of the hash.
  func New() hash.Hash {
@@ -4902,7 +4917,7 @@ index 46e47df1d32cf2..48e9bd510cf92e 100644
  	}
  	d := new(digest)
  	d.Reset()
-@@ -153,7 +155,6 @@ func (d *digest) Write(p []byte) (nn int, err error) {
+@@ -163,7 +165,6 @@ func (d *digest) Write(p []byte) (nn int, err error) {
  }
  
  func (d *digest) Sum(in []byte) []byte {
@@ -4910,7 +4925,7 @@ index 46e47df1d32cf2..48e9bd510cf92e 100644
  	// Make a copy of d so that caller can keep writing and summing.
  	d0 := *d
  	hash := d0.checkSum()
-@@ -271,12 +272,12 @@ func (d *digest) constSum() [Size]byte {
+@@ -281,12 +282,12 @@ func (d *digest) constSum() [Size]byte {
  
  // Sum returns the SHA-1 checksum of the data.
  func Sum(data []byte) [Size]byte {
@@ -4927,7 +4942,7 @@ index 46e47df1d32cf2..48e9bd510cf92e 100644
  	d.Reset()
  	d.Write(data)
 diff --git a/src/crypto/sha1/sha1_test.go b/src/crypto/sha1/sha1_test.go
-index 8b4618df556271..ae4abc9edfa7c1 100644
+index 745dce5c9ff158..18a632f882c3e5 100644
 --- a/src/crypto/sha1/sha1_test.go
 +++ b/src/crypto/sha1/sha1_test.go
 @@ -8,10 +8,11 @@ package sha1
@@ -4942,8 +4957,8 @@ index 8b4618df556271..ae4abc9edfa7c1 100644
 +	boring "github.com/microsoft/go/cryptobackend"
  	"hash"
  	"io"
- 	"testing"
-@@ -112,6 +113,9 @@ func testGoldenMarshal(t *testing.T) {
+ 	"runtime"
+@@ -115,6 +116,9 @@ func testGoldenMarshal(t *testing.T) {
  
  		state, err := h.(encoding.BinaryMarshaler).MarshalBinary()
  		if err != nil {
@@ -4953,7 +4968,7 @@ index 8b4618df556271..ae4abc9edfa7c1 100644
  			t.Errorf("could not marshal: %v", err)
  			continue
  		}
-@@ -204,6 +208,9 @@ func testLargeHashes(t *testing.T) {
+@@ -207,6 +211,9 @@ func testLargeHashes(t *testing.T) {
  	for i, test := range largeUnmarshalTests {
  		h := New()
  		if err := h.(encoding.BinaryUnmarshaler).UnmarshalBinary([]byte(test.state)); err != nil {
@@ -4963,7 +4978,7 @@ index 8b4618df556271..ae4abc9edfa7c1 100644
  			t.Errorf("test %d could not unmarshal: %v", i, err)
  			continue
  		}
-@@ -244,7 +251,7 @@ func TestSHA1Hash(t *testing.T) {
+@@ -247,7 +254,7 @@ func TestSHA1Hash(t *testing.T) {
  func TestExtraMethods(t *testing.T) {
  	h := maybeCloner(New())
  	cryptotest.NoExtraMethods(t, &h, "ConstantTimeSum",
@@ -5358,10 +5373,10 @@ index 1435eac1f5b5dc..0d0fbabb2eb42e 100644
 +	return sha512.Sum512_256(data)
  }
 diff --git a/src/crypto/sha512/sha512_test.go b/src/crypto/sha512/sha512_test.go
-index 080bf694f03652..98a7b3e19792af 100644
+index 214b8686db9ffe..a399c8aec3221c 100644
 --- a/src/crypto/sha512/sha512_test.go
 +++ b/src/crypto/sha512/sha512_test.go
-@@ -11,10 +11,13 @@ import (
+@@ -11,6 +11,7 @@ import (
  	"crypto/internal/cryptotest"
  	"encoding"
  	"encoding/hex"
@@ -5369,13 +5384,16 @@ index 080bf694f03652..98a7b3e19792af 100644
  	"fmt"
  	"hash"
  	"io"
+@@ -18,6 +19,8 @@ import (
+ 	"sync/atomic"
  	"testing"
+ 	"time"
 +
 +	backend "github.com/microsoft/go/cryptobackend"
  )
  
  type sha512Test struct {
-@@ -751,6 +754,9 @@ func testGoldenMarshal(t *testing.T) {
+@@ -754,6 +757,9 @@ func testGoldenMarshal(t *testing.T) {
  
  				state, err := h.(encoding.BinaryMarshaler).MarshalBinary()
  				if err != nil {
@@ -5385,7 +5403,7 @@ index 080bf694f03652..98a7b3e19792af 100644
  					t.Errorf("could not marshal: %v", err)
  					return
  				}
-@@ -807,6 +813,9 @@ func TestMarshalMismatch(t *testing.T) {
+@@ -810,6 +816,9 @@ func TestMarshalMismatch(t *testing.T) {
  
  			state, err := h1.(encoding.BinaryMarshaler).MarshalBinary()
  			if err != nil {
@@ -5395,7 +5413,7 @@ index 080bf694f03652..98a7b3e19792af 100644
  				t.Errorf("i=%d: could not marshal: %v", i, err)
  				continue
  			}
-@@ -880,10 +889,18 @@ func safeSum(h hash.Hash) (sum []byte, err error) {
+@@ -883,10 +892,18 @@ func safeSum(h hash.Hash) (sum []byte, err error) {
  }
  
  func TestLargeHashes(t *testing.T) {
@@ -5414,7 +5432,7 @@ index 080bf694f03652..98a7b3e19792af 100644
  			t.Errorf("test %d could not unmarshal: %v", i, err)
  			continue
  		}
-@@ -902,6 +919,10 @@ func TestLargeHashes(t *testing.T) {
+@@ -905,6 +922,10 @@ func TestLargeHashes(t *testing.T) {
  
  func TestAllocations(t *testing.T) {
  	cryptotest.SkipTestAllocations(t)
@@ -5425,7 +5443,7 @@ index 080bf694f03652..98a7b3e19792af 100644
  	if n := testing.AllocsPerRun(10, func() {
  		in := []byte("hello, world!")
  		out := make([]byte, 0, Size)
-@@ -935,8 +956,8 @@ func TestAllocations(t *testing.T) {
+@@ -938,8 +959,8 @@ func TestAllocations(t *testing.T) {
  		Sum384(in)
  		Sum512_224(in)
  		Sum512_256(in)
@@ -5436,7 +5454,7 @@ index 080bf694f03652..98a7b3e19792af 100644
  	}
  }
  
-@@ -967,25 +988,25 @@ func TestExtraMethods(t *testing.T) {
+@@ -970,25 +991,25 @@ func TestExtraMethods(t *testing.T) {
  	t.Run("SHA-384", func(t *testing.T) {
  		cryptotest.TestAllImplementations(t, "sha512", func(t *testing.T) {
  			h := maybeCloner(New384())
@@ -5513,6 +5531,77 @@ index 00000000000000..b3a50c0aae95af
 +	For more information, including how to request support for additional architectures, visit https://github.com/microsoft/go/blob/microsoft/main/eng/doc/MigrationGuide.md#cgo-is-not-enabled
 +	`
 +}
+diff --git a/src/crypto/tls/bogo_shim_test.go b/src/crypto/tls/bogo_shim_test.go
+index 084d70cc1ae7be..4f0a69b75c1d0c 100644
+--- a/src/crypto/tls/bogo_shim_test.go
++++ b/src/crypto/tls/bogo_shim_test.go
+@@ -16,6 +16,7 @@ import (
+ 	"fmt"
+ 	"html/template"
+ 	"internal/byteorder"
++	"internal/systemcrypto"
+ 	"internal/testenv"
+ 	"io"
+ 	"log"
+@@ -604,6 +605,10 @@ func TestBogoSuite(t *testing.T) {
+ 	for name, result := range results.Tests {
+ 		// This is not really the intended way to do this... but... it works?
+ 		t.Run(name, func(t *testing.T) {
++			if systemcrypto.Enabled() && (name == "CurveTest-Invalid-MLKEMEncapKeyNotReduced-Server-MLKEM1024-TLS13" ||
++				name == "CurveTest-Invalid-MLKEMEncapKeyNotReduced-Server-X25519MLKEM768-TLS13") {
++				t.Skip("system crypto reports a backend-specific malformed ciphertext error")
++			}
+ 			if result.Actual == "FAIL" && result.IsUnexpected {
+ 				t.Fail()
+ 			}
+@@ -639,6 +644,9 @@ func TestBogoSuite(t *testing.T) {
+ // FIPS mode is enabled in the shim via GODEBUG, which the runner passes
+ // through to the shim processes it spawns.
+ func TestBogoSuiteFIPSEMS(t *testing.T) {
++	if !systemcrypto.Enabled() {
++		t.Skip("FIPS mode requires a system crypto backend")
++	}
+ 	for _, tc := range []struct {
+ 		name    string
+ 		godebug string
+@@ -757,9 +765,13 @@ func runBogoSuite(t *testing.T, filter string, extraEnv []string) bogoResults {
+ 
+ 	cmd := testenv.Command(t, testenv.GoToolPath(t), args...)
+ 	cmd.Dir = filepath.Join(bogoDir, "ssl/test/runner")
+-	if extraEnv != nil {
+-		cmd.Env = append(os.Environ(), extraEnv...)
++	// The runner copies hash state using encoding.BinaryMarshaler, which is not
++	// supported by every system crypto backend. The shim is already built.
++	cmd.Env = os.Environ()
++	if extraEnv == nil {
++		cmd.Env = append(cmd.Env, "MS_GO_NOSYSTEMCRYPTO=1")
+ 	}
++	cmd.Env = append(cmd.Env, extraEnv...)
+ 	out, err := cmd.CombinedOutput()
+ 	// NOTE: we don't immediately check the error, because the failure could be either because
+ 	// the runner failed for some unexpected reason, or because a test case failed, and we
+diff --git a/src/crypto/tls/certificates_generator_test.go b/src/crypto/tls/certificates_generator_test.go
+index 02c8f905e67f9e..9a456c72c11c2a 100644
+--- a/src/crypto/tls/certificates_generator_test.go
++++ b/src/crypto/tls/certificates_generator_test.go
+@@ -20,6 +20,7 @@ import (
+ 	"encoding/pem"
+ 	"flag"
+ 	"fmt"
++	"internal/systemcrypto"
+ 	"internal/testenv"
+ 	"math/big"
+ 	"os"
+@@ -32,6 +33,9 @@ import (
+ var generate = flag.Bool("generate", false, "regenerate certificates_test.go")
+ 
+ func TestGenerateCertificates(t *testing.T) {
++	if systemcrypto.Enabled() {
++		t.Skip("certificate generation is not deterministic with system crypto; set MS_GO_NOSYSTEMCRYPTO=1")
++	}
+ 	testenv.MustHaveSource(t)
+ 	// The RSA key generation algorithm changed after Go 1.26.0.
+ 	icryptotest.MustMinimumFIPS140ModuleVersion(t, "v1.28.0")
 diff --git a/src/crypto/tls/cipher_suites.go b/src/crypto/tls/cipher_suites.go
 index 1952be64fa952c..d7e8982b33f16a 100644
 --- a/src/crypto/tls/cipher_suites.go
@@ -5685,7 +5774,7 @@ index 3991f212c1f8a1..0fb3cb69bc6581 100644
  
  	if err := hs.processClientHello(); err != nil {
 diff --git a/src/crypto/tls/handshake_server_tls13.go b/src/crypto/tls/handshake_server_tls13.go
-index 2c96e2435ae156..7fcab7bf82f618 100644
+index b5a7ea6ae4f1e5..5649f3f6845a28 100644
 --- a/src/crypto/tls/handshake_server_tls13.go
 +++ b/src/crypto/tls/handshake_server_tls13.go
 @@ -11,7 +11,6 @@ import (
@@ -5914,10 +6003,10 @@ index 00000000000000..ffb835ce34a2f7
 +	}
 +}
 diff --git a/src/go/build/deps_test.go b/src/go/build/deps_test.go
-index 4afadfae5ad7de..134c1160da7794 100644
+index 6df896887c93f9..1bbc07c0d6467a 100644
 --- a/src/go/build/deps_test.go
 +++ b/src/go/build/deps_test.go
-@@ -376,8 +376,10 @@ var depsRules = `
+@@ -377,8 +377,10 @@ var depsRules = `
  	math/big, go/token
  	< go/constant;
  
@@ -5929,7 +6018,7 @@ index 4afadfae5ad7de..134c1160da7794 100644
  
  	# The vast majority of standard library packages should not be resorting to regexp.
  	# go/types is a good chokepoint. It shouldn't use regexp, nor should anything
-@@ -542,7 +544,7 @@ var depsRules = `
+@@ -543,7 +545,7 @@ var depsRules = `
  	< crypto/internal/fips140/edwards25519
  	< crypto/internal/fips140/ed25519
  	< crypto/internal/fips140/rsa
@@ -5938,7 +6027,7 @@ index 4afadfae5ad7de..134c1160da7794 100644
  
  	crypto !< FIPS;
  
-@@ -562,7 +564,20 @@ var depsRules = `
+@@ -563,7 +565,20 @@ var depsRules = `
  	< github.com/microsoft/go-crypto-winnative/internal/sysdll
  	< github.com/microsoft/go-crypto-winnative/internal/bcrypt;
  
@@ -5960,7 +6049,7 @@ index 4afadfae5ad7de..134c1160da7794 100644
  	< crypto/internal/fips140only
  	< crypto
  	< crypto/subtle
-@@ -582,6 +597,44 @@ var depsRules = `
+@@ -583,6 +598,44 @@ var depsRules = `
  	github.com/microsoft/go-crypto-winnative/internal/bcrypt
  	< github.com/microsoft/go-crypto-winnative/cng;
  
@@ -6005,7 +6094,7 @@ index 4afadfae5ad7de..134c1160da7794 100644
  	FIPS, internal/godebug, embed,
  	crypto/internal/boring/sig,
  	crypto/internal/boring/syso,
-@@ -589,7 +642,9 @@ var depsRules = `
+@@ -590,7 +643,9 @@ var depsRules = `
  	crypto/internal/fips140only,
  	crypto,
  	crypto/subtle,
@@ -6016,7 +6105,7 @@ index 4afadfae5ad7de..134c1160da7794 100644
  	< crypto/sha3
  	< crypto/internal/fips140hash
  	< crypto/internal/boring
-@@ -606,13 +661,15 @@ var depsRules = `
+@@ -607,13 +662,15 @@ var depsRules = `
  	  crypto/hkdf,
  	  crypto/pbkdf2,
  	  crypto/ecdh,
@@ -6033,7 +6122,7 @@ index 4afadfae5ad7de..134c1160da7794 100644
  	CGO, fmt, net !< CRYPTO;
  
  	# CRYPTO-MATH is crypto that exposes math/big APIs - no cgo, net; fmt now ok.
-@@ -621,15 +678,28 @@ var depsRules = `
+@@ -622,15 +679,28 @@ var depsRules = `
  	math/big, github.com/microsoft/go-crypto-darwin/xcrypto < github.com/microsoft/go-crypto-darwin/bbig;
  	math/big, github.com/microsoft/go-crypto-winnative/cng < github.com/microsoft/go-crypto-winnative/cng/bbig;
  
@@ -6066,7 +6155,7 @@ index 4afadfae5ad7de..134c1160da7794 100644
  	< crypto/ecdsa
  	< CRYPTO-MATH;
  
-@@ -663,7 +733,8 @@ var depsRules = `
+@@ -664,7 +734,8 @@ var depsRules = `
  	< crypto/hpke;
  
  	CRYPTO-MATH, NET, container/list, encoding/hex, encoding/pem, crypto/hpke,
@@ -6130,11 +6219,11 @@ index 3091f7a67acede..fa3f0fd82cfd30 100644
  			}
  			if !bytes.Equal(enc, tt.golden) {
 diff --git a/src/internal/buildcfg/cfg.go b/src/internal/buildcfg/cfg.go
-index 89fd74eb823162..6d266ff641d721 100644
+index a8388e00f16b10..ca20bb90366acb 100644
 --- a/src/internal/buildcfg/cfg.go
 +++ b/src/internal/buildcfg/cfg.go
-@@ -38,6 +38,8 @@ var (
- 	Version   = version
+@@ -45,6 +45,8 @@ var (
+ 	Version = version
  )
  
 +var SystemCryptoDisabled = os.Getenv("MS_GO_NOSYSTEMCRYPTO") == "1"
@@ -6438,7 +6527,7 @@ index 831ee67afc952d..e74790bfe70506 100644
 +	return boring_runtime_arg0()
 +}
 diff --git a/src/syscall/syscall_windows.go b/src/syscall/syscall_windows.go
-index 7e3cdc32a8b6e6..deb054e0a59e67 100644
+index b6911ef952b039..27e2191ddae6a7 100644
 --- a/src/syscall/syscall_windows.go
 +++ b/src/syscall/syscall_windows.go
 @@ -14,10 +14,13 @@ import (

@@ -18,7 +18,6 @@ Microsoft build of Go version string.
  src/cmd/dist/build.go                         |  16 ++
  src/cmd/dist/buildruntime.go                  |   1 +
  src/cmd/go/go_ms_test.go                      | 151 ++++++++++++++++++
- src/cmd/go/internal/cache/hash.go             |   6 +
  src/cmd/go/internal/load/pkg.go               |   2 +
  .../testdata/script/gotoolchain_local_ms.txt  |  46 ++++++
  src/cmd/link/internal/ld/main.go              |  35 +++-
@@ -26,15 +25,15 @@ Microsoft build of Go version string.
  src/internal/godebugs/table.go                |   1 +
  src/runtime/extern.go                         |  25 ++-
  src/runtime/runtime1.go                       |   4 +
- 12 files changed, 324 insertions(+), 8 deletions(-)
+ 11 files changed, 318 insertions(+), 8 deletions(-)
  create mode 100644 src/cmd/go/go_ms_test.go
  create mode 100644 src/cmd/go/testdata/script/gotoolchain_local_ms.txt
 
 diff --git a/doc/godebug.md b/doc/godebug.md
-index 477856b077114c..8ff960918ba731 100644
+index e5c0a2ded8e5b9..fa140568f22bcb 100644
 --- a/doc/godebug.md
 +++ b/doc/godebug.md
-@@ -256,6 +256,15 @@ Microsoft build of Go 1.26 added a new `ms_tlsprofile` setting that controls the
+@@ -258,6 +258,15 @@ Microsoft build of Go 1.26 added a new `ms_tlsprofile` setting that controls the
  - "default": use the recommended Microsoft TLS settings. This is the default.
  - "off": use the default upstream Go TLS settings.
  
@@ -51,10 +50,10 @@ index 477856b077114c..8ff960918ba731 100644
  
  Go 1.25 added a new `decoratemappings` setting that controls whether the Go
 diff --git a/src/cmd/dist/build.go b/src/cmd/dist/build.go
-index d209f73b9e29ed..8f9cadb4bf43fa 100644
+index a91bb74a4467e0..b3ae7fb5dc7693 100644
 --- a/src/cmd/dist/build.go
 +++ b/src/cmd/dist/build.go
-@@ -455,6 +455,22 @@ func findgoversion() string {
+@@ -454,6 +454,22 @@ func findgoversion() string {
  	return version
  }
  
@@ -75,8 +74,8 @@ index d209f73b9e29ed..8f9cadb4bf43fa 100644
 +}
 +
  // goModVersion returns the go version declared in src/go.mod. This is the
- // go version to use in the go.mod building go_bootstrap, toolchain2, and toolchain3.
- // (toolchain1 must be built with requiredBootstrapVersion(goModVersion))
+ // go version to use in the go.mod building toolchain2 and toolchain3.
+ // (toolchain1 and go_bootstrap must be built with requiredBootstrapVersion(goModVersion))
 diff --git a/src/cmd/dist/buildruntime.go b/src/cmd/dist/buildruntime.go
 index 87e88671763996..dccdca982300d7 100644
 --- a/src/cmd/dist/buildruntime.go
@@ -246,23 +245,6 @@ index 00000000000000..635c40dec22dd8
 +	}
 +	return bi.GoVersion, "", false
 +}
-diff --git a/src/cmd/go/internal/cache/hash.go b/src/cmd/go/internal/cache/hash.go
-index 27d275644a4bd0..3c40024b4b7ab7 100644
---- a/src/cmd/go/internal/cache/hash.go
-+++ b/src/cmd/go/internal/cache/hash.go
-@@ -49,6 +49,12 @@ var hashSalt = []byte(stripExperiment(runtime.Version()))
- // version string.
- func stripExperiment(version string) string {
- 	if i := strings.Index(version, " X:"); i >= 0 {
-+		// Check that version doesn't also have a "-X:" suffix. This will only
-+		// happen if there is a coding mistake, and it's better to catch it here
-+		// than experience a stale cache later due to mismatch.
-+		if strings.Contains(version, "-X:") {
-+			panic(fmt.Sprintf("stripExperiment found both ' X:' and '-X:' suffixes in version %q", version))
-+		}
- 		return version[:i]
- 	}
- 	if i := strings.Index(version, "-X:"); i >= 0 {
 diff --git a/src/cmd/go/internal/load/pkg.go b/src/cmd/go/internal/load/pkg.go
 index b3fab4bd0f358f..1b48c4b8fa557b 100644
 --- a/src/cmd/go/internal/load/pkg.go
@@ -396,15 +378,15 @@ index 19ed197a20b57e..92672cc5bb60dc 100644
  		// dump symbol info on crash
  		defer func() { ctxt.loader.Dump() }()
 diff --git a/src/internal/buildcfg/cfg.go b/src/internal/buildcfg/cfg.go
-index 6d266ff641d721..d1ed759065e278 100644
+index ca20bb90366acb..72c05429449476 100644
 --- a/src/internal/buildcfg/cfg.go
 +++ b/src/internal/buildcfg/cfg.go
-@@ -35,11 +35,45 @@ var (
- 	ToolTags  = toolTags()
- 	GO_LDSO   = defaultGO_LDSO
- 	GOFIPS140 = gofips140()
--	Version   = version
-+	Version   = MSVersion
+@@ -42,11 +42,45 @@ var (
+ 	//
+ 	// Note that this string doesn't include "X:<GOEXPERIMENT>" when any
+ 	// non-default GOEXPERIMENT values are set while [runtime.Version] does.
+-	Version = version
++	Version = MSVersion
  )
  
  var SystemCryptoDisabled = os.Getenv("MS_GO_NOSYSTEMCRYPTO") == "1"
