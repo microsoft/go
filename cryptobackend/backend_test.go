@@ -104,7 +104,7 @@ func skipRootImportCheck(rel string) bool {
 	}
 	parts := strings.Split(filepath.ToSlash(rel), "/")
 	switch parts[0] {
-	case "bbig", "fips140", "hash", "internal":
+	case "bbig", "fips140", "internal":
 		return true
 	}
 	return false

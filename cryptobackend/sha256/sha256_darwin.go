@@ -7,14 +7,17 @@
 package sha256
 
 import (
-	"hash"
+	"crypto"
 
 	"github.com/microsoft/go-crypto-darwin/xcrypto"
 )
 
+type backendHash = xcrypto.Hash
+
+func Supports256() bool { return xcrypto.SupportsHash(crypto.SHA256) }
 func Supports224() bool { return false }
 
-func New() hash.Hash              { return xcrypto.NewSHA256() }
-func New224() hash.Hash           { panic("cryptobackend: not available") }
-func Sum256(data []byte) [32]byte { return xcrypto.SHA256(data) }
-func Sum224(data []byte) [28]byte { panic("cryptobackend: not available") }
+func newBackendHash256() *backendHash { return xcrypto.NewSHA256() }
+func newBackendHash224() *backendHash { panic("cryptobackend: not available") }
+func sum256(data []byte) [32]byte     { return xcrypto.SHA256(data) }
+func sum224(data []byte) [28]byte     { panic("cryptobackend: not available") }

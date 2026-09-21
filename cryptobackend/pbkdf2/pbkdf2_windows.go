@@ -12,7 +12,11 @@ import (
 	"github.com/microsoft/go-crypto-winnative/cng"
 )
 
-func Supports() bool { return true }
+func Supports(h hash.Hash) bool {
+	_, ok := h.(*cng.Hash)
+	return ok
+}
+
 func Key[H hash.Hash](h func() H, password string, salt []byte, iter, keyLength int) ([]byte, error) {
 	return cng.PBKDF2([]byte(password), salt, iter, keyLength, h)
 }
