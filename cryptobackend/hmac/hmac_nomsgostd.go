@@ -2,6 +2,12 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
+//go:build !msgostd && !cmd_go_bootstrap
+
 package hmac
 
-import _ "github.com/microsoft/go/cryptobackend"
+import "hash"
+
+func initFallback[H hash.Hash](h func() H, key []byte) hash.Hash {
+	panic("cryptobackend: not available")
+}

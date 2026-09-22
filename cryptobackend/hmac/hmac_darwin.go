@@ -12,6 +12,6 @@ import (
 	"github.com/microsoft/go-crypto-darwin/xcrypto"
 )
 
-func New[H hash.Hash](h func() H, key []byte) hash.Hash {
+func newBackendHMAC[H hash.Hash](h func() H, key []byte) hash.Hash {
 	return xcrypto.NewHMAC(h, key)
 }

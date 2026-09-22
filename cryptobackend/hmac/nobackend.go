@@ -8,4 +8,6 @@ package hmac
 
 import "hash"
 
-func New[H hash.Hash](h func() H, key []byte) hash.Hash { panic("cryptobackend: not available") }
+func newBackendHMAC[H hash.Hash](h func() H, key []byte) hash.Hash {
+	panic("cryptobackend: not available")
+}

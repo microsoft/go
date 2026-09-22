@@ -67,7 +67,7 @@ Subject: [PATCH] Add crypto backends
  src/crypto/fips140/fips140.go                 |   3 +-
  src/crypto/hkdf/hkdf.go                       |  12 +
  src/crypto/hkdf/hkdf_test.go                  |   2 +-
- src/crypto/hmac/hmac.go                       |  18 +-
+ src/crypto/hmac/hmac.go                       |   3 +-
  src/crypto/hmac/hmac_test.go                  |   2 +-
  src/crypto/hpke/aead.go                       |  16 +-
  src/crypto/internal/cryptotest/allocations.go |   6 -
@@ -143,7 +143,7 @@ Subject: [PATCH] Add crypto backends
  src/os/exec/exec_test.go                      |   9 +
  src/runtime/runtime_boring.go                 |   5 +
  src/syscall/syscall_windows.go                |   3 +
- 139 files changed, 2466 insertions(+), 395 deletions(-)
+ 139 files changed, 2458 insertions(+), 388 deletions(-)
  create mode 100644 src/cmd/go/systemcrypto_test.go
  create mode 100644 src/crypto/dsa/boring.go
  create mode 100644 src/crypto/dsa/notboring.go
@@ -2793,53 +2793,23 @@ index 57d90f88e93e75..da5a26c770800b 100644
  	"testing"
  )
 diff --git a/src/crypto/hmac/hmac.go b/src/crypto/hmac/hmac.go
-index e7976e25193dfe..1fae4def184e14 100644
+index e7976e25193dfe..3cfaac9b600bfa 100644
 --- a/src/crypto/hmac/hmac.go
 +++ b/src/crypto/hmac/hmac.go
-@@ -22,12 +22,14 @@ timing side-channels:
- package hmac
+@@ -23,11 +23,12 @@ package hmac
  
  import (
--	"crypto/internal/boring"
- 	"crypto/internal/fips140/hmac"
+ 	"crypto/internal/boring"
+-	"crypto/internal/fips140/hmac"
  	"crypto/internal/fips140hash"
  	"crypto/internal/fips140only"
  	"crypto/subtle"
  	"hash"
 +
-+	boring "github.com/microsoft/go/cryptobackend"
-+	bhmac "github.com/microsoft/go/cryptobackend/hmac"
++	"github.com/microsoft/go/cryptobackend/hmac"
  )
  
  // New returns a new HMAC hash using the given [hash.Hash] type and key.
-@@ -37,13 +39,6 @@ import (
- // the returned Hash does not implement [encoding.BinaryMarshaler]
- // or [encoding.BinaryUnmarshaler].
- func New(h func() hash.Hash, key []byte) hash.Hash {
--	if boring.Enabled {
--		hm := boring.NewHMAC(h, key)
--		if hm != nil {
--			return hm
--		}
--		// BoringCrypto did not recognize h, so fall through to standard Go code.
--	}
- 	h = fips140hash.UnwrapNew(h)
- 	if fips140only.Enforced() {
- 		if len(key) < 112/8 {
-@@ -53,6 +48,13 @@ func New(h func() hash.Hash, key []byte) hash.Hash {
- 			panic("crypto/hmac: use of hash functions other than SHA-2 or SHA-3 is not allowed in FIPS 140-only mode")
- 		}
- 	}
-+	if boring.Enabled {
-+		hm := bhmac.New(h, key)
-+		if hm != nil {
-+			return hm
-+		}
-+		// BoringCrypto did not recognize h, so fall through to standard Go code.
-+	}
- 	return hmac.New(h, key)
- }
- 
 diff --git a/src/crypto/hmac/hmac_test.go b/src/crypto/hmac/hmac_test.go
 index b324d1f02cda7d..f0b829d0ccabd6 100644
 --- a/src/crypto/hmac/hmac_test.go
