@@ -18,6 +18,6 @@ func Supports(h hash.Hash) bool {
 	return ok && h.Size() != 16 && (h.BlockSize() == 64 || h.BlockSize() == 128)
 }
 
-func Key[H hash.Hash](h func() H, password string, salt []byte, iter, keyLength int) ([]byte, error) {
+func key[H hash.Hash](h func() H, password string, salt []byte, iter, keyLength int) ([]byte, error) {
 	return xcrypto.PBKDF2([]byte(password), salt, iter, keyLength, h)
 }

@@ -9,9 +9,9 @@ package hkdf
 import "hash"
 
 func Supports(h hash.Hash) bool { panic("cryptobackend: not available") }
-func Extract[H hash.Hash](h func() H, secret, salt []byte) ([]byte, error) {
+func extract[H hash.Hash](h func() H, secret, salt []byte) ([]byte, error) {
 	panic("cryptobackend: not available")
 }
-func Expand[H hash.Hash](h func() H, pseudorandomKey []byte, info string, keyLen int) ([]byte, error) {
+func expand[H hash.Hash](h func() H, pseudorandomKey []byte, info string, keyLen int) ([]byte, error) {
 	panic("cryptobackend: not available")
 }

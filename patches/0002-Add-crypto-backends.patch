@@ -65,7 +65,7 @@ Subject: [PATCH] Add crypto backends
  src/crypto/ed25519/notboring.go               |  16 +
  src/crypto/fips140/enforcement_test.go        |   4 +
  src/crypto/fips140/fips140.go                 |   3 +-
- src/crypto/hkdf/hkdf.go                       |  12 +
+ src/crypto/hkdf/hkdf.go                       |   9 +-
  src/crypto/hkdf/hkdf_test.go                  |   2 +-
  src/crypto/hmac/hmac.go                       |   3 +-
  src/crypto/hmac/hmac_test.go                  |   2 +-
@@ -87,7 +87,7 @@ Subject: [PATCH] Add crypto backends
  src/crypto/mldsa/mldsa_test.go                |  67 +++-
  src/crypto/mlkem/mlkem.go                     | 121 ++++++-
  src/crypto/mlkem/mlkem_test.go                |   8 +
- src/crypto/pbkdf2/pbkdf2.go                   |   9 +
+ src/crypto/pbkdf2/pbkdf2.go                   |   3 +-
  src/crypto/pbkdf2/pbkdf2_test.go              |   6 +-
  src/crypto/purego_test.go                     |   2 +-
  src/crypto/rand/rand.go                       |   6 +-
@@ -143,7 +143,7 @@ Subject: [PATCH] Add crypto backends
  src/os/exec/exec_test.go                      |   9 +
  src/runtime/runtime_boring.go                 |   5 +
  src/syscall/syscall_windows.go                |   3 +
- 139 files changed, 2458 insertions(+), 388 deletions(-)
+ 139 files changed, 2444 insertions(+), 393 deletions(-)
  create mode 100644 src/cmd/go/systemcrypto_test.go
  create mode 100644 src/crypto/dsa/boring.go
  create mode 100644 src/crypto/dsa/notboring.go
@@ -2731,49 +2731,50 @@ index d3f63d3bf18fcb..bc6d8b62ae2103 100644
  
  // Version returns the FIPS 140-3 Go Cryptographic Module version (such as
 diff --git a/src/crypto/hkdf/hkdf.go b/src/crypto/hkdf/hkdf.go
-index 88439922a5032e..973cc813207d56 100644
+index 88439922a5032e..6de1ec18be98ad 100644
 --- a/src/crypto/hkdf/hkdf.go
 +++ b/src/crypto/hkdf/hkdf.go
-@@ -16,6 +16,9 @@ import (
+@@ -11,11 +11,12 @@
+ package hkdf
+ 
+ import (
+-	"crypto/internal/fips140/hkdf"
+ 	"crypto/internal/fips140hash"
  	"crypto/internal/fips140only"
  	"errors"
  	"hash"
 +
-+	boring "github.com/microsoft/go/cryptobackend"
-+	bhkdf "github.com/microsoft/go/cryptobackend/hkdf"
++	"github.com/microsoft/go/cryptobackend/hkdf"
  )
  
  // Extract generates a pseudorandom key for use with [Expand] from an input
-@@ -29,6 +32,9 @@ func Extract[H hash.Hash](h func() H, secret, salt []byte) ([]byte, error) {
+@@ -29,7 +30,7 @@ func Extract[H hash.Hash](h func() H, secret, salt []byte) ([]byte, error) {
  	if err := checkFIPS140Only(fh, secret); err != nil {
  		return nil, err
  	}
-+	if boring.Enabled && bhkdf.Supports(fh()) {
-+		return bhkdf.Extract(fh, secret, salt)
-+	}
- 	return hkdf.Extract(fh, secret, salt), nil
+-	return hkdf.Extract(fh, secret, salt), nil
++	return hkdf.Extract(fh, secret, salt)
  }
  
-@@ -50,6 +56,9 @@ func Expand[H hash.Hash](h func() H, pseudorandomKey []byte, info string, keyLen
+ // Expand derives a key from the given hash, key, and optional context info,
+@@ -50,7 +51,7 @@ func Expand[H hash.Hash](h func() H, pseudorandomKey []byte, info string, keyLen
  		return nil, errors.New("hkdf: requested key length too large")
  	}
  
-+	if boring.Enabled && bhkdf.Supports(fh()) {
-+		return bhkdf.Expand(fh, pseudorandomKey, info, keyLength)
-+	}
- 	return hkdf.Expand(fh, pseudorandomKey, info, keyLength), nil
+-	return hkdf.Expand(fh, pseudorandomKey, info, keyLength), nil
++	return hkdf.Expand(fh, pseudorandomKey, info, keyLength)
  }
  
-@@ -67,6 +76,9 @@ func Key[Hash hash.Hash](h func() Hash, secret, salt []byte, info string, keyLen
+ // Key derives a key from the given hash, secret, salt and context info,
+@@ -67,7 +68,7 @@ func Key[Hash hash.Hash](h func() Hash, secret, salt []byte, info string, keyLen
  		return nil, errors.New("hkdf: requested key length too large")
  	}
  
-+	if boring.Enabled && bhkdf.Supports(fh()) {
-+		return bhkdf.Key(fh, secret, salt, info, keyLength)
-+	}
- 	return hkdf.Key(fh, secret, salt, info, keyLength), nil
+-	return hkdf.Key(fh, secret, salt, info, keyLength), nil
++	return hkdf.Key(fh, secret, salt, info, keyLength)
  }
  
+ func checkFIPS140Only[Hash hash.Hash](h func() Hash, key []byte) error {
 diff --git a/src/crypto/hkdf/hkdf_test.go b/src/crypto/hkdf/hkdf_test.go
 index 57d90f88e93e75..da5a26c770800b 100644
 --- a/src/crypto/hkdf/hkdf_test.go
@@ -3991,31 +3992,23 @@ index e1c2ef49f15ce0..4635cc347880ec 100644
  	rand.Read(seed)
  	dk, err := NewDecapsulationKey768(seed)
 diff --git a/src/crypto/pbkdf2/pbkdf2.go b/src/crypto/pbkdf2/pbkdf2.go
-index 0bc14be888d9d6..bde65657424e09 100644
+index 0bc14be888d9d6..fc363e7053da9b 100644
 --- a/src/crypto/pbkdf2/pbkdf2.go
 +++ b/src/crypto/pbkdf2/pbkdf2.go
-@@ -16,6 +16,9 @@ import (
+@@ -11,11 +11,12 @@
+ package pbkdf2
+ 
+ import (
+-	"crypto/internal/fips140/pbkdf2"
+ 	"crypto/internal/fips140hash"
  	"crypto/internal/fips140only"
  	"errors"
  	"hash"
 +
-+	boring "github.com/microsoft/go/cryptobackend"
-+	bpbkdf2 "github.com/microsoft/go/cryptobackend/pbkdf2"
++	"github.com/microsoft/go/cryptobackend/pbkdf2"
  )
  
  // Key derives a key from the password, salt and iteration count, returning a
-@@ -50,5 +53,11 @@ func Key[Hash hash.Hash](h func() Hash, password string, salt []byte, iter, keyL
- 			return nil, errors.New("crypto/pbkdf2: use of hash functions other than SHA-2 or SHA-3 is not allowed in FIPS 140-only mode")
- 		}
- 	}
-+	if boring.Enabled && bpbkdf2.Supports(fh()) {
-+		if keyLength <= 0 {
-+			return nil, errors.New("pkbdf2: keyLength must be larger than 0")
-+		}
-+		return bpbkdf2.Key(fh, password, salt, iter, keyLength)
-+	}
- 	return pbkdf2.Key(fh, password, salt, iter, keyLength)
- }
 diff --git a/src/crypto/pbkdf2/pbkdf2_test.go b/src/crypto/pbkdf2/pbkdf2_test.go
 index eb0ed14e243c6b..c0cdca547261c0 100644
 --- a/src/crypto/pbkdf2/pbkdf2_test.go
