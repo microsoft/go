@@ -428,9 +428,11 @@ Use a 'go' that was recently built by the current branch to ensure stable result
  .../cryptobackend/sha512/zsha512_msgostd.go   |   35 +
  .../cryptobackend/sha512/zsha512_nomsgostd.go |   41 +
  .../microsoft/go/cryptobackend/stub.s         |   10 +
- .../microsoft/go/cryptobackend/tls12/init.go  |    7 +
  .../go/cryptobackend/tls12/nobackend.go       |   14 +
+ .../microsoft/go/cryptobackend/tls12/tls12.go |   23 +
  .../go/cryptobackend/tls12/tls12_darwin.go    |   14 +
+ .../go/cryptobackend/tls12/tls12_msgostd.go   |   16 +
+ .../go/cryptobackend/tls12/tls12_nomsgostd.go |   13 +
  .../go/cryptobackend/tls12/tls12_openssl.go   |   18 +
  .../go/cryptobackend/tls12/tls12_windows.go   |   18 +
  .../go/cryptobackend/tls13/hash_msgostd.go    |   16 +
@@ -442,7 +444,7 @@ Use a 'go' that was recently built by the current branch to ensure stable result
  .../go/cryptobackend/tls13/tls13_openssl.go   |   18 +
  .../go/cryptobackend/tls13/tls13_windows.go   |   14 +
  src/vendor/modules.txt                        |   54 +
- 434 files changed, 40957 insertions(+), 7 deletions(-)
+ 436 files changed, 41002 insertions(+), 7 deletions(-)
  create mode 100644 src/cmd/internal/telemetry/counter/deps_ignore.go
  create mode 100644 src/cmd/vendor/github.com/microsoft/go-infra/telemetry/LICENSE
  create mode 100644 src/cmd/vendor/github.com/microsoft/go-infra/telemetry/README.md
@@ -856,9 +858,11 @@ Use a 'go' that was recently built by the current branch to ensure stable result
  create mode 100644 src/vendor/github.com/microsoft/go/cryptobackend/sha512/zsha512_msgostd.go
  create mode 100644 src/vendor/github.com/microsoft/go/cryptobackend/sha512/zsha512_nomsgostd.go
  create mode 100644 src/vendor/github.com/microsoft/go/cryptobackend/stub.s
- create mode 100644 src/vendor/github.com/microsoft/go/cryptobackend/tls12/init.go
  create mode 100644 src/vendor/github.com/microsoft/go/cryptobackend/tls12/nobackend.go
+ create mode 100644 src/vendor/github.com/microsoft/go/cryptobackend/tls12/tls12.go
  create mode 100644 src/vendor/github.com/microsoft/go/cryptobackend/tls12/tls12_darwin.go
+ create mode 100644 src/vendor/github.com/microsoft/go/cryptobackend/tls12/tls12_msgostd.go
+ create mode 100644 src/vendor/github.com/microsoft/go/cryptobackend/tls12/tls12_nomsgostd.go
  create mode 100644 src/vendor/github.com/microsoft/go/cryptobackend/tls12/tls12_openssl.go
  create mode 100644 src/vendor/github.com/microsoft/go/cryptobackend/tls12/tls12_windows.go
  create mode 100644 src/vendor/github.com/microsoft/go/cryptobackend/tls13/hash_msgostd.go
@@ -46296,22 +46300,9 @@ index 00000000000000..5e4b436554d44d
 +// Having this assembly file keeps the go command
 +// from complaining about the missing body
 +// (because the implementation might be here).
-diff --git a/src/vendor/github.com/microsoft/go/cryptobackend/tls12/init.go b/src/vendor/github.com/microsoft/go/cryptobackend/tls12/init.go
-new file mode 100644
-index 00000000000000..11f4c37aaccefb
---- /dev/null
-+++ b/src/vendor/github.com/microsoft/go/cryptobackend/tls12/init.go
-@@ -0,0 +1,7 @@
-+// Copyright 2026 The Go Authors. All rights reserved.
-+// Use of this source code is governed by a BSD-style
-+// license that can be found in the LICENSE file.
-+
-+package tls12
-+
-+import _ "github.com/microsoft/go/cryptobackend"
 diff --git a/src/vendor/github.com/microsoft/go/cryptobackend/tls12/nobackend.go b/src/vendor/github.com/microsoft/go/cryptobackend/tls12/nobackend.go
 new file mode 100644
-index 00000000000000..cb967817da26b7
+index 00000000000000..3a7a8e392453f3
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go/cryptobackend/tls12/nobackend.go
 @@ -0,0 +1,14 @@
@@ -46326,12 +46317,41 @@ index 00000000000000..cb967817da26b7
 +import "hash"
 +
 +func SupportsPRF() bool { panic("cryptobackend: not available") }
-+func PRF(result, secret []byte, label string, seed []byte, h func() hash.Hash) error {
++func prf[H hash.Hash](result, secret []byte, label string, seed []byte, h func() H) error {
 +	panic("cryptobackend: not available")
++}
+diff --git a/src/vendor/github.com/microsoft/go/cryptobackend/tls12/tls12.go b/src/vendor/github.com/microsoft/go/cryptobackend/tls12/tls12.go
+new file mode 100644
+index 00000000000000..535d07382c5687
+--- /dev/null
++++ b/src/vendor/github.com/microsoft/go/cryptobackend/tls12/tls12.go
+@@ -0,0 +1,23 @@
++// Copyright 2026 The Go Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style
++// license that can be found in the LICENSE file.
++
++package tls12
++
++import (
++	"hash"
++
++	"github.com/microsoft/go/cryptobackend"
++)
++
++// PRF implements the TLS 1.2 pseudo-random function as defined in RFC 5246, Section 5.
++func PRF[H hash.Hash](h func() H, secret []byte, label string, seed []byte, keyLen int) ([]byte, error) {
++	if backend.Enabled && SupportsPRF() {
++		result := make([]byte, keyLen)
++		if err := prf(result, secret, label, seed, h); err != nil {
++			return nil, err
++		}
++		return result, nil
++	}
++	return prfFallback(h, secret, label, seed, keyLen)
 +}
 diff --git a/src/vendor/github.com/microsoft/go/cryptobackend/tls12/tls12_darwin.go b/src/vendor/github.com/microsoft/go/cryptobackend/tls12/tls12_darwin.go
 new file mode 100644
-index 00000000000000..78014828c62b5e
+index 00000000000000..bc1b0c52226af6
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go/cryptobackend/tls12/tls12_darwin.go
 @@ -0,0 +1,14 @@
@@ -46346,12 +46366,53 @@ index 00000000000000..78014828c62b5e
 +import "hash"
 +
 +func SupportsPRF() bool { return false }
-+func PRF(result, secret []byte, label string, seed []byte, h func() hash.Hash) error {
++func prf[H hash.Hash](result, secret []byte, label string, seed []byte, h func() H) error {
++	panic("cryptobackend: not available")
++}
+diff --git a/src/vendor/github.com/microsoft/go/cryptobackend/tls12/tls12_msgostd.go b/src/vendor/github.com/microsoft/go/cryptobackend/tls12/tls12_msgostd.go
+new file mode 100644
+index 00000000000000..69b74a5d119761
+--- /dev/null
++++ b/src/vendor/github.com/microsoft/go/cryptobackend/tls12/tls12_msgostd.go
+@@ -0,0 +1,16 @@
++// Copyright 2026 The Go Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style
++// license that can be found in the LICENSE file.
++
++//go:build msgostd || cmd_go_bootstrap
++
++package tls12
++
++import (
++	fallback "crypto/internal/fips140/tls12"
++	"hash"
++)
++
++func prfFallback[H hash.Hash](h func() H, secret []byte, label string, seed []byte, keyLen int) ([]byte, error) {
++	return fallback.PRF(h, secret, label, seed, keyLen), nil
++}
+diff --git a/src/vendor/github.com/microsoft/go/cryptobackend/tls12/tls12_nomsgostd.go b/src/vendor/github.com/microsoft/go/cryptobackend/tls12/tls12_nomsgostd.go
+new file mode 100644
+index 00000000000000..6077eb43deec54
+--- /dev/null
++++ b/src/vendor/github.com/microsoft/go/cryptobackend/tls12/tls12_nomsgostd.go
+@@ -0,0 +1,13 @@
++// Copyright 2026 The Go Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style
++// license that can be found in the LICENSE file.
++
++//go:build !msgostd && !cmd_go_bootstrap
++
++package tls12
++
++import "hash"
++
++func prfFallback[H hash.Hash](h func() H, secret []byte, label string, seed []byte, keyLen int) ([]byte, error) {
 +	panic("cryptobackend: not available")
 +}
 diff --git a/src/vendor/github.com/microsoft/go/cryptobackend/tls12/tls12_openssl.go b/src/vendor/github.com/microsoft/go/cryptobackend/tls12/tls12_openssl.go
 new file mode 100644
-index 00000000000000..a1c4e380e3909b
+index 00000000000000..d7cd2683580172
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go/cryptobackend/tls12/tls12_openssl.go
 @@ -0,0 +1,18 @@
@@ -46370,12 +46431,12 @@ index 00000000000000..a1c4e380e3909b
 +)
 +
 +func SupportsPRF() bool { return openssl.SupportsTLS1PRF() }
-+func PRF(result, secret []byte, label string, seed []byte, h func() hash.Hash) error {
++func prf[H hash.Hash](result, secret []byte, label string, seed []byte, h func() H) error {
 +	return openssl.TLS1PRF(result, secret, []byte(label), seed, h)
 +}
 diff --git a/src/vendor/github.com/microsoft/go/cryptobackend/tls12/tls12_windows.go b/src/vendor/github.com/microsoft/go/cryptobackend/tls12/tls12_windows.go
 new file mode 100644
-index 00000000000000..9e50ac1bb7864f
+index 00000000000000..f970f0b4789303
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go/cryptobackend/tls12/tls12_windows.go
 @@ -0,0 +1,18 @@
@@ -46394,7 +46455,7 @@ index 00000000000000..9e50ac1bb7864f
 +)
 +
 +func SupportsPRF() bool { return true }
-+func PRF(result, secret []byte, label string, seed []byte, h func() hash.Hash) error {
++func prf[H hash.Hash](result, secret []byte, label string, seed []byte, h func() H) error {
 +	return cng.TLS1PRF(result, secret, []byte(label), seed, h)
 +}
 diff --git a/src/vendor/github.com/microsoft/go/cryptobackend/tls13/hash_msgostd.go b/src/vendor/github.com/microsoft/go/cryptobackend/tls13/hash_msgostd.go
