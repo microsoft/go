@@ -331,11 +331,12 @@ Use a 'go' that was recently built by the current branch to ensure stable result
  .../go/cryptobackend/ed25519/init.go          |    7 +
  .../go/cryptobackend/ed25519/nobackend.go     |   21 +
  .../go/cryptobackend/fips140/fips140.go       |   15 +
- .../microsoft/go/cryptobackend/hkdf/hkdf.go   |   15 +
+ .../microsoft/go/cryptobackend/hkdf/hkdf.go   |   39 +
  .../go/cryptobackend/hkdf/hkdf_darwin.go      |   26 +
+ .../go/cryptobackend/hkdf/hkdf_msgostd.go     |   24 +
+ .../go/cryptobackend/hkdf/hkdf_nomsgostd.go   |   21 +
  .../go/cryptobackend/hkdf/hkdf_openssl.go     |   25 +
  .../go/cryptobackend/hkdf/hkdf_windows.go     |   25 +
- .../microsoft/go/cryptobackend/hkdf/init.go   |    7 +
  .../go/cryptobackend/hkdf/nobackend.go        |   17 +
  .../microsoft/go/cryptobackend/hmac/hmac.go   |   22 +
  .../go/cryptobackend/hmac/hmac_darwin.go      |   17 +
@@ -374,9 +375,11 @@ Use a 'go' that was recently built by the current branch to ensure stable result
  .../go/cryptobackend/mlkem/mlkem_windows.go   |   31 +
  .../go/cryptobackend/mlkem/nobackend.go       |   51 +
  .../microsoft/go/cryptobackend/nobackend.go   |   15 +
- .../microsoft/go/cryptobackend/pbkdf2/init.go |    7 +
  .../go/cryptobackend/pbkdf2/nobackend.go      |   14 +
+ .../go/cryptobackend/pbkdf2/pbkdf2.go         |   23 +
  .../go/cryptobackend/pbkdf2/pbkdf2_darwin.go  |   23 +
+ .../go/cryptobackend/pbkdf2/pbkdf2_msgostd.go |   16 +
+ .../cryptobackend/pbkdf2/pbkdf2_nomsgostd.go  |   13 +
  .../go/cryptobackend/pbkdf2/pbkdf2_openssl.go |   22 +
  .../go/cryptobackend/pbkdf2/pbkdf2_windows.go |   22 +
  .../microsoft/go/cryptobackend/rc4/init.go    |    7 +
@@ -439,7 +442,7 @@ Use a 'go' that was recently built by the current branch to ensure stable result
  .../go/cryptobackend/tls13/tls13_openssl.go   |   18 +
  .../go/cryptobackend/tls13/tls13_windows.go   |   14 +
  src/vendor/modules.txt                        |   54 +
- 431 files changed, 40850 insertions(+), 7 deletions(-)
+ 434 files changed, 40957 insertions(+), 7 deletions(-)
  create mode 100644 src/cmd/internal/telemetry/counter/deps_ignore.go
  create mode 100644 src/cmd/vendor/github.com/microsoft/go-infra/telemetry/LICENSE
  create mode 100644 src/cmd/vendor/github.com/microsoft/go-infra/telemetry/README.md
@@ -758,9 +761,10 @@ Use a 'go' that was recently built by the current branch to ensure stable result
  create mode 100644 src/vendor/github.com/microsoft/go/cryptobackend/fips140/fips140.go
  create mode 100644 src/vendor/github.com/microsoft/go/cryptobackend/hkdf/hkdf.go
  create mode 100644 src/vendor/github.com/microsoft/go/cryptobackend/hkdf/hkdf_darwin.go
+ create mode 100644 src/vendor/github.com/microsoft/go/cryptobackend/hkdf/hkdf_msgostd.go
+ create mode 100644 src/vendor/github.com/microsoft/go/cryptobackend/hkdf/hkdf_nomsgostd.go
  create mode 100644 src/vendor/github.com/microsoft/go/cryptobackend/hkdf/hkdf_openssl.go
  create mode 100644 src/vendor/github.com/microsoft/go/cryptobackend/hkdf/hkdf_windows.go
- create mode 100644 src/vendor/github.com/microsoft/go/cryptobackend/hkdf/init.go
  create mode 100644 src/vendor/github.com/microsoft/go/cryptobackend/hkdf/nobackend.go
  create mode 100644 src/vendor/github.com/microsoft/go/cryptobackend/hmac/hmac.go
  create mode 100644 src/vendor/github.com/microsoft/go/cryptobackend/hmac/hmac_darwin.go
@@ -799,9 +803,11 @@ Use a 'go' that was recently built by the current branch to ensure stable result
  create mode 100644 src/vendor/github.com/microsoft/go/cryptobackend/mlkem/mlkem_windows.go
  create mode 100644 src/vendor/github.com/microsoft/go/cryptobackend/mlkem/nobackend.go
  create mode 100644 src/vendor/github.com/microsoft/go/cryptobackend/nobackend.go
- create mode 100644 src/vendor/github.com/microsoft/go/cryptobackend/pbkdf2/init.go
  create mode 100644 src/vendor/github.com/microsoft/go/cryptobackend/pbkdf2/nobackend.go
+ create mode 100644 src/vendor/github.com/microsoft/go/cryptobackend/pbkdf2/pbkdf2.go
  create mode 100644 src/vendor/github.com/microsoft/go/cryptobackend/pbkdf2/pbkdf2_darwin.go
+ create mode 100644 src/vendor/github.com/microsoft/go/cryptobackend/pbkdf2/pbkdf2_msgostd.go
+ create mode 100644 src/vendor/github.com/microsoft/go/cryptobackend/pbkdf2/pbkdf2_nomsgostd.go
  create mode 100644 src/vendor/github.com/microsoft/go/cryptobackend/pbkdf2/pbkdf2_openssl.go
  create mode 100644 src/vendor/github.com/microsoft/go/cryptobackend/pbkdf2/pbkdf2_windows.go
  create mode 100644 src/vendor/github.com/microsoft/go/cryptobackend/rc4/init.go
@@ -42605,28 +42611,52 @@ index 00000000000000..2b98ef4138312e
 +}
 diff --git a/src/vendor/github.com/microsoft/go/cryptobackend/hkdf/hkdf.go b/src/vendor/github.com/microsoft/go/cryptobackend/hkdf/hkdf.go
 new file mode 100644
-index 00000000000000..8d9c6cc9fbd514
+index 00000000000000..5de49b17e75d6b
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go/cryptobackend/hkdf/hkdf.go
-@@ -0,0 +1,15 @@
+@@ -0,0 +1,39 @@
 +// Copyright 2024 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
 +
 +package hkdf
 +
-+import "hash"
++import (
++	"hash"
 +
-+func Key[H hash.Hash](h func() H, secret, salt []byte, info string, keyLen int) ([]byte, error) {
-+	prk, err := Extract(h, secret, salt)
-+	if err != nil {
-+		return nil, err
++	"github.com/microsoft/go/cryptobackend"
++)
++
++// Extract generates a pseudorandom key for use with [Expand] from a secret and salt.
++func Extract[H hash.Hash](h func() H, secret, salt []byte) ([]byte, error) {
++	if backend.Enabled && Supports(h()) {
++		return extract(h, secret, salt)
 +	}
-+	return Expand(h, prk, info, keyLen)
++	return extractFallback(h, secret, salt)
++}
++
++// Expand derives a key from a pseudorandom key and context info.
++func Expand[H hash.Hash](h func() H, pseudorandomKey []byte, info string, keyLen int) ([]byte, error) {
++	if backend.Enabled && Supports(h()) {
++		return expand(h, pseudorandomKey, info, keyLen)
++	}
++	return expandFallback(h, pseudorandomKey, info, keyLen)
++}
++
++// Key derives a key from a secret, salt, and context info.
++func Key[H hash.Hash](h func() H, secret, salt []byte, info string, keyLen int) ([]byte, error) {
++	if backend.Enabled && Supports(h()) {
++		prk, err := extract(h, secret, salt)
++		if err != nil {
++			return nil, err
++		}
++		return expand(h, prk, info, keyLen)
++	}
++	return keyFallback(h, secret, salt, info, keyLen)
 +}
 diff --git a/src/vendor/github.com/microsoft/go/cryptobackend/hkdf/hkdf_darwin.go b/src/vendor/github.com/microsoft/go/cryptobackend/hkdf/hkdf_darwin.go
 new file mode 100644
-index 00000000000000..c3b7fe3a0bf083
+index 00000000000000..de875ad84af76c
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go/cryptobackend/hkdf/hkdf_darwin.go
 @@ -0,0 +1,26 @@
@@ -42650,15 +42680,72 @@ index 00000000000000..c3b7fe3a0bf083
 +	return ok && h.Size() != 16
 +}
 +
-+func Extract[H hash.Hash](h func() H, secret, salt []byte) ([]byte, error) {
++func extract[H hash.Hash](h func() H, secret, salt []byte) ([]byte, error) {
 +	return xcrypto.ExtractHKDF(h, secret, salt)
 +}
-+func Expand[H hash.Hash](h func() H, pseudorandomKey []byte, info string, keyLen int) ([]byte, error) {
++func expand[H hash.Hash](h func() H, pseudorandomKey []byte, info string, keyLen int) ([]byte, error) {
 +	return xcrypto.ExpandHKDF(h, pseudorandomKey, []byte(info), keyLen)
++}
+diff --git a/src/vendor/github.com/microsoft/go/cryptobackend/hkdf/hkdf_msgostd.go b/src/vendor/github.com/microsoft/go/cryptobackend/hkdf/hkdf_msgostd.go
+new file mode 100644
+index 00000000000000..7f8f5e2d1a35ac
+--- /dev/null
++++ b/src/vendor/github.com/microsoft/go/cryptobackend/hkdf/hkdf_msgostd.go
+@@ -0,0 +1,24 @@
++// Copyright 2026 The Go Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style
++// license that can be found in the LICENSE file.
++
++//go:build msgostd || cmd_go_bootstrap
++
++package hkdf
++
++import (
++	fallback "crypto/internal/fips140/hkdf"
++	"hash"
++)
++
++func extractFallback[H hash.Hash](h func() H, secret, salt []byte) ([]byte, error) {
++	return fallback.Extract(h, secret, salt), nil
++}
++
++func expandFallback[H hash.Hash](h func() H, pseudorandomKey []byte, info string, keyLen int) ([]byte, error) {
++	return fallback.Expand(h, pseudorandomKey, info, keyLen), nil
++}
++
++func keyFallback[H hash.Hash](h func() H, secret, salt []byte, info string, keyLen int) ([]byte, error) {
++	return fallback.Key(h, secret, salt, info, keyLen), nil
++}
+diff --git a/src/vendor/github.com/microsoft/go/cryptobackend/hkdf/hkdf_nomsgostd.go b/src/vendor/github.com/microsoft/go/cryptobackend/hkdf/hkdf_nomsgostd.go
+new file mode 100644
+index 00000000000000..24d96abd94626a
+--- /dev/null
++++ b/src/vendor/github.com/microsoft/go/cryptobackend/hkdf/hkdf_nomsgostd.go
+@@ -0,0 +1,21 @@
++// Copyright 2026 The Go Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style
++// license that can be found in the LICENSE file.
++
++//go:build !msgostd && !cmd_go_bootstrap
++
++package hkdf
++
++import "hash"
++
++func extractFallback[H hash.Hash](h func() H, secret, salt []byte) ([]byte, error) {
++	panic("cryptobackend: not available")
++}
++
++func expandFallback[H hash.Hash](h func() H, pseudorandomKey []byte, info string, keyLen int) ([]byte, error) {
++	panic("cryptobackend: not available")
++}
++
++func keyFallback[H hash.Hash](h func() H, secret, salt []byte, info string, keyLen int) ([]byte, error) {
++	panic("cryptobackend: not available")
 +}
 diff --git a/src/vendor/github.com/microsoft/go/cryptobackend/hkdf/hkdf_openssl.go b/src/vendor/github.com/microsoft/go/cryptobackend/hkdf/hkdf_openssl.go
 new file mode 100644
-index 00000000000000..f1603e00760688
+index 00000000000000..245cf678e68f1b
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go/cryptobackend/hkdf/hkdf_openssl.go
 @@ -0,0 +1,25 @@
@@ -42681,15 +42768,15 @@ index 00000000000000..f1603e00760688
 +	return ok && openssl.SupportsHKDF()
 +}
 +
-+func Extract[H hash.Hash](h func() H, secret, salt []byte) ([]byte, error) {
++func extract[H hash.Hash](h func() H, secret, salt []byte) ([]byte, error) {
 +	return openssl.ExtractHKDF(h, secret, salt)
 +}
-+func Expand[H hash.Hash](h func() H, pseudorandomKey []byte, info string, keyLen int) ([]byte, error) {
++func expand[H hash.Hash](h func() H, pseudorandomKey []byte, info string, keyLen int) ([]byte, error) {
 +	return openssl.ExpandHKDF(h, pseudorandomKey, []byte(info), keyLen)
 +}
 diff --git a/src/vendor/github.com/microsoft/go/cryptobackend/hkdf/hkdf_windows.go b/src/vendor/github.com/microsoft/go/cryptobackend/hkdf/hkdf_windows.go
 new file mode 100644
-index 00000000000000..ee1e9fdbbdbbbf
+index 00000000000000..f846525bf8c905
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go/cryptobackend/hkdf/hkdf_windows.go
 @@ -0,0 +1,25 @@
@@ -42712,28 +42799,15 @@ index 00000000000000..ee1e9fdbbdbbbf
 +	return ok && cng.SupportsHKDF()
 +}
 +
-+func Extract[H hash.Hash](h func() H, secret, salt []byte) ([]byte, error) {
++func extract[H hash.Hash](h func() H, secret, salt []byte) ([]byte, error) {
 +	return cng.ExtractHKDF(h, secret, salt)
 +}
-+func Expand[H hash.Hash](h func() H, pseudorandomKey []byte, info string, keyLen int) ([]byte, error) {
++func expand[H hash.Hash](h func() H, pseudorandomKey []byte, info string, keyLen int) ([]byte, error) {
 +	return cng.ExpandHKDF(h, pseudorandomKey, []byte(info), keyLen)
 +}
-diff --git a/src/vendor/github.com/microsoft/go/cryptobackend/hkdf/init.go b/src/vendor/github.com/microsoft/go/cryptobackend/hkdf/init.go
-new file mode 100644
-index 00000000000000..78838e1a5df924
---- /dev/null
-+++ b/src/vendor/github.com/microsoft/go/cryptobackend/hkdf/init.go
-@@ -0,0 +1,7 @@
-+// Copyright 2026 The Go Authors. All rights reserved.
-+// Use of this source code is governed by a BSD-style
-+// license that can be found in the LICENSE file.
-+
-+package hkdf
-+
-+import _ "github.com/microsoft/go/cryptobackend"
 diff --git a/src/vendor/github.com/microsoft/go/cryptobackend/hkdf/nobackend.go b/src/vendor/github.com/microsoft/go/cryptobackend/hkdf/nobackend.go
 new file mode 100644
-index 00000000000000..b3e91ec72b8810
+index 00000000000000..a2d8179096c4d6
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go/cryptobackend/hkdf/nobackend.go
 @@ -0,0 +1,17 @@
@@ -42748,10 +42822,10 @@ index 00000000000000..b3e91ec72b8810
 +import "hash"
 +
 +func Supports(h hash.Hash) bool { panic("cryptobackend: not available") }
-+func Extract[H hash.Hash](h func() H, secret, salt []byte) ([]byte, error) {
++func extract[H hash.Hash](h func() H, secret, salt []byte) ([]byte, error) {
 +	panic("cryptobackend: not available")
 +}
-+func Expand[H hash.Hash](h func() H, pseudorandomKey []byte, info string, keyLen int) ([]byte, error) {
++func expand[H hash.Hash](h func() H, pseudorandomKey []byte, info string, keyLen int) ([]byte, error) {
 +	panic("cryptobackend: not available")
 +}
 diff --git a/src/vendor/github.com/microsoft/go/cryptobackend/hmac/hmac.go b/src/vendor/github.com/microsoft/go/cryptobackend/hmac/hmac.go
@@ -43814,22 +43888,9 @@ index 00000000000000..5c7c1fc6d53878
 +}
 +
 +const Enabled = false
-diff --git a/src/vendor/github.com/microsoft/go/cryptobackend/pbkdf2/init.go b/src/vendor/github.com/microsoft/go/cryptobackend/pbkdf2/init.go
-new file mode 100644
-index 00000000000000..89a597b39369ce
---- /dev/null
-+++ b/src/vendor/github.com/microsoft/go/cryptobackend/pbkdf2/init.go
-@@ -0,0 +1,7 @@
-+// Copyright 2026 The Go Authors. All rights reserved.
-+// Use of this source code is governed by a BSD-style
-+// license that can be found in the LICENSE file.
-+
-+package pbkdf2
-+
-+import _ "github.com/microsoft/go/cryptobackend"
 diff --git a/src/vendor/github.com/microsoft/go/cryptobackend/pbkdf2/nobackend.go b/src/vendor/github.com/microsoft/go/cryptobackend/pbkdf2/nobackend.go
 new file mode 100644
-index 00000000000000..0581daddbf8765
+index 00000000000000..923dd15a4354df
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go/cryptobackend/pbkdf2/nobackend.go
 @@ -0,0 +1,14 @@
@@ -43844,12 +43905,41 @@ index 00000000000000..0581daddbf8765
 +import "hash"
 +
 +func Supports(h hash.Hash) bool { panic("cryptobackend: not available") }
-+func Key[H hash.Hash](h func() H, password string, salt []byte, iter, keyLength int) ([]byte, error) {
++func key[H hash.Hash](h func() H, password string, salt []byte, iter, keyLength int) ([]byte, error) {
 +	panic("cryptobackend: not available")
++}
+diff --git a/src/vendor/github.com/microsoft/go/cryptobackend/pbkdf2/pbkdf2.go b/src/vendor/github.com/microsoft/go/cryptobackend/pbkdf2/pbkdf2.go
+new file mode 100644
+index 00000000000000..96199c7d128874
+--- /dev/null
++++ b/src/vendor/github.com/microsoft/go/cryptobackend/pbkdf2/pbkdf2.go
+@@ -0,0 +1,23 @@
++// Copyright 2026 The Go Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style
++// license that can be found in the LICENSE file.
++
++package pbkdf2
++
++import (
++	"errors"
++	"hash"
++
++	"github.com/microsoft/go/cryptobackend"
++)
++
++// Key derives a key from a password, salt, and iteration count.
++func Key[H hash.Hash](h func() H, password string, salt []byte, iter, keyLength int) ([]byte, error) {
++	if backend.Enabled && Supports(h()) {
++		if keyLength <= 0 {
++			return nil, errors.New("pbkdf2: keyLength must be larger than 0")
++		}
++		return key(h, password, salt, iter, keyLength)
++	}
++	return keyFallback(h, password, salt, iter, keyLength)
 +}
 diff --git a/src/vendor/github.com/microsoft/go/cryptobackend/pbkdf2/pbkdf2_darwin.go b/src/vendor/github.com/microsoft/go/cryptobackend/pbkdf2/pbkdf2_darwin.go
 new file mode 100644
-index 00000000000000..d5fe415ec03c8e
+index 00000000000000..7fd37a045535b5
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go/cryptobackend/pbkdf2/pbkdf2_darwin.go
 @@ -0,0 +1,23 @@
@@ -43873,12 +43963,53 @@ index 00000000000000..d5fe415ec03c8e
 +	return ok && h.Size() != 16 && (h.BlockSize() == 64 || h.BlockSize() == 128)
 +}
 +
-+func Key[H hash.Hash](h func() H, password string, salt []byte, iter, keyLength int) ([]byte, error) {
++func key[H hash.Hash](h func() H, password string, salt []byte, iter, keyLength int) ([]byte, error) {
 +	return xcrypto.PBKDF2([]byte(password), salt, iter, keyLength, h)
++}
+diff --git a/src/vendor/github.com/microsoft/go/cryptobackend/pbkdf2/pbkdf2_msgostd.go b/src/vendor/github.com/microsoft/go/cryptobackend/pbkdf2/pbkdf2_msgostd.go
+new file mode 100644
+index 00000000000000..f1fd0b80900c71
+--- /dev/null
++++ b/src/vendor/github.com/microsoft/go/cryptobackend/pbkdf2/pbkdf2_msgostd.go
+@@ -0,0 +1,16 @@
++// Copyright 2026 The Go Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style
++// license that can be found in the LICENSE file.
++
++//go:build msgostd || cmd_go_bootstrap
++
++package pbkdf2
++
++import (
++	fallback "crypto/internal/fips140/pbkdf2"
++	"hash"
++)
++
++func keyFallback[H hash.Hash](h func() H, password string, salt []byte, iter, keyLength int) ([]byte, error) {
++	return fallback.Key(h, password, salt, iter, keyLength)
++}
+diff --git a/src/vendor/github.com/microsoft/go/cryptobackend/pbkdf2/pbkdf2_nomsgostd.go b/src/vendor/github.com/microsoft/go/cryptobackend/pbkdf2/pbkdf2_nomsgostd.go
+new file mode 100644
+index 00000000000000..212a127223908c
+--- /dev/null
++++ b/src/vendor/github.com/microsoft/go/cryptobackend/pbkdf2/pbkdf2_nomsgostd.go
+@@ -0,0 +1,13 @@
++// Copyright 2026 The Go Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style
++// license that can be found in the LICENSE file.
++
++//go:build !msgostd && !cmd_go_bootstrap
++
++package pbkdf2
++
++import "hash"
++
++func keyFallback[H hash.Hash](h func() H, password string, salt []byte, iter, keyLength int) ([]byte, error) {
++	panic("cryptobackend: not available")
 +}
 diff --git a/src/vendor/github.com/microsoft/go/cryptobackend/pbkdf2/pbkdf2_openssl.go b/src/vendor/github.com/microsoft/go/cryptobackend/pbkdf2/pbkdf2_openssl.go
 new file mode 100644
-index 00000000000000..32ea8f189417ec
+index 00000000000000..1062b0f006a881
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go/cryptobackend/pbkdf2/pbkdf2_openssl.go
 @@ -0,0 +1,22 @@
@@ -43901,12 +44032,12 @@ index 00000000000000..32ea8f189417ec
 +	return ok && openssl.SupportsPBKDF2()
 +}
 +
-+func Key[H hash.Hash](h func() H, password string, salt []byte, iter, keyLength int) ([]byte, error) {
++func key[H hash.Hash](h func() H, password string, salt []byte, iter, keyLength int) ([]byte, error) {
 +	return openssl.PBKDF2([]byte(password), salt, iter, keyLength, h)
 +}
 diff --git a/src/vendor/github.com/microsoft/go/cryptobackend/pbkdf2/pbkdf2_windows.go b/src/vendor/github.com/microsoft/go/cryptobackend/pbkdf2/pbkdf2_windows.go
 new file mode 100644
-index 00000000000000..df4f4c68138783
+index 00000000000000..1d5ab1726c2e07
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go/cryptobackend/pbkdf2/pbkdf2_windows.go
 @@ -0,0 +1,22 @@
@@ -43929,7 +44060,7 @@ index 00000000000000..df4f4c68138783
 +	return ok
 +}
 +
-+func Key[H hash.Hash](h func() H, password string, salt []byte, iter, keyLength int) ([]byte, error) {
++func key[H hash.Hash](h func() H, password string, salt []byte, iter, keyLength int) ([]byte, error) {
 +	return cng.PBKDF2([]byte(password), salt, iter, keyLength, h)
 +}
 diff --git a/src/vendor/github.com/microsoft/go/cryptobackend/rc4/init.go b/src/vendor/github.com/microsoft/go/cryptobackend/rc4/init.go
