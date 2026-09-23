@@ -12,4 +12,4 @@ import (
 	"github.com/microsoft/go-crypto-openssl/openssl"
 )
 
-func New(key []byte) (cipher.Block, error) { return openssl.NewAESCipher(key) }
+func newBackendCipher(key []byte) (cipher.Block, error) { return openssl.NewAESCipher(key) }

@@ -12,4 +12,4 @@ import (
 	"github.com/microsoft/go-crypto-darwin/xcrypto"
 )
 
-func New(key []byte) (cipher.Block, error) { return xcrypto.NewAESCipher(key) }
+func newBackendCipher(key []byte) (cipher.Block, error) { return xcrypto.NewAESCipher(key) }

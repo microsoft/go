@@ -275,7 +275,10 @@ Use a 'go' that was recently built by the current branch to ensure stable result
  .../internal/subtle/aliasing.go               |   32 +
  .../internal/sysdll/sys_windows.go            |   55 +
  .../microsoft/go/cryptobackend/README.md      |   21 +
+ .../microsoft/go/cryptobackend/aes/aes.go     |   20 +
  .../go/cryptobackend/aes/aes_darwin.go        |   15 +
+ .../go/cryptobackend/aes/aes_msgostd.go       |   20 +
+ .../go/cryptobackend/aes/aes_nomsgostd.go     |   13 +
  .../go/cryptobackend/aes/aes_openssl.go       |   15 +
  .../go/cryptobackend/aes/aes_windows.go       |   15 +
  .../go/cryptobackend/aes/gcm/gcm_darwin.go    |   17 +
@@ -283,7 +286,6 @@ Use a 'go' that was recently built by the current branch to ensure stable result
  .../go/cryptobackend/aes/gcm/gcm_windows.go   |   17 +
  .../go/cryptobackend/aes/gcm/init.go          |    7 +
  .../go/cryptobackend/aes/gcm/nobackend.go     |   13 +
- .../microsoft/go/cryptobackend/aes/init.go    |    7 +
  .../go/cryptobackend/aes/nobackend.go         |   11 +
  .../go/cryptobackend/backend_darwin.go        |   25 +
  .../go/cryptobackend/backend_msgostd.go       |   13 +
@@ -444,7 +446,7 @@ Use a 'go' that was recently built by the current branch to ensure stable result
  .../go/cryptobackend/tls13/tls13_openssl.go   |   18 +
  .../go/cryptobackend/tls13/tls13_windows.go   |   14 +
  src/vendor/modules.txt                        |   54 +
- 436 files changed, 41002 insertions(+), 7 deletions(-)
+ 438 files changed, 41048 insertions(+), 7 deletions(-)
  create mode 100644 src/cmd/internal/telemetry/counter/deps_ignore.go
  create mode 100644 src/cmd/vendor/github.com/microsoft/go-infra/telemetry/LICENSE
  create mode 100644 src/cmd/vendor/github.com/microsoft/go-infra/telemetry/README.md
@@ -705,7 +707,10 @@ Use a 'go' that was recently built by the current branch to ensure stable result
  create mode 100644 src/vendor/github.com/microsoft/go-crypto-winnative/internal/subtle/aliasing.go
  create mode 100644 src/vendor/github.com/microsoft/go-crypto-winnative/internal/sysdll/sys_windows.go
  create mode 100644 src/vendor/github.com/microsoft/go/cryptobackend/README.md
+ create mode 100644 src/vendor/github.com/microsoft/go/cryptobackend/aes/aes.go
  create mode 100644 src/vendor/github.com/microsoft/go/cryptobackend/aes/aes_darwin.go
+ create mode 100644 src/vendor/github.com/microsoft/go/cryptobackend/aes/aes_msgostd.go
+ create mode 100644 src/vendor/github.com/microsoft/go/cryptobackend/aes/aes_nomsgostd.go
  create mode 100644 src/vendor/github.com/microsoft/go/cryptobackend/aes/aes_openssl.go
  create mode 100644 src/vendor/github.com/microsoft/go/cryptobackend/aes/aes_windows.go
  create mode 100644 src/vendor/github.com/microsoft/go/cryptobackend/aes/gcm/gcm_darwin.go
@@ -713,7 +718,6 @@ Use a 'go' that was recently built by the current branch to ensure stable result
  create mode 100644 src/vendor/github.com/microsoft/go/cryptobackend/aes/gcm/gcm_windows.go
  create mode 100644 src/vendor/github.com/microsoft/go/cryptobackend/aes/gcm/init.go
  create mode 100644 src/vendor/github.com/microsoft/go/cryptobackend/aes/gcm/nobackend.go
- create mode 100644 src/vendor/github.com/microsoft/go/cryptobackend/aes/init.go
  create mode 100644 src/vendor/github.com/microsoft/go/cryptobackend/aes/nobackend.go
  create mode 100644 src/vendor/github.com/microsoft/go/cryptobackend/backend_darwin.go
  create mode 100644 src/vendor/github.com/microsoft/go/cryptobackend/backend_msgostd.go
@@ -41075,9 +41079,35 @@ index 00000000000000..2f688d6e8b7cb2
 +
 +These packages are intended as a migration step toward making cryptobackend usable as a drop-in replacement for `crypto/internal/fips140` without changing the backend implementation model all at once.
 \ No newline at end of file
+diff --git a/src/vendor/github.com/microsoft/go/cryptobackend/aes/aes.go b/src/vendor/github.com/microsoft/go/cryptobackend/aes/aes.go
+new file mode 100644
+index 00000000000000..f8c580e80326c7
+--- /dev/null
++++ b/src/vendor/github.com/microsoft/go/cryptobackend/aes/aes.go
+@@ -0,0 +1,20 @@
++// Copyright 2026 The Go Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style
++// license that can be found in the LICENSE file.
++
++package aes
++
++import (
++	"crypto/cipher"
++
++	"github.com/microsoft/go/cryptobackend"
++)
++
++// New creates and returns a new [cipher.Block] using an AES key.
++// The key must be 16, 24, or 32 bytes long.
++func New(key []byte) (cipher.Block, error) {
++	if backend.Enabled {
++		return newBackendCipher(key)
++	}
++	return newFallback(key)
++}
 diff --git a/src/vendor/github.com/microsoft/go/cryptobackend/aes/aes_darwin.go b/src/vendor/github.com/microsoft/go/cryptobackend/aes/aes_darwin.go
 new file mode 100644
-index 00000000000000..97d73de468500c
+index 00000000000000..6ba290c05c381e
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go/cryptobackend/aes/aes_darwin.go
 @@ -0,0 +1,15 @@
@@ -41095,10 +41125,55 @@ index 00000000000000..97d73de468500c
 +	"github.com/microsoft/go-crypto-darwin/xcrypto"
 +)
 +
-+func New(key []byte) (cipher.Block, error) { return xcrypto.NewAESCipher(key) }
++func newBackendCipher(key []byte) (cipher.Block, error) { return xcrypto.NewAESCipher(key) }
+diff --git a/src/vendor/github.com/microsoft/go/cryptobackend/aes/aes_msgostd.go b/src/vendor/github.com/microsoft/go/cryptobackend/aes/aes_msgostd.go
+new file mode 100644
+index 00000000000000..6311fad0db8248
+--- /dev/null
++++ b/src/vendor/github.com/microsoft/go/cryptobackend/aes/aes_msgostd.go
+@@ -0,0 +1,20 @@
++// Copyright 2026 The Go Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style
++// license that can be found in the LICENSE file.
++
++//go:build msgostd || cmd_go_bootstrap
++
++package aes
++
++import (
++	"crypto/cipher"
++	fallback "crypto/internal/fips140/aes"
++)
++
++func newFallback(key []byte) (cipher.Block, error) {
++	block, err := fallback.New(key)
++	if err != nil {
++		return nil, err
++	}
++	return block, nil
++}
+diff --git a/src/vendor/github.com/microsoft/go/cryptobackend/aes/aes_nomsgostd.go b/src/vendor/github.com/microsoft/go/cryptobackend/aes/aes_nomsgostd.go
+new file mode 100644
+index 00000000000000..c02b3a5db1d318
+--- /dev/null
++++ b/src/vendor/github.com/microsoft/go/cryptobackend/aes/aes_nomsgostd.go
+@@ -0,0 +1,13 @@
++// Copyright 2026 The Go Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style
++// license that can be found in the LICENSE file.
++
++//go:build !msgostd && !cmd_go_bootstrap
++
++package aes
++
++import "crypto/cipher"
++
++func newFallback(key []byte) (cipher.Block, error) {
++	panic("cryptobackend: not available")
++}
 diff --git a/src/vendor/github.com/microsoft/go/cryptobackend/aes/aes_openssl.go b/src/vendor/github.com/microsoft/go/cryptobackend/aes/aes_openssl.go
 new file mode 100644
-index 00000000000000..753814eb397c77
+index 00000000000000..1925b2d9a4a12d
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go/cryptobackend/aes/aes_openssl.go
 @@ -0,0 +1,15 @@
@@ -41116,10 +41191,10 @@ index 00000000000000..753814eb397c77
 +	"github.com/microsoft/go-crypto-openssl/openssl"
 +)
 +
-+func New(key []byte) (cipher.Block, error) { return openssl.NewAESCipher(key) }
++func newBackendCipher(key []byte) (cipher.Block, error) { return openssl.NewAESCipher(key) }
 diff --git a/src/vendor/github.com/microsoft/go/cryptobackend/aes/aes_windows.go b/src/vendor/github.com/microsoft/go/cryptobackend/aes/aes_windows.go
 new file mode 100644
-index 00000000000000..d776d725a4bf4d
+index 00000000000000..5f09d5cd96f4aa
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go/cryptobackend/aes/aes_windows.go
 @@ -0,0 +1,15 @@
@@ -41137,7 +41212,7 @@ index 00000000000000..d776d725a4bf4d
 +	"github.com/microsoft/go-crypto-winnative/cng"
 +)
 +
-+func New(key []byte) (cipher.Block, error) { return cng.NewAESCipher(key) }
++func newBackendCipher(key []byte) (cipher.Block, error) { return cng.NewAESCipher(key) }
 diff --git a/src/vendor/github.com/microsoft/go/cryptobackend/aes/gcm/gcm_darwin.go b/src/vendor/github.com/microsoft/go/cryptobackend/aes/gcm/gcm_darwin.go
 new file mode 100644
 index 00000000000000..a05c567366845c
@@ -41239,22 +41314,9 @@ index 00000000000000..1e899e9cbd9417
 +func NewTLS(c cipher.Block) (cipher.AEAD, error) { panic("cryptobackend: not available") }
 +
 +func NewTLS13(c cipher.Block) (cipher.AEAD, error) { panic("cryptobackend: not available") }
-diff --git a/src/vendor/github.com/microsoft/go/cryptobackend/aes/init.go b/src/vendor/github.com/microsoft/go/cryptobackend/aes/init.go
-new file mode 100644
-index 00000000000000..d32a04def17368
---- /dev/null
-+++ b/src/vendor/github.com/microsoft/go/cryptobackend/aes/init.go
-@@ -0,0 +1,7 @@
-+// Copyright 2026 The Go Authors. All rights reserved.
-+// Use of this source code is governed by a BSD-style
-+// license that can be found in the LICENSE file.
-+
-+package aes
-+
-+import _ "github.com/microsoft/go/cryptobackend"
 diff --git a/src/vendor/github.com/microsoft/go/cryptobackend/aes/nobackend.go b/src/vendor/github.com/microsoft/go/cryptobackend/aes/nobackend.go
 new file mode 100644
-index 00000000000000..521f1a8deaf127
+index 00000000000000..1aef4783f498de
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go/cryptobackend/aes/nobackend.go
 @@ -0,0 +1,11 @@
@@ -41268,7 +41330,7 @@ index 00000000000000..521f1a8deaf127
 +
 +import "crypto/cipher"
 +
-+func New(key []byte) (cipher.Block, error) { panic("cryptobackend: not available") }
++func newBackendCipher(key []byte) (cipher.Block, error) { panic("cryptobackend: not available") }
 diff --git a/src/vendor/github.com/microsoft/go/cryptobackend/backend_darwin.go b/src/vendor/github.com/microsoft/go/cryptobackend/backend_darwin.go
 new file mode 100644
 index 00000000000000..3b4e490c0d8f2d

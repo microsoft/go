@@ -12,4 +12,4 @@ import (
 	"github.com/microsoft/go-crypto-winnative/cng"
 )
 
-func New(key []byte) (cipher.Block, error) { return cng.NewAESCipher(key) }
+func newBackendCipher(key []byte) (cipher.Block, error) { return cng.NewAESCipher(key) }
