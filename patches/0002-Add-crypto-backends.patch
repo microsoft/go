@@ -123,7 +123,7 @@ Subject: [PATCH] Add crypto backends
  src/crypto/tls/handshake_server_tls13.go      |   6 +-
  src/crypto/tls/handshake_test.go              |   3 +-
  src/crypto/tls/key_schedule.go                |   3 +-
- src/crypto/tls/prf.go                         |  27 ++
+ src/crypto/tls/prf.go                         |  19 +-
  src/crypto/tls/prf_test.go                    |   9 +
  src/crypto/x509/verify_test.go                |   2 +-
  src/go/build/buildbackend_test.go             |  50 +++
@@ -143,7 +143,7 @@ Subject: [PATCH] Add crypto backends
  src/os/exec/exec_test.go                      |   9 +
  src/runtime/runtime_boring.go                 |   5 +
  src/syscall/syscall_windows.go                |   3 +
- 139 files changed, 2444 insertions(+), 393 deletions(-)
+ 139 files changed, 2435 insertions(+), 394 deletions(-)
  create mode 100644 src/cmd/go/systemcrypto_test.go
  create mode 100644 src/crypto/dsa/boring.go
  create mode 100644 src/crypto/dsa/notboring.go
@@ -5807,7 +5807,7 @@ index 652a6489b899d6..f25da189bf72c9 100644
  
  // This file contains the functions necessary to compute the TLS 1.3 key
 diff --git a/src/crypto/tls/prf.go b/src/crypto/tls/prf.go
-index bc59300f41c762..5b99af426de295 100644
+index bc59300f41c762..698bc79a80aead 100644
 --- a/src/crypto/tls/prf.go
 +++ b/src/crypto/tls/prf.go
 @@ -8,6 +8,7 @@ import (
@@ -5818,17 +5818,16 @@ index bc59300f41c762..5b99af426de295 100644
  	"crypto/md5"
  	"crypto/sha1"
  	"crypto/sha256"
-@@ -15,6 +16,9 @@ import (
+@@ -15,6 +16,8 @@ import (
  	"errors"
  	"fmt"
  	"hash"
 +
-+	boring "github.com/microsoft/go/cryptobackend"
 +	btls12 "github.com/microsoft/go/cryptobackend/tls12"
  )
  
  type prfFunc func(secret []byte, label string, seed []byte, keyLen int) []byte
-@@ -47,9 +51,25 @@ func pHash(result, secret, seed []byte, hash func() hash.Hash) {
+@@ -47,6 +50,16 @@ func pHash(result, secret, seed []byte, hash func() hash.Hash) {
  	}
  }
  
@@ -5845,29 +5844,19 @@ index bc59300f41c762..5b99af426de295 100644
  // prf10 implements the TLS 1.0 pseudo-random function, as defined in RFC 2246, Section 5.
  func prf10(secret []byte, label string, seed []byte, keyLen int) []byte {
  	result := make([]byte, keyLen)
-+	if boring.Enabled && btls12.SupportsPRF() {
-+		if err := btls12.PRF(result, secret, label, seed, nil); err != nil {
-+			panic(boringPRFError{fmt.Errorf("crypto/tls: prf10: %v", err)})
-+		}
-+		return result
-+	}
- 	hashSHA1 := sha1.New
- 	hashMD5 := md5.New
- 
-@@ -72,6 +92,13 @@ func prf10(secret []byte, label string, seed []byte, keyLen int) []byte {
+@@ -72,7 +85,11 @@ func prf10(secret []byte, label string, seed []byte, keyLen int) []byte {
  // prf12 implements the TLS 1.2 pseudo-random function, as defined in RFC 5246, Section 5.
  func prf12(hashFunc func() hash.Hash) prfFunc {
  	return func(secret []byte, label string, seed []byte, keyLen int) []byte {
-+		if boring.Enabled && btls12.SupportsPRF() {
-+			result := make([]byte, keyLen)
-+			if err := btls12.PRF(result, secret, label, seed, fips140hash.UnwrapNew(hashFunc)); err != nil {
-+				panic(boringPRFError{fmt.Errorf("crypto/tls: prf12: %v", err)})
-+			}
-+			return result
+-		return tls12.PRF(hashFunc, secret, label, seed, keyLen)
++		result, err := btls12.PRF(fips140hash.UnwrapNew(hashFunc), secret, label, seed, keyLen)
++		if err != nil {
++			panic(boringPRFError{fmt.Errorf("crypto/tls: prf12: %v", err)})
 +		}
- 		return tls12.PRF(hashFunc, secret, label, seed, keyLen)
++		return result
  	}
  }
+ 
 diff --git a/src/crypto/tls/prf_test.go b/src/crypto/tls/prf_test.go
 index 8233985a62bd22..70fb5c9c4b8c2d 100644
 --- a/src/crypto/tls/prf_test.go
