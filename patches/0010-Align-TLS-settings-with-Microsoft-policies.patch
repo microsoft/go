@@ -6,17 +6,17 @@ Subject: [PATCH] Align TLS settings with Microsoft policies
 ---
  doc/godebug.md                                |   9 +
  src/crypto/tls/common.go                      |   9 +-
- src/crypto/tls/defaults.go                    |  37 +-
- src/crypto/tls/defaults_microsoft.go          | 147 ++++++
+ src/crypto/tls/defaults.go                    |  34 +-
+ src/crypto/tls/defaults_microsoft.go          | 157 ++++++
  src/crypto/tls/handshake_client.go            |  21 +-
  src/crypto/tls/handshake_client_test.go       |  17 +-
  src/crypto/tls/handshake_server_tls13.go      |  22 +-
  src/crypto/tls/handshake_test.go              |   3 +
- src/crypto/tls/microsoft_test.go              | 489 ++++++++++++++++++
+ src/crypto/tls/microsoft_test.go              | 528 ++++++++++++++++++
  src/crypto/tls/schannel_windows.go            |   7 +
  src/internal/godebugs/table.go                |   2 +
  src/net/http/internal/http2/transport_test.go |   2 +
- 12 files changed, 742 insertions(+), 23 deletions(-)
+ 12 files changed, 788 insertions(+), 23 deletions(-)
  create mode 100644 src/crypto/tls/defaults_microsoft.go
  create mode 100644 src/crypto/tls/microsoft_test.go
 
@@ -61,7 +61,7 @@ index c329ac82949081..8304282d34ec1c 100644
  	}
  	return cipherSuites
 diff --git a/src/crypto/tls/defaults.go b/src/crypto/tls/defaults.go
-index c89036047ad5a3..5ae76aca239600 100644
+index c89036047ad5a3..cb71e22a4380e8 100644
 --- a/src/crypto/tls/defaults.go
 +++ b/src/crypto/tls/defaults.go
 @@ -18,14 +18,17 @@ var tlsmlkem = godebug.New("tlsmlkem")
@@ -94,13 +94,9 @@ index c89036047ad5a3..5ae76aca239600 100644
  	return []CurveID{
  		X25519MLKEM768, SecP256r1MLKEM768, SecP384r1MLKEM1024, MLKEM1024,
  		X25519, CurveP256, CurveP384, CurveP521,
-@@ -66,18 +72,35 @@ func defaultSupportedSignatureAlgorithms() []SignatureScheme {
- 	}
+@@ -67,17 +73,31 @@ func defaultSupportedSignatureAlgorithms() []SignatureScheme {
  }
  
-+var tlsrsakex = godebug.New("tlsrsakex")
-+var tls3des = godebug.New("tls3des")
-+
  func supportedCipherSuites(aesGCMPreferred bool) []uint16 {
 -	if aesGCMPreferred {
 -		return slices.Clone(cipherSuitesPreferenceOrder)
@@ -137,10 +133,10 @@ index c89036047ad5a3..5ae76aca239600 100644
  
 diff --git a/src/crypto/tls/defaults_microsoft.go b/src/crypto/tls/defaults_microsoft.go
 new file mode 100644
-index 00000000000000..9e7432fd308c95
+index 00000000000000..b0238641e0e3be
 --- /dev/null
 +++ b/src/crypto/tls/defaults_microsoft.go
-@@ -0,0 +1,147 @@
+@@ -0,0 +1,157 @@
 +// Copyright 2025 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -287,6 +283,16 @@ index 00000000000000..9e7432fd308c95
 +	TLS_ECDHE_ECDSA_WITH_RC4_128_SHA: true,
 +	TLS_ECDHE_RSA_WITH_RC4_128_SHA:   true,
 +	TLS_RSA_WITH_RC4_128_SHA:         true,
++
++	// RSA key exchange
++	TLS_RSA_WITH_3DES_EDE_CBC_SHA:   true,
++	TLS_RSA_WITH_AES_128_CBC_SHA:    true,
++	TLS_RSA_WITH_AES_256_CBC_SHA:    true,
++	TLS_RSA_WITH_AES_128_GCM_SHA256: true,
++	TLS_RSA_WITH_AES_256_GCM_SHA384: true,
++
++	// 3DES
++	TLS_ECDHE_RSA_WITH_3DES_EDE_CBC_SHA: true,
 +}
 diff --git a/src/crypto/tls/handshake_client.go b/src/crypto/tls/handshake_client.go
 index 6d97d1fba0dfa9..eb88634f275ce8 100644
@@ -397,10 +403,10 @@ index d9424c374eab88..d56331d6268321 100644
  		if err != nil {
 diff --git a/src/crypto/tls/microsoft_test.go b/src/crypto/tls/microsoft_test.go
 new file mode 100644
-index 00000000000000..6ddb69f86edcd7
+index 00000000000000..7803472159d8ec
 --- /dev/null
 +++ b/src/crypto/tls/microsoft_test.go
-@@ -0,0 +1,489 @@
+@@ -0,0 +1,528 @@
 +// Copyright 2025 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -422,6 +428,45 @@ index 00000000000000..6ddb69f86edcd7
 +	becdh "github.com/microsoft/go/cryptobackend/ecdh"
 +	bmlkem "github.com/microsoft/go/cryptobackend/mlkem"
 +)
++
++func TestMicrosoftDefaultCipherSuites(t *testing.T) {
++	if goexperiment.MS_TLS_Config_Schannel {
++		t.Skip("cipher suite defaults are controlled by Schannel")
++	}
++	enableMicrosoftProfile(t)
++
++	disabled := []uint16{
++		TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA,
++		TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA,
++		TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA,
++		TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA,
++	}
++	for _, suite := range InsecureCipherSuites() {
++		disabled = append(disabled, suite.ID)
++	}
++
++	clientConfig := testConfigClient.Clone()
++	clientConfig.MaxVersion = VersionTLS12
++	serverConfig := testConfigServer.Clone()
++	serverConfig.MaxVersion = VersionTLS12
++	serverConfig.GetConfigForClient = func(hello *ClientHelloInfo) (*Config, error) {
++		for _, id := range disabled {
++			if slices.Contains(hello.CipherSuites, id) {
++				t.Errorf("client advertised disabled cipher suite %s", CipherSuiteName(id))
++			}
++		}
++		return nil, nil
++	}
++	if _, _, err := testHandshake(t, clientConfig, serverConfig); err != nil {
++		t.Fatalf("handshake with default cipher suites failed: %v", err)
++	}
++
++	serverConfig.GetConfigForClient = nil
++	clientConfig.CipherSuites = disabled
++	if _, cs, err := testHandshake(t, clientConfig, serverConfig); err == nil {
++		t.Errorf("server negotiated disabled cipher suite %s", CipherSuiteName(cs.CipherSuite))
++	}
++}
 +
 +func TestMicrosoftGroupSupport(t *testing.T) {
 +	supported := slices.Collect(maps.Keys(supportedGroups))
