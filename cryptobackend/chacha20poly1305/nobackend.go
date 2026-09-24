@@ -10,4 +10,4 @@ import "crypto/cipher"
 
 func Supports() bool { return false }
 
-func New(key []byte) (cipher.AEAD, error) { panic("cryptobackend: not available") }
+func newBackend(key []byte) (cipher.AEAD, error) { panic("cryptobackend: not available") }

@@ -69,7 +69,7 @@ Subject: [PATCH] Add crypto backends
  src/crypto/hkdf/hkdf_test.go                  |   2 +-
  src/crypto/hmac/hmac.go                       |   3 +-
  src/crypto/hmac/hmac_test.go                  |   2 +-
- src/crypto/hpke/aead.go                       |  16 +-
+ src/crypto/hpke/aead.go                       |   2 +-
  src/crypto/internal/cryptotest/allocations.go |   6 -
  src/crypto/internal/cryptotest/fips140.go     |   8 +
  src/crypto/internal/cryptotest/hash.go        |   3 +-
@@ -114,7 +114,7 @@ Subject: [PATCH] Add crypto backends
  src/crypto/systemcrypto_nocgo_linux.go        |  18 ++
  src/crypto/tls/bogo_shim_test.go              |  16 +-
  src/crypto/tls/certificates_generator_test.go |   4 +
- src/crypto/tls/cipher_suites.go               |  17 +-
+ src/crypto/tls/cipher_suites.go               |   9 +-
  src/crypto/tls/fipsonly/fipsonly.go           |   2 +-
  src/crypto/tls/fipsonly/fipsonly_test.go      |   2 +-
  src/crypto/tls/handshake_client.go            |  18 +-
@@ -127,7 +127,7 @@ Subject: [PATCH] Add crypto backends
  src/crypto/tls/prf_test.go                    |   9 +
  src/crypto/x509/verify_test.go                |   2 +-
  src/go/build/buildbackend_test.go             |  50 +++
- src/go/build/deps_test.go                     |  91 +++++-
+ src/go/build/deps_test.go                     |  95 +++++-
  .../build/testdata/backendtags_system/main.go |   3 +
  .../backendtags_system/systemcrypto.go        |   3 +
  src/hash/example_test.go                      |   2 +
@@ -143,7 +143,7 @@ Subject: [PATCH] Add crypto backends
  src/os/exec/exec_test.go                      |   9 +
  src/runtime/runtime_boring.go                 |   5 +
  src/syscall/syscall_windows.go                |   3 +
- 139 files changed, 2432 insertions(+), 393 deletions(-)
+ 139 files changed, 2413 insertions(+), 391 deletions(-)
  create mode 100644 src/cmd/go/systemcrypto_test.go
  create mode 100644 src/crypto/dsa/boring.go
  create mode 100644 src/crypto/dsa/notboring.go
@@ -2814,39 +2814,18 @@ index b324d1f02cda7d..f0b829d0ccabd6 100644
  	"testing"
  )
 diff --git a/src/crypto/hpke/aead.go b/src/crypto/hpke/aead.go
-index fb55c97ddf20c9..913fee67ad2a14 100644
+index fb55c97ddf20c9..7e3cf1d7f80ac0 100644
 --- a/src/crypto/hpke/aead.go
 +++ b/src/crypto/hpke/aead.go
-@@ -9,6 +9,9 @@ import (
+@@ -9,7 +9,7 @@ import (
  	"errors"
  	"fmt"
  
-+	boring "github.com/microsoft/go/cryptobackend"
-+	bchacha20poly1305 "github.com/microsoft/go/cryptobackend/chacha20poly1305"
-+
- 	"golang.org/x/crypto/chacha20poly1305"
+-	"golang.org/x/crypto/chacha20poly1305"
++	"github.com/microsoft/go/cryptobackend/chacha20poly1305"
  )
  
-@@ -77,10 +80,15 @@ var aes256GCM = &aead{
- }
- 
- var chacha20poly1305AEAD = &aead{
--	nK:  chacha20poly1305.KeySize,
--	nN:  chacha20poly1305.NonceSize,
--	new: chacha20poly1305.New,
--	id:  0x0003,
-+	nK: chacha20poly1305.KeySize,
-+	nN: chacha20poly1305.NonceSize,
-+	new: func(key []byte) (cipher.AEAD, error) {
-+		if boring.Enabled && bchacha20poly1305.Supports() {
-+			return bchacha20poly1305.New(key)
-+		}
-+		return chacha20poly1305.New(key)
-+	},
-+	id: 0x0003,
- }
- 
- func (a *aead) ID() uint16 {
+ // The AEAD is one of the three components of an HPKE ciphersuite, implementing
 diff --git a/src/crypto/internal/cryptotest/allocations.go b/src/crypto/internal/cryptotest/allocations.go
 index 70055af70b42ec..21528faa0d6145 100644
 --- a/src/crypto/internal/cryptotest/allocations.go
@@ -5548,7 +5527,7 @@ index 02c8f905e67f9e..9a456c72c11c2a 100644
  	// The RSA key generation algorithm changed after Go 1.26.0.
  	icryptotest.MustMinimumFIPS140ModuleVersion(t, "v1.28.0")
 diff --git a/src/crypto/tls/cipher_suites.go b/src/crypto/tls/cipher_suites.go
-index 1952be64fa952c..d7e8982b33f16a 100644
+index 1952be64fa952c..3187e63f45fef3 100644
 --- a/src/crypto/tls/cipher_suites.go
 +++ b/src/crypto/tls/cipher_suites.go
 @@ -10,7 +10,6 @@ import (
@@ -5559,18 +5538,18 @@ index 1952be64fa952c..d7e8982b33f16a 100644
  	fipsaes "crypto/internal/fips140/aes"
  	"crypto/internal/fips140/aes/gcm"
  	"crypto/rc4"
-@@ -23,6 +22,10 @@ import (
+@@ -23,7 +22,9 @@ import (
  	"runtime"
  	_ "unsafe" // for linkname
  
+-	"golang.org/x/crypto/chacha20poly1305"
 +	boring "github.com/microsoft/go/cryptobackend"
 +	bgcm "github.com/microsoft/go/cryptobackend/aes/gcm"
-+	bchacha20poly1305 "github.com/microsoft/go/cryptobackend/chacha20poly1305"
-+
- 	"golang.org/x/crypto/chacha20poly1305"
++	"github.com/microsoft/go/cryptobackend/chacha20poly1305"
  )
  
-@@ -516,7 +519,7 @@ func aeadAESGCM(key, noncePrefix []byte) aead {
+ // CipherSuite is a TLS cipher suite. Note that most functions in this package
+@@ -516,7 +517,7 @@ func aeadAESGCM(key, noncePrefix []byte) aead {
  	}
  	var aead cipher.AEAD
  	if boring.Enabled {
@@ -5579,7 +5558,7 @@ index 1952be64fa952c..d7e8982b33f16a 100644
  	} else {
  		boring.Unreachable()
  		aead, err = gcm.NewGCMForTLS12(aes.(*fipsaes.Block))
-@@ -550,7 +553,7 @@ func aeadAESGCMTLS13(key, nonceMask []byte) aead {
+@@ -550,7 +551,7 @@ func aeadAESGCMTLS13(key, nonceMask []byte) aead {
  	}
  	var aead cipher.AEAD
  	if boring.Enabled {
@@ -5588,21 +5567,6 @@ index 1952be64fa952c..d7e8982b33f16a 100644
  	} else {
  		boring.Unreachable()
  		aead, err = gcm.NewGCMForTLS13(aes.(*fipsaes.Block))
-@@ -568,7 +571,13 @@ func aeadChaCha20Poly1305(key, nonceMask []byte) aead {
- 	if len(nonceMask) != aeadNonceLength {
- 		panic("tls: internal error: wrong nonce length")
- 	}
--	aead, err := chacha20poly1305.New(key)
-+	var aead cipher.AEAD
-+	var err error
-+	if boring.Enabled && bchacha20poly1305.Supports() {
-+		aead, err = bchacha20poly1305.New(key)
-+	} else {
-+		aead, err = chacha20poly1305.New(key)
-+	}
- 	if err != nil {
- 		panic(err)
- 	}
 diff --git a/src/crypto/tls/fipsonly/fipsonly.go b/src/crypto/tls/fipsonly/fipsonly.go
 index e702f44e986746..e506a0d8841237 100644
 --- a/src/crypto/tls/fipsonly/fipsonly.go
@@ -5937,7 +5901,7 @@ index 00000000000000..ffb835ce34a2f7
 +	}
 +}
 diff --git a/src/go/build/deps_test.go b/src/go/build/deps_test.go
-index 78e9561b7b599a..e475b7fabb0eb7 100644
+index 78e9561b7b599a..ab95e7d05ab48d 100644
 --- a/src/go/build/deps_test.go
 +++ b/src/go/build/deps_test.go
 @@ -377,8 +377,10 @@ var depsRules = `
@@ -5983,7 +5947,7 @@ index 78e9561b7b599a..e475b7fabb0eb7 100644
  	< crypto/internal/fips140only
  	< crypto
  	< crypto/subtle
-@@ -583,6 +598,44 @@ var depsRules = `
+@@ -583,6 +598,43 @@ var depsRules = `
  	github.com/microsoft/go-crypto-winnative/internal/bcrypt
  	< github.com/microsoft/go-crypto-winnative/cng;
  
@@ -6006,7 +5970,6 @@ index 78e9561b7b599a..e475b7fabb0eb7 100644
 +	crypto/internal/fips140only
 +	< github.com/microsoft/go/cryptobackend/aes,
 +	  github.com/microsoft/go/cryptobackend/aes/gcm,
-+	  github.com/microsoft/go/cryptobackend/chacha20poly1305,
 +	  github.com/microsoft/go/cryptobackend/des,
 +	  github.com/microsoft/go/cryptobackend/drbg,
 +	  github.com/microsoft/go/cryptobackend/ecdh,
@@ -6028,7 +5991,7 @@ index 78e9561b7b599a..e475b7fabb0eb7 100644
  	FIPS, internal/godebug, embed,
  	crypto/internal/boring/sig,
  	crypto/internal/boring/syso,
-@@ -590,7 +643,9 @@ var depsRules = `
+@@ -590,7 +642,9 @@ var depsRules = `
  	crypto/internal/fips140only,
  	crypto,
  	crypto/subtle,
@@ -6039,7 +6002,7 @@ index 78e9561b7b599a..e475b7fabb0eb7 100644
  	< crypto/sha3
  	< crypto/internal/fips140hash
  	< crypto/internal/boring
-@@ -607,13 +662,15 @@ var depsRules = `
+@@ -607,13 +661,15 @@ var depsRules = `
  	  crypto/hkdf,
  	  crypto/pbkdf2,
  	  crypto/ecdh,
@@ -6056,7 +6019,7 @@ index 78e9561b7b599a..e475b7fabb0eb7 100644
  	CGO, fmt, net !< CRYPTO;
  
  	# CRYPTO-MATH is crypto that exposes math/big APIs - no cgo, net; fmt now ok.
-@@ -622,15 +679,28 @@ var depsRules = `
+@@ -622,15 +678,28 @@ var depsRules = `
  	math/big, github.com/microsoft/go-crypto-darwin/xcrypto < github.com/microsoft/go-crypto-darwin/bbig;
  	math/big, github.com/microsoft/go-crypto-winnative/cng < github.com/microsoft/go-crypto-winnative/cng/bbig;
  
@@ -6089,7 +6052,16 @@ index 78e9561b7b599a..e475b7fabb0eb7 100644
  	< crypto/ecdsa
  	< CRYPTO-MATH;
  
-@@ -664,7 +734,8 @@ var depsRules = `
+@@ -658,13 +727,15 @@ var depsRules = `
+ 	< golang.org/x/crypto/internal/subtle
+ 	< golang.org/x/crypto/chacha20
+ 	< golang.org/x/crypto/internal/poly1305
+-	< golang.org/x/crypto/chacha20poly1305;
++	< golang.org/x/crypto/chacha20poly1305
++	< github.com/microsoft/go/cryptobackend/chacha20poly1305;
+ 
+-	CRYPTO-MATH, golang.org/x/crypto/chacha20poly1305
++	CRYPTO-MATH, github.com/microsoft/go/cryptobackend/chacha20poly1305
  	< crypto/hpke;
  
  	CRYPTO-MATH, NET, container/list, encoding/hex, encoding/pem, crypto/hpke,
