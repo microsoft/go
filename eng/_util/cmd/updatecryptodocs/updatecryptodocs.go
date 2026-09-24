@@ -256,7 +256,7 @@ func printTable(w io.Writer, section Section) {
 				symbol = "N/A"
 			default:
 				// Should not happen due to prior validation
-				panic(fmt.Sprintf("unexpected status %q", status.Supported))
+				panic(fmt.Sprintf("unexpected status %d", status.Supported))
 			}
 
 			statusNotes := status.Notes
@@ -375,7 +375,7 @@ func validateSection(section Section) error {
 			case Supported, NotSupported, Warn, N_A:
 				// ok
 			default:
-				return fmt.Errorf("invalid supported status %q for item %q on platform %q", status.Supported, item.Name, p)
+				return fmt.Errorf("invalid supported status %d for item %q on platform %q", status.Supported, item.Name, p)
 			}
 		}
 
