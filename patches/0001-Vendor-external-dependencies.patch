@@ -296,10 +296,10 @@ Use a 'go' that was recently built by the current branch to ensure stable result
  .../go/cryptobackend/bbig/big_openssl.go      |   12 +
  .../go/cryptobackend/bbig/big_windows.go      |   12 +
  .../microsoft/go/cryptobackend/bbig/init.go   |    7 +
+ .../chacha20poly1305/chacha20poly1305.go      |   28 +
  .../chacha20poly1305_darwin.go                |   24 +
  .../chacha20poly1305_openssl.go               |   24 +
  .../chacha20poly1305_windows.go               |   24 +
- .../go/cryptobackend/chacha20poly1305/init.go |    7 +
  .../chacha20poly1305/nobackend.go             |   13 +
  .../microsoft/go/cryptobackend/common.go      |   47 +
  .../go/cryptobackend/des/des_darwin.go        |   21 +
@@ -446,7 +446,7 @@ Use a 'go' that was recently built by the current branch to ensure stable result
  .../go/cryptobackend/tls13/tls13_openssl.go   |   18 +
  .../go/cryptobackend/tls13/tls13_windows.go   |   14 +
  src/vendor/modules.txt                        |   54 +
- 438 files changed, 41048 insertions(+), 7 deletions(-)
+ 438 files changed, 41069 insertions(+), 7 deletions(-)
  create mode 100644 src/cmd/internal/telemetry/counter/deps_ignore.go
  create mode 100644 src/cmd/vendor/github.com/microsoft/go-infra/telemetry/LICENSE
  create mode 100644 src/cmd/vendor/github.com/microsoft/go-infra/telemetry/README.md
@@ -728,10 +728,10 @@ Use a 'go' that was recently built by the current branch to ensure stable result
  create mode 100644 src/vendor/github.com/microsoft/go/cryptobackend/bbig/big_openssl.go
  create mode 100644 src/vendor/github.com/microsoft/go/cryptobackend/bbig/big_windows.go
  create mode 100644 src/vendor/github.com/microsoft/go/cryptobackend/bbig/init.go
+ create mode 100644 src/vendor/github.com/microsoft/go/cryptobackend/chacha20poly1305/chacha20poly1305.go
  create mode 100644 src/vendor/github.com/microsoft/go/cryptobackend/chacha20poly1305/chacha20poly1305_darwin.go
  create mode 100644 src/vendor/github.com/microsoft/go/cryptobackend/chacha20poly1305/chacha20poly1305_openssl.go
  create mode 100644 src/vendor/github.com/microsoft/go/cryptobackend/chacha20poly1305/chacha20poly1305_windows.go
- create mode 100644 src/vendor/github.com/microsoft/go/cryptobackend/chacha20poly1305/init.go
  create mode 100644 src/vendor/github.com/microsoft/go/cryptobackend/chacha20poly1305/nobackend.go
  create mode 100644 src/vendor/github.com/microsoft/go/cryptobackend/common.go
  create mode 100644 src/vendor/github.com/microsoft/go/cryptobackend/des/des_darwin.go
@@ -41543,9 +41543,43 @@ index 00000000000000..35fb416a0b6981
 +package bbig
 +
 +import _ "github.com/microsoft/go/cryptobackend"
+diff --git a/src/vendor/github.com/microsoft/go/cryptobackend/chacha20poly1305/chacha20poly1305.go b/src/vendor/github.com/microsoft/go/cryptobackend/chacha20poly1305/chacha20poly1305.go
+new file mode 100644
+index 00000000000000..8f3e1a2b5f3528
+--- /dev/null
++++ b/src/vendor/github.com/microsoft/go/cryptobackend/chacha20poly1305/chacha20poly1305.go
+@@ -0,0 +1,28 @@
++// Copyright 2026 The Go Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style
++// license that can be found in the LICENSE file.
++
++package chacha20poly1305
++
++import (
++	"crypto/cipher"
++
++	"github.com/microsoft/go/cryptobackend"
++	fallback "golang.org/x/crypto/chacha20poly1305"
++)
++
++const (
++	// KeySize is the size of the key used by this AEAD, in bytes.
++	KeySize = fallback.KeySize
++
++	// NonceSize is the size of the nonce used by this AEAD, in bytes.
++	NonceSize = fallback.NonceSize
++)
++
++// New returns a ChaCha20-Poly1305 AEAD that uses the given 256-bit key.
++func New(key []byte) (cipher.AEAD, error) {
++	if backend.Enabled && Supports() {
++		return newBackend(key)
++	}
++	return fallback.New(key)
++}
 diff --git a/src/vendor/github.com/microsoft/go/cryptobackend/chacha20poly1305/chacha20poly1305_darwin.go b/src/vendor/github.com/microsoft/go/cryptobackend/chacha20poly1305/chacha20poly1305_darwin.go
 new file mode 100644
-index 00000000000000..0ce838f9a5f7d3
+index 00000000000000..b0365f75e3826d
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go/cryptobackend/chacha20poly1305/chacha20poly1305_darwin.go
 @@ -0,0 +1,24 @@
@@ -41567,7 +41601,7 @@ index 00000000000000..0ce838f9a5f7d3
 +
 +func Supports() bool { return true }
 +
-+func New(key []byte) (cipher.AEAD, error) {
++func newBackend(key []byte) (cipher.AEAD, error) {
 +	if fips140.Enforced() {
 +		return nil, errors.New("chacha20poly1305: use of ChaCha20Poly1305 is not allowed in FIPS 140-only mode")
 +	}
@@ -41575,7 +41609,7 @@ index 00000000000000..0ce838f9a5f7d3
 +}
 diff --git a/src/vendor/github.com/microsoft/go/cryptobackend/chacha20poly1305/chacha20poly1305_openssl.go b/src/vendor/github.com/microsoft/go/cryptobackend/chacha20poly1305/chacha20poly1305_openssl.go
 new file mode 100644
-index 00000000000000..6002a4a8121bd8
+index 00000000000000..26d2de8fbf25e7
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go/cryptobackend/chacha20poly1305/chacha20poly1305_openssl.go
 @@ -0,0 +1,24 @@
@@ -41597,7 +41631,7 @@ index 00000000000000..6002a4a8121bd8
 +
 +func Supports() bool { return openssl.SupportsChaCha20Poly1305() }
 +
-+func New(key []byte) (cipher.AEAD, error) {
++func newBackend(key []byte) (cipher.AEAD, error) {
 +	if fips140.Enforced() {
 +		return nil, errors.New("chacha20poly1305: use of ChaCha20Poly1305 is not allowed in FIPS 140-only mode")
 +	}
@@ -41605,7 +41639,7 @@ index 00000000000000..6002a4a8121bd8
 +}
 diff --git a/src/vendor/github.com/microsoft/go/cryptobackend/chacha20poly1305/chacha20poly1305_windows.go b/src/vendor/github.com/microsoft/go/cryptobackend/chacha20poly1305/chacha20poly1305_windows.go
 new file mode 100644
-index 00000000000000..06911c728d8fb0
+index 00000000000000..3ee122ff72642b
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go/cryptobackend/chacha20poly1305/chacha20poly1305_windows.go
 @@ -0,0 +1,24 @@
@@ -41627,28 +41661,15 @@ index 00000000000000..06911c728d8fb0
 +
 +func Supports() bool { return cng.SupportsChaCha20Poly1305() }
 +
-+func New(key []byte) (cipher.AEAD, error) {
++func newBackend(key []byte) (cipher.AEAD, error) {
 +	if fips140.Enforced() {
 +		return nil, errors.New("chacha20poly1305: use of ChaCha20Poly1305 is not allowed in FIPS 140-only mode")
 +	}
 +	return cng.NewChaCha20Poly1305(key)
 +}
-diff --git a/src/vendor/github.com/microsoft/go/cryptobackend/chacha20poly1305/init.go b/src/vendor/github.com/microsoft/go/cryptobackend/chacha20poly1305/init.go
-new file mode 100644
-index 00000000000000..d29ea00af78056
---- /dev/null
-+++ b/src/vendor/github.com/microsoft/go/cryptobackend/chacha20poly1305/init.go
-@@ -0,0 +1,7 @@
-+// Copyright 2026 The Go Authors. All rights reserved.
-+// Use of this source code is governed by a BSD-style
-+// license that can be found in the LICENSE file.
-+
-+package chacha20poly1305
-+
-+import _ "github.com/microsoft/go/cryptobackend"
 diff --git a/src/vendor/github.com/microsoft/go/cryptobackend/chacha20poly1305/nobackend.go b/src/vendor/github.com/microsoft/go/cryptobackend/chacha20poly1305/nobackend.go
 new file mode 100644
-index 00000000000000..ef029383dfac21
+index 00000000000000..470652f3b5aae0
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go/cryptobackend/chacha20poly1305/nobackend.go
 @@ -0,0 +1,13 @@
@@ -41664,7 +41685,7 @@ index 00000000000000..ef029383dfac21
 +
 +func Supports() bool { return false }
 +
-+func New(key []byte) (cipher.AEAD, error) { panic("cryptobackend: not available") }
++func newBackend(key []byte) (cipher.AEAD, error) { panic("cryptobackend: not available") }
 diff --git a/src/vendor/github.com/microsoft/go/cryptobackend/common.go b/src/vendor/github.com/microsoft/go/cryptobackend/common.go
 new file mode 100644
 index 00000000000000..fc38aa225ef25e

@@ -16,7 +16,7 @@ import (
 
 func Supports() bool { return cng.SupportsChaCha20Poly1305() }
 
-func New(key []byte) (cipher.AEAD, error) {
+func newBackend(key []byte) (cipher.AEAD, error) {
 	if fips140.Enforced() {
 		return nil, errors.New("chacha20poly1305: use of ChaCha20Poly1305 is not allowed in FIPS 140-only mode")
 	}
