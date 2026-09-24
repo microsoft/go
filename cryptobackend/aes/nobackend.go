@@ -8,4 +8,4 @@ package aes
 
 import "crypto/cipher"
 
-func New(key []byte) (cipher.Block, error) { panic("cryptobackend: not available") }
+func newBackendCipher(key []byte) (cipher.Block, error) { panic("cryptobackend: not available") }

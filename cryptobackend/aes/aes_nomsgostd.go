@@ -2,6 +2,12 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
+//go:build !msgostd && !cmd_go_bootstrap
+
 package aes
 
-import _ "github.com/microsoft/go/cryptobackend"
+import "crypto/cipher"
+
+func newFallback(key []byte) (cipher.Block, error) {
+	panic("cryptobackend: not available")
+}
