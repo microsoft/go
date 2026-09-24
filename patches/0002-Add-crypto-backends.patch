@@ -74,9 +74,9 @@ Subject: [PATCH] Add crypto backends
  src/crypto/internal/cryptotest/fips140.go     |   8 +
  src/crypto/internal/cryptotest/hash.go        |   3 +-
  .../internal/cryptotest/implementations.go    |   2 +-
- src/crypto/internal/fips140hash/hash.go       |  12 +-
+ src/crypto/internal/fips140hash/hash.go       |  16 +-
  .../internal/fips140only/fips140only.go       |  11 +-
- .../internal/fips140only/fips140only_test.go  |  20 +-
+ .../internal/fips140only/fips140only_test.go  |  27 +-
  src/crypto/internal/fips140test/acvp_test.go  |   6 +
  src/crypto/internal/fips140test/cast_test.go  |   2 +
  src/crypto/internal/fips140test/fips_test.go  |   3 +-
@@ -102,8 +102,8 @@ Subject: [PATCH] Add crypto backends
  src/crypto/rsa/pss_test.go                    |  14 +-
  src/crypto/rsa/rsa.go                         |  44 +--
  src/crypto/rsa/rsa_test.go                    |   7 +-
- src/crypto/sha1/sha1.go                       |  15 +-
- src/crypto/sha1/sha1_test.go                  |  11 +-
+ src/crypto/sha1/sha1.go                       |  13 +-
+ src/crypto/sha1/sha1_test.go                  |  14 +-
  src/crypto/sha256/sha256.go                   |  15 +-
  src/crypto/sha256/sha256_test.go              |  42 ++-
  src/crypto/sha3/sha3.go                       |  36 +--
@@ -114,7 +114,7 @@ Subject: [PATCH] Add crypto backends
  src/crypto/systemcrypto_nocgo_linux.go        |  18 ++
  src/crypto/tls/bogo_shim_test.go              |  16 +-
  src/crypto/tls/certificates_generator_test.go |   4 +
- src/crypto/tls/cipher_suites.go               |   9 +-
+ src/crypto/tls/cipher_suites.go               |  16 +-
  src/crypto/tls/fipsonly/fipsonly.go           |   2 +-
  src/crypto/tls/fipsonly/fipsonly_test.go      |   2 +-
  src/crypto/tls/handshake_client.go            |  18 +-
@@ -143,7 +143,7 @@ Subject: [PATCH] Add crypto backends
  src/os/exec/exec_test.go                      |   9 +
  src/runtime/runtime_boring.go                 |   5 +
  src/syscall/syscall_windows.go                |   3 +
- 139 files changed, 2413 insertions(+), 391 deletions(-)
+ 139 files changed, 2429 insertions(+), 394 deletions(-)
  create mode 100644 src/cmd/go/systemcrypto_test.go
  create mode 100644 src/crypto/dsa/boring.go
  create mode 100644 src/crypto/dsa/notboring.go
@@ -2915,10 +2915,10 @@ index 2b6cf4b75fc6b7..563452ea4c6ed0 100644
  	"internal/goos"
  	"internal/testenv"
 diff --git a/src/crypto/internal/fips140hash/hash.go b/src/crypto/internal/fips140hash/hash.go
-index 6d67ee8b3429a1..2d1680cee21f5b 100644
+index 6d67ee8b3429a1..67e7a76a2602b2 100644
 --- a/src/crypto/internal/fips140hash/hash.go
 +++ b/src/crypto/internal/fips140hash/hash.go
-@@ -5,14 +5,16 @@
+@@ -5,14 +5,17 @@
  package fips140hash
  
  import (
@@ -2927,6 +2927,7 @@ index 6d67ee8b3429a1..2d1680cee21f5b 100644
  	"hash"
  	_ "unsafe"
 +
++	bsha1 "github.com/microsoft/go/cryptobackend/sha1"
 +	bsha256 "github.com/microsoft/go/cryptobackend/sha256"
 +	bsha512 "github.com/microsoft/go/cryptobackend/sha512"
  )
@@ -2937,10 +2938,13 @@ index 6d67ee8b3429a1..2d1680cee21f5b 100644
  
  // Unwrap returns h, or a crypto/internal/fips140 inner implementation of h.
  //
-@@ -21,6 +23,12 @@ func sha3Unwrap(*sha3.SHA3) *fsha3.Digest
+@@ -21,6 +24,15 @@ func sha3Unwrap(*sha3.SHA3) *fsha3.Digest
  // [crypto/internal/fips140/sha512.Digest], or
  // [crypto/internal/fips140/sha3.Digest] if it is a FIPS 140-3 approved hash.
  func Unwrap(h hash.Hash) hash.Hash {
++	if sha1, ok := h.(*bsha1.Hash); ok {
++		return bsha1.Unwrap(sha1)
++	}
 +	if sha256, ok := h.(*bsha256.Hash); ok {
 +		return bsha256.Unwrap(sha256)
 +	}
@@ -2976,7 +2980,7 @@ index a8d840b17022cc..2a17f7da2d4aaa 100644
 +	return false
  }
 diff --git a/src/crypto/internal/fips140only/fips140only_test.go b/src/crypto/internal/fips140only/fips140only_test.go
-index a940fb2a3a0010..c5ec16cfb2885d 100644
+index a940fb2a3a0010..07d93719abbbe6 100644
 --- a/src/crypto/internal/fips140only/fips140only_test.go
 +++ b/src/crypto/internal/fips140only/fips140only_test.go
 @@ -38,9 +38,12 @@ import (
@@ -3006,7 +3010,21 @@ index a940fb2a3a0010..c5ec16cfb2885d 100644
  	expectPanic(t, func() { cipher.NewCTR(notAESBlock, iv) })
  
  	expectPanic(t, func() { cipher.NewOFB(aesBlock, iv) })
-@@ -306,10 +314,12 @@ bXVL8iKLrG91IYQByUHZIn3WVAd2bfi4MfKagRt0ggd4
+@@ -105,6 +113,13 @@ func testFIPS140Only(t *testing.T) {
+ 
+ 	expectPanic(t, func() { sha1.New().Sum(nil) })
+ 	expectErr(t, errRet2(sha1.New().Write(make([]byte, 16))))
++	expectErr(t, errRet2(io.WriteString(sha1.New(), "foo")))
++	if h, ok := sha1.New().(io.ByteWriter); ok {
++		expectErr(t, h.WriteByte(0))
++	}
++	if h, ok := sha1.New().(interface{ ConstantTimeSum([]byte) []byte }); ok {
++		expectPanic(t, func() { h.ConstantTimeSum(nil) })
++	}
+ 	expectPanic(t, func() { sha1.Sum([]byte("foo")) })
+ 
+ 	withApprovedHash(func(h crypto.Hash) { h.New().Sum(nil) })
+@@ -306,10 +321,12 @@ bXVL8iKLrG91IYQByUHZIn3WVAd2bfi4MfKagRt0ggd4
  	expectErr(t, errRet2(hpke.Seal(hpkeK.PublicKey(), hpke.HKDFSHA256(), hpke.ChaCha20Poly1305(), nil, nil)))
  	expectErr(t, errRet2(hpke.Open(hpkeK, hpke.HKDFSHA256(), hpke.ChaCha20Poly1305(), nil, make([]byte, 2000))))
  
@@ -4812,7 +4830,7 @@ index cdcd6db86469a8..82995dc0fb9578 100644
  	msg := []byte("hi!")
  	enc, err := EncryptPKCS1v15(rand.Reader, &priv.PublicKey, msg)
 diff --git a/src/crypto/sha1/sha1.go b/src/crypto/sha1/sha1.go
-index df53d39a72d5b7..627a580f1125a5 100644
+index df53d39a72d5b7..03e917e462cc46 100644
 --- a/src/crypto/sha1/sha1.go
 +++ b/src/crypto/sha1/sha1.go
 @@ -10,11 +10,13 @@ package sha1
@@ -4830,13 +4848,11 @@ index df53d39a72d5b7..627a580f1125a5 100644
  )
  
  func init() {
-@@ -118,8 +120,8 @@ func (d *digest) Reset() {
- // [encoding.BinaryUnmarshaler] to marshal and unmarshal the internal
+@@ -119,7 +121,7 @@ func (d *digest) Reset() {
  // state of the hash.
  func New() hash.Hash {
--	if boring.Enabled {
+ 	if boring.Enabled {
 -		return boring.NewSHA1()
-+	if boring.Enabled && !fips140only.Enforced() {
 +		return bsha1.New()
  	}
  	d := new(digest)
@@ -4866,23 +4882,32 @@ index df53d39a72d5b7..627a580f1125a5 100644
  	d.Reset()
  	d.Write(data)
 diff --git a/src/crypto/sha1/sha1_test.go b/src/crypto/sha1/sha1_test.go
-index 745dce5c9ff158..18a632f882c3e5 100644
+index 745dce5c9ff158..e75dabb589cb96 100644
 --- a/src/crypto/sha1/sha1_test.go
 +++ b/src/crypto/sha1/sha1_test.go
-@@ -8,10 +8,11 @@ package sha1
- 
- import (
- 	"bytes"
--	"crypto/internal/boring"
+@@ -11,6 +11,7 @@ import (
+ 	"crypto/internal/boring"
  	"crypto/internal/cryptotest"
  	"encoding"
 +	"errors"
  	"fmt"
-+	boring "github.com/microsoft/go/cryptobackend"
  	"hash"
  	"io"
- 	"runtime"
-@@ -115,6 +116,9 @@ func testGoldenMarshal(t *testing.T) {
+@@ -87,10 +88,11 @@ func testGolden(t *testing.T) {
+ 				if boring.Enabled {
+ 					continue
+ 				}
++				ct := c.(interface{ ConstantTimeSum([]byte) []byte })
+ 				io.WriteString(c, g.in[:len(g.in)/2])
+-				c.(*digest).ConstantTimeSum(nil)
++				ct.ConstantTimeSum(nil)
+ 				io.WriteString(c, g.in[len(g.in)/2:])
+-				sum = c.(*digest).ConstantTimeSum(nil)
++				sum = ct.ConstantTimeSum(nil)
+ 			}
+ 			s := fmt.Sprintf("%x", sum)
+ 			if s != g.out {
+@@ -115,6 +117,9 @@ func testGoldenMarshal(t *testing.T) {
  
  		state, err := h.(encoding.BinaryMarshaler).MarshalBinary()
  		if err != nil {
@@ -4892,7 +4917,7 @@ index 745dce5c9ff158..18a632f882c3e5 100644
  			t.Errorf("could not marshal: %v", err)
  			continue
  		}
-@@ -207,6 +211,9 @@ func testLargeHashes(t *testing.T) {
+@@ -207,6 +212,9 @@ func testLargeHashes(t *testing.T) {
  	for i, test := range largeUnmarshalTests {
  		h := New()
  		if err := h.(encoding.BinaryUnmarshaler).UnmarshalBinary([]byte(test.state)); err != nil {
@@ -4902,7 +4927,7 @@ index 745dce5c9ff158..18a632f882c3e5 100644
  			t.Errorf("test %d could not unmarshal: %v", i, err)
  			continue
  		}
-@@ -247,7 +254,7 @@ func TestSHA1Hash(t *testing.T) {
+@@ -247,7 +255,7 @@ func TestSHA1Hash(t *testing.T) {
  func TestExtraMethods(t *testing.T) {
  	h := maybeCloner(New())
  	cryptotest.NoExtraMethods(t, &h, "ConstantTimeSum",
@@ -5527,46 +5552,48 @@ index 02c8f905e67f9e..9a456c72c11c2a 100644
  	// The RSA key generation algorithm changed after Go 1.26.0.
  	icryptotest.MustMinimumFIPS140ModuleVersion(t, "v1.28.0")
 diff --git a/src/crypto/tls/cipher_suites.go b/src/crypto/tls/cipher_suites.go
-index 1952be64fa952c..3187e63f45fef3 100644
+index 1952be64fa952c..67776254348da2 100644
 --- a/src/crypto/tls/cipher_suites.go
 +++ b/src/crypto/tls/cipher_suites.go
-@@ -10,7 +10,6 @@ import (
- 	"crypto/cipher"
- 	"crypto/des"
- 	"crypto/hmac"
--	"crypto/internal/boring"
- 	fipsaes "crypto/internal/fips140/aes"
- 	"crypto/internal/fips140/aes/gcm"
- 	"crypto/rc4"
-@@ -23,7 +22,9 @@ import (
+@@ -23,7 +23,9 @@ import (
  	"runtime"
  	_ "unsafe" // for linkname
  
 -	"golang.org/x/crypto/chacha20poly1305"
-+	boring "github.com/microsoft/go/cryptobackend"
++	cryptobackend "github.com/microsoft/go/cryptobackend"
 +	bgcm "github.com/microsoft/go/cryptobackend/aes/gcm"
 +	"github.com/microsoft/go/cryptobackend/chacha20poly1305"
  )
  
  // CipherSuite is a TLS cipher suite. Note that most functions in this package
-@@ -516,7 +517,7 @@ func aeadAESGCM(key, noncePrefix []byte) aead {
+@@ -515,10 +517,10 @@ func aeadAESGCM(key, noncePrefix []byte) aead {
+ 		panic(err)
  	}
  	var aead cipher.AEAD
- 	if boring.Enabled {
+-	if boring.Enabled {
 -		aead, err = boring.NewGCMTLS(aes)
++	if cryptobackend.Enabled {
 +		aead, err = bgcm.NewTLS(aes)
  	} else {
- 		boring.Unreachable()
+-		boring.Unreachable()
++		cryptobackend.Unreachable()
  		aead, err = gcm.NewGCMForTLS12(aes.(*fipsaes.Block))
-@@ -550,7 +551,7 @@ func aeadAESGCMTLS13(key, nonceMask []byte) aead {
+ 	}
+ 	if err != nil {
+@@ -549,10 +551,10 @@ func aeadAESGCMTLS13(key, nonceMask []byte) aead {
+ 		panic(err)
  	}
  	var aead cipher.AEAD
- 	if boring.Enabled {
+-	if boring.Enabled {
 -		aead, err = boring.NewGCMTLS13(aes)
++	if cryptobackend.Enabled {
 +		aead, err = bgcm.NewTLS13(aes)
  	} else {
- 		boring.Unreachable()
+-		boring.Unreachable()
++		cryptobackend.Unreachable()
  		aead, err = gcm.NewGCMForTLS13(aes.(*fipsaes.Block))
+ 	}
+ 	if err != nil {
 diff --git a/src/crypto/tls/fipsonly/fipsonly.go b/src/crypto/tls/fipsonly/fipsonly.go
 index e702f44e986746..e506a0d8841237 100644
 --- a/src/crypto/tls/fipsonly/fipsonly.go
