@@ -13,7 +13,7 @@ Subject: [PATCH] Add crypto backends
  src/cmd/dist/buildtool.go                     |   1 +
  src/cmd/dist/test.go                          |  46 ++-
  src/cmd/go/alldocs.go                         |   3 +
- src/cmd/go/go_boring_test.go                  |   6 +-
+ src/cmd/go/go_boring_test.go                  |   2 +-
  src/cmd/go/go_test.go                         |  11 +
  src/cmd/go/internal/cfg/cfg.go                |  32 +-
  src/cmd/go/internal/envcmd/env.go             |   3 +-
@@ -143,7 +143,7 @@ Subject: [PATCH] Add crypto backends
  src/os/exec/exec_test.go                      |   9 +
  src/runtime/runtime_boring.go                 |   5 +
  src/syscall/syscall_windows.go                |   3 +
- 139 files changed, 2435 insertions(+), 394 deletions(-)
+ 139 files changed, 2432 insertions(+), 393 deletions(-)
  create mode 100644 src/cmd/go/systemcrypto_test.go
  create mode 100644 src/crypto/dsa/boring.go
  create mode 100644 src/crypto/dsa/notboring.go
@@ -246,7 +246,7 @@ index 9ec997a138f0f2..09c4e7955ec162 100644
  	testing.Verbose()
  
 diff --git a/src/cmd/dist/build.go b/src/cmd/dist/build.go
-index ac5538c6f86cf2..a91bb74a4467e0 100644
+index ae97882d574eb7..8b7742f0ae42e0 100644
 --- a/src/cmd/dist/build.go
 +++ b/src/cmd/dist/build.go
 @@ -894,6 +894,68 @@ func toolenv() []string {
@@ -318,19 +318,19 @@ index ac5538c6f86cf2..a91bb74a4467e0 100644
  	return env
  }
  
-@@ -1123,7 +1185,10 @@ func cmdbootstrap() {
- 		goInstall(toolenv(), goBootstrap, append([]string{"-a"}, toolsToInstall...)...)
+@@ -1141,7 +1203,10 @@ func cmdbootstrap() {
  	}
  
+ 	staleSpan := startSpan("staleness checks")
 +	goInstall(toolenvMicrosoft(nil), goBootstrap, "std")
 +	checkNotStale(toolenvMicrosoft(nil), goBootstrap, "std")
  	checkNotStale(toolenv(), goBootstrap, toolsToInstall...)
 +	checkNotStale(toolenvMicrosoft(nil), gorootBinGo, "std")
  	checkNotStale(toolenv(), gorootBinGo, toolsToInstall...)
+ 	staleSpan.done()
  	if debug {
- 		run("", ShowOutput|CheckExit, pathf("%s/compile", tooldir), "-V=full")
 diff --git a/src/cmd/dist/buildtool.go b/src/cmd/dist/buildtool.go
-index 8498794c23fd09..28ddba4ad0eec7 100644
+index a060a98b00cdde..b8ac66098711a4 100644
 --- a/src/cmd/dist/buildtool.go
 +++ b/src/cmd/dist/buildtool.go
 @@ -162,6 +162,7 @@ var bootstrapDirs = []string{
@@ -342,7 +342,7 @@ index 8498794c23fd09..28ddba4ad0eec7 100644
  	"internal/types/errors",
  	"internal/unsafeheader",
 diff --git a/src/cmd/dist/test.go b/src/cmd/dist/test.go
-index da2ebaabe5c82a..51be08668fb0ff 100644
+index aa07a75bd5669e..19ffa799c1be79 100644
 --- a/src/cmd/dist/test.go
 +++ b/src/cmd/dist/test.go
 @@ -158,10 +158,12 @@ func (t *tester) run() {
@@ -459,10 +459,10 @@ index 8f4a9229e83d86..5bb384cf3c396b 100644
  // Additional information available from 'go env' but not read from the environment:
  //
 diff --git a/src/cmd/go/go_boring_test.go b/src/cmd/go/go_boring_test.go
-index ed0fbf3d53d75b..a2f74c8095d449 100644
+index c7acc7dd0b9849..8f94ea4b7dd4b6 100644
 --- a/src/cmd/go/go_boring_test.go
 +++ b/src/cmd/go/go_boring_test.go
-@@ -2,11 +2,13 @@
+@@ -2,7 +2,7 @@
  // Use of this source code is governed by a BSD-style
  // license that can be found in the LICENSE file.
  
@@ -471,13 +471,6 @@ index ed0fbf3d53d75b..a2f74c8095d449 100644
  
  package main_test
  
--import "testing"
-+import (
-+	"testing"
-+)
- 
- func TestBoringInternalLink(t *testing.T) {
- 	tg := testgo(t)
 diff --git a/src/cmd/go/go_test.go b/src/cmd/go/go_test.go
 index 4caea619a35a73..100f5ada1aff48 100644
 --- a/src/cmd/go/go_test.go
@@ -5955,7 +5948,7 @@ index 00000000000000..ffb835ce34a2f7
 +	}
 +}
 diff --git a/src/go/build/deps_test.go b/src/go/build/deps_test.go
-index 6df896887c93f9..1bbc07c0d6467a 100644
+index 78e9561b7b599a..e475b7fabb0eb7 100644
 --- a/src/go/build/deps_test.go
 +++ b/src/go/build/deps_test.go
 @@ -377,8 +377,10 @@ var depsRules = `
