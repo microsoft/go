@@ -8,3 +8,5 @@ require (
 	github.com/microsoft/go-crypto-winnative v0.0.0-20260605073512-713d2add0825
 	golang.org/x/crypto v0.57.0
 )
+
+require golang.org/x/sys v0.48.0 // indirect
