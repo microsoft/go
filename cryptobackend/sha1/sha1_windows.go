@@ -12,6 +12,8 @@ import (
 	"github.com/microsoft/go-crypto-winnative/cng"
 )
 
-func New() hash.Hash { return cng.NewSHA1() }
+type backendHash = cng.Hash
+
+func New() hash.Hash { return &Hash{cng.NewSHA1()} }
 
 func Sum(data []byte) [20]byte { return cng.SHA1(data) }
