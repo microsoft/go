@@ -12,6 +12,8 @@ import (
 	"github.com/microsoft/go-crypto-openssl/openssl"
 )
 
-func New() hash.Hash { return openssl.NewSHA1() }
+type backendHash = openssl.Hash
+
+func New() hash.Hash { return &Hash{openssl.NewSHA1()} }
 
 func Sum(data []byte) [20]byte { return openssl.SHA1(data) }

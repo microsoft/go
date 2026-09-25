@@ -12,6 +12,8 @@ import (
 	"github.com/microsoft/go-crypto-darwin/xcrypto"
 )
 
-func New() hash.Hash { return xcrypto.NewSHA1() }
+type backendHash = xcrypto.Hash
+
+func New() hash.Hash { return &Hash{xcrypto.NewSHA1()} }
 
 func Sum(data []byte) [20]byte { return xcrypto.SHA1(data) }
