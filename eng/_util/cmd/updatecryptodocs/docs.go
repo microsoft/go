@@ -4,7 +4,10 @@
 
 package main
 
-import _ "embed"
+import (
+	_ "embed"
+	"strconv"
+)
 
 //go:embed header.md
 var header string
@@ -17,6 +20,21 @@ const (
 	Warn
 	N_A
 )
+
+func (s SupportStatus) String() string {
+	switch s {
+	case Supported:
+		return "supported"
+	case NotSupported:
+		return "not supported"
+	case Warn:
+		return "warn"
+	case N_A:
+		return "n/a"
+	default:
+		return "SupportStatus(" + strconv.Itoa(int(s)) + ")"
+	}
+}
 
 type PlatformStatus struct {
 	Supported    SupportStatus
