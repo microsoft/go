@@ -6,14 +6,6 @@
 
 package drbg
 
-import (
-	"io"
+import "github.com/microsoft/go-crypto-openssl/openssl"
 
-	"github.com/microsoft/go-crypto-openssl/openssl"
-)
-
-func Read(b []byte) {
-	if _, err := io.ReadFull(openssl.RandReader, b); err != nil {
-		panic(err)
-	}
-}
+const randReader = openssl.RandReader

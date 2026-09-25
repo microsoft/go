@@ -6,4 +6,8 @@
 
 package drbg
 
-func Read(b []byte) { panic("cryptobackend: not available") }
+var randReader noRandReader
+
+type noRandReader struct{}
+
+func (noRandReader) Read(b []byte) (int, error) { panic("cryptobackend: not available") }

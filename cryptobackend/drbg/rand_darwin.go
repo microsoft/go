@@ -6,14 +6,6 @@
 
 package drbg
 
-import (
-	"io"
+import "github.com/microsoft/go-crypto-darwin/xcrypto"
 
-	"github.com/microsoft/go-crypto-darwin/xcrypto"
-)
-
-func Read(b []byte) {
-	if _, err := io.ReadFull(xcrypto.RandReader, b); err != nil {
-		panic(err)
-	}
-}
+const randReader = xcrypto.RandReader
