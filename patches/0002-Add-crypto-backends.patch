@@ -80,7 +80,7 @@ Subject: [PATCH] Add crypto backends
  src/crypto/internal/fips140test/acvp_test.go  |   6 +
  src/crypto/internal/fips140test/cast_test.go  |   2 +
  src/crypto/internal/fips140test/fips_test.go  |   3 +-
- src/crypto/internal/rand/rand.go              |   8 +-
+ src/crypto/internal/rand/rand.go              |   3 +-
  src/crypto/md5/md5.go                         |  12 +
  src/crypto/md5/md5_test.go                    |  18 +-
  src/crypto/mldsa/mldsa_fips140v1.26.go        | 181 ++++++++++-
@@ -90,7 +90,7 @@ Subject: [PATCH] Add crypto backends
  src/crypto/pbkdf2/pbkdf2.go                   |   3 +-
  src/crypto/pbkdf2/pbkdf2_test.go              |   6 +-
  src/crypto/purego_test.go                     |   2 +-
- src/crypto/rand/rand.go                       |   6 +-
+ src/crypto/rand/rand.go                       |   3 +-
  src/crypto/rand/rand_test.go                  |   9 +-
  src/crypto/rc4/rc4.go                         |  20 ++
  src/crypto/rsa/boring.go                      |  25 +-
@@ -143,7 +143,7 @@ Subject: [PATCH] Add crypto backends
  src/os/exec/exec_test.go                      |   9 +
  src/runtime/runtime_boring.go                 |   5 +
  src/syscall/syscall_windows.go                |   3 +
- 139 files changed, 2424 insertions(+), 392 deletions(-)
+ 139 files changed, 2420 insertions(+), 388 deletions(-)
  create mode 100644 src/cmd/go/systemcrypto_test.go
  create mode 100644 src/crypto/dsa/boring.go
  create mode 100644 src/crypto/dsa/notboring.go
@@ -3107,36 +3107,23 @@ index 02f9f735ab7e01..6d82571a2f9cd3 100644
  
  func moduleStatus(t *testing.T) {
 diff --git a/src/crypto/internal/rand/rand.go b/src/crypto/internal/rand/rand.go
-index d12cc7586c45cc..1b0ef848bf8f7a 100644
+index d12cc7586c45cc..3c8c64774b9b2c 100644
 --- a/src/crypto/internal/rand/rand.go
 +++ b/src/crypto/internal/rand/rand.go
-@@ -5,12 +5,14 @@
- package rand
+@@ -6,11 +6,12 @@ package rand
  
  import (
--	"crypto/internal/boring"
- 	"crypto/internal/fips140/drbg"
+ 	"crypto/internal/boring"
+-	"crypto/internal/fips140/drbg"
  	"crypto/internal/randutil"
  	"internal/godebug"
  	"io"
  	_ "unsafe"
 +
-+	boring "github.com/microsoft/go/cryptobackend"
-+	bdrbg "github.com/microsoft/go/cryptobackend/drbg"
++	"github.com/microsoft/go/cryptobackend/drbg"
  )
  
  // defaultReader aliases [drbg.DefaultReader], so that [reader]
-@@ -21,9 +23,7 @@ type reader struct{ defaultReader }
- 
- func (r reader) Read(b []byte) (n int, err error) {
- 	if boring.Enabled {
--		if _, err := boring.RandReader.Read(b); err != nil {
--			panic("crypto/rand: boring RandReader failed: " + err.Error())
--		}
-+		bdrbg.Read(b)
- 		return len(b), nil
- 	}
- 	drbg.Read(b)
 diff --git a/src/crypto/md5/md5.go b/src/crypto/md5/md5.go
 index f1287887ff5e25..a6db88d7200e22 100644
 --- a/src/crypto/md5/md5.go
@@ -4031,34 +4018,23 @@ index ebc9110cecee82..aa4aec046795cf 100644
  		}
  
 diff --git a/src/crypto/rand/rand.go b/src/crypto/rand/rand.go
-index 018fe013cef600..17f0ae992c8072 100644
+index 018fe013cef600..729c0d4348a0d6 100644
 --- a/src/crypto/rand/rand.go
 +++ b/src/crypto/rand/rand.go
-@@ -7,12 +7,14 @@
- package rand
+@@ -8,11 +8,12 @@ package rand
  
  import (
--	"crypto/internal/boring"
- 	"crypto/internal/fips140/drbg"
+ 	"crypto/internal/boring"
+-	"crypto/internal/fips140/drbg"
  	"crypto/internal/rand"
  	"io"
  	_ "unsafe"
  
-+	boring "github.com/microsoft/go/cryptobackend"
-+	bdrbg "github.com/microsoft/go/cryptobackend/drbg"
++	"github.com/microsoft/go/cryptobackend/drbg"
 +
  	// Ensure the go:linkname from testing/cryptotest to
  	// crypto/internal/rand.SetTestingReader works.
  	_ "crypto/internal/rand"
-@@ -51,7 +53,7 @@ func Read(b []byte) (n int, err error) {
- 	// a heap buffer and copy from it.
- 	if rand.IsDefaultReader(Reader) {
- 		if boring.Enabled {
--			_, err = io.ReadFull(boring.RandReader, b)
-+			bdrbg.Read(b)
- 		} else {
- 			drbg.Read(b)
- 		}
 diff --git a/src/crypto/rand/rand_test.go b/src/crypto/rand/rand_test.go
 index 596f6d434065fd..e67ec4618acf87 100644
 --- a/src/crypto/rand/rand_test.go

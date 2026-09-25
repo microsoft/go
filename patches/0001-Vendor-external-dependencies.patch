@@ -311,10 +311,13 @@ Use a 'go' that was recently built by the current branch to ensure stable result
  .../microsoft/go/cryptobackend/des/init.go    |    7 +
  .../go/cryptobackend/des/nobackend.go         |   17 +
  .../microsoft/go/cryptobackend/drbg/init.go   |    7 +
- .../go/cryptobackend/drbg/nobackend.go        |    9 +
- .../go/cryptobackend/drbg/rand_darwin.go      |   19 +
- .../go/cryptobackend/drbg/rand_openssl.go     |   19 +
- .../go/cryptobackend/drbg/rand_windows.go     |   19 +
+ .../go/cryptobackend/drbg/nobackend.go        |   13 +
+ .../microsoft/go/cryptobackend/drbg/rand.go   |   22 +
+ .../go/cryptobackend/drbg/rand_darwin.go      |   11 +
+ .../go/cryptobackend/drbg/rand_msgostd.go     |   16 +
+ .../go/cryptobackend/drbg/rand_nomsgostd.go   |   13 +
+ .../go/cryptobackend/drbg/rand_openssl.go     |   11 +
+ .../go/cryptobackend/drbg/rand_windows.go     |   11 +
  .../go/cryptobackend/dsa/dsa_darwin.go        |   25 +
  .../go/cryptobackend/dsa/dsa_openssl.go       |   93 +
  .../go/cryptobackend/dsa/dsa_windows.go       |   37 +
@@ -450,7 +453,7 @@ Use a 'go' that was recently built by the current branch to ensure stable result
  .../go/cryptobackend/tls13/tls13_openssl.go   |   18 +
  .../go/cryptobackend/tls13/tls13_windows.go   |   14 +
  src/vendor/modules.txt                        |   54 +
- 442 files changed, 41236 insertions(+), 7 deletions(-)
+ 445 files changed, 41267 insertions(+), 7 deletions(-)
  create mode 100644 src/cmd/internal/telemetry/counter/deps_ignore.go
  create mode 100644 src/cmd/vendor/github.com/microsoft/go-infra/telemetry/LICENSE
  create mode 100644 src/cmd/vendor/github.com/microsoft/go-infra/telemetry/README.md
@@ -748,7 +751,10 @@ Use a 'go' that was recently built by the current branch to ensure stable result
  create mode 100644 src/vendor/github.com/microsoft/go/cryptobackend/des/nobackend.go
  create mode 100644 src/vendor/github.com/microsoft/go/cryptobackend/drbg/init.go
  create mode 100644 src/vendor/github.com/microsoft/go/cryptobackend/drbg/nobackend.go
+ create mode 100644 src/vendor/github.com/microsoft/go/cryptobackend/drbg/rand.go
  create mode 100644 src/vendor/github.com/microsoft/go/cryptobackend/drbg/rand_darwin.go
+ create mode 100644 src/vendor/github.com/microsoft/go/cryptobackend/drbg/rand_msgostd.go
+ create mode 100644 src/vendor/github.com/microsoft/go/cryptobackend/drbg/rand_nomsgostd.go
  create mode 100644 src/vendor/github.com/microsoft/go/cryptobackend/drbg/rand_openssl.go
  create mode 100644 src/vendor/github.com/microsoft/go/cryptobackend/drbg/rand_windows.go
  create mode 100644 src/vendor/github.com/microsoft/go/cryptobackend/dsa/dsa_darwin.go
@@ -41972,10 +41978,10 @@ index 00000000000000..f65a9f261fc1bc
 +import _ "github.com/microsoft/go/cryptobackend"
 diff --git a/src/vendor/github.com/microsoft/go/cryptobackend/drbg/nobackend.go b/src/vendor/github.com/microsoft/go/cryptobackend/drbg/nobackend.go
 new file mode 100644
-index 00000000000000..9693380c061526
+index 00000000000000..b6a804629c10d1
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go/cryptobackend/drbg/nobackend.go
-@@ -0,0 +1,9 @@
+@@ -0,0 +1,13 @@
 +// Copyright 2024 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -41984,13 +41990,45 @@ index 00000000000000..9693380c061526
 +
 +package drbg
 +
-+func Read(b []byte) { panic("cryptobackend: not available") }
++var randReader noRandReader
++
++type noRandReader struct{}
++
++func (noRandReader) Read(b []byte) (int, error) { panic("cryptobackend: not available") }
+diff --git a/src/vendor/github.com/microsoft/go/cryptobackend/drbg/rand.go b/src/vendor/github.com/microsoft/go/cryptobackend/drbg/rand.go
+new file mode 100644
+index 00000000000000..ef3ee6da87c492
+--- /dev/null
++++ b/src/vendor/github.com/microsoft/go/cryptobackend/drbg/rand.go
+@@ -0,0 +1,22 @@
++// Copyright 2026 The Go Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style
++// license that can be found in the LICENSE file.
++
++package drbg
++
++import (
++	"io"
++
++	"github.com/microsoft/go/cryptobackend"
++)
++
++// Read fills b with cryptographically secure random bytes.
++func Read(b []byte) {
++	if backend.Enabled {
++		if _, err := io.ReadFull(randReader, b); err != nil {
++			panic(err)
++		}
++		return
++	}
++	readFallback(b)
++}
 diff --git a/src/vendor/github.com/microsoft/go/cryptobackend/drbg/rand_darwin.go b/src/vendor/github.com/microsoft/go/cryptobackend/drbg/rand_darwin.go
 new file mode 100644
-index 00000000000000..be7f0f574c9486
+index 00000000000000..12d6d82cc928bf
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go/cryptobackend/drbg/rand_darwin.go
-@@ -0,0 +1,19 @@
+@@ -0,0 +1,11 @@
 +// Copyright 2024 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -41999,23 +42037,56 @@ index 00000000000000..be7f0f574c9486
 +
 +package drbg
 +
-+import (
-+	"io"
++import "github.com/microsoft/go-crypto-darwin/xcrypto"
 +
-+	"github.com/microsoft/go-crypto-darwin/xcrypto"
-+)
++const randReader = xcrypto.RandReader
+diff --git a/src/vendor/github.com/microsoft/go/cryptobackend/drbg/rand_msgostd.go b/src/vendor/github.com/microsoft/go/cryptobackend/drbg/rand_msgostd.go
+new file mode 100644
+index 00000000000000..78a4671bab1bf1
+--- /dev/null
++++ b/src/vendor/github.com/microsoft/go/cryptobackend/drbg/rand_msgostd.go
+@@ -0,0 +1,16 @@
++// Copyright 2026 The Go Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style
++// license that can be found in the LICENSE file.
 +
-+func Read(b []byte) {
-+	if _, err := io.ReadFull(xcrypto.RandReader, b); err != nil {
-+		panic(err)
-+	}
++//go:build msgostd || cmd_go_bootstrap
++
++package drbg
++
++import fallback "crypto/internal/fips140/drbg"
++
++// DefaultReader is the sentinel type embedded in the default [crypto/rand.Reader].
++type DefaultReader = fallback.DefaultReader
++
++func readFallback(b []byte) {
++	fallback.Read(b)
++}
+diff --git a/src/vendor/github.com/microsoft/go/cryptobackend/drbg/rand_nomsgostd.go b/src/vendor/github.com/microsoft/go/cryptobackend/drbg/rand_nomsgostd.go
+new file mode 100644
+index 00000000000000..975c63e4bb2bd9
+--- /dev/null
++++ b/src/vendor/github.com/microsoft/go/cryptobackend/drbg/rand_nomsgostd.go
+@@ -0,0 +1,13 @@
++// Copyright 2026 The Go Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style
++// license that can be found in the LICENSE file.
++
++//go:build !msgostd && !cmd_go_bootstrap
++
++package drbg
++
++type DefaultReader struct{}
++
++func readFallback(b []byte) {
++	panic("cryptobackend: not available")
 +}
 diff --git a/src/vendor/github.com/microsoft/go/cryptobackend/drbg/rand_openssl.go b/src/vendor/github.com/microsoft/go/cryptobackend/drbg/rand_openssl.go
 new file mode 100644
-index 00000000000000..2d8be29ec09e75
+index 00000000000000..af6b97a22ba024
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go/cryptobackend/drbg/rand_openssl.go
-@@ -0,0 +1,19 @@
+@@ -0,0 +1,11 @@
 +// Copyright 2024 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -42024,23 +42095,15 @@ index 00000000000000..2d8be29ec09e75
 +
 +package drbg
 +
-+import (
-+	"io"
++import "github.com/microsoft/go-crypto-openssl/openssl"
 +
-+	"github.com/microsoft/go-crypto-openssl/openssl"
-+)
-+
-+func Read(b []byte) {
-+	if _, err := io.ReadFull(openssl.RandReader, b); err != nil {
-+		panic(err)
-+	}
-+}
++const randReader = openssl.RandReader
 diff --git a/src/vendor/github.com/microsoft/go/cryptobackend/drbg/rand_windows.go b/src/vendor/github.com/microsoft/go/cryptobackend/drbg/rand_windows.go
 new file mode 100644
-index 00000000000000..e1e2192cdf5b6d
+index 00000000000000..64fa6ac4d3b30b
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go/cryptobackend/drbg/rand_windows.go
-@@ -0,0 +1,19 @@
+@@ -0,0 +1,11 @@
 +// Copyright 2024 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -42049,17 +42112,9 @@ index 00000000000000..e1e2192cdf5b6d
 +
 +package drbg
 +
-+import (
-+	"io"
++import "github.com/microsoft/go-crypto-winnative/cng"
 +
-+	"github.com/microsoft/go-crypto-winnative/cng"
-+)
-+
-+func Read(b []byte) {
-+	if _, err := io.ReadFull(cng.RandReader, b); err != nil {
-+		panic(err)
-+	}
-+}
++const randReader = cng.RandReader
 diff --git a/src/vendor/github.com/microsoft/go/cryptobackend/dsa/dsa_darwin.go b/src/vendor/github.com/microsoft/go/cryptobackend/dsa/dsa_darwin.go
 new file mode 100644
 index 00000000000000..36db87c344ad67

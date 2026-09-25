@@ -6,14 +6,6 @@
 
 package drbg
 
-import (
-	"io"
+import "github.com/microsoft/go-crypto-winnative/cng"
 
-	"github.com/microsoft/go-crypto-winnative/cng"
-)
-
-func Read(b []byte) {
-	if _, err := io.ReadFull(cng.RandReader, b); err != nil {
-		panic(err)
-	}
-}
+const randReader = cng.RandReader
