@@ -12,6 +12,6 @@ import (
 	"github.com/microsoft/go-crypto-darwin/xcrypto"
 )
 
-func NewTLS(c cipher.Block) (cipher.AEAD, error) { return xcrypto.NewGCMTLS(c) }
+func newBackendTLS12(c cipher.Block) (cipher.AEAD, error) { return xcrypto.NewGCMTLS(c) }
 
-func NewTLS13(c cipher.Block) (cipher.AEAD, error) { return xcrypto.NewGCMTLS13(c) }
+func newBackendTLS13(c cipher.Block) (cipher.AEAD, error) { return xcrypto.NewGCMTLS13(c) }

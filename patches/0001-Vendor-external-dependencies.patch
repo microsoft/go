@@ -281,7 +281,10 @@ Use a 'go' that was recently built by the current branch to ensure stable result
  .../go/cryptobackend/aes/aes_nomsgostd.go     |   13 +
  .../go/cryptobackend/aes/aes_openssl.go       |   15 +
  .../go/cryptobackend/aes/aes_windows.go       |   15 +
+ .../microsoft/go/cryptobackend/aes/gcm/gcm.go |   29 +
  .../go/cryptobackend/aes/gcm/gcm_darwin.go    |   17 +
+ .../go/cryptobackend/aes/gcm/gcm_msgostd.go   |   29 +
+ .../go/cryptobackend/aes/gcm/gcm_nomsgostd.go |   17 +
  .../go/cryptobackend/aes/gcm/gcm_openssl.go   |   17 +
  .../go/cryptobackend/aes/gcm/gcm_windows.go   |   17 +
  .../go/cryptobackend/aes/gcm/init.go          |    7 +
@@ -447,7 +450,7 @@ Use a 'go' that was recently built by the current branch to ensure stable result
  .../go/cryptobackend/tls13/tls13_openssl.go   |   18 +
  .../go/cryptobackend/tls13/tls13_windows.go   |   14 +
  src/vendor/modules.txt                        |   54 +
- 439 files changed, 41161 insertions(+), 7 deletions(-)
+ 442 files changed, 41236 insertions(+), 7 deletions(-)
  create mode 100644 src/cmd/internal/telemetry/counter/deps_ignore.go
  create mode 100644 src/cmd/vendor/github.com/microsoft/go-infra/telemetry/LICENSE
  create mode 100644 src/cmd/vendor/github.com/microsoft/go-infra/telemetry/README.md
@@ -714,7 +717,10 @@ Use a 'go' that was recently built by the current branch to ensure stable result
  create mode 100644 src/vendor/github.com/microsoft/go/cryptobackend/aes/aes_nomsgostd.go
  create mode 100644 src/vendor/github.com/microsoft/go/cryptobackend/aes/aes_openssl.go
  create mode 100644 src/vendor/github.com/microsoft/go/cryptobackend/aes/aes_windows.go
+ create mode 100644 src/vendor/github.com/microsoft/go/cryptobackend/aes/gcm/gcm.go
  create mode 100644 src/vendor/github.com/microsoft/go/cryptobackend/aes/gcm/gcm_darwin.go
+ create mode 100644 src/vendor/github.com/microsoft/go/cryptobackend/aes/gcm/gcm_msgostd.go
+ create mode 100644 src/vendor/github.com/microsoft/go/cryptobackend/aes/gcm/gcm_nomsgostd.go
  create mode 100644 src/vendor/github.com/microsoft/go/cryptobackend/aes/gcm/gcm_openssl.go
  create mode 100644 src/vendor/github.com/microsoft/go/cryptobackend/aes/gcm/gcm_windows.go
  create mode 100644 src/vendor/github.com/microsoft/go/cryptobackend/aes/gcm/init.go
@@ -41216,9 +41222,44 @@ index 00000000000000..5f09d5cd96f4aa
 +)
 +
 +func newBackendCipher(key []byte) (cipher.Block, error) { return cng.NewAESCipher(key) }
+diff --git a/src/vendor/github.com/microsoft/go/cryptobackend/aes/gcm/gcm.go b/src/vendor/github.com/microsoft/go/cryptobackend/aes/gcm/gcm.go
+new file mode 100644
+index 00000000000000..e1be7a50342c44
+--- /dev/null
++++ b/src/vendor/github.com/microsoft/go/cryptobackend/aes/gcm/gcm.go
+@@ -0,0 +1,29 @@
++// Copyright 2026 The Go Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style
++// license that can be found in the LICENSE file.
++
++package gcm
++
++import (
++	"crypto/cipher"
++
++	"github.com/microsoft/go/cryptobackend"
++)
++
++// NewGCMForTLS12 returns an AEAD that enforces the construction of nonces as
++// specified in RFC 5288, Section 3 and RFC 9325, Section 7.2.1.
++func NewGCMForTLS12(c cipher.Block) (cipher.AEAD, error) {
++	if backend.Enabled {
++		return newBackendTLS12(c)
++	}
++	return newFallbackTLS12(c)
++}
++
++// NewGCMForTLS13 returns an AEAD that enforces the construction of nonces as
++// specified in RFC 8446, Section 5.3.
++func NewGCMForTLS13(c cipher.Block) (cipher.AEAD, error) {
++	if backend.Enabled {
++		return newBackendTLS13(c)
++	}
++	return newFallbackTLS13(c)
++}
 diff --git a/src/vendor/github.com/microsoft/go/cryptobackend/aes/gcm/gcm_darwin.go b/src/vendor/github.com/microsoft/go/cryptobackend/aes/gcm/gcm_darwin.go
 new file mode 100644
-index 00000000000000..a05c567366845c
+index 00000000000000..b8b821e3c89ef2
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go/cryptobackend/aes/gcm/gcm_darwin.go
 @@ -0,0 +1,17 @@
@@ -41236,12 +41277,70 @@ index 00000000000000..a05c567366845c
 +	"github.com/microsoft/go-crypto-darwin/xcrypto"
 +)
 +
-+func NewTLS(c cipher.Block) (cipher.AEAD, error) { return xcrypto.NewGCMTLS(c) }
++func newBackendTLS12(c cipher.Block) (cipher.AEAD, error) { return xcrypto.NewGCMTLS(c) }
 +
-+func NewTLS13(c cipher.Block) (cipher.AEAD, error) { return xcrypto.NewGCMTLS13(c) }
++func newBackendTLS13(c cipher.Block) (cipher.AEAD, error) { return xcrypto.NewGCMTLS13(c) }
+diff --git a/src/vendor/github.com/microsoft/go/cryptobackend/aes/gcm/gcm_msgostd.go b/src/vendor/github.com/microsoft/go/cryptobackend/aes/gcm/gcm_msgostd.go
+new file mode 100644
+index 00000000000000..ba63f8f5c2f37e
+--- /dev/null
++++ b/src/vendor/github.com/microsoft/go/cryptobackend/aes/gcm/gcm_msgostd.go
+@@ -0,0 +1,29 @@
++// Copyright 2026 The Go Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style
++// license that can be found in the LICENSE file.
++
++//go:build msgostd || cmd_go_bootstrap
++
++package gcm
++
++import (
++	"crypto/cipher"
++	"crypto/internal/fips140/aes"
++	fallback "crypto/internal/fips140/aes/gcm"
++)
++
++func newFallbackTLS12(c cipher.Block) (cipher.AEAD, error) {
++	aead, err := fallback.NewGCMForTLS12(c.(*aes.Block))
++	if err != nil {
++		return nil, err
++	}
++	return aead, nil
++}
++
++func newFallbackTLS13(c cipher.Block) (cipher.AEAD, error) {
++	aead, err := fallback.NewGCMForTLS13(c.(*aes.Block))
++	if err != nil {
++		return nil, err
++	}
++	return aead, nil
++}
+diff --git a/src/vendor/github.com/microsoft/go/cryptobackend/aes/gcm/gcm_nomsgostd.go b/src/vendor/github.com/microsoft/go/cryptobackend/aes/gcm/gcm_nomsgostd.go
+new file mode 100644
+index 00000000000000..a8d375cda6f0fb
+--- /dev/null
++++ b/src/vendor/github.com/microsoft/go/cryptobackend/aes/gcm/gcm_nomsgostd.go
+@@ -0,0 +1,17 @@
++// Copyright 2026 The Go Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style
++// license that can be found in the LICENSE file.
++
++//go:build !msgostd && !cmd_go_bootstrap
++
++package gcm
++
++import "crypto/cipher"
++
++func newFallbackTLS12(c cipher.Block) (cipher.AEAD, error) {
++	panic("cryptobackend: not available")
++}
++
++func newFallbackTLS13(c cipher.Block) (cipher.AEAD, error) {
++	panic("cryptobackend: not available")
++}
 diff --git a/src/vendor/github.com/microsoft/go/cryptobackend/aes/gcm/gcm_openssl.go b/src/vendor/github.com/microsoft/go/cryptobackend/aes/gcm/gcm_openssl.go
 new file mode 100644
-index 00000000000000..28223eaadfb7b3
+index 00000000000000..2e7b228861a515
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go/cryptobackend/aes/gcm/gcm_openssl.go
 @@ -0,0 +1,17 @@
@@ -41259,12 +41358,12 @@ index 00000000000000..28223eaadfb7b3
 +	"github.com/microsoft/go-crypto-openssl/openssl"
 +)
 +
-+func NewTLS(c cipher.Block) (cipher.AEAD, error) { return openssl.NewGCMTLS(c) }
++func newBackendTLS12(c cipher.Block) (cipher.AEAD, error) { return openssl.NewGCMTLS(c) }
 +
-+func NewTLS13(c cipher.Block) (cipher.AEAD, error) { return openssl.NewGCMTLS13(c) }
++func newBackendTLS13(c cipher.Block) (cipher.AEAD, error) { return openssl.NewGCMTLS13(c) }
 diff --git a/src/vendor/github.com/microsoft/go/cryptobackend/aes/gcm/gcm_windows.go b/src/vendor/github.com/microsoft/go/cryptobackend/aes/gcm/gcm_windows.go
 new file mode 100644
-index 00000000000000..ea35fd5da12c11
+index 00000000000000..72a96a57d31971
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go/cryptobackend/aes/gcm/gcm_windows.go
 @@ -0,0 +1,17 @@
@@ -41282,9 +41381,9 @@ index 00000000000000..ea35fd5da12c11
 +	"github.com/microsoft/go-crypto-winnative/cng"
 +)
 +
-+func NewTLS(c cipher.Block) (cipher.AEAD, error) { return cng.NewGCMTLS(c) }
++func newBackendTLS12(c cipher.Block) (cipher.AEAD, error) { return cng.NewGCMTLS(c) }
 +
-+func NewTLS13(c cipher.Block) (cipher.AEAD, error) { return cng.NewGCMTLS13(c) }
++func newBackendTLS13(c cipher.Block) (cipher.AEAD, error) { return cng.NewGCMTLS13(c) }
 diff --git a/src/vendor/github.com/microsoft/go/cryptobackend/aes/gcm/init.go b/src/vendor/github.com/microsoft/go/cryptobackend/aes/gcm/init.go
 new file mode 100644
 index 00000000000000..d3f35e9ded321c
@@ -41300,7 +41399,7 @@ index 00000000000000..d3f35e9ded321c
 +import _ "github.com/microsoft/go/cryptobackend"
 diff --git a/src/vendor/github.com/microsoft/go/cryptobackend/aes/gcm/nobackend.go b/src/vendor/github.com/microsoft/go/cryptobackend/aes/gcm/nobackend.go
 new file mode 100644
-index 00000000000000..1e899e9cbd9417
+index 00000000000000..10e84bc73a8eee
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go/cryptobackend/aes/gcm/nobackend.go
 @@ -0,0 +1,13 @@
@@ -41314,9 +41413,9 @@ index 00000000000000..1e899e9cbd9417
 +
 +import "crypto/cipher"
 +
-+func NewTLS(c cipher.Block) (cipher.AEAD, error) { panic("cryptobackend: not available") }
++func newBackendTLS12(c cipher.Block) (cipher.AEAD, error) { panic("cryptobackend: not available") }
 +
-+func NewTLS13(c cipher.Block) (cipher.AEAD, error) { panic("cryptobackend: not available") }
++func newBackendTLS13(c cipher.Block) (cipher.AEAD, error) { panic("cryptobackend: not available") }
 diff --git a/src/vendor/github.com/microsoft/go/cryptobackend/aes/nobackend.go b/src/vendor/github.com/microsoft/go/cryptobackend/aes/nobackend.go
 new file mode 100644
 index 00000000000000..1aef4783f498de

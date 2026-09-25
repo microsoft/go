@@ -114,7 +114,7 @@ Subject: [PATCH] Add crypto backends
  src/crypto/systemcrypto_nocgo_linux.go        |  18 ++
  src/crypto/tls/bogo_shim_test.go              |  16 +-
  src/crypto/tls/certificates_generator_test.go |   4 +
- src/crypto/tls/cipher_suites.go               |  16 +-
+ src/crypto/tls/cipher_suites.go               |   9 +-
  src/crypto/tls/fipsonly/fipsonly.go           |   2 +-
  src/crypto/tls/fipsonly/fipsonly_test.go      |   2 +-
  src/crypto/tls/handshake_client.go            |  18 +-
@@ -143,7 +143,7 @@ Subject: [PATCH] Add crypto backends
  src/os/exec/exec_test.go                      |   9 +
  src/runtime/runtime_boring.go                 |   5 +
  src/syscall/syscall_windows.go                |   3 +
- 139 files changed, 2429 insertions(+), 394 deletions(-)
+ 139 files changed, 2424 insertions(+), 392 deletions(-)
  create mode 100644 src/cmd/go/systemcrypto_test.go
  create mode 100644 src/crypto/dsa/boring.go
  create mode 100644 src/crypto/dsa/notboring.go
@@ -5552,48 +5552,46 @@ index 02c8f905e67f9e..9a456c72c11c2a 100644
  	// The RSA key generation algorithm changed after Go 1.26.0.
  	icryptotest.MustMinimumFIPS140ModuleVersion(t, "v1.28.0")
 diff --git a/src/crypto/tls/cipher_suites.go b/src/crypto/tls/cipher_suites.go
-index 1952be64fa952c..67776254348da2 100644
+index 1952be64fa952c..2b582182e565f7 100644
 --- a/src/crypto/tls/cipher_suites.go
 +++ b/src/crypto/tls/cipher_suites.go
-@@ -23,7 +23,9 @@ import (
+@@ -11,8 +11,6 @@ import (
+ 	"crypto/des"
+ 	"crypto/hmac"
+ 	"crypto/internal/boring"
+-	fipsaes "crypto/internal/fips140/aes"
+-	"crypto/internal/fips140/aes/gcm"
+ 	"crypto/rc4"
+ 	"crypto/sha1"
+ 	"crypto/sha256"
+@@ -23,7 +21,8 @@ import (
  	"runtime"
  	_ "unsafe" // for linkname
  
 -	"golang.org/x/crypto/chacha20poly1305"
-+	cryptobackend "github.com/microsoft/go/cryptobackend"
-+	bgcm "github.com/microsoft/go/cryptobackend/aes/gcm"
++	"github.com/microsoft/go/cryptobackend/aes/gcm"
 +	"github.com/microsoft/go/cryptobackend/chacha20poly1305"
  )
  
  // CipherSuite is a TLS cipher suite. Note that most functions in this package
-@@ -515,10 +517,10 @@ func aeadAESGCM(key, noncePrefix []byte) aead {
- 		panic(err)
- 	}
- 	var aead cipher.AEAD
--	if boring.Enabled {
--		aead, err = boring.NewGCMTLS(aes)
-+	if cryptobackend.Enabled {
-+		aead, err = bgcm.NewTLS(aes)
+@@ -519,7 +518,7 @@ func aeadAESGCM(key, noncePrefix []byte) aead {
+ 		aead, err = boring.NewGCMTLS(aes)
  	} else {
--		boring.Unreachable()
-+		cryptobackend.Unreachable()
- 		aead, err = gcm.NewGCMForTLS12(aes.(*fipsaes.Block))
+ 		boring.Unreachable()
+-		aead, err = gcm.NewGCMForTLS12(aes.(*fipsaes.Block))
++		aead, err = gcm.NewGCMForTLS12(aes)
  	}
  	if err != nil {
-@@ -549,10 +551,10 @@ func aeadAESGCMTLS13(key, nonceMask []byte) aead {
  		panic(err)
- 	}
- 	var aead cipher.AEAD
--	if boring.Enabled {
--		aead, err = boring.NewGCMTLS13(aes)
-+	if cryptobackend.Enabled {
-+		aead, err = bgcm.NewTLS13(aes)
+@@ -553,7 +552,7 @@ func aeadAESGCMTLS13(key, nonceMask []byte) aead {
+ 		aead, err = boring.NewGCMTLS13(aes)
  	} else {
--		boring.Unreachable()
-+		cryptobackend.Unreachable()
- 		aead, err = gcm.NewGCMForTLS13(aes.(*fipsaes.Block))
+ 		boring.Unreachable()
+-		aead, err = gcm.NewGCMForTLS13(aes.(*fipsaes.Block))
++		aead, err = gcm.NewGCMForTLS13(aes)
  	}
  	if err != nil {
+ 		panic(err)
 diff --git a/src/crypto/tls/fipsonly/fipsonly.go b/src/crypto/tls/fipsonly/fipsonly.go
 index e702f44e986746..e506a0d8841237 100644
 --- a/src/crypto/tls/fipsonly/fipsonly.go

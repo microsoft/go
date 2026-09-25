@@ -12,6 +12,6 @@ import (
 	"github.com/microsoft/go-crypto-winnative/cng"
 )
 
-func NewTLS(c cipher.Block) (cipher.AEAD, error) { return cng.NewGCMTLS(c) }
+func newBackendTLS12(c cipher.Block) (cipher.AEAD, error) { return cng.NewGCMTLS(c) }
 
-func NewTLS13(c cipher.Block) (cipher.AEAD, error) { return cng.NewGCMTLS13(c) }
+func newBackendTLS13(c cipher.Block) (cipher.AEAD, error) { return cng.NewGCMTLS13(c) }
