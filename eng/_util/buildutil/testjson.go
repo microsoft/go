@@ -5,6 +5,7 @@
 package buildutil
 
 import (
+	"bufio"
 	"bytes"
 	"encoding/json"
 	"errors"
@@ -13,6 +14,8 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
+	"strings"
 	"time"
 
 	"github.com/microsoft/go-infra/json2junit"
@@ -108,6 +111,42 @@ func (f *TestJSONFlags) RunTestCmd(cmdline []string) (err error) {
 		))
 	}
 	return runErr
+}
+
+// FailedTestPattern returns a regular expression that exactly matches the tests
+// with package-level failures in a raw Go test JSON file.
+func FailedTestPattern(rawTestOutFile string) (string, error) {
+	f, err := os.Open(rawTestOutFile)
+	if err != nil {
+		return "", fmt.Errorf("failed to open raw test output: %v", err)
+	}
+	defer f.Close()
+
+	var failedTests []string
+	seen := make(map[string]bool)
+	reader := bufio.NewReader(f)
+	for {
+		line, readErr := reader.ReadBytes('\n')
+		if len(line) > 0 {
+			var entry jsonEntry
+			if err := json.Unmarshal(line, &entry); err == nil &&
+				entry.Action == "fail" && entry.Package != "" && entry.Test == "" && !seen[entry.Package] {
+				seen[entry.Package] = true
+				failedTests = append(failedTests, regexp.QuoteMeta(entry.Package))
+			}
+		}
+		if readErr == io.EOF {
+			break
+		}
+		if readErr != nil {
+			return "", fmt.Errorf("failed to read raw test output: %v", readErr)
+		}
+	}
+
+	if len(failedTests) == 0 {
+		return "", fmt.Errorf("no failed tests found in raw test output %q", rawTestOutFile)
+	}
+	return "^(" + strings.Join(failedTests, "|") + ")$", nil
 }
 
 // testJSONSummaryConverter reads Go JSON test output and writes a summary that

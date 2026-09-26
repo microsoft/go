@@ -265,6 +265,10 @@ stages:
             # don't produce much output, and errors are easier to reproduce.
             - ${{ each attempt in parameters.retryAttempts }}:
               - pwsh: |
+                  $previousRawTestOut = $env:GO_TEST_RETRY_FAILED_FROM
+                  $rawTestOut = '$(Build.SourcesDirectory)/eng/artifacts/RawTestOutput/raw-json-attempt-${{ attempt }}.txt'
+                  Write-Host "##vso[task.setvariable variable=GO_TEST_RETRY_FAILED_FROM]$rawTestOut"
+
                   if ($IsWindows) {
                     Write-Host "Removing Git usr\bin from PATH to avoid running a Linux test that would fail, 'TestScript/script_wait'..."
                     Write-Host $env:PATH
@@ -278,10 +282,11 @@ stages:
                   eng/run.ps1 cmdscan -envprefix GO_CMDSCAN_RULE_ -successvar TEST_BUILDER_SUCCESSFUL -- `
                     pwsh eng/run.ps1 run-builder -test `
                       -builder '${{ parameters.builder.os }}-${{ parameters.builder.arch }}-${{ parameters.builder.config }}' `
+                      $(if ($previousRawTestOut) { '-retryfailedfrom'; $previousRawTestOut }) `
                       $(if ('${{ parameters.builder.experiment }}') { '-experiment'; '${{ parameters.builder.experiment }}' }) `
                       $(if ('${{ parameters.builder.fips }}') { '-fipsmode' }) `
                       -junitout '$(Build.SourcesDirectory)/eng/artifacts/RawTestOutput/TestResults-attempt-${{ attempt }}.xml' `
-                      -rawtestout '$(Build.SourcesDirectory)/eng/artifacts/RawTestOutput/raw-json-attempt-${{ attempt }}.txt'
+                      -rawtestout $rawTestOut
                 ${{ if parameters.builder.nosystemcrypto }}:
                   env:
                     MS_GO_NOSYSTEMCRYPTO: 1

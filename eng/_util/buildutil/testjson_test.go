@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -69,6 +70,45 @@ func TestRunTestCmdPreservesRawOutputWhenJUnitConversionFails(t *testing.T) {
 	}
 	if !strings.Contains(string(raw), "TestMissing") {
 		t.Fatalf("raw output does not contain failing converter line:\n%s", raw)
+	}
+}
+
+func TestFailedTestPattern(t *testing.T) {
+	rawOut := filepath.Join(t.TempDir(), "raw.jsonl")
+	err := os.WriteFile(rawOut, []byte(`not JSON
+{"Action":"fail","Package":"net/http","Test":"TestRequest"}
+{"Action":"fail","Package":"net/http"}
+{"Action":"fail","Package":"net/http"}
+{"Action":"pass","Package":"os"}
+{"Action":"fail","Package":"cmd/example:variant+race"}
+`), 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	pattern, err := FailedTestPattern(rawOut)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := `^(net/http|cmd/example:variant\+race)$`; pattern != want {
+		t.Fatalf("FailedTestPattern() = %q, want %q", pattern, want)
+	}
+	if _, err := regexp.Compile(pattern); err != nil {
+		t.Fatalf("FailedTestPattern() returned invalid regexp: %v", err)
+	}
+}
+
+func TestFailedTestPatternRequiresPackageFailure(t *testing.T) {
+	rawOut := filepath.Join(t.TempDir(), "raw.jsonl")
+	err := os.WriteFile(rawOut, []byte(`{"Action":"fail","Package":"net/http","Test":"TestRequest"}
+`), 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = FailedTestPattern(rawOut)
+	if err == nil || !strings.Contains(err.Error(), "no failed tests found") {
+		t.Fatalf("expected no-failed-tests error, got %v", err)
 	}
 }
 

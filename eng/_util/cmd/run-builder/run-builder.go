@@ -42,6 +42,7 @@ func main() {
 	fipsMode := flag.Bool("fipsmode", false, "Run the Go tests in FIPS mode.")
 	build := flag.Bool("build", false, "Run the build.")
 	test := flag.Bool("test", false, "Run the tests.")
+	retryFailedFrom := flag.String("retryfailedfrom", "", "Run only tests that failed in the given raw Go test JSON file.")
 
 	testJSONFlags := buildutil.BindTestJSONFlags()
 
@@ -135,6 +136,17 @@ func main() {
 		fmt.Println("Skipping tests: '-test' not passed.")
 		return
 	}
+
+	var testRunPattern string
+	if *retryFailedFrom != "" {
+		var err error
+		testRunPattern, err = buildutil.FailedTestPattern(*retryFailedFrom)
+		if err != nil {
+			log.Fatal(err)
+		}
+		fmt.Printf("Retrying failed tests matching %q.\n", testRunPattern)
+	}
+
 	// After the build completes, run builder-specific commands.
 	switch config {
 	case "devscript":
@@ -142,6 +154,9 @@ func main() {
 		// validate the run.ps1 script with "build" tool works to build and test Go. It runs a
 		// subset of the "test" builder's tests, but it uses the dev workflow.
 		testCmdline := append(buildCmdline, "-skipbuild", "-test")
+		if testRunPattern != "" {
+			testCmdline = append(testCmdline, "-run", testRunPattern)
+		}
 		testCmdline = testJSONFlags.AppendToCmdline(testCmdline)
 		if err := run(testCmdline...); err != nil {
 			log.Fatal(err)
@@ -184,6 +199,9 @@ func main() {
 			// longtest. 'src/run.bash' sets 'GOPATH=/nonexist-gopath', which breaks modconv tests
 			// that download modules.
 			"go/bin/go", "tool", "dist", "test",
+		}
+		if testRunPattern != "" {
+			cmdline = append(cmdline, "-run", testRunPattern)
 		}
 
 		if goos == "linux" {
