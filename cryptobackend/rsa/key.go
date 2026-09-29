@@ -129,7 +129,8 @@ func (k *PublicKey) supportsBackend() bool {
 }
 
 func (k *PrivateKey) supportsBackend() bool {
-	return backend.Enabled && len(k.primes) == 2 && k.primes[0] != nil && k.primes[1] != nil && supportsPublicKey(k.pub.bitLen())
+	return backend.Enabled && len(k.primes) == 2 && k.primes[0] != nil && k.primes[1] != nil &&
+		supportsPublicKey(k.pub.bitLen()) && supportsPrimeSizes(k.primes[0].BitLen(), k.primes[1].BitLen())
 }
 
 func intBytes(x *big.Int) []byte {

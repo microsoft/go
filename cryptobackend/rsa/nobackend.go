@@ -17,12 +17,13 @@ type backendPrivateKey struct{}
 type backendPublicKey struct{}
 
 func supportsPublicKey(bits int) bool              { panic("cryptobackend: not available") }
+func supportsPrimeSizes(p, q int) bool             { panic("cryptobackend: not available") }
 func supportsSaltLength(sign bool, salt int) bool  { panic("cryptobackend: not available") }
 func supportsPKCS1v15Encryption() bool             { panic("cryptobackend: not available") }
 func supportsPKCS1v15Signature(h crypto.Hash) bool { panic("cryptobackend: not available") }
 func supportsPSSHash(h crypto.Hash) bool           { panic("cryptobackend: not available") }
 func isNativeHash(h hash.Hash) bool                { return false }
-func supportsOAEPParameters(h, mgf crypto.Hash, label []byte) bool {
+func supportsOAEP(h, mgfHash hash.Hash, label []byte) bool {
 	panic("cryptobackend: not available")
 }
 func generateKey(bits int) (N, E, D, P, Q, Dp, Dq, Qinv BigInt, err error) {

@@ -397,16 +397,16 @@ Use a 'go' that was recently built by the current branch to ensure stable result
  .../go/cryptobackend/rc4/rc4_windows.go       |   15 +
  .../go/cryptobackend/rsa/cache_msgostd.go     |   68 +
  .../microsoft/go/cryptobackend/rsa/init.go    |    7 +
- .../microsoft/go/cryptobackend/rsa/key.go     |  140 +
+ .../microsoft/go/cryptobackend/rsa/key.go     |  141 +
  .../go/cryptobackend/rsa/key_msgostd.go       |   81 +
- .../go/cryptobackend/rsa/key_nomsgostd.go     |   22 +
- .../go/cryptobackend/rsa/nobackend.go         |   60 +
- .../microsoft/go/cryptobackend/rsa/rsa.go     |  294 ++
- .../go/cryptobackend/rsa/rsa_darwin.go        |  169 ++
+ .../go/cryptobackend/rsa/key_nomsgostd.go     |   41 +
+ .../go/cryptobackend/rsa/nobackend.go         |   61 +
+ .../microsoft/go/cryptobackend/rsa/rsa.go     |  289 ++
+ .../go/cryptobackend/rsa/rsa_darwin.go        |  175 ++
  .../go/cryptobackend/rsa/rsa_msgostd.go       |   82 +
  .../go/cryptobackend/rsa/rsa_nomsgostd.go     |   67 +
- .../go/cryptobackend/rsa/rsa_openssl.go       |   89 +
- .../go/cryptobackend/rsa/rsa_windows.go       |   82 +
+ .../go/cryptobackend/rsa/rsa_openssl.go       |   91 +
+ .../go/cryptobackend/rsa/rsa_windows.go       |   84 +
  .../microsoft/go/cryptobackend/sha1/init.go   |    7 +
  .../go/cryptobackend/sha1/nobackend.go        |   29 +
  .../microsoft/go/cryptobackend/sha1/sha1.go   |   70 +
@@ -460,7 +460,7 @@ Use a 'go' that was recently built by the current branch to ensure stable result
  .../go/cryptobackend/tls13/tls13_openssl.go   |   18 +
  .../go/cryptobackend/tls13/tls13_windows.go   |   14 +
  src/vendor/modules.txt                        |   54 +
- 452 files changed, 42048 insertions(+), 7 deletions(-)
+ 452 files changed, 42074 insertions(+), 7 deletions(-)
  create mode 100644 src/cmd/internal/telemetry/counter/deps_ignore.go
  create mode 100644 src/cmd/vendor/github.com/microsoft/go-infra/telemetry/LICENSE
  create mode 100644 src/cmd/vendor/github.com/microsoft/go-infra/telemetry/README.md
@@ -44509,10 +44509,10 @@ index 00000000000000..aaac913048b23b
 +import _ "github.com/microsoft/go/cryptobackend"
 diff --git a/src/vendor/github.com/microsoft/go/cryptobackend/rsa/key.go b/src/vendor/github.com/microsoft/go/cryptobackend/rsa/key.go
 new file mode 100644
-index 00000000000000..3d85e4372262dc
+index 00000000000000..7dda51fca79b7c
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go/cryptobackend/rsa/key.go
-@@ -0,0 +1,140 @@
+@@ -0,0 +1,141 @@
 +// Copyright 2026 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -44644,7 +44644,8 @@ index 00000000000000..3d85e4372262dc
 +}
 +
 +func (k *PrivateKey) supportsBackend() bool {
-+	return backend.Enabled && len(k.primes) == 2 && k.primes[0] != nil && k.primes[1] != nil && supportsPublicKey(k.pub.bitLen())
++	return backend.Enabled && len(k.primes) == 2 && k.primes[0] != nil && k.primes[1] != nil &&
++		supportsPublicKey(k.pub.bitLen()) && supportsPrimeSizes(k.primes[0].BitLen(), k.primes[1].BitLen())
 +}
 +
 +func intBytes(x *big.Int) []byte {
@@ -44742,10 +44743,10 @@ index 00000000000000..18749c8577d930
 +}
 diff --git a/src/vendor/github.com/microsoft/go/cryptobackend/rsa/key_nomsgostd.go b/src/vendor/github.com/microsoft/go/cryptobackend/rsa/key_nomsgostd.go
 new file mode 100644
-index 00000000000000..d398796a35bff8
+index 00000000000000..92a412985b1e6e
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go/cryptobackend/rsa/key_nomsgostd.go
-@@ -0,0 +1,22 @@
+@@ -0,0 +1,41 @@
 +// Copyright 2026 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -44754,8 +44755,27 @@ index 00000000000000..d398796a35bff8
 +
 +package rsa
 +
++import "math/big"
++
 +type fipsPublicKey struct{}
 +type fipsPrivateKey struct{}
++
++// Keep the standard-library API visible to source-based importers, which load
++// this variant without the msgostd tag.
++type PublicKeyCache[K any] struct{}
++type PrivateKeyCache[K any] struct{}
++
++func (*PublicKeyCache[K]) Get(owner *K, n *big.Int, e int) (*PublicKey, error) {
++	panic("cryptobackend: not available")
++}
++
++func (*PrivateKeyCache[K]) Get(owner *K, n *big.Int, e int, d *big.Int, primes []*big.Int, dp, dq, qi *big.Int, fips *fipsPrivateKey) (*PrivateKey, error) {
++	panic("cryptobackend: not available")
++}
++
++func GeneratedFIPSKey(k GeneratedKey) *fipsPrivateKey {
++	panic("cryptobackend: not available")
++}
 +
 +func newFallbackPublicKey(N []byte, e int) (*fipsPublicKey, error) {
 +	panic("cryptobackend: not available")
@@ -44770,10 +44790,10 @@ index 00000000000000..d398796a35bff8
 +}
 diff --git a/src/vendor/github.com/microsoft/go/cryptobackend/rsa/nobackend.go b/src/vendor/github.com/microsoft/go/cryptobackend/rsa/nobackend.go
 new file mode 100644
-index 00000000000000..e84859600be2ec
+index 00000000000000..75bb3aa11ba645
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go/cryptobackend/rsa/nobackend.go
-@@ -0,0 +1,60 @@
+@@ -0,0 +1,61 @@
 +// Copyright 2024 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -44793,12 +44813,13 @@ index 00000000000000..e84859600be2ec
 +type backendPublicKey struct{}
 +
 +func supportsPublicKey(bits int) bool              { panic("cryptobackend: not available") }
++func supportsPrimeSizes(p, q int) bool             { panic("cryptobackend: not available") }
 +func supportsSaltLength(sign bool, salt int) bool  { panic("cryptobackend: not available") }
 +func supportsPKCS1v15Encryption() bool             { panic("cryptobackend: not available") }
 +func supportsPKCS1v15Signature(h crypto.Hash) bool { panic("cryptobackend: not available") }
 +func supportsPSSHash(h crypto.Hash) bool           { panic("cryptobackend: not available") }
 +func isNativeHash(h hash.Hash) bool                { return false }
-+func supportsOAEPParameters(h, mgf crypto.Hash, label []byte) bool {
++func supportsOAEP(h, mgfHash hash.Hash, label []byte) bool {
 +	panic("cryptobackend: not available")
 +}
 +func generateKey(bits int) (N, E, D, P, Q, Dp, Dq, Qinv BigInt, err error) {
@@ -44836,10 +44857,10 @@ index 00000000000000..e84859600be2ec
 +}
 diff --git a/src/vendor/github.com/microsoft/go/cryptobackend/rsa/rsa.go b/src/vendor/github.com/microsoft/go/cryptobackend/rsa/rsa.go
 new file mode 100644
-index 00000000000000..8e5b6306ad6237
+index 00000000000000..8680849dde07cd
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go/cryptobackend/rsa/rsa.go
-@@ -0,0 +1,294 @@
+@@ -0,0 +1,289 @@
 +// Copyright 2026 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -44927,11 +44948,6 @@ index 00000000000000..8e5b6306ad6237
 +		return nil, err
 +	}
 +	return decryptOAEPFallback(h, mgfHash, k, ciphertext, label)
-+}
-+
-+func supportsOAEP(h, mgfHash hash.Hash, label []byte) bool {
-+	hash, mgf := nativeHashAlgorithm(h), nativeHashAlgorithm(mgfHash)
-+	return hash != 0 && mgf != 0 && supportsOAEPParameters(hash, mgf, label)
 +}
 +
 +// Encrypt performs the raw RSA public-key operation.
@@ -45136,10 +45152,10 @@ index 00000000000000..8e5b6306ad6237
 +}
 diff --git a/src/vendor/github.com/microsoft/go/cryptobackend/rsa/rsa_darwin.go b/src/vendor/github.com/microsoft/go/cryptobackend/rsa/rsa_darwin.go
 new file mode 100644
-index 00000000000000..be9107e0acc728
+index 00000000000000..508bec258c8f16
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go/cryptobackend/rsa/rsa_darwin.go
-@@ -0,0 +1,169 @@
+@@ -0,0 +1,175 @@
 +// Copyright 2024 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -45165,7 +45181,12 @@ index 00000000000000..be9107e0acc728
 +type backendPrivateKey = xcrypto.PrivateKeyRSA
 +type backendPublicKey = xcrypto.PublicKeyRSA
 +
-+func supportsPublicKey(bits int) bool             { return bits >= 1024 && bits%8 == 0 && bits <= 16384 }
++func supportsPublicKey(bits int) bool { return bits >= 1024 && bits%8 == 0 && bits <= 16384 }
++func supportsPrimeSizes(p, q int) bool {
++	// Use Go for unbalanced primes, which SecKey can reject at operation time.
++	return p == q
++}
++
 +func supportsSaltLength(sign bool, salt int) bool { return salt == -1 }
 +func supportsPKCS1v15Encryption() bool            { return true }
 +func supportsPKCS1v15Signature(h crypto.Hash) bool {
@@ -45190,8 +45211,9 @@ index 00000000000000..be9107e0acc728
 +	return ok
 +}
 +
-+func supportsOAEPParameters(h, mgf crypto.Hash, label []byte) bool {
-+	return len(label) == 0 && h == mgf && supportsPSSHash(h)
++func supportsOAEP(h, mgfHash hash.Hash, label []byte) bool {
++	hash, mgf := nativeHashAlgorithm(h), nativeHashAlgorithm(mgfHash)
++	return len(label) == 0 && hash != 0 && hash == mgf && supportsPSSHash(hash)
 +}
 +
 +func decodeKey(data []byte) (N, E, D, P, Q, Dp, Dq, Qinv BigInt, err error) {
@@ -45472,10 +45494,10 @@ index 00000000000000..04f4ac620d74bc
 +}
 diff --git a/src/vendor/github.com/microsoft/go/cryptobackend/rsa/rsa_openssl.go b/src/vendor/github.com/microsoft/go/cryptobackend/rsa/rsa_openssl.go
 new file mode 100644
-index 00000000000000..04dec33e964bdb
+index 00000000000000..86b499281d4aa2
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go/cryptobackend/rsa/rsa_openssl.go
-@@ -0,0 +1,89 @@
+@@ -0,0 +1,91 @@
 +// Copyright 2024 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -45506,18 +45528,20 @@ index 00000000000000..04dec33e964bdb
 +	return bits >= min && bits%8 == 0 && bits <= 16384
 +}
 +
++func supportsPrimeSizes(p, q int) bool             { return true }
 +func supportsSaltLength(sign bool, salt int) bool  { return true }
 +func supportsPKCS1v15Encryption() bool             { return openssl.SupportsRSAPKCS1v15Encryption() }
 +func supportsPKCS1v15Signature(h crypto.Hash) bool { return openssl.SupportsRSAPKCS1v15Signature(h) }
-+func supportsPSSHash(h crypto.Hash) bool           { return openssl.SupportsHash(h) }
++func supportsPSSHash(h crypto.Hash) bool           { return openssl.SupportsRSAPSS(h) }
 +
 +func isNativeHash(h hash.Hash) bool {
 +	_, ok := h.(*openssl.Hash)
 +	return ok
 +}
 +
-+func supportsOAEPParameters(h, mgf crypto.Hash, label []byte) bool {
-+	return openssl.SupportsHash(h) && openssl.SupportsHash(mgf)
++func supportsOAEP(h, mgfHash hash.Hash, label []byte) bool {
++	return nativeHashAlgorithm(h) != 0 && nativeHashAlgorithm(mgfHash) != 0 &&
++		openssl.SupportsRSAOAEP(h, mgfHash)
 +}
 +
 +func generateKey(bits int) (N, E, D, P, Q, Dp, Dq, Qinv BigInt, err error) {
@@ -45567,10 +45591,10 @@ index 00000000000000..04dec33e964bdb
 +}
 diff --git a/src/vendor/github.com/microsoft/go/cryptobackend/rsa/rsa_windows.go b/src/vendor/github.com/microsoft/go/cryptobackend/rsa/rsa_windows.go
 new file mode 100644
-index 00000000000000..123c053e75206c
+index 00000000000000..ba4796585ec55f
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go/cryptobackend/rsa/rsa_windows.go
-@@ -0,0 +1,82 @@
+@@ -0,0 +1,84 @@
 +// Copyright 2024 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -45591,7 +45615,8 @@ index 00000000000000..123c053e75206c
 +type backendPrivateKey = cng.PrivateKeyRSA
 +type backendPublicKey = cng.PublicKeyRSA
 +
-+func supportsPublicKey(bits int) bool { return bits >= 512 && bits%8 == 0 && bits <= 16384 }
++func supportsPublicKey(bits int) bool  { return bits >= 512 && bits%8 == 0 && bits <= 16384 }
++func supportsPrimeSizes(p, q int) bool { return true }
 +func supportsSaltLength(sign bool, salt int) bool {
 +	if sign {
 +		return true
@@ -45615,8 +45640,9 @@ index 00000000000000..123c053e75206c
 +	return ok
 +}
 +
-+func supportsOAEPParameters(h, mgf crypto.Hash, label []byte) bool {
-+	return h == mgf && cng.SupportsHash(h)
++func supportsOAEP(h, mgfHash hash.Hash, label []byte) bool {
++	hash, mgf := nativeHashAlgorithm(h), nativeHashAlgorithm(mgfHash)
++	return hash != 0 && hash == mgf && cng.SupportsHash(hash)
 +}
 +
 +func generateKey(bits int) (N, E, D, P, Q, Dp, Dq, Qinv BigInt, err error) {

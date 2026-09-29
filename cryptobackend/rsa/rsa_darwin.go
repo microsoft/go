@@ -23,7 +23,12 @@ type BigInt = xcrypto.BigInt
 type backendPrivateKey = xcrypto.PrivateKeyRSA
 type backendPublicKey = xcrypto.PublicKeyRSA
 
-func supportsPublicKey(bits int) bool             { return bits >= 1024 && bits%8 == 0 && bits <= 16384 }
+func supportsPublicKey(bits int) bool { return bits >= 1024 && bits%8 == 0 && bits <= 16384 }
+func supportsPrimeSizes(p, q int) bool {
+	// Use Go for unbalanced primes, which SecKey can reject at operation time.
+	return p == q
+}
+
 func supportsSaltLength(sign bool, salt int) bool { return salt == -1 }
 func supportsPKCS1v15Encryption() bool            { return true }
 func supportsPKCS1v15Signature(h crypto.Hash) bool {
@@ -48,8 +53,9 @@ func isNativeHash(h hash.Hash) bool {
 	return ok
 }
 
-func supportsOAEPParameters(h, mgf crypto.Hash, label []byte) bool {
-	return len(label) == 0 && h == mgf && supportsPSSHash(h)
+func supportsOAEP(h, mgfHash hash.Hash, label []byte) bool {
+	hash, mgf := nativeHashAlgorithm(h), nativeHashAlgorithm(mgfHash)
+	return len(label) == 0 && hash != 0 && hash == mgf && supportsPSSHash(hash)
 }
 
 func decodeKey(data []byte) (N, E, D, P, Q, Dp, Dq, Qinv BigInt, err error) {

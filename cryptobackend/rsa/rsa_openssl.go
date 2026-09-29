@@ -28,18 +28,20 @@ func supportsPublicKey(bits int) bool {
 	return bits >= min && bits%8 == 0 && bits <= 16384
 }
 
+func supportsPrimeSizes(p, q int) bool             { return true }
 func supportsSaltLength(sign bool, salt int) bool  { return true }
 func supportsPKCS1v15Encryption() bool             { return openssl.SupportsRSAPKCS1v15Encryption() }
 func supportsPKCS1v15Signature(h crypto.Hash) bool { return openssl.SupportsRSAPKCS1v15Signature(h) }
-func supportsPSSHash(h crypto.Hash) bool           { return openssl.SupportsHash(h) }
+func supportsPSSHash(h crypto.Hash) bool           { return openssl.SupportsRSAPSS(h) }
 
 func isNativeHash(h hash.Hash) bool {
 	_, ok := h.(*openssl.Hash)
 	return ok
 }
 
-func supportsOAEPParameters(h, mgf crypto.Hash, label []byte) bool {
-	return openssl.SupportsHash(h) && openssl.SupportsHash(mgf)
+func supportsOAEP(h, mgfHash hash.Hash, label []byte) bool {
+	return nativeHashAlgorithm(h) != 0 && nativeHashAlgorithm(mgfHash) != 0 &&
+		openssl.SupportsRSAOAEP(h, mgfHash)
 }
 
 func generateKey(bits int) (N, E, D, P, Q, Dp, Dq, Qinv BigInt, err error) {

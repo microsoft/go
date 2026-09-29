@@ -18,7 +18,8 @@ type BigInt = cng.BigInt
 type backendPrivateKey = cng.PrivateKeyRSA
 type backendPublicKey = cng.PublicKeyRSA
 
-func supportsPublicKey(bits int) bool { return bits >= 512 && bits%8 == 0 && bits <= 16384 }
+func supportsPublicKey(bits int) bool  { return bits >= 512 && bits%8 == 0 && bits <= 16384 }
+func supportsPrimeSizes(p, q int) bool { return true }
 func supportsSaltLength(sign bool, salt int) bool {
 	if sign {
 		return true
@@ -42,8 +43,9 @@ func isNativeHash(h hash.Hash) bool {
 	return ok
 }
 
-func supportsOAEPParameters(h, mgf crypto.Hash, label []byte) bool {
-	return h == mgf && cng.SupportsHash(h)
+func supportsOAEP(h, mgfHash hash.Hash, label []byte) bool {
+	hash, mgf := nativeHashAlgorithm(h), nativeHashAlgorithm(mgfHash)
+	return hash != 0 && hash == mgf && cng.SupportsHash(hash)
 }
 
 func generateKey(bits int) (N, E, D, P, Q, Dp, Dq, Qinv BigInt, err error) {

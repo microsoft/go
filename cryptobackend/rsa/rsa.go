@@ -87,11 +87,6 @@ func DecryptOAEP(h, mgfHash hash.Hash, priv *PrivateKey, ciphertext, label []byt
 	return decryptOAEPFallback(h, mgfHash, k, ciphertext, label)
 }
 
-func supportsOAEP(h, mgfHash hash.Hash, label []byte) bool {
-	hash, mgf := nativeHashAlgorithm(h), nativeHashAlgorithm(mgfHash)
-	return hash != 0 && mgf != 0 && supportsOAEPParameters(hash, mgf, label)
-}
-
 // Encrypt performs the raw RSA public-key operation.
 func Encrypt(pub *PublicKey, plaintext []byte) ([]byte, error) {
 	// Native raw operations require modulus-sized inputs. Let Go handle
