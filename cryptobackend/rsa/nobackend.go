@@ -9,53 +9,52 @@ package rsa
 import (
 	"crypto"
 	"hash"
+	"math/big"
 )
 
 type BigInt = []uint
-type PrivateKey struct{ _ int }
-type PublicKey struct{ _ int }
+type backendPrivateKey struct{}
+type backendPublicKey struct{}
 
-func SupportsPrivateKey(bits, primes int) bool     { panic("cryptobackend: not available") }
-func SupportsPublicKey(bits int) bool              { panic("cryptobackend: not available") }
-func SupportsSaltLength(sign bool, salt int) bool  { panic("cryptobackend: not available") }
-func SupportsOAEPLabel(label []byte) bool          { panic("cryptobackend: not available") }
-func SupportsPKCS1v15Encryption() bool             { panic("cryptobackend: not available") }
-func SupportsPKCS1v15Signature(h crypto.Hash) bool { panic("cryptobackend: not available") }
-func SupportsPSSHash(h crypto.Hash) bool           { panic("cryptobackend: not available") }
-func GenerateKey(bits int) (N, E, D, P, Q, Dp, Dq, Qinv BigInt, err error) {
+func supportsPublicKey(bits int) bool              { panic("cryptobackend: not available") }
+func supportsSaltLength(sign bool, salt int) bool  { panic("cryptobackend: not available") }
+func supportsPKCS1v15Encryption() bool             { panic("cryptobackend: not available") }
+func supportsPKCS1v15Signature(h crypto.Hash) bool { panic("cryptobackend: not available") }
+func supportsPSSHash(h crypto.Hash) bool           { panic("cryptobackend: not available") }
+func isNativeHash(h hash.Hash) bool                { return false }
+func supportsOAEPParameters(h, mgf crypto.Hash, label []byte) bool {
 	panic("cryptobackend: not available")
 }
-func NewPrivateKey(N, E, D, P, Q, Dp, Dq, Qinv BigInt) (*PrivateKey, error) {
+func generateKey(bits int) (N, E, D, P, Q, Dp, Dq, Qinv BigInt, err error) {
 	panic("cryptobackend: not available")
 }
-func NewPublicKey(N, E BigInt) (*PublicKey, error) { panic("cryptobackend: not available") }
-func EncryptOAEP(h, mgfHash hash.Hash, pub *PublicKey, msg, label []byte) ([]byte, error) {
+func newBackendPrivateKey(k *PrivateKey) (*backendPrivateKey, error) {
 	panic("cryptobackend: not available")
 }
-func DecryptOAEP(h, mgfHash hash.Hash, priv *PrivateKey, ciphertext, label []byte) ([]byte, error) {
+func newBackendPublicKey(N *big.Int, e int) (*backendPublicKey, error) {
 	panic("cryptobackend: not available")
 }
-func EncryptPKCS1v15(pub *PublicKey, msg []byte) ([]byte, error) {
+func encryptOAEP(h, mgfHash hash.Hash, pub *backendPublicKey, msg, label []byte) ([]byte, error) {
 	panic("cryptobackend: not available")
 }
-func DecryptPKCS1v15(priv *PrivateKey, ciphertext []byte) ([]byte, error) {
+func decryptOAEP(h, mgfHash hash.Hash, priv *backendPrivateKey, ciphertext, label []byte) ([]byte, error) {
 	panic("cryptobackend: not available")
 }
-func EncryptNoPadding(pub *PublicKey, msg []byte) ([]byte, error) {
+func encryptNoPadding(pub *backendPublicKey, msg []byte) ([]byte, error) {
 	panic("cryptobackend: not available")
 }
-func DecryptNoPadding(priv *PrivateKey, ciphertext []byte) ([]byte, error) {
+func decryptNoPadding(priv *backendPrivateKey, ciphertext []byte) ([]byte, error) {
 	panic("cryptobackend: not available")
 }
-func SignPKCS1v15(priv *PrivateKey, h crypto.Hash, hashed []byte) ([]byte, error) {
+func signPKCS1v15(priv *backendPrivateKey, h crypto.Hash, hashed []byte) ([]byte, error) {
 	panic("cryptobackend: not available")
 }
-func VerifyPKCS1v15(pub *PublicKey, h crypto.Hash, hashed, sig []byte) error {
+func verifyPKCS1v15(pub *backendPublicKey, h crypto.Hash, hashed, sig []byte) error {
 	panic("cryptobackend: not available")
 }
-func SignPSS(priv *PrivateKey, h crypto.Hash, hashed []byte, saltLen int) ([]byte, error) {
+func signPSS(priv *backendPrivateKey, h crypto.Hash, hashed []byte, saltLen int) ([]byte, error) {
 	panic("cryptobackend: not available")
 }
-func VerifyPSS(pub *PublicKey, h crypto.Hash, hashed, sig []byte, saltLen int) error {
+func verifyPSS(pub *backendPublicKey, h crypto.Hash, hashed, sig []byte, saltLen int) error {
 	panic("cryptobackend: not available")
 }
