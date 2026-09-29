@@ -9,18 +9,18 @@ package rsa
 import (
 	"crypto"
 	"hash"
+	"math/big"
 
 	"github.com/microsoft/go-crypto-openssl/openssl"
+	"github.com/microsoft/go/cryptobackend/bbig"
 	bfips140 "github.com/microsoft/go/cryptobackend/fips140"
 )
 
 type BigInt = openssl.BigInt
-type PrivateKey = openssl.PrivateKeyRSA
-type PublicKey = openssl.PublicKeyRSA
+type backendPrivateKey = openssl.PrivateKeyRSA
+type backendPublicKey = openssl.PublicKeyRSA
 
-func SupportsPrivateKey(bits, primes int) bool { return primes == 2 && SupportsPublicKey(bits) }
-
-func SupportsPublicKey(bits int) bool {
+func supportsPublicKey(bits int) bool {
 	min := 1024
 	if bfips140.Enabled() {
 		min = 2048
@@ -28,58 +28,64 @@ func SupportsPublicKey(bits int) bool {
 	return bits >= min && bits%8 == 0 && bits <= 16384
 }
 
-func SupportsSaltLength(sign bool, salt int) bool  { return true }
-func SupportsOAEPLabel(label []byte) bool          { return true }
-func SupportsPKCS1v15Encryption() bool             { return openssl.SupportsRSAPKCS1v15Encryption() }
-func SupportsPKCS1v15Signature(h crypto.Hash) bool { return openssl.SupportsRSAPKCS1v15Signature(h) }
-func SupportsPSSHash(h crypto.Hash) bool           { return openssl.SupportsHash(h) }
+func supportsPrimeSizes(p, q int) bool             { return true }
+func supportsSaltLength(sign bool, salt int) bool  { return true }
+func supportsPKCS1v15Encryption() bool             { return openssl.SupportsRSAPKCS1v15Encryption() }
+func supportsPKCS1v15Signature(h crypto.Hash) bool { return openssl.SupportsRSAPKCS1v15Signature(h) }
+func supportsPSSHash(h crypto.Hash) bool           { return openssl.SupportsRSAPSS(h) }
 
-func GenerateKey(bits int) (N, E, D, P, Q, Dp, Dq, Qinv BigInt, err error) {
+func isNativeHash(h hash.Hash) bool {
+	_, ok := h.(*openssl.Hash)
+	return ok
+}
+
+func supportsOAEP(h, mgfHash hash.Hash, label []byte) bool {
+	return nativeHashAlgorithm(h) != 0 && nativeHashAlgorithm(mgfHash) != 0 &&
+		openssl.SupportsRSAOAEP(h, mgfHash)
+}
+
+func generateKey(bits int) (N, E, D, P, Q, Dp, Dq, Qinv BigInt, err error) {
 	return openssl.GenerateKeyRSA(bits)
 }
 
-func NewPrivateKey(N, E, D, P, Q, Dp, Dq, Qinv BigInt) (*PrivateKey, error) {
-	return openssl.NewPrivateKeyRSA(N, E, D, P, Q, Dp, Dq, Qinv)
+func newBackendPrivateKey(k *PrivateKey) (*backendPrivateKey, error) {
+	return openssl.NewPrivateKeyRSA(bbig.Enc(k.pub.n), bbig.Enc(big.NewInt(int64(k.pub.e))),
+		bbig.Enc(k.d), bbig.Enc(k.primes[0]), bbig.Enc(k.primes[1]),
+		bbig.Enc(k.dp), bbig.Enc(k.dq), bbig.Enc(k.qi))
 }
 
-func NewPublicKey(N, E BigInt) (*PublicKey, error) { return openssl.NewPublicKeyRSA(N, E) }
+func newBackendPublicKey(N *big.Int, e int) (*backendPublicKey, error) {
+	return openssl.NewPublicKeyRSA(bbig.Enc(N), bbig.Enc(big.NewInt(int64(e))))
+}
 
-func EncryptOAEP(h, mgfHash hash.Hash, pub *PublicKey, msg, label []byte) ([]byte, error) {
+func encryptOAEP(h, mgfHash hash.Hash, pub *backendPublicKey, msg, label []byte) ([]byte, error) {
 	return openssl.EncryptRSAOAEP(h, mgfHash, pub, msg, label)
 }
 
-func DecryptOAEP(h, mgfHash hash.Hash, priv *PrivateKey, ciphertext, label []byte) ([]byte, error) {
+func decryptOAEP(h, mgfHash hash.Hash, priv *backendPrivateKey, ciphertext, label []byte) ([]byte, error) {
 	return openssl.DecryptRSAOAEP(h, mgfHash, priv, ciphertext, label)
 }
 
-func EncryptPKCS1v15(pub *PublicKey, msg []byte) ([]byte, error) {
-	return openssl.EncryptRSAPKCS1(pub, msg)
-}
-
-func DecryptPKCS1v15(priv *PrivateKey, ciphertext []byte) ([]byte, error) {
-	return openssl.DecryptRSAPKCS1(priv, ciphertext)
-}
-
-func EncryptNoPadding(pub *PublicKey, msg []byte) ([]byte, error) {
+func encryptNoPadding(pub *backendPublicKey, msg []byte) ([]byte, error) {
 	return openssl.EncryptRSANoPadding(pub, msg)
 }
 
-func DecryptNoPadding(priv *PrivateKey, ciphertext []byte) ([]byte, error) {
+func decryptNoPadding(priv *backendPrivateKey, ciphertext []byte) ([]byte, error) {
 	return openssl.DecryptRSANoPadding(priv, ciphertext)
 }
 
-func SignPKCS1v15(priv *PrivateKey, h crypto.Hash, hashed []byte) ([]byte, error) {
+func signPKCS1v15(priv *backendPrivateKey, h crypto.Hash, hashed []byte) ([]byte, error) {
 	return openssl.SignRSAPKCS1v15(priv, h, hashed)
 }
 
-func VerifyPKCS1v15(pub *PublicKey, h crypto.Hash, hashed, sig []byte) error {
+func verifyPKCS1v15(pub *backendPublicKey, h crypto.Hash, hashed, sig []byte) error {
 	return openssl.VerifyRSAPKCS1v15(pub, h, hashed, sig)
 }
 
-func SignPSS(priv *PrivateKey, h crypto.Hash, hashed []byte, saltLen int) ([]byte, error) {
+func signPSS(priv *backendPrivateKey, h crypto.Hash, hashed []byte, saltLen int) ([]byte, error) {
 	return openssl.SignRSAPSS(priv, h, hashed, saltLen)
 }
 
-func VerifyPSS(pub *PublicKey, h crypto.Hash, hashed, sig []byte, saltLen int) error {
+func verifyPSS(pub *backendPublicKey, h crypto.Hash, hashed, sig []byte, saltLen int) error {
 	return openssl.VerifyRSAPSS(pub, h, hashed, sig, saltLen)
 }

@@ -9,25 +9,25 @@ package rsa
 import (
 	"crypto"
 	"hash"
+	"math/big"
 
 	"github.com/microsoft/go-crypto-winnative/cng"
 )
 
 type BigInt = cng.BigInt
-type PrivateKey = cng.PrivateKeyRSA
-type PublicKey = cng.PublicKeyRSA
+type backendPrivateKey = cng.PrivateKeyRSA
+type backendPublicKey = cng.PublicKeyRSA
 
-func SupportsPrivateKey(bits, primes int) bool { return primes == 2 && SupportsPublicKey(bits) }
-func SupportsPublicKey(bits int) bool          { return bits >= 512 && bits%8 == 0 && bits <= 16384 }
-func SupportsSaltLength(sign bool, salt int) bool {
+func supportsPublicKey(bits int) bool  { return bits >= 512 && bits%8 == 0 && bits <= 16384 }
+func supportsPrimeSizes(p, q int) bool { return true }
+func supportsSaltLength(sign bool, salt int) bool {
 	if sign {
 		return true
 	}
 	return salt != 0
 }
-func SupportsOAEPLabel(label []byte) bool { return true }
-func SupportsPKCS1v15Encryption() bool    { return true }
-func SupportsPKCS1v15Signature(h crypto.Hash) bool {
+func supportsPKCS1v15Encryption() bool { return true }
+func supportsPKCS1v15Signature(h crypto.Hash) bool {
 	switch h {
 	case 0, crypto.MD5SHA1:
 		return true
@@ -36,42 +36,49 @@ func SupportsPKCS1v15Signature(h crypto.Hash) bool {
 	}
 }
 
-func SupportsPSSHash(h crypto.Hash) bool { return cng.SupportsHash(h) }
+func supportsPSSHash(h crypto.Hash) bool { return cng.SupportsHash(h) }
 
-func GenerateKey(bits int) (N, E, D, P, Q, Dp, Dq, Qinv BigInt, err error) {
+func isNativeHash(h hash.Hash) bool {
+	_, ok := h.(*cng.Hash)
+	return ok
+}
+
+func supportsOAEP(h, mgfHash hash.Hash, label []byte) bool {
+	hash, mgf := nativeHashAlgorithm(h), nativeHashAlgorithm(mgfHash)
+	return hash != 0 && hash == mgf && cng.SupportsHash(hash)
+}
+
+func generateKey(bits int) (N, E, D, P, Q, Dp, Dq, Qinv BigInt, err error) {
 	return cng.GenerateKeyRSA(bits)
 }
-func NewPrivateKey(N, E, D, P, Q, Dp, Dq, Qinv BigInt) (*PrivateKey, error) {
-	return cng.NewPrivateKeyRSA(N, E, D, P, Q, Dp, Dq, Qinv)
+func newBackendPrivateKey(k *PrivateKey) (*backendPrivateKey, error) {
+	return cng.NewPrivateKeyRSA(intBytes(k.pub.n), big.NewInt(int64(k.pub.e)).Bytes(), intBytes(k.d),
+		intBytes(k.primes[0]), intBytes(k.primes[1]), intBytes(k.dp), intBytes(k.dq), intBytes(k.qi))
 }
-func NewPublicKey(N, E BigInt) (*PublicKey, error) { return cng.NewPublicKeyRSA(N, E) }
-func EncryptOAEP(h, mgfHash hash.Hash, pub *PublicKey, msg, label []byte) ([]byte, error) {
+func newBackendPublicKey(N *big.Int, e int) (*backendPublicKey, error) {
+	return cng.NewPublicKeyRSA(intBytes(N), big.NewInt(int64(e)).Bytes())
+}
+func encryptOAEP(h, mgfHash hash.Hash, pub *backendPublicKey, msg, label []byte) ([]byte, error) {
 	return cng.EncryptRSAOAEP(h, pub, msg, label)
 }
-func DecryptOAEP(h, mgfHash hash.Hash, priv *PrivateKey, ciphertext, label []byte) ([]byte, error) {
+func decryptOAEP(h, mgfHash hash.Hash, priv *backendPrivateKey, ciphertext, label []byte) ([]byte, error) {
 	return cng.DecryptRSAOAEP(h, priv, ciphertext, label)
 }
-func EncryptPKCS1v15(pub *PublicKey, msg []byte) ([]byte, error) {
-	return cng.EncryptRSAPKCS1(pub, msg)
-}
-func DecryptPKCS1v15(priv *PrivateKey, ciphertext []byte) ([]byte, error) {
-	return cng.DecryptRSAPKCS1(priv, ciphertext)
-}
-func EncryptNoPadding(pub *PublicKey, msg []byte) ([]byte, error) {
+func encryptNoPadding(pub *backendPublicKey, msg []byte) ([]byte, error) {
 	return cng.EncryptRSANoPadding(pub, msg)
 }
-func DecryptNoPadding(priv *PrivateKey, ciphertext []byte) ([]byte, error) {
+func decryptNoPadding(priv *backendPrivateKey, ciphertext []byte) ([]byte, error) {
 	return cng.DecryptRSANoPadding(priv, ciphertext)
 }
-func SignPKCS1v15(priv *PrivateKey, h crypto.Hash, hashed []byte) ([]byte, error) {
+func signPKCS1v15(priv *backendPrivateKey, h crypto.Hash, hashed []byte) ([]byte, error) {
 	return cng.SignRSAPKCS1v15(priv, h, hashed)
 }
-func VerifyPKCS1v15(pub *PublicKey, h crypto.Hash, hashed, sig []byte) error {
+func verifyPKCS1v15(pub *backendPublicKey, h crypto.Hash, hashed, sig []byte) error {
 	return cng.VerifyRSAPKCS1v15(pub, h, hashed, sig)
 }
-func SignPSS(priv *PrivateKey, h crypto.Hash, hashed []byte, saltLen int) ([]byte, error) {
+func signPSS(priv *backendPrivateKey, h crypto.Hash, hashed []byte, saltLen int) ([]byte, error) {
 	return cng.SignRSAPSS(priv, h, hashed, saltLen)
 }
-func VerifyPSS(pub *PublicKey, h crypto.Hash, hashed, sig []byte, saltLen int) error {
+func verifyPSS(pub *backendPublicKey, h crypto.Hash, hashed, sig []byte, saltLen int) error {
 	return cng.VerifyRSAPSS(pub, h, hashed, sig, saltLen)
 }
