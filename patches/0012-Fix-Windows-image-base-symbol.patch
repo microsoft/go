@@ -1,0 +1,88 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: bot-for-go[bot] <199222863+bot-for-go[bot]@users.noreply.github.com>
+Date: Tue, 29 Sep 2026 07:03:11 +0200
+Subject: [PATCH] Fix Windows image base symbol
+
+Define __ImageBase alongside the existing MinGW image-base aliases when linking internally. The MinGW-w64 12 CRT bundled with GCC 14.2 references this name from crt2.o, causing cmd/cgo/internal/test:internal to fail with an undefined relocation target.
+
+Cover EXE and PIE builds with a cgo regression test that checks the symbol against the loaded module base and DOS signature.
+
+Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>
+Copilot-Session: 493c0674-d446-444e-8c4a-f2cfb1cfe541
+---
+ src/cmd/link/internal/ld/pe.go |  2 +-
+ src/cmd/link/link_test.go      | 48 ++++++++++++++++++++++++++++++++++
+ 2 files changed, 49 insertions(+), 1 deletion(-)
+
+diff --git a/src/cmd/link/internal/ld/pe.go b/src/cmd/link/internal/ld/pe.go
+index 2b25a42fc3206e..3236e78348cc6c 100644
+--- a/src/cmd/link/internal/ld/pe.go
++++ b/src/cmd/link/internal/ld/pe.go
+@@ -1342,7 +1342,7 @@ func Peinit(ctxt *Link) {
+ 
+ 	if ctxt.LinkMode == LinkInternal {
+ 		// some mingw libs depend on this symbol, for example, FindPESectionByName
+-		for _, name := range [2]string{"__image_base__", "_image_base__"} {
++		for _, name := range [...]string{"__image_base__", "_image_base__", "__ImageBase"} {
+ 			sb := ctxt.loader.CreateSymForUpdate(name, 0)
+ 			sb.SetType(sym.SDATA)
+ 			sb.SetValue(PEBASE)
+diff --git a/src/cmd/link/link_test.go b/src/cmd/link/link_test.go
+index d9aafc851735ee..f86d605f403a94 100644
+--- a/src/cmd/link/link_test.go
++++ b/src/cmd/link/link_test.go
+@@ -1195,6 +1195,54 @@ func TestPErsrcLLVM(t *testing.T) {
+ 	}
+ }
+ 
++func TestPEImageBase(t *testing.T) {
++	if runtime.GOOS != "windows" {
++		t.Skip("this is a windows-only test")
++	}
++	testenv.MustHaveGoBuild(t)
++	testenv.MustHaveCGO(t)
++	testenv.MustInternalLink(t, testenv.SpecialBuildTypes{Cgo: true})
++	t.Parallel()
++
++	const source = `package main
++
++/*
++#include <windows.h>
++
++extern IMAGE_DOS_HEADER __ImageBase;
++
++static int checkImageBase(void) {
++	return (HMODULE)&__ImageBase == GetModuleHandleW(NULL) &&
++		__ImageBase.e_magic == IMAGE_DOS_SIGNATURE;
++}
++*/
++import "C"
++
++func main() {
++	if C.checkImageBase() == 0 {
++		panic("__ImageBase does not point to the loaded image")
++	}
++}
++`
++	tmpdir := t.TempDir()
++	src := filepath.Join(tmpdir, "main.go")
++	if err := os.WriteFile(src, []byte(source), 0666); err != nil {
++		t.Fatal(err)
++	}
++	for _, mode := range []string{"exe", "pie"} {
++		t.Run(mode, func(t *testing.T) {
++			exe := filepath.Join(t.TempDir(), "main.exe")
++			cmd := goCmd(t, "build", "-buildmode="+mode, "-ldflags=-linkmode=internal", "-o", exe, src)
++			if out, err := cmd.CombinedOutput(); err != nil {
++				t.Fatalf("%v: %v:\n%s", cmd.Args, err, out)
++			}
++			if out, err := testenv.Command(t, exe).CombinedOutput(); err != nil {
++				t.Fatalf("running %s: %v:\n%s", exe, err, out)
++			}
++		})
++	}
++}
++
+ func TestPELoaderTLS(t *testing.T) {
+ 	testenv.MustHaveGoBuild(t)
+ 	if runtime.GOOS != "windows" {
