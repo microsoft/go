@@ -328,11 +328,14 @@ Use a 'go' that was recently built by the current branch to ensure stable result
  .../go/cryptobackend/ecdh/ecdh_windows.go     |   32 +
  .../microsoft/go/cryptobackend/ecdh/init.go   |    7 +
  .../go/cryptobackend/ecdh/nobackend.go        |   22 +
- .../go/cryptobackend/ecdsa/ecdsa_darwin.go    |   39 +
- .../go/cryptobackend/ecdsa/ecdsa_openssl.go   |   33 +
- .../go/cryptobackend/ecdsa/ecdsa_windows.go   |   91 +
- .../microsoft/go/cryptobackend/ecdsa/init.go  |    7 +
- .../go/cryptobackend/ecdsa/nobackend.go       |   26 +
+ .../go/cryptobackend/ecdsa/ecdsa_darwin.go    |   53 +
+ .../go/cryptobackend/ecdsa/ecdsa_msgostd.go   |  171 ++
+ .../go/cryptobackend/ecdsa/ecdsa_nomsgostd.go |   51 +
+ .../go/cryptobackend/ecdsa/ecdsa_openssl.go   |   54 +
+ .../go/cryptobackend/ecdsa/ecdsa_windows.go   |   49 +
+ .../microsoft/go/cryptobackend/ecdsa/key.go   |   88 +
+ .../go/cryptobackend/ecdsa/nobackend.go       |   27 +
+ .../go/cryptobackend/ecdsa/signature.go       |   50 +
  .../cryptobackend/ed25519/ed25519_darwin.go   |   24 +
  .../cryptobackend/ed25519/ed25519_openssl.go  |   24 +
  .../cryptobackend/ed25519/ed25519_windows.go  |   21 +
@@ -460,7 +463,7 @@ Use a 'go' that was recently built by the current branch to ensure stable result
  .../go/cryptobackend/tls13/tls13_openssl.go   |   18 +
  .../go/cryptobackend/tls13/tls13_windows.go   |   14 +
  src/vendor/modules.txt                        |   54 +
- 452 files changed, 42074 insertions(+), 7 deletions(-)
+ 455 files changed, 42421 insertions(+), 7 deletions(-)
  create mode 100644 src/cmd/internal/telemetry/counter/deps_ignore.go
  create mode 100644 src/cmd/vendor/github.com/microsoft/go-infra/telemetry/LICENSE
  create mode 100644 src/cmd/vendor/github.com/microsoft/go-infra/telemetry/README.md
@@ -775,10 +778,13 @@ Use a 'go' that was recently built by the current branch to ensure stable result
  create mode 100644 src/vendor/github.com/microsoft/go/cryptobackend/ecdh/init.go
  create mode 100644 src/vendor/github.com/microsoft/go/cryptobackend/ecdh/nobackend.go
  create mode 100644 src/vendor/github.com/microsoft/go/cryptobackend/ecdsa/ecdsa_darwin.go
+ create mode 100644 src/vendor/github.com/microsoft/go/cryptobackend/ecdsa/ecdsa_msgostd.go
+ create mode 100644 src/vendor/github.com/microsoft/go/cryptobackend/ecdsa/ecdsa_nomsgostd.go
  create mode 100644 src/vendor/github.com/microsoft/go/cryptobackend/ecdsa/ecdsa_openssl.go
  create mode 100644 src/vendor/github.com/microsoft/go/cryptobackend/ecdsa/ecdsa_windows.go
- create mode 100644 src/vendor/github.com/microsoft/go/cryptobackend/ecdsa/init.go
+ create mode 100644 src/vendor/github.com/microsoft/go/cryptobackend/ecdsa/key.go
  create mode 100644 src/vendor/github.com/microsoft/go/cryptobackend/ecdsa/nobackend.go
+ create mode 100644 src/vendor/github.com/microsoft/go/cryptobackend/ecdsa/signature.go
  create mode 100644 src/vendor/github.com/microsoft/go/cryptobackend/ed25519/ed25519_darwin.go
  create mode 100644 src/vendor/github.com/microsoft/go/cryptobackend/ed25519/ed25519_openssl.go
  create mode 100644 src/vendor/github.com/microsoft/go/cryptobackend/ed25519/ed25519_windows.go
@@ -42495,10 +42501,10 @@ index 00000000000000..e168a1b84d7532
 +func ECDH(priv *PrivateKey, pub *PublicKey) ([]byte, error) { panic("cryptobackend: not available") }
 diff --git a/src/vendor/github.com/microsoft/go/cryptobackend/ecdsa/ecdsa_darwin.go b/src/vendor/github.com/microsoft/go/cryptobackend/ecdsa/ecdsa_darwin.go
 new file mode 100644
-index 00000000000000..2bce40cb490cdb
+index 00000000000000..747acd2771eae9
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go/cryptobackend/ecdsa/ecdsa_darwin.go
-@@ -0,0 +1,39 @@
+@@ -0,0 +1,53 @@
 +// Copyright 2024 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -42509,41 +42515,289 @@ index 00000000000000..2bce40cb490cdb
 +
 +import "github.com/microsoft/go-crypto-darwin/xcrypto"
 +
-+type BigInt = xcrypto.BigInt
-+type PrivateKey = xcrypto.PrivateKeyECDSA
-+type PublicKey = xcrypto.PublicKeyECDSA
++type backendPrivateKey = xcrypto.PrivateKeyECDSA
++type backendPublicKey = xcrypto.PublicKeyECDSA
 +
-+func SupportsCurve(curve string) bool {
++func supportsCurve(curve string) bool {
 +	switch curve {
-+	case "P-256", "P-384", "P-521", "X25519":
++	case "P-256", "P-384", "P-521":
 +		return true
 +	}
 +	return false
 +}
 +
-+func GenerateKey(curve string) (X, Y, D BigInt, err error) { return xcrypto.GenerateKeyECDSA(curve) }
-+
-+func NewPrivateKey(curve string, X, Y, D BigInt) (*PrivateKey, error) {
-+	return xcrypto.NewPrivateKeyECDSA(curve, X, Y, D)
++func generateKey(curve string) (X, Y, D xcrypto.BigInt, err error) {
++	return xcrypto.GenerateKeyECDSA(curve)
 +}
 +
-+func NewPublicKey(curve string, X, Y BigInt) (*PublicKey, error) {
-+	return xcrypto.NewPublicKeyECDSA(curve, X, Y)
++func newPrivateKey(curve string, Q, D []byte) (*backendPrivateKey, error) {
++	size := (len(Q) - 1) / 2
++	return xcrypto.NewPrivateKeyECDSA(curve, Q[1:1+size], Q[1+size:], D)
 +}
 +
-+func SignASN1(priv *PrivateKey, hash []byte) ([]byte, error) {
-+	return xcrypto.SignMarshalECDSA(priv, hash)
++func newPublicKey(curve string, Q []byte) (*backendPublicKey, error) {
++	size := (len(Q) - 1) / 2
++	return xcrypto.NewPublicKeyECDSA(curve, Q[1:1+size], Q[1+size:])
 +}
 +
-+func VerifyASN1(pub *PublicKey, hash, sig []byte) (bool, error) {
-+	return xcrypto.VerifyECDSA(pub, hash, sig), nil
++func sign(priv *backendPrivateKey, hash []byte) (*Signature, error) {
++	sig, err := xcrypto.SignMarshalECDSA(priv, hash)
++	if err != nil {
++		return nil, err
++	}
++	return parseSignature(sig)
++}
++
++func verify(pub *backendPublicKey, hash []byte, sig *Signature) error {
++	der, err := encodeSignature(sig)
++	if err != nil {
++		return err
++	}
++	if !xcrypto.VerifyECDSA(pub, hash, der) {
++		return errVerification
++	}
++	return nil
++}
+diff --git a/src/vendor/github.com/microsoft/go/cryptobackend/ecdsa/ecdsa_msgostd.go b/src/vendor/github.com/microsoft/go/cryptobackend/ecdsa/ecdsa_msgostd.go
+new file mode 100644
+index 00000000000000..79a4d662f6b6ae
+--- /dev/null
++++ b/src/vendor/github.com/microsoft/go/cryptobackend/ecdsa/ecdsa_msgostd.go
+@@ -0,0 +1,171 @@
++// Copyright 2026 The Go Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style
++// license that can be found in the LICENSE file.
++
++//go:build msgostd || cmd_go_bootstrap
++
++package ecdsa
++
++import (
++	fallback "crypto/internal/fips140/ecdsa"
++	"crypto/internal/fips140/nistec"
++	"crypto/internal/rand"
++	cryptorand "crypto/rand"
++	"errors"
++	"hash"
++	"io"
++
++	backend "github.com/microsoft/go/cryptobackend"
++	"github.com/microsoft/go/cryptobackend/bbig"
++)
++
++type Point[P any] = fallback.Point[P]
++type Curve[P Point[P]] = fallback.Curve[P]
++type Signature = fallback.Signature
++type fipsPublicKey = fallback.PublicKey
++type fipsPrivateKey = fallback.PrivateKey
++
++func P224() *Curve[*nistec.P224Point] { return fallback.P224() }
++func P256() *Curve[*nistec.P256Point] { return fallback.P256() }
++func P384() *Curve[*nistec.P384Point] { return fallback.P384() }
++func P521() *Curve[*nistec.P521Point] { return fallback.P521() }
++
++func isDefaultReader(r io.Reader) bool {
++	// SetGlobalRandom replaces the public reader as well as Go's internal
++	// randomness source. Native operations cannot use that testing source.
++	return rand.IsDefaultReader(r) && rand.IsDefaultReader(cryptorand.Reader)
++}
++
++func curveName[P Point[P]](c *Curve[P]) string {
++	switch any(c) {
++	case any(fallback.P224()):
++		return "P-224"
++	case any(fallback.P256()):
++		return "P-256"
++	case any(fallback.P384()):
++		return "P-384"
++	case any(fallback.P521()):
++		return "P-521"
++	}
++	return ""
++}
++
++func wrapPrivateKey(name string, key *fipsPrivateKey) *PrivateKey {
++	k := &PrivateKey{pub: PublicKey{curve: name, q: key.PublicKey().Bytes()}, d: key.Bytes()}
++	k.pub.fips.key.Store(key.PublicKey())
++	k.fips.key.Store(key)
++	return k
++}
++
++// NewPublicKey validates a public point with the Go implementation.
++// Native key conversion is deferred until a native operation needs it.
++// Q is retained by the returned key and must not be modified.
++func NewPublicKey[P Point[P]](c *Curve[P], Q []byte) (*PublicKey, error) {
++	key, err := fallback.NewPublicKey(c, Q)
++	if err != nil {
++		return nil, err
++	}
++	k := &PublicKey{curve: curveName(c), q: key.Bytes()}
++	k.fips.key.Store(key)
++	return k, nil
++}
++
++// NewPrivateKey validates private scalar and public point encodings with the
++// Go implementation, retaining that key for deterministic signing and fallback.
++// D is copied. Q is retained by the returned key and must not be modified.
++func NewPrivateKey[P Point[P]](c *Curve[P], D, Q []byte) (*PrivateKey, error) {
++	key, err := fallback.NewPrivateKey(c, D, Q)
++	if err != nil {
++		return nil, err
++	}
++	return wrapPrivateKey(curveName(c), key), nil
++}
++
++// GenerateKey selects native generation when the curve and random source are
++// supported, and otherwise uses the Go implementation.
++func GenerateKey[P Point[P]](c *Curve[P], random io.Reader) (*PrivateKey, error) {
++	name := curveName(c)
++	if backend.Enabled && isDefaultReader(random) && supportsCurve(name) {
++		x, y, d, err := generateKey(name)
++		if err != nil {
++			return nil, err
++		}
++		size := c.N.Size()
++		X, Y, D := bbig.Dec(x), bbig.Dec(y), bbig.Dec(d)
++		if X == nil || Y == nil || D == nil || X.BitLen() > size*8 || Y.BitLen() > size*8 || D.BitLen() > size*8 {
++			return nil, errors.New("ecdsa: invalid generated key parameters")
++		}
++		Q := make([]byte, 1+2*size)
++		Q[0] = 4
++		X.FillBytes(Q[1 : 1+size])
++		Y.FillBytes(Q[1+size:])
++		return &PrivateKey{pub: PublicKey{curve: name, q: Q}, d: D.FillBytes(make([]byte, size))}, nil
++	}
++	key, err := fallback.GenerateKey(c, random)
++	if err != nil {
++		return nil, err
++	}
++	return wrapPrivateKey(name, key), nil
++}
++
++func privateGoKey[P Point[P]](c *Curve[P], k *PrivateKey) (*fipsPrivateKey, error) {
++	return k.fips.get(func() (*fipsPrivateKey, error) {
++		return fallback.NewPrivateKey(c, k.d, k.pub.q)
++	})
++}
++
++func Sign[P Point[P], H hash.Hash](c *Curve[P], h func() H, priv *PrivateKey, random io.Reader, digest []byte) (*Signature, error) {
++	if priv.pub.curve != curveName(c) {
++		return nil, errors.New("ecdsa: private key does not match curve")
++	}
++	if len(digest) == 0 {
++		return nil, errors.New("ecdsa: hash cannot be empty")
++	}
++	if priv.pub.supportsBackend() && isDefaultReader(random) {
++		key, err := priv.backendKey()
++		if err != nil {
++			return nil, err
++		}
++		return sign(key, digest)
++	}
++	key, err := privateGoKey(c, priv)
++	if err != nil {
++		return nil, err
++	}
++	return fallback.Sign(c, h, key, random, digest)
++}
++
++// SignDeterministic always uses the Go implementation for RFC 6979 signing.
++func SignDeterministic[P Point[P], H hash.Hash](c *Curve[P], h func() H, priv *PrivateKey, digest []byte) (*Signature, error) {
++	if priv.pub.curve != curveName(c) {
++		return nil, errors.New("ecdsa: private key does not match curve")
++	}
++	key, err := privateGoKey(c, priv)
++	if err != nil {
++		return nil, err
++	}
++	return fallback.SignDeterministic(c, h, key, digest)
++}
++
++func Verify[P Point[P]](c *Curve[P], pub *PublicKey, digest []byte, sig *Signature) error {
++	if pub.curve != curveName(c) {
++		return errors.New("ecdsa: public key does not match curve")
++	}
++	if len(digest) == 0 {
++		return errors.New("ecdsa: hash cannot be empty")
++	}
++	if pub.supportsBackend() {
++		key, err := pub.backendKey()
++		if err != nil {
++			return err
++		}
++		return verify(key, digest, sig)
++	}
++	key, err := pub.fips.get(func() (*fipsPublicKey, error) {
++		return fallback.NewPublicKey(c, pub.q)
++	})
++	if err != nil {
++		return err
++	}
++	return fallback.Verify(c, key, digest, sig)
++}
+diff --git a/src/vendor/github.com/microsoft/go/cryptobackend/ecdsa/ecdsa_nomsgostd.go b/src/vendor/github.com/microsoft/go/cryptobackend/ecdsa/ecdsa_nomsgostd.go
+new file mode 100644
+index 00000000000000..5c04554efc3381
+--- /dev/null
++++ b/src/vendor/github.com/microsoft/go/cryptobackend/ecdsa/ecdsa_nomsgostd.go
+@@ -0,0 +1,51 @@
++// Copyright 2026 The Go Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style
++// license that can be found in the LICENSE file.
++
++//go:build !msgostd && !cmd_go_bootstrap
++
++package ecdsa
++
++import (
++	"hash"
++	"io"
++)
++
++// Keep the standard-library API visible to source importers without msgostd.
++type Point[P any] interface {
++	Bytes() []byte
++	BytesX() ([]byte, error)
++	SetBytes([]byte) (P, error)
++	ScalarMult(P, []byte) (P, error)
++	ScalarBaseMult([]byte) (P, error)
++	Add(P, P) P
++}
++
++type Curve[P Point[P]] struct{}
++type Signature struct{ R, S []byte }
++type fipsPublicKey struct{}
++type fipsPrivateKey struct{}
++
++func NewPublicKey[P Point[P]](c *Curve[P], Q []byte) (*PublicKey, error) {
++	panic("cryptobackend: not available")
++}
++
++func NewPrivateKey[P Point[P]](c *Curve[P], D, Q []byte) (*PrivateKey, error) {
++	panic("cryptobackend: not available")
++}
++
++func GenerateKey[P Point[P]](c *Curve[P], random io.Reader) (*PrivateKey, error) {
++	panic("cryptobackend: not available")
++}
++
++func Sign[P Point[P], H hash.Hash](c *Curve[P], h func() H, priv *PrivateKey, random io.Reader, digest []byte) (*Signature, error) {
++	panic("cryptobackend: not available")
++}
++
++func SignDeterministic[P Point[P], H hash.Hash](c *Curve[P], h func() H, priv *PrivateKey, digest []byte) (*Signature, error) {
++	panic("cryptobackend: not available")
++}
++
++func Verify[P Point[P]](c *Curve[P], pub *PublicKey, digest []byte, sig *Signature) error {
++	panic("cryptobackend: not available")
 +}
 diff --git a/src/vendor/github.com/microsoft/go/cryptobackend/ecdsa/ecdsa_openssl.go b/src/vendor/github.com/microsoft/go/cryptobackend/ecdsa/ecdsa_openssl.go
 new file mode 100644
-index 00000000000000..2db2525ff91db1
+index 00000000000000..659c7e31d3f7f7
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go/cryptobackend/ecdsa/ecdsa_openssl.go
-@@ -0,0 +1,33 @@
+@@ -0,0 +1,54 @@
 +// Copyright 2024 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -42552,37 +42806,58 @@ index 00000000000000..2db2525ff91db1
 +
 +package ecdsa
 +
-+import "github.com/microsoft/go-crypto-openssl/openssl"
++import (
++	"math/big"
 +
-+type BigInt = openssl.BigInt
-+type PrivateKey = openssl.PrivateKeyECDSA
-+type PublicKey = openssl.PublicKeyECDSA
++	"github.com/microsoft/go-crypto-openssl/openssl"
++	"github.com/microsoft/go/cryptobackend/bbig"
++)
 +
-+func SupportsCurve(curve string) bool { return openssl.SupportsCurve(curve) }
++type backendPrivateKey = openssl.PrivateKeyECDSA
++type backendPublicKey = openssl.PublicKeyECDSA
 +
-+func GenerateKey(curve string) (X, Y, D BigInt, err error) { return openssl.GenerateKeyECDSA(curve) }
++func supportsCurve(curve string) bool { return openssl.SupportsCurve(curve) }
 +
-+func NewPrivateKey(curve string, X, Y, D BigInt) (*PrivateKey, error) {
-+	return openssl.NewPrivateKeyECDSA(curve, X, Y, D)
++func generateKey(curve string) (X, Y, D openssl.BigInt, err error) {
++	return openssl.GenerateKeyECDSA(curve)
 +}
 +
-+func NewPublicKey(curve string, X, Y BigInt) (*PublicKey, error) {
-+	return openssl.NewPublicKeyECDSA(curve, X, Y)
++func newPrivateKey(curve string, Q, D []byte) (*backendPrivateKey, error) {
++	size := (len(Q) - 1) / 2
++	return openssl.NewPrivateKeyECDSA(curve, bbig.Enc(new(big.Int).SetBytes(Q[1:1+size])),
++		bbig.Enc(new(big.Int).SetBytes(Q[1+size:])), bbig.Enc(new(big.Int).SetBytes(D)))
 +}
 +
-+func SignASN1(priv *PrivateKey, hash []byte) ([]byte, error) {
-+	return openssl.SignMarshalECDSA(priv, hash)
++func newPublicKey(curve string, Q []byte) (*backendPublicKey, error) {
++	size := (len(Q) - 1) / 2
++	return openssl.NewPublicKeyECDSA(curve, bbig.Enc(new(big.Int).SetBytes(Q[1:1+size])),
++		bbig.Enc(new(big.Int).SetBytes(Q[1+size:])))
 +}
 +
-+func VerifyASN1(pub *PublicKey, hash, sig []byte) (bool, error) {
-+	return openssl.VerifyECDSA(pub, hash, sig), nil
++func sign(priv *backendPrivateKey, hash []byte) (*Signature, error) {
++	sig, err := openssl.SignMarshalECDSA(priv, hash)
++	if err != nil {
++		return nil, err
++	}
++	return parseSignature(sig)
++}
++
++func verify(pub *backendPublicKey, hash []byte, sig *Signature) error {
++	der, err := encodeSignature(sig)
++	if err != nil {
++		return err
++	}
++	if !openssl.VerifyECDSA(pub, hash, der) {
++		return errVerification
++	}
++	return nil
 +}
 diff --git a/src/vendor/github.com/microsoft/go/cryptobackend/ecdsa/ecdsa_windows.go b/src/vendor/github.com/microsoft/go/cryptobackend/ecdsa/ecdsa_windows.go
 new file mode 100644
-index 00000000000000..6c5c85197a6a07
+index 00000000000000..4cc171ff3f7aa3
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go/cryptobackend/ecdsa/ecdsa_windows.go
-@@ -0,0 +1,91 @@
+@@ -0,0 +1,49 @@
 +// Copyright 2024 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -42591,108 +42866,147 @@ index 00000000000000..6c5c85197a6a07
 +
 +package ecdsa
 +
-+import (
-+	"errors"
++import "github.com/microsoft/go-crypto-winnative/cng"
 +
-+	"github.com/microsoft/go-crypto-winnative/cng"
-+	"golang.org/x/crypto/cryptobyte"
-+	"golang.org/x/crypto/cryptobyte/asn1"
-+)
++type backendPrivateKey = cng.PrivateKeyECDSA
++type backendPublicKey = cng.PublicKeyECDSA
 +
-+type BigInt = cng.BigInt
-+type PrivateKey = cng.PrivateKeyECDSA
-+type PublicKey = cng.PublicKeyECDSA
-+
-+func SupportsCurve(curve string) bool {
++func supportsCurve(curve string) bool {
 +	switch curve {
-+	case "P-224", "P-256", "P-384", "P-521", "X25519":
++	case "P-224", "P-256", "P-384", "P-521":
 +		return true
 +	}
 +	return false
 +}
 +
-+func GenerateKey(curve string) (X, Y, D BigInt, err error) { return cng.GenerateKeyECDSA(curve) }
-+
-+func NewPrivateKey(curve string, X, Y, D BigInt) (*PrivateKey, error) {
-+	return cng.NewPrivateKeyECDSA(curve, X, Y, D)
++func generateKey(curve string) (X, Y, D cng.BigInt, err error) {
++	return cng.GenerateKeyECDSA(curve)
 +}
 +
-+func NewPublicKey(curve string, X, Y BigInt) (*PublicKey, error) {
-+	return cng.NewPublicKeyECDSA(curve, X, Y)
++func newPrivateKey(curve string, Q, D []byte) (*backendPrivateKey, error) {
++	size := (len(Q) - 1) / 2
++	return cng.NewPrivateKeyECDSA(curve, Q[1:1+size], Q[1+size:], D)
 +}
 +
-+func SignASN1(priv *PrivateKey, hash []byte) ([]byte, error) {
++func newPublicKey(curve string, Q []byte) (*backendPublicKey, error) {
++	size := (len(Q) - 1) / 2
++	return cng.NewPublicKeyECDSA(curve, Q[1:1+size], Q[1+size:])
++}
++
++func sign(priv *backendPrivateKey, hash []byte) (*Signature, error) {
 +	r, s, err := cng.SignECDSA(priv, hash)
 +	if err != nil {
 +		return nil, err
 +	}
-+	return encodeSignature(r, s)
++	return &Signature{R: r, S: s}, nil
 +}
 +
-+func VerifyASN1(pub *PublicKey, hash, sig []byte) (bool, error) {
-+	r, s, err := parseSignature(sig)
-+	if err != nil {
-+		return false, err
++func verify(pub *backendPublicKey, hash []byte, sig *Signature) error {
++	if !cng.VerifyECDSA(pub, hash, sig.R, sig.S) {
++		return errVerification
 +	}
-+	return cng.VerifyECDSA(pub, hash, cng.BigInt(r), cng.BigInt(s)), nil
++	return nil
 +}
-+
-+func encodeSignature(r, s []byte) ([]byte, error) {
-+	var b cryptobyte.Builder
-+	b.AddASN1(asn1.SEQUENCE, func(b *cryptobyte.Builder) {
-+		addASN1IntBytes(b, r)
-+		addASN1IntBytes(b, s)
-+	})
-+	return b.Bytes()
-+}
-+
-+func addASN1IntBytes(b *cryptobyte.Builder, bytes []byte) {
-+	for len(bytes) > 0 && bytes[0] == 0 {
-+		bytes = bytes[1:]
-+	}
-+	if len(bytes) == 0 {
-+		b.SetError(errors.New("invalid integer"))
-+		return
-+	}
-+	b.AddASN1(asn1.INTEGER, func(c *cryptobyte.Builder) {
-+		if bytes[0]&0x80 != 0 {
-+			c.AddUint8(0)
-+		}
-+		c.AddBytes(bytes)
-+	})
-+}
-+
-+func parseSignature(sig []byte) (r, s []byte, err error) {
-+	var inner cryptobyte.String
-+	input := cryptobyte.String(sig)
-+	if !input.ReadASN1(&inner, asn1.SEQUENCE) ||
-+		!input.Empty() ||
-+		!inner.ReadASN1Integer(&r) ||
-+		!inner.ReadASN1Integer(&s) ||
-+		!inner.Empty() {
-+		return nil, nil, errors.New("invalid ASN.1")
-+	}
-+	return r, s, nil
-+}
-diff --git a/src/vendor/github.com/microsoft/go/cryptobackend/ecdsa/init.go b/src/vendor/github.com/microsoft/go/cryptobackend/ecdsa/init.go
+diff --git a/src/vendor/github.com/microsoft/go/cryptobackend/ecdsa/key.go b/src/vendor/github.com/microsoft/go/cryptobackend/ecdsa/key.go
 new file mode 100644
-index 00000000000000..9d257ffe06362e
+index 00000000000000..1b5c9fd3a8d7f3
 --- /dev/null
-+++ b/src/vendor/github.com/microsoft/go/cryptobackend/ecdsa/init.go
-@@ -0,0 +1,7 @@
++++ b/src/vendor/github.com/microsoft/go/cryptobackend/ecdsa/key.go
+@@ -0,0 +1,88 @@
 +// Copyright 2026 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
 +
 +package ecdsa
 +
-+import _ "github.com/microsoft/go/cryptobackend"
++import (
++	"sync"
++	"sync/atomic"
++
++	backend "github.com/microsoft/go/cryptobackend"
++)
++
++// lazyKey retains successful conversions, but permits retrying failed imports.
++type lazyKey[T any] struct {
++	key atomic.Pointer[T]
++	mu  sync.Mutex
++}
++
++func (k *lazyKey[T]) get(new func() (*T, error)) (*T, error) {
++	if key := k.key.Load(); key != nil {
++		return key, nil
++	}
++	k.mu.Lock()
++	defer k.mu.Unlock()
++	if key := k.key.Load(); key != nil {
++		return key, nil
++	}
++	key, err := new()
++	if err != nil {
++		return nil, err
++	}
++	k.key.Store(key)
++	return key, nil
++}
++
++// PublicKey holds an ECDSA public key and its cached implementations.
++// A PublicKey must not be copied after first use.
++type PublicKey struct {
++	curve   string
++	q       []byte
++	backend lazyKey[backendPublicKey]
++	fips    lazyKey[fipsPublicKey]
++}
++
++// Bytes returns the public point encoding.
++// The returned slice must not be modified.
++func (k *PublicKey) Bytes() []byte {
++	return k.q
++}
++
++func (k *PublicKey) supportsBackend() bool {
++	// Native imports take affine coordinates. Keep other encodings accepted by
++	// the Go constructor, including compressed points, on the Go path.
++	return backend.Enabled && len(k.q) > 0 && k.q[0] == 4 && supportsCurve(k.curve)
++}
++
++func (k *PublicKey) backendKey() (*backendPublicKey, error) {
++	return k.backend.get(func() (*backendPublicKey, error) {
++		return newPublicKey(k.curve, k.q)
++	})
++}
++
++// PrivateKey holds an ECDSA private key and its cached implementations.
++// A PrivateKey must not be copied after first use.
++type PrivateKey struct {
++	pub     PublicKey
++	d       []byte
++	backend lazyKey[backendPrivateKey]
++	fips    lazyKey[fipsPrivateKey]
++}
++
++// Bytes returns the private scalar encoding.
++// The returned slice must not be modified.
++func (k *PrivateKey) Bytes() []byte {
++	return k.d
++}
++
++// PublicKey returns the public part of k.
++func (k *PrivateKey) PublicKey() *PublicKey {
++	return &k.pub
++}
++
++func (k *PrivateKey) backendKey() (*backendPrivateKey, error) {
++	return k.backend.get(func() (*backendPrivateKey, error) {
++		return newPrivateKey(k.pub.curve, k.pub.q, k.d)
++	})
++}
 diff --git a/src/vendor/github.com/microsoft/go/cryptobackend/ecdsa/nobackend.go b/src/vendor/github.com/microsoft/go/cryptobackend/ecdsa/nobackend.go
 new file mode 100644
-index 00000000000000..984ceac4040ee3
+index 00000000000000..d6d35c4430f204
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go/cryptobackend/ecdsa/nobackend.go
-@@ -0,0 +1,26 @@
+@@ -0,0 +1,27 @@
 +// Copyright 2024 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -42701,23 +43015,80 @@ index 00000000000000..984ceac4040ee3
 +
 +package ecdsa
 +
-+type BigInt = []uint
-+type PrivateKey struct{ _ int }
-+type PublicKey struct{ _ int }
++type backendPrivateKey struct{}
++type backendPublicKey struct{}
 +
-+func SupportsCurve(curve string) bool                      { panic("cryptobackend: not available") }
-+func GenerateKey(curve string) (X, Y, D BigInt, err error) { panic("cryptobackend: not available") }
-+func NewPrivateKey(curve string, X, Y, D BigInt) (*PrivateKey, error) {
++func supportsCurve(curve string) bool { panic("cryptobackend: not available") }
++func generateKey(curve string) (X, Y, D []uint, err error) {
 +	panic("cryptobackend: not available")
 +}
-+func NewPublicKey(curve string, X, Y BigInt) (*PublicKey, error) {
++func newPrivateKey(curve string, Q, D []byte) (*backendPrivateKey, error) {
 +	panic("cryptobackend: not available")
 +}
-+func SignASN1(priv *PrivateKey, hash []byte) ([]byte, error) {
++func newPublicKey(curve string, Q []byte) (*backendPublicKey, error) {
 +	panic("cryptobackend: not available")
 +}
-+func VerifyASN1(pub *PublicKey, hash, sig []byte) (bool, error) {
++func sign(priv *backendPrivateKey, hash []byte) (*Signature, error) {
 +	panic("cryptobackend: not available")
++}
++func verify(pub *backendPublicKey, hash []byte, sig *Signature) error {
++	panic("cryptobackend: not available")
++}
+diff --git a/src/vendor/github.com/microsoft/go/cryptobackend/ecdsa/signature.go b/src/vendor/github.com/microsoft/go/cryptobackend/ecdsa/signature.go
+new file mode 100644
+index 00000000000000..01d419b1971920
+--- /dev/null
++++ b/src/vendor/github.com/microsoft/go/cryptobackend/ecdsa/signature.go
+@@ -0,0 +1,50 @@
++// Copyright 2026 The Go Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style
++// license that can be found in the LICENSE file.
++
++package ecdsa
++
++import (
++	"errors"
++
++	"golang.org/x/crypto/cryptobyte"
++	"golang.org/x/crypto/cryptobyte/asn1"
++)
++
++var errVerification = errors.New("ecdsa: signature did not verify")
++
++func encodeSignature(sig *Signature) ([]byte, error) {
++	var b cryptobyte.Builder
++	b.AddASN1(asn1.SEQUENCE, func(b *cryptobyte.Builder) {
++		addASN1IntBytes(b, sig.R)
++		addASN1IntBytes(b, sig.S)
++	})
++	return b.Bytes()
++}
++
++func addASN1IntBytes(b *cryptobyte.Builder, v []byte) {
++	for len(v) > 0 && v[0] == 0 {
++		v = v[1:]
++	}
++	if len(v) == 0 {
++		b.SetError(errors.New("invalid integer"))
++		return
++	}
++	b.AddASN1(asn1.INTEGER, func(b *cryptobyte.Builder) {
++		if v[0]&0x80 != 0 {
++			b.AddUint8(0)
++		}
++		b.AddBytes(v)
++	})
++}
++
++func parseSignature(sig []byte) (*Signature, error) {
++	var inner cryptobyte.String
++	input := cryptobyte.String(sig)
++	var r, s []byte
++	if !input.ReadASN1(&inner, asn1.SEQUENCE) || !input.Empty() ||
++		!inner.ReadASN1Integer(&r) || !inner.ReadASN1Integer(&s) || !inner.Empty() {
++		return nil, errors.New("invalid ASN.1")
++	}
++	return &Signature{R: r, S: s}, nil
 +}
 diff --git a/src/vendor/github.com/microsoft/go/cryptobackend/ed25519/ed25519_darwin.go b/src/vendor/github.com/microsoft/go/cryptobackend/ed25519/ed25519_darwin.go
 new file mode 100644

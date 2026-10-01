@@ -6,28 +6,49 @@
 
 package ecdsa
 
-import "github.com/microsoft/go-crypto-openssl/openssl"
+import (
+	"math/big"
 
-type BigInt = openssl.BigInt
-type PrivateKey = openssl.PrivateKeyECDSA
-type PublicKey = openssl.PublicKeyECDSA
+	"github.com/microsoft/go-crypto-openssl/openssl"
+	"github.com/microsoft/go/cryptobackend/bbig"
+)
 
-func SupportsCurve(curve string) bool { return openssl.SupportsCurve(curve) }
+type backendPrivateKey = openssl.PrivateKeyECDSA
+type backendPublicKey = openssl.PublicKeyECDSA
 
-func GenerateKey(curve string) (X, Y, D BigInt, err error) { return openssl.GenerateKeyECDSA(curve) }
+func supportsCurve(curve string) bool { return openssl.SupportsCurve(curve) }
 
-func NewPrivateKey(curve string, X, Y, D BigInt) (*PrivateKey, error) {
-	return openssl.NewPrivateKeyECDSA(curve, X, Y, D)
+func generateKey(curve string) (X, Y, D openssl.BigInt, err error) {
+	return openssl.GenerateKeyECDSA(curve)
 }
 
-func NewPublicKey(curve string, X, Y BigInt) (*PublicKey, error) {
-	return openssl.NewPublicKeyECDSA(curve, X, Y)
+func newPrivateKey(curve string, Q, D []byte) (*backendPrivateKey, error) {
+	size := (len(Q) - 1) / 2
+	return openssl.NewPrivateKeyECDSA(curve, bbig.Enc(new(big.Int).SetBytes(Q[1:1+size])),
+		bbig.Enc(new(big.Int).SetBytes(Q[1+size:])), bbig.Enc(new(big.Int).SetBytes(D)))
 }
 
-func SignASN1(priv *PrivateKey, hash []byte) ([]byte, error) {
-	return openssl.SignMarshalECDSA(priv, hash)
+func newPublicKey(curve string, Q []byte) (*backendPublicKey, error) {
+	size := (len(Q) - 1) / 2
+	return openssl.NewPublicKeyECDSA(curve, bbig.Enc(new(big.Int).SetBytes(Q[1:1+size])),
+		bbig.Enc(new(big.Int).SetBytes(Q[1+size:])))
 }
 
-func VerifyASN1(pub *PublicKey, hash, sig []byte) (bool, error) {
-	return openssl.VerifyECDSA(pub, hash, sig), nil
+func sign(priv *backendPrivateKey, hash []byte) (*Signature, error) {
+	sig, err := openssl.SignMarshalECDSA(priv, hash)
+	if err != nil {
+		return nil, err
+	}
+	return parseSignature(sig)
+}
+
+func verify(pub *backendPublicKey, hash []byte, sig *Signature) error {
+	der, err := encodeSignature(sig)
+	if err != nil {
+		return err
+	}
+	if !openssl.VerifyECDSA(pub, hash, der) {
+		return errVerification
+	}
+	return nil
 }

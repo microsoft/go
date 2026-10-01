@@ -8,32 +8,46 @@ package ecdsa
 
 import "github.com/microsoft/go-crypto-darwin/xcrypto"
 
-type BigInt = xcrypto.BigInt
-type PrivateKey = xcrypto.PrivateKeyECDSA
-type PublicKey = xcrypto.PublicKeyECDSA
+type backendPrivateKey = xcrypto.PrivateKeyECDSA
+type backendPublicKey = xcrypto.PublicKeyECDSA
 
-func SupportsCurve(curve string) bool {
+func supportsCurve(curve string) bool {
 	switch curve {
-	case "P-256", "P-384", "P-521", "X25519":
+	case "P-256", "P-384", "P-521":
 		return true
 	}
 	return false
 }
 
-func GenerateKey(curve string) (X, Y, D BigInt, err error) { return xcrypto.GenerateKeyECDSA(curve) }
-
-func NewPrivateKey(curve string, X, Y, D BigInt) (*PrivateKey, error) {
-	return xcrypto.NewPrivateKeyECDSA(curve, X, Y, D)
+func generateKey(curve string) (X, Y, D xcrypto.BigInt, err error) {
+	return xcrypto.GenerateKeyECDSA(curve)
 }
 
-func NewPublicKey(curve string, X, Y BigInt) (*PublicKey, error) {
-	return xcrypto.NewPublicKeyECDSA(curve, X, Y)
+func newPrivateKey(curve string, Q, D []byte) (*backendPrivateKey, error) {
+	size := (len(Q) - 1) / 2
+	return xcrypto.NewPrivateKeyECDSA(curve, Q[1:1+size], Q[1+size:], D)
 }
 
-func SignASN1(priv *PrivateKey, hash []byte) ([]byte, error) {
-	return xcrypto.SignMarshalECDSA(priv, hash)
+func newPublicKey(curve string, Q []byte) (*backendPublicKey, error) {
+	size := (len(Q) - 1) / 2
+	return xcrypto.NewPublicKeyECDSA(curve, Q[1:1+size], Q[1+size:])
 }
 
-func VerifyASN1(pub *PublicKey, hash, sig []byte) (bool, error) {
-	return xcrypto.VerifyECDSA(pub, hash, sig), nil
+func sign(priv *backendPrivateKey, hash []byte) (*Signature, error) {
+	sig, err := xcrypto.SignMarshalECDSA(priv, hash)
+	if err != nil {
+		return nil, err
+	}
+	return parseSignature(sig)
+}
+
+func verify(pub *backendPublicKey, hash []byte, sig *Signature) error {
+	der, err := encodeSignature(sig)
+	if err != nil {
+		return err
+	}
+	if !xcrypto.VerifyECDSA(pub, hash, der) {
+		return errVerification
+	}
+	return nil
 }
