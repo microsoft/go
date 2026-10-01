@@ -56,9 +56,7 @@ Subject: [PATCH] Add crypto backends
  src/crypto/ecdh/ecdh_test.go                  |  19 +-
  src/crypto/ecdh/nist.go                       |  54 ++--
  src/crypto/ecdh/x25519.go                     |  51 +++
- src/crypto/ecdsa/boring.go                    |  19 +-
  src/crypto/ecdsa/ecdsa.go                     |  19 +-
- src/crypto/ecdsa/notboring.go                 |   8 +-
  src/crypto/ed25519/boring.go                  |  73 +++++
  src/crypto/ed25519/ed25519.go                 |  73 +++++
  src/crypto/ed25519/ed25519_test.go            |  14 +-
@@ -138,7 +136,7 @@ Subject: [PATCH] Add crypto backends
  src/os/exec/exec_test.go                      |   9 +
  src/runtime/runtime_boring.go                 |   5 +
  src/syscall/syscall_windows.go                |   3 +
- 134 files changed, 2288 insertions(+), 284 deletions(-)
+ 132 files changed, 2277 insertions(+), 268 deletions(-)
  create mode 100644 src/cmd/go/systemcrypto_test.go
  create mode 100644 src/crypto/dsa/boring.go
  create mode 100644 src/crypto/dsa/notboring.go
@@ -2236,166 +2234,72 @@ index 80ed77f6fd7ddc..939f1439557610 100644
  	out := make([]byte, x25519SharedSecretSize)
  	x25519ScalarMult(out, local.privateKey, remote.publicKey)
  	if isZero(out) {
-diff --git a/src/crypto/ecdsa/boring.go b/src/crypto/ecdsa/boring.go
-index 275c60b4de49eb..a5b6ae9dc90505 100644
---- a/src/crypto/ecdsa/boring.go
-+++ b/src/crypto/ecdsa/boring.go
-@@ -2,15 +2,16 @@
- // Use of this source code is governed by a BSD-style
- // license that can be found in the LICENSE file.
- 
--//go:build boringcrypto
-+//go:build goexperiment.systemcrypto
- 
- package ecdsa
- 
- import (
--	"crypto/internal/boring"
--	"crypto/internal/boring/bbig"
- 	"crypto/internal/boring/bcache"
- 	"math/big"
-+
-+	"github.com/microsoft/go/cryptobackend/bbig"
-+	becdsa "github.com/microsoft/go/cryptobackend/ecdsa"
- )
- 
- // Cached conversions from Go PublicKey/PrivateKey to BoringCrypto.
-@@ -35,11 +36,11 @@ func init() {
- }
- 
- type boringPub struct {
--	key  *boring.PublicKeyECDSA
-+	key  *becdsa.PublicKey
- 	orig PublicKey
- }
- 
--func boringPublicKey(pub *PublicKey) (*boring.PublicKeyECDSA, error) {
-+func boringPublicKey(pub *PublicKey) (*becdsa.PublicKey, error) {
- 	b := pubCache.Get(pub)
- 	if b != nil && publicKeyEqual(&b.orig, pub) {
- 		return b.key, nil
-@@ -47,7 +48,7 @@ func boringPublicKey(pub *PublicKey) (*boring.PublicKeyECDSA, error) {
- 
- 	b = new(boringPub)
- 	b.orig = copyPublicKey(pub)
--	key, err := boring.NewPublicKeyECDSA(b.orig.Curve.Params().Name, bbig.Enc(b.orig.X), bbig.Enc(b.orig.Y))
-+	key, err := becdsa.NewPublicKey(b.orig.Curve.Params().Name, bbig.Enc(b.orig.X), bbig.Enc(b.orig.Y))
- 	if err != nil {
- 		return nil, err
- 	}
-@@ -57,11 +58,11 @@ func boringPublicKey(pub *PublicKey) (*boring.PublicKeyECDSA, error) {
- }
- 
- type boringPriv struct {
--	key  *boring.PrivateKeyECDSA
-+	key  *becdsa.PrivateKey
- 	orig PrivateKey
- }
- 
--func boringPrivateKey(priv *PrivateKey) (*boring.PrivateKeyECDSA, error) {
-+func boringPrivateKey(priv *PrivateKey) (*becdsa.PrivateKey, error) {
- 	b := privCache.Get(priv)
- 	if b != nil && privateKeyEqual(&b.orig, priv) {
- 		return b.key, nil
-@@ -69,7 +70,7 @@ func boringPrivateKey(priv *PrivateKey) (*boring.PrivateKeyECDSA, error) {
- 
- 	b = new(boringPriv)
- 	b.orig = copyPrivateKey(priv)
--	key, err := boring.NewPrivateKeyECDSA(b.orig.Curve.Params().Name, bbig.Enc(b.orig.X), bbig.Enc(b.orig.Y), bbig.Enc(b.orig.D))
-+	key, err := becdsa.NewPrivateKey(b.orig.Curve.Params().Name, bbig.Enc(b.orig.X), bbig.Enc(b.orig.Y), bbig.Enc(b.orig.D))
- 	if err != nil {
- 		return nil, err
- 	}
 diff --git a/src/crypto/ecdsa/ecdsa.go b/src/crypto/ecdsa/ecdsa.go
-index 3bd4a5e7b4adaa..48ec7d658c1bbd 100644
+index 3bd4a5e7b4adaa..b0513d91daf33d 100644
 --- a/src/crypto/ecdsa/ecdsa.go
 +++ b/src/crypto/ecdsa/ecdsa.go
-@@ -20,8 +20,6 @@ import (
- 	"crypto"
- 	"crypto/ecdh"
+@@ -22,7 +22,6 @@ import (
  	"crypto/elliptic"
--	"crypto/internal/boring"
--	"crypto/internal/boring/bbig"
- 	"crypto/internal/fips140/ecdsa"
+ 	"crypto/internal/boring"
+ 	"crypto/internal/boring/bbig"
+-	"crypto/internal/fips140/ecdsa"
  	"crypto/internal/fips140/nistec"
  	"crypto/internal/fips140cache"
-@@ -34,6 +32,10 @@ import (
+ 	"crypto/internal/fips140hash"
+@@ -34,6 +33,8 @@ import (
  	"io"
  	"math/big"
  
-+	boring "github.com/microsoft/go/cryptobackend"
-+	"github.com/microsoft/go/cryptobackend/bbig"
-+	becdsa "github.com/microsoft/go/cryptobackend/ecdsa"
++	"github.com/microsoft/go/cryptobackend/ecdsa"
 +
  	"golang.org/x/crypto/cryptobyte"
  	"golang.org/x/crypto/cryptobyte/asn1"
  )
-@@ -343,8 +345,8 @@ func (priv *PrivateKey) Sign(random io.Reader, digest []byte, opts crypto.Signer
- // ignored unless GODEBUG=cryptocustomrand=1 is set. This setting will be removed
- // in a future Go release. Instead, use [testing/cryptotest.SetGlobalRandom].
- func GenerateKey(c elliptic.Curve, r io.Reader) (*PrivateKey, error) {
--	if boring.Enabled && rand.IsDefaultReader(r) {
--		x, y, d, err := boring.GenerateKeyECDSA(c.Params().Name)
-+	if boring.Enabled && rand.IsDefaultReader(r) && becdsa.SupportsCurve(c.Params().Name) {
-+		x, y, d, err := becdsa.GenerateKey(c.Params().Name)
- 		if err != nil {
- 			return nil, err
- 		}
-@@ -393,12 +395,12 @@ func SignASN1(r io.Reader, priv *PrivateKey, hash []byte) ([]byte, error) {
- 		return nil, errors.New("ecdsa: hash cannot be empty")
- 	}
- 
--	if boring.Enabled && rand.IsDefaultReader(r) {
-+	if boring.Enabled && rand.IsDefaultReader(r) && becdsa.SupportsCurve(priv.Curve.Params().Name) {
- 		b, err := boringPrivateKey(priv)
- 		if err != nil {
- 			return nil, err
- 		}
--		return boring.SignMarshalECDSA(b, hash)
-+		return becdsa.SignASN1(b, hash)
- 	}
- 	boring.UnreachableExceptTests()
- 
-@@ -511,12 +513,13 @@ func VerifyASN1(pub *PublicKey, hash, sig []byte) bool {
- 		return false
- 	}
- 
--	if boring.Enabled {
-+	if boring.Enabled && becdsa.SupportsCurve(pub.Curve.Params().Name) {
- 		key, err := boringPublicKey(pub)
- 		if err != nil {
- 			return false
- 		}
--		return boring.VerifyECDSA(key, hash, sig)
-+		ok, err := becdsa.VerifyASN1(key, hash, sig)
-+		return err == nil && ok
- 	}
- 	boring.UnreachableExceptTests()
- 
-diff --git a/src/crypto/ecdsa/notboring.go b/src/crypto/ecdsa/notboring.go
-index 039bd82ed21f9f..dd6daa81636648 100644
---- a/src/crypto/ecdsa/notboring.go
-+++ b/src/crypto/ecdsa/notboring.go
-@@ -2,15 +2,15 @@
- // Use of this source code is governed by a BSD-style
- // license that can be found in the LICENSE file.
- 
--//go:build !boringcrypto
-+//go:build !goexperiment.systemcrypto
- 
- package ecdsa
- 
--import "crypto/internal/boring"
-+import becdsa "github.com/microsoft/go/cryptobackend/ecdsa"
- 
--func boringPublicKey(*PublicKey) (*boring.PublicKeyECDSA, error) {
-+func boringPublicKey(*PublicKey) (*becdsa.PublicKey, error) {
- 	panic("boringcrypto: not available")
+@@ -157,11 +158,12 @@ func (pub *PublicKey) Bytes() ([]byte, error) {
  }
--func boringPrivateKey(*PrivateKey) (*boring.PrivateKeyECDSA, error) {
-+func boringPrivateKey(*PrivateKey) (*becdsa.PrivateKey, error) {
- 	panic("boringcrypto: not available")
+ 
+ func publicKeyBytes[P ecdsa.Point[P]](c *ecdsa.Curve[P], pub *PublicKey) ([]byte, error) {
+-	k, err := publicKeyToFIPS(c, pub)
++	_, err := publicKeyToFIPS(c, pub)
+ 	if err != nil {
+ 		return nil, err
+ 	}
+-	return k.Bytes(), nil
++	// Encode separately so callers cannot modify the cached key's encoding.
++	return pointFromAffine(pub.Curve, pub.X, pub.Y)
  }
+ 
+ // PrivateKey represents an ECDSA private key.
+@@ -302,7 +304,8 @@ func privateKeyBytes[P ecdsa.Point[P]](c *ecdsa.Curve[P], priv *PrivateKey) ([]b
+ 	if err != nil {
+ 		return nil, err
+ 	}
+-	return k.Bytes(), nil
++	// Encode separately so callers cannot modify the cached key's encoding.
++	return priv.D.FillBytes(make([]byte, len(k.Bytes()))), nil
+ }
+ 
+ // Sign signs a hash (which should be the result of hashing a larger message
+@@ -578,12 +581,18 @@ func privateKeyFromFIPS(curve elliptic.Curve, priv *ecdsa.PrivateKey) (*PrivateK
+ 	return &PrivateKey{PublicKey: *pub, D: new(big.Int).SetBytes(priv.Bytes())}, nil
+ }
+ 
++var publicKeyCache fips140cache.Cache[PublicKey, ecdsa.PublicKey]
++
+ func publicKeyToFIPS[P ecdsa.Point[P]](c *ecdsa.Curve[P], pub *PublicKey) (*ecdsa.PublicKey, error) {
+ 	Q, err := pointFromAffine(pub.Curve, pub.X, pub.Y)
+ 	if err != nil {
+ 		return nil, err
+ 	}
+-	return ecdsa.NewPublicKey(c, Q)
++	return publicKeyCache.Get(pub, func() (*ecdsa.PublicKey, error) {
++		return ecdsa.NewPublicKey(c, Q)
++	}, func(k *ecdsa.PublicKey) bool {
++		return subtle.ConstantTimeCompare(k.Bytes(), Q) == 1
++	})
+ }
+ 
+ var privateKeyCache fips140cache.Cache[PrivateKey, ecdsa.PrivateKey]
 diff --git a/src/crypto/ed25519/boring.go b/src/crypto/ed25519/boring.go
 new file mode 100644
 index 00000000000000..25a3f57660c356

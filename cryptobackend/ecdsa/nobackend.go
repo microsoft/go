@@ -6,21 +6,22 @@
 
 package ecdsa
 
-type BigInt = []uint
-type PrivateKey struct{ _ int }
-type PublicKey struct{ _ int }
+type backendPrivateKey struct{}
+type backendPublicKey struct{}
 
-func SupportsCurve(curve string) bool                      { panic("cryptobackend: not available") }
-func GenerateKey(curve string) (X, Y, D BigInt, err error) { panic("cryptobackend: not available") }
-func NewPrivateKey(curve string, X, Y, D BigInt) (*PrivateKey, error) {
+func supportsCurve(curve string) bool { panic("cryptobackend: not available") }
+func generateKey(curve string) (X, Y, D []uint, err error) {
 	panic("cryptobackend: not available")
 }
-func NewPublicKey(curve string, X, Y BigInt) (*PublicKey, error) {
+func newPrivateKey(curve string, Q, D []byte) (*backendPrivateKey, error) {
 	panic("cryptobackend: not available")
 }
-func SignASN1(priv *PrivateKey, hash []byte) ([]byte, error) {
+func newPublicKey(curve string, Q []byte) (*backendPublicKey, error) {
 	panic("cryptobackend: not available")
 }
-func VerifyASN1(pub *PublicKey, hash, sig []byte) (bool, error) {
+func sign(priv *backendPrivateKey, hash []byte) (*Signature, error) {
+	panic("cryptobackend: not available")
+}
+func verify(pub *backendPublicKey, hash []byte, sig *Signature) error {
 	panic("cryptobackend: not available")
 }
