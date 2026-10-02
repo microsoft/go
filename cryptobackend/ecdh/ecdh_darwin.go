@@ -8,8 +8,8 @@ package ecdh
 
 import "github.com/microsoft/go-crypto-darwin/xcrypto"
 
-type PrivateKey = xcrypto.PrivateKeyECDH
-type PublicKey = xcrypto.PublicKeyECDH
+type backendPrivateKey = xcrypto.PrivateKeyECDH
+type backendPublicKey = xcrypto.PublicKeyECDH
 
 func SupportsCurve(curve string) bool {
 	switch curve {
@@ -19,14 +19,18 @@ func SupportsCurve(curve string) bool {
 	return false
 }
 
-func GenerateKey(curve string) (*PrivateKey, []byte, error) { return xcrypto.GenerateKeyECDH(curve) }
+func generateKey(curve string) (*backendPrivateKey, []byte, error) {
+	return xcrypto.GenerateKeyECDH(curve)
+}
 
-func NewPrivateKey(curve string, key []byte) (*PrivateKey, error) {
+func newPrivateKey(curve string, key []byte) (*backendPrivateKey, error) {
 	return xcrypto.NewPrivateKeyECDH(curve, key)
 }
 
-func NewPublicKey(curve string, key []byte) (*PublicKey, error) {
+func newPublicKey(curve string, key []byte) (*backendPublicKey, error) {
 	return xcrypto.NewPublicKeyECDH(curve, key)
 }
 
-func ECDH(priv *PrivateKey, pub *PublicKey) ([]byte, error) { return xcrypto.ECDH(priv, pub) }
+func ecdh(priv *backendPrivateKey, pub *backendPublicKey) ([]byte, error) {
+	return xcrypto.ECDH(priv, pub)
+}

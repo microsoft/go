@@ -8,19 +8,23 @@ package ecdh
 
 import "github.com/microsoft/go-crypto-openssl/openssl"
 
-type PrivateKey = openssl.PrivateKeyECDH
-type PublicKey = openssl.PublicKeyECDH
+type backendPrivateKey = openssl.PrivateKeyECDH
+type backendPublicKey = openssl.PublicKeyECDH
 
 func SupportsCurve(curve string) bool { return openssl.SupportsCurve(curve) }
 
-func GenerateKey(curve string) (*PrivateKey, []byte, error) { return openssl.GenerateKeyECDH(curve) }
+func generateKey(curve string) (*backendPrivateKey, []byte, error) {
+	return openssl.GenerateKeyECDH(curve)
+}
 
-func NewPrivateKey(curve string, key []byte) (*PrivateKey, error) {
+func newPrivateKey(curve string, key []byte) (*backendPrivateKey, error) {
 	return openssl.NewPrivateKeyECDH(curve, key)
 }
 
-func NewPublicKey(curve string, key []byte) (*PublicKey, error) {
+func newPublicKey(curve string, key []byte) (*backendPublicKey, error) {
 	return openssl.NewPublicKeyECDH(curve, key)
 }
 
-func ECDH(priv *PrivateKey, pub *PublicKey) ([]byte, error) { return openssl.ECDH(priv, pub) }
+func ecdh(priv *backendPrivateKey, pub *backendPublicKey) ([]byte, error) {
+	return openssl.ECDH(priv, pub)
+}

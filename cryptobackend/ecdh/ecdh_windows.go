@@ -8,25 +8,29 @@ package ecdh
 
 import "github.com/microsoft/go-crypto-winnative/cng"
 
-type PrivateKey = cng.PrivateKeyECDH
-type PublicKey = cng.PublicKeyECDH
+type backendPrivateKey = cng.PrivateKeyECDH
+type backendPublicKey = cng.PublicKeyECDH
 
 func SupportsCurve(curve string) bool {
 	switch curve {
-	case "P-224", "P-256", "P-384", "P-521", "X25519":
+	case "P-256", "P-384", "P-521", "X25519":
 		return true
 	}
 	return false
 }
 
-func GenerateKey(curve string) (*PrivateKey, []byte, error) { return cng.GenerateKeyECDH(curve) }
+func generateKey(curve string) (*backendPrivateKey, []byte, error) {
+	return cng.GenerateKeyECDH(curve)
+}
 
-func NewPrivateKey(curve string, key []byte) (*PrivateKey, error) {
+func newPrivateKey(curve string, key []byte) (*backendPrivateKey, error) {
 	return cng.NewPrivateKeyECDH(curve, key)
 }
 
-func NewPublicKey(curve string, key []byte) (*PublicKey, error) {
+func newPublicKey(curve string, key []byte) (*backendPublicKey, error) {
 	return cng.NewPublicKeyECDH(curve, key)
 }
 
-func ECDH(priv *PrivateKey, pub *PublicKey) ([]byte, error) { return cng.ECDH(priv, pub) }
+func ecdh(priv *backendPrivateKey, pub *backendPublicKey) ([]byte, error) {
+	return cng.ECDH(priv, pub)
+}

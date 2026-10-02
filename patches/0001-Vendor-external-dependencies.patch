@@ -323,11 +323,14 @@ Use a 'go' that was recently built by the current branch to ensure stable result
  .../go/cryptobackend/dsa/dsa_windows.go       |   37 +
  .../microsoft/go/cryptobackend/dsa/init.go    |    7 +
  .../go/cryptobackend/dsa/nobackend.go         |   23 +
- .../go/cryptobackend/ecdh/ecdh_darwin.go      |   32 +
- .../go/cryptobackend/ecdh/ecdh_openssl.go     |   26 +
- .../go/cryptobackend/ecdh/ecdh_windows.go     |   32 +
- .../microsoft/go/cryptobackend/ecdh/init.go   |    7 +
- .../go/cryptobackend/ecdh/nobackend.go        |   22 +
+ .../go/cryptobackend/ecdh/ecdh_darwin.go      |   36 +
+ .../go/cryptobackend/ecdh/ecdh_msgostd.go     |  141 +
+ .../go/cryptobackend/ecdh/ecdh_nomsgostd.go   |   54 +
+ .../go/cryptobackend/ecdh/ecdh_openssl.go     |   30 +
+ .../go/cryptobackend/ecdh/ecdh_windows.go     |   36 +
+ .../microsoft/go/cryptobackend/ecdh/key.go    |   66 +
+ .../go/cryptobackend/ecdh/nobackend.go        |   28 +
+ .../go/cryptobackend/ecdh/x25519_msgostd.go   |   93 +
  .../go/cryptobackend/ecdsa/ecdsa_darwin.go    |   53 +
  .../go/cryptobackend/ecdsa/ecdsa_msgostd.go   |  171 ++
  .../go/cryptobackend/ecdsa/ecdsa_nomsgostd.go |   51 +
@@ -463,7 +466,7 @@ Use a 'go' that was recently built by the current branch to ensure stable result
  .../go/cryptobackend/tls13/tls13_openssl.go   |   18 +
  .../go/cryptobackend/tls13/tls13_windows.go   |   14 +
  src/vendor/modules.txt                        |   54 +
- 455 files changed, 42421 insertions(+), 7 deletions(-)
+ 458 files changed, 42786 insertions(+), 7 deletions(-)
  create mode 100644 src/cmd/internal/telemetry/counter/deps_ignore.go
  create mode 100644 src/cmd/vendor/github.com/microsoft/go-infra/telemetry/LICENSE
  create mode 100644 src/cmd/vendor/github.com/microsoft/go-infra/telemetry/README.md
@@ -773,10 +776,13 @@ Use a 'go' that was recently built by the current branch to ensure stable result
  create mode 100644 src/vendor/github.com/microsoft/go/cryptobackend/dsa/init.go
  create mode 100644 src/vendor/github.com/microsoft/go/cryptobackend/dsa/nobackend.go
  create mode 100644 src/vendor/github.com/microsoft/go/cryptobackend/ecdh/ecdh_darwin.go
+ create mode 100644 src/vendor/github.com/microsoft/go/cryptobackend/ecdh/ecdh_msgostd.go
+ create mode 100644 src/vendor/github.com/microsoft/go/cryptobackend/ecdh/ecdh_nomsgostd.go
  create mode 100644 src/vendor/github.com/microsoft/go/cryptobackend/ecdh/ecdh_openssl.go
  create mode 100644 src/vendor/github.com/microsoft/go/cryptobackend/ecdh/ecdh_windows.go
- create mode 100644 src/vendor/github.com/microsoft/go/cryptobackend/ecdh/init.go
+ create mode 100644 src/vendor/github.com/microsoft/go/cryptobackend/ecdh/key.go
  create mode 100644 src/vendor/github.com/microsoft/go/cryptobackend/ecdh/nobackend.go
+ create mode 100644 src/vendor/github.com/microsoft/go/cryptobackend/ecdh/x25519_msgostd.go
  create mode 100644 src/vendor/github.com/microsoft/go/cryptobackend/ecdsa/ecdsa_darwin.go
  create mode 100644 src/vendor/github.com/microsoft/go/cryptobackend/ecdsa/ecdsa_msgostd.go
  create mode 100644 src/vendor/github.com/microsoft/go/cryptobackend/ecdsa/ecdsa_nomsgostd.go
@@ -42352,10 +42358,10 @@ index 00000000000000..5a3d7ed9322674
 +}
 diff --git a/src/vendor/github.com/microsoft/go/cryptobackend/ecdh/ecdh_darwin.go b/src/vendor/github.com/microsoft/go/cryptobackend/ecdh/ecdh_darwin.go
 new file mode 100644
-index 00000000000000..67de2e7bb2098e
+index 00000000000000..480ec016021bdf
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go/cryptobackend/ecdh/ecdh_darwin.go
-@@ -0,0 +1,32 @@
+@@ -0,0 +1,36 @@
 +// Copyright 2024 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -42366,8 +42372,8 @@ index 00000000000000..67de2e7bb2098e
 +
 +import "github.com/microsoft/go-crypto-darwin/xcrypto"
 +
-+type PrivateKey = xcrypto.PrivateKeyECDH
-+type PublicKey = xcrypto.PublicKeyECDH
++type backendPrivateKey = xcrypto.PrivateKeyECDH
++type backendPublicKey = xcrypto.PublicKeyECDH
 +
 +func SupportsCurve(curve string) bool {
 +	switch curve {
@@ -42377,23 +42383,234 @@ index 00000000000000..67de2e7bb2098e
 +	return false
 +}
 +
-+func GenerateKey(curve string) (*PrivateKey, []byte, error) { return xcrypto.GenerateKeyECDH(curve) }
++func generateKey(curve string) (*backendPrivateKey, []byte, error) {
++	return xcrypto.GenerateKeyECDH(curve)
++}
 +
-+func NewPrivateKey(curve string, key []byte) (*PrivateKey, error) {
++func newPrivateKey(curve string, key []byte) (*backendPrivateKey, error) {
 +	return xcrypto.NewPrivateKeyECDH(curve, key)
 +}
 +
-+func NewPublicKey(curve string, key []byte) (*PublicKey, error) {
++func newPublicKey(curve string, key []byte) (*backendPublicKey, error) {
 +	return xcrypto.NewPublicKeyECDH(curve, key)
 +}
 +
-+func ECDH(priv *PrivateKey, pub *PublicKey) ([]byte, error) { return xcrypto.ECDH(priv, pub) }
++func ecdh(priv *backendPrivateKey, pub *backendPublicKey) ([]byte, error) {
++	return xcrypto.ECDH(priv, pub)
++}
+diff --git a/src/vendor/github.com/microsoft/go/cryptobackend/ecdh/ecdh_msgostd.go b/src/vendor/github.com/microsoft/go/cryptobackend/ecdh/ecdh_msgostd.go
+new file mode 100644
+index 00000000000000..27f36e30d8c378
+--- /dev/null
++++ b/src/vendor/github.com/microsoft/go/cryptobackend/ecdh/ecdh_msgostd.go
+@@ -0,0 +1,141 @@
++// Copyright 2026 The Go Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style
++// license that can be found in the LICENSE file.
++
++//go:build msgostd || cmd_go_bootstrap
++
++package ecdh
++
++import (
++	"bytes"
++	fallback "crypto/internal/fips140/ecdh"
++	"crypto/internal/fips140/nistec"
++	"crypto/internal/rand"
++	cryptorand "crypto/rand"
++	"errors"
++	"io"
++	"math/bits"
++)
++
++type Point[P any] = fallback.Point[P]
++type Curve[P Point[P]] = fallback.Curve[P]
++type fipsPublicKey = fallback.PublicKey
++type fipsPrivateKey = fallback.PrivateKey
++
++func P224() *Curve[*nistec.P224Point] { return fallback.P224() }
++func P256() *Curve[*nistec.P256Point] { return fallback.P256() }
++func P384() *Curve[*nistec.P384Point] { return fallback.P384() }
++func P521() *Curve[*nistec.P521Point] { return fallback.P521() }
++
++func curveName[P Point[P]](c *Curve[P]) string {
++	// Each supported NIST curve has a distinct scalar encoding length.
++	switch len(c.N) {
++	case 28:
++		return "P-224"
++	case 32:
++		return "P-256"
++	case 48:
++		return "P-384"
++	case 66:
++		return "P-521"
++	}
++	return ""
++}
++
++func isDefaultReader(r io.Reader) bool {
++	// SetGlobalRandom replaces the public reader as well as Go's internal
++	// randomness source. Native generation cannot use that testing source.
++	return rand.IsDefaultReader(r) && rand.IsDefaultReader(cryptorand.Reader)
++}
++
++func wrapGoPrivateKey(curve string, key *fipsPrivateKey) *PrivateKey {
++	return &PrivateKey{
++		pub:  PublicKey{curve: curve, q: key.PublicKey().Bytes(), fips: key.PublicKey()},
++		d:    key.Bytes(),
++		fips: key,
++	}
++}
++
++func GenerateKey[P Point[P]](c *Curve[P], random io.Reader) (*PrivateKey, error) {
++	name := curveName(c)
++	if supportsBackend(name) && isDefaultReader(random) {
++		key, d, err := generateKey(name)
++		if err != nil {
++			return nil, err
++		}
++		return wrapBackendPrivateKey(name, key, d)
++	}
++	key, err := fallback.GenerateKey(c, random)
++	if err != nil {
++		return nil, err
++	}
++	if supportsBackend(name) {
++		// Custom randomness selects Go generation, not a different ECDH
++		// implementation. Keep generated and imported keys interoperable.
++		native, err := newPrivateKey(name, key.Bytes())
++		if err != nil {
++			return nil, err
++		}
++		return wrapBackendPrivateKey(name, native, key.Bytes())
++	}
++	return wrapGoPrivateKey(name, key), nil
++}
++
++func NewPrivateKey[P Point[P]](c *Curve[P], key []byte) (*PrivateKey, error) {
++	name := curveName(c)
++	if supportsBackend(name) {
++		// Some native imports reduce scalars modulo the curve order. Enforce
++		// Go's fixed-length, nonzero, reduced encoding before importing.
++		if !validScalar(key, c.N) {
++			return nil, errors.New("crypto/ecdh: invalid private key")
++		}
++		return importBackendPrivateKey(name, bytes.Clone(key))
++	}
++	k, err := fallback.NewPrivateKey(c, key)
++	if err != nil {
++		return nil, err
++	}
++	return wrapGoPrivateKey(name, k), nil
++}
++
++func NewPublicKey[P Point[P]](c *Curve[P], key []byte) (*PublicKey, error) {
++	name := curveName(c)
++	if supportsBackend(name) {
++		if len(key) == 0 || key[0] != 4 {
++			return nil, errors.New("crypto/ecdh: invalid public key")
++		}
++		native, err := newPublicKey(name, key)
++		if err != nil {
++			return nil, errors.New("crypto/ecdh: invalid public key")
++		}
++		return &PublicKey{curve: name, q: native.Bytes(), backend: native}, nil
++	}
++	k, err := fallback.NewPublicKey(c, key)
++	if err != nil {
++		return nil, err
++	}
++	return &PublicKey{curve: name, q: k.Bytes(), fips: k}, nil
++}
++
++func ECDH[P Point[P]](c *Curve[P], priv *PrivateKey, pub *PublicKey) ([]byte, error) {
++	if name := curveName(c); priv.pub.curve != name || pub.curve != name {
++		return nil, errors.New("crypto/ecdh: mismatched curves")
++	}
++	if priv.backend != nil {
++		return ecdh(priv.backend, pub.backend)
++	}
++	return fallback.ECDH(c, priv.fips, pub.fips)
++}
++
++func validScalar(key, order []byte) bool {
++	if len(key) != len(order) {
++		return false
++	}
++	var nonzero byte
++	var borrow uint64
++	for i := len(key) - 1; i >= 0; i-- {
++		nonzero |= key[i]
++		_, borrow = bits.Sub64(uint64(key[i]), uint64(order[i]), borrow)
++	}
++	return nonzero != 0 && borrow == 1
++}
+diff --git a/src/vendor/github.com/microsoft/go/cryptobackend/ecdh/ecdh_nomsgostd.go b/src/vendor/github.com/microsoft/go/cryptobackend/ecdh/ecdh_nomsgostd.go
+new file mode 100644
+index 00000000000000..96de45c13cc3ac
+--- /dev/null
++++ b/src/vendor/github.com/microsoft/go/cryptobackend/ecdh/ecdh_nomsgostd.go
+@@ -0,0 +1,54 @@
++// Copyright 2026 The Go Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style
++// license that can be found in the LICENSE file.
++
++//go:build !msgostd && !cmd_go_bootstrap
++
++package ecdh
++
++import "io"
++
++// Keep the standard-library API visible to source importers without msgostd.
++type Point[P any] interface {
++	Bytes() []byte
++	BytesX() ([]byte, error)
++	SetBytes([]byte) (P, error)
++	ScalarMult(P, []byte) (P, error)
++	ScalarBaseMult([]byte) (P, error)
++}
++
++type Curve[P Point[P]] struct{}
++type fipsPublicKey struct{}
++type fipsPrivateKey struct{}
++
++func GenerateKey[P Point[P]](c *Curve[P], random io.Reader) (*PrivateKey, error) {
++	panic("cryptobackend: not available")
++}
++
++func NewPrivateKey[P Point[P]](c *Curve[P], key []byte) (*PrivateKey, error) {
++	panic("cryptobackend: not available")
++}
++
++func NewPublicKey[P Point[P]](c *Curve[P], key []byte) (*PublicKey, error) {
++	panic("cryptobackend: not available")
++}
++
++func ECDH[P Point[P]](c *Curve[P], priv *PrivateKey, pub *PublicKey) ([]byte, error) {
++	panic("cryptobackend: not available")
++}
++
++func GenerateKeyX25519(random io.Reader, scalarBaseMult func(dst, scalar []byte)) (*PrivateKey, error) {
++	panic("cryptobackend: not available")
++}
++
++func NewPrivateKeyX25519(key []byte, scalarBaseMult func(dst, scalar []byte)) (*PrivateKey, error) {
++	panic("cryptobackend: not available")
++}
++
++func NewPublicKeyX25519(key []byte) (*PublicKey, error) {
++	panic("cryptobackend: not available")
++}
++
++func ECDHX25519(priv *PrivateKey, pub *PublicKey, scalarMult func(dst, scalar, point []byte)) ([]byte, error) {
++	panic("cryptobackend: not available")
++}
 diff --git a/src/vendor/github.com/microsoft/go/cryptobackend/ecdh/ecdh_openssl.go b/src/vendor/github.com/microsoft/go/cryptobackend/ecdh/ecdh_openssl.go
 new file mode 100644
-index 00000000000000..ff426cb50bb437
+index 00000000000000..b3be0346819aaf
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go/cryptobackend/ecdh/ecdh_openssl.go
-@@ -0,0 +1,26 @@
+@@ -0,0 +1,30 @@
 +// Copyright 2024 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -42404,28 +42621,32 @@ index 00000000000000..ff426cb50bb437
 +
 +import "github.com/microsoft/go-crypto-openssl/openssl"
 +
-+type PrivateKey = openssl.PrivateKeyECDH
-+type PublicKey = openssl.PublicKeyECDH
++type backendPrivateKey = openssl.PrivateKeyECDH
++type backendPublicKey = openssl.PublicKeyECDH
 +
 +func SupportsCurve(curve string) bool { return openssl.SupportsCurve(curve) }
 +
-+func GenerateKey(curve string) (*PrivateKey, []byte, error) { return openssl.GenerateKeyECDH(curve) }
++func generateKey(curve string) (*backendPrivateKey, []byte, error) {
++	return openssl.GenerateKeyECDH(curve)
++}
 +
-+func NewPrivateKey(curve string, key []byte) (*PrivateKey, error) {
++func newPrivateKey(curve string, key []byte) (*backendPrivateKey, error) {
 +	return openssl.NewPrivateKeyECDH(curve, key)
 +}
 +
-+func NewPublicKey(curve string, key []byte) (*PublicKey, error) {
++func newPublicKey(curve string, key []byte) (*backendPublicKey, error) {
 +	return openssl.NewPublicKeyECDH(curve, key)
 +}
 +
-+func ECDH(priv *PrivateKey, pub *PublicKey) ([]byte, error) { return openssl.ECDH(priv, pub) }
++func ecdh(priv *backendPrivateKey, pub *backendPublicKey) ([]byte, error) {
++	return openssl.ECDH(priv, pub)
++}
 diff --git a/src/vendor/github.com/microsoft/go/cryptobackend/ecdh/ecdh_windows.go b/src/vendor/github.com/microsoft/go/cryptobackend/ecdh/ecdh_windows.go
 new file mode 100644
-index 00000000000000..4e21a465b2b085
+index 00000000000000..99132bf575152c
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go/cryptobackend/ecdh/ecdh_windows.go
-@@ -0,0 +1,32 @@
+@@ -0,0 +1,36 @@
 +// Copyright 2024 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -42436,47 +42657,110 @@ index 00000000000000..4e21a465b2b085
 +
 +import "github.com/microsoft/go-crypto-winnative/cng"
 +
-+type PrivateKey = cng.PrivateKeyECDH
-+type PublicKey = cng.PublicKeyECDH
++type backendPrivateKey = cng.PrivateKeyECDH
++type backendPublicKey = cng.PublicKeyECDH
 +
 +func SupportsCurve(curve string) bool {
 +	switch curve {
-+	case "P-224", "P-256", "P-384", "P-521", "X25519":
++	case "P-256", "P-384", "P-521", "X25519":
 +		return true
 +	}
 +	return false
 +}
 +
-+func GenerateKey(curve string) (*PrivateKey, []byte, error) { return cng.GenerateKeyECDH(curve) }
++func generateKey(curve string) (*backendPrivateKey, []byte, error) {
++	return cng.GenerateKeyECDH(curve)
++}
 +
-+func NewPrivateKey(curve string, key []byte) (*PrivateKey, error) {
++func newPrivateKey(curve string, key []byte) (*backendPrivateKey, error) {
 +	return cng.NewPrivateKeyECDH(curve, key)
 +}
 +
-+func NewPublicKey(curve string, key []byte) (*PublicKey, error) {
++func newPublicKey(curve string, key []byte) (*backendPublicKey, error) {
 +	return cng.NewPublicKeyECDH(curve, key)
 +}
 +
-+func ECDH(priv *PrivateKey, pub *PublicKey) ([]byte, error) { return cng.ECDH(priv, pub) }
-diff --git a/src/vendor/github.com/microsoft/go/cryptobackend/ecdh/init.go b/src/vendor/github.com/microsoft/go/cryptobackend/ecdh/init.go
++func ecdh(priv *backendPrivateKey, pub *backendPublicKey) ([]byte, error) {
++	return cng.ECDH(priv, pub)
++}
+diff --git a/src/vendor/github.com/microsoft/go/cryptobackend/ecdh/key.go b/src/vendor/github.com/microsoft/go/cryptobackend/ecdh/key.go
 new file mode 100644
-index 00000000000000..581418bf1b9809
+index 00000000000000..50fd0baf7d07f8
 --- /dev/null
-+++ b/src/vendor/github.com/microsoft/go/cryptobackend/ecdh/init.go
-@@ -0,0 +1,7 @@
++++ b/src/vendor/github.com/microsoft/go/cryptobackend/ecdh/key.go
+@@ -0,0 +1,66 @@
 +// Copyright 2026 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
 +
 +package ecdh
 +
-+import _ "github.com/microsoft/go/cryptobackend"
++import (
++	"errors"
++
++	backend "github.com/microsoft/go/cryptobackend"
++)
++
++// PublicKey holds an immutable ECDH public key and its implementation.
++type PublicKey struct {
++	curve   string
++	q       []byte
++	backend *backendPublicKey
++	fips    *fipsPublicKey
++}
++
++// Bytes returns the public key encoding. The returned slice must not be modified.
++func (k *PublicKey) Bytes() []byte { return k.q }
++
++// PrivateKey holds an immutable ECDH private key and its implementation.
++type PrivateKey struct {
++	pub     PublicKey
++	d       []byte
++	backend *backendPrivateKey
++	fips    *fipsPrivateKey
++}
++
++// Bytes returns the private key encoding. The returned slice must not be modified.
++func (k *PrivateKey) Bytes() []byte { return k.d }
++
++// PublicKey returns the public part of k.
++func (k *PrivateKey) PublicKey() *PublicKey { return &k.pub }
++
++func supportsBackend(curve string) bool {
++	return backend.Enabled && SupportsCurve(curve)
++}
++
++// importBackendPrivateKey takes ownership of key and normalizes import errors.
++func importBackendPrivateKey(curve string, key []byte) (*PrivateKey, error) {
++	native, err := newPrivateKey(curve, key)
++	if err != nil {
++		return nil, errors.New("crypto/ecdh: invalid private key")
++	}
++	k, err := wrapBackendPrivateKey(curve, native, key)
++	if err != nil {
++		return nil, errors.New("crypto/ecdh: invalid private key")
++	}
++	return k, nil
++}
++
++// wrapBackendPrivateKey takes ownership of the private key encoding.
++func wrapBackendPrivateKey(curve string, key *backendPrivateKey, d []byte) (*PrivateKey, error) {
++	pub, err := key.PublicKey()
++	if err != nil {
++		return nil, err
++	}
++	return &PrivateKey{
++		pub:     PublicKey{curve: curve, q: pub.Bytes(), backend: pub},
++		d:       d,
++		backend: key,
++	}, nil
++}
 diff --git a/src/vendor/github.com/microsoft/go/cryptobackend/ecdh/nobackend.go b/src/vendor/github.com/microsoft/go/cryptobackend/ecdh/nobackend.go
 new file mode 100644
-index 00000000000000..e168a1b84d7532
+index 00000000000000..ade3713d8cb71d
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go/cryptobackend/ecdh/nobackend.go
-@@ -0,0 +1,22 @@
+@@ -0,0 +1,28 @@
 +// Copyright 2024 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -42485,20 +42769,125 @@ index 00000000000000..e168a1b84d7532
 +
 +package ecdh
 +
-+type PrivateKey struct{}
-+type PublicKey struct{}
++type backendPrivateKey struct{}
++type backendPublicKey struct{}
 +
-+func SupportsCurve(curve string) bool                       { panic("cryptobackend: not available") }
-+func GenerateKey(curve string) (*PrivateKey, []byte, error) { panic("cryptobackend: not available") }
-+func NewPrivateKey(curve string, key []byte) (*PrivateKey, error) {
++func SupportsCurve(curve string) bool { panic("cryptobackend: not available") }
++func generateKey(curve string) (*backendPrivateKey, []byte, error) {
 +	panic("cryptobackend: not available")
 +}
-+func NewPublicKey(curve string, key []byte) (*PublicKey, error) {
++func newPrivateKey(curve string, key []byte) (*backendPrivateKey, error) {
 +	panic("cryptobackend: not available")
 +}
-+func (k *PrivateKey) PublicKey() (*PublicKey, error)        { panic("cryptobackend: not available") }
-+func (k *PublicKey) Bytes() []byte                          { panic("cryptobackend: not available") }
-+func ECDH(priv *PrivateKey, pub *PublicKey) ([]byte, error) { panic("cryptobackend: not available") }
++func newPublicKey(curve string, key []byte) (*backendPublicKey, error) {
++	panic("cryptobackend: not available")
++}
++func (k *backendPrivateKey) PublicKey() (*backendPublicKey, error) {
++	panic("cryptobackend: not available")
++}
++func (k *backendPublicKey) Bytes() []byte { panic("cryptobackend: not available") }
++func ecdh(priv *backendPrivateKey, pub *backendPublicKey) ([]byte, error) {
++	panic("cryptobackend: not available")
++}
+diff --git a/src/vendor/github.com/microsoft/go/cryptobackend/ecdh/x25519_msgostd.go b/src/vendor/github.com/microsoft/go/cryptobackend/ecdh/x25519_msgostd.go
+new file mode 100644
+index 00000000000000..4177ed84849ac4
+--- /dev/null
++++ b/src/vendor/github.com/microsoft/go/cryptobackend/ecdh/x25519_msgostd.go
+@@ -0,0 +1,93 @@
++// Copyright 2026 The Go Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style
++// license that can be found in the LICENSE file.
++
++//go:build msgostd || cmd_go_bootstrap
++
++package ecdh
++
++import (
++	"bytes"
++	"crypto/internal/fips140/drbg"
++	"errors"
++	"io"
++)
++
++// The scalar multiplication callbacks keep the upstream X25519 implementation
++// in crypto/ecdh while letting this package select native operations or fallback.
++
++func GenerateKeyX25519(random io.Reader, scalarBaseMult func(dst, scalar []byte)) (*PrivateKey, error) {
++	if supportsBackend("X25519") && isDefaultReader(random) {
++		key, d, err := generateKey("X25519")
++		if err != nil {
++			return nil, err
++		}
++		return wrapBackendPrivateKey("X25519", key, d)
++	}
++	key := make([]byte, 32)
++	if err := drbg.ReadWithReader(random, key); err != nil {
++		return nil, err
++	}
++	return newPrivateKeyX25519(key, scalarBaseMult)
++}
++
++func NewPrivateKeyX25519(key []byte, scalarBaseMult func(dst, scalar []byte)) (*PrivateKey, error) {
++	if len(key) != 32 {
++		return nil, errors.New("crypto/ecdh: invalid private key size")
++	}
++	return newPrivateKeyX25519(bytes.Clone(key), scalarBaseMult)
++}
++
++// newPrivateKeyX25519 takes ownership of a 32-byte private scalar.
++func newPrivateKeyX25519(key []byte, scalarBaseMult func(dst, scalar []byte)) (*PrivateKey, error) {
++	if supportsBackend("X25519") {
++		return importBackendPrivateKey("X25519", key)
++	}
++	publicKey := make([]byte, 32)
++	scalarBaseMult(publicKey, key)
++	return &PrivateKey{
++		pub: PublicKey{curve: "X25519", q: publicKey},
++		d:   key,
++	}, nil
++}
++
++func NewPublicKeyX25519(key []byte) (*PublicKey, error) {
++	if len(key) != 32 {
++		return nil, errors.New("crypto/ecdh: invalid public key")
++	}
++	if supportsBackend("X25519") {
++		native, err := newPublicKey("X25519", key)
++		if err == nil {
++			return &PublicKey{curve: "X25519", q: native.Bytes(), backend: native}, nil
++		}
++		// X25519 accepts every 32-byte public encoding, including points on
++		// the twist and non-canonical encodings. A backend may reject those
++		// at import time; keep them for Go scalar multiplication instead.
++	}
++	return &PublicKey{curve: "X25519", q: bytes.Clone(key)}, nil
++}
++
++func ECDHX25519(priv *PrivateKey, pub *PublicKey, scalarMult func(dst, scalar, point []byte)) ([]byte, error) {
++	if priv.pub.curve != "X25519" || pub.curve != "X25519" {
++		return nil, errors.New("crypto/ecdh: mismatched curves")
++	}
++	var out []byte
++	if priv.backend != nil && pub.backend != nil {
++		var err error
++		out, err = ecdh(priv.backend, pub.backend)
++		if err != nil {
++			return nil, err
++		}
++	} else {
++		out = make([]byte, 32)
++		scalarMult(out, priv.d, pub.q)
++	}
++	var nonzero byte
++	for _, b := range out {
++		nonzero |= b
++	}
++	if nonzero == 0 {
++		return nil, errors.New("crypto/ecdh: bad X25519 remote ECDH input: low order point")
++	}
++	return out, nil
++}
 diff --git a/src/vendor/github.com/microsoft/go/cryptobackend/ecdsa/ecdsa_darwin.go b/src/vendor/github.com/microsoft/go/cryptobackend/ecdsa/ecdsa_darwin.go
 new file mode 100644
 index 00000000000000..747acd2771eae9
