@@ -52,10 +52,9 @@ Subject: [PATCH] Add crypto backends
  src/crypto/dsa/dsa.go                         |  47 +++
  src/crypto/dsa/dsa_test.go                    |   8 +
  src/crypto/dsa/notboring.go                   |  16 +
- src/crypto/ecdh/ecdh.go                       |   7 +-
- src/crypto/ecdh/ecdh_test.go                  |  19 +-
- src/crypto/ecdh/nist.go                       |  54 ++--
- src/crypto/ecdh/x25519.go                     |  51 +++
+ src/crypto/ecdh/ecdh.go                       |   3 +-
+ src/crypto/ecdh/nist.go                       |   3 +-
+ src/crypto/ecdh/x25519.go                     |  43 +--
  src/crypto/ecdsa/ecdsa.go                     |  19 +-
  src/crypto/ed25519/boring.go                  |  73 +++++
  src/crypto/ed25519/ed25519.go                 |  73 +++++
@@ -120,7 +119,7 @@ Subject: [PATCH] Add crypto backends
  src/crypto/tls/prf_test.go                    |   9 +
  src/crypto/x509/verify_test.go                |   2 +-
  src/go/build/buildbackend_test.go             |  50 +++
- src/go/build/deps_test.go                     |  95 +++++-
+ src/go/build/deps_test.go                     |  97 +++++-
  .../build/testdata/backendtags_system/main.go |   3 +
  .../backendtags_system/systemcrypto.go        |   3 +
  src/hash/example_test.go                      |   2 +
@@ -136,7 +135,7 @@ Subject: [PATCH] Add crypto backends
  src/os/exec/exec_test.go                      |   9 +
  src/runtime/runtime_boring.go                 |   5 +
  src/syscall/syscall_windows.go                |   3 +
- 132 files changed, 2277 insertions(+), 268 deletions(-)
+ 131 files changed, 2205 insertions(+), 260 deletions(-)
  create mode 100644 src/cmd/go/systemcrypto_test.go
  create mode 100644 src/crypto/dsa/boring.go
  create mode 100644 src/crypto/dsa/notboring.go
@@ -438,10 +437,10 @@ index 4fe2ec49413476..1557af667bc8e6 100644
 +	return enabled
 +}
 diff --git a/src/cmd/go/alldocs.go b/src/cmd/go/alldocs.go
-index 8f4a9229e83d86..5bb384cf3c396b 100644
+index 5343762633aafa..2ff19983542a25 100644
 --- a/src/cmd/go/alldocs.go
 +++ b/src/cmd/go/alldocs.go
-@@ -2631,6 +2631,9 @@
+@@ -2633,6 +2633,9 @@
  //		mentioned will be considered insecure by 'go get'.
  //		Because the variable is defined by Git, the default value cannot
  //		be set using 'go env -w'.
@@ -1233,7 +1232,7 @@ index 6702e9279b106b..09b92a3ed98df1 100644
  	if err != nil {
  		return false, err
 diff --git a/src/cmd/internal/testdir/testdir_test.go b/src/cmd/internal/testdir/testdir_test.go
-index 9eb7a973bf6cc5..e9239a43f38f18 100644
+index b0796dfd2b3d89..30606ea53f931f 100644
 --- a/src/cmd/internal/testdir/testdir_test.go
 +++ b/src/cmd/internal/testdir/testdir_test.go
 @@ -14,6 +14,7 @@ import (
@@ -1275,7 +1274,7 @@ index acbebf28598a9c..6ef32735ddfd57 100644
  			*mode = BuildModePIE
  		default:
 diff --git a/src/cmd/link/internal/ld/lib.go b/src/cmd/link/internal/ld/lib.go
-index c740da6f5f06cc..07dfc5d7fcc87a 100644
+index 96a8042bbaf2ee..9282d9d478fefc 100644
 --- a/src/cmd/link/internal/ld/lib.go
 +++ b/src/cmd/link/internal/ld/lib.go
 @@ -1190,6 +1190,12 @@ var hostobj []Hostobj
@@ -1292,7 +1291,7 @@ index c740da6f5f06cc..07dfc5d7fcc87a 100644
  	"crypto/internal/boring/syso",
  	"crypto/x509",
 diff --git a/src/cmd/link/link_test.go b/src/cmd/link/link_test.go
-index 3b3d93e964c8d2..d9aafc851735ee 100644
+index 400090355ee696..a6fdb48dc73294 100644
 --- a/src/cmd/link/link_test.go
 +++ b/src/cmd/link/link_test.go
 @@ -15,6 +15,7 @@ import (
@@ -1931,309 +1930,131 @@ index 00000000000000..190c8be2af41a3
 +	panic("boringcrypto: not available")
 +}
 diff --git a/src/crypto/ecdh/ecdh.go b/src/crypto/ecdh/ecdh.go
-index 3f85a2833697a9..39c4055712b063 100644
+index 3f85a2833697a9..28559f84eb3cf5 100644
 --- a/src/crypto/ecdh/ecdh.go
 +++ b/src/crypto/ecdh/ecdh.go
-@@ -8,11 +8,12 @@ package ecdh
- 
+@@ -9,10 +9,11 @@ package ecdh
  import (
  	"crypto"
--	"crypto/internal/boring"
- 	"crypto/internal/fips140/ecdh"
+ 	"crypto/internal/boring"
+-	"crypto/internal/fips140/ecdh"
  	"crypto/subtle"
  	"errors"
  	"io"
 +
-+	becdh "github.com/microsoft/go/cryptobackend/ecdh"
++	"github.com/microsoft/go/cryptobackend/ecdh"
  )
  
  type Curve interface {
-@@ -60,7 +61,7 @@ type Curve interface {
- type PublicKey struct {
- 	curve     Curve
- 	publicKey []byte
--	boring    *boring.PublicKeyECDH
-+	boring    *becdh.PublicKey
- 	fips      *ecdh.PublicKey
- }
- 
-@@ -113,7 +114,7 @@ type PrivateKey struct {
- 	curve      Curve
- 	privateKey []byte
- 	publicKey  *PublicKey
--	boring     *boring.PrivateKeyECDH
-+	boring     *becdh.PrivateKey
- 	fips       *ecdh.PrivateKey
- }
- 
-diff --git a/src/crypto/ecdh/ecdh_test.go b/src/crypto/ecdh/ecdh_test.go
-index cfa919ade97ad0..990ae49e36cc8d 100644
---- a/src/crypto/ecdh/ecdh_test.go
-+++ b/src/crypto/ecdh/ecdh_test.go
-@@ -21,6 +21,9 @@ import (
- 	"strings"
- 	"testing"
- 
-+	boring "github.com/microsoft/go/cryptobackend"
-+	becdh "github.com/microsoft/go/cryptobackend/ecdh"
-+
- 	"golang.org/x/crypto/chacha20"
- )
- 
-@@ -207,13 +210,17 @@ func TestX25519Failure(t *testing.T) {
- }
- 
- func testX25519Failure(t *testing.T, private, public []byte) {
-+	if boring.Enabled && !becdh.SupportsCurve("X25519") {
-+		t.Skip("backend does not support X25519")
-+	}
- 	priv, err := ecdh.X25519().NewPrivateKey(private)
- 	if err != nil {
- 		t.Fatal(err)
- 	}
- 	pub, err := ecdh.X25519().NewPublicKey(public)
- 	if err != nil {
--		t.Fatal(err)
-+		// Some backends may reject the public key at import time, that's fine.
-+		return
- 	}
- 	secret, err := priv.ECDH(pub)
- 	if err == nil {
-@@ -279,6 +286,9 @@ var invalidPrivateKeys = map[ecdh.Curve][]string{
- }
- 
- func TestNewPrivateKey(t *testing.T) {
-+	if boring.Enabled {
-+		t.Skip("skipping test with different results when using different backends")
-+	}
- 	testAllCurves(t, func(t *testing.T, curve ecdh.Curve) {
- 		for _, input := range invalidPrivateKeys[curve] {
- 			k, err := curve.NewPrivateKey(hexDecode(t, input))
-@@ -364,7 +374,12 @@ func testAllCurves(t *testing.T, f func(t *testing.T, curve ecdh.Curve)) {
- 	t.Run("P256", func(t *testing.T) { f(t, ecdh.P256()) })
- 	t.Run("P384", func(t *testing.T) { f(t, ecdh.P384()) })
- 	t.Run("P521", func(t *testing.T) { f(t, ecdh.P521()) })
--	t.Run("X25519", func(t *testing.T) { f(t, ecdh.X25519()) })
-+	t.Run("X25519", func(t *testing.T) {
-+		if boring.Enabled && !becdh.SupportsCurve("X25519") {
-+			t.Skip("backend does not support X25519")
-+		}
-+		f(t, ecdh.X25519())
-+	})
- }
- 
- func BenchmarkECDH(b *testing.B) {
 diff --git a/src/crypto/ecdh/nist.go b/src/crypto/ecdh/nist.go
-index 13865ea7012989..81a6b5a9fb1ef9 100644
+index 13865ea7012989..8b5d3ba1b97495 100644
 --- a/src/crypto/ecdh/nist.go
 +++ b/src/crypto/ecdh/nist.go
-@@ -6,12 +6,14 @@ package ecdh
- 
+@@ -7,11 +7,12 @@ package ecdh
  import (
  	"bytes"
--	"crypto/internal/boring"
- 	"crypto/internal/fips140/ecdh"
+ 	"crypto/internal/boring"
+-	"crypto/internal/fips140/ecdh"
  	"crypto/internal/fips140only"
  	"crypto/internal/rand"
  	"errors"
  	"io"
 +
-+	boring "github.com/microsoft/go/cryptobackend"
-+	becdh "github.com/microsoft/go/cryptobackend/ecdh"
++	"github.com/microsoft/go/cryptobackend/ecdh"
  )
  
  type nistCurve struct {
-@@ -27,8 +29,14 @@ func (c *nistCurve) String() string {
- }
- 
- func (c *nistCurve) GenerateKey(r io.Reader) (*PrivateKey, error) {
-+	r = rand.CustomReader(r)
-+
-+	if fips140only.Enforced() && !fips140only.ApprovedRandomReader(r) {
-+		return nil, errors.New("crypto/ecdh: only crypto/rand.Reader is allowed in FIPS 140-only mode")
-+	}
-+
- 	if boring.Enabled && rand.IsDefaultReader(r) {
--		key, bytes, err := boring.GenerateKeyECDH(c.name)
-+		key, bytes, err := becdh.GenerateKey(c.name)
- 		if err != nil {
- 			return nil, err
- 		}
-@@ -45,12 +53,6 @@ func (c *nistCurve) GenerateKey(r io.Reader) (*PrivateKey, error) {
- 		return k, nil
- 	}
- 
--	r = rand.CustomReader(r)
--
--	if fips140only.Enforced() && !fips140only.ApprovedRandomReader(r) {
--		return nil, errors.New("crypto/ecdh: only crypto/rand.Reader is allowed in FIPS 140-only mode")
--	}
--
- 	privateKey, err := c.generate(r)
- 	if err != nil {
- 		return nil, err
-@@ -67,7 +69,7 @@ func (c *nistCurve) GenerateKey(r io.Reader) (*PrivateKey, error) {
- 		},
- 	}
- 	if boring.Enabled {
--		bk, err := boring.NewPrivateKeyECDH(c.name, k.privateKey)
-+		bk, err := becdh.NewPrivateKey(c.name, k.privateKey)
- 		if err != nil {
- 			return nil, err
- 		}
-@@ -83,7 +85,7 @@ func (c *nistCurve) GenerateKey(r io.Reader) (*PrivateKey, error) {
- 
- func (c *nistCurve) NewPrivateKey(key []byte) (*PrivateKey, error) {
- 	if boring.Enabled {
--		bk, err := boring.NewPrivateKeyECDH(c.name, key)
-+		bk, err := becdh.NewPrivateKey(c.name, key)
- 		if err != nil {
- 			return nil, errors.New("crypto/ecdh: invalid private key")
- 		}
-@@ -119,28 +121,30 @@ func (c *nistCurve) NewPrivateKey(key []byte) (*PrivateKey, error) {
- 
- func (c *nistCurve) NewPublicKey(key []byte) (*PublicKey, error) {
- 	// Reject the point at infinity and compressed encodings.
--	// Note that boring.NewPublicKeyECDH would accept them.
-+	// Note that becdh.NewPublicKey would accept them.
- 	if len(key) == 0 || key[0] != 4 {
- 		return nil, errors.New("crypto/ecdh: invalid public key")
- 	}
--	k := &PublicKey{
--		curve:     c,
--		publicKey: bytes.Clone(key),
--	}
- 	if boring.Enabled {
--		bk, err := boring.NewPublicKeyECDH(c.name, k.publicKey)
-+		bk, err := becdh.NewPublicKey(c.name, key)
- 		if err != nil {
- 			return nil, errors.New("crypto/ecdh: invalid public key")
- 		}
--		k.boring = bk
--	} else {
--		fk, err := c.newPublicKey(key)
--		if err != nil {
--			return nil, err
--		}
--		k.fips = fk
-+		return &PublicKey{
-+			curve:     c,
-+			publicKey: bk.Bytes(),
-+			boring:    bk,
-+		}, nil
- 	}
--	return k, nil
-+	fk, err := c.newPublicKey(key)
-+	if err != nil {
-+		return nil, err
-+	}
-+	return &PublicKey{
-+		curve:     c,
-+		publicKey: bytes.Clone(key),
-+		fips:      fk,
-+	}, nil
- }
- 
- func (c *nistCurve) ecdh(local *PrivateKey, remote *PublicKey) ([]byte, error) {
-@@ -152,7 +156,7 @@ func (c *nistCurve) ecdh(local *PrivateKey, remote *PublicKey) ([]byte, error) {
- 	// zero scalar or the point at infinity.
- 
- 	if boring.Enabled {
--		return boring.ECDH(local.boring, remote.boring)
-+		return becdh.ECDH(local.boring, remote.boring)
- 	}
- 	return c.sharedSecret(local.fips, remote.fips)
- }
 diff --git a/src/crypto/ecdh/x25519.go b/src/crypto/ecdh/x25519.go
-index 80ed77f6fd7ddc..939f1439557610 100644
+index 80ed77f6fd7ddc..74b64670f983d6 100644
 --- a/src/crypto/ecdh/x25519.go
 +++ b/src/crypto/ecdh/x25519.go
-@@ -12,6 +12,9 @@ import (
+@@ -5,13 +5,14 @@
+ package ecdh
+ 
+ import (
+-	"bytes"
+ 	"crypto/internal/fips140/edwards25519"
+ 	"crypto/internal/fips140/edwards25519/field"
+ 	"crypto/internal/fips140only"
  	"crypto/internal/rand"
  	"errors"
  	"io"
 +
-+	boring "github.com/microsoft/go/cryptobackend"
-+	becdh "github.com/microsoft/go/cryptobackend/ecdh"
++	"github.com/microsoft/go/cryptobackend/ecdh"
  )
  
  var (
-@@ -39,6 +42,23 @@ func (c *x25519Curve) GenerateKey(r io.Reader) (*PrivateKey, error) {
- 	if fips140only.Enforced() {
+@@ -40,11 +41,11 @@ func (c *x25519Curve) GenerateKey(r io.Reader) (*PrivateKey, error) {
  		return nil, errors.New("crypto/ecdh: use of X25519 is not allowed in FIPS 140-only mode")
  	}
-+	if boring.Enabled && becdh.SupportsCurve("X25519") && rand.IsDefaultReader(r) {
-+		key, bytes, err := becdh.GenerateKey(c.String())
-+		if err != nil {
-+			return nil, err
-+		}
-+		pub, err := key.PublicKey()
-+		if err != nil {
-+			return nil, err
-+		}
-+		k := &PrivateKey{
-+			curve:      c,
-+			privateKey: bytes,
-+			publicKey:  &PublicKey{curve: c, publicKey: pub.Bytes(), boring: pub},
-+			boring:     key,
-+		}
-+		return k, nil
-+	}
  	r = rand.CustomReader(r)
- 	key := make([]byte, x25519PrivateKeySize)
- 	if _, err := io.ReadFull(r, key); err != nil {
-@@ -54,6 +74,23 @@ func (c *x25519Curve) NewPrivateKey(key []byte) (*PrivateKey, error) {
+-	key := make([]byte, x25519PrivateKeySize)
+-	if _, err := io.ReadFull(r, key); err != nil {
++	key, err := ecdh.GenerateKeyX25519(r, x25519ScalarBaseMult)
++	if err != nil {
+ 		return nil, err
+ 	}
+-	return c.NewPrivateKey(key)
++	return c.newPrivateKey(key), nil
+ }
+ 
+ func (c *x25519Curve) NewPrivateKey(key []byte) (*PrivateKey, error) {
+@@ -54,16 +55,20 @@ func (c *x25519Curve) NewPrivateKey(key []byte) (*PrivateKey, error) {
  	if len(key) != x25519PrivateKeySize {
  		return nil, errors.New("crypto/ecdh: invalid private key size")
  	}
-+	if boring.Enabled && becdh.SupportsCurve("X25519") {
-+		bk, err := becdh.NewPrivateKey(c.String(), key)
-+		if err != nil {
-+			return nil, errors.New("crypto/ecdh: invalid private key")
-+		}
-+		pub, err := bk.PublicKey()
-+		if err != nil {
-+			return nil, errors.New("crypto/ecdh: invalid private key")
-+		}
-+		k := &PrivateKey{
-+			curve:      c,
-+			privateKey: bytes.Clone(key),
-+			publicKey:  &PublicKey{curve: c, publicKey: pub.Bytes(), boring: pub},
-+			boring:     bk,
-+		}
-+		return k, nil
+-	publicKey := make([]byte, x25519PublicKeySize)
+-	x25519ScalarBaseMult(publicKey, key)
+-	// We don't check for the all-zero public key here because the scalar is
+-	// never zero because of clamping, and the basepoint is not the identity in
+-	// the prime-order subgroup(s).
++	k, err := ecdh.NewPrivateKeyX25519(key, x25519ScalarBaseMult)
++	if err != nil {
++		return nil, err
 +	}
- 	publicKey := make([]byte, x25519PublicKeySize)
- 	x25519ScalarBaseMult(publicKey, key)
- 	// We don't check for the all-zero public key here because the scalar is
-@@ -73,6 +110,17 @@ func (c *x25519Curve) NewPublicKey(key []byte) (*PublicKey, error) {
++	return c.newPrivateKey(k), nil
++}
++
++func (c *x25519Curve) newPrivateKey(key *ecdh.PrivateKey) *PrivateKey {
+ 	return &PrivateKey{
+ 		curve:      c,
+-		privateKey: bytes.Clone(key),
+-		publicKey:  &PublicKey{curve: c, publicKey: publicKey},
+-	}, nil
++		privateKey: key.Bytes(),
++		publicKey:  &PublicKey{curve: c, publicKey: key.PublicKey().Bytes(), fips: key.PublicKey()},
++		fips:       key,
++	}
+ }
+ 
+ func (c *x25519Curve) NewPublicKey(key []byte) (*PublicKey, error) {
+@@ -73,19 +78,19 @@ func (c *x25519Curve) NewPublicKey(key []byte) (*PublicKey, error) {
  	if len(key) != x25519PublicKeySize {
  		return nil, errors.New("crypto/ecdh: invalid public key")
  	}
-+	if boring.Enabled && becdh.SupportsCurve("X25519") {
-+		bk, err := becdh.NewPublicKey(c.String(), key)
-+		if err != nil {
-+			return nil, errors.New("crypto/ecdh: invalid public key")
-+		}
-+		return &PublicKey{
-+			curve:     c,
-+			publicKey: bk.Bytes(),
-+			boring:    bk,
-+		}, nil
++	k, err := ecdh.NewPublicKeyX25519(key)
++	if err != nil {
++		return nil, err
 +	}
  	return &PublicKey{
  		curve:     c,
- 		publicKey: bytes.Clone(key),
-@@ -80,6 +128,9 @@ func (c *x25519Curve) NewPublicKey(key []byte) (*PublicKey, error) {
+-		publicKey: bytes.Clone(key),
++		publicKey: k.Bytes(),
++		fips:      k,
+ 	}, nil
  }
  
  func (c *x25519Curve) ecdh(local *PrivateKey, remote *PublicKey) ([]byte, error) {
-+	if boring.Enabled && becdh.SupportsCurve("X25519") {
-+		return becdh.ECDH(local.boring, remote.boring)
-+	}
- 	out := make([]byte, x25519SharedSecretSize)
- 	x25519ScalarMult(out, local.privateKey, remote.publicKey)
- 	if isZero(out) {
+-	out := make([]byte, x25519SharedSecretSize)
+-	x25519ScalarMult(out, local.privateKey, remote.publicKey)
+-	if isZero(out) {
+-		return nil, errors.New("crypto/ecdh: bad X25519 remote ECDH input: low order point")
+-	}
+-	return out, nil
++	return ecdh.ECDHX25519(local.fips, remote.fips, x25519ScalarMult)
+ }
+ 
+ func x25519ScalarBaseMult(dst, scalar []byte) {
 diff --git a/src/crypto/ecdsa/ecdsa.go b/src/crypto/ecdsa/ecdsa.go
 index 3bd4a5e7b4adaa..b0513d91daf33d 100644
 --- a/src/crypto/ecdsa/ecdsa.go
@@ -3824,10 +3645,10 @@ index f0fd6a4993a8e6..7b5b3ba7bbac09 100644
  	return ek.key.Encapsulate()
  }
 diff --git a/src/crypto/mlkem/mlkem_test.go b/src/crypto/mlkem/mlkem_test.go
-index e1c2ef49f15ce0..4635cc347880ec 100644
+index 7f668aebece2f6..50988333113288 100644
 --- a/src/crypto/mlkem/mlkem_test.go
 +++ b/src/crypto/mlkem/mlkem_test.go
-@@ -13,6 +13,7 @@ import (
+@@ -14,6 +14,7 @@ import (
  	"crypto/rand"
  	"encoding/hex"
  	"flag"
@@ -3835,7 +3656,7 @@ index e1c2ef49f15ce0..4635cc347880ec 100644
  	"testing"
  )
  
-@@ -164,6 +165,10 @@ var millionFlag = flag.Bool("million", false, "run the million vector test")
+@@ -211,6 +212,10 @@ var millionFlag = flag.Bool("million", false, "run the million vector test")
  // TestAccumulated accumulates 10k (or 100, or 1M) random vectors and checks the
  // hash of the result, to avoid checking in 150MB of test vectors.
  func TestAccumulated(t *testing.T) {
@@ -3846,7 +3667,7 @@ index e1c2ef49f15ce0..4635cc347880ec 100644
  	n := 10000
  	expected := "8a518cc63da366322a8e7a818c7a0d63483cb3528d34a4cf42f35d5ad73f22fc"
  	if testing.Short() {
-@@ -234,6 +239,9 @@ func BenchmarkKeyGen(b *testing.B) {
+@@ -281,6 +286,9 @@ func BenchmarkKeyGen(b *testing.B) {
  }
  
  func BenchmarkEncaps(b *testing.B) {
@@ -5285,7 +5106,7 @@ index 00000000000000..ffb835ce34a2f7
 +	}
 +}
 diff --git a/src/go/build/deps_test.go b/src/go/build/deps_test.go
-index 78e9561b7b599a..ab95e7d05ab48d 100644
+index 926a533c9c1fb8..7b3bef06a175d9 100644
 --- a/src/go/build/deps_test.go
 +++ b/src/go/build/deps_test.go
 @@ -377,8 +377,10 @@ var depsRules = `
@@ -5331,7 +5152,7 @@ index 78e9561b7b599a..ab95e7d05ab48d 100644
  	< crypto/internal/fips140only
  	< crypto
  	< crypto/subtle
-@@ -583,6 +598,43 @@ var depsRules = `
+@@ -583,6 +598,42 @@ var depsRules = `
  	github.com/microsoft/go-crypto-winnative/internal/bcrypt
  	< github.com/microsoft/go-crypto-winnative/cng;
  
@@ -5356,7 +5177,6 @@ index 78e9561b7b599a..ab95e7d05ab48d 100644
 +	  github.com/microsoft/go/cryptobackend/aes/gcm,
 +	  github.com/microsoft/go/cryptobackend/des,
 +	  github.com/microsoft/go/cryptobackend/drbg,
-+	  github.com/microsoft/go/cryptobackend/ecdh,
 +	  github.com/microsoft/go/cryptobackend/ed25519,
 +	  github.com/microsoft/go/cryptobackend/hkdf,
 +	  github.com/microsoft/go/cryptobackend/hmac,
@@ -5375,7 +5195,7 @@ index 78e9561b7b599a..ab95e7d05ab48d 100644
  	FIPS, internal/godebug, embed,
  	crypto/internal/boring/sig,
  	crypto/internal/boring/syso,
-@@ -590,7 +642,9 @@ var depsRules = `
+@@ -590,7 +641,9 @@ var depsRules = `
  	crypto/internal/fips140only,
  	crypto,
  	crypto/subtle,
@@ -5386,10 +5206,11 @@ index 78e9561b7b599a..ab95e7d05ab48d 100644
  	< crypto/sha3
  	< crypto/internal/fips140hash
  	< crypto/internal/boring
-@@ -607,13 +661,15 @@ var depsRules = `
+@@ -606,14 +659,15 @@ var depsRules = `
+ 	  crypto/hmac,
  	  crypto/hkdf,
  	  crypto/pbkdf2,
- 	  crypto/ecdh,
+-	  crypto/ecdh,
 -	  crypto/mlkem,
  	  crypto/mldsa
  	< CRYPTO;
@@ -5403,7 +5224,7 @@ index 78e9561b7b599a..ab95e7d05ab48d 100644
  	CGO, fmt, net !< CRYPTO;
  
  	# CRYPTO-MATH is crypto that exposes math/big APIs - no cgo, net; fmt now ok.
-@@ -622,15 +678,28 @@ var depsRules = `
+@@ -622,15 +676,30 @@ var depsRules = `
  	math/big, github.com/microsoft/go-crypto-darwin/xcrypto < github.com/microsoft/go-crypto-darwin/bbig;
  	math/big, github.com/microsoft/go-crypto-winnative/cng < github.com/microsoft/go-crypto-winnative/cng/bbig;
  
@@ -5422,6 +5243,8 @@ index 78e9561b7b599a..ab95e7d05ab48d 100644
  	< crypto/internal/fips140cache
  	< crypto/rand
 -	< crypto/ed25519 # depends on crypto/rand.Reader
++	< github.com/microsoft/go/cryptobackend/ecdh
++	< crypto/ecdh
 +	< crypto/ed25519, crypto/mlkem # depend on crypto/rand.Reader
  	< encoding/asn1
  	< golang.org/x/crypto/cryptobyte/asn1
