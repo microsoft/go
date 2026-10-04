@@ -31,7 +31,7 @@ func TestLibraryWithEnvOverride(t *testing.T) {
 func TestLibraryWithKnownVersion(t *testing.T) {
 	t.Setenv("GO_OPENSSL_VERSION_OVERRIDE", "")
 
-	const maxLib = "libcrypto.so.3"
+	const maxLib = "libcrypto.so.4"
 
 	t.Run("AllExistsNoneFIPS", func(t *testing.T) {
 		mockCheckVersion(t, func(s string) (bool, bool) {

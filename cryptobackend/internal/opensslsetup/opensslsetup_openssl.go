@@ -18,7 +18,7 @@ import (
 // knownVersions is a list of supported and well-known libcrypto.so suffixes in decreasing version order.
 // FreeBSD library version numbering does not directly align to the version of osslsetup.
 // Its preferred search order is 11 -> 111.
-var knownVersions = [...]string{"3", "1.1", "11", "111"}
+var knownVersions = [...]string{"4", "3", "1.1", "11", "111"}
 
 const lcryptoPrefix = "libcrypto.so."
 
