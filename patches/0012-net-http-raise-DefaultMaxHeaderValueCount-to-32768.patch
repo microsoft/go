@@ -1,0 +1,143 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: bot-for-go[bot] <199222863+bot-for-go[bot]@users.noreply.github.com>
+Date: Mon, 5 Oct 2026 14:33:46 -0700
+Subject: [PATCH] net/http: raise DefaultMaxHeaderValueCount to 32768
+
+Go 1.27 added Server.MaxHeaderValueCount with a default of 500
+(golang/go#79936). Repeated header lines count individually, and the
+GODEBUG override was declined (golang/go#80020), so servers that
+receive one header line per value break when rebuilt with Go 1.27.
+
+Kubernetes is the main example: impersonation (Impersonate-Group) and
+request-header authentication (X-Remote-Group, also used by the
+aggregation layer) carry one header line per group. A kube-apiserver,
+metrics-server or other aggregated API server built with Go 1.27
+returns 431 for users with about 495 or more groups
+(kubernetes/kubernetes#142606). The reproducing identity has 862
+groups, and some users in the same directory have more than 1,000.
+
+Raise the default to 32768, DefaultMaxHeaderBytes at 32 bytes per
+header line. For lines of at least 32 bytes, such as one carrying a
+36-byte GUID group ID, MaxHeaderBytes (default 1 MiB) remains the
+binding limit, as it was before Go 1.27, and the count still bounds
+floods of tiny headers. Servers that set MaxHeaderValueCount
+explicitly are unaffected.
+
+Add a test that the default accepts 15,000 repeated values and rejects
+DefaultMaxHeaderValueCount+1, over HTTP/1.1 and HTTP/2.
+---
+ api/except.txt                               |  1 +
+ api/next/79936.txt                           |  1 +
+ doc/next/6-stdlib/99-minor/net/http/79936.md |  6 +++
+ src/net/http/serve_test.go                   | 44 ++++++++++++++++++++
+ src/net/http/server.go                       |  9 +++-
+ 5 files changed, 60 insertions(+), 1 deletion(-)
+ create mode 100644 api/next/79936.txt
+ create mode 100644 doc/next/6-stdlib/99-minor/net/http/79936.md
+
+diff --git a/api/except.txt b/api/except.txt
+index 7dddd0e3805179..7185514a12460c 100644
+--- a/api/except.txt
++++ b/api/except.txt
+@@ -14,6 +14,7 @@ pkg math, const SmallestNonzeroFloat64 = 4.94066e-324  // 4940656458412465441765
+ pkg math/big, const MaxBase = 36
+ pkg math/big, type Word uintptr
+ pkg net, func ListenUnixgram(string, *UnixAddr) (*UDPConn, error)
++pkg net/http, const DefaultMaxHeaderValueCount = 500
+ pkg os (linux-arm), const O_SYNC = 1052672
+ pkg os (linux-arm), const O_SYNC = 4096
+ pkg os (linux-arm-cgo), const O_SYNC = 1052672
+diff --git a/api/next/79936.txt b/api/next/79936.txt
+new file mode 100644
+index 00000000000000..301e9f40ede9bf
+--- /dev/null
++++ b/api/next/79936.txt
+@@ -0,0 +1 @@
++pkg net/http, const DefaultMaxHeaderValueCount = 32768 #79936
+diff --git a/doc/next/6-stdlib/99-minor/net/http/79936.md b/doc/next/6-stdlib/99-minor/net/http/79936.md
+new file mode 100644
+index 00000000000000..1bb294d4ea5af9
+--- /dev/null
++++ b/doc/next/6-stdlib/99-minor/net/http/79936.md
+@@ -0,0 +1,6 @@
++<!-- go.dev/issue/79936 -->
++[DefaultMaxHeaderValueCount], the default limit on the number of header values
++a [Server] accepts, is raised from 500 to 32768. Protocols that send one header
++line per value, such as Kubernetes impersonation and request-header
++authentication, exceeded the old limit for identities with many groups.
++Servers that set [Server.MaxHeaderValueCount] are unaffected.
+diff --git a/src/net/http/serve_test.go b/src/net/http/serve_test.go
+index 215cf700af6bba..614109ef8cbae2 100644
+--- a/src/net/http/serve_test.go
++++ b/src/net/http/serve_test.go
+@@ -3414,6 +3414,50 @@ func TestStripPrefixNotModifyRequest(t *testing.T) {
+ 	}
+ }
+ 
++func TestDefaultMaxHeaderValueCount(t *testing.T) {
++	run(t, testDefaultMaxHeaderValueCount, http3SkippedMode)
++}
++
++func testDefaultMaxHeaderValueCount(t *testing.T, mode testMode) {
++	cst := newClientServerTest(t, mode, HandlerFunc(func(w ResponseWriter, r *Request) {
++		w.WriteHeader(StatusOK)
++	}), optQuietLog)
++
++	for _, tt := range []struct {
++		name       string
++		values     int
++		wantStatus int
++	}{
++		// Identity headers such as Impersonate-Group are sent one value
++		// per header line; large group sets must fit the default.
++		{name: "15000 repeated values", values: 15000, wantStatus: StatusOK},
++		{name: "above default", values: DefaultMaxHeaderValueCount + 1, wantStatus: StatusRequestHeaderFieldsTooLarge},
++	} {
++		t.Run(tt.name, func(t *testing.T) {
++			req, err := NewRequest("GET", cst.ts.URL, nil)
++			if err != nil {
++				t.Fatal(err)
++			}
++			for range tt.values {
++				req.Header.Add("Impersonate-Group", "group")
++			}
++			res, err := cst.c.Do(req)
++			if err != nil {
++				if mode == http2Mode && tt.wantStatus == StatusRequestHeaderFieldsTooLarge {
++					// As in TestRequestLimit, an HTTP/2 client may reject the
++					// request itself once it has seen the server's SETTINGS.
++					return
++				}
++				t.Fatal(err)
++			}
++			defer res.Body.Close()
++			if res.StatusCode != tt.wantStatus {
++				t.Errorf("got status %d, want %d", res.StatusCode, tt.wantStatus)
++			}
++		})
++	}
++}
++
+ func TestRequestLimit(t *testing.T) { run(t, testRequestLimit, http3SkippedMode) }
+ func testRequestLimit(t *testing.T, mode testMode) {
+ 	bytesPerHeader := len("header12345: val12345\r\n")
+diff --git a/src/net/http/server.go b/src/net/http/server.go
+index 409a267abaf0eb..3787d1c50b05c5 100644
+--- a/src/net/http/server.go
++++ b/src/net/http/server.go
+@@ -1027,7 +1027,14 @@ const DefaultMaxHeaderBytes = 1 << 20 // 1 MB
+ // DefaultMaxHeaderValueCount is the maximum permitted number of
+ // header values in an HTTP request.
+ // This can be overridden by setting [Server.MaxHeaderValueCount].
+-const DefaultMaxHeaderValueCount = 500
++//
++// The default leaves room for requests that send one header line per
++// value for large sets, such as Kubernetes impersonation and
++// authenticating-proxy headers that carry one line per group, so that
++// MaxHeaderBytes rather than this count limits them. At 32 bytes per
++// value, it matches DefaultMaxHeaderBytes, still bounding floods of tiny
++// headers.
++const DefaultMaxHeaderValueCount = 32768
+ 
+ func (s *Server) maxHeaderBytes() int {
+ 	if s.MaxHeaderBytes > 0 {
