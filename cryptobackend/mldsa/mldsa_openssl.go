@@ -9,18 +9,20 @@ package mldsa
 import "github.com/microsoft/go-crypto-openssl/openssl"
 
 type Parameters = openssl.MLDSAParameters
-type PrivateKey = openssl.PrivateKeyMLDSA
-type PublicKey = openssl.PublicKeyMLDSA
+type backendPrivateKey = openssl.PrivateKeyMLDSA
+type backendPublicKey = openssl.PublicKeyMLDSA
 
-func MLDSA44() Parameters                                { return openssl.MLDSA44() }
-func MLDSA65() Parameters                                { return openssl.MLDSA65() }
-func MLDSA87() Parameters                                { return openssl.MLDSA87() }
-func Supports(params Parameters) bool                    { return openssl.SupportsMLDSA(params) }
-func SupportsExternalMu() bool                           { return true }
-func GenerateKey(params Parameters) (*PrivateKey, error) { return openssl.GenerateKeyMLDSA(params) }
-func NewPrivateKey(params Parameters, seed []byte) (*PrivateKey, error) {
+func MLDSA44() Parameters             { return openssl.MLDSA44() }
+func MLDSA65() Parameters             { return openssl.MLDSA65() }
+func MLDSA87() Parameters             { return openssl.MLDSA87() }
+func Supports(params Parameters) bool { return openssl.SupportsMLDSA(params) }
+func supportsExternalMu() bool        { return true }
+func generateKey(params Parameters) (*backendPrivateKey, error) {
+	return openssl.GenerateKeyMLDSA(params)
+}
+func newPrivateKey(params Parameters, seed []byte) (*backendPrivateKey, error) {
 	return openssl.NewPrivateKeyMLDSA(params, seed)
 }
-func NewPublicKey(params Parameters, publicKey []byte) (*PublicKey, error) {
+func newPublicKey(params Parameters, publicKey []byte) (*backendPublicKey, error) {
 	return openssl.NewPublicKeyMLDSA(params, publicKey)
 }
