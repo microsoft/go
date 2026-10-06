@@ -1,0 +1,70 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: bot-for-go[bot] <199222863+bot-for-go[bot]@users.noreply.github.com>
+Date: Tue, 6 Oct 2026 10:54:15 +0100
+Subject: [PATCH] net: skip UDP broadcast test without route
+
+TestDualStackUDPBroadcast verifies that SO_BROADCAST is enabled, but
+sending to the limited broadcast address also requires a suitable route.
+Some Darwin builders do not have one and return EHOSTUNREACH even though
+SO_BROADCAST is enabled.
+
+Skip the test when no route is available. Other errors, including the
+access-denied error caused by SO_BROADCAST being disabled, still fail.
+
+Fixes https://github.com/golang/go/issues/82030
+
+Upstream CL: https://go-review.googlesource.com/c/go/+/845785
+---
+ src/net/main_plan9_test.go | 2 ++
+ src/net/main_posix_test.go | 5 +++++
+ src/net/udpsock_test.go    | 3 +++
+ 3 files changed, 10 insertions(+)
+
+diff --git a/src/net/main_plan9_test.go b/src/net/main_plan9_test.go
+index ca5f19adc149ac..8b0b13dc5c8a79 100644
+--- a/src/net/main_plan9_test.go
++++ b/src/net/main_plan9_test.go
+@@ -6,6 +6,8 @@ package net
+ 
+ import "os/exec"
+ 
++func isUnreachableError(error) bool { return false }
++
+ func installTestHooks() {}
+ 
+ func uninstallTestHooks() {}
+diff --git a/src/net/main_posix_test.go b/src/net/main_posix_test.go
+index 24a2a556605f73..cbe5e2a7d13e7d 100644
+--- a/src/net/main_posix_test.go
++++ b/src/net/main_posix_test.go
+@@ -7,11 +7,16 @@
+ package net
+ 
+ import (
++	"errors"
+ 	"net/internal/socktest"
+ 	"strings"
+ 	"syscall"
+ )
+ 
++func isUnreachableError(err error) bool {
++	return errors.Is(err, syscall.EHOSTUNREACH) || errors.Is(err, syscall.ENETUNREACH)
++}
++
+ func enableSocketConnect() {
+ 	sw.Set(socktest.FilterConnect, nil)
+ }
+diff --git a/src/net/udpsock_test.go b/src/net/udpsock_test.go
+index 940e9058abd3ef..427248cd7b1f57 100644
+--- a/src/net/udpsock_test.go
++++ b/src/net/udpsock_test.go
+@@ -813,6 +813,9 @@ func TestDualStackUDPBroadcast(t *testing.T) {
+ 
+ 	addr := netip.AddrPortFrom(netip.MustParseAddr("255.255.255.255"), 12345)
+ 	if _, err := conn.WriteToUDPAddrPort([]byte{0}, addr); err != nil {
++		if isUnreachableError(err) {
++			t.Skipf("broadcast route not available: %v", err)
++		}
+ 		t.Errorf("WriteToUDPAddrPort failed: %v", err)
+ 	}
+ }
