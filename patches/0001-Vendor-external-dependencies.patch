@@ -355,11 +355,13 @@ Use a 'go' that was recently built by the current branch to ensure stable result
  .../go/cryptobackend/md5/md5_openssl.go       |   20 +
  .../go/cryptobackend/md5/md5_windows.go       |   20 +
  .../go/cryptobackend/md5/nobackend.go         |   15 +
- .../microsoft/go/cryptobackend/mldsa/init.go  |    7 +
- .../go/cryptobackend/mldsa/mldsa_darwin.go    |   26 +
- .../go/cryptobackend/mldsa/mldsa_openssl.go   |   26 +
- .../go/cryptobackend/mldsa/mldsa_windows.go   |   26 +
- .../go/cryptobackend/mldsa/nobackend.go       |   44 +
+ .../microsoft/go/cryptobackend/mldsa/key.go   |  159 ++
+ .../go/cryptobackend/mldsa/mldsa_darwin.go    |   28 +
+ .../go/cryptobackend/mldsa/mldsa_msgostd.go   |  217 ++
+ .../go/cryptobackend/mldsa/mldsa_nomsgostd.go |   48 +
+ .../go/cryptobackend/mldsa/mldsa_openssl.go   |   28 +
+ .../go/cryptobackend/mldsa/mldsa_windows.go   |   28 +
+ .../go/cryptobackend/mldsa/nobackend.go       |   52 +
  .../microsoft/go/cryptobackend/mlkem/init.go  |    7 +
  .../go/cryptobackend/mlkem/mlkem_darwin.go    |   31 +
  .../go/cryptobackend/mlkem/mlkem_openssl.go   |   31 +
@@ -443,7 +445,7 @@ Use a 'go' that was recently built by the current branch to ensure stable result
  .../go/cryptobackend/tls13/tls13_openssl.go   |   18 +
  .../go/cryptobackend/tls13/tls13_windows.go   |   14 +
  src/vendor/modules.txt                        |   53 +
- 435 files changed, 41617 insertions(+), 7 deletions(-)
+ 437 files changed, 42048 insertions(+), 7 deletions(-)
  create mode 100644 src/cmd/internal/telemetry/counter/deps_ignore.go
  create mode 100644 src/cmd/vendor/github.com/microsoft/go-infra/telemetry/LICENSE
  create mode 100644 src/cmd/vendor/github.com/microsoft/go-infra/telemetry/README.md
@@ -784,8 +786,10 @@ Use a 'go' that was recently built by the current branch to ensure stable result
  create mode 100644 src/vendor/github.com/microsoft/go/cryptobackend/md5/md5_openssl.go
  create mode 100644 src/vendor/github.com/microsoft/go/cryptobackend/md5/md5_windows.go
  create mode 100644 src/vendor/github.com/microsoft/go/cryptobackend/md5/nobackend.go
- create mode 100644 src/vendor/github.com/microsoft/go/cryptobackend/mldsa/init.go
+ create mode 100644 src/vendor/github.com/microsoft/go/cryptobackend/mldsa/key.go
  create mode 100644 src/vendor/github.com/microsoft/go/cryptobackend/mldsa/mldsa_darwin.go
+ create mode 100644 src/vendor/github.com/microsoft/go/cryptobackend/mldsa/mldsa_msgostd.go
+ create mode 100644 src/vendor/github.com/microsoft/go/cryptobackend/mldsa/mldsa_nomsgostd.go
  create mode 100644 src/vendor/github.com/microsoft/go/cryptobackend/mldsa/mldsa_openssl.go
  create mode 100644 src/vendor/github.com/microsoft/go/cryptobackend/mldsa/mldsa_windows.go
  create mode 100644 src/vendor/github.com/microsoft/go/cryptobackend/mldsa/nobackend.go
@@ -43193,25 +43197,177 @@ index 00000000000000..448046680b09b7
 +func New() hash.Hash { panic("cryptobackend: not available") }
 +
 +func Sum(data []byte) [16]byte { panic("cryptobackend: not available") }
-diff --git a/src/vendor/github.com/microsoft/go/cryptobackend/mldsa/init.go b/src/vendor/github.com/microsoft/go/cryptobackend/mldsa/init.go
+diff --git a/src/vendor/github.com/microsoft/go/cryptobackend/mldsa/key.go b/src/vendor/github.com/microsoft/go/cryptobackend/mldsa/key.go
 new file mode 100644
-index 00000000000000..370d574f5bb2d2
+index 00000000000000..d04f1398873ee7
 --- /dev/null
-+++ b/src/vendor/github.com/microsoft/go/cryptobackend/mldsa/init.go
-@@ -0,0 +1,7 @@
++++ b/src/vendor/github.com/microsoft/go/cryptobackend/mldsa/key.go
+@@ -0,0 +1,159 @@
 +// Copyright 2026 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
 +
 +package mldsa
 +
-+import _ "github.com/microsoft/go/cryptobackend"
++import (
++	"bytes"
++	"crypto/subtle"
++	"errors"
++	"sync"
++
++	backend "github.com/microsoft/go/cryptobackend"
++)
++
++// PrivateKey holds an ML-DSA private key. It is safe for concurrent use and
++// can be copied: lazy Go-key reconstruction is shared through backend.
++type PrivateKey struct {
++	fips    *fipsPrivateKey
++	backend *backendPrivateKeyState
++}
++
++// Native keys hold only parameter metadata and a seed, so the key can live
++// in the shared reconstruction state without a separate allocation on import.
++type backendPrivateKeyState struct {
++	key       backendPrivateKey
++	goKeyOnce sync.Once
++	goKey     *fipsPrivateKey
++	goKeyErr  error
++}
++
++// PublicKey holds an ML-DSA public key. Its Go representation is stored by
++// value so a derived public key does not retain the Go private key.
++type PublicKey struct {
++	fips    fipsPublicKey
++	backend *backendPublicKey
++}
++
++func nativeParameters(name string) (Parameters, bool) {
++	if !backend.Enabled {
++		return Parameters{}, false
++	}
++	var params Parameters
++	switch name {
++	case "ML-DSA-44":
++		params = MLDSA44()
++	case "ML-DSA-65":
++		params = MLDSA65()
++	case "ML-DSA-87":
++		params = MLDSA87()
++	default:
++		return Parameters{}, false
++	}
++	return params, Supports(params)
++}
++
++// Bytes returns a copy of the private key seed.
++func (k *PrivateKey) Bytes() []byte {
++	if k.backend != nil {
++		var seed [32]byte
++		copy(seed[:], k.backend.key.Bytes())
++		return seed[:]
++	}
++	if k.fips == nil {
++		return make([]byte, 32)
++	}
++	return k.fips.Bytes()
++}
++
++// PublicKey returns the corresponding public key.
++func (k *PrivateKey) PublicKey() *PublicKey {
++	pub := k.publicKey()
++	return &pub
++}
++
++func (k *PrivateKey) publicKey() PublicKey {
++	if k.backend != nil {
++		return PublicKey{backend: k.backend.key.PublicKey()}
++	}
++	if k.fips == nil {
++		return PublicKey{}
++	}
++	return PublicKey{fips: *k.fips.PublicKey()}
++}
++
++// Equal reports whether k and other have the same parameter set and seed.
++func (k *PrivateKey) Equal(other *PrivateKey) bool {
++	if other == nil {
++		return false
++	}
++	if k.backend != nil && other.backend != nil {
++		return k.backend.key.Equal(&other.backend.key)
++	}
++	if k.backend != nil {
++		if other.fips == nil || k.backend.key.Parameters().String() != other.fips.PublicKey().Parameters() {
++			return false
++		}
++		return subtle.ConstantTimeCompare(k.backend.key.Bytes(), other.fips.Bytes()) == 1
++	}
++	if other.backend != nil {
++		return other.Equal(k)
++	}
++	if k.fips == nil || other.fips == nil {
++		return k.fips == other.fips
++	}
++	return k.fips.Equal(other.fips)
++}
++
++// goKey retains a reconstructed Go key for deterministic and unsupported
++// operations. Only the shared state is mutated, keeping PrivateKey comparable.
++func (k *PrivateKey) goKey() (*fipsPrivateKey, error) {
++	if k.fips != nil {
++		return k.fips, nil
++	}
++	if k.backend == nil {
++		return nil, errors.New("mldsa: zero private key")
++	}
++	s := k.backend
++	s.goKeyOnce.Do(func() {
++		s.goKey, s.goKeyErr = newGoPrivateKey(s.key.Parameters().String(), s.key.Bytes())
++	})
++	return s.goKey, s.goKeyErr
++}
++
++// Bytes returns a copy of the public key encoding.
++func (k *PublicKey) Bytes() []byte {
++	if k.backend != nil {
++		return bytes.Clone(k.backend.Bytes())
++	}
++	return k.fips.Bytes()
++}
++
++// Parameters returns the parameter set's name.
++func (k *PublicKey) Parameters() string {
++	if k.backend != nil {
++		return k.backend.Parameters().String()
++	}
++	return k.fips.Parameters()
++}
++
++// Equal reports whether k and other have the same parameter set and encoding.
++func (k *PublicKey) Equal(other *PublicKey) bool {
++	if other == nil {
++		return false
++	}
++	if k.backend != nil && other.backend != nil {
++		return k.backend.Equal(other.backend)
++	}
++	if k.backend != nil {
++		if other.fips == (fipsPublicKey{}) || k.Parameters() != other.Parameters() {
++			return false
++		}
++		return subtle.ConstantTimeCompare(k.backend.Bytes(), other.fips.Bytes()) == 1
++	}
++	if other.backend != nil {
++		return other.Equal(k)
++	}
++	return k.fips.Equal(&other.fips)
++}
 diff --git a/src/vendor/github.com/microsoft/go/cryptobackend/mldsa/mldsa_darwin.go b/src/vendor/github.com/microsoft/go/cryptobackend/mldsa/mldsa_darwin.go
 new file mode 100644
-index 00000000000000..2888d5253905d0
+index 00000000000000..9f9af9a198ed7c
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go/cryptobackend/mldsa/mldsa_darwin.go
-@@ -0,0 +1,26 @@
+@@ -0,0 +1,28 @@
 +// Copyright 2026 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -43223,27 +43379,306 @@ index 00000000000000..2888d5253905d0
 +import "github.com/microsoft/go-crypto-darwin/xcrypto"
 +
 +type Parameters = xcrypto.MLDSAParameters
-+type PrivateKey = xcrypto.PrivateKeyMLDSA
-+type PublicKey = xcrypto.PublicKeyMLDSA
++type backendPrivateKey = xcrypto.PrivateKeyMLDSA
++type backendPublicKey = xcrypto.PublicKeyMLDSA
 +
-+func MLDSA44() Parameters                                { return Parameters{} }
-+func MLDSA65() Parameters                                { return xcrypto.MLDSA65() }
-+func MLDSA87() Parameters                                { return xcrypto.MLDSA87() }
-+func Supports(params Parameters) bool                    { return xcrypto.SupportsMLDSA(params) }
-+func SupportsExternalMu() bool                           { return false }
-+func GenerateKey(params Parameters) (*PrivateKey, error) { return xcrypto.GenerateKeyMLDSA(params) }
-+func NewPrivateKey(params Parameters, seed []byte) (*PrivateKey, error) {
++func MLDSA44() Parameters             { return Parameters{} }
++func MLDSA65() Parameters             { return xcrypto.MLDSA65() }
++func MLDSA87() Parameters             { return xcrypto.MLDSA87() }
++func Supports(params Parameters) bool { return xcrypto.SupportsMLDSA(params) }
++func supportsExternalMu() bool        { return false }
++func generateKey(params Parameters) (*backendPrivateKey, error) {
++	return xcrypto.GenerateKeyMLDSA(params)
++}
++func newPrivateKey(params Parameters, seed []byte) (*backendPrivateKey, error) {
 +	return xcrypto.NewPrivateKeyMLDSA(params, seed)
 +}
-+func NewPublicKey(params Parameters, publicKey []byte) (*PublicKey, error) {
++func newPublicKey(params Parameters, publicKey []byte) (*backendPublicKey, error) {
 +	return xcrypto.NewPublicKeyMLDSA(params, publicKey)
++}
+diff --git a/src/vendor/github.com/microsoft/go/cryptobackend/mldsa/mldsa_msgostd.go b/src/vendor/github.com/microsoft/go/cryptobackend/mldsa/mldsa_msgostd.go
+new file mode 100644
+index 00000000000000..014de055e659f3
+--- /dev/null
++++ b/src/vendor/github.com/microsoft/go/cryptobackend/mldsa/mldsa_msgostd.go
+@@ -0,0 +1,217 @@
++// Copyright 2026 The Go Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style
++// license that can be found in the LICENSE file.
++
++//go:build (msgostd || cmd_go_bootstrap) && !fips140v1.0
++
++package mldsa
++
++import (
++	fallback "crypto/internal/fips140/mldsa"
++	"crypto/internal/rand"
++	cryptorand "crypto/rand"
++	"errors"
++)
++
++type fipsPrivateKey = fallback.PrivateKey
++type fipsPublicKey = fallback.PublicKey
++
++func GenerateKey44() (key *PrivateKey, err error) {
++	var k PrivateKey
++	err = generate(&k, "ML-DSA-44", fallback.GenerateKey44)
++	if err == nil {
++		key = &k
++	}
++	return
++}
++
++func GenerateKey65() (key *PrivateKey, err error) {
++	var k PrivateKey
++	err = generate(&k, "ML-DSA-65", fallback.GenerateKey65)
++	if err == nil {
++		key = &k
++	}
++	return
++}
++
++func GenerateKey87() (key *PrivateKey, err error) {
++	var k PrivateKey
++	err = generate(&k, "ML-DSA-87", fallback.GenerateKey87)
++	if err == nil {
++		key = &k
++	}
++	return
++}
++
++func generate(k *PrivateKey, name string, goGenerate func() *fipsPrivateKey) error {
++	if params, ok := nativeParameters(name); ok && rand.IsDefaultReader(cryptorand.Reader) {
++		key, err := generateKey(params)
++		if err != nil {
++			return err
++		}
++		k.backend = &backendPrivateKeyState{key: *key}
++		return nil
++	}
++	k.fips = goGenerate()
++	return nil
++}
++
++func NewPrivateKey44(seed []byte) (key *PrivateKey, err error) {
++	var k PrivateKey
++	err = newPrivate(&k, "ML-DSA-44", seed)
++	if err == nil {
++		key = &k
++	}
++	return
++}
++
++func NewPrivateKey65(seed []byte) (key *PrivateKey, err error) {
++	var k PrivateKey
++	err = newPrivate(&k, "ML-DSA-65", seed)
++	if err == nil {
++		key = &k
++	}
++	return
++}
++
++func NewPrivateKey87(seed []byte) (key *PrivateKey, err error) {
++	var k PrivateKey
++	err = newPrivate(&k, "ML-DSA-87", seed)
++	if err == nil {
++		key = &k
++	}
++	return
++}
++
++func newPrivate(k *PrivateKey, name string, seed []byte) error {
++	if len(seed) != 32 {
++		return errors.New("mldsa: invalid seed length")
++	}
++	if params, ok := nativeParameters(name); ok {
++		key, err := newPrivateKey(params, seed)
++		if err != nil {
++			return err
++		}
++		k.backend = &backendPrivateKeyState{key: *key}
++		return nil
++	}
++	key, err := newGoPrivateKey(name, seed)
++	if err != nil {
++		return err
++	}
++	k.fips = key
++	return nil
++}
++
++func newGoPrivateKey(name string, seed []byte) (*fipsPrivateKey, error) {
++	switch name {
++	case "ML-DSA-44":
++		return fallback.NewPrivateKey44(seed)
++	case "ML-DSA-65":
++		return fallback.NewPrivateKey65(seed)
++	case "ML-DSA-87":
++		return fallback.NewPrivateKey87(seed)
++	default:
++		return nil, errors.New("mldsa: invalid parameters")
++	}
++}
++
++func NewPublicKey44(encoding []byte) (key *PublicKey, err error) {
++	var k PublicKey
++	err = newPublic(&k, "ML-DSA-44", encoding)
++	if err == nil {
++		key = &k
++	}
++	return
++}
++
++func NewPublicKey65(encoding []byte) (key *PublicKey, err error) {
++	var k PublicKey
++	err = newPublic(&k, "ML-DSA-65", encoding)
++	if err == nil {
++		key = &k
++	}
++	return
++}
++
++func NewPublicKey87(encoding []byte) (key *PublicKey, err error) {
++	var k PublicKey
++	err = newPublic(&k, "ML-DSA-87", encoding)
++	if err == nil {
++		key = &k
++	}
++	return
++}
++
++func newPublic(k *PublicKey, name string, encoding []byte) error {
++	if params, ok := nativeParameters(name); ok {
++		key, err := newPublicKey(params, encoding)
++		if err != nil {
++			return err
++		}
++		k.backend = key
++		return nil
++	}
++	var key *fipsPublicKey
++	var err error
++	switch name {
++	case "ML-DSA-44":
++		key, err = fallback.NewPublicKey44(encoding)
++	case "ML-DSA-65":
++		key, err = fallback.NewPublicKey65(encoding)
++	case "ML-DSA-87":
++		key, err = fallback.NewPublicKey87(encoding)
++	}
++	if err != nil {
++		return err
++	}
++	k.fips = *key
++	return nil
++}
++
++func Sign(priv *PrivateKey, message []byte, context string) ([]byte, error) {
++	if priv.backend != nil && rand.IsDefaultReader(cryptorand.Reader) {
++		return priv.backend.key.Sign(message, context)
++	}
++	key, err := priv.goKey()
++	if err != nil {
++		return nil, err
++	}
++	return fallback.Sign(key, message, context)
++}
++
++func SignExternalMu(priv *PrivateKey, mu []byte) ([]byte, error) {
++	if priv.backend != nil && supportsExternalMu() && rand.IsDefaultReader(cryptorand.Reader) {
++		return priv.backend.key.SignExternalMu(mu)
++	}
++	key, err := priv.goKey()
++	if err != nil {
++		return nil, err
++	}
++	return fallback.SignExternalMu(key, mu)
++}
++
++// SignDeterministic uses the Go implementation, which controls the signing nonce.
++func SignDeterministic(priv *PrivateKey, message []byte, context string) ([]byte, error) {
++	key, err := priv.goKey()
++	if err != nil {
++		return nil, err
++	}
++	return fallback.SignDeterministic(key, message, context)
++}
++
++// SignExternalMuDeterministic uses the Go implementation for deterministic nonces.
++func SignExternalMuDeterministic(priv *PrivateKey, mu []byte) ([]byte, error) {
++	key, err := priv.goKey()
++	if err != nil {
++		return nil, err
++	}
++	return fallback.SignExternalMuDeterministic(key, mu)
++}
++
++func Verify(pub *PublicKey, message, signature []byte, context string) error {
++	if pub.backend != nil {
++		return pub.backend.Verify(message, signature, context)
++	}
++	return fallback.Verify(&pub.fips, message, signature, context)
++}
+diff --git a/src/vendor/github.com/microsoft/go/cryptobackend/mldsa/mldsa_nomsgostd.go b/src/vendor/github.com/microsoft/go/cryptobackend/mldsa/mldsa_nomsgostd.go
+new file mode 100644
+index 00000000000000..a624b46b672804
+--- /dev/null
++++ b/src/vendor/github.com/microsoft/go/cryptobackend/mldsa/mldsa_nomsgostd.go
+@@ -0,0 +1,48 @@
++// Copyright 2026 The Go Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style
++// license that can be found in the LICENSE file.
++
++//go:build (!msgostd && !cmd_go_bootstrap) || fips140v1.0
++
++package mldsa
++
++// The v1.0 Go module has no ML-DSA implementation. Standalone builds and source
++// importers also need declarations that do not import standard-library internals.
++type fipsPrivateKey struct{}
++type fipsPublicKey struct{}
++
++func (*fipsPrivateKey) Bytes() []byte              { panic("cryptobackend: not available") }
++func (*fipsPrivateKey) PublicKey() *fipsPublicKey  { panic("cryptobackend: not available") }
++func (*fipsPrivateKey) Equal(*fipsPrivateKey) bool { panic("cryptobackend: not available") }
++func (*fipsPublicKey) Bytes() []byte               { panic("cryptobackend: not available") }
++func (*fipsPublicKey) Parameters() string          { panic("cryptobackend: not available") }
++func (*fipsPublicKey) Equal(*fipsPublicKey) bool   { panic("cryptobackend: not available") }
++
++func GenerateKey44() (*PrivateKey, error)         { panic("cryptobackend: not available") }
++func GenerateKey65() (*PrivateKey, error)         { panic("cryptobackend: not available") }
++func GenerateKey87() (*PrivateKey, error)         { panic("cryptobackend: not available") }
++func NewPrivateKey44([]byte) (*PrivateKey, error) { panic("cryptobackend: not available") }
++func NewPrivateKey65([]byte) (*PrivateKey, error) { panic("cryptobackend: not available") }
++func NewPrivateKey87([]byte) (*PrivateKey, error) { panic("cryptobackend: not available") }
++func NewPublicKey44([]byte) (*PublicKey, error)   { panic("cryptobackend: not available") }
++func NewPublicKey65([]byte) (*PublicKey, error)   { panic("cryptobackend: not available") }
++func NewPublicKey87([]byte) (*PublicKey, error)   { panic("cryptobackend: not available") }
++
++func newGoPrivateKey(string, []byte) (*fipsPrivateKey, error) {
++	panic("cryptobackend: not available")
++}
++func Sign(*PrivateKey, []byte, string) ([]byte, error) {
++	panic("cryptobackend: not available")
++}
++func SignExternalMu(*PrivateKey, []byte) ([]byte, error) {
++	panic("cryptobackend: not available")
++}
++func SignDeterministic(*PrivateKey, []byte, string) ([]byte, error) {
++	panic("cryptobackend: not available")
++}
++func SignExternalMuDeterministic(*PrivateKey, []byte) ([]byte, error) {
++	panic("cryptobackend: not available")
++}
++func Verify(*PublicKey, []byte, []byte, string) error {
++	panic("cryptobackend: not available")
 +}
 diff --git a/src/vendor/github.com/microsoft/go/cryptobackend/mldsa/mldsa_openssl.go b/src/vendor/github.com/microsoft/go/cryptobackend/mldsa/mldsa_openssl.go
 new file mode 100644
-index 00000000000000..426b4a80c91192
+index 00000000000000..37f6f25adcc2b2
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go/cryptobackend/mldsa/mldsa_openssl.go
-@@ -0,0 +1,26 @@
+@@ -0,0 +1,28 @@
 +// Copyright 2026 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -43255,27 +43690,29 @@ index 00000000000000..426b4a80c91192
 +import "github.com/microsoft/go-crypto-openssl/openssl"
 +
 +type Parameters = openssl.MLDSAParameters
-+type PrivateKey = openssl.PrivateKeyMLDSA
-+type PublicKey = openssl.PublicKeyMLDSA
++type backendPrivateKey = openssl.PrivateKeyMLDSA
++type backendPublicKey = openssl.PublicKeyMLDSA
 +
-+func MLDSA44() Parameters                                { return openssl.MLDSA44() }
-+func MLDSA65() Parameters                                { return openssl.MLDSA65() }
-+func MLDSA87() Parameters                                { return openssl.MLDSA87() }
-+func Supports(params Parameters) bool                    { return openssl.SupportsMLDSA(params) }
-+func SupportsExternalMu() bool                           { return true }
-+func GenerateKey(params Parameters) (*PrivateKey, error) { return openssl.GenerateKeyMLDSA(params) }
-+func NewPrivateKey(params Parameters, seed []byte) (*PrivateKey, error) {
++func MLDSA44() Parameters             { return openssl.MLDSA44() }
++func MLDSA65() Parameters             { return openssl.MLDSA65() }
++func MLDSA87() Parameters             { return openssl.MLDSA87() }
++func Supports(params Parameters) bool { return openssl.SupportsMLDSA(params) }
++func supportsExternalMu() bool        { return true }
++func generateKey(params Parameters) (*backendPrivateKey, error) {
++	return openssl.GenerateKeyMLDSA(params)
++}
++func newPrivateKey(params Parameters, seed []byte) (*backendPrivateKey, error) {
 +	return openssl.NewPrivateKeyMLDSA(params, seed)
 +}
-+func NewPublicKey(params Parameters, publicKey []byte) (*PublicKey, error) {
++func newPublicKey(params Parameters, publicKey []byte) (*backendPublicKey, error) {
 +	return openssl.NewPublicKeyMLDSA(params, publicKey)
 +}
 diff --git a/src/vendor/github.com/microsoft/go/cryptobackend/mldsa/mldsa_windows.go b/src/vendor/github.com/microsoft/go/cryptobackend/mldsa/mldsa_windows.go
 new file mode 100644
-index 00000000000000..b71f10a2d50b98
+index 00000000000000..36e84b84973c7e
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go/cryptobackend/mldsa/mldsa_windows.go
-@@ -0,0 +1,26 @@
+@@ -0,0 +1,28 @@
 +// Copyright 2026 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -43287,27 +43724,29 @@ index 00000000000000..b71f10a2d50b98
 +import "github.com/microsoft/go-crypto-winnative/cng"
 +
 +type Parameters = cng.MLDSAParameters
-+type PrivateKey = cng.PrivateKeyMLDSA
-+type PublicKey = cng.PublicKeyMLDSA
++type backendPrivateKey = cng.PrivateKeyMLDSA
++type backendPublicKey = cng.PublicKeyMLDSA
 +
-+func MLDSA44() Parameters                                { return cng.MLDSA44() }
-+func MLDSA65() Parameters                                { return cng.MLDSA65() }
-+func MLDSA87() Parameters                                { return cng.MLDSA87() }
-+func Supports(params Parameters) bool                    { return cng.SupportsMLDSA() }
-+func SupportsExternalMu() bool                           { return true }
-+func GenerateKey(params Parameters) (*PrivateKey, error) { return cng.GenerateKeyMLDSA(params) }
-+func NewPrivateKey(params Parameters, seed []byte) (*PrivateKey, error) {
++func MLDSA44() Parameters             { return cng.MLDSA44() }
++func MLDSA65() Parameters             { return cng.MLDSA65() }
++func MLDSA87() Parameters             { return cng.MLDSA87() }
++func Supports(params Parameters) bool { return cng.SupportsMLDSA() }
++func supportsExternalMu() bool        { return true }
++func generateKey(params Parameters) (*backendPrivateKey, error) {
++	return cng.GenerateKeyMLDSA(params)
++}
++func newPrivateKey(params Parameters, seed []byte) (*backendPrivateKey, error) {
 +	return cng.NewPrivateKeyMLDSA(params, seed)
 +}
-+func NewPublicKey(params Parameters, publicKey []byte) (*PublicKey, error) {
++func newPublicKey(params Parameters, publicKey []byte) (*backendPublicKey, error) {
 +	return cng.NewPublicKeyMLDSA(params, publicKey)
 +}
 diff --git a/src/vendor/github.com/microsoft/go/cryptobackend/mldsa/nobackend.go b/src/vendor/github.com/microsoft/go/cryptobackend/mldsa/nobackend.go
 new file mode 100644
-index 00000000000000..73adf24df4e98d
+index 00000000000000..e6f06c3d2b2b6c
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go/cryptobackend/mldsa/nobackend.go
-@@ -0,0 +1,44 @@
+@@ -0,0 +1,52 @@
 +// Copyright 2026 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -43317,39 +43756,47 @@ index 00000000000000..73adf24df4e98d
 +package mldsa
 +
 +type Parameters struct{}
-+type PrivateKey struct{}
-+type PublicKey struct{}
++type backendPrivateKey struct{}
++type backendPublicKey struct{}
 +
-+func MLDSA44() Parameters                                { panic("cryptobackend: not available") }
-+func MLDSA65() Parameters                                { panic("cryptobackend: not available") }
-+func MLDSA87() Parameters                                { panic("cryptobackend: not available") }
-+func (params Parameters) String() string                 { panic("cryptobackend: not available") }
-+func Supports(params Parameters) bool                    { panic("cryptobackend: not available") }
-+func SupportsExternalMu() bool                           { panic("cryptobackend: not available") }
-+func GenerateKey(params Parameters) (*PrivateKey, error) { panic("cryptobackend: not available") }
-+func NewPrivateKey(params Parameters, seed []byte) (*PrivateKey, error) {
++func MLDSA44() Parameters                { panic("cryptobackend: not available") }
++func MLDSA65() Parameters                { panic("cryptobackend: not available") }
++func MLDSA87() Parameters                { panic("cryptobackend: not available") }
++func (params Parameters) String() string { panic("cryptobackend: not available") }
++func Supports(params Parameters) bool    { panic("cryptobackend: not available") }
++func supportsExternalMu() bool           { panic("cryptobackend: not available") }
++func generateKey(params Parameters) (*backendPrivateKey, error) {
 +	panic("cryptobackend: not available")
 +}
-+func NewPublicKey(params Parameters, publicKey []byte) (*PublicKey, error) {
++func newPrivateKey(params Parameters, seed []byte) (*backendPrivateKey, error) {
 +	panic("cryptobackend: not available")
 +}
-+func (key *PrivateKey) Bytes() []byte                { panic("cryptobackend: not available") }
-+func (key *PrivateKey) Equal(other *PrivateKey) bool { panic("cryptobackend: not available") }
-+func (key *PrivateKey) Parameters() Parameters       { panic("cryptobackend: not available") }
-+func (key *PrivateKey) PublicKey() *PublicKey        { panic("cryptobackend: not available") }
-+func (key *PrivateKey) Sign(message []byte, context string) ([]byte, error) {
++func newPublicKey(params Parameters, publicKey []byte) (*backendPublicKey, error) {
 +	panic("cryptobackend: not available")
 +}
-+func (key *PrivateKey) SignExternalMu(mu []byte) ([]byte, error) {
++func (key *backendPrivateKey) Bytes() []byte { panic("cryptobackend: not available") }
++func (key *backendPrivateKey) Equal(other *backendPrivateKey) bool {
 +	panic("cryptobackend: not available")
 +}
-+func (key *PublicKey) Bytes() []byte               { panic("cryptobackend: not available") }
-+func (key *PublicKey) Equal(other *PublicKey) bool { panic("cryptobackend: not available") }
-+func (key *PublicKey) Parameters() Parameters      { panic("cryptobackend: not available") }
-+func (key *PublicKey) Verify(message, signature []byte, context string) error {
++func (key *backendPrivateKey) Parameters() Parameters { panic("cryptobackend: not available") }
++func (key *backendPrivateKey) PublicKey() *backendPublicKey {
 +	panic("cryptobackend: not available")
 +}
-+func (key *PublicKey) VerifyExternalMu(mu, signature []byte) error {
++func (key *backendPrivateKey) Sign(message []byte, context string) ([]byte, error) {
++	panic("cryptobackend: not available")
++}
++func (key *backendPrivateKey) SignExternalMu(mu []byte) ([]byte, error) {
++	panic("cryptobackend: not available")
++}
++func (key *backendPublicKey) Bytes() []byte { panic("cryptobackend: not available") }
++func (key *backendPublicKey) Equal(other *backendPublicKey) bool {
++	panic("cryptobackend: not available")
++}
++func (key *backendPublicKey) Parameters() Parameters { panic("cryptobackend: not available") }
++func (key *backendPublicKey) Verify(message, signature []byte, context string) error {
++	panic("cryptobackend: not available")
++}
++func (key *backendPublicKey) VerifyExternalMu(mu, signature []byte) error {
 +	panic("cryptobackend: not available")
 +}
 diff --git a/src/vendor/github.com/microsoft/go/cryptobackend/mlkem/init.go b/src/vendor/github.com/microsoft/go/cryptobackend/mlkem/init.go
