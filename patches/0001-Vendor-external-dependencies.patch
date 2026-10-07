@@ -362,9 +362,9 @@ Use a 'go' that was recently built by the current branch to ensure stable result
  .../go/cryptobackend/mldsa/mldsa_openssl.go   |   28 +
  .../go/cryptobackend/mldsa/mldsa_windows.go   |   28 +
  .../go/cryptobackend/mldsa/nobackend.go       |   52 +
- .../microsoft/go/cryptobackend/mlkem/key.go   |  195 ++
+ .../microsoft/go/cryptobackend/mlkem/key.go   |  184 ++
  .../go/cryptobackend/mlkem/mlkem_darwin.go    |   31 +
- .../go/cryptobackend/mlkem/mlkem_msgostd.go   |  163 ++
+ .../go/cryptobackend/mlkem/mlkem_msgostd.go   |  131 +
  .../mlkem/mlkem_nobackend_msgostd.go          |   34 +
  .../go/cryptobackend/mlkem/mlkem_nomsgostd.go |   59 +
  .../go/cryptobackend/mlkem/mlkem_openssl.go   |   31 +
@@ -448,7 +448,7 @@ Use a 'go' that was recently built by the current branch to ensure stable result
  .../go/cryptobackend/tls13/tls13_openssl.go   |   18 +
  .../go/cryptobackend/tls13/tls13_windows.go   |   14 +
  src/vendor/modules.txt                        |   53 +
- 440 files changed, 42492 insertions(+), 7 deletions(-)
+ 440 files changed, 42449 insertions(+), 7 deletions(-)
  create mode 100644 src/cmd/internal/telemetry/counter/deps_ignore.go
  create mode 100644 src/cmd/vendor/github.com/microsoft/go-infra/telemetry/LICENSE
  create mode 100644 src/cmd/vendor/github.com/microsoft/go-infra/telemetry/README.md
@@ -43807,10 +43807,10 @@ index 00000000000000..e6f06c3d2b2b6c
 +}
 diff --git a/src/vendor/github.com/microsoft/go/cryptobackend/mlkem/key.go b/src/vendor/github.com/microsoft/go/cryptobackend/mlkem/key.go
 new file mode 100644
-index 00000000000000..a24e949da5dec1
+index 00000000000000..7df363326e205d
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go/cryptobackend/mlkem/key.go
-@@ -0,0 +1,195 @@
+@@ -0,0 +1,184 @@
 +// Copyright 2026 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -43830,67 +43830,58 @@ index 00000000000000..a24e949da5dec1
 +type DecapsulationKey768 struct {
 +	fips    *fipsDecapsulationKey768
 +	backend backendDecapsulationKey768
-+	native  bool
 +}
 +
 +type DecapsulationKey1024 struct {
 +	fips    *fipsDecapsulationKey1024
 +	backend backendDecapsulationKey1024
-+	native  bool
 +}
 +
-+// Encapsulation keys share the lazy Go representation when copied. The Go key
-+// is only needed if the global random reader is overridden after native import.
++// Encapsulation keys must not be copied after first use. Standard-library key
++// wrappers share them through a pointer, including the lazy Go representation.
 +type EncapsulationKey768 struct {
-+	fips    *fipsEncapsulationKey768
-+	backend *backendEncapsulationKey768State
++	fips      *fipsEncapsulationKey768
++	backend   *backendEncapsulationKey768
++	goKeyOnce sync.Once
++	goKeyErr  error
 +}
 +
 +type EncapsulationKey1024 struct {
-+	fips    *fipsEncapsulationKey1024
-+	backend *backendEncapsulationKey1024State
-+}
-+
-+// Co-locate the returned wrapper, immutable native key and shared fallback
-+// state so a native public-key import needs only one allocation in this layer.
-+type backendEncapsulationKey768State struct {
-+	wrapper   EncapsulationKey768
-+	key       backendEncapsulationKey768
++	fips      *fipsEncapsulationKey1024
++	backend   *backendEncapsulationKey1024
 +	goKeyOnce sync.Once
-+	goKey     *fipsEncapsulationKey768
 +	goKeyErr  error
 +}
 +
-+type backendEncapsulationKey1024State struct {
-+	wrapper   EncapsulationKey1024
-+	key       backendEncapsulationKey1024
-+	goKeyOnce sync.Once
-+	goKey     *fipsEncapsulationKey1024
-+	goKeyErr  error
-+}
-+
++// Allocate native key storage with the pointer-owned encapsulation key.
 +func newBackendEncapsulationKey768(key backendEncapsulationKey768) *EncapsulationKey768 {
-+	s := &backendEncapsulationKey768State{key: key}
-+	s.wrapper.backend = s
-+	return &s.wrapper
++	s := &struct {
++		EncapsulationKey768
++		key backendEncapsulationKey768
++	}{key: key}
++	s.backend = &s.key
++	return &s.EncapsulationKey768
 +}
 +
 +func newBackendEncapsulationKey1024(key backendEncapsulationKey1024) *EncapsulationKey1024 {
-+	s := &backendEncapsulationKey1024State{key: key}
-+	s.wrapper.backend = s
-+	return &s.wrapper
++	s := &struct {
++		EncapsulationKey1024
++		key backendEncapsulationKey1024
++	}{key: key}
++	s.backend = &s.key
++	return &s.EncapsulationKey1024
 +}
 +
 +// Bytes returns a copy of the decapsulation key seed.
 +func (dk *DecapsulationKey768) Bytes() []byte {
-+	if dk.native {
++	if dk.fips == nil {
 +		return dk.backend.Bytes()
 +	}
 +	return dk.fips.Bytes()
 +}
 +
 +func (dk *DecapsulationKey1024) Bytes() []byte {
-+	if dk.native {
++	if dk.fips == nil {
 +		return dk.backend.Bytes()
 +	}
 +	return dk.fips.Bytes()
@@ -43900,7 +43891,7 @@ index 00000000000000..a24e949da5dec1
 +	if len(ciphertext) != 1088 {
 +		return nil, errors.New("mlkem: invalid ciphertext length")
 +	}
-+	if dk.native {
++	if dk.fips == nil {
 +		return dk.backend.Decapsulate(ciphertext)
 +	}
 +	return dk.fips.Decapsulate(ciphertext)
@@ -43910,21 +43901,21 @@ index 00000000000000..a24e949da5dec1
 +	if len(ciphertext) != 1568 {
 +		return nil, errors.New("mlkem: invalid ciphertext length")
 +	}
-+	if dk.native {
++	if dk.fips == nil {
 +		return dk.backend.Decapsulate(ciphertext)
 +	}
 +	return dk.fips.Decapsulate(ciphertext)
 +}
 +
 +func (dk *DecapsulationKey768) EncapsulationKey() *EncapsulationKey768 {
-+	if dk.native {
++	if dk.fips == nil {
 +		return newBackendEncapsulationKey768(dk.backend.EncapsulationKey())
 +	}
 +	return &EncapsulationKey768{fips: dk.fips.EncapsulationKey()}
 +}
 +
 +func (dk *DecapsulationKey1024) EncapsulationKey() *EncapsulationKey1024 {
-+	if dk.native {
++	if dk.fips == nil {
 +		return newBackendEncapsulationKey1024(dk.backend.EncapsulationKey())
 +	}
 +	return &EncapsulationKey1024{fips: dk.fips.EncapsulationKey()}
@@ -43934,28 +43925,28 @@ index 00000000000000..a24e949da5dec1
 +// they return independent encodings rather than exposing the stored native key.
 +func (ek *EncapsulationKey768) Bytes() []byte {
 +	if ek.backend != nil {
-+		return ek.backend.key.Bytes()
++		return ek.backend.Bytes()
 +	}
 +	return ek.fips.Bytes()
 +}
 +
 +func (ek *EncapsulationKey1024) Bytes() []byte {
 +	if ek.backend != nil {
-+		return ek.backend.key.Bytes()
++		return ek.backend.Bytes()
 +	}
 +	return ek.fips.Bytes()
 +}
 +
 +func (ek *EncapsulationKey768) Encapsulate() (sharedKey, ciphertext []byte) {
 +	if ek.backend != nil && defaultRandomReader() {
-+		return ek.backend.key.Encapsulate()
++		return ek.backend.Encapsulate()
 +	}
 +	return ek.goKey().Encapsulate()
 +}
 +
 +func (ek *EncapsulationKey1024) Encapsulate() (sharedKey, ciphertext []byte) {
 +	if ek.backend != nil && defaultRandomReader() {
-+		return ek.backend.key.Encapsulate()
++		return ek.backend.Encapsulate()
 +	}
 +	return ek.goKey().Encapsulate()
 +}
@@ -43964,28 +43955,26 @@ index 00000000000000..a24e949da5dec1
 +	if ek.backend == nil {
 +		return ek.fips
 +	}
-+	s := ek.backend
-+	s.goKeyOnce.Do(func() {
-+		s.goKey, s.goKeyErr = newGoEncapsulationKey768(s.key.Bytes())
++	ek.goKeyOnce.Do(func() {
++		ek.fips, ek.goKeyErr = newGoEncapsulationKey768(ek.backend.Bytes())
 +	})
-+	if s.goKeyErr != nil {
-+		panic(s.goKeyErr)
++	if ek.goKeyErr != nil {
++		panic(ek.goKeyErr)
 +	}
-+	return s.goKey
++	return ek.fips
 +}
 +
 +func (ek *EncapsulationKey1024) goKey() *fipsEncapsulationKey1024 {
 +	if ek.backend == nil {
 +		return ek.fips
 +	}
-+	s := ek.backend
-+	s.goKeyOnce.Do(func() {
-+		s.goKey, s.goKeyErr = newGoEncapsulationKey1024(s.key.Bytes())
++	ek.goKeyOnce.Do(func() {
++		ek.fips, ek.goKeyErr = newGoEncapsulationKey1024(ek.backend.Bytes())
 +	})
-+	if s.goKeyErr != nil {
-+		panic(s.goKeyErr)
++	if ek.goKeyErr != nil {
++		panic(ek.goKeyErr)
 +	}
-+	return s.goKey
++	return ek.fips
 +}
 +
 +// The native importers only check length. Reject non-canonical 12-bit
@@ -44045,10 +44034,10 @@ index 00000000000000..3227ce086b7558
 +}
 diff --git a/src/vendor/github.com/microsoft/go/cryptobackend/mlkem/mlkem_msgostd.go b/src/vendor/github.com/microsoft/go/cryptobackend/mlkem/mlkem_msgostd.go
 new file mode 100644
-index 00000000000000..18f0653772cef1
+index 00000000000000..5c106187e3bad0
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go/cryptobackend/mlkem/mlkem_msgostd.go
-@@ -0,0 +1,163 @@
+@@ -0,0 +1,131 @@
 +// Copyright 2026 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -44071,102 +44060,70 @@ index 00000000000000..18f0653772cef1
 +
 +func defaultRandomReader() bool { return rand.IsDefaultReader(cryptorand.Reader) }
 +
-+func GenerateKey768() (key *DecapsulationKey768, err error) {
-+	var k DecapsulationKey768
-+	err = generate768(&k)
-+	if err == nil {
-+		key = &k
-+	}
-+	return
-+}
-+
-+func generate768(k *DecapsulationKey768) error {
++func GenerateKey768() (*DecapsulationKey768, error) {
 +	if supportsBackend768() && defaultRandomReader() {
 +		key, err := generateKey768()
 +		if err != nil {
-+			return err
++			return nil, err
 +		}
-+		k.backend, k.native = key, true
-+		return nil
++		return &DecapsulationKey768{backend: key}, nil
 +	}
 +	key, err := fallback.GenerateKey768()
-+	k.fips = key
-+	return err
-+}
-+
-+func GenerateKey1024() (key *DecapsulationKey1024, err error) {
-+	var k DecapsulationKey1024
-+	err = generate1024(&k)
-+	if err == nil {
-+		key = &k
++	if err != nil {
++		return nil, err
 +	}
-+	return
++	return &DecapsulationKey768{fips: key}, nil
 +}
 +
-+func generate1024(k *DecapsulationKey1024) error {
++func GenerateKey1024() (*DecapsulationKey1024, error) {
 +	if supportsBackend1024() && defaultRandomReader() {
 +		key, err := generateKey1024()
 +		if err != nil {
-+			return err
++			return nil, err
 +		}
-+		k.backend, k.native = key, true
-+		return nil
++		return &DecapsulationKey1024{backend: key}, nil
 +	}
 +	key, err := fallback.GenerateKey1024()
-+	k.fips = key
-+	return err
-+}
-+
-+func NewDecapsulationKey768(seed []byte) (key *DecapsulationKey768, err error) {
-+	var k DecapsulationKey768
-+	err = newDecapsulation768(&k, seed)
-+	if err == nil {
-+		key = &k
++	if err != nil {
++		return nil, err
 +	}
-+	return
++	return &DecapsulationKey1024{fips: key}, nil
 +}
 +
-+func newDecapsulation768(k *DecapsulationKey768, seed []byte) error {
++func NewDecapsulationKey768(seed []byte) (*DecapsulationKey768, error) {
 +	if len(seed) != 64 {
-+		return errors.New("mlkem: invalid seed length")
++		return nil, errors.New("mlkem: invalid seed length")
 +	}
 +	if supportsBackend768() {
 +		key, err := newDecapsulationKey768(seed)
 +		if err != nil {
-+			return err
++			return nil, err
 +		}
-+		k.backend, k.native = key, true
-+		return nil
++		return &DecapsulationKey768{backend: key}, nil
 +	}
 +	key, err := fallback.NewDecapsulationKey768(seed)
-+	k.fips = key
-+	return err
-+}
-+
-+func NewDecapsulationKey1024(seed []byte) (key *DecapsulationKey1024, err error) {
-+	var k DecapsulationKey1024
-+	err = newDecapsulation1024(&k, seed)
-+	if err == nil {
-+		key = &k
++	if err != nil {
++		return nil, err
 +	}
-+	return
++	return &DecapsulationKey768{fips: key}, nil
 +}
 +
-+func newDecapsulation1024(k *DecapsulationKey1024, seed []byte) error {
++func NewDecapsulationKey1024(seed []byte) (*DecapsulationKey1024, error) {
 +	if len(seed) != 64 {
-+		return errors.New("mlkem: invalid seed length")
++		return nil, errors.New("mlkem: invalid seed length")
 +	}
 +	if supportsBackend1024() {
 +		key, err := newDecapsulationKey1024(seed)
 +		if err != nil {
-+			return err
++			return nil, err
 +		}
-+		k.backend, k.native = key, true
-+		return nil
++		return &DecapsulationKey1024{backend: key}, nil
 +	}
 +	key, err := fallback.NewDecapsulationKey1024(seed)
-+	k.fips = key
-+	return err
++	if err != nil {
++		return nil, err
++	}
++	return &DecapsulationKey1024{fips: key}, nil
 +}
 +
 +func NewEncapsulationKey768(encoding []byte) (*EncapsulationKey768, error) {

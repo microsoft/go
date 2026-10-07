@@ -20,102 +20,70 @@ type fipsEncapsulationKey1024 = fallback.EncapsulationKey1024
 
 func defaultRandomReader() bool { return rand.IsDefaultReader(cryptorand.Reader) }
 
-func GenerateKey768() (key *DecapsulationKey768, err error) {
-	var k DecapsulationKey768
-	err = generate768(&k)
-	if err == nil {
-		key = &k
-	}
-	return
-}
-
-func generate768(k *DecapsulationKey768) error {
+func GenerateKey768() (*DecapsulationKey768, error) {
 	if supportsBackend768() && defaultRandomReader() {
 		key, err := generateKey768()
 		if err != nil {
-			return err
+			return nil, err
 		}
-		k.backend, k.native = key, true
-		return nil
+		return &DecapsulationKey768{backend: key}, nil
 	}
 	key, err := fallback.GenerateKey768()
-	k.fips = key
-	return err
-}
-
-func GenerateKey1024() (key *DecapsulationKey1024, err error) {
-	var k DecapsulationKey1024
-	err = generate1024(&k)
-	if err == nil {
-		key = &k
+	if err != nil {
+		return nil, err
 	}
-	return
+	return &DecapsulationKey768{fips: key}, nil
 }
 
-func generate1024(k *DecapsulationKey1024) error {
+func GenerateKey1024() (*DecapsulationKey1024, error) {
 	if supportsBackend1024() && defaultRandomReader() {
 		key, err := generateKey1024()
 		if err != nil {
-			return err
+			return nil, err
 		}
-		k.backend, k.native = key, true
-		return nil
+		return &DecapsulationKey1024{backend: key}, nil
 	}
 	key, err := fallback.GenerateKey1024()
-	k.fips = key
-	return err
-}
-
-func NewDecapsulationKey768(seed []byte) (key *DecapsulationKey768, err error) {
-	var k DecapsulationKey768
-	err = newDecapsulation768(&k, seed)
-	if err == nil {
-		key = &k
+	if err != nil {
+		return nil, err
 	}
-	return
+	return &DecapsulationKey1024{fips: key}, nil
 }
 
-func newDecapsulation768(k *DecapsulationKey768, seed []byte) error {
+func NewDecapsulationKey768(seed []byte) (*DecapsulationKey768, error) {
 	if len(seed) != 64 {
-		return errors.New("mlkem: invalid seed length")
+		return nil, errors.New("mlkem: invalid seed length")
 	}
 	if supportsBackend768() {
 		key, err := newDecapsulationKey768(seed)
 		if err != nil {
-			return err
+			return nil, err
 		}
-		k.backend, k.native = key, true
-		return nil
+		return &DecapsulationKey768{backend: key}, nil
 	}
 	key, err := fallback.NewDecapsulationKey768(seed)
-	k.fips = key
-	return err
-}
-
-func NewDecapsulationKey1024(seed []byte) (key *DecapsulationKey1024, err error) {
-	var k DecapsulationKey1024
-	err = newDecapsulation1024(&k, seed)
-	if err == nil {
-		key = &k
+	if err != nil {
+		return nil, err
 	}
-	return
+	return &DecapsulationKey768{fips: key}, nil
 }
 
-func newDecapsulation1024(k *DecapsulationKey1024, seed []byte) error {
+func NewDecapsulationKey1024(seed []byte) (*DecapsulationKey1024, error) {
 	if len(seed) != 64 {
-		return errors.New("mlkem: invalid seed length")
+		return nil, errors.New("mlkem: invalid seed length")
 	}
 	if supportsBackend1024() {
 		key, err := newDecapsulationKey1024(seed)
 		if err != nil {
-			return err
+			return nil, err
 		}
-		k.backend, k.native = key, true
-		return nil
+		return &DecapsulationKey1024{backend: key}, nil
 	}
 	key, err := fallback.NewDecapsulationKey1024(seed)
-	k.fips = key
-	return err
+	if err != nil {
+		return nil, err
+	}
+	return &DecapsulationKey1024{fips: key}, nil
 }
 
 func NewEncapsulationKey768(encoding []byte) (*EncapsulationKey768, error) {
