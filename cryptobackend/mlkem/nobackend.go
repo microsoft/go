@@ -6,46 +6,46 @@
 
 package mlkem
 
-type DecapsulationKey768 struct{}
-type EncapsulationKey768 struct{}
-type DecapsulationKey1024 struct{}
-type EncapsulationKey1024 struct{}
+type backendDecapsulationKey768 struct{}
+type backendEncapsulationKey768 struct{}
+type backendDecapsulationKey1024 struct{}
+type backendEncapsulationKey1024 struct{}
 
-func Supports768() bool                            { panic("cryptobackend: not available") }
-func Supports1024() bool                           { panic("cryptobackend: not available") }
-func GenerateKey768() (DecapsulationKey768, error) { panic("cryptobackend: not available") }
-func NewDecapsulationKey768(seed []byte) (DecapsulationKey768, error) {
+func Supports768() bool                                   { panic("cryptobackend: not available") }
+func Supports1024() bool                                  { panic("cryptobackend: not available") }
+func generateKey768() (backendDecapsulationKey768, error) { panic("cryptobackend: not available") }
+func newDecapsulationKey768(seed []byte) (backendDecapsulationKey768, error) {
 	panic("cryptobackend: not available")
 }
-func NewEncapsulationKey768(encapsulationKey []byte) (EncapsulationKey768, error) {
+func newEncapsulationKey768(encapsulationKey []byte) (backendEncapsulationKey768, error) {
 	panic("cryptobackend: not available")
 }
-func (dk DecapsulationKey768) Bytes() []byte { panic("cryptobackend: not available") }
-func (dk DecapsulationKey768) Decapsulate(ciphertext []byte) ([]byte, error) {
+func (dk backendDecapsulationKey768) Bytes() []byte { panic("cryptobackend: not available") }
+func (dk backendDecapsulationKey768) Decapsulate(ciphertext []byte) ([]byte, error) {
 	panic("cryptobackend: not available")
 }
-func (dk DecapsulationKey768) EncapsulationKey() EncapsulationKey768 {
+func (dk backendDecapsulationKey768) EncapsulationKey() backendEncapsulationKey768 {
 	panic("cryptobackend: not available")
 }
-func (ek EncapsulationKey768) Bytes() []byte { panic("cryptobackend: not available") }
-func (ek EncapsulationKey768) Encapsulate() (sharedKey, ciphertext []byte) {
+func (ek backendEncapsulationKey768) Bytes() []byte { panic("cryptobackend: not available") }
+func (ek backendEncapsulationKey768) Encapsulate() (sharedKey, ciphertext []byte) {
 	panic("cryptobackend: not available")
 }
-func GenerateKey1024() (DecapsulationKey1024, error) { panic("cryptobackend: not available") }
-func NewDecapsulationKey1024(seed []byte) (DecapsulationKey1024, error) {
+func generateKey1024() (backendDecapsulationKey1024, error) { panic("cryptobackend: not available") }
+func newDecapsulationKey1024(seed []byte) (backendDecapsulationKey1024, error) {
 	panic("cryptobackend: not available")
 }
-func NewEncapsulationKey1024(encapsulationKey []byte) (EncapsulationKey1024, error) {
+func newEncapsulationKey1024(encapsulationKey []byte) (backendEncapsulationKey1024, error) {
 	panic("cryptobackend: not available")
 }
-func (dk DecapsulationKey1024) Bytes() []byte { panic("cryptobackend: not available") }
-func (dk DecapsulationKey1024) Decapsulate(ciphertext []byte) ([]byte, error) {
+func (dk backendDecapsulationKey1024) Bytes() []byte { panic("cryptobackend: not available") }
+func (dk backendDecapsulationKey1024) Decapsulate(ciphertext []byte) ([]byte, error) {
 	panic("cryptobackend: not available")
 }
-func (dk DecapsulationKey1024) EncapsulationKey() EncapsulationKey1024 {
+func (dk backendDecapsulationKey1024) EncapsulationKey() backendEncapsulationKey1024 {
 	panic("cryptobackend: not available")
 }
-func (ek EncapsulationKey1024) Bytes() []byte { panic("cryptobackend: not available") }
-func (ek EncapsulationKey1024) Encapsulate() (sharedKey, ciphertext []byte) {
+func (ek backendEncapsulationKey1024) Bytes() []byte { panic("cryptobackend: not available") }
+func (ek backendEncapsulationKey1024) Encapsulate() (sharedKey, ciphertext []byte) {
 	panic("cryptobackend: not available")
 }

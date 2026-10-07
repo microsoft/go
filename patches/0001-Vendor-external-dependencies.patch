@@ -362,8 +362,11 @@ Use a 'go' that was recently built by the current branch to ensure stable result
  .../go/cryptobackend/mldsa/mldsa_openssl.go   |   28 +
  .../go/cryptobackend/mldsa/mldsa_windows.go   |   28 +
  .../go/cryptobackend/mldsa/nobackend.go       |   52 +
- .../microsoft/go/cryptobackend/mlkem/init.go  |    7 +
+ .../microsoft/go/cryptobackend/mlkem/key.go   |  184 ++
  .../go/cryptobackend/mlkem/mlkem_darwin.go    |   31 +
+ .../go/cryptobackend/mlkem/mlkem_msgostd.go   |  131 +
+ .../mlkem/mlkem_nobackend_msgostd.go          |   34 +
+ .../go/cryptobackend/mlkem/mlkem_nomsgostd.go |   59 +
  .../go/cryptobackend/mlkem/mlkem_openssl.go   |   31 +
  .../go/cryptobackend/mlkem/mlkem_windows.go   |   31 +
  .../go/cryptobackend/mlkem/nobackend.go       |   51 +
@@ -445,7 +448,7 @@ Use a 'go' that was recently built by the current branch to ensure stable result
  .../go/cryptobackend/tls13/tls13_openssl.go   |   18 +
  .../go/cryptobackend/tls13/tls13_windows.go   |   14 +
  src/vendor/modules.txt                        |   53 +
- 437 files changed, 42048 insertions(+), 7 deletions(-)
+ 440 files changed, 42449 insertions(+), 7 deletions(-)
  create mode 100644 src/cmd/internal/telemetry/counter/deps_ignore.go
  create mode 100644 src/cmd/vendor/github.com/microsoft/go-infra/telemetry/LICENSE
  create mode 100644 src/cmd/vendor/github.com/microsoft/go-infra/telemetry/README.md
@@ -793,8 +796,11 @@ Use a 'go' that was recently built by the current branch to ensure stable result
  create mode 100644 src/vendor/github.com/microsoft/go/cryptobackend/mldsa/mldsa_openssl.go
  create mode 100644 src/vendor/github.com/microsoft/go/cryptobackend/mldsa/mldsa_windows.go
  create mode 100644 src/vendor/github.com/microsoft/go/cryptobackend/mldsa/nobackend.go
- create mode 100644 src/vendor/github.com/microsoft/go/cryptobackend/mlkem/init.go
+ create mode 100644 src/vendor/github.com/microsoft/go/cryptobackend/mlkem/key.go
  create mode 100644 src/vendor/github.com/microsoft/go/cryptobackend/mlkem/mlkem_darwin.go
+ create mode 100644 src/vendor/github.com/microsoft/go/cryptobackend/mlkem/mlkem_msgostd.go
+ create mode 100644 src/vendor/github.com/microsoft/go/cryptobackend/mlkem/mlkem_nobackend_msgostd.go
+ create mode 100644 src/vendor/github.com/microsoft/go/cryptobackend/mlkem/mlkem_nomsgostd.go
  create mode 100644 src/vendor/github.com/microsoft/go/cryptobackend/mlkem/mlkem_openssl.go
  create mode 100644 src/vendor/github.com/microsoft/go/cryptobackend/mlkem/mlkem_windows.go
  create mode 100644 src/vendor/github.com/microsoft/go/cryptobackend/mlkem/nobackend.go
@@ -43799,22 +43805,199 @@ index 00000000000000..e6f06c3d2b2b6c
 +func (key *backendPublicKey) VerifyExternalMu(mu, signature []byte) error {
 +	panic("cryptobackend: not available")
 +}
-diff --git a/src/vendor/github.com/microsoft/go/cryptobackend/mlkem/init.go b/src/vendor/github.com/microsoft/go/cryptobackend/mlkem/init.go
+diff --git a/src/vendor/github.com/microsoft/go/cryptobackend/mlkem/key.go b/src/vendor/github.com/microsoft/go/cryptobackend/mlkem/key.go
 new file mode 100644
-index 00000000000000..0148516f57ae02
+index 00000000000000..7df363326e205d
 --- /dev/null
-+++ b/src/vendor/github.com/microsoft/go/cryptobackend/mlkem/init.go
-@@ -0,0 +1,7 @@
++++ b/src/vendor/github.com/microsoft/go/cryptobackend/mlkem/key.go
+@@ -0,0 +1,184 @@
 +// Copyright 2026 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
 +
++//go:build goexperiment.systemcrypto || (!msgostd && !cmd_go_bootstrap)
++
 +package mlkem
 +
-+import _ "github.com/microsoft/go/cryptobackend"
++import (
++	"errors"
++	"sync"
++
++	"github.com/microsoft/go/cryptobackend"
++)
++
++// Native decapsulation keys hold only a seed, so they can be stored by value.
++type DecapsulationKey768 struct {
++	fips    *fipsDecapsulationKey768
++	backend backendDecapsulationKey768
++}
++
++type DecapsulationKey1024 struct {
++	fips    *fipsDecapsulationKey1024
++	backend backendDecapsulationKey1024
++}
++
++// Encapsulation keys must not be copied after first use. Standard-library key
++// wrappers share them through a pointer, including the lazy Go representation.
++type EncapsulationKey768 struct {
++	fips      *fipsEncapsulationKey768
++	backend   *backendEncapsulationKey768
++	goKeyOnce sync.Once
++	goKeyErr  error
++}
++
++type EncapsulationKey1024 struct {
++	fips      *fipsEncapsulationKey1024
++	backend   *backendEncapsulationKey1024
++	goKeyOnce sync.Once
++	goKeyErr  error
++}
++
++// Allocate native key storage with the pointer-owned encapsulation key.
++func newBackendEncapsulationKey768(key backendEncapsulationKey768) *EncapsulationKey768 {
++	s := &struct {
++		EncapsulationKey768
++		key backendEncapsulationKey768
++	}{key: key}
++	s.backend = &s.key
++	return &s.EncapsulationKey768
++}
++
++func newBackendEncapsulationKey1024(key backendEncapsulationKey1024) *EncapsulationKey1024 {
++	s := &struct {
++		EncapsulationKey1024
++		key backendEncapsulationKey1024
++	}{key: key}
++	s.backend = &s.key
++	return &s.EncapsulationKey1024
++}
++
++// Bytes returns a copy of the decapsulation key seed.
++func (dk *DecapsulationKey768) Bytes() []byte {
++	if dk.fips == nil {
++		return dk.backend.Bytes()
++	}
++	return dk.fips.Bytes()
++}
++
++func (dk *DecapsulationKey1024) Bytes() []byte {
++	if dk.fips == nil {
++		return dk.backend.Bytes()
++	}
++	return dk.fips.Bytes()
++}
++
++func (dk *DecapsulationKey768) Decapsulate(ciphertext []byte) ([]byte, error) {
++	if len(ciphertext) != 1088 {
++		return nil, errors.New("mlkem: invalid ciphertext length")
++	}
++	if dk.fips == nil {
++		return dk.backend.Decapsulate(ciphertext)
++	}
++	return dk.fips.Decapsulate(ciphertext)
++}
++
++func (dk *DecapsulationKey1024) Decapsulate(ciphertext []byte) ([]byte, error) {
++	if len(ciphertext) != 1568 {
++		return nil, errors.New("mlkem: invalid ciphertext length")
++	}
++	if dk.fips == nil {
++		return dk.backend.Decapsulate(ciphertext)
++	}
++	return dk.fips.Decapsulate(ciphertext)
++}
++
++func (dk *DecapsulationKey768) EncapsulationKey() *EncapsulationKey768 {
++	if dk.fips == nil {
++		return newBackendEncapsulationKey768(dk.backend.EncapsulationKey())
++	}
++	return &EncapsulationKey768{fips: dk.fips.EncapsulationKey()}
++}
++
++func (dk *DecapsulationKey1024) EncapsulationKey() *EncapsulationKey1024 {
++	if dk.fips == nil {
++		return newBackendEncapsulationKey1024(dk.backend.EncapsulationKey())
++	}
++	return &EncapsulationKey1024{fips: dk.fips.EncapsulationKey()}
++}
++
++// The providers' Bytes methods have value receivers on fixed-size arrays, so
++// they return independent encodings rather than exposing the stored native key.
++func (ek *EncapsulationKey768) Bytes() []byte {
++	if ek.backend != nil {
++		return ek.backend.Bytes()
++	}
++	return ek.fips.Bytes()
++}
++
++func (ek *EncapsulationKey1024) Bytes() []byte {
++	if ek.backend != nil {
++		return ek.backend.Bytes()
++	}
++	return ek.fips.Bytes()
++}
++
++func (ek *EncapsulationKey768) Encapsulate() (sharedKey, ciphertext []byte) {
++	if ek.backend != nil && defaultRandomReader() {
++		return ek.backend.Encapsulate()
++	}
++	return ek.goKey().Encapsulate()
++}
++
++func (ek *EncapsulationKey1024) Encapsulate() (sharedKey, ciphertext []byte) {
++	if ek.backend != nil && defaultRandomReader() {
++		return ek.backend.Encapsulate()
++	}
++	return ek.goKey().Encapsulate()
++}
++
++func (ek *EncapsulationKey768) goKey() *fipsEncapsulationKey768 {
++	if ek.backend == nil {
++		return ek.fips
++	}
++	ek.goKeyOnce.Do(func() {
++		ek.fips, ek.goKeyErr = newGoEncapsulationKey768(ek.backend.Bytes())
++	})
++	if ek.goKeyErr != nil {
++		panic(ek.goKeyErr)
++	}
++	return ek.fips
++}
++
++func (ek *EncapsulationKey1024) goKey() *fipsEncapsulationKey1024 {
++	if ek.backend == nil {
++		return ek.fips
++	}
++	ek.goKeyOnce.Do(func() {
++		ek.fips, ek.goKeyErr = newGoEncapsulationKey1024(ek.backend.Bytes())
++	})
++	if ek.goKeyErr != nil {
++		panic(ek.goKeyErr)
++	}
++	return ek.fips
++}
++
++// The native importers only check length. Reject non-canonical 12-bit
++// coefficients before accepting a key, as required by FIPS 203, Section 7.2.
++func checkEncapsulationKey(encoding []byte, size int) error {
++	if len(encoding) != size {
++		return errors.New("mlkem: invalid encapsulation key length")
++	}
++	for i := 0; i < len(encoding)-32; i += 3 {
++		x := uint16(encoding[i]) | uint16(encoding[i+1]&0x0f)<<8
++		y := uint16(encoding[i+1]>>4) | uint16(encoding[i+2])<<4
++		if x >= 3329 || y >= 3329 {
++			return errors.New("mlkem: invalid polynomial encoding")
++		}
++	}
++	return nil
++}
++
++func supportsBackend768() bool  { return backend.Enabled && Supports768() }
++func supportsBackend1024() bool { return backend.Enabled && Supports1024() }
 diff --git a/src/vendor/github.com/microsoft/go/cryptobackend/mlkem/mlkem_darwin.go b/src/vendor/github.com/microsoft/go/cryptobackend/mlkem/mlkem_darwin.go
 new file mode 100644
-index 00000000000000..9a0cc2702913db
+index 00000000000000..3227ce086b7558
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go/cryptobackend/mlkem/mlkem_darwin.go
 @@ -0,0 +1,31 @@
@@ -43828,30 +44011,272 @@ index 00000000000000..9a0cc2702913db
 +
 +import "github.com/microsoft/go-crypto-darwin/xcrypto"
 +
-+type DecapsulationKey768 = xcrypto.DecapsulationKeyMLKEM768
-+type EncapsulationKey768 = xcrypto.EncapsulationKeyMLKEM768
-+type DecapsulationKey1024 = xcrypto.DecapsulationKeyMLKEM1024
-+type EncapsulationKey1024 = xcrypto.EncapsulationKeyMLKEM1024
++type backendDecapsulationKey768 = xcrypto.DecapsulationKeyMLKEM768
++type backendEncapsulationKey768 = xcrypto.EncapsulationKeyMLKEM768
++type backendDecapsulationKey1024 = xcrypto.DecapsulationKeyMLKEM1024
++type backendEncapsulationKey1024 = xcrypto.EncapsulationKeyMLKEM1024
 +
-+func Supports768() bool                            { return xcrypto.SupportsMLKEM() }
-+func Supports1024() bool                           { return xcrypto.SupportsMLKEM() }
-+func GenerateKey768() (DecapsulationKey768, error) { return xcrypto.GenerateKeyMLKEM768() }
-+func NewDecapsulationKey768(seed []byte) (DecapsulationKey768, error) {
++func Supports768() bool                                   { return xcrypto.SupportsMLKEM() }
++func Supports1024() bool                                  { return xcrypto.SupportsMLKEM() }
++func generateKey768() (backendDecapsulationKey768, error) { return xcrypto.GenerateKeyMLKEM768() }
++func newDecapsulationKey768(seed []byte) (backendDecapsulationKey768, error) {
 +	return xcrypto.NewDecapsulationKeyMLKEM768(seed)
 +}
-+func NewEncapsulationKey768(encapsulationKey []byte) (EncapsulationKey768, error) {
++func newEncapsulationKey768(encapsulationKey []byte) (backendEncapsulationKey768, error) {
 +	return xcrypto.NewEncapsulationKeyMLKEM768(encapsulationKey)
 +}
-+func GenerateKey1024() (DecapsulationKey1024, error) { return xcrypto.GenerateKeyMLKEM1024() }
-+func NewDecapsulationKey1024(seed []byte) (DecapsulationKey1024, error) {
++func generateKey1024() (backendDecapsulationKey1024, error) { return xcrypto.GenerateKeyMLKEM1024() }
++func newDecapsulationKey1024(seed []byte) (backendDecapsulationKey1024, error) {
 +	return xcrypto.NewDecapsulationKeyMLKEM1024(seed)
 +}
-+func NewEncapsulationKey1024(encapsulationKey []byte) (EncapsulationKey1024, error) {
++func newEncapsulationKey1024(encapsulationKey []byte) (backendEncapsulationKey1024, error) {
 +	return xcrypto.NewEncapsulationKeyMLKEM1024(encapsulationKey)
++}
+diff --git a/src/vendor/github.com/microsoft/go/cryptobackend/mlkem/mlkem_msgostd.go b/src/vendor/github.com/microsoft/go/cryptobackend/mlkem/mlkem_msgostd.go
+new file mode 100644
+index 00000000000000..5c106187e3bad0
+--- /dev/null
++++ b/src/vendor/github.com/microsoft/go/cryptobackend/mlkem/mlkem_msgostd.go
+@@ -0,0 +1,131 @@
++// Copyright 2026 The Go Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style
++// license that can be found in the LICENSE file.
++
++//go:build goexperiment.systemcrypto && (msgostd || cmd_go_bootstrap)
++
++package mlkem
++
++import (
++	fallback "crypto/internal/fips140/mlkem"
++	"crypto/internal/rand"
++	cryptorand "crypto/rand"
++	"errors"
++)
++
++type fipsDecapsulationKey768 = fallback.DecapsulationKey768
++type fipsEncapsulationKey768 = fallback.EncapsulationKey768
++type fipsDecapsulationKey1024 = fallback.DecapsulationKey1024
++type fipsEncapsulationKey1024 = fallback.EncapsulationKey1024
++
++func defaultRandomReader() bool { return rand.IsDefaultReader(cryptorand.Reader) }
++
++func GenerateKey768() (*DecapsulationKey768, error) {
++	if supportsBackend768() && defaultRandomReader() {
++		key, err := generateKey768()
++		if err != nil {
++			return nil, err
++		}
++		return &DecapsulationKey768{backend: key}, nil
++	}
++	key, err := fallback.GenerateKey768()
++	if err != nil {
++		return nil, err
++	}
++	return &DecapsulationKey768{fips: key}, nil
++}
++
++func GenerateKey1024() (*DecapsulationKey1024, error) {
++	if supportsBackend1024() && defaultRandomReader() {
++		key, err := generateKey1024()
++		if err != nil {
++			return nil, err
++		}
++		return &DecapsulationKey1024{backend: key}, nil
++	}
++	key, err := fallback.GenerateKey1024()
++	if err != nil {
++		return nil, err
++	}
++	return &DecapsulationKey1024{fips: key}, nil
++}
++
++func NewDecapsulationKey768(seed []byte) (*DecapsulationKey768, error) {
++	if len(seed) != 64 {
++		return nil, errors.New("mlkem: invalid seed length")
++	}
++	if supportsBackend768() {
++		key, err := newDecapsulationKey768(seed)
++		if err != nil {
++			return nil, err
++		}
++		return &DecapsulationKey768{backend: key}, nil
++	}
++	key, err := fallback.NewDecapsulationKey768(seed)
++	if err != nil {
++		return nil, err
++	}
++	return &DecapsulationKey768{fips: key}, nil
++}
++
++func NewDecapsulationKey1024(seed []byte) (*DecapsulationKey1024, error) {
++	if len(seed) != 64 {
++		return nil, errors.New("mlkem: invalid seed length")
++	}
++	if supportsBackend1024() {
++		key, err := newDecapsulationKey1024(seed)
++		if err != nil {
++			return nil, err
++		}
++		return &DecapsulationKey1024{backend: key}, nil
++	}
++	key, err := fallback.NewDecapsulationKey1024(seed)
++	if err != nil {
++		return nil, err
++	}
++	return &DecapsulationKey1024{fips: key}, nil
++}
++
++func NewEncapsulationKey768(encoding []byte) (*EncapsulationKey768, error) {
++	if supportsBackend768() {
++		if err := checkEncapsulationKey(encoding, 1184); err != nil {
++			return nil, err
++		}
++		key, err := newEncapsulationKey768(encoding)
++		if err != nil {
++			return nil, err
++		}
++		return newBackendEncapsulationKey768(key), nil
++	}
++	key, err := fallback.NewEncapsulationKey768(encoding)
++	if err != nil {
++		return nil, err
++	}
++	return &EncapsulationKey768{fips: key}, nil
++}
++
++func NewEncapsulationKey1024(encoding []byte) (*EncapsulationKey1024, error) {
++	if supportsBackend1024() {
++		if err := checkEncapsulationKey(encoding, 1568); err != nil {
++			return nil, err
++		}
++		key, err := newEncapsulationKey1024(encoding)
++		if err != nil {
++			return nil, err
++		}
++		return newBackendEncapsulationKey1024(key), nil
++	}
++	key, err := fallback.NewEncapsulationKey1024(encoding)
++	if err != nil {
++		return nil, err
++	}
++	return &EncapsulationKey1024{fips: key}, nil
++}
++
++func newGoEncapsulationKey768(encoding []byte) (*fipsEncapsulationKey768, error) {
++	return fallback.NewEncapsulationKey768(encoding)
++}
++
++func newGoEncapsulationKey1024(encoding []byte) (*fipsEncapsulationKey1024, error) {
++	return fallback.NewEncapsulationKey1024(encoding)
++}
+diff --git a/src/vendor/github.com/microsoft/go/cryptobackend/mlkem/mlkem_nobackend_msgostd.go b/src/vendor/github.com/microsoft/go/cryptobackend/mlkem/mlkem_nobackend_msgostd.go
+new file mode 100644
+index 00000000000000..5375fd8080f97b
+--- /dev/null
++++ b/src/vendor/github.com/microsoft/go/cryptobackend/mlkem/mlkem_nobackend_msgostd.go
+@@ -0,0 +1,34 @@
++// Copyright 2026 The Go Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style
++// license that can be found in the LICENSE file.
++
++//go:build !goexperiment.systemcrypto && (msgostd || cmd_go_bootstrap)
++
++package mlkem
++
++import (
++	fallback "crypto/internal/fips140/mlkem"
++
++	_ "github.com/microsoft/go/cryptobackend"
++)
++
++// Go-only builds use the core key types directly, without wrapper allocations.
++type DecapsulationKey768 = fallback.DecapsulationKey768
++type EncapsulationKey768 = fallback.EncapsulationKey768
++type DecapsulationKey1024 = fallback.DecapsulationKey1024
++type EncapsulationKey1024 = fallback.EncapsulationKey1024
++
++func GenerateKey768() (*DecapsulationKey768, error)   { return fallback.GenerateKey768() }
++func GenerateKey1024() (*DecapsulationKey1024, error) { return fallback.GenerateKey1024() }
++func NewDecapsulationKey768(seed []byte) (*DecapsulationKey768, error) {
++	return fallback.NewDecapsulationKey768(seed)
++}
++func NewDecapsulationKey1024(seed []byte) (*DecapsulationKey1024, error) {
++	return fallback.NewDecapsulationKey1024(seed)
++}
++func NewEncapsulationKey768(encoding []byte) (*EncapsulationKey768, error) {
++	return fallback.NewEncapsulationKey768(encoding)
++}
++func NewEncapsulationKey1024(encoding []byte) (*EncapsulationKey1024, error) {
++	return fallback.NewEncapsulationKey1024(encoding)
++}
+diff --git a/src/vendor/github.com/microsoft/go/cryptobackend/mlkem/mlkem_nomsgostd.go b/src/vendor/github.com/microsoft/go/cryptobackend/mlkem/mlkem_nomsgostd.go
+new file mode 100644
+index 00000000000000..0d82faf6832aa0
+--- /dev/null
++++ b/src/vendor/github.com/microsoft/go/cryptobackend/mlkem/mlkem_nomsgostd.go
+@@ -0,0 +1,59 @@
++// Copyright 2026 The Go Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style
++// license that can be found in the LICENSE file.
++
++//go:build !msgostd && !cmd_go_bootstrap
++
++package mlkem
++
++// Standalone builds and source importers need declarations that do not import
++// standard-library internals.
++type fipsDecapsulationKey768 struct{}
++type fipsEncapsulationKey768 struct{}
++type fipsDecapsulationKey1024 struct{}
++type fipsEncapsulationKey1024 struct{}
++
++func (*fipsDecapsulationKey768) Bytes() []byte { panic("cryptobackend: not available") }
++func (*fipsDecapsulationKey768) Decapsulate([]byte) ([]byte, error) {
++	panic("cryptobackend: not available")
++}
++func (*fipsDecapsulationKey768) EncapsulationKey() *fipsEncapsulationKey768 {
++	panic("cryptobackend: not available")
++}
++func (*fipsEncapsulationKey768) Bytes() []byte { panic("cryptobackend: not available") }
++func (*fipsEncapsulationKey768) Encapsulate() ([]byte, []byte) {
++	panic("cryptobackend: not available")
++}
++func (*fipsDecapsulationKey1024) Bytes() []byte { panic("cryptobackend: not available") }
++func (*fipsDecapsulationKey1024) Decapsulate([]byte) ([]byte, error) {
++	panic("cryptobackend: not available")
++}
++func (*fipsDecapsulationKey1024) EncapsulationKey() *fipsEncapsulationKey1024 {
++	panic("cryptobackend: not available")
++}
++func (*fipsEncapsulationKey1024) Bytes() []byte { panic("cryptobackend: not available") }
++func (*fipsEncapsulationKey1024) Encapsulate() ([]byte, []byte) {
++	panic("cryptobackend: not available")
++}
++
++func GenerateKey768() (*DecapsulationKey768, error)   { panic("cryptobackend: not available") }
++func GenerateKey1024() (*DecapsulationKey1024, error) { panic("cryptobackend: not available") }
++func NewDecapsulationKey768([]byte) (*DecapsulationKey768, error) {
++	panic("cryptobackend: not available")
++}
++func NewDecapsulationKey1024([]byte) (*DecapsulationKey1024, error) {
++	panic("cryptobackend: not available")
++}
++func NewEncapsulationKey768([]byte) (*EncapsulationKey768, error) {
++	panic("cryptobackend: not available")
++}
++func NewEncapsulationKey1024([]byte) (*EncapsulationKey1024, error) {
++	panic("cryptobackend: not available")
++}
++func defaultRandomReader() bool { panic("cryptobackend: not available") }
++func newGoEncapsulationKey768([]byte) (*fipsEncapsulationKey768, error) {
++	panic("cryptobackend: not available")
++}
++func newGoEncapsulationKey1024([]byte) (*fipsEncapsulationKey1024, error) {
++	panic("cryptobackend: not available")
 +}
 diff --git a/src/vendor/github.com/microsoft/go/cryptobackend/mlkem/mlkem_openssl.go b/src/vendor/github.com/microsoft/go/cryptobackend/mlkem/mlkem_openssl.go
 new file mode 100644
-index 00000000000000..bc5dab7f155d89
+index 00000000000000..4a887ea513000a
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go/cryptobackend/mlkem/mlkem_openssl.go
 @@ -0,0 +1,31 @@
@@ -43865,30 +44290,30 @@ index 00000000000000..bc5dab7f155d89
 +
 +import "github.com/microsoft/go-crypto-openssl/openssl"
 +
-+type DecapsulationKey768 = openssl.DecapsulationKeyMLKEM768
-+type EncapsulationKey768 = openssl.EncapsulationKeyMLKEM768
-+type DecapsulationKey1024 = openssl.DecapsulationKeyMLKEM1024
-+type EncapsulationKey1024 = openssl.EncapsulationKeyMLKEM1024
++type backendDecapsulationKey768 = openssl.DecapsulationKeyMLKEM768
++type backendEncapsulationKey768 = openssl.EncapsulationKeyMLKEM768
++type backendDecapsulationKey1024 = openssl.DecapsulationKeyMLKEM1024
++type backendEncapsulationKey1024 = openssl.EncapsulationKeyMLKEM1024
 +
-+func Supports768() bool                            { return openssl.SupportsMLKEM768() }
-+func Supports1024() bool                           { return openssl.SupportsMLKEM1024() }
-+func GenerateKey768() (DecapsulationKey768, error) { return openssl.GenerateKeyMLKEM768() }
-+func NewDecapsulationKey768(seed []byte) (DecapsulationKey768, error) {
++func Supports768() bool                                   { return openssl.SupportsMLKEM768() }
++func Supports1024() bool                                  { return openssl.SupportsMLKEM1024() }
++func generateKey768() (backendDecapsulationKey768, error) { return openssl.GenerateKeyMLKEM768() }
++func newDecapsulationKey768(seed []byte) (backendDecapsulationKey768, error) {
 +	return openssl.NewDecapsulationKeyMLKEM768(seed)
 +}
-+func NewEncapsulationKey768(encapsulationKey []byte) (EncapsulationKey768, error) {
++func newEncapsulationKey768(encapsulationKey []byte) (backendEncapsulationKey768, error) {
 +	return openssl.NewEncapsulationKeyMLKEM768(encapsulationKey)
 +}
-+func GenerateKey1024() (DecapsulationKey1024, error) { return openssl.GenerateKeyMLKEM1024() }
-+func NewDecapsulationKey1024(seed []byte) (DecapsulationKey1024, error) {
++func generateKey1024() (backendDecapsulationKey1024, error) { return openssl.GenerateKeyMLKEM1024() }
++func newDecapsulationKey1024(seed []byte) (backendDecapsulationKey1024, error) {
 +	return openssl.NewDecapsulationKeyMLKEM1024(seed)
 +}
-+func NewEncapsulationKey1024(encapsulationKey []byte) (EncapsulationKey1024, error) {
++func newEncapsulationKey1024(encapsulationKey []byte) (backendEncapsulationKey1024, error) {
 +	return openssl.NewEncapsulationKeyMLKEM1024(encapsulationKey)
 +}
 diff --git a/src/vendor/github.com/microsoft/go/cryptobackend/mlkem/mlkem_windows.go b/src/vendor/github.com/microsoft/go/cryptobackend/mlkem/mlkem_windows.go
 new file mode 100644
-index 00000000000000..b4b7cf41660673
+index 00000000000000..2a9d7323688eeb
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go/cryptobackend/mlkem/mlkem_windows.go
 @@ -0,0 +1,31 @@
@@ -43902,30 +44327,30 @@ index 00000000000000..b4b7cf41660673
 +
 +import "github.com/microsoft/go-crypto-winnative/cng"
 +
-+type DecapsulationKey768 = cng.DecapsulationKeyMLKEM768
-+type EncapsulationKey768 = cng.EncapsulationKeyMLKEM768
-+type DecapsulationKey1024 = cng.DecapsulationKeyMLKEM1024
-+type EncapsulationKey1024 = cng.EncapsulationKeyMLKEM1024
++type backendDecapsulationKey768 = cng.DecapsulationKeyMLKEM768
++type backendEncapsulationKey768 = cng.EncapsulationKeyMLKEM768
++type backendDecapsulationKey1024 = cng.DecapsulationKeyMLKEM1024
++type backendEncapsulationKey1024 = cng.EncapsulationKeyMLKEM1024
 +
-+func Supports768() bool                            { return cng.SupportsMLKEM() }
-+func Supports1024() bool                           { return cng.SupportsMLKEM() }
-+func GenerateKey768() (DecapsulationKey768, error) { return cng.GenerateKeyMLKEM768() }
-+func NewDecapsulationKey768(seed []byte) (DecapsulationKey768, error) {
++func Supports768() bool                                   { return cng.SupportsMLKEM() }
++func Supports1024() bool                                  { return cng.SupportsMLKEM() }
++func generateKey768() (backendDecapsulationKey768, error) { return cng.GenerateKeyMLKEM768() }
++func newDecapsulationKey768(seed []byte) (backendDecapsulationKey768, error) {
 +	return cng.NewDecapsulationKeyMLKEM768(seed)
 +}
-+func NewEncapsulationKey768(encapsulationKey []byte) (EncapsulationKey768, error) {
++func newEncapsulationKey768(encapsulationKey []byte) (backendEncapsulationKey768, error) {
 +	return cng.NewEncapsulationKeyMLKEM768(encapsulationKey)
 +}
-+func GenerateKey1024() (DecapsulationKey1024, error) { return cng.GenerateKeyMLKEM1024() }
-+func NewDecapsulationKey1024(seed []byte) (DecapsulationKey1024, error) {
++func generateKey1024() (backendDecapsulationKey1024, error) { return cng.GenerateKeyMLKEM1024() }
++func newDecapsulationKey1024(seed []byte) (backendDecapsulationKey1024, error) {
 +	return cng.NewDecapsulationKeyMLKEM1024(seed)
 +}
-+func NewEncapsulationKey1024(encapsulationKey []byte) (EncapsulationKey1024, error) {
++func newEncapsulationKey1024(encapsulationKey []byte) (backendEncapsulationKey1024, error) {
 +	return cng.NewEncapsulationKeyMLKEM1024(encapsulationKey)
 +}
 diff --git a/src/vendor/github.com/microsoft/go/cryptobackend/mlkem/nobackend.go b/src/vendor/github.com/microsoft/go/cryptobackend/mlkem/nobackend.go
 new file mode 100644
-index 00000000000000..6340abf8fab44f
+index 00000000000000..377c338a01a6de
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go/cryptobackend/mlkem/nobackend.go
 @@ -0,0 +1,51 @@
@@ -43937,47 +44362,47 @@ index 00000000000000..6340abf8fab44f
 +
 +package mlkem
 +
-+type DecapsulationKey768 struct{}
-+type EncapsulationKey768 struct{}
-+type DecapsulationKey1024 struct{}
-+type EncapsulationKey1024 struct{}
++type backendDecapsulationKey768 struct{}
++type backendEncapsulationKey768 struct{}
++type backendDecapsulationKey1024 struct{}
++type backendEncapsulationKey1024 struct{}
 +
-+func Supports768() bool                            { panic("cryptobackend: not available") }
-+func Supports1024() bool                           { panic("cryptobackend: not available") }
-+func GenerateKey768() (DecapsulationKey768, error) { panic("cryptobackend: not available") }
-+func NewDecapsulationKey768(seed []byte) (DecapsulationKey768, error) {
++func Supports768() bool                                   { panic("cryptobackend: not available") }
++func Supports1024() bool                                  { panic("cryptobackend: not available") }
++func generateKey768() (backendDecapsulationKey768, error) { panic("cryptobackend: not available") }
++func newDecapsulationKey768(seed []byte) (backendDecapsulationKey768, error) {
 +	panic("cryptobackend: not available")
 +}
-+func NewEncapsulationKey768(encapsulationKey []byte) (EncapsulationKey768, error) {
++func newEncapsulationKey768(encapsulationKey []byte) (backendEncapsulationKey768, error) {
 +	panic("cryptobackend: not available")
 +}
-+func (dk DecapsulationKey768) Bytes() []byte { panic("cryptobackend: not available") }
-+func (dk DecapsulationKey768) Decapsulate(ciphertext []byte) ([]byte, error) {
++func (dk backendDecapsulationKey768) Bytes() []byte { panic("cryptobackend: not available") }
++func (dk backendDecapsulationKey768) Decapsulate(ciphertext []byte) ([]byte, error) {
 +	panic("cryptobackend: not available")
 +}
-+func (dk DecapsulationKey768) EncapsulationKey() EncapsulationKey768 {
++func (dk backendDecapsulationKey768) EncapsulationKey() backendEncapsulationKey768 {
 +	panic("cryptobackend: not available")
 +}
-+func (ek EncapsulationKey768) Bytes() []byte { panic("cryptobackend: not available") }
-+func (ek EncapsulationKey768) Encapsulate() (sharedKey, ciphertext []byte) {
++func (ek backendEncapsulationKey768) Bytes() []byte { panic("cryptobackend: not available") }
++func (ek backendEncapsulationKey768) Encapsulate() (sharedKey, ciphertext []byte) {
 +	panic("cryptobackend: not available")
 +}
-+func GenerateKey1024() (DecapsulationKey1024, error) { panic("cryptobackend: not available") }
-+func NewDecapsulationKey1024(seed []byte) (DecapsulationKey1024, error) {
++func generateKey1024() (backendDecapsulationKey1024, error) { panic("cryptobackend: not available") }
++func newDecapsulationKey1024(seed []byte) (backendDecapsulationKey1024, error) {
 +	panic("cryptobackend: not available")
 +}
-+func NewEncapsulationKey1024(encapsulationKey []byte) (EncapsulationKey1024, error) {
++func newEncapsulationKey1024(encapsulationKey []byte) (backendEncapsulationKey1024, error) {
 +	panic("cryptobackend: not available")
 +}
-+func (dk DecapsulationKey1024) Bytes() []byte { panic("cryptobackend: not available") }
-+func (dk DecapsulationKey1024) Decapsulate(ciphertext []byte) ([]byte, error) {
++func (dk backendDecapsulationKey1024) Bytes() []byte { panic("cryptobackend: not available") }
++func (dk backendDecapsulationKey1024) Decapsulate(ciphertext []byte) ([]byte, error) {
 +	panic("cryptobackend: not available")
 +}
-+func (dk DecapsulationKey1024) EncapsulationKey() EncapsulationKey1024 {
++func (dk backendDecapsulationKey1024) EncapsulationKey() backendEncapsulationKey1024 {
 +	panic("cryptobackend: not available")
 +}
-+func (ek EncapsulationKey1024) Bytes() []byte { panic("cryptobackend: not available") }
-+func (ek EncapsulationKey1024) Encapsulate() (sharedKey, ciphertext []byte) {
++func (ek backendEncapsulationKey1024) Bytes() []byte { panic("cryptobackend: not available") }
++func (ek backendEncapsulationKey1024) Encapsulate() (sharedKey, ciphertext []byte) {
 +	panic("cryptobackend: not available")
 +}
 diff --git a/src/vendor/github.com/microsoft/go/cryptobackend/nobackend.go b/src/vendor/github.com/microsoft/go/cryptobackend/nobackend.go
