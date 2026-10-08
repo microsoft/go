@@ -6,16 +6,20 @@
 
 package ed25519
 
-type PrivateKey struct{}
-type PublicKey struct{}
+type backendPrivateKey = *unavailablePrivateKey
+type backendPublicKey = *unavailablePublicKey
+type unavailablePrivateKey struct{}
+type unavailablePublicKey struct{}
 
-func (k PrivateKey) Bytes() ([]byte, error) { panic("cryptobackend: not available") }
-func (k PublicKey) Bytes() ([]byte, error)  { panic("cryptobackend: not available") }
+func (*unavailablePrivateKey) Bytes() ([]byte, error) { panic("cryptobackend: not available") }
+func (*unavailablePublicKey) Bytes() ([]byte, error)  { panic("cryptobackend: not available") }
 
-func Supports() bool                                        { panic("cryptobackend: not available") }
-func GenerateKey() (PrivateKey, error)                      { panic("cryptobackend: not available") }
-func NewPrivateKey(priv []byte) (PrivateKey, error)         { panic("cryptobackend: not available") }
-func NewPublicKey(pub []byte) (PublicKey, error)            { panic("cryptobackend: not available") }
-func NewPrivateKeyFromSeed(seed []byte) (PrivateKey, error) { panic("cryptobackend: not available") }
-func Sign(priv PrivateKey, message []byte) ([]byte, error)  { panic("cryptobackend: not available") }
-func Verify(pub PublicKey, message, sig []byte) error       { panic("cryptobackend: not available") }
+func Supports() bool                                  { panic("cryptobackend: not available") }
+func generateKey() (backendPrivateKey, error)         { panic("cryptobackend: not available") }
+func newPrivateKey([]byte) (backendPrivateKey, error) { panic("cryptobackend: not available") }
+func newPublicKey([]byte) (backendPublicKey, error)   { panic("cryptobackend: not available") }
+func newPrivateKeyFromSeed([]byte) (backendPrivateKey, error) {
+	panic("cryptobackend: not available")
+}
+func sign(backendPrivateKey, []byte) ([]byte, error) { panic("cryptobackend: not available") }
+func verify(backendPublicKey, []byte, []byte) error  { panic("cryptobackend: not available") }
