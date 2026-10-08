@@ -179,6 +179,8 @@ func main() {
 			buildutil.SetEnv("GO_BUILDER_NAME", goos+"-"+goarch)
 		}
 
+		runOrPanic("go/bin/go", "-C", "toolchaintest", "test", "-count=1")
+
 		cmdline := []string{
 			// Use the dist test command directly, because 'src/run.bash' isn't compatible with
 			// longtest. 'src/run.bash' sets 'GOPATH=/nonexist-gopath', which breaks modconv tests

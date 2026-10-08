@@ -222,6 +222,13 @@ func build(o *options) (err error) {
 	}
 
 	if o.Test {
+		if err := runCommandLine(
+			filepath.Join(goRootDir, "bin", "go"+executableExtension),
+			"-C", filepath.Join(rootDir, "toolchaintest"), "test", "-count=1",
+		); err != nil {
+			return err
+		}
+
 		// Normally, use the dev script to build.
 		testCommandLine := append(
 			shellPrefix,
