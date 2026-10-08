@@ -56,10 +56,8 @@ Subject: [PATCH] Add crypto backends
  src/crypto/ecdh/nist.go                       |   3 +-
  src/crypto/ecdh/x25519.go                     |  43 +--
  src/crypto/ecdsa/ecdsa.go                     |  19 +-
- src/crypto/ed25519/boring.go                  |  73 +++++
- src/crypto/ed25519/ed25519.go                 |  73 +++++
- src/crypto/ed25519/ed25519_test.go            |  14 +-
- src/crypto/ed25519/notboring.go               |  16 +
+ src/crypto/ed25519/ed25519.go                 |  12 +-
+ src/crypto/ed25519/ed25519_test.go            |  18 +-
  src/crypto/fips140/enforcement_test.go        |   4 +
  src/crypto/fips140/fips140.go                 |   3 +-
  src/crypto/hkdf/hkdf.go                       |   9 +-
@@ -133,12 +131,10 @@ Subject: [PATCH] Add crypto backends
  src/os/exec/exec_test.go                      |   9 +
  src/runtime/runtime_boring.go                 |   5 +
  src/syscall/syscall_windows.go                |   3 +
- 129 files changed, 1902 insertions(+), 248 deletions(-)
+ 127 files changed, 1750 insertions(+), 254 deletions(-)
  create mode 100644 src/cmd/go/systemcrypto_test.go
  create mode 100644 src/crypto/dsa/boring.go
  create mode 100644 src/crypto/dsa/notboring.go
- create mode 100644 src/crypto/ed25519/boring.go
- create mode 100644 src/crypto/ed25519/notboring.go
  create mode 100644 src/crypto/systemcrypto_nocgo_freebsd.go
  create mode 100644 src/crypto/systemcrypto_nocgo_linux.go
  create mode 100644 src/go/build/buildbackend_test.go
@@ -2119,221 +2115,85 @@ index 3bd4a5e7b4adaa..b0513d91daf33d 100644
  }
  
  var privateKeyCache fips140cache.Cache[PrivateKey, ecdsa.PrivateKey]
-diff --git a/src/crypto/ed25519/boring.go b/src/crypto/ed25519/boring.go
-new file mode 100644
-index 00000000000000..25a3f57660c356
---- /dev/null
-+++ b/src/crypto/ed25519/boring.go
-@@ -0,0 +1,73 @@
-+// Copyright 2023 The Go Authors. All rights reserved.
-+// Use of this source code is governed by a BSD-style
-+// license that can be found in the LICENSE file.
-+
-+//go:build goexperiment.systemcrypto
-+
-+package ed25519
-+
-+import (
-+	"crypto/internal/boring/bcache"
-+	"unsafe"
-+
-+	boring "github.com/microsoft/go/cryptobackend"
-+	bed25519 "github.com/microsoft/go/cryptobackend/ed25519"
-+)
-+
-+var pubCache bcache.Cache[byte, boringPub]
-+var privCache bcache.Cache[byte, boringPriv]
-+
-+func init() {
-+	if boring.Enabled && bed25519.Supports() {
-+		pubCache.Register()
-+		privCache.Register()
-+	}
-+}
-+
-+type boringPub struct {
-+	key  bed25519.PublicKey
-+	orig [PublicKeySize]byte
-+}
-+
-+func boringPublicKey(pub PublicKey) (bed25519.PublicKey, error) {
-+	// Use the pointer to the underlying pub array as key.
-+	p := unsafe.SliceData(pub)
-+	b := pubCache.Get(p)
-+	if b != nil && PublicKey(b.orig[:]).Equal(pub) {
-+		return b.key, nil
-+	}
-+
-+	b = new(boringPub)
-+	copy(b.orig[:], pub)
-+	key, err := bed25519.NewPublicKey(b.orig[:])
-+	if err != nil {
-+		return key, err
-+	}
-+	b.key = key
-+	pubCache.Put(p, b)
-+	return key, nil
-+}
-+
-+type boringPriv struct {
-+	key  bed25519.PrivateKey
-+	orig [PrivateKeySize]byte
-+}
-+
-+func boringPrivateKey(priv PrivateKey) (bed25519.PrivateKey, error) {
-+	// Use the pointer to the underlying priv array as key.
-+	p := unsafe.SliceData(priv)
-+	b := privCache.Get(p)
-+	if b != nil && PrivateKey(b.orig[:]).Equal(priv) {
-+		return b.key, nil
-+	}
-+
-+	b = new(boringPriv)
-+	copy(b.orig[:], priv)
-+	key, err := bed25519.NewPrivateKey(b.orig[:])
-+	if err != nil {
-+		return key, err
-+	}
-+	b.key = key
-+	privCache.Put(p, b)
-+	return key, nil
-+}
 diff --git a/src/crypto/ed25519/ed25519.go b/src/crypto/ed25519/ed25519.go
-index ed599ad2908dfb..21ca98e7c70b83 100644
+index ed599ad2908dfb..f831109d187d8e 100644
 --- a/src/crypto/ed25519/ed25519.go
 +++ b/src/crypto/ed25519/ed25519.go
-@@ -27,6 +27,10 @@ import (
+@@ -17,7 +17,6 @@ package ed25519
+ 
+ import (
+ 	"crypto"
+-	"crypto/internal/fips140/ed25519"
+ 	"crypto/internal/fips140cache"
+ 	"crypto/internal/fips140only"
+ 	"crypto/internal/rand"
+@@ -27,6 +26,8 @@ import (
  	"internal/godebug"
  	"io"
  	"strconv"
-+	"sync"
 +
-+	boring "github.com/microsoft/go/cryptobackend"
-+	bed25519 "github.com/microsoft/go/cryptobackend/ed25519"
++	"github.com/microsoft/go/cryptobackend/ed25519"
  )
  
  const (
-@@ -164,6 +168,20 @@ func GenerateKey(random io.Reader) (PublicKey, PrivateKey, error) {
- 		return nil, nil, errors.New("crypto/ed25519: only crypto/rand.Reader is allowed in FIPS 140-only mode")
- 	}
- 
-+	if boring.Enabled && rand.IsDefaultReader(random) && bed25519.Supports() {
-+		priv, err := bed25519.GenerateKey()
-+		if err != nil {
-+			return nil, nil, err
-+		}
-+		privData, err := priv.Bytes()
-+		if err != nil {
-+			return nil, nil, err
-+		}
-+		privKey := PrivateKey(privData)
-+		pubKey := privKey.Public().(PublicKey)
-+		return pubKey, privKey, err
-+	}
-+
- 	if rand.IsDefaultReader(random) {
- 		privateKey, err := ed25519.GenerateKey()
- 		if err != nil {
-@@ -188,6 +206,17 @@ func GenerateKey(random io.Reader) (PublicKey, PrivateKey, error) {
- // with RFC 8032. RFC 8032's private keys correspond to seeds in this
- // package.
- func NewKeyFromSeed(seed []byte) PrivateKey {
-+	if boring.Enabled && bed25519.Supports() {
-+		key, err := bed25519.NewPrivateKeyFromSeed(seed)
-+		if err != nil {
-+			panic(err)
-+		}
-+		d, err := key.Bytes()
-+		if err != nil {
-+			panic(err)
-+		}
-+		return PrivateKey(d)
-+	}
- 	// Outline the function body so that the returned key can be stack-allocated.
- 	privateKey := make([]byte, PrivateKeySize)
- 	newKeyFromSeed(privateKey, seed)
-@@ -206,6 +235,17 @@ func newKeyFromSeed(privateKey, seed []byte) {
- // Sign signs the message with privateKey and returns a signature. It will
- // panic if len(privateKey) is not [PrivateKeySize].
- func Sign(privateKey PrivateKey, message []byte) []byte {
-+	if boring.Enabled && bed25519.Supports() {
-+		priv, err := boringPrivateKey(privateKey)
-+		if err != nil {
-+			panic(err)
-+		}
-+		signature, err := bed25519.Sign(priv, message)
-+		if err != nil {
-+			panic(err)
-+		}
-+		return signature
-+	}
- 	// Outline the function body so that the returned signature can be
- 	// stack-allocated.
- 	signature := make([]byte, SignatureSize)
-@@ -235,6 +275,32 @@ func Verify(publicKey PublicKey, message, sig []byte) bool {
- 	return VerifyWithOptions(publicKey, message, sig, &Options{Hash: crypto.Hash(0)}) == nil
- }
- 
-+// testMalleability returns true if the crypto backend correctly rejects
-+// malleable signatures. The only known backend that fails to do so is
-+// OpenSSL version 1.1.1a or lower.
-+// See https://github.com/openssl/openssl/issues/7693.
-+var testMalleability = sync.OnceValue(func() bool {
-+	msg := []byte{0x54, 0x65, 0x73, 0x74}
-+	sig := []byte{
-+		0x7c, 0x38, 0xe0, 0x26, 0xf2, 0x9e, 0x14, 0xaa, 0xbd, 0x05, 0x9a,
-+		0x0f, 0x2d, 0xb8, 0xb0, 0xcd, 0x78, 0x30, 0x40, 0x60, 0x9a, 0x8b,
-+		0xe6, 0x84, 0xdb, 0x12, 0xf8, 0x2a, 0x27, 0x77, 0x4a, 0xb0, 0x67,
-+		0x65, 0x4b, 0xce, 0x38, 0x32, 0xc2, 0xd7, 0x6f, 0x8f, 0x6f, 0x5d,
-+		0xaf, 0xc0, 0x8d, 0x93, 0x39, 0xd4, 0xee, 0xf6, 0x76, 0x57, 0x33,
-+		0x36, 0xa5, 0xc5, 0x1e, 0xb6, 0xf9, 0x46, 0xb3, 0x1d,
-+	}
-+	pkey := []byte{
-+		0x7d, 0x4d, 0x0e, 0x7f, 0x61, 0x53, 0xa6, 0x9b, 0x62, 0x42, 0xb5,
-+		0x22, 0xab, 0xbe, 0xe6, 0x85, 0xfd, 0xa4, 0x42, 0x0f, 0x88, 0x34,
-+		0xb1, 0x08, 0xc3, 0xbd, 0xae, 0x36, 0x9e, 0xf5, 0x49, 0xfa,
-+	}
-+	pub, err := bed25519.NewPublicKey(pkey)
-+	if err != nil {
-+		return false
-+	}
-+	return bed25519.Verify(pub, msg, sig) != nil
-+})
-+
- // VerifyWithOptions reports whether sig is a valid signature of message by
- // publicKey. A valid signature is indicated by returning a nil error. It will
- // panic if len(publicKey) is not [PublicKeySize].
-@@ -263,6 +329,13 @@ func VerifyWithOptions(publicKey PublicKey, message, sig []byte, opts *Options)
+@@ -98,7 +99,7 @@ func (priv PrivateKey) Sign(rand io.Reader, message []byte, opts crypto.SignerOp
+ 	k, err := privateKeyCache.Get(&priv[0], func() (*ed25519.PrivateKey, error) {
+ 		return ed25519.NewPrivateKey(priv)
+ 	}, func(k *ed25519.PrivateKey) bool {
+-		return subtle.ConstantTimeCompare(priv, k.Bytes()) == 1
++		return subtle.ConstantTimeCompare(priv, ed25519.PrivateKeyBytes(k)) == 1
+ 	})
+ 	if err != nil {
+ 		return nil, err
+@@ -117,7 +118,7 @@ func (priv PrivateKey) Sign(rand io.Reader, message []byte, opts crypto.SignerOp
  		}
- 		return ed25519.VerifyCtx(k, message, sig, opts.Context)
- 	case opts.Hash == crypto.Hash(0): // Ed25519
-+		if boring.Enabled && bed25519.Supports() && testMalleability() {
-+			pub, err := boringPublicKey(publicKey)
-+			if err != nil {
-+				return err
-+			}
-+			return bed25519.Verify(pub, message, sig)
-+		}
- 		return ed25519.Verify(k, message, sig)
+ 		return ed25519.SignCtx(k, message, context)
+ 	case hash == crypto.Hash(0): // Ed25519
+-		return ed25519.Sign(k, message), nil
++		return ed25519.SignDeterministic(k, message), nil
  	default:
- 		return errors.New("ed25519: expected opts.Hash zero (unhashed message, for standard Ed25519) or SHA-512 (for Ed25519ph)")
+ 		return nil, errors.New("ed25519: expected opts.HashFunc() zero (unhashed message, for standard Ed25519) or SHA-512 (for Ed25519ph)")
+ 	}
+@@ -197,8 +198,7 @@ func NewKeyFromSeed(seed []byte) PrivateKey {
+ func newKeyFromSeed(privateKey, seed []byte) {
+ 	k, err := ed25519.NewPrivateKeyFromSeed(seed)
+ 	if err != nil {
+-		// NewPrivateKeyFromSeed only returns an error if the seed length is incorrect.
+-		panic("ed25519: bad seed length: " + strconv.Itoa(len(seed)))
++		panic(err)
+ 	}
+ 	copy(privateKey, k.Bytes())
+ }
+@@ -217,7 +217,7 @@ func sign(signature []byte, privateKey PrivateKey, message []byte) {
+ 	k, err := privateKeyCache.Get(&privateKey[0], func() (*ed25519.PrivateKey, error) {
+ 		return ed25519.NewPrivateKey(privateKey)
+ 	}, func(k *ed25519.PrivateKey) bool {
+-		return subtle.ConstantTimeCompare(privateKey, k.Bytes()) == 1
++		return subtle.ConstantTimeCompare(privateKey, ed25519.PrivateKeyBytes(k)) == 1
+ 	})
+ 	if err != nil {
+ 		panic("ed25519: bad private key: " + err.Error())
 diff --git a/src/crypto/ed25519/ed25519_test.go b/src/crypto/ed25519/ed25519_test.go
-index c8a23e3246a949..93df783d1d6a14 100644
+index c8a23e3246a949..0489b241c1936a 100644
 --- a/src/crypto/ed25519/ed25519_test.go
 +++ b/src/crypto/ed25519/ed25519_test.go
-@@ -13,8 +13,11 @@ import (
+@@ -13,10 +13,15 @@ import (
  	"crypto/rand"
  	"crypto/sha512"
  	"encoding/hex"
-+	boring "github.com/microsoft/go/cryptobackend"
 +	"internal/systemcrypto"
  	"log"
  	"os"
 +	"runtime"
  	"strings"
  	"testing"
++
++	"github.com/microsoft/go/cryptobackend"
++	bed25519 "github.com/microsoft/go/cryptobackend/ed25519"
  )
-@@ -316,7 +319,7 @@ func TestGolden(t *testing.T) {
+ 
+ func Example_ed25519ctx() {
+@@ -316,7 +321,7 @@ func TestGolden(t *testing.T) {
  		copy(priv[32:], pubKey)
  
  		sig2 := Sign(priv[:], msg)
@@ -2342,19 +2202,21 @@ index c8a23e3246a949..93df783d1d6a14 100644
  			t.Errorf("different signature result on line %d: %x vs %x", lineNo, sig, sig2)
  		}
  
-@@ -371,6 +374,11 @@ func TestAllocations(t *testing.T) {
+@@ -371,6 +376,13 @@ func TestAllocations(t *testing.T) {
  	cryptotest.SkipTestAllocations(t)
  	seed := make([]byte, SeedSize)
  	priv := NewKeyFromSeed(seed)
 +	expectedAllocations := 0.0
-+	if boring.Enabled {
++	if backend.Enabled && bed25519.Supports() {
 +		expectedAllocations = 6
++	} else if backend.Enabled && runtime.GOOS != "windows" {
++		expectedAllocations = 1
 +	}
 +
  	if allocs := testing.AllocsPerRun(100, func() {
  		message := []byte("Hello, world!")
  		pub := priv.Public().(PublicKey)
-@@ -378,8 +386,8 @@ func TestAllocations(t *testing.T) {
+@@ -378,8 +390,8 @@ func TestAllocations(t *testing.T) {
  		if !Verify(pub, message, signature) {
  			t.Fatal("signature didn't verify")
  		}
@@ -2365,28 +2227,6 @@ index c8a23e3246a949..93df783d1d6a14 100644
  	}
  }
  
-diff --git a/src/crypto/ed25519/notboring.go b/src/crypto/ed25519/notboring.go
-new file mode 100644
-index 00000000000000..57c8a6106b7e2b
---- /dev/null
-+++ b/src/crypto/ed25519/notboring.go
-@@ -0,0 +1,16 @@
-+// Copyright 2023 The Go Authors. All rights reserved.
-+// Use of this source code is governed by a BSD-style
-+// license that can be found in the LICENSE file.
-+
-+//go:build !goexperiment.systemcrypto
-+
-+package ed25519
-+
-+import bed25519 "github.com/microsoft/go/cryptobackend/ed25519"
-+
-+func boringPublicKey(PublicKey) (bed25519.PublicKey, error) {
-+	panic("boringcrypto: not available")
-+}
-+func boringPrivateKey(PrivateKey) (bed25519.PrivateKey, error) {
-+	panic("boringcrypto: not available")
-+}
 diff --git a/src/crypto/fips140/enforcement_test.go b/src/crypto/fips140/enforcement_test.go
 index d230c0f4ec1fa1..bd536dd39a0585 100644
 --- a/src/crypto/fips140/enforcement_test.go
@@ -4418,7 +4258,7 @@ index bc59300f41c762..698bc79a80aead 100644
  }
  
 diff --git a/src/crypto/x509/verify_test.go b/src/crypto/x509/verify_test.go
-index d32d815261d9e1..0911f6bb20e2d2 100644
+index 198692f5aaa6e5..5c1a31f1c09f3b 100644
 --- a/src/crypto/x509/verify_test.go
 +++ b/src/crypto/x509/verify_test.go
 @@ -3127,7 +3127,7 @@ func dsaSelfSignedCNX(t *testing.T) []byte {
@@ -4487,7 +4327,7 @@ index 00000000000000..ffb835ce34a2f7
 +	}
 +}
 diff --git a/src/go/build/deps_test.go b/src/go/build/deps_test.go
-index 926a533c9c1fb8..5c5c45e441f9b7 100644
+index 926a533c9c1fb8..2e86f85ffc2da1 100644
 --- a/src/go/build/deps_test.go
 +++ b/src/go/build/deps_test.go
 @@ -377,8 +377,10 @@ var depsRules = `
@@ -4533,7 +4373,7 @@ index 926a533c9c1fb8..5c5c45e441f9b7 100644
  	< crypto/internal/fips140only
  	< crypto
  	< crypto/subtle
-@@ -583,6 +598,40 @@ var depsRules = `
+@@ -583,6 +598,39 @@ var depsRules = `
  	github.com/microsoft/go-crypto-winnative/internal/bcrypt
  	< github.com/microsoft/go-crypto-winnative/cng;
  
@@ -4558,7 +4398,6 @@ index 926a533c9c1fb8..5c5c45e441f9b7 100644
 +	  github.com/microsoft/go/cryptobackend/aes/gcm,
 +	  github.com/microsoft/go/cryptobackend/des,
 +	  github.com/microsoft/go/cryptobackend/drbg,
-+	  github.com/microsoft/go/cryptobackend/ed25519,
 +	  github.com/microsoft/go/cryptobackend/hkdf,
 +	  github.com/microsoft/go/cryptobackend/hmac,
 +	  github.com/microsoft/go/cryptobackend/md5,
@@ -4574,7 +4413,7 @@ index 926a533c9c1fb8..5c5c45e441f9b7 100644
  	FIPS, internal/godebug, embed,
  	crypto/internal/boring/sig,
  	crypto/internal/boring/syso,
-@@ -590,7 +639,9 @@ var depsRules = `
+@@ -590,7 +638,9 @@ var depsRules = `
  	crypto/internal/fips140only,
  	crypto,
  	crypto/subtle,
@@ -4585,7 +4424,7 @@ index 926a533c9c1fb8..5c5c45e441f9b7 100644
  	< crypto/sha3
  	< crypto/internal/fips140hash
  	< crypto/internal/boring
-@@ -605,15 +656,15 @@ var depsRules = `
+@@ -605,15 +655,15 @@ var depsRules = `
  	  crypto/sha512,
  	  crypto/hmac,
  	  crypto/hkdf,
@@ -4605,7 +4444,7 @@ index 926a533c9c1fb8..5c5c45e441f9b7 100644
  	CGO, fmt, net !< CRYPTO;
  
  	# CRYPTO-MATH is crypto that exposes math/big APIs - no cgo, net; fmt now ok.
-@@ -622,15 +673,32 @@ var depsRules = `
+@@ -622,15 +672,33 @@ var depsRules = `
  	math/big, github.com/microsoft/go-crypto-darwin/xcrypto < github.com/microsoft/go-crypto-darwin/bbig;
  	math/big, github.com/microsoft/go-crypto-winnative/cng < github.com/microsoft/go-crypto-winnative/cng/bbig;
  
@@ -4624,6 +4463,7 @@ index 926a533c9c1fb8..5c5c45e441f9b7 100644
  	< crypto/internal/fips140cache
  	< crypto/rand
 +	< github.com/microsoft/go/cryptobackend/ecdh,
++	  github.com/microsoft/go/cryptobackend/ed25519,
 +	  github.com/microsoft/go/cryptobackend/mldsa,
 +	  github.com/microsoft/go/cryptobackend/mlkem
 +	< crypto/ecdh, crypto/mldsa, crypto/mlkem

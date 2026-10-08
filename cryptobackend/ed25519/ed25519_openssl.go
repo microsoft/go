@@ -8,17 +8,22 @@ package ed25519
 
 import "github.com/microsoft/go-crypto-openssl/openssl"
 
-type PrivateKey = *openssl.PrivateKeyEd25519
-type PublicKey = *openssl.PublicKeyEd25519
+type backendPrivateKey = *openssl.PrivateKeyEd25519
+type backendPublicKey = *openssl.PublicKeyEd25519
 
-func Supports() bool                                { return openssl.SupportsEd25519() }
-func GenerateKey() (PrivateKey, error)              { return openssl.GenerateKeyEd25519() }
-func NewPrivateKey(priv []byte) (PrivateKey, error) { return openssl.NewPrivateKeyEd25519(priv) }
-func NewPublicKey(pub []byte) (PublicKey, error)    { return openssl.NewPublicKeyEd25519(pub) }
-func NewPrivateKeyFromSeed(seed []byte) (PrivateKey, error) {
+func Supports() bool                                       { return openssl.SupportsEd25519() }
+func generateKey() (backendPrivateKey, error)              { return openssl.GenerateKeyEd25519() }
+func newPrivateKey(priv []byte) (backendPrivateKey, error) { return openssl.NewPrivateKeyEd25519(priv) }
+func newPublicKey(pub []byte) (backendPublicKey, error)    { return openssl.NewPublicKeyEd25519(pub) }
+func newPrivateKeyFromSeed(seed []byte) (backendPrivateKey, error) {
 	return openssl.NewPrivateKeyEd25519FromSeed(seed)
 }
-func Sign(priv PrivateKey, message []byte) ([]byte, error) { return openssl.SignEd25519(priv, message) }
-func Verify(pub PublicKey, message, sig []byte) error {
+func sign(priv backendPrivateKey, message []byte) ([]byte, error) {
+	return signBackend(openssl.SignEd25519, priv, message)
+}
+func signBackend(f func(backendPrivateKey, []byte) ([]byte, error), priv backendPrivateKey, message []byte) ([]byte, error) {
+	return f(priv, message)
+}
+func verify(pub backendPublicKey, message, sig []byte) error {
 	return openssl.VerifyEd25519(pub, message, sig)
 }

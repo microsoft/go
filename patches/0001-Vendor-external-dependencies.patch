@@ -316,11 +316,14 @@ Use a 'go' that was recently built by the current branch to ensure stable result
  .../microsoft/go/cryptobackend/ecdsa/key.go   |   88 +
  .../go/cryptobackend/ecdsa/nobackend.go       |   27 +
  .../go/cryptobackend/ecdsa/signature.go       |   50 +
- .../cryptobackend/ed25519/ed25519_darwin.go   |   24 +
- .../cryptobackend/ed25519/ed25519_openssl.go  |   24 +
- .../cryptobackend/ed25519/ed25519_windows.go  |   21 +
- .../go/cryptobackend/ed25519/init.go          |    7 +
- .../go/cryptobackend/ed25519/nobackend.go     |   21 +
+ .../cryptobackend/ed25519/ed25519_darwin.go   |   26 +
+ .../cryptobackend/ed25519/ed25519_msgostd.go  |  239 ++
+ .../ed25519/ed25519_nobackend_msgostd.go      |   62 +
+ .../ed25519/ed25519_nomsgostd.go              |   41 +
+ .../cryptobackend/ed25519/ed25519_openssl.go  |   29 +
+ .../cryptobackend/ed25519/ed25519_windows.go  |   25 +
+ .../microsoft/go/cryptobackend/ed25519/key.go |  110 +
+ .../go/cryptobackend/ed25519/nobackend.go     |   25 +
  .../go/cryptobackend/fips140/fips140.go       |   15 +
  .../microsoft/go/cryptobackend/hkdf/hkdf.go   |   39 +
  .../go/cryptobackend/hkdf/hkdf_darwin.go      |   26 +
@@ -448,7 +451,7 @@ Use a 'go' that was recently built by the current branch to ensure stable result
  .../go/cryptobackend/tls13/tls13_openssl.go   |   18 +
  .../go/cryptobackend/tls13/tls13_windows.go   |   14 +
  src/vendor/modules.txt                        |   53 +
- 440 files changed, 42449 insertions(+), 7 deletions(-)
+ 443 files changed, 42909 insertions(+), 7 deletions(-)
  create mode 100644 src/cmd/internal/telemetry/counter/deps_ignore.go
  create mode 100644 src/cmd/vendor/github.com/microsoft/go-infra/telemetry/LICENSE
  create mode 100644 src/cmd/vendor/github.com/microsoft/go-infra/telemetry/README.md
@@ -751,9 +754,12 @@ Use a 'go' that was recently built by the current branch to ensure stable result
  create mode 100644 src/vendor/github.com/microsoft/go/cryptobackend/ecdsa/nobackend.go
  create mode 100644 src/vendor/github.com/microsoft/go/cryptobackend/ecdsa/signature.go
  create mode 100644 src/vendor/github.com/microsoft/go/cryptobackend/ed25519/ed25519_darwin.go
+ create mode 100644 src/vendor/github.com/microsoft/go/cryptobackend/ed25519/ed25519_msgostd.go
+ create mode 100644 src/vendor/github.com/microsoft/go/cryptobackend/ed25519/ed25519_nobackend_msgostd.go
+ create mode 100644 src/vendor/github.com/microsoft/go/cryptobackend/ed25519/ed25519_nomsgostd.go
  create mode 100644 src/vendor/github.com/microsoft/go/cryptobackend/ed25519/ed25519_openssl.go
  create mode 100644 src/vendor/github.com/microsoft/go/cryptobackend/ed25519/ed25519_windows.go
- create mode 100644 src/vendor/github.com/microsoft/go/cryptobackend/ed25519/init.go
+ create mode 100644 src/vendor/github.com/microsoft/go/cryptobackend/ed25519/key.go
  create mode 100644 src/vendor/github.com/microsoft/go/cryptobackend/ed25519/nobackend.go
  create mode 100644 src/vendor/github.com/microsoft/go/cryptobackend/fips140/fips140.go
  create mode 100644 src/vendor/github.com/microsoft/go/cryptobackend/hkdf/hkdf.go
@@ -42140,10 +42146,10 @@ index 00000000000000..01d419b1971920
 +}
 diff --git a/src/vendor/github.com/microsoft/go/cryptobackend/ed25519/ed25519_darwin.go b/src/vendor/github.com/microsoft/go/cryptobackend/ed25519/ed25519_darwin.go
 new file mode 100644
-index 00000000000000..339ad263058c45
+index 00000000000000..531f32a908dbce
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go/cryptobackend/ed25519/ed25519_darwin.go
-@@ -0,0 +1,24 @@
+@@ -0,0 +1,26 @@
 +// Copyright 2024 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -42154,26 +42160,388 @@ index 00000000000000..339ad263058c45
 +
 +import "github.com/microsoft/go-crypto-darwin/xcrypto"
 +
-+type PrivateKey = xcrypto.PrivateKeyEd25519
-+type PublicKey = xcrypto.PublicKeyEd25519
++type backendPrivateKey = xcrypto.PrivateKeyEd25519
++type backendPublicKey = xcrypto.PublicKeyEd25519
 +
-+func Supports() bool                                { return true }
-+func GenerateKey() (PrivateKey, error)              { return xcrypto.GenerateKeyEd25519(), nil }
-+func NewPrivateKey(priv []byte) (PrivateKey, error) { return xcrypto.NewPrivateKeyEd25519(priv) }
-+func NewPublicKey(pub []byte) (PublicKey, error)    { return xcrypto.NewPublicKeyEd25519(pub) }
-+func NewPrivateKeyFromSeed(seed []byte) (PrivateKey, error) {
++func Supports() bool                                       { return true }
++func generateKey() (backendPrivateKey, error)              { return xcrypto.GenerateKeyEd25519(), nil }
++func newPrivateKey(priv []byte) (backendPrivateKey, error) { return xcrypto.NewPrivateKeyEd25519(priv) }
++func newPublicKey(pub []byte) (backendPublicKey, error)    { return xcrypto.NewPublicKeyEd25519(pub) }
++func newPrivateKeyFromSeed(seed []byte) (backendPrivateKey, error) {
 +	return xcrypto.NewPrivateKeyEd25519FromSeed(seed)
 +}
-+func Sign(priv PrivateKey, message []byte) ([]byte, error) { return xcrypto.SignEd25519(priv, message) }
-+func Verify(pub PublicKey, message, sig []byte) error {
++func sign(priv backendPrivateKey, message []byte) ([]byte, error) {
++	return xcrypto.SignEd25519(priv, message)
++}
++func verify(pub backendPublicKey, message, sig []byte) error {
 +	return xcrypto.VerifyEd25519(pub, message, sig)
 +}
+diff --git a/src/vendor/github.com/microsoft/go/cryptobackend/ed25519/ed25519_msgostd.go b/src/vendor/github.com/microsoft/go/cryptobackend/ed25519/ed25519_msgostd.go
+new file mode 100644
+index 00000000000000..de40c80c45fdf2
+--- /dev/null
++++ b/src/vendor/github.com/microsoft/go/cryptobackend/ed25519/ed25519_msgostd.go
+@@ -0,0 +1,239 @@
++// Copyright 2026 The Go Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style
++// license that can be found in the LICENSE file.
++
++//go:build goexperiment.systemcrypto && !windows && (msgostd || cmd_go_bootstrap)
++
++package ed25519
++
++import (
++	"crypto/internal/boring/bcache"
++	fallback "crypto/internal/fips140/ed25519"
++	"crypto/internal/fips140/edwards25519"
++	"crypto/internal/rand"
++	cryptorand "crypto/rand"
++	"crypto/subtle"
++	"errors"
++	"strconv"
++)
++
++type fipsPrivateKey = fallback.PrivateKey
++type fipsPublicKey = fallback.PublicKey
++
++func GenerateKey() (key *PrivateKey, err error) {
++	var k PrivateKey
++	err = generate(&k)
++	if err == nil {
++		key = &k
++	}
++	return
++}
++
++func generate(k *PrivateKey) error {
++	if supportsBackend() && rand.IsDefaultReader(cryptorand.Reader) {
++		key, err := generateKey()
++		if err != nil {
++			return err
++		}
++		return initBackendPrivateKey(k, key)
++	}
++	key, err := fallback.GenerateKey()
++	if err != nil {
++		return err
++	}
++	k.fips, k.encoding = key, [64]byte(key.Bytes())
++	return nil
++}
++
++func NewPrivateKeyFromSeed(seed []byte) (key *PrivateKey, err error) {
++	var k PrivateKey
++	err = newPrivateFromSeed(&k, seed)
++	if err == nil {
++		key = &k
++	}
++	return
++}
++
++func newPrivateFromSeed(k *PrivateKey, seed []byte) error {
++	if len(seed) != 32 {
++		return errors.New("ed25519: bad seed length: " + strconv.Itoa(len(seed)))
++	}
++	if supportsBackend() {
++		key, err := newPrivateKeyFromSeed(seed)
++		if err != nil {
++			return err
++		}
++		return initBackendPrivateKey(k, key)
++	}
++	key, err := fallback.NewPrivateKeyFromSeed(seed)
++	if err != nil {
++		return err
++	}
++	k.fips, k.encoding = key, [64]byte(key.Bytes())
++	return nil
++}
++
++func NewPrivateKey(encoding []byte) (*PrivateKey, error) {
++	if len(encoding) != 64 {
++		return nil, errors.New("ed25519: bad private key length: " + strconv.Itoa(len(encoding)))
++	}
++	if supportsBackend() {
++		key, err := newPrivateKey(encoding)
++		if err != nil {
++			return nil, err
++		}
++		k := new(PrivateKey)
++		if err := initBackendPrivateKey(k, key); err != nil {
++			return nil, err
++		}
++		// Native importers derive the public suffix from the seed. Go signing
++		// uses the supplied suffix, even when it does not match that seed.
++		if subtle.ConstantTimeCompare(encoding, k.encoding[:]) == 1 {
++			return k, nil
++		}
++	}
++	key, err := fallback.NewPrivateKey(encoding)
++	if err != nil {
++		return nil, err
++	}
++	return &PrivateKey{fips: key, encoding: [64]byte(encoding)}, nil
++}
++
++func initBackendPrivateKey(k *PrivateKey, key backendPrivateKey) error {
++	encoding, err := key.Bytes()
++	if err != nil {
++		return err
++	}
++	if len(encoding) != 64 {
++		return errors.New("ed25519: invalid backend private key length")
++	}
++	k.backend = key
++	copy(k.encoding[:], encoding)
++	return nil
++}
++
++// Preserve the native public-key cache's GC-based eviction. Each cached key
++// holds its own immutable encoding, so input mutations invalidate the entry.
++var publicKeyCache bcache.Cache[byte, PublicKey]
++
++func init() {
++	if supportsBackend() {
++		publicKeyCache.Register()
++	}
++}
++
++func NewPublicKey(encoding []byte) (key *PublicKey, err error) {
++	var k PublicKey
++	err = importPublicKey(&k, encoding)
++	if err == nil {
++		key = &k
++	}
++	return
++}
++
++func importPublicKey(k *PublicKey, encoding []byte) error {
++	if len(encoding) != 32 {
++		return errors.New("ed25519: bad public key length: " + strconv.Itoa(len(encoding)))
++	}
++	if supportsBackend() && testMalleability() {
++		p := &encoding[0]
++		if cached := publicKeyCache.Get(p); cached != nil && subtle.ConstantTimeCompare(encoding, cached.backend.encoding[:]) == 1 {
++			*k = *cached
++			return nil
++		}
++		cached, err := importBackendPublicKey(encoding)
++		if err != nil {
++			return err
++		}
++		publicKeyCache.Put(p, cached)
++		*k = *cached
++		return nil
++	}
++	key, err := fallback.NewPublicKey(encoding)
++	if err != nil {
++		return err
++	}
++	k.fips = *key
++	return nil
++}
++
++func importBackendPublicKey(encoding []byte) (*PublicKey, error) {
++	// Preserve the Go point validation before accepting a native key.
++	var point edwards25519.Point
++	if _, err := point.SetBytes(encoding); err != nil {
++		return nil, errors.New("ed25519: bad public key")
++	}
++	key, err := newPublicKey(encoding)
++	if err != nil {
++		return nil, err
++	}
++	s := &struct {
++		PublicKey
++		state backendPublicKeyState
++	}{state: backendPublicKeyState{key: key, encoding: [32]byte(encoding)}}
++	s.backend = &s.state
++	return &s.PublicKey, nil
++}
++
++func newGoPrivateKey(encoding *[64]byte) *fipsPrivateKey {
++	key, err := fallback.NewPrivateKey(encoding[:])
++	if err != nil {
++		panic(err)
++	}
++	return key
++}
++
++func newGoPublicKey(encoding *[32]byte) *fipsPublicKey {
++	key, err := fallback.NewPublicKey(encoding[:])
++	if err != nil {
++		panic(err)
++	}
++	return key
++}
++
++func Sign(priv *PrivateKey, message []byte) []byte {
++	signature := make([]byte, 64)
++	signInto(signature, priv, message)
++	return signature
++}
++
++func signInto(signature []byte, priv *PrivateKey, message []byte) {
++	if priv.backend != nil {
++		sig, err := sign(priv.backend, message)
++		if err != nil {
++			panic(err)
++		}
++		copy(signature, sig)
++		return
++	}
++	copy(signature, fallback.Sign(priv.fips, message))
++}
++
++// SignDeterministic uses the Go implementation. PrivateKey.Sign uses this path
++// because some native providers randomize otherwise valid Ed25519 signatures.
++func SignDeterministic(priv *PrivateKey, message []byte) []byte {
++	return fallback.Sign(priv.goKey(), message)
++}
++
++func SignPH(priv *PrivateKey, message []byte, context string) ([]byte, error) {
++	return fallback.SignPH(priv.goKey(), message, context)
++}
++
++func SignCtx(priv *PrivateKey, message []byte, context string) ([]byte, error) {
++	return fallback.SignCtx(priv.goKey(), message, context)
++}
++
++func Verify(pub *PublicKey, message, signature []byte) error {
++	if pub.backend != nil {
++		return verify(pub.backend.key, message, signature)
++	}
++	return fallback.Verify(pub.goKey(), message, signature)
++}
++
++func VerifyPH(pub *PublicKey, message, signature []byte, context string) error {
++	return fallback.VerifyPH(pub.goKey(), message, signature, context)
++}
++
++func VerifyCtx(pub *PublicKey, message, signature []byte, context string) error {
++	return fallback.VerifyCtx(pub.goKey(), message, signature, context)
++}
+diff --git a/src/vendor/github.com/microsoft/go/cryptobackend/ed25519/ed25519_nobackend_msgostd.go b/src/vendor/github.com/microsoft/go/cryptobackend/ed25519/ed25519_nobackend_msgostd.go
+new file mode 100644
+index 00000000000000..6ac567b9202f2b
+--- /dev/null
++++ b/src/vendor/github.com/microsoft/go/cryptobackend/ed25519/ed25519_nobackend_msgostd.go
+@@ -0,0 +1,62 @@
++// Copyright 2026 The Go Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style
++// license that can be found in the LICENSE file.
++
++//go:build (windows || !goexperiment.systemcrypto) && (msgostd || cmd_go_bootstrap)
++
++package ed25519
++
++import (
++	fallback "crypto/internal/fips140/ed25519"
++
++	_ "github.com/microsoft/go/cryptobackend"
++)
++
++// CNG does not implement Ed25519. Like Go-only builds, Windows uses the core
++// types directly to avoid wrapping unsupported native operations.
++type PrivateKey = fallback.PrivateKey
++type PublicKey = fallback.PublicKey
++
++// PrivateKeyBytes returns the key encoding for read-only cache comparisons.
++// A static call keeps the core encoder inlineable through the Go-only type alias.
++func PrivateKeyBytes(k *PrivateKey) []byte { return k.Bytes() }
++
++// Keep these forwarding calls small enough to inline before the compiler
++// expands the core constructors, so their returned keys can stay on the stack.
++func generateGoKey(f func() (*PrivateKey, error)) (*PrivateKey, error) { return f() }
++func newGoKey[K any](f func([]byte) (*K, error), encoding []byte) (*K, error) {
++	return f(encoding)
++}
++func signGoVariant(f func(*PrivateKey, []byte, string) ([]byte, error), key *PrivateKey, message []byte, context string) ([]byte, error) {
++	return f(key, message, context)
++}
++
++func GenerateKey() (*PrivateKey, error) { return generateGoKey(fallback.GenerateKey) }
++func NewPrivateKey(encoding []byte) (*PrivateKey, error) {
++	return newGoKey(fallback.NewPrivateKey, encoding)
++}
++func NewPrivateKeyFromSeed(seed []byte) (*PrivateKey, error) {
++	return newGoKey(fallback.NewPrivateKeyFromSeed, seed)
++}
++func NewPublicKey(encoding []byte) (*PublicKey, error) {
++	return newGoKey(fallback.NewPublicKey, encoding)
++}
++func Sign(priv *PrivateKey, message []byte) []byte { return fallback.Sign(priv, message) }
++func SignDeterministic(priv *PrivateKey, message []byte) []byte {
++	return fallback.Sign(priv, message)
++}
++func SignPH(priv *PrivateKey, message []byte, context string) ([]byte, error) {
++	return signGoVariant(fallback.SignPH, priv, message, context)
++}
++func SignCtx(priv *PrivateKey, message []byte, context string) ([]byte, error) {
++	return signGoVariant(fallback.SignCtx, priv, message, context)
++}
++func Verify(pub *PublicKey, message, signature []byte) error {
++	return fallback.Verify(pub, message, signature)
++}
++func VerifyPH(pub *PublicKey, message, signature []byte, context string) error {
++	return fallback.VerifyPH(pub, message, signature, context)
++}
++func VerifyCtx(pub *PublicKey, message, signature []byte, context string) error {
++	return fallback.VerifyCtx(pub, message, signature, context)
++}
+diff --git a/src/vendor/github.com/microsoft/go/cryptobackend/ed25519/ed25519_nomsgostd.go b/src/vendor/github.com/microsoft/go/cryptobackend/ed25519/ed25519_nomsgostd.go
+new file mode 100644
+index 00000000000000..d7c5352253c822
+--- /dev/null
++++ b/src/vendor/github.com/microsoft/go/cryptobackend/ed25519/ed25519_nomsgostd.go
+@@ -0,0 +1,41 @@
++// Copyright 2026 The Go Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style
++// license that can be found in the LICENSE file.
++
++//go:build !msgostd && !cmd_go_bootstrap
++
++package ed25519
++
++// Standalone builds and source importers cannot import standard-library internals.
++type fipsPrivateKey struct{}
++type fipsPublicKey struct{}
++
++func (*fipsPublicKey) Bytes() []byte { panic("cryptobackend: not available") }
++
++func GenerateKey() (*PrivateKey, error) { panic("cryptobackend: not available") }
++func NewPrivateKey([]byte) (*PrivateKey, error) {
++	panic("cryptobackend: not available")
++}
++func NewPrivateKeyFromSeed([]byte) (*PrivateKey, error) {
++	panic("cryptobackend: not available")
++}
++func NewPublicKey([]byte) (*PublicKey, error) { panic("cryptobackend: not available") }
++func Sign(*PrivateKey, []byte) []byte         { panic("cryptobackend: not available") }
++func SignDeterministic(*PrivateKey, []byte) []byte {
++	panic("cryptobackend: not available")
++}
++func SignPH(*PrivateKey, []byte, string) ([]byte, error) {
++	panic("cryptobackend: not available")
++}
++func SignCtx(*PrivateKey, []byte, string) ([]byte, error) {
++	panic("cryptobackend: not available")
++}
++func Verify(*PublicKey, []byte, []byte) error { panic("cryptobackend: not available") }
++func VerifyPH(*PublicKey, []byte, []byte, string) error {
++	panic("cryptobackend: not available")
++}
++func VerifyCtx(*PublicKey, []byte, []byte, string) error {
++	panic("cryptobackend: not available")
++}
++func newGoPrivateKey(*[64]byte) *fipsPrivateKey { panic("cryptobackend: not available") }
++func newGoPublicKey(*[32]byte) *fipsPublicKey   { panic("cryptobackend: not available") }
 diff --git a/src/vendor/github.com/microsoft/go/cryptobackend/ed25519/ed25519_openssl.go b/src/vendor/github.com/microsoft/go/cryptobackend/ed25519/ed25519_openssl.go
 new file mode 100644
-index 00000000000000..38a71066a5fe99
+index 00000000000000..d88b5e9418eb87
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go/cryptobackend/ed25519/ed25519_openssl.go
-@@ -0,0 +1,24 @@
+@@ -0,0 +1,29 @@
 +// Copyright 2024 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -42184,26 +42552,31 @@ index 00000000000000..38a71066a5fe99
 +
 +import "github.com/microsoft/go-crypto-openssl/openssl"
 +
-+type PrivateKey = *openssl.PrivateKeyEd25519
-+type PublicKey = *openssl.PublicKeyEd25519
++type backendPrivateKey = *openssl.PrivateKeyEd25519
++type backendPublicKey = *openssl.PublicKeyEd25519
 +
-+func Supports() bool                                { return openssl.SupportsEd25519() }
-+func GenerateKey() (PrivateKey, error)              { return openssl.GenerateKeyEd25519() }
-+func NewPrivateKey(priv []byte) (PrivateKey, error) { return openssl.NewPrivateKeyEd25519(priv) }
-+func NewPublicKey(pub []byte) (PublicKey, error)    { return openssl.NewPublicKeyEd25519(pub) }
-+func NewPrivateKeyFromSeed(seed []byte) (PrivateKey, error) {
++func Supports() bool                                       { return openssl.SupportsEd25519() }
++func generateKey() (backendPrivateKey, error)              { return openssl.GenerateKeyEd25519() }
++func newPrivateKey(priv []byte) (backendPrivateKey, error) { return openssl.NewPrivateKeyEd25519(priv) }
++func newPublicKey(pub []byte) (backendPublicKey, error)    { return openssl.NewPublicKeyEd25519(pub) }
++func newPrivateKeyFromSeed(seed []byte) (backendPrivateKey, error) {
 +	return openssl.NewPrivateKeyEd25519FromSeed(seed)
 +}
-+func Sign(priv PrivateKey, message []byte) ([]byte, error) { return openssl.SignEd25519(priv, message) }
-+func Verify(pub PublicKey, message, sig []byte) error {
++func sign(priv backendPrivateKey, message []byte) ([]byte, error) {
++	return signBackend(openssl.SignEd25519, priv, message)
++}
++func signBackend(f func(backendPrivateKey, []byte) ([]byte, error), priv backendPrivateKey, message []byte) ([]byte, error) {
++	return f(priv, message)
++}
++func verify(pub backendPublicKey, message, sig []byte) error {
 +	return openssl.VerifyEd25519(pub, message, sig)
 +}
 diff --git a/src/vendor/github.com/microsoft/go/cryptobackend/ed25519/ed25519_windows.go b/src/vendor/github.com/microsoft/go/cryptobackend/ed25519/ed25519_windows.go
 new file mode 100644
-index 00000000000000..7802098b6a9c56
+index 00000000000000..e8e290f836679a
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go/cryptobackend/ed25519/ed25519_windows.go
-@@ -0,0 +1,21 @@
+@@ -0,0 +1,25 @@
 +// Copyright 2024 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -42212,38 +42585,145 @@ index 00000000000000..7802098b6a9c56
 +
 +package ed25519
 +
-+type PrivateKey struct{}
-+type PublicKey struct{}
++type backendPrivateKey = *unavailablePrivateKey
++type backendPublicKey = *unavailablePublicKey
++type unavailablePrivateKey struct{}
++type unavailablePublicKey struct{}
 +
-+func (k PrivateKey) Bytes() ([]byte, error) { panic("cryptobackend: not available") }
-+func (k PublicKey) Bytes() ([]byte, error)  { panic("cryptobackend: not available") }
++func (*unavailablePrivateKey) Bytes() ([]byte, error) { panic("cryptobackend: not available") }
++func (*unavailablePublicKey) Bytes() ([]byte, error)  { panic("cryptobackend: not available") }
 +
-+func Supports() bool                                        { return false }
-+func GenerateKey() (PrivateKey, error)                      { panic("cryptobackend: not available") }
-+func NewPrivateKey(priv []byte) (PrivateKey, error)         { panic("cryptobackend: not available") }
-+func NewPublicKey(pub []byte) (PublicKey, error)            { panic("cryptobackend: not available") }
-+func NewPrivateKeyFromSeed(seed []byte) (PrivateKey, error) { panic("cryptobackend: not available") }
-+func Sign(priv PrivateKey, message []byte) ([]byte, error)  { panic("cryptobackend: not available") }
-+func Verify(pub PublicKey, message, sig []byte) error       { panic("cryptobackend: not available") }
-diff --git a/src/vendor/github.com/microsoft/go/cryptobackend/ed25519/init.go b/src/vendor/github.com/microsoft/go/cryptobackend/ed25519/init.go
++func Supports() bool                                  { return false }
++func generateKey() (backendPrivateKey, error)         { panic("cryptobackend: not available") }
++func newPrivateKey([]byte) (backendPrivateKey, error) { panic("cryptobackend: not available") }
++func newPublicKey([]byte) (backendPublicKey, error)   { panic("cryptobackend: not available") }
++func newPrivateKeyFromSeed([]byte) (backendPrivateKey, error) {
++	panic("cryptobackend: not available")
++}
++func sign(backendPrivateKey, []byte) ([]byte, error) { panic("cryptobackend: not available") }
++func verify(backendPublicKey, []byte, []byte) error  { panic("cryptobackend: not available") }
+diff --git a/src/vendor/github.com/microsoft/go/cryptobackend/ed25519/key.go b/src/vendor/github.com/microsoft/go/cryptobackend/ed25519/key.go
 new file mode 100644
-index 00000000000000..b8321dff37e05e
+index 00000000000000..2f8d70b88f1ee1
 --- /dev/null
-+++ b/src/vendor/github.com/microsoft/go/cryptobackend/ed25519/init.go
-@@ -0,0 +1,7 @@
++++ b/src/vendor/github.com/microsoft/go/cryptobackend/ed25519/key.go
+@@ -0,0 +1,110 @@
 +// Copyright 2026 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
 +
++//go:build (goexperiment.systemcrypto && !windows) || (!msgostd && !cmd_go_bootstrap)
++
 +package ed25519
 +
-+import _ "github.com/microsoft/go/cryptobackend"
++import (
++	"sync"
++
++	backend "github.com/microsoft/go/cryptobackend"
++)
++
++// PrivateKey owns an immutable key snapshot. It must not be copied after use.
++// The standard-library private-key cache retains pointers to these keys.
++type PrivateKey struct {
++	fips      *fipsPrivateKey
++	backend   backendPrivateKey
++	encoding  [64]byte
++	goKeyOnce sync.Once
++}
++
++// PublicKey owns a public-key snapshot and lazily reconstructs its Go key.
++// Copies share the native key's reconstruction state.
++type PublicKey struct {
++	fips    fipsPublicKey
++	backend *backendPublicKeyState
++}
++
++type backendPublicKeyState struct {
++	key       backendPublicKey
++	encoding  [32]byte
++	goKeyOnce sync.Once
++	goKey     *fipsPublicKey
++}
++
++// Bytes returns a copy of the private key encoding, including its public suffix.
++func (k *PrivateKey) Bytes() []byte {
++	encoding := k.encoding
++	return encoding[:]
++}
++
++// PrivateKeyBytes returns the owned snapshot for read-only cache comparisons.
++func PrivateKeyBytes(k *PrivateKey) []byte { return k.encoding[:] }
++
++// Seed returns a copy of the private key seed.
++func (k *PrivateKey) Seed() []byte {
++	seed := [32]byte(k.encoding[:32])
++	return seed[:]
++}
++
++// PublicKey returns a copy of the public key encoding.
++func (k *PrivateKey) PublicKey() []byte {
++	pub := [32]byte(k.encoding[32:])
++	return pub[:]
++}
++
++// Bytes returns a copy of the public key encoding.
++func (k *PublicKey) Bytes() []byte {
++	if k.backend != nil {
++		encoding := k.backend.encoding
++		return encoding[:]
++	}
++	return k.fips.Bytes()
++}
++
++// goKey caches the Go key needed for prehash and context signing.
++func (k *PrivateKey) goKey() *fipsPrivateKey {
++	if k.backend == nil {
++		return k.fips
++	}
++	k.goKeyOnce.Do(func() {
++		k.fips = newGoPrivateKey(&k.encoding)
++	})
++	return k.fips
++}
++
++func (k *PublicKey) goKey() *fipsPublicKey {
++	if k.backend == nil {
++		return &k.fips
++	}
++	s := k.backend
++	s.goKeyOnce.Do(func() {
++		s.goKey = newGoPublicKey(&s.encoding)
++	})
++	return s.goKey
++}
++
++func supportsBackend() bool { return backend.Enabled && Supports() }
++
++// Old OpenSSL versions accept non-canonical signature scalars. Keep native
++// verification disabled if the provider does not reject this malleable vector.
++var testMalleability = sync.OnceValue(func() bool {
++	msg := []byte{0x54, 0x65, 0x73, 0x74}
++	sig := []byte{
++		0x7c, 0x38, 0xe0, 0x26, 0xf2, 0x9e, 0x14, 0xaa, 0xbd, 0x05, 0x9a,
++		0x0f, 0x2d, 0xb8, 0xb0, 0xcd, 0x78, 0x30, 0x40, 0x60, 0x9a, 0x8b,
++		0xe6, 0x84, 0xdb, 0x12, 0xf8, 0x2a, 0x27, 0x77, 0x4a, 0xb0, 0x67,
++		0x65, 0x4b, 0xce, 0x38, 0x32, 0xc2, 0xd7, 0x6f, 0x8f, 0x6f, 0x5d,
++		0xaf, 0xc0, 0x8d, 0x93, 0x39, 0xd4, 0xee, 0xf6, 0x76, 0x57, 0x33,
++		0x36, 0xa5, 0xc5, 0x1e, 0xb6, 0xf9, 0x46, 0xb3, 0x1d,
++	}
++	pub, err := newPublicKey([]byte{
++		0x7d, 0x4d, 0x0e, 0x7f, 0x61, 0x53, 0xa6, 0x9b, 0x62, 0x42, 0xb5,
++		0x22, 0xab, 0xbe, 0xe6, 0x85, 0xfd, 0xa4, 0x42, 0x0f, 0x88, 0x34,
++		0xb1, 0x08, 0xc3, 0xbd, 0xae, 0x36, 0x9e, 0xf5, 0x49, 0xfa,
++	})
++	return err == nil && verify(pub, msg, sig) != nil
++})
 diff --git a/src/vendor/github.com/microsoft/go/cryptobackend/ed25519/nobackend.go b/src/vendor/github.com/microsoft/go/cryptobackend/ed25519/nobackend.go
 new file mode 100644
-index 00000000000000..a666c8143e84d8
+index 00000000000000..e97bfa8da2ad61
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go/cryptobackend/ed25519/nobackend.go
-@@ -0,0 +1,21 @@
+@@ -0,0 +1,25 @@
 +// Copyright 2024 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -42252,19 +42732,23 @@ index 00000000000000..a666c8143e84d8
 +
 +package ed25519
 +
-+type PrivateKey struct{}
-+type PublicKey struct{}
++type backendPrivateKey = *unavailablePrivateKey
++type backendPublicKey = *unavailablePublicKey
++type unavailablePrivateKey struct{}
++type unavailablePublicKey struct{}
 +
-+func (k PrivateKey) Bytes() ([]byte, error) { panic("cryptobackend: not available") }
-+func (k PublicKey) Bytes() ([]byte, error)  { panic("cryptobackend: not available") }
++func (*unavailablePrivateKey) Bytes() ([]byte, error) { panic("cryptobackend: not available") }
++func (*unavailablePublicKey) Bytes() ([]byte, error)  { panic("cryptobackend: not available") }
 +
-+func Supports() bool                                        { panic("cryptobackend: not available") }
-+func GenerateKey() (PrivateKey, error)                      { panic("cryptobackend: not available") }
-+func NewPrivateKey(priv []byte) (PrivateKey, error)         { panic("cryptobackend: not available") }
-+func NewPublicKey(pub []byte) (PublicKey, error)            { panic("cryptobackend: not available") }
-+func NewPrivateKeyFromSeed(seed []byte) (PrivateKey, error) { panic("cryptobackend: not available") }
-+func Sign(priv PrivateKey, message []byte) ([]byte, error)  { panic("cryptobackend: not available") }
-+func Verify(pub PublicKey, message, sig []byte) error       { panic("cryptobackend: not available") }
++func Supports() bool                                  { panic("cryptobackend: not available") }
++func generateKey() (backendPrivateKey, error)         { panic("cryptobackend: not available") }
++func newPrivateKey([]byte) (backendPrivateKey, error) { panic("cryptobackend: not available") }
++func newPublicKey([]byte) (backendPublicKey, error)   { panic("cryptobackend: not available") }
++func newPrivateKeyFromSeed([]byte) (backendPrivateKey, error) {
++	panic("cryptobackend: not available")
++}
++func sign(backendPrivateKey, []byte) ([]byte, error) { panic("cryptobackend: not available") }
++func verify(backendPublicKey, []byte, []byte) error  { panic("cryptobackend: not available") }
 diff --git a/src/vendor/github.com/microsoft/go/cryptobackend/fips140/fips140.go b/src/vendor/github.com/microsoft/go/cryptobackend/fips140/fips140.go
 new file mode 100644
 index 00000000000000..2b98ef4138312e
