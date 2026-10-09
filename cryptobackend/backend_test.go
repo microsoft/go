@@ -104,6 +104,10 @@ func skipRootImportCheck(rel string) bool {
 	}
 	parts := strings.Split(filepath.ToSlash(rel), "/")
 	switch parts[0] {
+	case "cipher":
+		// cipher is imported by crypto/cipher. Importing the root package here
+		// would create a cycle through the platform providers.
+		return true
 	case "bbig", "fips140", "internal":
 		return true
 	}
