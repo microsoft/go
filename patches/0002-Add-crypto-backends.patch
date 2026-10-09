@@ -41,11 +41,11 @@ Subject: [PATCH] Add crypto backends
  src/crypto/aes/aes.go                         |   3 +-
  src/crypto/aes/aes_test.go                    |   2 +-
  src/crypto/boring/boring.go                   |   4 +-
- src/crypto/cipher/cbc.go                      |  16 +++
- src/crypto/cipher/ctr.go                      |   7 ++
+ src/crypto/cipher/cbc.go                      |   8 ++
+ src/crypto/cipher/ctr.go                      |   5 +
  src/crypto/cipher/ctr_aes_test.go             |   2 +-
- src/crypto/cipher/gcm.go                      |  59 ++++++++-
- src/crypto/cipher/gcm_test.go                 |   9 +-
+ src/crypto/cipher/gcm.go                      |  48 ++++++--
+ src/crypto/cipher/gcm_test.go                 |   5 +-
  src/crypto/des/cipher.go                      |   9 ++
  src/crypto/dsa/boring.go                      | 114 ++++++++++++++++++
  src/crypto/dsa/dsa.go                         |  47 ++++++++
@@ -113,7 +113,7 @@ Subject: [PATCH] Add crypto backends
  src/crypto/tls/key_schedule.go                |   3 +-
  src/crypto/tls/prf.go                         |  19 ++-
  src/crypto/x509/verify_test.go                |   2 +-
- src/go/build/deps_test.go                     |  98 ++++++++++++---
+ src/go/build/deps_test.go                     | 104 +++++++++++++---
  src/hash/example_test.go                      |   2 +
  src/hash/marshal_test.go                      |   4 +
  src/internal/buildcfg/cfg.go                  |   2 +
@@ -127,7 +127,7 @@ Subject: [PATCH] Add crypto backends
  src/os/exec/exec_test.go                      |   9 ++
  src/runtime/runtime_boring.go                 |   5 +
  src/syscall/syscall_windows.go                |   3 +
- 123 files changed, 1396 insertions(+), 254 deletions(-)
+ 123 files changed, 1368 insertions(+), 263 deletions(-)
  create mode 100644 src/crypto/dsa/boring.go
  create mode 100644 src/crypto/dsa/notboring.go
  create mode 100644 src/crypto/systemcrypto_nocgo_freebsd.go
@@ -1084,73 +1084,57 @@ index 097c37e343fdb8..12d8ae0570ce77 100644
  // Enabled reports whether BoringCrypto handles supported crypto operations.
  func Enabled() bool {
 diff --git a/src/crypto/cipher/cbc.go b/src/crypto/cipher/cbc.go
-index 87bafee08ade4f..198de1d17b7e7c 100644
+index 87bafee08ade4f..f5faf803bd03c6 100644
 --- a/src/crypto/cipher/cbc.go
 +++ b/src/crypto/cipher/cbc.go
-@@ -44,6 +44,12 @@ type cbcEncAble interface {
- 	NewCBCEncrypter(iv []byte) BlockMode
- }
- 
-+// fipsCBCEncAble is an interface implemented by ciphers that have a specific
-+// optimized implementation of CBC encryption that is compliant with FIPS 140-2.
-+type fipsCBCEncAble interface {
-+	NewFIPSCBCEncrypter(iv []byte) BlockMode
-+}
+@@ -17,6 +17,8 @@ import (
+ 	"crypto/internal/fips140/alias"
+ 	"crypto/internal/fips140only"
+ 	"crypto/subtle"
 +
- // NewCBCEncrypter returns a BlockMode which encrypts in cipher block chaining
- // mode, using the given Block. The length of iv must be the same as the
- // Block's block size.
-@@ -54,6 +60,9 @@ func NewCBCEncrypter(b Block, iv []byte) BlockMode {
++	backendcipher "github.com/microsoft/go/cryptobackend/cipher"
+ )
+ 
+ type cbc struct {
+@@ -54,6 +56,9 @@ func NewCBCEncrypter(b Block, iv []byte) BlockMode {
  	if b, ok := b.(*aes.Block); ok {
  		return aes.NewCBCEncrypter(b, [16]byte(iv))
  	}
-+	if cbc, ok := b.(fipsCBCEncAble); ok {
-+		return cbc.NewFIPSCBCEncrypter(iv)
++	if cbc, ok := backendcipher.NewFIPSCBCEncrypter[BlockMode](b, iv); ok {
++		return cbc
 +	}
  	if fips140only.Enforced() {
  		panic("crypto/cipher: use of CBC with non-AES ciphers is not allowed in FIPS 140-only mode")
  	}
-@@ -123,6 +132,10 @@ type cbcDecAble interface {
- 	NewCBCDecrypter(iv []byte) BlockMode
- }
- 
-+type fipsCBCDecAble interface {
-+	NewFIPSCBCDecrypter(iv []byte) BlockMode
-+}
-+
- // NewCBCDecrypter returns a BlockMode which decrypts in cipher block chaining
- // mode, using the given Block. The length of iv must be the same as the
- // Block's block size and must match the iv used to encrypt the data.
-@@ -133,6 +146,9 @@ func NewCBCDecrypter(b Block, iv []byte) BlockMode {
+@@ -133,6 +138,9 @@ func NewCBCDecrypter(b Block, iv []byte) BlockMode {
  	if b, ok := b.(*aes.Block); ok {
  		return aes.NewCBCDecrypter(b, [16]byte(iv))
  	}
-+	if cbc, ok := b.(fipsCBCDecAble); ok {
-+		return cbc.NewFIPSCBCDecrypter(iv)
++	if cbc, ok := backendcipher.NewFIPSCBCDecrypter[BlockMode](b, iv); ok {
++		return cbc
 +	}
  	if fips140only.Enforced() {
  		panic("crypto/cipher: use of CBC with non-AES ciphers is not allowed in FIPS 140-only mode")
  	}
 diff --git a/src/crypto/cipher/ctr.go b/src/crypto/cipher/ctr.go
-index 8e63ed7e668a4c..10ed72d2540b6e 100644
+index 8e63ed7e668a4c..a3b6f1d69a55c1 100644
 --- a/src/crypto/cipher/ctr.go
 +++ b/src/crypto/cipher/ctr.go
-@@ -36,12 +36,19 @@ type ctrAble interface {
- 	NewCTR(iv []byte) Stream
- }
- 
-+type fipsCTRAble interface {
-+	NewFIPSCTR(iv []byte) Stream
-+}
+@@ -18,6 +18,8 @@ import (
+ 	"crypto/internal/fips140/alias"
+ 	"crypto/internal/fips140only"
+ 	"crypto/subtle"
 +
- // NewCTR returns a [Stream] which encrypts/decrypts using the given [Block] in
- // counter mode. The length of iv must be the same as the [Block]'s block size.
- func NewCTR(block Block, iv []byte) Stream {
++	backendcipher "github.com/microsoft/go/cryptobackend/cipher"
+ )
+ 
+ type ctr struct {
+@@ -42,6 +44,9 @@ func NewCTR(block Block, iv []byte) Stream {
  	if block, ok := block.(*aes.Block); ok {
  		return aesCtrWrapper{aes.NewCTR(block, iv)}
  	}
-+	if ctr, ok := block.(fipsCTRAble); ok {
-+		return ctr.NewFIPSCTR(iv)
++	if ctr, ok := backendcipher.NewFIPSCTR[Stream](block, iv); ok {
++		return ctr
 +	}
  	if fips140only.Enforced() {
  		panic("crypto/cipher: use of CTR with non-AES ciphers is not allowed in FIPS 140-only mode")
@@ -1174,15 +1158,23 @@ index b6620d182fefc7..10c754c134076b 100644
  	"sort"
  	"strings"
 diff --git a/src/crypto/cipher/gcm.go b/src/crypto/cipher/gcm.go
-index f2cf6248dc8c9b..663d418c4e5631 100644
+index f2cf6248dc8c9b..445dc9325ac2fd 100644
 --- a/src/crypto/cipher/gcm.go
 +++ b/src/crypto/cipher/gcm.go
-@@ -89,6 +89,15 @@ func newGCM(cipher Block, nonceSize, tagSize int) (AEAD, error) {
+@@ -12,6 +12,8 @@ import (
+ 	"crypto/subtle"
+ 	"errors"
+ 	"internal/byteorder"
++
++	backendcipher "github.com/microsoft/go/cryptobackend/cipher"
+ )
+ 
+ const (
+@@ -89,6 +91,14 @@ func newGCM(cipher Block, nonceSize, tagSize int) (AEAD, error) {
  func NewGCMWithRandomNonce(cipher Block) (AEAD, error) {
  	c, ok := cipher.(*aes.Block)
  	if !ok {
-+		if cipher, ok := cipher.(gcmAble); ok {
-+			g, err := cipher.NewGCM(gcmStandardNonceSize, gcmTagSize)
++		if g, ok, err := backendcipher.NewGCM[AEAD](cipher, gcmStandardNonceSize, gcmTagSize); ok {
 +			if err != nil {
 +				return nil, err
 +			}
@@ -1193,32 +1185,40 @@ index f2cf6248dc8c9b..663d418c4e5631 100644
  		return nil, errors.New("cipher: NewGCMWithRandomNonce requires aes.Block")
  	}
  	g, err := gcm.New(c, gcmStandardNonceSize, gcmTagSize)
-@@ -99,7 +108,7 @@ func NewGCMWithRandomNonce(cipher Block) (AEAD, error) {
+@@ -99,7 +109,15 @@ func NewGCMWithRandomNonce(cipher Block) (AEAD, error) {
  }
  
  type gcmWithRandomNonce struct {
 -	*gcm.GCM
 +	aead AEAD
++}
++
++type randomNonceSealer interface {
++	SealWithRandomNonce(out, nonce, plaintext, additionalData []byte)
++}
++
++type aeadWrapper struct {
++	AEAD
  }
  
  func (g gcmWithRandomNonce) NonceSize() int {
-@@ -153,7 +162,14 @@ func (g gcmWithRandomNonce) Seal(dst, nonce, plaintext, additionalData []byte) [
+@@ -153,7 +171,14 @@ func (g gcmWithRandomNonce) Seal(dst, nonce, plaintext, additionalData []byte) [
  		plaintext = ciphertext[:len(plaintext)]
  	}
  
 -	gcm.SealWithRandomNonce(g.GCM, nonce, ciphertext, plaintext, additionalData)
-+	if aeadGCM, ok := g.aead.(*gcm.GCM); ok {
-+		gcm.SealWithRandomNonce(aeadGCM, nonce, ciphertext, plaintext, additionalData)
-+	} else if aeadGCM, ok := g.aead.(randomNonceSealer); ok {
-+		aeadGCM.SealWithRandomNonce(ciphertext, nonce, plaintext, additionalData)
-+	} else {
++	switch g := g.aead.(type) {
++	case *gcm.GCM:
++		gcm.SealWithRandomNonce(g, nonce, ciphertext, plaintext, additionalData)
++	case randomNonceSealer:
++		g.SealWithRandomNonce(ciphertext, nonce, plaintext, additionalData)
++	default:
 +		panic("cipher: NewGCMWithRandomNonce requires aes.Block")
 +	}
-+
  	return ret
  }
  
-@@ -186,7 +202,7 @@ func (g gcmWithRandomNonce) Open(dst, nonce, ciphertext, additionalData []byte)
+@@ -186,20 +211,13 @@ func (g gcmWithRandomNonce) Open(dst, nonce, ciphertext, additionalData []byte)
  		ciphertext = ciphertext[gcmStandardNonceSize:]
  	}
  
@@ -1227,66 +1227,38 @@ index f2cf6248dc8c9b..663d418c4e5631 100644
  	if err != nil {
  		return nil, err
  	}
-@@ -200,6 +216,14 @@ type gcmAble interface {
- 	NewGCM(nonceSize, tagSize int) (AEAD, error)
+ 	return ret, nil
  }
  
-+// randomNonceSealer is an interface for AEAD implementations that support
-+// sealing messages using a randomly generated nonce.
-+// It is used by NewGCMWithRandomNonce to determine whether the AEAD instance
-+// provides its own implementation of SealWithRandomNonce.
-+type randomNonceSealer interface {
-+	SealWithRandomNonce(out, nonce, plaintext, additionalData []byte)
-+}
-+
+-// gcmAble is an interface implemented by ciphers that have a specific optimized
+-// implementation of GCM. crypto/aes doesn't use this anymore, and we'd like to
+-// eventually remove it.
+-type gcmAble interface {
+-	NewGCM(nonceSize, tagSize int) (AEAD, error)
+-}
+-
  func newGCMFallback(cipher Block, nonceSize, tagSize int) (AEAD, error) {
  	if tagSize < gcmMinimumTagSize || tagSize > gcmBlockSize {
  		return nil, errors.New("cipher: incorrect tag size given to GCM")
-@@ -208,7 +232,16 @@ func newGCMFallback(cipher Block, nonceSize, tagSize int) (AEAD, error) {
+@@ -207,8 +225,14 @@ func newGCMFallback(cipher Block, nonceSize, tagSize int) (AEAD, error) {
+ 	if nonceSize <= 0 {
  		return nil, errors.New("cipher: the nonce can't have zero length")
  	}
- 	if cipher, ok := cipher.(gcmAble); ok {
+-	if cipher, ok := cipher.(gcmAble); ok {
 -		return cipher.NewGCM(nonceSize, tagSize)
-+		g, err := cipher.NewGCM(nonceSize, tagSize)
++	if g, ok, err := backendcipher.NewGCM[AEAD](cipher, nonceSize, tagSize); ok {
 +		if err != nil {
 +			return nil, err
 +		}
-+
 +		if _, ok := g.(randomNonceSealer); ok {
-+			return customGCMWrapper{g}, nil
++			return aeadWrapper{g}, nil
 +		}
-+
-+		return g, err
++		return g, nil
  	}
  	if cipher.BlockSize() != gcmBlockSize {
  		return nil, errors.New("cipher: NewGCM requires 128-bit block cipher")
-@@ -216,6 +249,24 @@ func newGCMFallback(cipher Block, nonceSize, tagSize int) (AEAD, error) {
- 	return &gcmFallback{cipher: cipher, nonceSize: nonceSize, tagSize: tagSize}, nil
- }
- 
-+// customGCMWrapper wraps an AEAD implementation to expose only the AEAD interface methods.
-+// This prevents extra exported methods from causing test failures in cryptotest.NoExtraMethods.
-+type customGCMWrapper struct {
-+	aead AEAD
-+}
-+
-+func (g customGCMWrapper) NonceSize() int { return g.aead.NonceSize() }
-+
-+func (g customGCMWrapper) Overhead() int { return g.aead.Overhead() }
-+
-+func (g customGCMWrapper) Seal(dst, nonce, plaintext, additionalData []byte) []byte {
-+	return g.aead.Seal(dst, nonce, plaintext, additionalData)
-+}
-+
-+func (g customGCMWrapper) Open(dst, nonce, ciphertext, additionalData []byte) ([]byte, error) {
-+	return g.aead.Open(dst, nonce, ciphertext, additionalData)
-+}
-+
- // gcmFallback is only used for non-AES ciphers, which regrettably we
- // theoretically support. It's a copy of the generic implementation from
- // crypto/internal/fips140/aes/gcm/gcm_generic.go, refer to that file for more details.
 diff --git a/src/crypto/cipher/gcm_test.go b/src/crypto/cipher/gcm_test.go
-index 8ba0bb3981319d..7b212f8f19b101 100644
+index 8ba0bb3981319d..f1db2b930a1a71 100644
 --- a/src/crypto/cipher/gcm_test.go
 +++ b/src/crypto/cipher/gcm_test.go
 @@ -8,7 +8,6 @@ import (
@@ -1297,7 +1269,7 @@ index 8ba0bb3981319d..7b212f8f19b101 100644
  	"crypto/internal/cryptotest"
  	"crypto/internal/fips140"
  	fipsaes "crypto/internal/fips140/aes"
-@@ -727,9 +726,13 @@ func testGCMAEAD(t *testing.T, newCipher func(key []byte) cipher.Block) {
+@@ -727,7 +726,7 @@ func testGCMAEAD(t *testing.T, newCipher func(key []byte) cipher.Block) {
  
  			// Test NewGCMWithRandomNonce.
  			t.Run("GCMWithRandomNonce", func(t *testing.T) {
@@ -1305,14 +1277,8 @@ index 8ba0bb3981319d..7b212f8f19b101 100644
 +				if _, ok := block.(*wrapper); ok {
  					t.Skip("NewGCMWithRandomNonce requires an AES block cipher")
  				}
-+				a, _ := cipher.NewGCMWithRandomNonce(block)
-+				if a.NonceSize() != 0 {
-+					t.Errorf("NewGCMWithRandomNonce returned AEAD with non-zero nonce size: %d", a.NonceSize())
-+				}
  				cryptotest.TestAEAD(t, func() (cipher.AEAD, error) { return cipher.NewGCMWithRandomNonce(block) })
- 			})
- 		})
-@@ -752,7 +755,7 @@ func TestGCMExtraMethods(t *testing.T) {
+@@ -752,7 +751,7 @@ func TestGCMExtraMethods(t *testing.T) {
  		})
  		t.Run("NewGCMWithRandomNonce", func(t *testing.T) {
  			block := newCipher(make([]byte, 16))
@@ -3959,7 +3925,7 @@ index 198692f5aaa6e5..5c1a31f1c09f3b 100644
  
  	var dsaPriv dsa.PrivateKey
 diff --git a/src/go/build/deps_test.go b/src/go/build/deps_test.go
-index 926a533c9c1fb8..2e86f85ffc2da1 100644
+index 926a533c9c1fb8..9b8ae5131f3735 100644
 --- a/src/go/build/deps_test.go
 +++ b/src/go/build/deps_test.go
 @@ -377,8 +377,10 @@ var depsRules = `
@@ -3983,7 +3949,7 @@ index 926a533c9c1fb8..2e86f85ffc2da1 100644
  
  	crypto !< FIPS;
  
-@@ -563,7 +565,20 @@ var depsRules = `
+@@ -563,10 +565,27 @@ var depsRules = `
  	< github.com/microsoft/go-crypto-winnative/internal/sysdll
  	< github.com/microsoft/go-crypto-winnative/internal/bcrypt;
  
@@ -4004,8 +3970,16 @@ index 926a533c9c1fb8..2e86f85ffc2da1 100644
 +	crypto/fips140
  	< crypto/internal/fips140only
  	< crypto
- 	< crypto/subtle
-@@ -583,6 +598,39 @@ var depsRules = `
+-	< crypto/subtle
++	< crypto/subtle;
++
++	NONE < github.com/microsoft/go/cryptobackend/cipher;
++
++	crypto/subtle, github.com/microsoft/go/cryptobackend/cipher
+ 	< crypto/cipher;
+ 
+ 	crypto, crypto/subtle, hash, crypto/cipher,
+@@ -583,6 +602,39 @@ var depsRules = `
  	github.com/microsoft/go-crypto-winnative/internal/bcrypt
  	< github.com/microsoft/go-crypto-winnative/cng;
  
@@ -4045,7 +4019,7 @@ index 926a533c9c1fb8..2e86f85ffc2da1 100644
  	FIPS, internal/godebug, embed,
  	crypto/internal/boring/sig,
  	crypto/internal/boring/syso,
-@@ -590,7 +638,9 @@ var depsRules = `
+@@ -590,7 +642,9 @@ var depsRules = `
  	crypto/internal/fips140only,
  	crypto,
  	crypto/subtle,
@@ -4056,7 +4030,7 @@ index 926a533c9c1fb8..2e86f85ffc2da1 100644
  	< crypto/sha3
  	< crypto/internal/fips140hash
  	< crypto/internal/boring
-@@ -605,15 +655,15 @@ var depsRules = `
+@@ -605,15 +659,15 @@ var depsRules = `
  	  crypto/sha512,
  	  crypto/hmac,
  	  crypto/hkdf,
@@ -4076,7 +4050,7 @@ index 926a533c9c1fb8..2e86f85ffc2da1 100644
  	CGO, fmt, net !< CRYPTO;
  
  	# CRYPTO-MATH is crypto that exposes math/big APIs - no cgo, net; fmt now ok.
-@@ -622,15 +672,33 @@ var depsRules = `
+@@ -622,15 +676,33 @@ var depsRules = `
  	math/big, github.com/microsoft/go-crypto-darwin/xcrypto < github.com/microsoft/go-crypto-darwin/bbig;
  	math/big, github.com/microsoft/go-crypto-winnative/cng < github.com/microsoft/go-crypto-winnative/cng/bbig;
  
@@ -4113,7 +4087,7 @@ index 926a533c9c1fb8..2e86f85ffc2da1 100644
  	< crypto/ecdsa
  	< CRYPTO-MATH;
  
-@@ -658,13 +726,15 @@ var depsRules = `
+@@ -658,13 +730,15 @@ var depsRules = `
  	< golang.org/x/crypto/internal/subtle
  	< golang.org/x/crypto/chacha20
  	< golang.org/x/crypto/internal/poly1305

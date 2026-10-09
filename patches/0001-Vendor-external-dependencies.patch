@@ -284,6 +284,7 @@ Use a 'go' that was recently built by the current branch to ensure stable result
  .../chacha20poly1305_openssl.go               |   24 +
  .../chacha20poly1305_windows.go               |   24 +
  .../chacha20poly1305/nobackend.go             |   13 +
+ .../go/cryptobackend/cipher/cipher.go         |   75 +
  .../microsoft/go/cryptobackend/common.go      |   47 +
  .../go/cryptobackend/des/des_darwin.go        |   21 +
  .../go/cryptobackend/des/des_openssl.go       |   21 +
@@ -453,8 +454,8 @@ Use a 'go' that was recently built by the current branch to ensure stable result
  .../go/cryptobackend/tls13/tls13_darwin.go    |   14 +
  .../go/cryptobackend/tls13/tls13_openssl.go   |   18 +
  .../go/cryptobackend/tls13/tls13_windows.go   |   14 +
- src/vendor/modules.txt                        |   53 +
- 446 files changed, 43118 insertions(+), 7 deletions(-)
+ src/vendor/modules.txt                        |   54 +
+ 447 files changed, 43194 insertions(+), 7 deletions(-)
  create mode 100644 src/cmd/internal/telemetry/counter/deps_ignore.go
  create mode 100644 src/cmd/vendor/github.com/microsoft/go-infra/telemetry/LICENSE
  create mode 100644 src/cmd/vendor/github.com/microsoft/go-infra/telemetry/README.md
@@ -724,6 +725,7 @@ Use a 'go' that was recently built by the current branch to ensure stable result
  create mode 100644 src/vendor/github.com/microsoft/go/cryptobackend/chacha20poly1305/chacha20poly1305_openssl.go
  create mode 100644 src/vendor/github.com/microsoft/go/cryptobackend/chacha20poly1305/chacha20poly1305_windows.go
  create mode 100644 src/vendor/github.com/microsoft/go/cryptobackend/chacha20poly1305/nobackend.go
+ create mode 100644 src/vendor/github.com/microsoft/go/cryptobackend/cipher/cipher.go
  create mode 100644 src/vendor/github.com/microsoft/go/cryptobackend/common.go
  create mode 100644 src/vendor/github.com/microsoft/go/cryptobackend/des/des_darwin.go
  create mode 100644 src/vendor/github.com/microsoft/go/cryptobackend/des/des_openssl.go
@@ -40717,6 +40719,87 @@ index 00000000000000..470652f3b5aae0
 +func Supports() bool { return false }
 +
 +func newBackend(key []byte) (cipher.AEAD, error) { panic("cryptobackend: not available") }
+diff --git a/src/vendor/github.com/microsoft/go/cryptobackend/cipher/cipher.go b/src/vendor/github.com/microsoft/go/cryptobackend/cipher/cipher.go
+new file mode 100644
+index 00000000000000..b73e8da4500f68
+--- /dev/null
++++ b/src/vendor/github.com/microsoft/go/cryptobackend/cipher/cipher.go
+@@ -0,0 +1,75 @@
++// Copyright 2026 The Go Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style
++// license that can be found in the LICENSE file.
++
++// Package cipher provides adapters between crypto/cipher and native crypto providers.
++package cipher
++
++// BlockMode matches [crypto/cipher.BlockMode].
++type BlockMode interface {
++	BlockSize() int
++	CryptBlocks(dst, src []byte)
++}
++
++// Stream matches [crypto/cipher.Stream].
++type Stream interface {
++	XORKeyStream(dst, src []byte)
++}
++
++// AEAD matches [crypto/cipher.AEAD].
++type AEAD interface {
++	NonceSize() int
++	Overhead() int
++	Seal(dst, nonce, plaintext, additionalData []byte) []byte
++	Open(dst, nonce, ciphertext, additionalData []byte) ([]byte, error)
++}
++
++// NewFIPSCBCEncrypter returns the provider's FIPS-approved CBC encrypter.
++func NewFIPSCBCEncrypter[T BlockMode](block any, iv []byte) (BlockMode, bool) {
++	cipher, ok := block.(interface {
++		NewFIPSCBCEncrypter(iv []byte) T
++	})
++	if !ok {
++		return nil, false
++	}
++	return cipher.NewFIPSCBCEncrypter(iv), true
++}
++
++// NewFIPSCBCDecrypter returns the provider's FIPS-approved CBC decrypter.
++func NewFIPSCBCDecrypter[T BlockMode](block any, iv []byte) (BlockMode, bool) {
++	cipher, ok := block.(interface {
++		NewFIPSCBCDecrypter(iv []byte) T
++	})
++	if !ok {
++		return nil, false
++	}
++	return cipher.NewFIPSCBCDecrypter(iv), true
++}
++
++// NewFIPSCTR returns the provider's FIPS-approved CTR stream.
++func NewFIPSCTR[T Stream](block any, iv []byte) (Stream, bool) {
++	cipher, ok := block.(interface {
++		NewFIPSCTR(iv []byte) T
++	})
++	if !ok {
++		return nil, false
++	}
++	return cipher.NewFIPSCTR(iv), true
++}
++
++type gcmAble[T AEAD] interface {
++	NewGCM(nonceSize, tagSize int) (T, error)
++}
++
++// NewGCM returns the provider's GCM.
++func NewGCM[T AEAD](block any, nonceSize, tagSize int) (AEAD, bool, error) {
++	cipher, ok := block.(gcmAble[T])
++	if !ok {
++		return nil, false, nil
++	}
++	gcm, err := cipher.NewGCM(nonceSize, tagSize)
++	if err != nil {
++		return nil, true, err
++	}
++	return gcm, true, nil
++}
 diff --git a/src/vendor/github.com/microsoft/go/cryptobackend/common.go b/src/vendor/github.com/microsoft/go/cryptobackend/common.go
 new file mode 100644
 index 00000000000000..fc38aa225ef25e
@@ -48996,10 +49079,10 @@ index 00000000000000..b7ffeea07c6b8d
 +	panic("cryptobackend: not available")
 +}
 diff --git a/src/vendor/modules.txt b/src/vendor/modules.txt
-index 26fd3c0df44eb0..1a4770bfcb7243 100644
+index 26fd3c0df44eb0..ebf696df5f6cd6 100644
 --- a/src/vendor/modules.txt
 +++ b/src/vendor/modules.txt
-@@ -1,3 +1,55 @@
+@@ -1,3 +1,56 @@
 +# github.com/microsoft/go-crypto-darwin v0.0.3-0.20261008095156-6223ee583f63
 +## explicit; go 1.26
 +github.com/microsoft/go-crypto-darwin/bbig
@@ -49029,6 +49112,7 @@ index 26fd3c0df44eb0..1a4770bfcb7243 100644
 +github.com/microsoft/go/cryptobackend/aes/gcm
 +github.com/microsoft/go/cryptobackend/bbig
 +github.com/microsoft/go/cryptobackend/chacha20poly1305
++github.com/microsoft/go/cryptobackend/cipher
 +github.com/microsoft/go/cryptobackend/des
 +github.com/microsoft/go/cryptobackend/drbg
 +github.com/microsoft/go/cryptobackend/dsa
@@ -49055,7 +49139,7 @@ index 26fd3c0df44eb0..1a4770bfcb7243 100644
  # golang.org/x/crypto v0.57.1-0.20260921070245-7a4a4d6beae2
  ## explicit; go 1.26.0
  golang.org/x/crypto/chacha20
-@@ -33,3 +85,4 @@ golang.org/x/tools/go/gcexportdata
+@@ -33,3 +86,4 @@ golang.org/x/tools/go/gcexportdata
  golang.org/x/tools/go/types/objectpath
  golang.org/x/tools/internal/gcimporter
  golang.org/x/tools/internal/pkgbits
