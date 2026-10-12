@@ -66,11 +66,34 @@ The counters and properties collected are defined in the [telemetry upload confi
 - No network or authentication information.
 - No personally identifiable information (PII).
 
-## How to opt out
+## How to configure telemetry
 
-Set the `MS_GOTOOLCHAIN_TELEMETRY_ENABLED` environment variable to `0`.
+The Microsoft build of Go sets `MS_GOTOOLCHAIN_TELEMETRY_ENABLED=1` in
+`$GOROOT/go.env`. Distributions can change this installation-wide default to
+`0`, and image builders can restore it to `1` without rebuilding the
+toolchain.
 
-This completely disables Microsoft telemetry collection. When disabled, no data is sent to Application Insights.
+Users can override the installation default with the standard Go environment
+configuration:
+
+```shell
+go env -w MS_GOTOOLCHAIN_TELEMETRY_ENABLED=0
+```
+
+The setting can also be overridden for an individual process:
+
+```shell
+MS_GOTOOLCHAIN_TELEMETRY_ENABLED=0 go build ./...
+```
+
+Configuration is resolved in this order, from highest to lowest precedence:
+
+1. The process environment.
+2. The user's `GOENV` file, managed with `go env -w` and `go env -u`.
+3. The installation-wide `$GOROOT/go.env` file.
+
+Setting the effective value to `0` completely disables Microsoft telemetry
+collection. When disabled, no data is sent to Application Insights.
 
 > [!NOTE]
 > This setting only controls Microsoft-specific telemetry. The upstream Go toolchain has its own [telemetry system](https://go.dev/doc/telemetry) controlled separately via `go telemetry`.
