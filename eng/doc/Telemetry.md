@@ -66,7 +66,7 @@ The counters and properties collected are defined in the [telemetry upload confi
 - No network or authentication information.
 - No personally identifiable information (PII).
 
-## How to configure telemetry
+## How to opt out
 
 The Microsoft build of Go sets `MS_GOTOOLCHAIN_TELEMETRY_ENABLED=1` in
 `$GOROOT/go.env`. Distributions can change this installation-wide default to
