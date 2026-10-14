@@ -96,6 +96,7 @@ Subject: [PATCH] Add crypto backends
  src/crypto/rsa/notboring.go                   |   8 +-
  src/crypto/rsa/pkcs1v15.go                    |  24 +-
  src/crypto/rsa/pkcs1v15_test.go               |   5 +
+ src/crypto/rsa/pss_linux_test.go              |  33 ++
  src/crypto/rsa/pss_test.go                    |  14 +-
  src/crypto/rsa/rsa.go                         |  44 +--
  src/crypto/rsa/rsa_test.go                    |   7 +-
@@ -138,12 +139,13 @@ Subject: [PATCH] Add crypto backends
  src/os/exec/exec_test.go                      |   9 +
  src/runtime/runtime_boring.go                 |   5 +
  src/syscall/syscall_windows.go                |   3 +
- 134 files changed, 2563 insertions(+), 380 deletions(-)
+ 135 files changed, 2596 insertions(+), 380 deletions(-)
  create mode 100644 src/cmd/go/systemcrypto_test.go
  create mode 100644 src/crypto/dsa/boring.go
  create mode 100644 src/crypto/dsa/notboring.go
  create mode 100644 src/crypto/ed25519/boring.go
  create mode 100644 src/crypto/ed25519/notboring.go
+ create mode 100644 src/crypto/rsa/pss_linux_test.go
  create mode 100644 src/crypto/systemcrypto_nocgo_freebsd.go
  create mode 100644 src/crypto/systemcrypto_nocgo_linux.go
  create mode 100644 src/go/build/buildbackend_test.go
@@ -1255,7 +1257,7 @@ index acbebf28598a9c..6ef32735ddfd57 100644
  			*mode = BuildModePIE
  		default:
 diff --git a/src/cmd/link/internal/ld/lib.go b/src/cmd/link/internal/ld/lib.go
-index 9cbc12919f1d00..e64a9c5299e95a 100644
+index b9848b232ce4ec..6618cdd02ac8df 100644
 --- a/src/cmd/link/internal/ld/lib.go
 +++ b/src/cmd/link/internal/ld/lib.go
 @@ -1177,6 +1177,12 @@ var hostobj []Hostobj
@@ -4690,6 +4692,45 @@ index c65552cd93526a..a3dfedd95764f8 100644
  	t.Setenv("GODEBUG", "rsa1024min=0")
  	ciphertext := decodeBase64("fjOVdirUzFoLlukv80dBllMLjXythIf22feqPrNo0YoIjzyzyoMFiLjAc/Y4krkeZ11XFThIrEvw\nkRiZcCq5ng==")
  	_, err := DecryptPKCS1v15(nil, test512Key, ciphertext)
+diff --git a/src/crypto/rsa/pss_linux_test.go b/src/crypto/rsa/pss_linux_test.go
+new file mode 100644
+index 00000000000000..5a13df1c99cb64
+--- /dev/null
++++ b/src/crypto/rsa/pss_linux_test.go
+@@ -0,0 +1,33 @@
++// Copyright 2026 The Go Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style
++// license that can be found in the LICENSE file.
++
++//go:build goexperiment.systemcrypto
++
++package rsa_test
++
++import (
++	"crypto"
++	"testing"
++
++	"github.com/microsoft/go-crypto-openssl/openssl"
++	brsa "github.com/microsoft/go/cryptobackend/rsa"
++)
++
++func TestSupportsPSSHash(t *testing.T) {
++	for _, h := range []crypto.Hash{
++		crypto.MD5,
++		crypto.MD5SHA1,
++		crypto.SHA1,
++		crypto.SHA256,
++		crypto.SHA384,
++		crypto.SHA512,
++		crypto.SHA3_256,
++	} {
++		t.Run(h.String(), func(t *testing.T) {
++			if got, want := brsa.SupportsPSSHash(h), openssl.SupportsRSAPSS(h); got != want {
++				t.Errorf("SupportsPSSHash(%v) = %v; want %v", h, got, want)
++			}
++		})
++	}
++}
 diff --git a/src/crypto/rsa/pss_test.go b/src/crypto/rsa/pss_test.go
 index e03f4ab06603c6..c6667536ca02aa 100644
 --- a/src/crypto/rsa/pss_test.go

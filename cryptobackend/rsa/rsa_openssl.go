@@ -32,7 +32,7 @@ func SupportsSaltLength(sign bool, salt int) bool  { return true }
 func SupportsOAEPLabel(label []byte) bool          { return true }
 func SupportsPKCS1v15Encryption() bool             { return openssl.SupportsRSAPKCS1v15Encryption() }
 func SupportsPKCS1v15Signature(h crypto.Hash) bool { return openssl.SupportsRSAPKCS1v15Signature(h) }
-func SupportsPSSHash(h crypto.Hash) bool           { return openssl.SupportsHash(h) }
+func SupportsPSSHash(h crypto.Hash) bool           { return openssl.SupportsRSAPSS(h) }
 
 func GenerateKey(bits int) (N, E, D, P, Q, Dp, Dq, Qinv BigInt, err error) {
 	return openssl.GenerateKeyRSA(bits)
