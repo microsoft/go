@@ -5,13 +5,19 @@ Subject: [PATCH] Add appinsights telemetry
 
 ---
  README.md                                     | 15 ++++++
+ go.env                                        |  5 ++
+ src/cmd/go/alldocs.go                         |  3 ++
+ src/cmd/go/internal/envcmd/env.go             |  3 ++
+ src/cmd/go/internal/help/helpdoc.go           |  3 ++
  src/cmd/go/main.go                            |  8 +++
  src/cmd/go/mstelemetry_test.go                | 52 +++++++++++++++++++
- src/cmd/go/script_test.go                     |  8 +++
+ src/cmd/go/script_test.go                     |  9 ++++
  src/cmd/go/scriptcmds_test.go                 | 11 ++++
+ src/cmd/go/testdata/script/env_write.txt      | 13 +++++
  src/cmd/internal/telemetry/counter/counter.go | 48 ++++++++++++++++-
  .../telemetry/counter/counter_bootstrap.go    |  3 ++
- 7 files changed, 144 insertions(+), 1 deletion(-)
+ src/internal/cfg/cfg.go                       |  1 +
+ 13 files changed, 173 insertions(+), 1 deletion(-)
  create mode 100644 src/cmd/go/mstelemetry_test.go
 
 diff --git a/README.md b/README.md
@@ -38,19 +44,84 @@ index 71c9d1dc299388..8cab5daec4da54 100644
 +our privacy statement. Your use of the software operates as your consent to
 +these practices.
 \ No newline at end of file
+diff --git a/go.env b/go.env
+index 36c3bdfc9b6087..90557cb31372c7 100644
+--- a/go.env
++++ b/go.env
+@@ -7,6 +7,11 @@
+ GOPROXY=https://proxy.golang.org,direct
+ GOSUMDB=sum.golang.org
+ 
++# Enable telemetry in the Microsoft build of Go by default. Users can opt out by
++# setting MS_GOTOOLCHAIN_TELEMETRY_ENABLED=0 in their environment or with go env -w.
++# See https://github.com/microsoft/go/blob/microsoft/main/eng/doc/Telemetry.md.
++MS_GOTOOLCHAIN_TELEMETRY_ENABLED=1
++
+ # Use the locally installed Go toolchain, never downloading a different one.
+ # Upstream uses `GOTOOLCHAIN=auto` instead, but `auto` can download and switch
+ # to a Go toolchain not built by Microsoft, and we want to avoid that.
+diff --git a/src/cmd/go/alldocs.go b/src/cmd/go/alldocs.go
+index dc20c7a16f8bbe..9fcf5e5e707730 100644
+--- a/src/cmd/go/alldocs.go
++++ b/src/cmd/go/alldocs.go
+@@ -2580,6 +2580,9 @@
+ //		mentioned will be considered insecure by 'go get'.
+ //		Because the variable is defined by Git, the default value cannot
+ //		be set using 'go env -w'.
++//	MS_GOTOOLCHAIN_TELEMETRY_ENABLED
++//		Whether to send telemetry for the Microsoft build of Go.
++//		Set to 0 to disable telemetry for the Microsoft build of Go.
+ //
+ // Additional information available from 'go env' but not read from the environment:
+ //
+diff --git a/src/cmd/go/internal/envcmd/env.go b/src/cmd/go/internal/envcmd/env.go
+index d345a36863232e..60a29b9a877a6c 100644
+--- a/src/cmd/go/internal/envcmd/env.go
++++ b/src/cmd/go/internal/envcmd/env.go
+@@ -118,6 +118,7 @@ func MkEnv() []cfg.EnvVar {
+ 		{Name: "GOTOOLDIR", Value: build.ToolDir},
+ 		{Name: "GOVCS", Value: cfg.GOVCS},
+ 		{Name: "GOVERSION", Value: runtime.Version()},
++		{Name: "MS_GOTOOLCHAIN_TELEMETRY_ENABLED"},
+ 	}
+ 
+ 	for i := range env {
+@@ -134,6 +135,8 @@ func MkEnv() []cfg.EnvVar {
+ 			env[i].Value, env[i].Changed, _ = cache.DefaultDir()
+ 		case "GOTOOLCHAIN":
+ 			env[i].Value, env[i].Changed = cfg.EnvOrAndChanged("GOTOOLCHAIN", "")
++		case "MS_GOTOOLCHAIN_TELEMETRY_ENABLED":
++			env[i].Value, env[i].Changed = cfg.EnvOrAndChanged("MS_GOTOOLCHAIN_TELEMETRY_ENABLED", "1")
+ 		case "GODEBUG":
+ 			env[i].Changed = env[i].Value != ""
+ 		}
+diff --git a/src/cmd/go/internal/help/helpdoc.go b/src/cmd/go/internal/help/helpdoc.go
+index 1d3ffefc975205..d3d1c80373942d 100644
+--- a/src/cmd/go/internal/help/helpdoc.go
++++ b/src/cmd/go/internal/help/helpdoc.go
+@@ -708,6 +708,9 @@ Special-purpose environment variables:
+ 		mentioned will be considered insecure by 'go get'.
+ 		Because the variable is defined by Git, the default value cannot
+ 		be set using 'go env -w'.
++	MS_GOTOOLCHAIN_TELEMETRY_ENABLED
++		Whether to send telemetry for the Microsoft build of Go.
++		Set to 0 to disable telemetry for the Microsoft build of Go.
+ 
+ Additional information available from 'go env' but not read from the environment:
+ 
 diff --git a/src/cmd/go/main.go b/src/cmd/go/main.go
-index e81969ca4a3144..67dbcb2e7a3cb9 100644
+index 8cdfd9196e4cb1..9bf0aac03f3a09 100644
 --- a/src/cmd/go/main.go
 +++ b/src/cmd/go/main.go
-@@ -111,6 +111,14 @@ func main() {
+@@ -110,6 +110,14 @@ func main() {
  	}
  	flag.Usage = base.Usage
  	flag.Parse()
 +	if args := flag.Args(); len(args) > 0 {
++		// Start telemetry for the Microsoft build of Go only for commands that build something.
 +		switch args[0] {
 +		case "build", "install", "run":
-+			// Don't start Microsoft telemetry for commands that don't build anything.
-+			counter.OpenMicrosoft()
++			counter.OpenMicrosoft(cfg.Getenv("MS_GOTOOLCHAIN_TELEMETRY_ENABLED") != "0")
 +			base.AtExit(counter.CloseMicrosoft)
 +		}
 +	}
@@ -116,7 +187,7 @@ index 00000000000000..6993137ad56e8c
 +	fmt.Fprint(w, `{"itemsReceived": 1, "itemsAccepted": 1}`)
 +}
 diff --git a/src/cmd/go/script_test.go b/src/cmd/go/script_test.go
-index 1345ea8bb8e530..e2b75957e21d3a 100644
+index 1345ea8bb8e530..e9ca4d7b9c9f52 100644
 --- a/src/cmd/go/script_test.go
 +++ b/src/cmd/go/script_test.go
 @@ -60,6 +60,7 @@ func TestScript(t *testing.T) {
@@ -127,16 +198,17 @@ index 1345ea8bb8e530..e2b75957e21d3a 100644
  
  	var (
  		ctx         = context.Background()
-@@ -254,6 +255,8 @@ func scriptEnv(srv *vcstest.Server, srvCertFile string) ([]string, error) {
+@@ -254,6 +255,9 @@ func scriptEnv(srv *vcstest.Server, srvCertFile string) ([]string, error) {
  		"HGRCPATH=",
  		"GOTOOLCHAIN=auto",
  		"MS_GOTOOLCHAIN_ALLOW_NON_LOCAL=1", // allow non-local toolchains, some tests expect GOTOOLCHAIN to be honored
 +		"MS_GOTOOLCHAIN_TELEMETRY_ENDPOINT=" + appInsightsURL,
 +		"MS_GOTOOLCHAIN_TELEMETRY_ALLOW_GO_DEVEL=1", // allow telemetry for Go development versions
++		"MS_GOTOOLCHAIN_TELEMETRY_ENABLED=1",        // enable telemetry so the test harness exercises the fake endpoint
  		"newline=\n",
  	}
  
-@@ -408,6 +411,11 @@ func checkCounters(t *testing.T, telemetryDir string) {
+@@ -408,6 +412,11 @@ func checkCounters(t *testing.T, telemetryDir string) {
  			t.Fatal("go was invoked but no counters were incremented")
  		}
  	}
@@ -149,10 +221,10 @@ index 1345ea8bb8e530..e2b75957e21d3a 100644
  
  // Copied from https://go.googlesource.com/telemetry/+/5f08a0cbff3f/internal/telemetry/mode.go#122
 diff --git a/src/cmd/go/scriptcmds_test.go b/src/cmd/go/scriptcmds_test.go
-index ced8d880e9ae3a..b3ad521ff94873 100644
+index 8195e830caa31b..cb59a8b278e9b4 100644
 --- a/src/cmd/go/scriptcmds_test.go
 +++ b/src/cmd/go/scriptcmds_test.go
-@@ -71,6 +71,7 @@ func scriptCC(cmdExec script.Cmd) script.Cmd {
+@@ -72,6 +72,7 @@ func scriptCC(cmdExec script.Cmd) script.Cmd {
  }
  
  var scriptGoInvoked sync.Map // testing.TB → go command was invoked
@@ -160,7 +232,7 @@ index ced8d880e9ae3a..b3ad521ff94873 100644
  
  // scriptGo runs the go command.
  func scriptGo(cancel func(*exec.Cmd) error, waitDelay time.Duration) script.Cmd {
-@@ -85,6 +86,16 @@ func scriptGo(cancel func(*exec.Cmd) error, waitDelay time.Duration) script.Cmd
+@@ -86,6 +87,16 @@ func scriptGo(cancel func(*exec.Cmd) error, waitDelay time.Duration) script.Cmd
  		if !dup {
  			t.Cleanup(func() { scriptGoInvoked.Delete(t) })
  		}
@@ -177,8 +249,32 @@ index ced8d880e9ae3a..b3ad521ff94873 100644
  		return cmd.Run(state, s...)
  	})
  }
+diff --git a/src/cmd/go/testdata/script/env_write.txt b/src/cmd/go/testdata/script/env_write.txt
+index bf14a2f0bd8423..63721fdcfe225e 100644
+--- a/src/cmd/go/testdata/script/env_write.txt
++++ b/src/cmd/go/testdata/script/env_write.txt
+@@ -23,6 +23,19 @@ go env
+ stdout GOARCH=
+ stdout GOOS=
+ stdout GOROOT=
++stdout MS_GOTOOLCHAIN_TELEMETRY_ENABLED=
++
++# The telemetry setting for the Microsoft build of Go uses the standard Go environment precedence:
++# the user go/env file overrides GOROOT/go.env.
++env MS_GOTOOLCHAIN_TELEMETRY_ENABLED=
++go env -w MS_GOTOOLCHAIN_TELEMETRY_ENABLED=0
++go env MS_GOTOOLCHAIN_TELEMETRY_ENABLED
++stdout '^0$'
++go env -w MS_GOTOOLCHAIN_TELEMETRY_ENABLED=1
++go env MS_GOTOOLCHAIN_TELEMETRY_ENABLED
++stdout '^1$'
++go env -u MS_GOTOOLCHAIN_TELEMETRY_ENABLED
++! grep '^MS_GOTOOLCHAIN_TELEMETRY_ENABLED=' $GOENV
+ 
+ # go env ignores invalid flag in GOFLAGS environment variable
+ env GOFLAGS='=true'
 diff --git a/src/cmd/internal/telemetry/counter/counter.go b/src/cmd/internal/telemetry/counter/counter.go
-index 5cef0b0041551a..2c1b8143d60764 100644
+index 5cef0b0041551a..2e7d9d4f261155 100644
 --- a/src/cmd/internal/telemetry/counter/counter.go
 +++ b/src/cmd/internal/telemetry/counter/counter.go
 @@ -7,10 +7,24 @@
@@ -210,8 +306,8 @@ index 5cef0b0041551a..2c1b8143d60764 100644
  	counter.OpenDir(os.Getenv("TEST_TELEMETRY_DIR"))
  }
  
-+func OpenMicrosoft() {
-+	if os.Getenv("MS_GOTOOLCHAIN_TELEMETRY_ENABLED") == "0" {
++func OpenMicrosoft(enabled bool) {
++	if !enabled {
 +		// Telemetry disabled.
 +		return
 +	}
@@ -265,7 +361,7 @@ index 5cef0b0041551a..2c1b8143d60764 100644
  	})
  }
 diff --git a/src/cmd/internal/telemetry/counter/counter_bootstrap.go b/src/cmd/internal/telemetry/counter/counter_bootstrap.go
-index 00808294053c23..e19970cf926e16 100644
+index 00808294053c23..a4fec575791a12 100644
 --- a/src/cmd/internal/telemetry/counter/counter_bootstrap.go
 +++ b/src/cmd/internal/telemetry/counter/counter_bootstrap.go
 @@ -18,3 +18,6 @@ func New(name string) dummyCounter                                        { retu
@@ -273,5 +369,16 @@ index 00808294053c23..e19970cf926e16 100644
  func CountFlags(name string, flagSet flag.FlagSet)                        {}
  func CountFlagValue(prefix string, flagSet flag.FlagSet, flagName string) {}
 +
-+func OpenMicrosoft()  {}
-+func CloseMicrosoft() {}
++func OpenMicrosoft(enabled bool) {}
++func CloseMicrosoft()            {}
+diff --git a/src/internal/cfg/cfg.go b/src/internal/cfg/cfg.go
+index 9329769721b7de..0309ec1c170aa4 100644
+--- a/src/internal/cfg/cfg.go
++++ b/src/internal/cfg/cfg.go
+@@ -70,5 +70,6 @@ const KnownEnv = `
+ 	GOWASM
+ 	GOWORK
+ 	GO_EXTLINK_ENABLED
++	MS_GOTOOLCHAIN_TELEMETRY_ENABLED
+ 	PKG_CONFIG
+ `
