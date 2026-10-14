@@ -65,7 +65,7 @@ Subject: [PATCH] Use crypto backends
  src/crypto/rsa/boring.go                      |  12 +-
  src/crypto/rsa/boring_test.go                 |   2 +-
  src/crypto/rsa/darwin.go                      |  71 +++++++
- src/crypto/rsa/fips.go                        |  22 +-
+ src/crypto/rsa/fips.go                        |  23 ++-
  src/crypto/rsa/notboring.go                   |   4 +-
  src/crypto/rsa/pkcs1v15.go                    |  10 +-
  src/crypto/rsa/pkcs1v15_test.go               |   5 +
@@ -101,7 +101,7 @@ Subject: [PATCH] Use crypto backends
  src/hash/notboring_test.go                    |   9 +
  src/net/lookup_test.go                        |   3 +
  src/os/exec/exec_test.go                      |   9 +
- 97 files changed, 1565 insertions(+), 190 deletions(-)
+ 97 files changed, 1565 insertions(+), 191 deletions(-)
  create mode 100644 src/crypto/dsa/boring.go
  create mode 100644 src/crypto/dsa/notboring.go
  create mode 100644 src/crypto/ecdsa/badlinkname.go
@@ -245,7 +245,7 @@ index 802fb35aee4e65..4416731b69ec26 100644
  			*mode = BuildModePIE
  		default:
 diff --git a/src/cmd/link/internal/ld/lib.go b/src/cmd/link/internal/ld/lib.go
-index 1427f9c7bc62dc..5a9d911ea36a6c 100644
+index 314478ee4d0f12..935e317054f744 100644
 --- a/src/cmd/link/internal/ld/lib.go
 +++ b/src/cmd/link/internal/ld/lib.go
 @@ -1176,6 +1176,12 @@ var hostobj []Hostobj
@@ -2540,7 +2540,7 @@ index 00000000000000..1b9c63523ee90e
 +	return builder.Bytes()
 +}
 diff --git a/src/crypto/rsa/fips.go b/src/crypto/rsa/fips.go
-index fb2395886b053b..ac0ad4f9490a8b 100644
+index fb2395886b053b..4162a1d0c1c36d 100644
 --- a/src/crypto/rsa/fips.go
 +++ b/src/crypto/rsa/fips.go
 @@ -6,7 +6,7 @@ package rsa
@@ -2552,25 +2552,32 @@ index fb2395886b053b..ac0ad4f9490a8b 100644
  	"crypto/internal/fips140/rsa"
  	"crypto/internal/fips140hash"
  	"crypto/internal/fips140only"
-@@ -71,7 +71,7 @@ func SignPSS(random io.Reader, priv *PrivateKey, hash crypto.Hash, digest []byte
+@@ -71,14 +71,13 @@ func SignPSS(random io.Reader, priv *PrivateKey, hash crypto.Hash, digest []byte
  		hash = opts.Hash
  	}
  
 -	if boring.Enabled && rand.IsDefaultReader(random) {
-+	if boring.Enabled && rand.IsDefaultReader(random) && boring.SupportsRSASaltLength(true, opts.saltLength()) && boring.SupportsRSAPrivateKey(priv.N.BitLen(), len(priv.Primes)) && boring.SupportsHash(hash) {
++	if boring.Enabled && rand.IsDefaultReader(random) && boring.SupportsRSASaltLength(true, opts.saltLength()) && boring.SupportsRSAPrivateKey(priv.N.BitLen(), len(priv.Primes)) && boring.SupportsRSAPSS(hash) {
  		bkey, err := boringPrivateKey(priv)
  		if err != nil {
  			return nil, err
-@@ -134,7 +134,7 @@ func VerifyPSS(pub *PublicKey, hash crypto.Hash, digest []byte, sig []byte, opts
+ 		}
+ 		return boring.SignRSAPSS(bkey, hash, digest, opts.saltLength())
+ 	}
+-	boring.UnreachableExceptTests()
+ 
+ 	h := fips140hash.Unwrap(hash.New())
+ 
+@@ -134,7 +133,7 @@ func VerifyPSS(pub *PublicKey, hash crypto.Hash, digest []byte, sig []byte, opts
  		return err
  	}
  
 -	if boring.Enabled {
-+	if boring.Enabled && boring.SupportsRSASaltLength(false, opts.saltLength()) && boring.SupportsRSAPublicKey(pub.N.BitLen()) && boring.SupportsHash(hash) {
++	if boring.Enabled && boring.SupportsRSASaltLength(false, opts.saltLength()) && boring.SupportsRSAPublicKey(pub.N.BitLen()) && boring.SupportsRSAPSS(hash) {
  		bkey, err := boringPublicKey(pub)
  		if err != nil {
  			return err
-@@ -203,10 +203,12 @@ func EncryptOAEP(hash hash.Hash, random io.Reader, pub *PublicKey, msg []byte, l
+@@ -203,10 +202,12 @@ func EncryptOAEP(hash hash.Hash, random io.Reader, pub *PublicKey, msg []byte, l
  //
  // See [EncryptOAEP] for additional details.
  func EncryptOAEPWithOptions(random io.Reader, pub *PublicKey, msg []byte, opts *OAEPOptions) ([]byte, error) {
@@ -2586,7 +2593,7 @@ index fb2395886b053b..ac0ad4f9490a8b 100644
  }
  
  func encryptOAEP(hash hash.Hash, mgfHash hash.Hash, random io.Reader, pub *PublicKey, msg []byte, label []byte) ([]byte, error) {
-@@ -217,7 +219,7 @@ func encryptOAEP(hash hash.Hash, mgfHash hash.Hash, random io.Reader, pub *Publi
+@@ -217,7 +218,7 @@ func encryptOAEP(hash hash.Hash, mgfHash hash.Hash, random io.Reader, pub *Publi
  	defer hash.Reset()
  	defer mgfHash.Reset()
  
@@ -2595,7 +2602,7 @@ index fb2395886b053b..ac0ad4f9490a8b 100644
  		k := pub.Size()
  		if len(msg) > k-2*hash.Size()-2 {
  			return nil, ErrMessageTooLong
-@@ -269,7 +271,7 @@ func decryptOAEP(hash, mgfHash hash.Hash, priv *PrivateKey, ciphertext []byte, l
+@@ -269,7 +270,7 @@ func decryptOAEP(hash, mgfHash hash.Hash, priv *PrivateKey, ciphertext []byte, l
  		return nil, err
  	}
  
@@ -2604,7 +2611,7 @@ index fb2395886b053b..ac0ad4f9490a8b 100644
  		k := priv.Size()
  		if len(ciphertext) > k ||
  			k < hash.Size()*2+2 {
-@@ -331,7 +333,7 @@ func SignPKCS1v15(random io.Reader, priv *PrivateKey, hash crypto.Hash, hashed [
+@@ -331,7 +332,7 @@ func SignPKCS1v15(random io.Reader, priv *PrivateKey, hash crypto.Hash, hashed [
  		return nil, err
  	}
  
@@ -2613,7 +2620,7 @@ index fb2395886b053b..ac0ad4f9490a8b 100644
  		bkey, err := boringPrivateKey(priv)
  		if err != nil {
  			return nil, err
-@@ -374,7 +376,7 @@ func VerifyPKCS1v15(pub *PublicKey, hash crypto.Hash, hashed []byte, sig []byte)
+@@ -374,7 +375,7 @@ func VerifyPKCS1v15(pub *PublicKey, hash crypto.Hash, hashed []byte, sig []byte)
  		return err
  	}
  
@@ -3655,7 +3662,7 @@ index 027bc22c33c921..eba08da985f832 100644
  package fipsonly
  
 diff --git a/src/crypto/tls/handshake_client.go b/src/crypto/tls/handshake_client.go
-index 7d4bd5bcceba4f..697dfa1ecb792e 100644
+index b644819fb42bbc..4ce367237f343d 100644
 --- a/src/crypto/tls/handshake_client.go
 +++ b/src/crypto/tls/handshake_client.go
 @@ -11,10 +11,10 @@ import (
@@ -3670,7 +3677,7 @@ index 7d4bd5bcceba4f..697dfa1ecb792e 100644
  	"crypto/x509"
  	"errors"
  	"fmt"
-@@ -523,7 +523,20 @@ func (c *Conn) pickTLSVersion(serverHello *serverHelloMsg) error {
+@@ -530,7 +530,20 @@ func (c *Conn) pickTLSVersion(serverHello *serverHelloMsg) error {
  
  // Does the handshake, either a full one or resumes old session. Requires hs.c,
  // hs.hello, hs.serverHello, and, optionally, hs.session to be set.
@@ -3708,7 +3715,7 @@ index 65177767a05b1f..87b637a0f25602 100644
  	"hash"
  	"slices"
 diff --git a/src/crypto/tls/handshake_server.go b/src/crypto/tls/handshake_server.go
-index 34dfb13b672f79..e635079f12313f 100644
+index 46913945771072..25a1a841d7312e 100644
 --- a/src/crypto/tls/handshake_server.go
 +++ b/src/crypto/tls/handshake_server.go
 @@ -63,7 +63,20 @@ func (c *Conn) serverHandshake(ctx context.Context) error {
@@ -4201,7 +4208,7 @@ index 00000000000000..11dc691600b110
 +
 +const boringEnabled = false
 diff --git a/src/net/lookup_test.go b/src/net/lookup_test.go
-index 42211ed099ed1e..e6d185374ffe6d 100644
+index afa7e4c14aaf1f..0583582295c751 100644
 --- a/src/net/lookup_test.go
 +++ b/src/net/lookup_test.go
 @@ -1500,6 +1500,9 @@ func TestLookupPortIPNetworkString(t *testing.T) {
