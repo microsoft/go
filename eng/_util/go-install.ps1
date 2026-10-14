@@ -189,7 +189,7 @@ function Invoke-With-Retry([ScriptBlock]$ScriptBlock, [System.Threading.Cancella
         }
         catch {
             $Attempts++
-            if (($Attempts -lt $MaxAttempts) -and -not $cancellationToken.IsCancellationRequested) {
+            if (($Attempts -lt $MaxAttempts) -and -not $cancellationToken.IsCancellationRequested -and -not $PSItem.Exception.Data["NonRetryable"]) {
                 Start-Sleep $SecondsBetweenAttempts
             }
             else {
@@ -326,7 +326,7 @@ function Load-Assembly([string] $Assembly) {
     }
 }
 
-function GetHTTPResponse([Uri] $Uri, [bool]$HeaderOnly, [bool]$DisableRedirect)
+function GetHTTPResponse([Uri] $Uri, [bool]$HeaderOnly, [bool]$DisableRedirect, [int]$MaxAttempts = 3)
 {
     $cts = New-Object System.Threading.CancellationTokenSource
 
@@ -395,6 +395,7 @@ function GetHTTPResponse([Uri] $Uri, [bool]$HeaderOnly, [bool]$DisableRedirect)
                     $DownloadException.Data["ErrorMessage"] = "Unable to download $Uri. Returned HTTP status code: " + $DownloadException.Data["StatusCode"]
 
                     if (404 -eq [int] $Response.StatusCode) {
+                        $DownloadException.Data["NonRetryable"] = $true
                         $cts.Cancel()
                     }
                 }
@@ -431,7 +432,7 @@ function GetHTTPResponse([Uri] $Uri, [bool]$HeaderOnly, [bool]$DisableRedirect)
     }
 
     try {
-        return Invoke-With-Retry $downloadScript $cts.Token
+        return Invoke-With-Retry $downloadScript $cts.Token -MaxAttempts $MaxAttempts
     }
     finally {
         if ($null -ne $cts) {
@@ -608,22 +609,53 @@ function DownloadFile($Source, [string]$OutPath) {
         return
     }
 
-    $Stream = $null
+    $downloadScript = {
+        $Response = $null
+        $Stream = $null
+        $File = $null
+        $CopySucceeded = $false
+        $DownloadSucceeded = $false
 
-    try {
-        $Response = GetHTTPResponse -Uri $Source
-        $Stream = $Response.Content.ReadAsStreamAsync().Result
-        $File = [System.IO.File]::Create($OutPath)
-        $Stream.CopyTo($File)
-        $File.Close()
-
-        ValidateRemoteLocalFileSizes -LocalFileOutPath $OutPath -SourceUri $Source
-    }
-    finally {
-        if ($null -ne $Stream) {
-            $Stream.Dispose()
+        try {
+            $Response = GetHTTPResponse -Uri $Source -MaxAttempts 1
+            $Stream = $Response.Content.ReadAsStreamAsync().Result
+            $File = [System.IO.File]::Create($OutPath)
+            $Stream.CopyTo($File)
+            $CopySucceeded = $true
+        }
+        finally {
+            try {
+                if ($null -ne $File) {
+                    $File.Dispose()
+                    if ($CopySucceeded) {
+                        $DownloadSucceeded = $true
+                    }
+                }
+            }
+            finally {
+                try {
+                    if ($null -ne $Stream) {
+                        $Stream.Dispose()
+                    }
+                }
+                finally {
+                    try {
+                        if ($null -ne $Response) {
+                            $Response.Dispose()
+                        }
+                    }
+                    finally {
+                        if (-not $DownloadSucceeded -and $null -ne $File) {
+                            Remove-Item -LiteralPath $OutPath -Force -ErrorAction SilentlyContinue
+                        }
+                    }
+                }
+            }
         }
     }
+
+    Invoke-With-Retry $downloadScript
+    ValidateRemoteLocalFileSizes -LocalFileOutPath $OutPath -SourceUri $Source
 }
 
 function ValidateRemoteLocalFileSizes([string]$LocalFileOutPath, $SourceUri) {
