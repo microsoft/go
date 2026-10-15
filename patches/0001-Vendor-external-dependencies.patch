@@ -299,11 +299,13 @@ Use a 'go' that was recently built by the current branch to ensure stable result
  .../go/cryptobackend/drbg/rand_nomsgostd.go   |   13 +
  .../go/cryptobackend/drbg/rand_openssl.go     |   11 +
  .../go/cryptobackend/drbg/rand_windows.go     |   11 +
- .../go/cryptobackend/dsa/dsa_darwin.go        |   25 +
- .../go/cryptobackend/dsa/dsa_openssl.go       |   93 +
- .../go/cryptobackend/dsa/dsa_windows.go       |   37 +
+ .../go/cryptobackend/dsa/cache_msgostd.go     |   81 +
+ .../go/cryptobackend/dsa/cache_nomsgostd.go   |   21 +
+ .../go/cryptobackend/dsa/dsa_darwin.go        |   32 +
+ .../go/cryptobackend/dsa/dsa_openssl.go       |   82 +
+ .../go/cryptobackend/dsa/dsa_windows.go       |   52 +
  .../microsoft/go/cryptobackend/dsa/init.go    |    7 +
- .../go/cryptobackend/dsa/nobackend.go         |   23 +
+ .../go/cryptobackend/dsa/nobackend.go         |   32 +
  .../go/cryptobackend/ecdh/ecdh_darwin.go      |   36 +
  .../go/cryptobackend/ecdh/ecdh_msgostd.go     |  141 +
  .../go/cryptobackend/ecdh/ecdh_nomsgostd.go   |   54 +
@@ -455,7 +457,7 @@ Use a 'go' that was recently built by the current branch to ensure stable result
  .../go/cryptobackend/tls13/tls13_openssl.go   |   18 +
  .../go/cryptobackend/tls13/tls13_windows.go   |   14 +
  src/vendor/modules.txt                        |   54 +
- 447 files changed, 43195 insertions(+), 7 deletions(-)
+ 449 files changed, 43317 insertions(+), 7 deletions(-)
  create mode 100644 src/cmd/internal/telemetry/counter/deps_ignore.go
  create mode 100644 src/cmd/vendor/github.com/microsoft/go-infra/telemetry/LICENSE
  create mode 100644 src/cmd/vendor/github.com/microsoft/go-infra/telemetry/README.md
@@ -740,6 +742,8 @@ Use a 'go' that was recently built by the current branch to ensure stable result
  create mode 100644 src/vendor/github.com/microsoft/go/cryptobackend/drbg/rand_nomsgostd.go
  create mode 100644 src/vendor/github.com/microsoft/go/cryptobackend/drbg/rand_openssl.go
  create mode 100644 src/vendor/github.com/microsoft/go/cryptobackend/drbg/rand_windows.go
+ create mode 100644 src/vendor/github.com/microsoft/go/cryptobackend/dsa/cache_msgostd.go
+ create mode 100644 src/vendor/github.com/microsoft/go/cryptobackend/dsa/cache_nomsgostd.go
  create mode 100644 src/vendor/github.com/microsoft/go/cryptobackend/dsa/dsa_darwin.go
  create mode 100644 src/vendor/github.com/microsoft/go/cryptobackend/dsa/dsa_openssl.go
  create mode 100644 src/vendor/github.com/microsoft/go/cryptobackend/dsa/dsa_windows.go
@@ -41123,12 +41127,126 @@ index 00000000000000..64fa6ac4d3b30b
 +import "github.com/microsoft/go-crypto-winnative/cng"
 +
 +const randReader = cng.RandReader
+diff --git a/src/vendor/github.com/microsoft/go/cryptobackend/dsa/cache_msgostd.go b/src/vendor/github.com/microsoft/go/cryptobackend/dsa/cache_msgostd.go
+new file mode 100644
+index 00000000000000..f5d61189a2f4ec
+--- /dev/null
++++ b/src/vendor/github.com/microsoft/go/cryptobackend/dsa/cache_msgostd.go
+@@ -0,0 +1,81 @@
++// Copyright 2026 The Go Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style
++// license that can be found in the LICENSE file.
++
++//go:build msgostd || cmd_go_bootstrap
++
++package dsa
++
++import (
++	"crypto/internal/fips140cache"
++	"math/big"
++)
++
++// PublicKeyCache associates native keys with immutable snapshots of caller-owned
++// keys. Snapshots must not reference their owners, so the cache can evict them
++// when their owners become unreachable.
++type PublicKeyCache[K any] struct {
++	cache fips140cache.Cache[K, cachedPublicKey]
++}
++
++type cachedPublicKey struct {
++	key        *PublicKey
++	p, q, g, y *big.Int
++}
++
++func (c *PublicKeyCache[K]) Get(owner *K, p, q, g, y *big.Int) (*PublicKey, error) {
++	b, err := c.cache.Get(owner, func() (*cachedPublicKey, error) {
++		b := &cachedPublicKey{
++			p: new(big.Int).Set(p),
++			q: new(big.Int).Set(q),
++			g: new(big.Int).Set(g),
++			y: new(big.Int).Set(y),
++		}
++		key, err := NewPublicKey(b.p, b.q, b.g, b.y)
++		if err != nil {
++			return nil, err
++		}
++		b.key = key
++		return b, nil
++	}, func(b *cachedPublicKey) bool {
++		return b.p.Cmp(p) == 0 && b.q.Cmp(q) == 0 && b.g.Cmp(g) == 0 && b.y.Cmp(y) == 0
++	})
++	if err != nil {
++		return nil, err
++	}
++	return b.key, nil
++}
++
++// PrivateKeyCache is the private-key counterpart of [PublicKeyCache].
++type PrivateKeyCache[K any] struct {
++	cache fips140cache.Cache[K, cachedPrivateKey]
++}
++
++type cachedPrivateKey struct {
++	key           *PrivateKey
++	p, q, g, x, y *big.Int
++}
++
++func (c *PrivateKeyCache[K]) Get(owner *K, p, q, g, x, y *big.Int) (*PrivateKey, error) {
++	b, err := c.cache.Get(owner, func() (*cachedPrivateKey, error) {
++		b := &cachedPrivateKey{
++			p: new(big.Int).Set(p),
++			q: new(big.Int).Set(q),
++			g: new(big.Int).Set(g),
++			x: new(big.Int).Set(x),
++			y: new(big.Int).Set(y),
++		}
++		key, err := NewPrivateKey(b.p, b.q, b.g, b.x, b.y)
++		if err != nil {
++			return nil, err
++		}
++		b.key = key
++		return b, nil
++	}, func(b *cachedPrivateKey) bool {
++		return b.p.Cmp(p) == 0 && b.q.Cmp(q) == 0 && b.g.Cmp(g) == 0 && b.x.Cmp(x) == 0 && b.y.Cmp(y) == 0
++	})
++	if err != nil {
++		return nil, err
++	}
++	return b.key, nil
++}
+diff --git a/src/vendor/github.com/microsoft/go/cryptobackend/dsa/cache_nomsgostd.go b/src/vendor/github.com/microsoft/go/cryptobackend/dsa/cache_nomsgostd.go
+new file mode 100644
+index 00000000000000..b6673c22460eb1
+--- /dev/null
++++ b/src/vendor/github.com/microsoft/go/cryptobackend/dsa/cache_nomsgostd.go
+@@ -0,0 +1,21 @@
++// Copyright 2026 The Go Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style
++// license that can be found in the LICENSE file.
++
++//go:build !msgostd && !cmd_go_bootstrap
++
++package dsa
++
++import "math/big"
++
++// Keep the standard-library API visible to source-based importers.
++type PublicKeyCache[K any] struct{}
++type PrivateKeyCache[K any] struct{}
++
++func (*PublicKeyCache[K]) Get(owner *K, p, q, g, y *big.Int) (*PublicKey, error) {
++	panic("cryptobackend: not available")
++}
++
++func (*PrivateKeyCache[K]) Get(owner *K, p, q, g, x, y *big.Int) (*PrivateKey, error) {
++	panic("cryptobackend: not available")
++}
 diff --git a/src/vendor/github.com/microsoft/go/cryptobackend/dsa/dsa_darwin.go b/src/vendor/github.com/microsoft/go/cryptobackend/dsa/dsa_darwin.go
 new file mode 100644
-index 00000000000000..36db87c344ad67
+index 00000000000000..86aa0fcb7c945e
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go/cryptobackend/dsa/dsa_darwin.go
-@@ -0,0 +1,25 @@
+@@ -0,0 +1,32 @@
 +// Copyright 2026 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -41137,29 +41255,36 @@ index 00000000000000..36db87c344ad67
 +
 +package dsa
 +
-+import "github.com/microsoft/go-crypto-darwin/xcrypto"
++import "math/big"
 +
-+type BigInt = xcrypto.BigInt
 +type PrivateKey struct{}
 +type PublicKey struct{}
 +
-+func Supports(l, n int) bool                                  { return false }
-+func GenerateParameters(l, n int) (p, q, g BigInt, err error) { panic("cryptobackend: not available") }
-+func GenerateKey(p, q, g BigInt) (x, y BigInt, err error)     { panic("cryptobackend: not available") }
-+func NewPrivateKey(p, q, g, x, y BigInt) (*PrivateKey, error) { panic("cryptobackend: not available") }
-+func NewPublicKey(p, q, g, y BigInt) (*PublicKey, error)      { panic("cryptobackend: not available") }
-+func Sign(priv *PrivateKey, hash []byte) (r, s BigInt, err error) {
++func Supports(l, n int) bool { return false }
++func GenerateParameters(l, n int) (p, q, g *big.Int, err error) {
 +	panic("cryptobackend: not available")
 +}
-+func Verify(pub *PublicKey, hashed []byte, r, s BigInt) bool {
++func GenerateKey(p, q, g *big.Int) (x, y *big.Int, err error) {
++	panic("cryptobackend: not available")
++}
++func NewPrivateKey(p, q, g, x, y *big.Int) (*PrivateKey, error) {
++	panic("cryptobackend: not available")
++}
++func NewPublicKey(p, q, g, y *big.Int) (*PublicKey, error) {
++	panic("cryptobackend: not available")
++}
++func Sign(priv *PrivateKey, hash []byte) (r, s *big.Int, err error) {
++	panic("cryptobackend: not available")
++}
++func Verify(pub *PublicKey, hashed []byte, r, s *big.Int) bool {
 +	panic("cryptobackend: not available")
 +}
 diff --git a/src/vendor/github.com/microsoft/go/cryptobackend/dsa/dsa_openssl.go b/src/vendor/github.com/microsoft/go/cryptobackend/dsa/dsa_openssl.go
 new file mode 100644
-index 00000000000000..b40a0834f9918d
+index 00000000000000..357658bb29a7f9
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go/cryptobackend/dsa/dsa_openssl.go
-@@ -0,0 +1,93 @@
+@@ -0,0 +1,82 @@
 +// Copyright 2026 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -41178,32 +41303,38 @@ index 00000000000000..b40a0834f9918d
 +	"golang.org/x/crypto/cryptobyte/asn1"
 +)
 +
-+type BigInt = openssl.BigInt
 +type PrivateKey = openssl.PrivateKeyDSA
 +type PublicKey = openssl.PublicKeyDSA
 +
 +func Supports(l, n int) bool { return openssl.SupportsDSA() }
-+func GenerateParameters(l, n int) (p, q, g BigInt, err error) {
++func GenerateParameters(l, n int) (p, q, g *big.Int, err error) {
 +	params, err := openssl.GenerateParametersDSA(l, n)
-+	return params.P, params.Q, params.G, err
++	if err != nil {
++		return nil, nil, nil, err
++	}
++	return bbig.Dec(params.P), bbig.Dec(params.Q), bbig.Dec(params.G), nil
 +}
-+func GenerateKey(p, q, g BigInt) (x, y BigInt, err error) {
-+	return openssl.GenerateKeyDSA(openssl.DSAParameters{P: p, Q: q, G: g})
++func GenerateKey(p, q, g *big.Int) (x, y *big.Int, err error) {
++	bx, by, err := openssl.GenerateKeyDSA(openssl.DSAParameters{P: bbig.Enc(p), Q: bbig.Enc(q), G: bbig.Enc(g)})
++	if err != nil {
++		return nil, nil, err
++	}
++	return bbig.Dec(bx), bbig.Dec(by), nil
 +}
-+func NewPrivateKey(p, q, g, x, y BigInt) (*PrivateKey, error) {
-+	return openssl.NewPrivateKeyDSA(openssl.DSAParameters{P: p, Q: q, G: g}, x, y)
++func NewPrivateKey(p, q, g, x, y *big.Int) (*PrivateKey, error) {
++	return openssl.NewPrivateKeyDSA(openssl.DSAParameters{P: bbig.Enc(p), Q: bbig.Enc(q), G: bbig.Enc(g)}, bbig.Enc(x), bbig.Enc(y))
 +}
-+func NewPublicKey(p, q, g, y BigInt) (*PublicKey, error) {
-+	return openssl.NewPublicKeyDSA(openssl.DSAParameters{P: p, Q: q, G: g}, y)
++func NewPublicKey(p, q, g, y *big.Int) (*PublicKey, error) {
++	return openssl.NewPublicKeyDSA(openssl.DSAParameters{P: bbig.Enc(p), Q: bbig.Enc(q), G: bbig.Enc(g)}, bbig.Enc(y))
 +}
-+func Sign(priv *PrivateKey, hash []byte) (r, s BigInt, err error) {
++func Sign(priv *PrivateKey, hash []byte) (r, s *big.Int, err error) {
 +	sig, err := openssl.SignDSA(priv, hash)
 +	if err != nil {
 +		return nil, nil, err
 +	}
 +	return parseSignature(sig)
 +}
-+func Verify(pub *PublicKey, hashed []byte, r, s BigInt) bool {
++func Verify(pub *PublicKey, hashed []byte, r, s *big.Int) bool {
 +	sig, err := encodeSignature(r, s)
 +	if err != nil {
 +		return false
@@ -41211,7 +41342,7 @@ index 00000000000000..b40a0834f9918d
 +	return openssl.VerifyDSA(pub, hashed, sig)
 +}
 +
-+func parseSignature(sig []byte) (BigInt, BigInt, error) {
++func parseSignature(sig []byte) (*big.Int, *big.Int, error) {
 +	var r, s []byte
 +	var inner cryptobyte.String
 +	input := cryptobyte.String(sig)
@@ -41222,43 +41353,26 @@ index 00000000000000..b40a0834f9918d
 +		!inner.Empty() {
 +		return nil, nil, errors.New("invalid ASN.1")
 +	}
-+	return bbig.Enc(new(big.Int).SetBytes(r)), bbig.Enc(new(big.Int).SetBytes(s)), nil
++	return new(big.Int).SetBytes(r), new(big.Int).SetBytes(s), nil
 +}
 +
-+func encodeSignature(r, s BigInt) ([]byte, error) {
-+	rb, sb := bbig.Dec(r), bbig.Dec(s)
-+	if rb == nil || rb.Sign() <= 0 || sb == nil || sb.Sign() <= 0 {
++func encodeSignature(r, s *big.Int) ([]byte, error) {
++	if r == nil || r.Sign() <= 0 || s == nil || s.Sign() <= 0 {
 +		return nil, errors.New("invalid integer")
 +	}
 +	var b cryptobyte.Builder
 +	b.AddASN1(asn1.SEQUENCE, func(b *cryptobyte.Builder) {
-+		addASN1IntBytes(b, rb.Bytes())
-+		addASN1IntBytes(b, sb.Bytes())
++		b.AddASN1BigInt(r)
++		b.AddASN1BigInt(s)
 +	})
 +	return b.Bytes()
 +}
-+
-+func addASN1IntBytes(b *cryptobyte.Builder, bytes []byte) {
-+	for len(bytes) > 0 && bytes[0] == 0 {
-+		bytes = bytes[1:]
-+	}
-+	if len(bytes) == 0 {
-+		b.SetError(errors.New("invalid integer"))
-+		return
-+	}
-+	b.AddASN1(asn1.INTEGER, func(c *cryptobyte.Builder) {
-+		if bytes[0]&0x80 != 0 {
-+			c.AddUint8(0)
-+		}
-+		c.AddBytes(bytes)
-+	})
-+}
 diff --git a/src/vendor/github.com/microsoft/go/cryptobackend/dsa/dsa_windows.go b/src/vendor/github.com/microsoft/go/cryptobackend/dsa/dsa_windows.go
 new file mode 100644
-index 00000000000000..181d015ef11058
+index 00000000000000..b50eb304cba4d2
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go/cryptobackend/dsa/dsa_windows.go
-@@ -0,0 +1,37 @@
+@@ -0,0 +1,52 @@
 +// Copyright 2026 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -41267,34 +41381,49 @@ index 00000000000000..181d015ef11058
 +
 +package dsa
 +
-+import "github.com/microsoft/go-crypto-winnative/cng"
++import (
++	"math/big"
 +
-+type BigInt = cng.BigInt
++	"github.com/microsoft/go-crypto-winnative/cng"
++	"github.com/microsoft/go/cryptobackend/bbig"
++)
++
 +type PrivateKey = cng.PrivateKeyDSA
 +type PublicKey = cng.PublicKeyDSA
 +
 +func Supports(l, n int) bool { return n == 160 || n == 256 }
-+func GenerateParameters(l, n int) (p, q, g BigInt, err error) {
++func GenerateParameters(l, n int) (p, q, g *big.Int, err error) {
 +	params, err := cng.GenerateParametersDSA(l)
 +	if err != nil {
 +		return nil, nil, nil, err
 +	}
-+	return params.P, params.Q, params.G, nil
++	return bbig.Dec(params.P), bbig.Dec(params.Q), bbig.Dec(params.G), nil
 +}
-+func GenerateKey(p, q, g BigInt) (x, y BigInt, err error) {
-+	return cng.GenerateKeyDSA(cng.DSAParameters{P: p, Q: q, G: g})
++func GenerateKey(p, q, g *big.Int) (x, y *big.Int, err error) {
++	bx, by, err := cng.GenerateKeyDSA(cng.DSAParameters{P: bbig.Enc(p), Q: bbig.Enc(q), G: bbig.Enc(g)})
++	if err != nil {
++		return nil, nil, err
++	}
++	return bbig.Dec(bx), bbig.Dec(by), nil
 +}
-+func NewPrivateKey(p, q, g, x, y BigInt) (*PrivateKey, error) {
-+	return cng.NewPrivateKeyDSA(cng.DSAParameters{P: p, Q: q, G: g}, x, y)
++func NewPrivateKey(p, q, g, x, y *big.Int) (*PrivateKey, error) {
++	return cng.NewPrivateKeyDSA(cng.DSAParameters{P: bbig.Enc(p), Q: bbig.Enc(q), G: bbig.Enc(g)}, bbig.Enc(x), bbig.Enc(y))
 +}
-+func NewPublicKey(p, q, g, y BigInt) (*PublicKey, error) {
-+	return cng.NewPublicKeyDSA(cng.DSAParameters{P: p, Q: q, G: g}, y)
++func NewPublicKey(p, q, g, y *big.Int) (*PublicKey, error) {
++	return cng.NewPublicKeyDSA(cng.DSAParameters{P: bbig.Enc(p), Q: bbig.Enc(q), G: bbig.Enc(g)}, bbig.Enc(y))
 +}
-+func Sign(priv *PrivateKey, hash []byte) (r, s BigInt, err error) {
-+	return cng.SignDSA(priv, hash)
++func Sign(priv *PrivateKey, hash []byte) (r, s *big.Int, err error) {
++	br, bs, err := cng.SignDSA(priv, hash)
++	if err != nil {
++		return nil, nil, err
++	}
++	return bbig.Dec(br), bbig.Dec(bs), nil
 +}
-+func Verify(pub *PublicKey, hashed []byte, r, s BigInt) bool {
-+	return cng.VerifyDSA(pub, hashed, r, s)
++func Verify(pub *PublicKey, hashed []byte, r, s *big.Int) bool {
++	if r == nil || r.Sign() <= 0 || s == nil || s.Sign() <= 0 {
++		return false
++	}
++	return cng.VerifyDSA(pub, hashed, bbig.Enc(r), bbig.Enc(s))
 +}
 diff --git a/src/vendor/github.com/microsoft/go/cryptobackend/dsa/init.go b/src/vendor/github.com/microsoft/go/cryptobackend/dsa/init.go
 new file mode 100644
@@ -41311,10 +41440,10 @@ index 00000000000000..198bc973ae790c
 +import _ "github.com/microsoft/go/cryptobackend"
 diff --git a/src/vendor/github.com/microsoft/go/cryptobackend/dsa/nobackend.go b/src/vendor/github.com/microsoft/go/cryptobackend/dsa/nobackend.go
 new file mode 100644
-index 00000000000000..5a3d7ed9322674
+index 00000000000000..7582c94fd5cd9e
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go/cryptobackend/dsa/nobackend.go
-@@ -0,0 +1,23 @@
+@@ -0,0 +1,32 @@
 +// Copyright 2026 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -41323,19 +41452,28 @@ index 00000000000000..5a3d7ed9322674
 +
 +package dsa
 +
-+type BigInt = []uint
++import "math/big"
++
 +type PrivateKey struct{ _ int }
 +type PublicKey struct{ _ int }
 +
-+func Supports(l, n int) bool                                  { panic("cryptobackend: not available") }
-+func GenerateParameters(l, n int) (p, q, g BigInt, err error) { panic("cryptobackend: not available") }
-+func GenerateKey(p, q, g BigInt) (x, y BigInt, err error)     { panic("cryptobackend: not available") }
-+func NewPrivateKey(p, q, g, x, y BigInt) (*PrivateKey, error) { panic("cryptobackend: not available") }
-+func NewPublicKey(p, q, g, y BigInt) (*PublicKey, error)      { panic("cryptobackend: not available") }
-+func Sign(priv *PrivateKey, hash []byte) (r, s BigInt, err error) {
++func Supports(l, n int) bool { panic("cryptobackend: not available") }
++func GenerateParameters(l, n int) (p, q, g *big.Int, err error) {
 +	panic("cryptobackend: not available")
 +}
-+func Verify(pub *PublicKey, hashed []byte, r, s BigInt) bool {
++func GenerateKey(p, q, g *big.Int) (x, y *big.Int, err error) {
++	panic("cryptobackend: not available")
++}
++func NewPrivateKey(p, q, g, x, y *big.Int) (*PrivateKey, error) {
++	panic("cryptobackend: not available")
++}
++func NewPublicKey(p, q, g, y *big.Int) (*PublicKey, error) {
++	panic("cryptobackend: not available")
++}
++func Sign(priv *PrivateKey, hash []byte) (r, s *big.Int, err error) {
++	panic("cryptobackend: not available")
++}
++func Verify(pub *PublicKey, hashed []byte, r, s *big.Int) bool {
 +	panic("cryptobackend: not available")
 +}
 diff --git a/src/vendor/github.com/microsoft/go/cryptobackend/ecdh/ecdh_darwin.go b/src/vendor/github.com/microsoft/go/cryptobackend/ecdh/ecdh_darwin.go
