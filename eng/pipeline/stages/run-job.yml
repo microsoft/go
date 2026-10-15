@@ -1,0 +1,354 @@
+# Copyright (c) Microsoft Corporation.
+# Use of this source code is governed by a BSD-style
+# license that can be found in the LICENSE file.
+
+# This template runs a builder job for any OS.
+
+parameters:
+  - name: ctx
+    type: object
+
+  # { id, os, arch, hostArch, config, distro?, experiment?, nosystemcrypto?, fips?, broken? }
+  - name: builder
+    type: object
+
+  - name: createSourceArchive
+    type: boolean
+    default: false
+
+  - name: createSymbols
+    type: boolean
+    default: false
+
+  - name: releaseVersion
+    type: string
+    default: 'nil'
+
+  - name: pool
+    type: object
+
+  # List of retry attempt numbers. Pass a list of each index (values are only for display purposes),
+  # where the final element is "FINAL" instead. AzDO has limited looping capabilities, and this is a
+  # way around that.
+  - name: retryAttempts
+    type: object
+    default: ["FINAL"]
+
+  - name: suffix
+    type: string
+    default: ''
+
+  - name: previousSuffix
+    type: string
+    default: ''
+
+  - name: exportTestResult
+    type: boolean
+    default: false
+
+jobs:
+      - job: ${{ parameters.builder.id }}${{ parameters.suffix }}
+        displayName: ${{ parameters.builder.os }}-${{ parameters.builder.arch }} ${{ parameters.builder.hostParens}} ${{ parameters.builder.config }} ${{ parameters.builder.distroParens}} ${{ parameters.builder.experimentBrackets }} ${{ parameters.builder.nosystemcryptoBrackets }} ${{ parameters.builder.fipsAcronym }} ${{ replace(parameters.suffix, '_', ' ') }}
+        ${{ if ne(parameters.previousSuffix, '') }}:
+          dependsOn: ${{ parameters.builder.id }}${{ parameters.previousSuffix }}
+          # Retry only a completed test failure. Build or infrastructure failures remain fatal.
+          condition: and(in(dependencies.${{ parameters.builder.id }}${{ parameters.previousSuffix }}.result, 'Succeeded', 'SucceededWithIssues'), eq(dependencies.${{ parameters.builder.id }}${{ parameters.previousSuffix }}.outputs['retryOutcome.successful'], 'false'))
+        workspace:
+          clean: all
+
+        # Validation for complex inputs.
+        ${{ if startsWith(parameters.builder.config, 'codeql') }}:
+          ${{ if not(or(eq(parameters.builder.config, 'codeql_inner'), eq(parameters.builder.config, 'codeql_outer'))) }}:
+            'The CodeQL configuration must include "_inner" or "_outer" suffix': error
+
+        ${{ if eq(parameters.builder.config, 'longtest') }}:
+          # longtest has been seen to succeed after 53 minutes. Give around 3x headroom. In the future,
+          # we should also give the tests a shorter timeout to make sure this doesn't balloon too far:
+          # https://github.com/microsoft/go/issues/568
+          timeoutInMinutes: 240
+        ${{ elseif startsWith(parameters.builder.config, 'codeql') }}:
+          # Allow CodeQL to take a while. https://eng.ms/docs/cloud-ai-platform/devdiv/one-engineering-system-1es/1es-docs/codeql/configuring-codeql3000-ado-pipelines#other-issues
+          timeoutInMinutes: 420
+        ${{ else }}:
+          timeoutInMinutes: 120
+
+        pool: ${{ parameters.pool }}
+
+        ${{ if not(parameters.ctx['Go1ESOfficial']) }}:
+          ${{ if eq(parameters.builder.os, 'linux') }}:
+            ${{ if eq(parameters.builder.hostArch, 'amd64') }}:
+              ${{ if eq(parameters.builder.distro, 'ubuntu') }}:
+                container: ubuntu2204
+              ${{ elseif eq(parameters.builder.distro, 'azurelinux3') }}:
+                container: azurelinux3
+              ${{ else }}:
+                container: mariner2
+            ${{ elseif eq(parameters.builder.hostArch, 'arm64') }}:
+              container: mariner2arm64
+
+        variables:
+          - group: go-cmdscan-rules
+          - name: createPDB
+            value: ${{ and(eq(parameters.createSymbols, true), eq(parameters.builder.config, 'buildandpack'), eq(parameters.builder.os, 'windows')) }} # Only create PDBs on Windows
+
+          - ${{ if eq(parameters.builder.config, 'buildandpack') }}:
+            # Make sure a PR doesn't accidentally add a command that uses more than minimal
+            # dependencies to the buildandpack pipeline.
+            - name: MS_GO_UTIL_ALLOW_ONLY_MINIMAL_DEPS
+              value: '1'
+
+          - ${{ if eq(parameters.builder.config, 'codeql_inner') }}:
+            # Manually specify the repository being scanned by this job because
+            # CodeQL can't detect the inner repository (the submodule)
+            # automatically. See https://stackoverflow.microsoft.com/a/368419
+            - name: Codeql.ADO.Build.Repository.Provider
+              value: override
+            - name: Codeql.ADO.Build.Repository.Uri
+              value: https://dev.azure.com/dnceng/internal/_git/microsoft-go-mirror
+
+        ${{ if and(parameters.ctx['GoPublishArtifacts'], eq(parameters.builder.config, 'buildandpack')) }}:
+          templateContext:
+            outputs:
+              # https://eng.ms/docs/cloud-ai-platform/devdiv/one-engineering-system-1es/1es-docs/1es-pipeline-templates/features/outputs
+              - output: pipelineArtifact
+                path: eng/artifacts/bin
+                artifact: Binaries ${{ parameters.builder.id }}
+              - output: pipelineArtifact
+                path: eng/artifacts/symbols
+                artifact: Symbols ${{ parameters.builder.id }}
+
+        steps:
+          - ${{ if eq(parameters.builder.os, 'linux') }}:
+            # AzDO builds don't seem to set user ID in the running container, so files from a previous
+            # build might be owned by root and unable to be cleaned up by AzDO's cleanup step. Clean up
+            # the build dirs ourselves in another Docker container to avoid failures.
+            - script: |
+                set -x
+                echo 'Cleaning old build dirs with sudo in case of root ownership.'
+                sudo rm -v -rf a b s
+                mkdir a b s
+              workingDirectory: $(Agent.BuildDirectory)
+              displayName: Cleanup
+
+            - template: ../steps/checkout-unix-task.yml
+
+          - pwsh: |
+              New-Item eng/artifacts/bin -ItemType Directory -ErrorAction Ignore
+              New-Item eng/artifacts/symbols -ItemType Directory -ErrorAction Ignore
+            displayName: Create artifact directories
+
+          - ${{ if eq(parameters.builder.os, 'windows') }}:
+            - template: ../steps/checkout-windows-task.yml
+            - pwsh: |
+                Write-Host "Increasing max build retries to mitigate 'Access denied' flakiness during EXE copying on Windows."
+                Write-Host "##vso[task.setvariable variable=GO_MAKE_MAX_RETRY_ATTEMPTS]5"
+              displayName: Increase 'make' retry attempts
+
+          # Initialize stage 0 toolset ahead of time so we can track timing data separately from the
+          # build operations. When we call this script again later, it won't download Go again.
+          - pwsh: |
+              . eng/utilities.ps1
+              Download-Stage0
+            displayName: Init stage 0 Go toolset
+
+          - template: ../steps/init-submodule-task.yml
+
+          - ${{ if eq(parameters.builder.config, 'longtest') }}:
+            # Set Git authorship info for 'cmd/go TestScript/build_buildvcs_auto'.
+            - template: ../steps/set-bot-git-author-task.yml
+
+          # Run the _util tests during the devscript configuration.
+          # It generally shouldn't matter which config these run in, we just need to pick something.
+          - ${{ if eq(parameters.builder.config, 'devscript') }}:
+            - pwsh: eng/run.ps1 selftest
+              displayName: Run _util self-tests
+
+          - pwsh: |
+              # Apply the patches as staged changes, so the HEAD commit is the same as upstream.
+              eng/run.ps1 submodule-refresh
+            displayName: Apply patches
+
+          - ${{ if ne(parameters.builder.hostArch, parameters.builder.arch) }}:
+            - pwsh: Write-Host "##vso[task.setvariable variable=GOARCH]${{ parameters.builder.arch }}"
+              displayName: Set GOARCH for cross-compile
+            - ${{ if eq(parameters.builder.arch, 'arm') }}:
+              - pwsh: Write-Host "##vso[task.setvariable variable=GOARM]6"
+                displayName: Set GOARM for cross-compile
+
+          - ${{ if eq(variables.createPDB, true) }}:
+            - template: ../steps/install-gopdb.yml
+
+          # Use build script directly for "buildandpack". If we used run-builder, we would need to
+          # download its external module dependencies.
+          - ${{ if eq(parameters.builder.config, 'buildandpack' ) }}:
+            - pwsh: |
+                eng/run.ps1 cmdscan -envprefix GO_CMDSCAN_RULE_ -- `
+                  pwsh eng/run.ps1 build -packbuild $env:PACK_SOURCE_ARG $env:CREATE_PDB_ARG
+              env:
+                # Generate the source archive on one job only. The os choice is arbitrary.
+                ${{ if and(eq(parameters.createSourceArchive, true), eq(parameters.builder.config, 'buildandpack'), eq(parameters.builder.os, 'linux'), eq(parameters.builder.arch, 'amd64')) }}:
+                  PACK_SOURCE_ARG: '-packsource'
+                ${{ if eq(variables.createPDB, true) }}:
+                  CREATE_PDB_ARG: '-pdb'
+                ${{ if parameters.builder.nosystemcrypto }}:
+                  MS_GO_NOSYSTEMCRYPTO: 1
+              displayName: Build and Pack
+
+            # We want to create a checksum as early as possible, but Windows signing involves
+            # repacking the zip, invalidating any checksum. Defer creating Windows checksums until
+            # after signing.
+            - ${{ if ne(parameters.builder.os, 'windows') }}:
+              - pwsh: |
+                  pwsh eng/run.ps1 write-checksum eng/artifacts/bin/*
+                displayName: Write checksum
+
+          # CodeQL plugs into the compiler to find the code. Just build.
+          - ${{ elseif startsWith(parameters.builder.config, 'codeql' ) }}:
+            - pwsh: |
+                eng/run.ps1 cmdscan -envprefix GO_CMDSCAN_RULE_ -- `
+                  pwsh eng/run.ps1 build
+              displayName: Build
+
+          # Use run-builder for any configuration that includes tests.
+          - ${{ else }}:
+            - ${{ if eq(parameters.builder.os, 'windows') }}:
+              - pwsh: |
+                  function RemovePathBinary($name) {
+                    $src = (Get-Command $name -ErrorAction SilentlyContinue).Source
+                    if ($src) {
+                      Write-Host "Removing $src"
+                      Remove-Item $src
+                    } else {
+                      Write-Host "Command not found: $name"
+                    }
+                  }
+
+                  Write-Host "Removing pkg-config to skip cmd/go TestScript/list_pkgconfig_error on Windows."
+                  RemovePathBinary 'pkg-config'
+
+                  Write-Host "Removing Chocolatey shim for SWIG to avoid running misc SWIG tests that would fail."
+                  # The Chocolatey shims are located in a single folder in PATH, so we can't change PATH to exclude it.
+                  # Upstream Windows builders don't have SWIG installed, so this makes coverage even.
+                  RemovePathBinary 'swig'
+                  
+                  Write-Host "Removing 'patch' to avoid parts of cmd/go TestScript/mod_tidy_diff on Windows."
+                  # patch here doesn't seem to be the same as a Linux-style patch tool, and fails:
+                  # FAIL: testdata\script\mod_tidy_diff.txt:78: exec patch -p1 -i diff.patch: exit status 57005
+                  RemovePathBinary 'patch'
+                displayName: Remove unexpected tools
+
+              - pwsh: |
+                  eng/run.ps1 go run github.com/microsoft/go-infra/cmd/getmingw diagnose
+                  if ('${{ parameters.builder.arch }}' -eq '386') {
+                    $arch = 'i686'
+                    $exception = 'dwarf'
+                  } else {
+                    $arch = 'x86_64'
+                    $exception = 'seh'
+                  }
+                  # Binutils 2.44 fixes SECREL TLS offsets being corrupted by ASLR.
+                  eng/run.ps1 go run github.com/microsoft/go-infra/cmd/getmingw run `
+                    -ci azdo `
+                    -source nixman -version 14.2.0-rt_v12-rev2 `
+                    -arch $arch -threading posix -exception $exception -runtime msvcrt
+                displayName: Install MinGW
+
+            # Build. This includes retry logic internally if necessary for this builder.
+            - pwsh: |
+                eng/run.ps1 cmdscan -envprefix GO_CMDSCAN_RULE_ `
+                  pwsh eng/run.ps1 run-builder -build `
+                    -builder '${{ parameters.builder.os }}-${{ parameters.builder.arch }}-${{ parameters.builder.config }}' `
+                    $(if ('${{ parameters.builder.experiment }}') { '-experiment'; '${{ parameters.builder.experiment }}' }) `
+                    $(if ('${{ parameters.builder.fips }}') { '-fipsmode' })
+              ${{ if parameters.builder.nosystemcrypto }}:
+                env:
+                  MS_GO_NOSYSTEMCRYPTO: 1
+              displayName: Build
+
+            # Run each test retry attempt in its own step. Benefits over a single step:
+            #
+            # - The dev can immediately see whether any retries happened
+            # - Easier to navigate to a specific retry attempt
+            # - More stable viewing experience if job is ongoing
+            # - Automated tools can more easily check number of retries by relying on structure
+            #
+            # Test retries get their own steps but builds don't because builds are relatively quick,
+            # don't produce much output, and errors are easier to reproduce.
+            - ${{ each attempt in parameters.retryAttempts }}:
+              - pwsh: |
+                  if ($IsWindows) {
+                    Write-Host "Removing Git usr\bin from PATH to avoid running a Linux test that would fail, 'TestScript/script_wait'..."
+                    Write-Host $env:PATH
+                    $env:PATH = (
+                      $env:PATH -split ';' | Where-Object { $_ -ne 'C:\Program Files\Git\usr\bin' }
+                    ) -join ';'
+                  }
+
+                  # Test publishing currently used in our CI because this process seems to cut off some test output:
+                  # https://github.com/microsoft/go/issues/1114.
+                  eng/run.ps1 cmdscan -envprefix GO_CMDSCAN_RULE_ -successvar TEST_BUILDER_SUCCESSFUL -- `
+                    pwsh eng/run.ps1 run-builder -test `
+                      -builder '${{ parameters.builder.os }}-${{ parameters.builder.arch }}-${{ parameters.builder.config }}' `
+                      $(if ('${{ parameters.builder.experiment }}') { '-experiment'; '${{ parameters.builder.experiment }}' }) `
+                      $(if ('${{ parameters.builder.fips }}') { '-fipsmode' }) `
+                      -junitout '$(Build.SourcesDirectory)/eng/artifacts/RawTestOutput/TestResults-attempt-${{ attempt }}.xml' `
+                      -rawtestout '$(Build.SourcesDirectory)/eng/artifacts/RawTestOutput/raw-json-attempt-${{ attempt }}.txt'
+                ${{ if parameters.builder.nosystemcrypto }}:
+                  env:
+                    MS_GO_NOSYSTEMCRYPTO: 1
+                ${{ if eq(length(parameters.retryAttempts), 1) }}:
+                  displayName: Test
+                ${{ else }}:
+                  displayName: Test (🔁 ${{ attempt }})
+                name: test_${{ attempt }}
+                # Run unless a previous retry was successful or something catastrophic happens.
+                # Note: test failure returns success, so it doesn't count as catastrophic.
+                condition: and(ne(variables['TEST_BUILDER_SUCCESSFUL'], 'true'), succeeded())
+                ${{ if ne(attempt, 'FINAL') }}:
+                  ignoreLASTEXITCODE: true
+                ${{ elseif eq(parameters.builder.broken, true) }}:
+                  # Don't fail the job if we are at the last retry and the builder is marked as broken.
+                  continueOnError: true
+
+              # Publish this retry attempt's test results as its own test run.
+              - task: PublishTestResults@2
+                displayName: Publish test results (${{ attempt }})
+                condition: and(ne(variables['TEST_BUILDER_SUCCESSFUL'], 'true'), succeededOrFailed())
+                ${{ if or(ne(attempt, 'FINAL'), eq(parameters.builder.broken, true)) }}:
+                  # A failed test run is expected to continue to the next retry attempt or be non-fatal for a broken builder.
+                  continueOnError: true
+                inputs:
+                  testResultsFormat: JUnit
+                  testResultsFiles: $(Build.SourcesDirectory)/eng/artifacts/RawTestOutput/TestResults-attempt-${{ attempt }}.xml
+                  testRunTitle: $(System.JobDisplayName) (retry ${{ attempt }}, stage attempt $(System.StageAttempt))
+                  buildPlatform: ${{ parameters.builder.arch }}
+                  buildConfiguration: ${{ parameters.builder.config }}
+                  publishRunAttachments: true
+
+            - ${{ if parameters.exportTestResult }}:
+              - pwsh: |
+                  $successful = $env:TEST_BUILDER_SUCCESSFUL -eq 'true'
+                  Write-Host "##vso[task.setvariable variable=successful;isOutput=true]$($successful.ToString().ToLowerInvariant())"
+                displayName: Export test result
+                name: retryOutcome
+                condition: succeededOrFailed()
+
+            # Publish raw test JSON output and the published (or attempted to publish) JUnit XML.
+            - task: ${{ iif(eq(variables['System.TeamProject'], 'public'), '', '1ES.') }}PublishPipelineArtifact@1
+              displayName: Publish raw test results
+              condition: succeededOrFailed()
+              inputs:
+                targetPath: $(Build.SourcesDirectory)/eng/artifacts/RawTestOutput
+                artifactName: raw-test-output-${{ parameters.builder.id }}${{ parameters.suffix }}-retry-$(System.StageAttempt)-job-$(System.JobAttempt)
+
+          - ${{ if eq(parameters.builder.os, 'linux') }}:
+            # Files may be owned by root because builds don't set user ID. If this build is running on a
+            # persistent machine, later builds may fail to clean up this build's directory as as
+            # result--even if it also uses a build container. This step prevents that kind of failure by
+            # using chown to make sure the machine's agent user can access/delete the files.
+            - script: |
+                sudo chown -R $(id -u):$(id -g) *
+              workingDirectory: $(Agent.BuildDirectory)
+              displayName: Update file ownership from root to build agent account
+              continueOnError: true
+              condition: succeededOrFailed()

@@ -62,10 +62,13 @@ stages:
                   # "Access Denied" during EXE copying and general flakiness during tests.
                   ${{ if eq(builder.os, 'windows') }}:
                     retryAttempts: [1, 2, 3, 4, "FINAL"]
-                  # Attempt to retry the build on macOS to mitigate flakiness:
-                  # "read: connection reset by peer" in cmd/go tests
-                  ${{ if eq(builder.os, 'darwin') }}:
-                    retryAttempts: [1, 2, "FINAL"]
+                  # Retry macOS builds on fresh hosted agents to avoid repeatedly using an unhealthy
+                  # machine. Each retry is a separate job in the same stage.
+                  ${{ if and(eq(builder.os, 'darwin'), ne(builder.config, 'buildandpack')) }}:
+                    retryJobs:
+                      - { attempt: 1, suffix: "_retry_1", previousSuffix: "" }
+                      - { attempt: 2, suffix: "_retry_2", previousSuffix: "_retry_1" }
+                      - { attempt: "FINAL", suffix: "_retry_FINAL", previousSuffix: "_retry_2" }
 
     - ${{ if eq(parameters.sign, true) }}:
       - template: pool.yml
