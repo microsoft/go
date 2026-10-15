@@ -6,18 +6,27 @@
 
 package dsa
 
-type BigInt = []uint
+import "math/big"
+
 type PrivateKey struct{ _ int }
 type PublicKey struct{ _ int }
 
-func Supports(l, n int) bool                                  { panic("cryptobackend: not available") }
-func GenerateParameters(l, n int) (p, q, g BigInt, err error) { panic("cryptobackend: not available") }
-func GenerateKey(p, q, g BigInt) (x, y BigInt, err error)     { panic("cryptobackend: not available") }
-func NewPrivateKey(p, q, g, x, y BigInt) (*PrivateKey, error) { panic("cryptobackend: not available") }
-func NewPublicKey(p, q, g, y BigInt) (*PublicKey, error)      { panic("cryptobackend: not available") }
-func Sign(priv *PrivateKey, hash []byte) (r, s BigInt, err error) {
+func Supports(l, n int) bool { panic("cryptobackend: not available") }
+func GenerateParameters(l, n int) (p, q, g *big.Int, err error) {
 	panic("cryptobackend: not available")
 }
-func Verify(pub *PublicKey, hashed []byte, r, s BigInt) bool {
+func GenerateKey(p, q, g *big.Int) (x, y *big.Int, err error) {
+	panic("cryptobackend: not available")
+}
+func NewPrivateKey(p, q, g, x, y *big.Int) (*PrivateKey, error) {
+	panic("cryptobackend: not available")
+}
+func NewPublicKey(p, q, g, y *big.Int) (*PublicKey, error) {
+	panic("cryptobackend: not available")
+}
+func Sign(priv *PrivateKey, hash []byte) (r, s *big.Int, err error) {
+	panic("cryptobackend: not available")
+}
+func Verify(pub *PublicKey, hashed []byte, r, s *big.Int) bool {
 	panic("cryptobackend: not available")
 }
