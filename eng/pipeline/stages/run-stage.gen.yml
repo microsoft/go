@@ -1,0 +1,60 @@
+# Copyright (c) Microsoft Corporation.
+# Use of this source code is governed by a BSD-style
+# license that can be found in the LICENSE file.
+
+# This stage runs a builder for any OS.
+
+pipelineymlgen:
+  data:
+    macOSRetryJobs:
+      - { retryAttempts: [1], suffix: "_retry_1", previousSuffix: "" }
+      - { retryAttempts: [2], suffix: "_retry_2", previousSuffix: "_retry_1" }
+      - { retryAttempts: ["FINAL"], suffix: "_retry_FINAL", previousSuffix: "_retry_2" }
+  output: self
+---
+
+parameters:
+  - name: ctx
+    type: object
+
+  # { id, os, arch, hostArch, config, distro?, experiment?, nosystemcrypto?, fips?, broken? }
+  - name: builder
+    type: object
+
+  - name: createSourceArchive
+    type: boolean
+    default: false
+
+  - name: createSymbols
+    type: boolean
+    default: false
+
+  - name: releaseVersion
+    type: string
+    default: 'nil'
+
+  - name: pool
+    type: object
+
+  # List of retry attempt numbers. Pass a list of each index (values are only for display purposes),
+  # where the final element is "FINAL" instead. AzDO has limited looping capabilities, and this is a
+  # way around that.
+  - name: retryAttempts
+    type: object
+    default: ["FINAL"]
+
+stages:
+  - stage: ${{ parameters.builder.id }}
+    # For display name, try for readability. Use some parameters set by
+    # shorthand-builders-to-builders.yml that let us add some formatting.
+    displayName: ${{ parameters.builder.os }}-${{ parameters.builder.arch }} ${{ parameters.builder.hostParens}} ${{ parameters.builder.config }} ${{ parameters.builder.distroParens}} ${{ parameters.builder.experimentBrackets }} ${{ parameters.builder.nosystemcryptoBrackets }} ${{ parameters.builder.fipsAcronym }}
+    dependsOn: []
+    jobs:
+      # macOS retries run as separate jobs so each attempt uses a fresh hosted agent.
+      - ${{ if and(eq(parameters.builder.os, 'darwin'), ne(parameters.builder.config, 'buildandpack')) }}:
+        - ${ inlinerange .macOSRetryJobs }:
+          - ${ inlinetemplate "run-job-call.gen.yml" }:
+              freshAgentRetry: true
+      - ${{ else }}:
+        - ${ inlinetemplate "run-job-call.gen.yml" }:
+            freshAgentRetry: false
