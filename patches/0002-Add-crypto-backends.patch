@@ -5,7 +5,6 @@ Subject: [PATCH] Add crypto backends
 
 ---
  .gitignore                                    |   2 +
- src/cmd/api/boring_test.go                    |   2 +-
  .../compile/internal/logopt/logopt_test.go    |   5 +
  src/cmd/compile/script_test.go                |   8 ++
  src/cmd/compile/testdata/script/README        |   2 +
@@ -119,9 +118,8 @@ Subject: [PATCH] Add crypto backends
  .../systemcrypto/systemcrypto_test.go         |  60 ++++++++++
  src/net/lookup_test.go                        |   3 +
  src/os/exec/exec_test.go                      |   9 ++
- src/runtime/runtime_boring.go                 |   5 +
  src/syscall/syscall_windows.go                |   3 +
- 117 files changed, 1227 insertions(+), 250 deletions(-)
+ 115 files changed, 1221 insertions(+), 249 deletions(-)
  create mode 100644 src/crypto/systemcrypto_nocgo_freebsd.go
  create mode 100644 src/crypto/systemcrypto_nocgo_linux.go
  create mode 100644 src/internal/systemcrypto/systemcrypto.go
@@ -140,19 +138,6 @@ index 344b31f7ac1c1d3d8409da4774b9ea13e0142fb5..b4583113d5aa15ac1be461d1cecd2135
  # This file includes artifacts of Go build that should not be checked in.
  # For files created by specific development environment (e.g. editor),
  # use alternative ways to exclude files from git.
-diff --git a/src/cmd/api/boring_test.go b/src/cmd/api/boring_test.go
-index f0e3575637c62a955f118943cc752f44be8c5d7f..9eab3b4e66e60b59ef1aff813255ea6f81a9f6de 100644
---- a/src/cmd/api/boring_test.go
-+++ b/src/cmd/api/boring_test.go
-@@ -2,7 +2,7 @@
- // Use of this source code is governed by a BSD-style
- // license that can be found in the LICENSE file.
- 
--//go:build boringcrypto
-+//go:build goexperiment.systemcrypto
- 
- package main
- 
 diff --git a/src/cmd/compile/internal/logopt/logopt_test.go b/src/cmd/compile/internal/logopt/logopt_test.go
 index 1edabf9fb7ff0430844da72b3f1e51c6b0814603..5e9fc3507485bcc9b061bcdfa9cb9ab8860f342f 100644
 --- a/src/cmd/compile/internal/logopt/logopt_test.go
@@ -2388,7 +2373,7 @@ index eb0ed14e243c6ba22e4de47cadc139f0c0ced177..c0cdca547261c0f8daa700b3fb90541f
  	// 32-bit platforms), since the max value for keyLength is 1<<31-1 and
  	// 1<<31-1 * hLen will always be less than 1<<32-1 * hLen.
 diff --git a/src/crypto/purego_test.go b/src/crypto/purego_test.go
-index ebc9110cecee82bcaea66d2a95987f309a36e633..aa4aec046795cf731a6196486b031d923582c23d 100644
+index ebc9110cecee82bcaea66d2a95987f309a36e633..c15de6f7ebfd0d0e4def8101ce2c3f887807a8b9 100644
 --- a/src/crypto/purego_test.go
 +++ b/src/crypto/purego_test.go
 @@ -41,7 +41,7 @@ func TestPureGoTag(t *testing.T) {
@@ -2396,7 +2381,7 @@ index ebc9110cecee82bcaea66d2a95987f309a36e633..aa4aec046795cf731a6196486b031d92
  
  	for _, pkgName := range pkgs {
 -		if strings.Contains(pkgName, "/boring") {
-+		if strings.Contains(pkgName, "/boring") || strings.Contains(pkgName, "/internal/backend") || strings.Contains(pkgName, "tls/fipsonly") {
++		if strings.Contains(pkgName, "/boring") || strings.Contains(pkgName, "tls/fipsonly") {
  			continue
  		}
  
@@ -4185,19 +4170,6 @@ index 4f39d9bbe345a8e979f8265804917743eb346b9b..b372f4077a3fe38a5bb5694d17df8009
  	// Force network usage, to verify the epoll (or whatever) fd
  	// doesn't leak to the child,
  	ln, err := net.Listen("tcp", "127.0.0.1:0")
-diff --git a/src/runtime/runtime_boring.go b/src/runtime/runtime_boring.go
-index 831ee67afc952df426b6a1a040dd3d981d7f6281..e74790bfe7050682de327c4302e29df07d5894e7 100644
---- a/src/runtime/runtime_boring.go
-+++ b/src/runtime/runtime_boring.go
-@@ -14,3 +14,8 @@ func boring_runtime_arg0() string {
- 	}
- 	return argslice[0]
- }
-+
-+//go:linkname cryptobackend_runtime_arg0 vendor/github.com/microsoft/go/cryptobackend.runtime_arg0
-+func cryptobackend_runtime_arg0() string {
-+	return boring_runtime_arg0()
-+}
 diff --git a/src/syscall/syscall_windows.go b/src/syscall/syscall_windows.go
 index b6911ef952b0395e7ddd5cea1f93d096ba5d8d8f..27e2191ddae6a72397a5ffbb1718b2c30b1025c3 100644
 --- a/src/syscall/syscall_windows.go

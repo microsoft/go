@@ -285,7 +285,7 @@ Use a 'go' that was recently built by the current branch to ensure stable result
  .../chacha20poly1305_windows.go               |   24 +
  .../chacha20poly1305/nobackend.go             |   13 +
  .../go/cryptobackend/cipher/cipher.go         |   75 +
- .../microsoft/go/cryptobackend/common.go      |   47 +
+ .../microsoft/go/cryptobackend/common.go      |   19 +
  .../go/cryptobackend/des/des_darwin.go        |   21 +
  .../go/cryptobackend/des/des_openssl.go       |   21 +
  .../go/cryptobackend/des/des_windows.go       |   21 +
@@ -440,7 +440,6 @@ Use a 'go' that was recently built by the current branch to ensure stable result
  .../go/cryptobackend/sha512/zsha512.go        |  156 +
  .../cryptobackend/sha512/zsha512_msgostd.go   |   35 +
  .../cryptobackend/sha512/zsha512_nomsgostd.go |   41 +
- .../microsoft/go/cryptobackend/stub.s         |   10 +
  .../go/cryptobackend/tls12/nobackend.go       |   14 +
  .../microsoft/go/cryptobackend/tls12/tls12.go |   23 +
  .../go/cryptobackend/tls12/tls12_darwin.go    |   14 +
@@ -457,7 +456,7 @@ Use a 'go' that was recently built by the current branch to ensure stable result
  .../go/cryptobackend/tls13/tls13_openssl.go   |   18 +
  .../go/cryptobackend/tls13/tls13_windows.go   |   14 +
  src/vendor/modules.txt                        |   54 +
- 449 files changed, 43317 insertions(+), 7 deletions(-)
+ 448 files changed, 43279 insertions(+), 7 deletions(-)
  create mode 100644 src/cmd/internal/telemetry/counter/deps_ignore.go
  create mode 100644 src/cmd/vendor/github.com/microsoft/go-infra/telemetry/LICENSE
  create mode 100644 src/cmd/vendor/github.com/microsoft/go-infra/telemetry/README.md
@@ -883,7 +882,6 @@ Use a 'go' that was recently built by the current branch to ensure stable result
  create mode 100644 src/vendor/github.com/microsoft/go/cryptobackend/sha512/zsha512.go
  create mode 100644 src/vendor/github.com/microsoft/go/cryptobackend/sha512/zsha512_msgostd.go
  create mode 100644 src/vendor/github.com/microsoft/go/cryptobackend/sha512/zsha512_nomsgostd.go
- create mode 100644 src/vendor/github.com/microsoft/go/cryptobackend/stub.s
  create mode 100644 src/vendor/github.com/microsoft/go/cryptobackend/tls12/nobackend.go
  create mode 100644 src/vendor/github.com/microsoft/go/cryptobackend/tls12/tls12.go
  create mode 100644 src/vendor/github.com/microsoft/go/cryptobackend/tls12/tls12_darwin.go
@@ -40807,21 +40805,17 @@ index 0000000000000000000000000000000000000000..b73e8da4500f6830857967586afc278e
 +}
 diff --git a/src/vendor/github.com/microsoft/go/cryptobackend/common.go b/src/vendor/github.com/microsoft/go/cryptobackend/common.go
 new file mode 100644
-index 0000000000000000000000000000000000000000..fc38aa225ef25e3763df23963fca18fa94eabd3f
+index 0000000000000000000000000000000000000000..75506c52aeb960d06b7b5e4f39b8b2aedbe58a5a
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go/cryptobackend/common.go
-@@ -0,0 +1,47 @@
+@@ -0,0 +1,19 @@
 +// Copyright 2022 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
 +
 +package backend
 +
-+import (
-+	"runtime"
-+
-+	"github.com/microsoft/go/cryptobackend/internal/fips140state"
-+)
++import "github.com/microsoft/go/cryptobackend/internal/fips140state"
 +
 +func checkFIPS(fips func() bool) error {
 +	return fips140state.Check(Enabled, fips)
@@ -40832,30 +40826,6 @@ index 0000000000000000000000000000000000000000..fc38aa225ef25e3763df23963fca18fa
 +func Unreachable() {
 +	if Enabled {
 +		panic("cryptobackend: invalid code execution")
-+	}
-+}
-+
-+// Provided by runtime.crypto_backend_runtime_arg0 to avoid os import.
-+func runtime_arg0() string
-+
-+func hasSuffix(s, t string) bool {
-+	return len(s) > len(t) && s[len(s)-len(t):] == t
-+}
-+
-+// UnreachableExceptTests marks code that should be unreachable
-+// when backend is in use. It panics.
-+func UnreachableExceptTests() {
-+	// runtime_arg0 is not supported on windows.
-+	// We are going through the same code patch on linux,
-+	// so if we are unintentionally calling an 'unreachable' function,
-+	// we will catch it there.
-+	if Enabled && runtime.GOOS != "windows" {
-+		name := runtime_arg0()
-+		// If ran on Windows we'd need to allow _test.exe and .test.exe as well.
-+		if !hasSuffix(name, "_test") && !hasSuffix(name, ".test") {
-+			println("cryptobackend: unexpected code execution in", name)
-+			panic("cryptobackend: invalid code execution")
-+		}
 +	}
 +}
 diff --git a/src/vendor/github.com/microsoft/go/cryptobackend/des/des_darwin.go b/src/vendor/github.com/microsoft/go/cryptobackend/des/des_darwin.go
@@ -48705,22 +48675,6 @@ index 0000000000000000000000000000000000000000..d3742ee5905d82b8917bcbcb0a65ff94
 +func New512_224() hash.Hash { return newHash(hashSHA512_224) }
 +
 +func New512_256() hash.Hash { return newHash(hashSHA512_256) }
-diff --git a/src/vendor/github.com/microsoft/go/cryptobackend/stub.s b/src/vendor/github.com/microsoft/go/cryptobackend/stub.s
-new file mode 100644
-index 0000000000000000000000000000000000000000..5e4b436554d44d10a0594c915abc75367e05dc12
---- /dev/null
-+++ b/src/vendor/github.com/microsoft/go/cryptobackend/stub.s
-@@ -0,0 +1,10 @@
-+// Copyright 2017 The Go Authors. All rights reserved.
-+// Use of this source code is governed by a BSD-style
-+// license that can be found in the LICENSE file.
-+
-+// runtime_arg0 is declared in common.go without a body.
-+// It's provided by package runtime,
-+// but the go command doesn't know that.
-+// Having this assembly file keeps the go command
-+// from complaining about the missing body
-+// (because the implementation might be here).
 diff --git a/src/vendor/github.com/microsoft/go/cryptobackend/tls12/nobackend.go b/src/vendor/github.com/microsoft/go/cryptobackend/tls12/nobackend.go
 new file mode 100644
 index 0000000000000000000000000000000000000000..3a7a8e392453f39c93218bc033ef41ef4eba907d
