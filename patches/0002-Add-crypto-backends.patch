@@ -44,7 +44,6 @@ Subject: [PATCH] Add crypto backends
  src/crypto/cipher/ctr.go                      |   5 +
  src/crypto/cipher/ctr_aes_test.go             |   2 +-
  src/crypto/cipher/gcm.go                      |  48 ++++++--
- src/crypto/cipher/gcm_test.go                 |   5 +-
  src/crypto/des/cipher.go                      |   9 ++
  src/crypto/dsa/dsa.go                         |  41 +++++++
  src/crypto/dsa/dsa_test.go                    |   8 ++
@@ -61,9 +60,7 @@ Subject: [PATCH] Add crypto backends
  src/crypto/hmac/hmac.go                       |   3 +-
  src/crypto/hmac/hmac_test.go                  |   2 +-
  src/crypto/hpke/aead.go                       |   2 +-
- src/crypto/internal/cryptotest/allocations.go |   6 -
  src/crypto/internal/cryptotest/fips140.go     |   8 ++
- src/crypto/internal/cryptotest/hash.go        |   3 +-
  .../internal/cryptotest/implementations.go    |   2 +-
  src/crypto/internal/fips140hash/hash.go       |  16 ++-
  .../internal/fips140only/fips140only.go       |  11 +-
@@ -124,7 +121,7 @@ Subject: [PATCH] Add crypto backends
  src/os/exec/exec_test.go                      |   9 ++
  src/runtime/runtime_boring.go                 |   5 +
  src/syscall/syscall_windows.go                |   3 +
- 120 files changed, 1230 insertions(+), 261 deletions(-)
+ 117 files changed, 1227 insertions(+), 250 deletions(-)
  create mode 100644 src/crypto/systemcrypto_nocgo_freebsd.go
  create mode 100644 src/crypto/systemcrypto_nocgo_linux.go
  create mode 100644 src/internal/systemcrypto/systemcrypto.go
@@ -1230,36 +1227,6 @@ index f2cf6248dc8c9b279e27565ce121fac9c8b07c4b..445dc9325ac2fda2a257f60df8473091
  	}
  	if cipher.BlockSize() != gcmBlockSize {
  		return nil, errors.New("cipher: NewGCM requires 128-bit block cipher")
-diff --git a/src/crypto/cipher/gcm_test.go b/src/crypto/cipher/gcm_test.go
-index 8ba0bb3981319d4fea85ac1f2a4349092ad1f303..f1db2b930a1a7149d9f767a9e65e81247d4f25e2 100644
---- a/src/crypto/cipher/gcm_test.go
-+++ b/src/crypto/cipher/gcm_test.go
-@@ -8,7 +8,6 @@ import (
- 	"bytes"
- 	"crypto/aes"
- 	"crypto/cipher"
--	"crypto/internal/boring"
- 	"crypto/internal/cryptotest"
- 	"crypto/internal/fips140"
- 	fipsaes "crypto/internal/fips140/aes"
-@@ -727,7 +726,7 @@ func testGCMAEAD(t *testing.T, newCipher func(key []byte) cipher.Block) {
- 
- 			// Test NewGCMWithRandomNonce.
- 			t.Run("GCMWithRandomNonce", func(t *testing.T) {
--				if _, ok := block.(*wrapper); ok || boring.Enabled {
-+				if _, ok := block.(*wrapper); ok {
- 					t.Skip("NewGCMWithRandomNonce requires an AES block cipher")
- 				}
- 				cryptotest.TestAEAD(t, func() (cipher.AEAD, error) { return cipher.NewGCMWithRandomNonce(block) })
-@@ -752,7 +751,7 @@ func TestGCMExtraMethods(t *testing.T) {
- 		})
- 		t.Run("NewGCMWithRandomNonce", func(t *testing.T) {
- 			block := newCipher(make([]byte, 16))
--			if _, ok := block.(*wrapper); ok || boring.Enabled {
-+			if _, ok := block.(*wrapper); ok {
- 				t.Skip("NewGCMWithRandomNonce requires an AES block cipher")
- 			}
- 			a, _ := cipher.NewGCMWithRandomNonce(block)
 diff --git a/src/crypto/des/cipher.go b/src/crypto/des/cipher.go
 index 81ba766b2527d21c645517b9e541901acfe6bade..d21ad6084964570bf8633d6d985fde40299486be 100644
 --- a/src/crypto/des/cipher.go
@@ -1865,30 +1832,6 @@ index fb55c97ddf20c9b5f81057974c8559a49515ce0c..7e3cf1d7f80ac035444a63ef801d6eb0
  )
  
  // The AEAD is one of the three components of an HPKE ciphersuite, implementing
-diff --git a/src/crypto/internal/cryptotest/allocations.go b/src/crypto/internal/cryptotest/allocations.go
-index 70055af70b42ecdb23a7733e5bebaf9b5b5aca66..21528faa0d614574c3ed1c291a6a21c99b01c67d 100644
---- a/src/crypto/internal/cryptotest/allocations.go
-+++ b/src/crypto/internal/cryptotest/allocations.go
-@@ -5,7 +5,6 @@
- package cryptotest
- 
- import (
--	"crypto/internal/boring"
- 	"internal/asan"
- 	"internal/msan"
- 	"internal/race"
-@@ -17,11 +16,6 @@ import (
- // SkipTestAllocations skips the test if there are any factors that interfere
- // with allocation optimizations.
- func SkipTestAllocations(t *testing.T) {
--	// Go+BoringCrypto uses cgo.
--	if boring.Enabled {
--		t.Skip("skipping allocations test with BoringCrypto")
--	}
--
- 	// The sanitizers sometimes cause allocations.
- 	if race.Enabled || msan.Enabled || asan.Enabled {
- 		t.Skip("skipping allocations test with sanitizers")
 diff --git a/src/crypto/internal/cryptotest/fips140.go b/src/crypto/internal/cryptotest/fips140.go
 index a4c9fc977bc136f0d311b681925fe48931ce1163..116106bd0a4cfb080e35a8269a7cd7e6781302f2 100644
 --- a/src/crypto/internal/cryptotest/fips140.go
@@ -1918,27 +1861,6 @@ index a4c9fc977bc136f0d311b681925fe48931ce1163..116106bd0a4cfb080e35a8269a7cd7e6
  }
  
  // MustMinimumFIPS140ModuleVersion skips the test if compiled against a lower
-diff --git a/src/crypto/internal/cryptotest/hash.go b/src/crypto/internal/cryptotest/hash.go
-index 3e2efa84db720c12ba798e03e79a2fb2fbc33649..4e631a32de56da1ee3cd2bce5ee34fd1c372e690 100644
---- a/src/crypto/internal/cryptotest/hash.go
-+++ b/src/crypto/internal/cryptotest/hash.go
-@@ -5,7 +5,6 @@
- package cryptotest
- 
- import (
--	"crypto/internal/boring"
- 	"crypto/internal/fips140"
- 	"hash"
- 	"internal/testhash"
-@@ -34,7 +33,7 @@ func TestHash(t *testing.T, mh MakeHash) {
- 		h.Sum(end[:0])
- 	})
- 
--	if boring.Enabled || fips140.Version() == "v1.0.0" {
-+	if fips140.Version() == "v1.0.0" {
- 		testhash.TestHashWithoutClone(t, testhash.MakeHash(mh))
- 		return
- 	}
 diff --git a/src/crypto/internal/cryptotest/implementations.go b/src/crypto/internal/cryptotest/implementations.go
 index 2b6cf4b75fc6b75e23d18fb4fe9ac0c056ecaa95..563452ea4c6ed05529cc13b3258725ebdd85f721 100644
 --- a/src/crypto/internal/cryptotest/implementations.go
