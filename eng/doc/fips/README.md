@@ -327,6 +327,7 @@ The `libcrypto` shared library file name varies among different platforms, so a 
 
 - The base name is always `libcrypto.so.`
 - Well-known version strings are appended to the base name in this order:
+  - Since Go 1.28: `4` -> `3` -> `1.1` -> `11` -> `111`.
   - Since Go 1.25: `3` -> `1.1` -> `11` -> `111`.
   - Prior to Go 1.25: `3` -> `1.1` -> `11` -> `111` -> `1.0.2` -> `1.0.0`.
 - This may find multiple libraries installed on the machine, so to pick one:
@@ -460,6 +461,10 @@ A program running in FIPS mode can claim it is using a FIPS-certified cryptograp
 ## Changelog
 
 This list of major changes is intended for quick reference and for access to historical information about versions that are no longer supported. The behavior of all in-support versions are documented in the sections above with notes for version-specific differences where necessary.
+
+### Go 1.28
+
+- The OpenSSL backend added support for version 4.x. The supported versions are now OpenSSL 1.1.0, 1.1.1, 3.x, and 4.x.
 
 ### Go 1.27 (Aug 2026)
 
