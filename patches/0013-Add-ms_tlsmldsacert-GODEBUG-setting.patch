@@ -1,0 +1,222 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: bot-for-go[bot] <199222863+bot-for-go[bot]@users.noreply.github.com>
+Date: Mon, 19 Oct 2026 14:04:47 +0200
+Subject: [PATCH] Add ms_tlsmldsacert GODEBUG setting
+
+Default to 1 to preserve ML-DSA certificate signature advertisements.
+When set to 0, omit ML-DSA-44, ML-DSA-65, and ML-DSA-87 from
+signature_algorithms_cert in ClientHello and CertificateRequest,
+independently of ms_tlsprofile and the crypto backend. Leave the
+extension, handshake signatures, and certificate verification unchanged.
+
+This opt-out addresses compatibility with TLS-inspecting middleboxes
+that reject ML-DSA certificate signature schemes (golang/go#81199).
+
+Test the default and both setting values on the wire across TLS versions
+and Microsoft profiles. Document the setting's introduction in v1.27.2-2.
+---
+ doc/godebug.md                   |   8 ++
+ src/crypto/tls/common.go         |   4 +
+ src/crypto/tls/microsoft_test.go | 121 +++++++++++++++++++++++++++++++
+ src/internal/godebugs/table.go   |   1 +
+ 4 files changed, 134 insertions(+)
+
+diff --git a/doc/godebug.md b/doc/godebug.md
+index 6426e90c3509b00ca5e1296b401d873de30a96b8..27ed4ed5f972596f852a4004019d316af78ab0cd 100644
+--- a/doc/godebug.md
++++ b/doc/godebug.md
+@@ -211,6 +211,14 @@ enforcement of Extended Master Secret in FIPS 140-3 mode. There is no change in
+ default behavior. This setting was backported to Go 1.26.6 and Go 1.25.13.
+ We plan to remove this setting in Go 1.31.
+ 
++Microsoft build of Go `v1.27.2-2` added a new `ms_tlsmldsacert` setting that
++controls whether `crypto/tls` advertises ML-DSA in the `signature_algorithms_cert`
++extension. The default value is `ms_tlsmldsacert=1`. Setting
++`ms_tlsmldsacert=0` omits ML-DSA-44, ML-DSA-65, and ML-DSA-87 from this extension
++in ClientHello and CertificateRequest messages, independently of `ms_tlsprofile`.
++The extension and its other algorithms remain present. ML-DSA handshake
++signatures, ML-KEM key exchange, and certificate verification are unaffected.
++
+ ### Go 1.26
+ 
+ Go 1.26 added a new `httpcookiemaxnum` setting that controls the maximum number
+diff --git a/src/crypto/tls/common.go b/src/crypto/tls/common.go
+index 1b701b257dc01e7a42c644538bca131895ab0c2d..465b7ef7205dd1bc33e94d54c2da489a75d8fa78 100644
+--- a/src/crypto/tls/common.go
++++ b/src/crypto/tls/common.go
+@@ -1797,6 +1797,7 @@ func supportedSignatureAlgorithms(minVers, maxVers uint16) []SignatureScheme {
+ }
+ 
+ var tlssha1 = godebug.New("tlssha1")
++var ms_tlsmldsacert = godebug.New("ms_tlsmldsacert")
+ 
+ func isDisabledSignatureAlgorithm(version uint16, s SignatureScheme, isCert bool) bool {
+ 	if fips140tls.Required() && !slices.Contains(allowedSignatureAlgorithmsFIPS, s) {
+@@ -1805,6 +1806,9 @@ func isDisabledSignatureAlgorithm(version uint16, s SignatureScheme, isCert bool
+ 
+ 	switch s {
+ 	case MLDSA44, MLDSA65, MLDSA87:
++		if isCert && ms_tlsmldsacert.Value() == "0" {
++			return true
++		}
+ 		// ML-DSA is not available in FIPS 140-3 module v1.0.0.
+ 		if fips140.Version() == "v1.0.0" {
+ 			return true
+diff --git a/src/crypto/tls/microsoft_test.go b/src/crypto/tls/microsoft_test.go
+index 7803472159d8ec7fc6a3c51eed0b40f9b045433a..cd0d2d715afd2771c47597b489d70b6075d52f30 100644
+--- a/src/crypto/tls/microsoft_test.go
++++ b/src/crypto/tls/microsoft_test.go
+@@ -5,6 +5,7 @@
+ package tls
+ 
+ import (
++	"crypto/fips140"
+ 	"crypto/tls/internal/fips140tls"
+ 	"internal/goexperiment"
+ 	"internal/testenv"
+@@ -18,6 +19,7 @@ import (
+ 	boring "github.com/microsoft/go/cryptobackend"
+ 	becdh "github.com/microsoft/go/cryptobackend/ecdh"
+ 	bmlkem "github.com/microsoft/go/cryptobackend/mlkem"
++	"golang.org/x/crypto/cryptobyte"
+ )
+ 
+ func TestMicrosoftDefaultCipherSuites(t *testing.T) {
+@@ -523,6 +525,125 @@ func testCipherSuitePreferenceOrder(t *testing.T, maxVersion uint16, expected ui
+ 	}
+ }
+ 
++func TestMicrosoftSignatureAlgorithmsCert(t *testing.T) {
++	classicalCertSigAlgs := []SignatureScheme{
++		PSSWithSHA256,
++		ECDSAWithP256AndSHA256,
++		Ed25519,
++		PSSWithSHA384,
++		PSSWithSHA512,
++		PKCS1WithSHA256,
++		PKCS1WithSHA384,
++		PKCS1WithSHA512,
++		ECDSAWithP384AndSHA384,
++		ECDSAWithP521AndSHA512,
++		PKCS1WithSHA1,
++		ECDSAWithSHA1,
++	}
++	if fips140tls.Required() {
++		classicalCertSigAlgs = slices.DeleteFunc(classicalCertSigAlgs, func(s SignatureScheme) bool {
++			return !slices.Contains(allowedSignatureAlgorithmsFIPS, s)
++		})
++	}
++	check := func(t *testing.T, sigAlgs, certSigAlgs []SignatureScheme, maxVersion uint16, advertiseMLDSA bool) {
++		t.Helper()
++		var wantCertSigAlgs []SignatureScheme
++		for _, s := range []SignatureScheme{MLDSA44, MLDSA65, MLDSA87} {
++			want := maxVersion >= VersionTLS13 && fips140.Version() != "v1.0.0" &&
++				(!fips140tls.Required() || slices.Contains(allowedSignatureAlgorithmsFIPS, s))
++			if got := slices.Contains(sigAlgs, s); got != want {
++				t.Errorf("signature_algorithms contains %v = %v, want %v", s, got, want)
++			}
++			if advertiseMLDSA && want {
++				wantCertSigAlgs = append(wantCertSigAlgs, s)
++			}
++		}
++		wantCertSigAlgs = append(wantCertSigAlgs, classicalCertSigAlgs...)
++		if !slices.Equal(certSigAlgs, wantCertSigAlgs) {
++			t.Errorf("signature_algorithms_cert = %v, want %v", certSigAlgs, wantCertSigAlgs)
++		}
++	}
++
++	for _, value := range []string{"", "0", "1"} {
++		for _, profile := range []string{"default", "off"} {
++			t.Run("ms_tlsmldsacert="+value+"/"+profile, func(t *testing.T) {
++				testenv.SetGODEBUG(t, "ms_tlsmldsacert="+value)
++				testenv.SetGODEBUG(t, "ms_tlsprofile="+profile)
++				for _, versions := range []struct {
++					name     string
++					min, max uint16
++				}{
++					{"TLS12", VersionTLS12, VersionTLS12},
++					{"TLS13", VersionTLS13, VersionTLS13},
++					{"TLS12-TLS13", VersionTLS12, VersionTLS13},
++				} {
++					t.Run("ClientHello/"+versions.name, func(t *testing.T) {
++						config := testConfigClient.Clone()
++						config.MinVersion, config.MaxVersion = versions.min, versions.max
++						hello, _, _, err := Client(nil, config).makeClientHello()
++						if err != nil {
++							t.Fatal(err)
++						}
++						data, err := hello.marshal()
++						if err != nil {
++							t.Fatal(err)
++						}
++						var parsed clientHelloMsg
++						if !parsed.unmarshal(data) {
++							t.Fatal("failed to unmarshal ClientHello")
++						}
++						check(t, parsed.supportedSignatureAlgorithms, parsed.supportedSignatureAlgorithmsCert, versions.max, value != "0")
++					})
++				}
++
++				t.Run("CertificateRequest", func(t *testing.T) {
++					clientConfig := testConfigClient.Clone()
++					clientConfig.MinVersion = VersionTLS13
++					serverConfig := testConfigServer.Clone()
++					serverConfig.MinVersion = VersionTLS13
++					serverConfig.ClientAuth = RequestClientCert
++					serverConfig.SessionTicketsDisabled = true
++					cli := newTestQUICClient(t, &QUICConfig{TLSConfig: clientConfig})
++					cli.conn.SetTransportParameters(nil)
++					srv := newTestQUICServer(t, &QUICConfig{TLSConfig: serverConfig})
++					srv.conn.SetTransportParameters(nil)
++					var data []byte
++					onEvent := func(e QUICEvent, src, dst *testQUICConn) bool {
++						if src == srv && e.Kind == QUICWriteData && e.Level == QUICEncryptionLevelHandshake {
++							data = append(data, e.Data...)
++						}
++						return false
++					}
++					if err := runTestQUICConnection(t.Context(), cli, srv, onEvent); err != nil {
++						t.Fatal(err)
++					}
++					found := false
++					for messages := cryptobyte.String(data); !messages.Empty(); {
++						raw := messages
++						var typ uint8
++						var body cryptobyte.String
++						if !messages.ReadUint8(&typ) || !messages.ReadUint24LengthPrefixed(&body) {
++							t.Fatal("invalid server handshake message")
++						}
++						if typ != typeCertificateRequest {
++							continue
++						}
++						var parsed certificateRequestMsgTLS13
++						if !parsed.unmarshal(raw[:4+len(body)]) {
++							t.Fatal("failed to unmarshal CertificateRequest")
++						}
++						check(t, parsed.supportedSignatureAlgorithms, parsed.supportedSignatureAlgorithmsCert, VersionTLS13, value != "0")
++						found = true
++					}
++					if !found {
++						t.Fatal("server did not send CertificateRequest")
++					}
++				})
++			})
++		}
++	}
++}
++
+ func enableMicrosoftProfile(t *testing.T) {
+ 	t.Setenv("GODEBUG", strings.ReplaceAll(os.Getenv("GODEBUG"), "ms_tlsprofile=off", "")+",ms_tlsprofile=default")
+ }
+diff --git a/src/internal/godebugs/table.go b/src/internal/godebugs/table.go
+index c6b06ce6c1ada04513cf7112a4f51d434dc1681d..e4d8e96cefd063ffe39c8d8057906d71f2ef0462 100644
+--- a/src/internal/godebugs/table.go
++++ b/src/internal/godebugs/table.go
+@@ -50,6 +50,7 @@ var All = []Info{
+ 	{Name: "httpservecontentmaxranges", Package: "net/http", Changed: 26, Old: "1"},
+ 	{Name: "installgoroot", Package: "go/build"},
+ 	{Name: "jstmpllitinterp", Package: "html/template", Opaque: true}, // bug #66217: remove Opaque
++	{Name: "ms_tlsmldsacert", Package: "crypto/tls", Opaque: true},
+ 	{Name: "ms_tlsprofile", Package: "crypto/tls", Opaque: true},
+ 	{Name: "ms_tlsx25519", Package: "crypto/tls", Opaque: true},
+ 	{Name: "ms_version", Package: "runtime", Opaque: true},
