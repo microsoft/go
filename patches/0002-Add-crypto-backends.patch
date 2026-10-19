@@ -5,7 +5,6 @@ Subject: [PATCH] Add crypto backends
 
 ---
  .gitignore                                    |   2 +
- src/cmd/api/boring_test.go                    |   2 +-
  .../compile/internal/logopt/logopt_test.go    |   5 +
  src/cmd/compile/script_test.go                |   8 ++
  src/cmd/compile/testdata/script/README        |   2 +
@@ -44,7 +43,6 @@ Subject: [PATCH] Add crypto backends
  src/crypto/cipher/ctr.go                      |   5 +
  src/crypto/cipher/ctr_aes_test.go             |   2 +-
  src/crypto/cipher/gcm.go                      |  48 ++++++--
- src/crypto/cipher/gcm_test.go                 |   5 +-
  src/crypto/des/cipher.go                      |   9 ++
  src/crypto/dsa/dsa.go                         |  41 +++++++
  src/crypto/dsa/dsa_test.go                    |   8 ++
@@ -61,9 +59,7 @@ Subject: [PATCH] Add crypto backends
  src/crypto/hmac/hmac.go                       |   3 +-
  src/crypto/hmac/hmac_test.go                  |   2 +-
  src/crypto/hpke/aead.go                       |   2 +-
- src/crypto/internal/cryptotest/allocations.go |   6 -
  src/crypto/internal/cryptotest/fips140.go     |   8 ++
- src/crypto/internal/cryptotest/hash.go        |   3 +-
  .../internal/cryptotest/implementations.go    |   2 +-
  src/crypto/internal/fips140hash/hash.go       |  16 ++-
  .../internal/fips140only/fips140only.go       |  11 +-
@@ -122,9 +118,8 @@ Subject: [PATCH] Add crypto backends
  .../systemcrypto/systemcrypto_test.go         |  60 ++++++++++
  src/net/lookup_test.go                        |   3 +
  src/os/exec/exec_test.go                      |   9 ++
- src/runtime/runtime_boring.go                 |   5 +
  src/syscall/syscall_windows.go                |   3 +
- 120 files changed, 1229 insertions(+), 259 deletions(-)
+ 115 files changed, 1220 insertions(+), 247 deletions(-)
  create mode 100644 src/crypto/systemcrypto_nocgo_freebsd.go
  create mode 100644 src/crypto/systemcrypto_nocgo_linux.go
  create mode 100644 src/internal/systemcrypto/systemcrypto.go
@@ -143,19 +138,6 @@ index 344b31f7ac1c1d..b4583113d5aa15 100644
  # This file includes artifacts of Go build that should not be checked in.
  # For files created by specific development environment (e.g. editor),
  # use alternative ways to exclude files from git.
-diff --git a/src/cmd/api/boring_test.go b/src/cmd/api/boring_test.go
-index f0e3575637c62a..9eab3b4e66e60b 100644
---- a/src/cmd/api/boring_test.go
-+++ b/src/cmd/api/boring_test.go
-@@ -2,7 +2,7 @@
- // Use of this source code is governed by a BSD-style
- // license that can be found in the LICENSE file.
- 
--//go:build boringcrypto
-+//go:build goexperiment.systemcrypto
- 
- package main
- 
 diff --git a/src/cmd/compile/internal/logopt/logopt_test.go b/src/cmd/compile/internal/logopt/logopt_test.go
 index 1edabf9fb7ff04..5e9fc3507485bc 100644
 --- a/src/cmd/compile/internal/logopt/logopt_test.go
@@ -1230,36 +1212,6 @@ index f2cf6248dc8c9b..445dc9325ac2fd 100644
  	}
  	if cipher.BlockSize() != gcmBlockSize {
  		return nil, errors.New("cipher: NewGCM requires 128-bit block cipher")
-diff --git a/src/crypto/cipher/gcm_test.go b/src/crypto/cipher/gcm_test.go
-index 8ba0bb3981319d..f1db2b930a1a71 100644
---- a/src/crypto/cipher/gcm_test.go
-+++ b/src/crypto/cipher/gcm_test.go
-@@ -8,7 +8,6 @@ import (
- 	"bytes"
- 	"crypto/aes"
- 	"crypto/cipher"
--	"crypto/internal/boring"
- 	"crypto/internal/cryptotest"
- 	"crypto/internal/fips140"
- 	fipsaes "crypto/internal/fips140/aes"
-@@ -727,7 +726,7 @@ func testGCMAEAD(t *testing.T, newCipher func(key []byte) cipher.Block) {
- 
- 			// Test NewGCMWithRandomNonce.
- 			t.Run("GCMWithRandomNonce", func(t *testing.T) {
--				if _, ok := block.(*wrapper); ok || boring.Enabled {
-+				if _, ok := block.(*wrapper); ok {
- 					t.Skip("NewGCMWithRandomNonce requires an AES block cipher")
- 				}
- 				cryptotest.TestAEAD(t, func() (cipher.AEAD, error) { return cipher.NewGCMWithRandomNonce(block) })
-@@ -752,7 +751,7 @@ func TestGCMExtraMethods(t *testing.T) {
- 		})
- 		t.Run("NewGCMWithRandomNonce", func(t *testing.T) {
- 			block := newCipher(make([]byte, 16))
--			if _, ok := block.(*wrapper); ok || boring.Enabled {
-+			if _, ok := block.(*wrapper); ok {
- 				t.Skip("NewGCMWithRandomNonce requires an AES block cipher")
- 			}
- 			a, _ := cipher.NewGCMWithRandomNonce(block)
 diff --git a/src/crypto/des/cipher.go b/src/crypto/des/cipher.go
 index 81ba766b2527d2..d21ad608496457 100644
 --- a/src/crypto/des/cipher.go
@@ -1865,30 +1817,6 @@ index fb55c97ddf20c9..7e3cf1d7f80ac0 100644
  )
  
  // The AEAD is one of the three components of an HPKE ciphersuite, implementing
-diff --git a/src/crypto/internal/cryptotest/allocations.go b/src/crypto/internal/cryptotest/allocations.go
-index 70055af70b42ec..21528faa0d6145 100644
---- a/src/crypto/internal/cryptotest/allocations.go
-+++ b/src/crypto/internal/cryptotest/allocations.go
-@@ -5,7 +5,6 @@
- package cryptotest
- 
- import (
--	"crypto/internal/boring"
- 	"internal/asan"
- 	"internal/msan"
- 	"internal/race"
-@@ -17,11 +16,6 @@ import (
- // SkipTestAllocations skips the test if there are any factors that interfere
- // with allocation optimizations.
- func SkipTestAllocations(t *testing.T) {
--	// Go+BoringCrypto uses cgo.
--	if boring.Enabled {
--		t.Skip("skipping allocations test with BoringCrypto")
--	}
--
- 	// The sanitizers sometimes cause allocations.
- 	if race.Enabled || msan.Enabled || asan.Enabled {
- 		t.Skip("skipping allocations test with sanitizers")
 diff --git a/src/crypto/internal/cryptotest/fips140.go b/src/crypto/internal/cryptotest/fips140.go
 index a4c9fc977bc136..116106bd0a4cfb 100644
 --- a/src/crypto/internal/cryptotest/fips140.go
@@ -1918,27 +1846,6 @@ index a4c9fc977bc136..116106bd0a4cfb 100644
  }
  
  // MustMinimumFIPS140ModuleVersion skips the test if compiled against a lower
-diff --git a/src/crypto/internal/cryptotest/hash.go b/src/crypto/internal/cryptotest/hash.go
-index 3e2efa84db720c..4e631a32de56da 100644
---- a/src/crypto/internal/cryptotest/hash.go
-+++ b/src/crypto/internal/cryptotest/hash.go
-@@ -5,7 +5,6 @@
- package cryptotest
- 
- import (
--	"crypto/internal/boring"
- 	"crypto/internal/fips140"
- 	"hash"
- 	"internal/testhash"
-@@ -34,7 +33,7 @@ func TestHash(t *testing.T, mh MakeHash) {
- 		h.Sum(end[:0])
- 	})
- 
--	if boring.Enabled || fips140.Version() == "v1.0.0" {
-+	if fips140.Version() == "v1.0.0" {
- 		testhash.TestHashWithoutClone(t, testhash.MakeHash(mh))
- 		return
- 	}
 diff --git a/src/crypto/internal/cryptotest/implementations.go b/src/crypto/internal/cryptotest/implementations.go
 index da532ab41c4916..7676d65b7b90fc 100644
 --- a/src/crypto/internal/cryptotest/implementations.go
@@ -2466,7 +2373,7 @@ index eb0ed14e243c6b..c0cdca547261c0 100644
  	// 32-bit platforms), since the max value for keyLength is 1<<31-1 and
  	// 1<<31-1 * hLen will always be less than 1<<32-1 * hLen.
 diff --git a/src/crypto/purego_test.go b/src/crypto/purego_test.go
-index ebc9110cecee82..aa4aec046795cf 100644
+index ebc9110cecee82..c15de6f7ebfd0d 100644
 --- a/src/crypto/purego_test.go
 +++ b/src/crypto/purego_test.go
 @@ -41,7 +41,7 @@ func TestPureGoTag(t *testing.T) {
@@ -2474,7 +2381,7 @@ index ebc9110cecee82..aa4aec046795cf 100644
  
  	for _, pkgName := range pkgs {
 -		if strings.Contains(pkgName, "/boring") {
-+		if strings.Contains(pkgName, "/boring") || strings.Contains(pkgName, "/internal/backend") || strings.Contains(pkgName, "tls/fipsonly") {
++		if strings.Contains(pkgName, "/boring") || strings.Contains(pkgName, "tls/fipsonly") {
  			continue
  		}
  
@@ -4259,19 +4166,6 @@ index 4f39d9bbe345a8..b372f4077a3fe3 100644
  	// Force network usage, to verify the epoll (or whatever) fd
  	// doesn't leak to the child,
  	ln, err := net.Listen("tcp", "127.0.0.1:0")
-diff --git a/src/runtime/runtime_boring.go b/src/runtime/runtime_boring.go
-index 831ee67afc952d..e74790bfe70506 100644
---- a/src/runtime/runtime_boring.go
-+++ b/src/runtime/runtime_boring.go
-@@ -14,3 +14,8 @@ func boring_runtime_arg0() string {
- 	}
- 	return argslice[0]
- }
-+
-+//go:linkname cryptobackend_runtime_arg0 vendor/github.com/microsoft/go/cryptobackend.runtime_arg0
-+func cryptobackend_runtime_arg0() string {
-+	return boring_runtime_arg0()
-+}
 diff --git a/src/syscall/syscall_windows.go b/src/syscall/syscall_windows.go
 index b6911ef952b039..27e2191ddae6a7 100644
 --- a/src/syscall/syscall_windows.go
