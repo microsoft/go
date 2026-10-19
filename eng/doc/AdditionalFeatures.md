@@ -48,6 +48,12 @@ The possible values of `ms_tlsx25519` are:
 - `0` disables the X25519 and X25519MLKEM768 TLS groups.
 - `1` (default) enables these groups.
 
+Go 1.27 introduces `ms_tlsmldsa`, independently of `ms_tlsprofile`.
+The possible values of `ms_tlsmldsa` are:
+
+- `0` disables the ML-DSA-44, ML-DSA-65, and ML-DSA-87 TLS signature algorithms.
+- `1` (default) enables these algorithms, subject to the TLS version and FIPS restrictions.
+
 These features operate independently from the system-provided cryptography backend feature.
 They work the same way when the pure Go cryptography implementation is used.
 
