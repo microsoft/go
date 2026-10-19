@@ -46,8 +46,9 @@ The `GOFIPS` and `GOLANG_FIPS` environment variable checks now match their inten
 
 ## TLS
 
-To avoid connection resets from TLS-inspecting middleboxes, `crypto/tls` omits ML-DSA-44, ML-DSA-65, and ML-DSA-87 from the `signature_algorithms_cert` extension in ClientHello and CertificateRequest messages.
+Starting with `v1.27.2-2`, the `ms_tlsmldsacert` GODEBUG setting controls ML-DSA advertisement in the `signature_algorithms_cert` extension.
+It defaults to `ms_tlsmldsacert=1`, preserving the upstream behavior.
+Setting `GODEBUG=ms_tlsmldsacert=0` omits ML-DSA-44, ML-DSA-65, and ML-DSA-87 from this extension in ClientHello and CertificateRequest messages to avoid connection resets from TLS-inspecting middleboxes.
 The extension remains present, with its other algorithms and existing FIPS restrictions unchanged.
-ML-DSA remains available for TLS 1.3 handshake signatures, and ML-KEM key exchange is unaffected.
-This behavior is independent of `ms_tlsprofile` and the cryptography backend.
-It does not change certificate verification, but peers may select a different certificate chain or fail if they require ML-DSA certificate signatures to be advertised.
+The setting is independent of `ms_tlsprofile` and the cryptography backend; it does not affect ML-DSA handshake signatures, ML-KEM key exchange, or certificate verification.
+When advertisement is disabled, peers may select a different certificate chain or fail if they require ML-DSA certificate signatures to be advertised.
