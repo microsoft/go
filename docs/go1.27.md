@@ -43,3 +43,12 @@ It acts like `fips140=on`, but also panics if a non-FIPS-approved algorithm is u
 `GODEBUG=fips140=off` now explicitly disables FIPS mode and skips the platform-specific FIPS detection (such as the Linux kernel FIPS flag at `/proc/sys/crypto/fips_enabled`).
 
 The `GOFIPS` and `GOLANG_FIPS` environment variable checks now match their intended behavior: only the value `1` enables FIPS mode, and any other value (including `0` and the empty string) is treated as if the variable were unset.
+
+## TLS
+
+Starting with `v1.27.2-2`, the `ms_tlsmldsacert` GODEBUG setting controls ML-DSA advertisement in the `signature_algorithms_cert` extension.
+It defaults to `ms_tlsmldsacert=1`, preserving the upstream behavior.
+Setting `GODEBUG=ms_tlsmldsacert=0` omits ML-DSA-44, ML-DSA-65, and ML-DSA-87 from this extension in ClientHello and CertificateRequest messages to avoid connection resets from TLS-inspecting middleboxes.
+The extension remains present, with its other algorithms and existing FIPS restrictions unchanged.
+The setting is independent of `ms_tlsprofile` and the cryptography backend; it does not affect ML-DSA handshake signatures, ML-KEM key exchange, or certificate verification.
+When advertisement is disabled, peers may select a different certificate chain or fail if they require ML-DSA certificate signatures to be advertised.
