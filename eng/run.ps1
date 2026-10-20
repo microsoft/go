@@ -120,6 +120,7 @@ try {
   # out the GOOS/GOARCH values (empty string) to detect host OS/ARCH automatically for the tools.
   Invoke-CrossGoBlock "" "" {
     # The Linux stage 0 systemcrypto backend requires cgo, even for nocgo target builds.
+    # TODO: Remove the cgo override once stage 0 uses Go 1.27.
     if ($IsLinux -and $env:CGO_ENABLED -eq "0") {
       $env:CGO_ENABLED = "1"
     }
