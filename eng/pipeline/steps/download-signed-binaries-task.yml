@@ -14,47 +14,71 @@ parameters:
     default: false
 
 steps:
-  - ${{ if parameters.ReleaseJob }}:
-
-    - task: 1ES.DownloadPipelineArtifact@1
-      displayName: 'Download: Binaries Signed'
-      inputs:
-        ${{ if eq(parameters.runID, 'nil') }}:
-          buildType: current
-        ${{ else }}:
-          buildType: specific
-          runVersion: 'specific'
-          runId: ${{ parameters.runID }}
-        project: $(System.TeamProject)
-        definition: $(System.DefinitionId)
-        artifactName: Binaries Signed
-        targetPath: '$(Pipeline.Workspace)/Binaries Signed'
-
-    # The 1ES step tries to validate the SBOM manifests after download, so we can't assign
-    # 'patterns' to filter them out. Instead, remove them after validation is done.
+  - ${{ if ne(parameters.runID, 'nil') }}:
     - pwsh: |
-        Remove-Item -Path '$(Pipeline.Workspace)/Binaries Signed/_manifest' -Recurse -Force
-      displayName: Delete SBOM manifests
+        $ErrorActionPreference = 'Stop'
+        $uri = "$(System.CollectionUri)$(System.TeamProjectId)/_apis/build/builds/$env:SIGNED_RUN_ID/artifacts?api-version=7.1"
+        $artifacts = Invoke-RestMethod -Uri $uri -Headers @{
+          Authorization = "Bearer $env:SYSTEM_ACCESSTOKEN"
+        }
+        $names = @($artifacts.value.name)
+        $expected = @('Binaries Signed linux', 'Binaries Signed windows', 'Binaries Signed darwin')
+        $platformArtifacts = @($expected | Where-Object { $_ -in $names })
+        if ($platformArtifacts.Count -eq $expected.Count) {
+          $layout = 'platform'
+        } elseif ('Binaries Signed' -in $names) {
+          $layout = 'legacy'
+        } else {
+          throw "Run $env:SIGNED_RUN_ID has neither all platform signing artifacts nor the legacy Binaries Signed artifact. Found: $($names -join ', ')"
+        }
+        Write-Host "Signed artifact layout for run ${env:SIGNED_RUN_ID}: $layout"
+        Write-Host "##vso[task.setvariable variable=SignedArtifactLayout]$layout"
+      env:
+        SYSTEM_ACCESSTOKEN: $(System.AccessToken)
+        SIGNED_RUN_ID: ${{ parameters.runID }}
+      displayName: Detect signed artifacts in existing run
 
-  - ${{ elseif eq(parameters.runID, 'nil') }}:
+  - ${{ each artifact in split('Binaries Signed linux|Binaries Signed windows|Binaries Signed darwin|Binaries Signed', '|') }}:
+    - ${{ if or(ne(parameters.runID, 'nil'), ne(artifact, 'Binaries Signed')) }}:
+      - ${{ if parameters.ReleaseJob }}:
+        - task: 1ES.DownloadPipelineArtifact@1
+          displayName: 'Download: ${{ artifact }}'
+          ${{ if ne(parameters.runID, 'nil') }}:
+            condition: and(succeeded(), eq(variables['SignedArtifactLayout'], '${{ iif(eq(artifact, 'Binaries Signed'), 'legacy', 'platform') }}'))
+          inputs:
+            ${{ if eq(parameters.runID, 'nil') }}:
+              buildType: current
+            ${{ else }}:
+              buildType: specific
+              runVersion: 'specific'
+              runId: ${{ parameters.runID }}
+            project: $(System.TeamProject)
+            definition: $(System.DefinitionId)
+            artifactName: ${{ artifact }}
+            targetPath: '$(Pipeline.Workspace)/Binaries Signed'
 
-    - download: current
-      artifact: Binaries Signed
-      # Filter out manifests added by 1ES pipeline template.
-      patterns: '!_manifest/**'
-      displayName: 'Download: Binaries Signed'
+        # Validate each artifact's SBOM before removing its manifest for the next download.
+        - pwsh: |
+            Remove-Item -LiteralPath '$(Pipeline.Workspace)/Binaries Signed/_manifest' -Recurse -Force -ErrorAction Stop
+          displayName: 'Delete SBOM manifests: ${{ artifact }}'
+          ${{ if ne(parameters.runID, 'nil') }}:
+            condition: and(succeeded(), eq(variables['SignedArtifactLayout'], '${{ iif(eq(artifact, 'Binaries Signed'), 'legacy', 'platform') }}'))
 
-  - ${{ else }}:
-
-    - task: DownloadPipelineArtifact@2
-      displayName: 'Download: Binaries Signed (Specific)'
-      inputs:
-        buildType: specific
-        project: $(System.TeamProject)
-        definition: $(System.DefinitionId)
-        runVersion: 'specific'
-        runId: ${{ parameters.runID }}
-        artifact: Binaries Signed
-        # Filter out manifests added by 1ES pipeline template.
-        patterns: '!_manifest/**'
-        targetPath: '$(Pipeline.Workspace)/Binaries Signed'
+      - ${{ else }}:
+        - task: DownloadPipelineArtifact@2
+          displayName: 'Download: ${{ artifact }}'
+          ${{ if ne(parameters.runID, 'nil') }}:
+            condition: and(succeeded(), eq(variables['SignedArtifactLayout'], '${{ iif(eq(artifact, 'Binaries Signed'), 'legacy', 'platform') }}'))
+          inputs:
+            ${{ if eq(parameters.runID, 'nil') }}:
+              buildType: current
+            ${{ else }}:
+              buildType: specific
+              runVersion: 'specific'
+              runId: ${{ parameters.runID }}
+            project: $(System.TeamProject)
+            definition: $(System.DefinitionId)
+            artifact: ${{ artifact }}
+            # Filter out manifests added by 1ES pipeline template.
+            patterns: '!_manifest/**'
+            targetPath: '$(Pipeline.Workspace)/Binaries Signed'

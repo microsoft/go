@@ -67,17 +67,21 @@ each pass; the split removes cross-platform waits, not the dependencies within e
 Separate workspaces isolate the MSBuild intermediate files, signing payloads, and diagnostics.
 
 Each flow publishes `Binaries Signed <os>` and `Signing diagnosis files <os> <attempt>`.
-The final `Sign` stage waits for `Sign_linux`, `Sign_windows`, and `Sign_darwin` to succeed and
-combines their outputs into the existing `Binaries Signed` artifact, rejecting duplicate filenames.
-Downstream publishing keeps its existing dependency on `Sign` and its artifact download interface.
+Publishing depends directly on `Sign_linux`, `Sign_windows`, and `Sign_darwin` succeeding.
+There is no consolidation stage or combined artifact to republish and rescan.
+The shared download template downloads all three platform artifacts into the consumer's local
+`Binaries Signed` directory, preserving the layout used by publishing and CodeQL.
+When consuming an existing run, it detects whether that run has all three platform artifacts or
+the legacy combined `Binaries Signed` artifact, so older releases remain usable.
 
 All signing jobs retain the existing MicroBuild production/test configuration and platform
-certificate choices. The consolidation job does not sign files. Required output scanning and
-SBOM generation remain enabled, including for the consolidated artifact.
+certificate choices. Required output scanning and SBOM generation remain enabled for each platform.
+Release-job downloads validate each artifact's SBOM before removing its manifest and downloading
+the next artifact into the same directory.
 
 To measure the change without rebuilding Go, queue the official pipeline from the branch
 containing this change with `signExistingRunID` set to a completed build with all platform
 artifacts. Use an approved pipeline and signing agents for real signing; local validation must
 use dry-run or test signing. Compare overall release completion and the interval from the first
-platform signing stage through the final `Sign` stage, including agent queueing, scanning, and
-consolidation, rather than only the duration of the signing commands.
+platform signing stage through completion of all three signing stages, including agent queueing
+and scanning, rather than only the duration of the signing commands.

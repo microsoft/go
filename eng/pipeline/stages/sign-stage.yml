@@ -2,7 +2,7 @@
 # Use of this source code is governed by a BSD-style
 # license that can be found in the LICENSE file.
 
-# Sign each platform independently, then consolidate the signed files and signatures.
+# Sign each platform independently and publish platform-specific artifacts.
 
 parameters:
   - name: ctx
@@ -105,54 +105,3 @@ stages:
                     -consolidate-diag-dir '$(DiagnosticsDir)' `
                     -timeout 60m
                 displayName: Sign Files
-
-  - stage: Sign
-    displayName: Consolidate signed binaries
-    dependsOn:
-      - Sign_linux
-      - Sign_windows
-      - Sign_darwin
-    jobs:
-      - ${{ if and(ne(variables['System.TeamProject'], 'public'), ne(variables['Build.Reason'], 'PullRequest')) }}:
-        - job: ConsolidateSignedBinaries
-          displayName: Consolidate signed binaries
-          pool: ${{ parameters.pool }}
-          workspace:
-            clean: all
-
-          variables:
-            - name: SignedDir
-              value: $(Build.ArtifactStagingDirectory)\signed
-
-          templateContext:
-            outputs:
-              - output: pipelineArtifact
-                path: '$(SignedDir)'
-                artifact: Binaries Signed
-
-          steps:
-            - checkout: none
-
-            - ${{ each platform in split('linux,windows,darwin', ',') }}:
-              - download: current
-                artifact: Binaries Signed ${{ platform }}
-                patterns: '!_manifest/**'
-                displayName: 'Download: Binaries Signed ${{ platform }}'
-
-              - pwsh: |
-                  $ErrorActionPreference = 'Stop'
-                  $source = '$(Pipeline.Workspace)/Binaries Signed ${{ platform }}'
-                  $destination = '$(SignedDir)'
-                  New-Item -Path $destination -ItemType Directory -Force | Out-Null
-                  $files = @(Get-ChildItem -LiteralPath $source -Recurse -File)
-                  if ($files.Count -eq 0) {
-                    throw "No signed files found for ${{ platform }}"
-                  }
-                  foreach ($file in $files) {
-                    $target = Join-Path $destination $file.Name
-                    if (Test-Path -LiteralPath $target) {
-                      throw "Duplicate signed filename: $($file.Name)"
-                    }
-                    Copy-Item -LiteralPath $file.FullName -Destination $target
-                  }
-                displayName: 'Consolidate: Binaries Signed ${{ platform }}'
