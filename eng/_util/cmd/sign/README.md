@@ -48,3 +48,36 @@ It occurs in the `microsoft-go` pipeline, on a Windows machine.
 See [`/eng/pipeline/README.md`](/eng/pipeline/README.md).
 
 The invocation of `sign` can be found in [`/eng/pipeline/stages/sign-stage.yml`](/eng/pipeline/stages/sign-stage.yml).
+
+### Parallel release signing
+
+Three independent signing stages run on the existing Windows signing pool:
+
+* Linux and source archives: create detached archive signatures and checksums.
+* Windows archives: sign executables, repack, then create detached archive signatures and checksums.
+* macOS archives: harden binaries, notarize, repack, then create detached archive signatures and checksums.
+
+Each signing stage depends only on its platform's build stages, so it can start as soon as those
+stages finish without waiting for other platforms. When signing an existing run, the signing stages
+have no build dependencies and can all start immediately, subject to agent availability.
+
+Each job downloads only its platform's builder artifacts. The source archive is produced by
+the Linux amd64 builder, so it travels with the Linux artifacts. Signing remains batched within
+each pass; the split removes cross-platform waits, not the dependencies within each archive.
+Separate workspaces isolate the MSBuild intermediate files, signing payloads, and diagnostics.
+
+Each flow publishes `Binaries Signed <os>` and `Signing diagnosis files <os> <attempt>`.
+The final `Sign` stage waits for `Sign_linux`, `Sign_windows`, and `Sign_darwin` to succeed and
+combines their outputs into the existing `Binaries Signed` artifact, rejecting duplicate filenames.
+Downstream publishing keeps its existing dependency on `Sign` and its artifact download interface.
+
+All signing jobs retain the existing MicroBuild production/test configuration and platform
+certificate choices. The consolidation job does not sign files. Required output scanning and
+SBOM generation remain enabled, including for the consolidated artifact.
+
+To measure the change without rebuilding Go, queue the official pipeline from the branch
+containing this change with `signExistingRunID` set to a completed build with all platform
+artifacts. Use an approved pipeline and signing agents for real signing; local validation must
+use dry-run or test signing. Compare overall release completion and the interval from the first
+platform signing stage through the final `Sign` stage, including agent queueing, scanning, and
+consolidation, rather than only the duration of the signing commands.

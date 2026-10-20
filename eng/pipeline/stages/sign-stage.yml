@@ -2,8 +2,7 @@
 # Use of this source code is governed by a BSD-style
 # license that can be found in the LICENSE file.
 
-# This job downloads Go binaries from the specified builders' pipeline artifacts, signs them, and
-# publishes the signed files and signatures into a consolidated pipeline artifact.
+# Sign each platform independently, then consolidate the signed files and signatures.
 
 parameters:
   - name: ctx
@@ -22,85 +21,138 @@ parameters:
     type: string
 
 stages:
+  - ${{ each platform in split('linux,windows,darwin', ',') }}:
+    - stage: Sign_${{ platform }}
+      displayName: Sign ${{ platform }} (${{ parameters.ctx['GoSigningType'] }})
+      ${{ if eq(parameters.signExistingRunID, 'nil') }}:
+        dependsOn:
+          - ${{ each builder in parameters.builders }}:
+            - ${{ if eq(builder.os, platform) }}:
+              - ${{ builder.id }}
+      ${{ else }}:
+        dependsOn: []
+      jobs:
+        - ${{ if and(ne(variables['System.TeamProject'], 'public'), ne(variables['Build.Reason'], 'PullRequest')) }}:
+          - job: Sign
+            displayName: Sign ${{ platform }} (${{ parameters.ctx['GoSigningType'] }})
+            pool: ${{ parameters.pool }}
+            workspace:
+              clean: all
+
+            # Give the sign task leeway to finish up after hitting its own timeout.
+            timeoutInMinutes: 80
+
+            variables:
+              - name: ArtifactsDir
+                value: $(Build.ArtifactStagingDirectory)\SigningArtifacts
+              - name: SignedDir
+                value: $(ArtifactsDir)\signed
+              - name: DiagnosticsDir
+                value: $(ArtifactsDir)\diag
+
+            templateContext:
+              mb:
+                signing:
+                  enabled: true
+                  ${{ if eq(parameters.ctx['GoSigningType'], 'real') }}:
+                    signWithProd: true
+                  signType: ${{ parameters.ctx['GoSigningType'] }}
+                  zipSources: false
+                  feedSource: 'https://dnceng.pkgs.visualstudio.com/_packaging/MicroBuildToolset/nuget/v3/index.json'
+              # If we consolidate outputs, 1ES PT can avoid some scan overhead.
+              outputParentDirectory: $(ArtifactsDir)
+              outputs:
+                # https://eng.ms/docs/cloud-ai-platform/devdiv/one-engineering-system-1es/1es-docs/1es-pipeline-templates/features/outputs
+                - output: pipelineArtifact
+                  path: '$(SignedDir)'
+                  artifact: Binaries Signed ${{ platform }}
+
+                - output: pipelineArtifact
+                  path: '$(DiagnosticsDir)'
+                  artifact: Signing diagnosis files ${{ platform }} $(System.JobAttempt)
+                  condition: always()
+
+            steps:
+              - template: ../steps/checkout-windows-task.yml
+
+              - ${{ each builder in parameters.builders }}:
+                - ${{ if eq(builder.os, platform) }}:
+                  - ${{ if eq(parameters.signExistingRunID, 'nil') }}:
+                    - download: current
+                      artifact: Binaries ${{ builder.id }}
+                      # Filter out manifests added by 1ES pipeline template.
+                      patterns: '!_manifest/**'
+                      displayName: 'Download: Binaries ${{ builder.id }}'
+                  - ${{ else }}:
+                    - task: DownloadPipelineArtifact@2
+                      displayName: 'Download: Binaries ${{ builder.id }} (Specific)'
+                      inputs:
+                        buildType: specific
+                        project: $(System.TeamProject)
+                        definition: $(System.DefinitionId)
+                        runVersion: 'specific'
+                        runId: ${{ parameters.signExistingRunID }}
+                        artifact: Binaries ${{ builder.id }}
+                        # Filter out manifests added by 1ES pipeline template.
+                        patterns: '!_manifest/**'
+                        targetPath: '$(Pipeline.Workspace)/Binaries ${{ builder.id }}'
+
+              - pwsh: |
+                  eng/run.ps1 sign `
+                    -files '$(Pipeline.Workspace)/Binaries */*' `
+                    -sign-type '$(SignType)' `
+                    -o '$(SignedDir)' `
+                    -consolidate-diag-dir '$(DiagnosticsDir)' `
+                    -timeout 60m
+                displayName: Sign Files
+
   - stage: Sign
-    displayName: Sign (${{ parameters.ctx['GoSigningType'] }})
-    ${{ if eq(parameters.signExistingRunID, 'nil') }}:
-      dependsOn:
-        # Depend on all build stages that produced artifacts that need signing.
-        - ${{ each builder in parameters.builders }}:
-          - ${{ builder.id }}
-    ${{ else }}:
-      dependsOn: []
+    displayName: Consolidate signed binaries
+    dependsOn:
+      - Sign_linux
+      - Sign_windows
+      - Sign_darwin
     jobs:
       - ${{ if and(ne(variables['System.TeamProject'], 'public'), ne(variables['Build.Reason'], 'PullRequest')) }}:
-        - job: Sign
-          displayName: Sign (${{ parameters.ctx['GoSigningType'] }})
+        - job: ConsolidateSignedBinaries
+          displayName: Consolidate signed binaries
           pool: ${{ parameters.pool }}
           workspace:
             clean: all
 
-          # Give the sign task leeway to finish up after hitting its own timeout.
-          timeoutInMinutes: 80
-
           variables:
-            - name: ArtifactsDir
-              value: $(Build.ArtifactStagingDirectory)\SigningArtifacts
             - name: SignedDir
-              value: $(ArtifactsDir)\signed
-            - name: DiagnosticsDir
-              value: $(ArtifactsDir)\diag
+              value: $(Build.ArtifactStagingDirectory)\signed
 
           templateContext:
-            mb:
-              signing:
-                enabled: true
-                ${{ if eq(parameters.ctx['GoSigningType'], 'real') }}:
-                  signWithProd: true
-                signType: ${{ parameters.ctx['GoSigningType'] }}
-                zipSources: false
-                feedSource: 'https://dnceng.pkgs.visualstudio.com/_packaging/MicroBuildToolset/nuget/v3/index.json'
-            # If we consolidate outputs, 1ES PT can avoid some scan overhead.
-            outputParentDirectory: $(ArtifactsDir)
             outputs:
-              # https://eng.ms/docs/cloud-ai-platform/devdiv/one-engineering-system-1es/1es-docs/1es-pipeline-templates/features/outputs
               - output: pipelineArtifact
                 path: '$(SignedDir)'
                 artifact: Binaries Signed
 
-              - output: pipelineArtifact
-                path: '$(DiagnosticsDir)'
-                artifact: Signing diagnosis files $(System.JobAttempt)
-                condition: always()
-
           steps:
-            - template: ../steps/checkout-windows-task.yml
+            - checkout: none
 
-            - ${{ each builder in parameters.builders }}:
-              - ${{ if eq(parameters.signExistingRunID, 'nil') }}:
-                - download: current
-                  artifact: Binaries ${{ builder.id }}
-                  # Filter out manifests added by 1ES pipeline template.
-                  patterns: '!_manifest/**'
-                  displayName: 'Download: Binaries ${{ builder.id }}'
-              - ${{ else }}:
-                - task: DownloadPipelineArtifact@2
-                  displayName: 'Download: Binaries ${{ builder.id }} (Specific)'
-                  inputs:
-                    buildType: specific
-                    project: $(System.TeamProject)
-                    definition: $(System.DefinitionId)
-                    runVersion: 'specific'
-                    runId: ${{ parameters.signExistingRunID }}
-                    artifact: Binaries ${{ builder.id }}
-                    # Filter out manifests added by 1ES pipeline template.
-                    patterns: '!_manifest/**'
-                    targetPath: '$(Pipeline.Workspace)/Binaries ${{ builder.id }}'
+            - ${{ each platform in split('linux,windows,darwin', ',') }}:
+              - download: current
+                artifact: Binaries Signed ${{ platform }}
+                patterns: '!_manifest/**'
+                displayName: 'Download: Binaries Signed ${{ platform }}'
 
-            - pwsh: |
-                eng/run.ps1 sign `
-                  -files '$(Pipeline.Workspace)/Binaries */*' `
-                  -sign-type '$(SignType)' `
-                  -o '$(SignedDir)' `
-                  -consolidate-diag-dir '$(DiagnosticsDir)' `
-                  -timeout 60m
-              displayName: Sign Files
+              - pwsh: |
+                  $ErrorActionPreference = 'Stop'
+                  $source = '$(Pipeline.Workspace)/Binaries Signed ${{ platform }}'
+                  $destination = '$(SignedDir)'
+                  New-Item -Path $destination -ItemType Directory -Force | Out-Null
+                  $files = @(Get-ChildItem -LiteralPath $source -Recurse -File)
+                  if ($files.Count -eq 0) {
+                    throw "No signed files found for ${{ platform }}"
+                  }
+                  foreach ($file in $files) {
+                    $target = Join-Path $destination $file.Name
+                    if (Test-Path -LiteralPath $target) {
+                      throw "Duplicate signed filename: $($file.Name)"
+                    }
+                    Copy-Item -LiteralPath $file.FullName -Destination $target
+                  }
+                displayName: 'Consolidate: Binaries Signed ${{ platform }}'
