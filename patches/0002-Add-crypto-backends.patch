@@ -93,7 +93,7 @@ Subject: [PATCH] Add crypto backends
  src/crypto/sha512/sha512_test.go              |  33 +++++-
  src/crypto/systemcrypto_nocgo_freebsd.go      |  17 +++
  src/crypto/systemcrypto_nocgo_linux.go        |  18 +++
- src/crypto/tls/bogo_shim_test.go              |   9 ++
+ src/crypto/tls/bogo_shim_test.go              |   4 +
  src/crypto/tls/certificates_generator_test.go |   4 +
  src/crypto/tls/cipher_suites.go               |   9 +-
  src/crypto/tls/fipsonly/fipsonly.go           |   2 +-
@@ -119,7 +119,7 @@ Subject: [PATCH] Add crypto backends
  src/net/lookup_test.go                        |   3 +
  src/os/exec/exec_test.go                      |   9 ++
  src/syscall/syscall_windows.go                |   3 +
- 115 files changed, 1220 insertions(+), 247 deletions(-)
+ 115 files changed, 1215 insertions(+), 247 deletions(-)
  create mode 100644 src/crypto/systemcrypto_nocgo_freebsd.go
  create mode 100644 src/crypto/systemcrypto_nocgo_linux.go
  create mode 100644 src/internal/systemcrypto/systemcrypto.go
@@ -3309,7 +3309,7 @@ index 00000000000000..b3a50c0aae95af
 +	`
 +}
 diff --git a/src/crypto/tls/bogo_shim_test.go b/src/crypto/tls/bogo_shim_test.go
-index 8825409912a99e..5ef832a3a160f8 100644
+index 8825409912a99e..d7638ee9df3833 100644
 --- a/src/crypto/tls/bogo_shim_test.go
 +++ b/src/crypto/tls/bogo_shim_test.go
 @@ -16,6 +16,7 @@ import (
@@ -3330,18 +3330,6 @@ index 8825409912a99e..5ef832a3a160f8 100644
  	for _, tc := range []struct {
  		name    string
  		godebug string
-@@ -760,6 +764,11 @@ func runBogoSuite(t *testing.T, filter string, extraEnv []string) bogoResults {
- 	// The runner needs ML-DSA, which is unavailable in older FIPS modules.
- 	// This only changes the runner build, not the prebuilt shim's FIPS module or mode.
- 	cmd.Env = append(cmd.Environ(), "GOFIPS140=off")
-+	// The runner copies hash state using encoding.BinaryMarshaler, which is not
-+	// supported by every system crypto backend. The shim is already built.
-+	if extraEnv == nil {
-+		cmd.Env = append(cmd.Env, "MS_GO_NOSYSTEMCRYPTO=1")
-+	}
- 	cmd.Env = append(cmd.Env, extraEnv...)
- 	out, err := cmd.CombinedOutput()
- 	// NOTE: we don't immediately check the error, because the failure could be either because
 diff --git a/src/crypto/tls/certificates_generator_test.go b/src/crypto/tls/certificates_generator_test.go
 index a590d5c2fd67cc..a0e88db5904062 100644
 --- a/src/crypto/tls/certificates_generator_test.go
