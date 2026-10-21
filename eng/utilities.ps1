@@ -33,7 +33,7 @@ function Download-Stage0() {
 
   # Source the install script so that we can use the PATH it assigns.
   $installScriptPath = Join-Path $PSScriptRoot "_util" "go-install.ps1"
-  Invoke-WithRetry -SecondsBetweenAttempts 30 {
+  Invoke-WithRetry -SecondsBetweenAttempts 10 {
     . $installScriptPath -Version $stage0_go_version -InstallDir $stage0_install_dir
   }
 }
