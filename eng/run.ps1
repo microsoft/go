@@ -18,7 +18,7 @@ To list all possible tools:
 Builds 'eng/_util/cmd/<tool>/<tool>.go' and runs it using the list of arguments.
 
 This command uses Go from PATH by default. Set "MS_USE_CI_STAGE0" to 1 to instead
-download the exact Go version used in CI into the repository at
+download the latest Go build from the previous major release (N-1) into the repository at
 'eng/artifacts/_goStage0/'. This is useful for reproducing CI-specific failures.
 
 Every tool accepts a '-h' argument to show tool usage help.
@@ -83,7 +83,7 @@ $tool_module = $tool_source.Directory.Parent.Parent.FullName
 
 # Set up a Go toolset. See https://github.com/microsoft/go/issues/12
 #  - Default: use Go from PATH.
-#  - "MS_USE_CI_STAGE0=1": download the exact CI stage 0 version (eng/artifacts/_goStage0/).
+#  - "MS_USE_CI_STAGE0=1": download the latest N-1 stage 0 build (eng/artifacts/_goStage0/).
 if ($env:MS_USE_CI_STAGE0 -eq "1") {
   Download-Stage0
 } else {
