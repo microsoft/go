@@ -32,3 +32,9 @@ The subdirectories hold AzDO pipeline YAML templates, based on type of template.
 
 Quick link: [`stages/go-builder-matrix-stages.yml`](stages/go-builder-matrix-stages.yml)
 defines the set of builders that should run based on the scenario.
+
+The innerloop `release` builders run on `microsoft/main` and PRs targeting it.
+They create a synthetic `go/VERSION` for the current Go minor version's first RC
+before building and running the usual toolchain tests on Linux and Windows.
+This catches release-only behavior while preserving the normal development-version
+builders. These test builds are not packaged or published.
