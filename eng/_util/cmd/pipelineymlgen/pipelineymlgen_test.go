@@ -5,13 +5,8 @@
 package main
 
 import (
-	"os"
 	"os/exec"
-	"path/filepath"
-	"strings"
 	"testing"
-
-	"go.yaml.in/yaml/v4"
 )
 
 func TestGoInfraPipelineGenReproducible(t *testing.T) {
