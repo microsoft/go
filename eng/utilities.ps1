@@ -22,9 +22,9 @@ if ($host.Version.Major -lt 6) {
 function Download-Stage0() {
   # We need Go installed in order to build Go, but our common build environment doesn't have it
   # pre-installed (or the right version pre-installed). This CI script installs the latest Microsoft
-  # build of Go in the selected release line, automatically picking up patch and revision updates.
+  # build of Go from the previous major release (N-1), automatically tracking new releases.
   # The downloaded copy of Go is called the "stage 0" version.
-  $stage0_go_version = 'go1.26'
+  $stage0_go_version = 'Previous'
 
   # Install stage 0 Go inside the repository (under "eng/artifacts/") to avoid modifying the user's
   # home directory, and to make cleanup easy (included in "git clean -xdf"). The "_" prefix prevents
