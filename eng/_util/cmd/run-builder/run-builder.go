@@ -102,7 +102,11 @@ func main() {
 		timeoutScale *= 2
 	case "darwin":
 		// Darwin builders need more time for cmd/go script tests.
-		timeoutScale *= 2
+		if goarch == "amd64" {
+			timeoutScale *= 3
+		} else {
+			timeoutScale *= 2
+		}
 	case "linux":
 		// Linux builders need more time for cmd/go script tests.
 		timeoutScale *= 2
