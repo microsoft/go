@@ -34,6 +34,11 @@ parameters:
     type: object
     default: ["FINAL"]
 
+  # Keep the first test attempt in the build job and use one conditional fresh-VM retry.
+  - name: retryOnFreshAgent
+    type: boolean
+    default: false
+
 stages:
   - stage: ${{ parameters.builder.id }}
     # For display name, try for readability. Use some parameters set by
@@ -242,67 +247,82 @@ stages:
                     $(if ('${{ parameters.builder.fips }}') { '-fipsmode' })
               displayName: Build
 
-            # Run each test retry attempt in its own step. Benefits over a single step:
-            #
-            # - The dev can immediately see whether any retries happened
-            # - Easier to navigate to a specific retry attempt
-            # - More stable viewing experience if job is ongoing
-            # - Automated tools can more easily check number of retries by relying on structure
-            #
-            # Test retries get their own steps but builds don't because builds are relatively quick,
-            # don't produce much output, and errors are easier to reproduce.
-            - ${{ each attempt in parameters.retryAttempts }}:
+            - ${{ if parameters.retryOnFreshAgent }}:
+              # Snapshot before tests can modify the toolchain. Upload only if tests fail.
+              - bash: |
+                  set -euo pipefail
+                  mkdir -p "$(Build.ArtifactStagingDirectory)/test-retry"
+                  tar -czf "$(Build.ArtifactStagingDirectory)/test-retry/toolchain.tar.gz" --exclude=go/.git go
+                displayName: Preserve toolchain for test retry
+
+              - template: ../steps/run-builder-tests.yml
+                parameters:
+                  builder: ${{ parameters.builder }}
+                  retryAttempts: [1]
+
+              - task: ${{ iif(eq(variables['System.TeamProject'], 'public'), '', '1ES.') }}PublishPipelineArtifact@1
+                displayName: Publish toolchain for test retry
+                condition: and(succeeded(), ne(variables['TEST_BUILDER_SUCCESSFUL'], 'true'))
+                inputs:
+                  targetPath: $(Build.ArtifactStagingDirectory)/test-retry
+                  artifactName: test-retry-toolchain-${{ parameters.builder.id }}-stage-$(System.StageAttempt)-job-$(System.JobAttempt)
+
               - pwsh: |
-                  if ($IsWindows) {
-                    Write-Host "Removing Git usr\bin from PATH to avoid running a Linux test that would fail, 'TestScript/script_wait'..."
-                    Write-Host $env:PATH
-                    $env:PATH = (
-                      $env:PATH -split ';' | Where-Object { $_ -ne 'C:\Program Files\Git\usr\bin' }
-                    ) -join ';'
-                  }
+                  Write-Host "##vso[task.setvariable variable=required;isOutput=true]true"
+                  Write-Host "##vso[task.setvariable variable=toolchainArtifact;isOutput=true]test-retry-toolchain-${{ parameters.builder.id }}-stage-$(System.StageAttempt)-job-$(System.JobAttempt)"
+                name: retry
+                displayName: Request test retry on a fresh agent
+                condition: and(succeeded(), ne(variables['TEST_BUILDER_SUCCESSFUL'], 'true'))
 
-                  # Test publishing currently used in our CI because this process seems to cut off some test output:
-                  # https://github.com/microsoft/go/issues/1114.
-                  eng/run.ps1 cmdscan -envprefix GO_CMDSCAN_RULE_ -successvar TEST_BUILDER_SUCCESSFUL -- `
-                    pwsh eng/run.ps1 run-builder -test `
-                      -builder '${{ parameters.builder.os }}-${{ parameters.builder.arch }}-${{ parameters.builder.config }}' `
-                      $(if ('${{ parameters.builder.experiment }}') { '-experiment'; '${{ parameters.builder.experiment }}' }) `
-                      $(if ('${{ parameters.builder.fips }}') { '-fipsmode' }) `
-                      -junitout '$(Build.SourcesDirectory)/eng/artifacts/RawTestOutput/TestResults.xml' `
-                      -rawtestout '$(Build.SourcesDirectory)/eng/artifacts/RawTestOutput/raw-json-attempt-${{ attempt }}.txt'
-                ${{ if eq(length(parameters.retryAttempts), 1) }}:
-                  displayName: Test
-                ${{ else }}:
-                  displayName: Test (🔁 ${{ attempt }})
-                name: test_${{ attempt }}
-                # Run unless a previous retry was successful or something catastrophic happens.
-                # Note: test failure returns success, so it doesn't count as catastrophic.
-                condition: and(ne(variables['TEST_BUILDER_SUCCESSFUL'], 'true'), succeeded())
-                ${{ if ne(attempt, 'FINAL') }}:
-                  ignoreLASTEXITCODE: true
-                ${{ elseif eq(parameters.builder.broken, true) }}:
-                  # Don't fail the job if we are at the last retry and the builder is marked as broken.
-                  continueOnError: true
+            - ${{ else }}:
+              # Keep the existing same-agent retry and result-publishing behavior on other builders.
+              - ${{ each attempt in parameters.retryAttempts }}:
+                - pwsh: |
+                    if ($IsWindows) {
+                      Write-Host "Removing Git usr\bin from PATH to avoid running a Linux test that would fail, 'TestScript/script_wait'..."
+                      Write-Host $env:PATH
+                      $env:PATH = (
+                        $env:PATH -split ';' | Where-Object { $_ -ne 'C:\Program Files\Git\usr\bin' }
+                      ) -join ';'
+                    }
 
-            # Publish test results. Use the last-overwritten result, if multiple attempts were made.
-            - task: PublishTestResults@2
-              displayName: Publish test results
-              condition: succeededOrFailed()
-              inputs:
-                testResultsFormat: JUnit
-                testResultsFiles: $(Build.SourcesDirectory)/eng/artifacts/RawTestOutput/TestResults.xml
-                testRunTitle: $(System.JobDisplayName)
-                buildPlatform: ${{ parameters.builder.arch }}
-                buildConfiguration: ${{ parameters.builder.config }}
-                publishRunAttachments: true
+                    # Test publishing currently used in our CI because this process seems to cut off some test output:
+                    # https://github.com/microsoft/go/issues/1114.
+                    eng/run.ps1 cmdscan -envprefix GO_CMDSCAN_RULE_ -successvar TEST_BUILDER_SUCCESSFUL -- `
+                      pwsh eng/run.ps1 run-builder -test `
+                        -builder '${{ parameters.builder.os }}-${{ parameters.builder.arch }}-${{ parameters.builder.config }}' `
+                        $(if ('${{ parameters.builder.experiment }}') { '-experiment'; '${{ parameters.builder.experiment }}' }) `
+                        $(if ('${{ parameters.builder.fips }}') { '-fipsmode' }) `
+                        -junitout '$(Build.SourcesDirectory)/eng/artifacts/RawTestOutput/TestResults.xml' `
+                        -rawtestout '$(Build.SourcesDirectory)/eng/artifacts/RawTestOutput/raw-json-attempt-${{ attempt }}.txt'
+                  ${{ if eq(length(parameters.retryAttempts), 1) }}:
+                    displayName: Test
+                  ${{ else }}:
+                    displayName: Test (🔁 ${{ attempt }})
+                  name: test_${{ attempt }}
+                  condition: and(ne(variables['TEST_BUILDER_SUCCESSFUL'], 'true'), succeeded())
+                  ${{ if ne(attempt, 'FINAL') }}:
+                    ignoreLASTEXITCODE: true
+                  ${{ elseif eq(parameters.builder.broken, true) }}:
+                    continueOnError: true
 
-            # Publish raw test JSON output and the published (or attempted to publish) JUnit XML.
-            - task: ${{ iif(eq(variables['System.TeamProject'], 'public'), '', '1ES.') }}PublishPipelineArtifact@1
-              displayName: Publish raw test results
-              condition: succeededOrFailed()
-              inputs:
-                targetPath: $(Build.SourcesDirectory)/eng/artifacts/RawTestOutput
-                artifactName: raw-test-output-${{ parameters.builder.id }}-retry-$(System.JobAttempt)
+              - task: PublishTestResults@2
+                displayName: Publish test results
+                condition: succeededOrFailed()
+                inputs:
+                  testResultsFormat: JUnit
+                  testResultsFiles: $(Build.SourcesDirectory)/eng/artifacts/RawTestOutput/TestResults.xml
+                  testRunTitle: $(System.JobDisplayName)
+                  buildPlatform: ${{ parameters.builder.arch }}
+                  buildConfiguration: ${{ parameters.builder.config }}
+                  publishRunAttachments: true
+
+              - task: ${{ iif(eq(variables['System.TeamProject'], 'public'), '', '1ES.') }}PublishPipelineArtifact@1
+                displayName: Publish raw test results
+                condition: succeededOrFailed()
+                inputs:
+                  targetPath: $(Build.SourcesDirectory)/eng/artifacts/RawTestOutput
+                  artifactName: raw-test-output-${{ parameters.builder.id }}-retry-$(System.JobAttempt)
 
           # - ${{ if eq(parameters.builder.config, 'buildandpack' ) }}:
           #   - ${{ if ne(parameters.releaseVersion, 'nil') }}:
@@ -319,3 +339,54 @@ stages:
               displayName: Update file ownership from root to build agent account
               continueOnError: true
               condition: succeededOrFailed()
+
+      - ${{ if parameters.retryOnFreshAgent }}:
+        - job: ${{ parameters.builder.id }}_test_retry
+          displayName: ${{ parameters.builder.os }}-${{ parameters.builder.arch }} ${{ parameters.builder.hostParens}} ${{ parameters.builder.config }} ${{ parameters.builder.distroParens}} ${{ parameters.builder.experimentBrackets }} ${{ parameters.builder.fipsAcronym }} (test retry)
+          dependsOn: ${{ parameters.builder.id }}
+          condition: and(succeeded(), eq(dependencies.${{ parameters.builder.id }}.outputs['retry.required'], 'true'))
+          pool: ${{ parameters.pool }}
+          workspace:
+            clean: all
+          ${{ if eq(parameters.builder.config, 'longtest') }}:
+            timeoutInMinutes: 240
+          ${{ else }}:
+            timeoutInMinutes: 120
+          variables:
+            - group: go-cmdscan-rules
+            - name: retryToolchainArtifact
+              value: $[ dependencies.${{ parameters.builder.id }}.outputs['retry.toolchainArtifact'] ]
+          steps:
+            - pwsh: |
+                . eng/utilities.ps1
+                Download-Stage0
+              displayName: Init stage 0 Go toolset
+
+            - template: ../steps/init-submodule-task.yml
+
+            - pwsh: eng/run.ps1 submodule-refresh
+              displayName: Apply patches
+
+            - ${{ if eq(parameters.builder.config, 'longtest') }}:
+              - template: ../steps/set-bot-git-author-task.yml
+
+            - ${{ if ne(parameters.builder.hostArch, parameters.builder.arch) }}:
+              - pwsh: Write-Host "##vso[task.setvariable variable=GOARCH]${{ parameters.builder.arch }}"
+                displayName: Set GOARCH for cross-compile
+
+            - task: DownloadPipelineArtifact@2
+              displayName: Download toolchain for test retry
+              inputs:
+                artifactName: $(retryToolchainArtifact)
+                targetPath: $(Pipeline.Workspace)/test-retry
+
+            - bash: |
+                set -euo pipefail
+                tar -xzf "$(Pipeline.Workspace)/test-retry/toolchain.tar.gz"
+              displayName: Restore toolchain for test retry
+
+            - template: ../steps/run-builder-tests.yml
+              parameters:
+                builder: ${{ parameters.builder }}
+                retryAttempts: ["FINAL"]
+                artifactSuffix: -test-retry
