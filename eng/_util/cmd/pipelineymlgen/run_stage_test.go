@@ -105,6 +105,7 @@ func TestDarwinFreshAgentRetry(t *testing.T) {
 	}
 	snapshot := findMapping(t, stage, "displayName", "Preserve toolchain for test retry")
 	first := findMapping(t, stage, "job", "${{ parameters.builder.id }}")
+	requireValue(t, retry, "displayName", mappingValue(first, "displayName").Value+" (test retry)")
 	fresh := findMapping(t, mappingValue(first, "steps"), "${{ if parameters.retryOnFreshAgent }}", "")
 	initialTest := findMapping(t, mappingValue(fresh, "${{ if parameters.retryOnFreshAgent }}"), "template", "../steps/run-builder-tests.yml")
 	initialAttempts := mappingValue(mappingValue(initialTest, "parameters"), "retryAttempts")
