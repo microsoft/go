@@ -67,6 +67,8 @@ Subject: [PATCH] Add crypto backends
  src/crypto/hmac/hmac.go                       |  18 +-
  src/crypto/hmac/hmac_test.go                  |   2 +-
  src/crypto/hpke/aead.go                       |  16 +-
+ .../boring/openssl_reject_linux_test.go       |  19 ++
+ .../boring/openssl_reject_windows_test.go     |  25 ++
  src/crypto/internal/cryptotest/allocations.go |   6 -
  src/crypto/internal/cryptotest/fips140.go     |   8 +
  src/crypto/internal/cryptotest/hash.go        |   3 +-
@@ -139,12 +141,14 @@ Subject: [PATCH] Add crypto backends
  src/os/exec/exec_test.go                      |   9 +
  src/runtime/runtime_boring.go                 |   5 +
  src/syscall/syscall_windows.go                |   3 +
- 135 files changed, 2596 insertions(+), 380 deletions(-)
+ 137 files changed, 2640 insertions(+), 380 deletions(-)
  create mode 100644 src/cmd/go/systemcrypto_test.go
  create mode 100644 src/crypto/dsa/boring.go
  create mode 100644 src/crypto/dsa/notboring.go
  create mode 100644 src/crypto/ed25519/boring.go
  create mode 100644 src/crypto/ed25519/notboring.go
+ create mode 100644 src/crypto/internal/boring/openssl_reject_linux_test.go
+ create mode 100644 src/crypto/internal/boring/openssl_reject_windows_test.go
  create mode 100644 src/crypto/rsa/pss_linux_test.go
  create mode 100644 src/crypto/systemcrypto_nocgo_freebsd.go
  create mode 100644 src/crypto/systemcrypto_nocgo_linux.go
@@ -2862,6 +2866,62 @@ index fb55c97ddf20c9b5f81057974c8559a49515ce0c..913fee67ad2a14d55e60f4651edef2c9
  }
  
  func (a *aead) ID() uint16 {
+diff --git a/src/crypto/internal/boring/openssl_reject_linux_test.go b/src/crypto/internal/boring/openssl_reject_linux_test.go
+new file mode 100644
+index 0000000000000000000000000000000000000000..2e9c2a78f1f2ccc668e777085c98ee7e8fc61149
+--- /dev/null
++++ b/src/crypto/internal/boring/openssl_reject_linux_test.go
+@@ -0,0 +1,19 @@
++// Copyright 2026 The Go Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style
++// license that can be found in the LICENSE file.
++
++//go:build linux && !android
++
++package boring
++
++import (
++	"testing"
++
++	"github.com/microsoft/go-crypto-openssl/osslsetup"
++)
++
++func TestCheckVersionRejectsNonOpenSSLLibrary(t *testing.T) {
++	if exists, _ := osslsetup.CheckVersion("libc.so.6"); exists {
++		t.Fatal(`CheckVersion("libc.so.6") = true, want false`)
++	}
++}
+diff --git a/src/crypto/internal/boring/openssl_reject_windows_test.go b/src/crypto/internal/boring/openssl_reject_windows_test.go
+new file mode 100644
+index 0000000000000000000000000000000000000000..c8040f29509957104746fc5ee44a8a89490d48e1
+--- /dev/null
++++ b/src/crypto/internal/boring/openssl_reject_windows_test.go
+@@ -0,0 +1,25 @@
++// Copyright 2026 The Go Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style
++// license that can be found in the LICENSE file.
++
++//go:build windows
++
++package boring
++
++import (
++	"os"
++	"path/filepath"
++	"testing"
++
++	"github.com/microsoft/go-crypto-openssl/osslsetup"
++)
++
++func TestCheckVersionRejectsNonOpenSSLLibrary(t *testing.T) {
++	library := filepath.Join(os.Getenv("SystemRoot"), "System32", "version.dll")
++	if _, err := os.Stat(library); err != nil {
++		t.Fatalf("stat system DLL %q: %v", library, err)
++	}
++	if exists, _ := osslsetup.CheckVersion(library); exists {
++		t.Fatalf("CheckVersion(%q) = true, want false", library)
++	}
++}
 diff --git a/src/crypto/internal/cryptotest/allocations.go b/src/crypto/internal/cryptotest/allocations.go
 index 70055af70b42ecdb23a7733e5bebaf9b5b5aca66..21528faa0d614574c3ed1c291a6a21c99b01c67d 100644
 --- a/src/crypto/internal/cryptotest/allocations.go
