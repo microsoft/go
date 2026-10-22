@@ -15,10 +15,11 @@ import (
 	"github.com/microsoft/go-crypto-openssl/osslsetup"
 )
 
-// knownVersions is a list of supported and well-known libcrypto.so suffixes in decreasing version order.
+// knownVersions is a list of supported and well-known libcrypto.so suffixes in preference order.
+// Prefer OpenSSL 3 over OpenSSL 4 on this release branch.
 // FreeBSD library version numbering does not directly align to the version of osslsetup.
 // Its preferred search order is 11 -> 111.
-var knownVersions = [...]string{"3", "1.1", "11", "111"}
+var knownVersions = [...]string{"3", "4", "1.1", "11", "111"}
 
 const lcryptoPrefix = "libcrypto.so."
 
@@ -47,9 +48,9 @@ func library() string {
 // It is initialized in the init function to allow overriding in tests.
 var checkVersion = osslsetup.CheckVersion
 
-// searchKnownLibrary returns the name of the highest available FIPS-enabled version of OpenSSL
+// searchKnownLibrary returns the name of the most preferred available FIPS-enabled version of OpenSSL
 // using the known library suffixes.
-// If no FIPS-enabled version is found, it returns the name of the highest available version.
+// If no FIPS-enabled version is found, it returns the name of the most preferred available version.
 // If no version is found, it returns an empty string.
 func searchKnownLibrary() string {
 	var lcryptoFallback string

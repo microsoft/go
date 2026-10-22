@@ -83,6 +83,40 @@ func TestLibraryWithKnownVersion(t *testing.T) {
 	})
 }
 
+func TestLibraryOpenSSL4Preference(t *testing.T) {
+	t.Setenv("GO_OPENSSL_VERSION_OVERRIDE", "")
+
+	tests := []struct {
+		name      string
+		available []string
+		fips      []string
+		want      string
+	}{
+		{"Prefer3", []string{"3", "4"}, nil, "3"},
+		{"Prefer3WhenBothFIPS", []string{"3", "4"}, []string{"3", "4"}, "3"},
+		{"FallbackTo4Before1_1", []string{"4", "1.1"}, nil, "4"},
+		{"PreferFIPS4OverNonFIPS3", []string{"3", "4"}, []string{"4"}, "4"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mockCheckVersion(t, func(s string) (bool, bool) {
+				for _, v := range tt.available {
+					if s == lcryptoPrefix+v {
+						for _, fips := range tt.fips {
+							if v == fips {
+								return true, true
+							}
+						}
+						return true, false
+					}
+				}
+				return false, false
+			})
+			assertLibrary(t, lcryptoPrefix+tt.want)
+		})
+	}
+}
+
 func TestLibraryNoVersionFound(t *testing.T) {
 	t.Setenv("GO_OPENSSL_VERSION_OVERRIDE", "")
 	mockCheckVersion(t, func(string) (bool, bool) {
