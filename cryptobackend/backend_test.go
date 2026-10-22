@@ -43,11 +43,6 @@ func TestUnreachable(t *testing.T) {
 	Unreachable()
 }
 
-// Test that UnreachableExceptTests does not panic (this is a test).
-func TestUnreachableExceptTests(t *testing.T) {
-	UnreachableExceptTests()
-}
-
 func TestSubpackagesImportRoot(t *testing.T) {
 	root, err := os.Getwd()
 	if err != nil {

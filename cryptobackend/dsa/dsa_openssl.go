@@ -16,32 +16,38 @@ import (
 	"golang.org/x/crypto/cryptobyte/asn1"
 )
 
-type BigInt = openssl.BigInt
 type PrivateKey = openssl.PrivateKeyDSA
 type PublicKey = openssl.PublicKeyDSA
 
 func Supports(l, n int) bool { return openssl.SupportsDSA() }
-func GenerateParameters(l, n int) (p, q, g BigInt, err error) {
+func GenerateParameters(l, n int) (p, q, g *big.Int, err error) {
 	params, err := openssl.GenerateParametersDSA(l, n)
-	return params.P, params.Q, params.G, err
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	return bbig.Dec(params.P), bbig.Dec(params.Q), bbig.Dec(params.G), nil
 }
-func GenerateKey(p, q, g BigInt) (x, y BigInt, err error) {
-	return openssl.GenerateKeyDSA(openssl.DSAParameters{P: p, Q: q, G: g})
+func GenerateKey(p, q, g *big.Int) (x, y *big.Int, err error) {
+	bx, by, err := openssl.GenerateKeyDSA(openssl.DSAParameters{P: bbig.Enc(p), Q: bbig.Enc(q), G: bbig.Enc(g)})
+	if err != nil {
+		return nil, nil, err
+	}
+	return bbig.Dec(bx), bbig.Dec(by), nil
 }
-func NewPrivateKey(p, q, g, x, y BigInt) (*PrivateKey, error) {
-	return openssl.NewPrivateKeyDSA(openssl.DSAParameters{P: p, Q: q, G: g}, x, y)
+func NewPrivateKey(p, q, g, x, y *big.Int) (*PrivateKey, error) {
+	return openssl.NewPrivateKeyDSA(openssl.DSAParameters{P: bbig.Enc(p), Q: bbig.Enc(q), G: bbig.Enc(g)}, bbig.Enc(x), bbig.Enc(y))
 }
-func NewPublicKey(p, q, g, y BigInt) (*PublicKey, error) {
-	return openssl.NewPublicKeyDSA(openssl.DSAParameters{P: p, Q: q, G: g}, y)
+func NewPublicKey(p, q, g, y *big.Int) (*PublicKey, error) {
+	return openssl.NewPublicKeyDSA(openssl.DSAParameters{P: bbig.Enc(p), Q: bbig.Enc(q), G: bbig.Enc(g)}, bbig.Enc(y))
 }
-func Sign(priv *PrivateKey, hash []byte) (r, s BigInt, err error) {
+func Sign(priv *PrivateKey, hash []byte) (r, s *big.Int, err error) {
 	sig, err := openssl.SignDSA(priv, hash)
 	if err != nil {
 		return nil, nil, err
 	}
 	return parseSignature(sig)
 }
-func Verify(pub *PublicKey, hashed []byte, r, s BigInt) bool {
+func Verify(pub *PublicKey, hashed []byte, r, s *big.Int) bool {
 	sig, err := encodeSignature(r, s)
 	if err != nil {
 		return false
@@ -49,7 +55,7 @@ func Verify(pub *PublicKey, hashed []byte, r, s BigInt) bool {
 	return openssl.VerifyDSA(pub, hashed, sig)
 }
 
-func parseSignature(sig []byte) (BigInt, BigInt, error) {
+func parseSignature(sig []byte) (*big.Int, *big.Int, error) {
 	var r, s []byte
 	var inner cryptobyte.String
 	input := cryptobyte.String(sig)
@@ -60,34 +66,17 @@ func parseSignature(sig []byte) (BigInt, BigInt, error) {
 		!inner.Empty() {
 		return nil, nil, errors.New("invalid ASN.1")
 	}
-	return bbig.Enc(new(big.Int).SetBytes(r)), bbig.Enc(new(big.Int).SetBytes(s)), nil
+	return new(big.Int).SetBytes(r), new(big.Int).SetBytes(s), nil
 }
 
-func encodeSignature(r, s BigInt) ([]byte, error) {
-	rb, sb := bbig.Dec(r), bbig.Dec(s)
-	if rb == nil || rb.Sign() <= 0 || sb == nil || sb.Sign() <= 0 {
+func encodeSignature(r, s *big.Int) ([]byte, error) {
+	if r == nil || r.Sign() <= 0 || s == nil || s.Sign() <= 0 {
 		return nil, errors.New("invalid integer")
 	}
 	var b cryptobyte.Builder
 	b.AddASN1(asn1.SEQUENCE, func(b *cryptobyte.Builder) {
-		addASN1IntBytes(b, rb.Bytes())
-		addASN1IntBytes(b, sb.Bytes())
+		b.AddASN1BigInt(r)
+		b.AddASN1BigInt(s)
 	})
 	return b.Bytes()
-}
-
-func addASN1IntBytes(b *cryptobyte.Builder, bytes []byte) {
-	for len(bytes) > 0 && bytes[0] == 0 {
-		bytes = bytes[1:]
-	}
-	if len(bytes) == 0 {
-		b.SetError(errors.New("invalid integer"))
-		return
-	}
-	b.AddASN1(asn1.INTEGER, func(c *cryptobyte.Builder) {
-		if bytes[0]&0x80 != 0 {
-			c.AddUint8(0)
-		}
-		c.AddBytes(bytes)
-	})
 }

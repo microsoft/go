@@ -48,6 +48,17 @@ The possible values of `ms_tlsx25519` are:
 - `0` disables the X25519 and X25519MLKEM768 TLS groups.
 - `1` (default) enables these groups.
 
+Microsoft build of Go `v1.27.2-2` introduces `ms_tlsmldsacert`, which controls ML-DSA advertisement in the `signature_algorithms_cert` extension.
+The possible values are:
+
+- `1` (default) advertises ML-DSA certificate signature algorithms, subject to the existing TLS version and FIPS restrictions.
+- `0` omits ML-DSA-44, ML-DSA-65, and ML-DSA-87 from this extension in ClientHello and CertificateRequest messages to avoid a [known compatibility issue with TLS-inspecting middleboxes](https://github.com/golang/go/issues/81199).
+
+The extension remains present, with its other algorithms and existing FIPS restrictions unchanged.
+ML-DSA handshake signatures and ML-KEM key exchange remain available, subject to their existing restrictions.
+This setting applies independently of `ms_tlsprofile`.
+Certificate verification is unchanged, but disabling advertisement may cause peers to select a different certificate chain or fail if they require ML-DSA certificate signatures to be advertised.
+
 These features operate independently from the system-provided cryptography backend feature.
 They work the same way when the pure Go cryptography implementation is used.
 

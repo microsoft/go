@@ -80,6 +80,10 @@ go env -w MS_GOTOOLCHAIN_TELEMETRY_ENABLED=0
 
 To override the setting for an individual process, set the `MS_GOTOOLCHAIN_TELEMETRY_ENABLED` environment variable to `0` when starting the process.
 
+> [!NOTE]
+> The ability to opt out using `go env -w` and `$GOROOT/go.env` was added in 1.27.2-2 and 1.26.10-1.
+> Earlier versions support configuration only through the MS_GOTOOLCHAIN_TELEMETRY_ENABLED process environment variable.
+
 Configuration is resolved in this order, from highest to lowest precedence:
 
 1. The process environment.

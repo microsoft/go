@@ -18,7 +18,7 @@ To list all possible tools:
 Builds 'eng/_util/cmd/<tool>/<tool>.go' and runs it using the list of arguments.
 
 This command uses Go from PATH by default. Set "MS_USE_CI_STAGE0" to 1 to instead
-download the exact Go version used in CI into the repository at
+download the latest Go build from the previous major release (N-1) into the repository at
 'eng/artifacts/_goStage0/'. This is useful for reproducing CI-specific failures.
 
 Every tool accepts a '-h' argument to show tool usage help.
@@ -83,7 +83,7 @@ $tool_module = $tool_source.Directory.Parent.Parent.FullName
 
 # Set up a Go toolset. See https://github.com/microsoft/go/issues/12
 #  - Default: use Go from PATH.
-#  - "MS_USE_CI_STAGE0=1": download the exact CI stage 0 version (eng/artifacts/_goStage0/).
+#  - "MS_USE_CI_STAGE0=1": download the latest N-1 stage 0 build (eng/artifacts/_goStage0/).
 if ($env:MS_USE_CI_STAGE0 -eq "1") {
   Download-Stage0
 } else {
@@ -108,6 +108,7 @@ if ($IsWindows) {
   $tool_output += ".exe"
 }
 
+$oldCGO_ENABLED = $env:CGO_ENABLED
 try {
   # Move into module so "go build" detects it and fetches dependencies.
   Push-Location $tool_module
@@ -118,6 +119,11 @@ try {
   # we need to be able to run the tool on the host, so we must always target the host OS/ARCH. Clear
   # out the GOOS/GOARCH values (empty string) to detect host OS/ARCH automatically for the tools.
   Invoke-CrossGoBlock "" "" {
+    # The Linux stage 0 systemcrypto backend requires cgo, even for nocgo target builds.
+    # TODO: Remove the cgo override once stage 0 uses Go 1.27.
+    if ($IsLinux -and $env:CGO_ENABLED -eq "0") {
+      $env:CGO_ENABLED = "1"
+    }
     Write-Host "In '$tool_module', building '$module_local_script_path' -> $tool_output"
     & (Join-Path $stage0_goroot "bin" "go") build -o $tool_output $module_local_script_path
     if ($LASTEXITCODE) {
@@ -128,6 +134,7 @@ try {
 
   Write-Host "Built '$tool'. Running from repo root..."
 } finally {
+  $env:CGO_ENABLED = $oldCGO_ENABLED
   Pop-Location
 }
 
