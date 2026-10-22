@@ -1,0 +1,68 @@
+# Copyright (c) Microsoft Corporation.
+# Use of this source code is governed by a BSD-style
+# license that can be found in the LICENSE file.
+
+parameters:
+  - name: builder
+    type: object
+  - name: retryAttempts
+    type: object
+  - name: artifactSuffix
+    type: string
+    default: ''
+
+steps:
+  - ${{ each attempt in parameters.retryAttempts }}:
+    - pwsh: |
+        New-Item '$(Build.SourcesDirectory)/eng/artifacts/RawTestOutput' -ItemType Directory -Force | Out-Null
+
+        if ($IsWindows) {
+          Write-Host "Removing Git usr\bin from PATH to avoid running a Linux test that would fail, 'TestScript/script_wait'..."
+          Write-Host $env:PATH
+          $env:PATH = (
+            $env:PATH -split ';' | Where-Object { $_ -ne 'C:\Program Files\Git\usr\bin' }
+          ) -join ';'
+        }
+
+        # Test publishing currently used in our CI because this process seems to cut off some test output:
+        # https://github.com/microsoft/go/issues/1114.
+        eng/run.ps1 cmdscan -envprefix GO_CMDSCAN_RULE_ -successvar TEST_BUILDER_SUCCESSFUL -- `
+          pwsh eng/run.ps1 run-builder -test `
+            -builder '${{ parameters.builder.os }}-${{ parameters.builder.arch }}-${{ parameters.builder.config }}' `
+            $(if ('${{ parameters.builder.experiment }}') { '-experiment'; '${{ parameters.builder.experiment }}' }) `
+            $(if ('${{ parameters.builder.fips }}') { '-fipsmode' }) `
+            -junitout '$(Build.SourcesDirectory)/eng/artifacts/RawTestOutput/TestResults-attempt-${{ attempt }}.xml' `
+            -rawtestout '$(Build.SourcesDirectory)/eng/artifacts/RawTestOutput/raw-json-attempt-${{ attempt }}.txt'
+      ${{ if parameters.builder.nosystemcrypto }}:
+        env:
+          MS_GO_NOSYSTEMCRYPTO: 1
+      ${{ if eq(length(parameters.retryAttempts), 1) }}:
+        displayName: Test
+      ${{ else }}:
+        displayName: Test (🔁 ${{ attempt }})
+      name: test_${{ attempt }}
+      condition: and(ne(variables['TEST_BUILDER_SUCCESSFUL'], 'true'), succeeded())
+      ${{ if ne(attempt, 'FINAL') }}:
+        ignoreLASTEXITCODE: true
+      ${{ elseif eq(parameters.builder.broken, true) }}:
+        continueOnError: true
+
+    - task: PublishTestResults@2
+      displayName: Publish test results (${{ attempt }})
+      condition: and(ne(variables['TEST_BUILDER_SUCCESSFUL'], 'true'), succeededOrFailed())
+      ${{ if or(ne(attempt, 'FINAL'), eq(parameters.builder.broken, true)) }}:
+        continueOnError: true
+      inputs:
+        testResultsFormat: JUnit
+        testResultsFiles: $(Build.SourcesDirectory)/eng/artifacts/RawTestOutput/TestResults-attempt-${{ attempt }}.xml
+        testRunTitle: $(System.JobDisplayName) (retry ${{ attempt }}, stage attempt $(System.StageAttempt))
+        buildPlatform: ${{ parameters.builder.arch }}
+        buildConfiguration: ${{ parameters.builder.config }}
+        publishRunAttachments: true
+
+  - task: ${{ iif(eq(variables['System.TeamProject'], 'public'), '', '1ES.') }}PublishPipelineArtifact@1
+    displayName: Publish raw test results
+    condition: succeededOrFailed()
+    inputs:
+      targetPath: $(Build.SourcesDirectory)/eng/artifacts/RawTestOutput
+      artifactName: raw-test-output-${{ parameters.builder.id }}-retry-$(System.StageAttempt)-job-$(System.JobAttempt)${{ parameters.artifactSuffix }}

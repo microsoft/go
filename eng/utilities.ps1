@@ -21,10 +21,10 @@ if ($host.Version.Major -lt 6) {
 
 function Download-Stage0() {
   # We need Go installed in order to build Go, but our common build environment doesn't have it
-  # pre-installed (or the right version pre-installed). This CI script installs a consistent version
-  # of Go to handle this. This also makes it easier to locally repro issues in CI that involve a
-  # specific version of Go. The downloaded copy of Go is called the "stage 0" version.
-  $stage0_go_version = 'go1.26.0-1'
+  # pre-installed (or the right version pre-installed). This CI script installs the latest Microsoft
+  # build of Go from the previous major release (N-1), automatically tracking new releases.
+  # The downloaded copy of Go is called the "stage 0" version.
+  $stage0_go_version = 'Previous'
 
   # Install stage 0 Go inside the repository (under "eng/artifacts/") to avoid modifying the user's
   # home directory, and to make cleanup easy (included in "git clean -xdf"). The "_" prefix prevents
@@ -33,7 +33,9 @@ function Download-Stage0() {
 
   # Source the install script so that we can use the PATH it assigns.
   $installScriptPath = Join-Path $PSScriptRoot "_util" "go-install.ps1"
-  . $installScriptPath -Version $stage0_go_version -InstallDir $stage0_install_dir
+  Invoke-WithRetry -SecondsBetweenAttempts 10 {
+    . $installScriptPath -Version $stage0_go_version -InstallDir $stage0_install_dir
+  }
 }
 
 # Copied from https://github.com/dotnet/install-scripts/blob/49d5da7f7d313aa65d24fe95cc29767faef553fd/src/dotnet-install.ps1#L180-L197

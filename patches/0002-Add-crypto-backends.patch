@@ -52,7 +52,6 @@ Subject: [PATCH] Add crypto backends
  src/crypto/ecdsa/ecdsa.go                     |  19 +++-
  src/crypto/ed25519/ed25519.go                 |  12 +-
  src/crypto/ed25519/ed25519_test.go            |  18 ++-
- src/crypto/fips140/enforcement_test.go        |   4 +
  src/crypto/fips140/fips140.go                 |   3 +-
  src/crypto/hkdf/hkdf.go                       |   9 +-
  src/crypto/hkdf/hkdf_test.go                  |   2 +-
@@ -63,7 +62,7 @@ Subject: [PATCH] Add crypto backends
  .../internal/cryptotest/implementations.go    |   2 +-
  src/crypto/internal/fips140hash/hash.go       |  16 ++-
  .../internal/fips140only/fips140only.go       |  11 +-
- .../internal/fips140only/fips140only_test.go  |  27 ++++-
+ .../internal/fips140only/fips140only_test.go  |  19 +++-
  src/crypto/internal/fips140test/acvp_test.go  |   6 +
  src/crypto/internal/fips140test/cast_test.go  |   2 +
  src/crypto/internal/fips140test/fips_test.go  |   3 +-
@@ -117,9 +116,8 @@ Subject: [PATCH] Add crypto backends
  src/internal/systemcrypto/systemcrypto.go     |  20 ++++
  .../systemcrypto/systemcrypto_test.go         |  60 ++++++++++
  src/net/lookup_test.go                        |   3 +
- src/os/exec/exec_test.go                      |   9 ++
  src/syscall/syscall_windows.go                |   3 +
- 115 files changed, 1215 insertions(+), 247 deletions(-)
+ 113 files changed, 1197 insertions(+), 244 deletions(-)
  create mode 100644 src/crypto/systemcrypto_nocgo_freebsd.go
  create mode 100644 src/crypto/systemcrypto_nocgo_linux.go
  create mode 100644 src/internal/systemcrypto/systemcrypto.go
@@ -1660,28 +1658,6 @@ index c8a23e3246a949..0489b241c1936a 100644
  	}
  }
  
-diff --git a/src/crypto/fips140/enforcement_test.go b/src/crypto/fips140/enforcement_test.go
-index d230c0f4ec1fa1..bd536dd39a0585 100644
---- a/src/crypto/fips140/enforcement_test.go
-+++ b/src/crypto/fips140/enforcement_test.go
-@@ -8,6 +8,7 @@ import (
- 	"crypto/des"
- 	"crypto/fips140"
- 	"crypto/internal/cryptotest"
-+	boring "github.com/microsoft/go/cryptobackend"
- 	"testing"
- )
- 
-@@ -25,6 +26,9 @@ func isAllowed() bool {
- }
- 
- func TestWithoutEnforcement(t *testing.T) {
-+	if boring.Enabled {
-+		t.Skip("GODEBUG=fips140=only not supported")
-+	}
- 	if !fips140.Enforced() {
- 		cryptotest.RerunWithFIPS140Enforced(t)
- 		return
 diff --git a/src/crypto/fips140/fips140.go b/src/crypto/fips140/fips140.go
 index d3f63d3bf18fcb..bc6d8b62ae2103 100644
 --- a/src/crypto/fips140/fips140.go
@@ -1926,7 +1902,7 @@ index a8d840b17022cc..2a17f7da2d4aaa 100644
 +	return false
  }
 diff --git a/src/crypto/internal/fips140only/fips140only_test.go b/src/crypto/internal/fips140only/fips140only_test.go
-index a940fb2a3a0010..07d93719abbbe6 100644
+index a940fb2a3a0010..cb0cef671b4070 100644
 --- a/src/crypto/internal/fips140only/fips140only_test.go
 +++ b/src/crypto/internal/fips140only/fips140only_test.go
 @@ -38,9 +38,12 @@ import (
@@ -1970,23 +1946,15 @@ index a940fb2a3a0010..07d93719abbbe6 100644
  	expectPanic(t, func() { sha1.Sum([]byte("foo")) })
  
  	withApprovedHash(func(h crypto.Hash) { h.New().Sum(nil) })
-@@ -306,10 +321,12 @@ bXVL8iKLrG91IYQByUHZIn3WVAd2bfi4MfKagRt0ggd4
- 	expectErr(t, errRet2(hpke.Seal(hpkeK.PublicKey(), hpke.HKDFSHA256(), hpke.ChaCha20Poly1305(), nil, nil)))
- 	expectErr(t, errRet2(hpke.Open(hpkeK, hpke.HKDFSHA256(), hpke.ChaCha20Poly1305(), nil, make([]byte, 2000))))
+@@ -308,7 +323,7 @@ bXVL8iKLrG91IYQByUHZIn3WVAd2bfi4MfKagRt0ggd4
  
--	// fips140=only mode should prevent any operation that would make the FIPS
--	// 140-3 module set its service indicator to false.
+ 	// fips140=only mode should prevent any operation that would make the FIPS
+ 	// 140-3 module set its service indicator to false.
 -	if !fips140.ServiceIndicator() {
--		t.Errorf("service indicator not set")
-+	if !boring.Enabled {
-+		// fips140=only mode should prevent any operation that would make the FIPS
-+		// 140-3 module set its service indicator to false.
-+		if !fips140.ServiceIndicator() {
-+			t.Errorf("service indicator not set")
-+		}
++	if !boring.Enabled && !fips140.ServiceIndicator() {
+ 		t.Errorf("service indicator not set")
  	}
  }
- 
 diff --git a/src/crypto/internal/fips140test/acvp_test.go b/src/crypto/internal/fips140test/acvp_test.go
 index 333dee95e3327c..9ce843895fc60e 100644
 --- a/src/crypto/internal/fips140test/acvp_test.go
@@ -4127,33 +4095,6 @@ index 33fa721f11da53..03b12609eb563a 100644
  	mustHaveExternalNetwork(t)
  
  	const testNXDOMAIN = "invalid.invalid."
-diff --git a/src/os/exec/exec_test.go b/src/os/exec/exec_test.go
-index 4f39d9bbe345a8..b372f4077a3fe3 100644
---- a/src/os/exec/exec_test.go
-+++ b/src/os/exec/exec_test.go
-@@ -15,6 +15,7 @@ import (
- 	"flag"
- 	"fmt"
- 	"internal/poll"
-+	"internal/systemcrypto"
- 	"internal/testenv"
- 	"io"
- 	"log"
-@@ -692,6 +693,14 @@ func TestExtraFiles(t *testing.T) {
- 		t.Skipf("skipping test on %q", runtime.GOOS)
- 	}
- 
-+	if systemcrypto.Enabled() && runtime.GOOS == "linux" {
-+		// OpenSSL default behavior is to maintain open FDs to any
-+		// random devices that get used by the random number library.
-+		// Since those FDs are not marked FD_CLOEXEC or O_CLOEXEC,
-+		// they also get inherited by children.
-+		t.Skip("skipping test because test was run with systemcrypto on linux (OpenSSL)")
-+	}
-+
- 	// Force network usage, to verify the epoll (or whatever) fd
- 	// doesn't leak to the child,
- 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 diff --git a/src/syscall/syscall_windows.go b/src/syscall/syscall_windows.go
 index b6911ef952b039..27e2191ddae6a7 100644
 --- a/src/syscall/syscall_windows.go

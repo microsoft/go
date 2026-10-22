@@ -15,6 +15,7 @@ import (
 
 	"github.com/microsoft/go-infra/patch"
 	"github.com/microsoft/go-infra/submodule"
+	"github.com/microsoft/go/_util/buildutil"
 )
 
 const description = `
@@ -57,7 +58,9 @@ func main() {
 }
 
 func refresh(rootDir string) error {
-	if err := submodule.Init(rootDir, *origin, *fetchBearerToken, *shallow); err != nil {
+	if err := buildutil.Retry(3, func() error {
+		return submodule.Init(rootDir, *origin, *fetchBearerToken, *shallow)
+	}); err != nil {
 		return err
 	}
 
