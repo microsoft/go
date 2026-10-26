@@ -80,7 +80,7 @@ Subject: [PATCH] Add crypto backends
  src/crypto/internal/rand/rand.go              |   8 +-
  src/crypto/md5/md5.go                         |  12 +
  src/crypto/md5/md5_test.go                    |  18 +-
- src/crypto/mldsa/mldsa_fips140v1.26.go        | 177 ++++++++++-
+ src/crypto/mldsa/mldsa_fips140v1.26.go        | 183 ++++++++++-
  src/crypto/mldsa/mldsa_test.go                |  67 +++-
  src/crypto/mlkem/mlkem.go                     | 121 ++++++-
  src/crypto/mlkem/mlkem_test.go                |   8 +
@@ -139,7 +139,7 @@ Subject: [PATCH] Add crypto backends
  src/os/exec/exec_test.go                      |   9 +
  src/runtime/runtime_boring.go                 |   5 +
  src/syscall/syscall_windows.go                |   3 +
- 135 files changed, 2596 insertions(+), 380 deletions(-)
+ 135 files changed, 2599 insertions(+), 383 deletions(-)
  create mode 100644 src/cmd/go/systemcrypto_test.go
  create mode 100644 src/crypto/dsa/boring.go
  create mode 100644 src/crypto/dsa/notboring.go
@@ -3272,7 +3272,7 @@ index 403ff2881f4b685b966f7660dc5ccfc9fb4580e4..9cf1efbbeed819afe3143819bee7110f
  
  func maybeCloner(h hash.Hash) any {
 diff --git a/src/crypto/mldsa/mldsa_fips140v1.26.go b/src/crypto/mldsa/mldsa_fips140v1.26.go
-index d3ee1f0daec0960c4a758367698e611380e0b96c..c37363dd9d26629cb70f725520b04a82bb3d7aba 100644
+index d3ee1f0daec0960c4a758367698e611380e0b96c..712aee93fcc176c61cb69073f5f973e829cfab7a 100644
 --- a/src/crypto/mldsa/mldsa_fips140v1.26.go
 +++ b/src/crypto/mldsa/mldsa_fips140v1.26.go
 @@ -9,8 +9,13 @@ package mldsa
@@ -3441,6 +3441,15 @@ index d3ee1f0daec0960c4a758367698e611380e0b96c..c37363dd9d26629cb70f725520b04a82
  var errInvalidSignerOpts = errors.New("mldsa: invalid SignerOpts")
  
  // Sign returns a signature of the given message using this private key.
+@@ -103,7 +218,7 @@ var errInvalidSignerOpts = errors.New("mldsa: invalid SignerOpts")
+ //
+ // [pre-hashed μ message representative]: https://www.rfc-editor.org/rfc/rfc9881.html#externalmu
+ func (sk *PrivateKey) Sign(_ io.Reader, message []byte, opts crypto.SignerOpts) (signature []byte, err error) {
+-	if sk.k == (mldsa.PrivateKey{}) {
++	if sk.boring == nil && sk.k == (mldsa.PrivateKey{}) {
+ 		return nil, errors.New("mldsa: zero private key")
+ 	}
+ 	if opts == nil {
 @@ -115,9 +230,21 @@ func (sk *PrivateKey) Sign(_ io.Reader, message []byte, opts crypto.SignerOpts)
  		if opts, ok := opts.(*Options); ok && opts != nil {
  			context = opts.Context
@@ -3464,7 +3473,14 @@ index d3ee1f0daec0960c4a758367698e611380e0b96c..c37363dd9d26629cb70f725520b04a82
  	default:
  		return nil, errInvalidSignerOpts
  	}
-@@ -132,15 +259,21 @@ func (sk *PrivateKey) SignDeterministic(message []byte, opts crypto.SignerOpts)
+@@ -126,21 +253,27 @@ func (sk *PrivateKey) Sign(_ io.Reader, message []byte, opts crypto.SignerOpts)
+ // SignDeterministic works like [PrivateKey.Sign], but the signature is
+ // deterministic.
+ func (sk *PrivateKey) SignDeterministic(message []byte, opts crypto.SignerOpts) (signature []byte, err error) {
+-	if sk.k == (mldsa.PrivateKey{}) {
++	if sk.boring == nil && sk.k == (mldsa.PrivateKey{}) {
+ 		return nil, errors.New("mldsa: zero private key")
+ 	}
  	if opts == nil {
  		opts = &Options{}
  	}
@@ -3556,7 +3572,14 @@ index d3ee1f0daec0960c4a758367698e611380e0b96c..c37363dd9d26629cb70f725520b04a82
  	switch pk.p.Parameters() {
  	case "ML-DSA-44":
  		return MLDSA44()
-@@ -222,5 +390,8 @@ func Verify(pk *PublicKey, message []byte, signature []byte, opts *Options) erro
+@@ -216,11 +384,14 @@ func Verify(pk *PublicKey, message []byte, signature []byte, opts *Options) erro
+ 	if pk == nil {
+ 		return errors.New("mldsa: nil public key")
+ 	}
+-	if pk.p == (mldsa.PublicKey{}) {
++	if pk.boring == nil && pk.p == (mldsa.PublicKey{}) {
+ 		return errors.New("mldsa: zero public key")
+ 	}
  	if opts == nil {
  		opts = &Options{}
  	}

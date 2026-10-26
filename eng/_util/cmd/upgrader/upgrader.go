@@ -31,13 +31,13 @@ var infos = map[string]depsInfo{
 		url: "https://github.com/microsoft/go-crypto-openssl",
 		mod: "github.com/microsoft/go-crypto-openssl",
 		wd:  "./go/src",
-		ref: "main",
+		ref: "ms-go1.27-support",
 	},
 	"windows": {
 		url: "https://github.com/microsoft/go-crypto-winnative",
 		mod: "github.com/microsoft/go-crypto-winnative",
 		wd:  "./go/src",
-		ref: "main",
+		ref: "ms-go1.27-support",
 	},
 	"darwin": {
 		url: "https://github.com/microsoft/go-crypto-darwin",
@@ -63,7 +63,8 @@ func description() string {
 	deps := slices.Collect(maps.Keys(infos))
 	slices.Sort(deps)
 	return `
-This command upgrades the dependencies listed as arguments to their latest available commit.
+This command upgrades the dependencies listed as arguments to the latest commit on their configured branch.
+On this release branch, OpenSSL and Windows use ms-go1.27-support; Darwin uses main.
 Known dependencies are:
 ` + strings.Join(deps, " ") + `
 

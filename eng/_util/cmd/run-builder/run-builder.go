@@ -102,6 +102,11 @@ func main() {
 		timeoutScale *= 2
 	}
 
+	// Intel Darwin builders need more time for cmd/go script tests.
+	if goos == "darwin" && goarch == "amd64" {
+		timeoutScale *= 3
+	}
+
 	if timeoutScale != 1 {
 		buildutil.SetEnv("GO_TEST_TIMEOUT_SCALE", strconv.Itoa(timeoutScale))
 	}
