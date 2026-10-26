@@ -80,8 +80,8 @@ Subject: [PATCH] Add crypto backends
  src/crypto/internal/rand/rand.go              |   8 +-
  src/crypto/md5/md5.go                         |  12 +
  src/crypto/md5/md5_test.go                    |  18 +-
- src/crypto/mldsa/mldsa_fips140v1.26.go        | 177 ++++++++++-
- src/crypto/mldsa/mldsa_test.go                |  67 +++-
+ src/crypto/mldsa/mldsa_fips140v1.26.go        | 183 ++++++++++-
+ src/crypto/mldsa/mldsa_test.go                | 143 ++++++++-
  src/crypto/mlkem/mlkem.go                     | 121 ++++++-
  src/crypto/mlkem/mlkem_test.go                |   8 +
  src/crypto/pbkdf2/pbkdf2.go                   |   9 +
@@ -139,7 +139,7 @@ Subject: [PATCH] Add crypto backends
  src/os/exec/exec_test.go                      |   9 +
  src/runtime/runtime_boring.go                 |   5 +
  src/syscall/syscall_windows.go                |   3 +
- 135 files changed, 2596 insertions(+), 380 deletions(-)
+ 135 files changed, 2671 insertions(+), 387 deletions(-)
  create mode 100644 src/cmd/go/systemcrypto_test.go
  create mode 100644 src/crypto/dsa/boring.go
  create mode 100644 src/crypto/dsa/notboring.go
@@ -3272,7 +3272,7 @@ index 403ff2881f4b685b966f7660dc5ccfc9fb4580e4..9cf1efbbeed819afe3143819bee7110f
  
  func maybeCloner(h hash.Hash) any {
 diff --git a/src/crypto/mldsa/mldsa_fips140v1.26.go b/src/crypto/mldsa/mldsa_fips140v1.26.go
-index d3ee1f0daec0960c4a758367698e611380e0b96c..c37363dd9d26629cb70f725520b04a82bb3d7aba 100644
+index d3ee1f0daec0960c4a758367698e611380e0b96c..712aee93fcc176c61cb69073f5f973e829cfab7a 100644
 --- a/src/crypto/mldsa/mldsa_fips140v1.26.go
 +++ b/src/crypto/mldsa/mldsa_fips140v1.26.go
 @@ -9,8 +9,13 @@ package mldsa
@@ -3441,6 +3441,15 @@ index d3ee1f0daec0960c4a758367698e611380e0b96c..c37363dd9d26629cb70f725520b04a82
  var errInvalidSignerOpts = errors.New("mldsa: invalid SignerOpts")
  
  // Sign returns a signature of the given message using this private key.
+@@ -103,7 +218,7 @@ var errInvalidSignerOpts = errors.New("mldsa: invalid SignerOpts")
+ //
+ // [pre-hashed μ message representative]: https://www.rfc-editor.org/rfc/rfc9881.html#externalmu
+ func (sk *PrivateKey) Sign(_ io.Reader, message []byte, opts crypto.SignerOpts) (signature []byte, err error) {
+-	if sk.k == (mldsa.PrivateKey{}) {
++	if sk.boring == nil && sk.k == (mldsa.PrivateKey{}) {
+ 		return nil, errors.New("mldsa: zero private key")
+ 	}
+ 	if opts == nil {
 @@ -115,9 +230,21 @@ func (sk *PrivateKey) Sign(_ io.Reader, message []byte, opts crypto.SignerOpts)
  		if opts, ok := opts.(*Options); ok && opts != nil {
  			context = opts.Context
@@ -3464,7 +3473,14 @@ index d3ee1f0daec0960c4a758367698e611380e0b96c..c37363dd9d26629cb70f725520b04a82
  	default:
  		return nil, errInvalidSignerOpts
  	}
-@@ -132,15 +259,21 @@ func (sk *PrivateKey) SignDeterministic(message []byte, opts crypto.SignerOpts)
+@@ -126,21 +253,27 @@ func (sk *PrivateKey) Sign(_ io.Reader, message []byte, opts crypto.SignerOpts)
+ // SignDeterministic works like [PrivateKey.Sign], but the signature is
+ // deterministic.
+ func (sk *PrivateKey) SignDeterministic(message []byte, opts crypto.SignerOpts) (signature []byte, err error) {
+-	if sk.k == (mldsa.PrivateKey{}) {
++	if sk.boring == nil && sk.k == (mldsa.PrivateKey{}) {
+ 		return nil, errors.New("mldsa: zero private key")
+ 	}
  	if opts == nil {
  		opts = &Options{}
  	}
@@ -3556,7 +3572,14 @@ index d3ee1f0daec0960c4a758367698e611380e0b96c..c37363dd9d26629cb70f725520b04a82
  	switch pk.p.Parameters() {
  	case "ML-DSA-44":
  		return MLDSA44()
-@@ -222,5 +390,8 @@ func Verify(pk *PublicKey, message []byte, signature []byte, opts *Options) erro
+@@ -216,11 +384,14 @@ func Verify(pk *PublicKey, message []byte, signature []byte, opts *Options) erro
+ 	if pk == nil {
+ 		return errors.New("mldsa: nil public key")
+ 	}
+-	if pk.p == (mldsa.PublicKey{}) {
++	if pk.boring == nil && pk.p == (mldsa.PublicKey{}) {
+ 		return errors.New("mldsa: zero public key")
+ 	}
  	if opts == nil {
  		opts = &Options{}
  	}
@@ -3566,7 +3589,7 @@ index d3ee1f0daec0960c4a758367698e611380e0b96c..c37363dd9d26629cb70f725520b04a82
  	return mldsa.Verify(&pk.p, message, signature, opts.Context)
  }
 diff --git a/src/crypto/mldsa/mldsa_test.go b/src/crypto/mldsa/mldsa_test.go
-index 0a2fc4edf1118312271780d36466feccba80ec6c..9c27ff51b27a4fd02ef27f79466724dcd28d8d3a 100644
+index 0a2fc4edf1118312271780d36466feccba80ec6c..264365478ce663502e43ef10ef22a00ead1d423a 100644
 --- a/src/crypto/mldsa/mldsa_test.go
 +++ b/src/crypto/mldsa/mldsa_test.go
 @@ -18,6 +18,9 @@ import (
@@ -3588,10 +3611,78 @@ index 0a2fc4edf1118312271780d36466feccba80ec6c..9c27ff51b27a4fd02ef27f79466724dc
  			t.Fatalf("public key mismatch")
  		}
  		if err := Verify(dk.PublicKey(), msg, sig, nil); err != nil {
-@@ -154,6 +157,41 @@ func testGenerateKey(t *testing.T, params Parameters) {
+@@ -154,6 +157,109 @@ func testGenerateKey(t *testing.T, params Parameters) {
  	}
  }
  
++func TestBackendKeys(t *testing.T) {
++	if !boring.Enabled {
++		t.Skip("crypto backend is disabled")
++	}
++	for _, params := range []struct {
++		goParams      Parameters
++		backendParams bmldsa.Parameters
++	}{
++		{MLDSA44(), bmldsa.MLDSA44()},
++		{MLDSA65(), bmldsa.MLDSA65()},
++		{MLDSA87(), bmldsa.MLDSA87()},
++	} {
++		t.Run(params.goParams.String(), func(t *testing.T) {
++			if !bmldsa.Supports(params.backendParams) {
++				t.Skip("crypto backend does not support this parameter set")
++			}
++			for _, imported := range []bool{false, true} {
++				name := "generated"
++				if imported {
++					name = "imported"
++				}
++				t.Run(name, func(t *testing.T) {
++					for _, deterministic := range []bool{false, true} {
++						name := "Sign"
++						if deterministic {
++							name = "SignDeterministic"
++						}
++						t.Run(name, func(t *testing.T) {
++							sk, err := GenerateKey(params.goParams)
++							if err != nil {
++								t.Fatal(err)
++							}
++							if imported {
++								sk, err = NewPrivateKey(params.goParams, sk.Bytes())
++								if err != nil {
++									t.Fatal(err)
++								}
++							}
++							pk := sk.PublicKey()
++							parsed, err := NewPublicKey(params.goParams, pk.Bytes())
++							if err != nil {
++								t.Fatal(err)
++							}
++							msg := []byte("backend key validation")
++							opts := &Options{Context: "test"}
++							var sig []byte
++							if deterministic {
++								sig, err = sk.SignDeterministic(msg, opts)
++							} else {
++								sig, err = sk.Sign(nil, msg, opts)
++							}
++							if err != nil {
++								t.Fatal(err)
++							}
++							if err := Verify(pk, msg, sig, opts); err != nil {
++								t.Fatalf("Verify with derived public key: %v", err)
++							}
++							if err := Verify(parsed, msg, sig, opts); err != nil {
++								t.Fatalf("Verify with imported public key: %v", err)
++							}
++						})
++					}
++				})
++			}
++		})
++	}
++}
++
 +// TestEqualDistinguishesParameters checks that two keys derived from the same
 +// seed but with different parameter sets are not reported as equal. The private
 +// key seed is the same length for all parameter sets, so a seed-only comparison
@@ -3630,7 +3721,7 @@ index 0a2fc4edf1118312271780d36466feccba80ec6c..9c27ff51b27a4fd02ef27f79466724dc
  func TestAllocations(t *testing.T) {
  	// We allocate
  	//
-@@ -178,13 +216,34 @@ func TestAllocations(t *testing.T) {
+@@ -178,13 +284,34 @@ func TestAllocations(t *testing.T) {
  		expected += 3
  	}
  	cryptotest.SkipTestAllocations(t)
@@ -3667,7 +3758,7 @@ index 0a2fc4edf1118312271780d36466feccba80ec6c..9c27ff51b27a4fd02ef27f79466724dc
  		if err != nil {
  			t.Fatalf("NewPrivateKey: %v", err)
  		}
-@@ -192,7 +251,7 @@ func TestAllocations(t *testing.T) {
+@@ -192,7 +319,7 @@ func TestAllocations(t *testing.T) {
  			t.Fatalf("keys not equal")
  		}
  		pkBytes := k.PublicKey().Bytes()
@@ -3676,6 +3767,33 @@ index 0a2fc4edf1118312271780d36466feccba80ec6c..9c27ff51b27a4fd02ef27f79466724dc
  		if err != nil {
  			t.Fatalf("NewPublicKey: %v", err)
  		}
+@@ -657,22 +784,22 @@ func TestUninitialized(t *testing.T) {
+ 			}{
+ 				{"nil opts", func() error {
+ 					var sk PrivateKey
+-					_, err := sk.Sign(nil, msg, nil)
++					_, err := f.sign(&sk, msg, nil)
+ 					return err
+ 				}},
+ 				{"empty opts", func() error {
+ 					var sk PrivateKey
+-					_, err := sk.Sign(nil, msg, &Options{})
++					_, err := f.sign(&sk, msg, &Options{})
+ 					return err
+ 				}},
+ 				{"typed nil opts", func() error {
+ 					var sk PrivateKey
+-					_, err := sk.Sign(nil, msg, (*Options)(nil))
++					_, err := f.sign(&sk, msg, (*Options)(nil))
+ 					return err
+ 				}},
+ 				{"mu opts", func() error {
+ 					var sk PrivateKey
+-					_, err := sk.Sign(nil, msg, muOptions{})
++					_, err := f.sign(&sk, msg, muOptions{})
+ 					return err
+ 				}},
+ 			}
 diff --git a/src/crypto/mlkem/mlkem.go b/src/crypto/mlkem/mlkem.go
 index f0fd6a4993a8e63aec2e21aacabb7cfa7d579a2d..7b5b3ba7bbac09b87794ac6693039d0009eb5f61 100644
 --- a/src/crypto/mlkem/mlkem.go
