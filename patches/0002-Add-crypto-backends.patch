@@ -81,7 +81,7 @@ Subject: [PATCH] Add crypto backends
  src/crypto/md5/md5.go                         |  12 +
  src/crypto/md5/md5_test.go                    |  18 +-
  src/crypto/mldsa/mldsa_fips140v1.26.go        | 183 ++++++++++-
- src/crypto/mldsa/mldsa_test.go                | 143 ++++++++-
+ src/crypto/mldsa/mldsa_test.go                |  75 ++++-
  src/crypto/mlkem/mlkem.go                     | 121 ++++++-
  src/crypto/mlkem/mlkem_test.go                |   8 +
  src/crypto/pbkdf2/pbkdf2.go                   |   9 +
@@ -139,7 +139,7 @@ Subject: [PATCH] Add crypto backends
  src/os/exec/exec_test.go                      |   9 +
  src/runtime/runtime_boring.go                 |   5 +
  src/syscall/syscall_windows.go                |   3 +
- 135 files changed, 2671 insertions(+), 387 deletions(-)
+ 135 files changed, 2603 insertions(+), 387 deletions(-)
  create mode 100644 src/cmd/go/systemcrypto_test.go
  create mode 100644 src/crypto/dsa/boring.go
  create mode 100644 src/crypto/dsa/notboring.go
@@ -3589,7 +3589,7 @@ index d3ee1f0daec0960c4a758367698e611380e0b96c..712aee93fcc176c61cb69073f5f973e8
  	return mldsa.Verify(&pk.p, message, signature, opts.Context)
  }
 diff --git a/src/crypto/mldsa/mldsa_test.go b/src/crypto/mldsa/mldsa_test.go
-index 0a2fc4edf1118312271780d36466feccba80ec6c..264365478ce663502e43ef10ef22a00ead1d423a 100644
+index 0a2fc4edf1118312271780d36466feccba80ec6c..97a82f1a459e87e7aef4ecb30fac3074cc77d5c6 100644
 --- a/src/crypto/mldsa/mldsa_test.go
 +++ b/src/crypto/mldsa/mldsa_test.go
 @@ -18,6 +18,9 @@ import (
@@ -3611,78 +3611,10 @@ index 0a2fc4edf1118312271780d36466feccba80ec6c..264365478ce663502e43ef10ef22a00e
  			t.Fatalf("public key mismatch")
  		}
  		if err := Verify(dk.PublicKey(), msg, sig, nil); err != nil {
-@@ -154,6 +157,109 @@ func testGenerateKey(t *testing.T, params Parameters) {
+@@ -154,6 +157,41 @@ func testGenerateKey(t *testing.T, params Parameters) {
  	}
  }
  
-+func TestBackendKeys(t *testing.T) {
-+	if !boring.Enabled {
-+		t.Skip("crypto backend is disabled")
-+	}
-+	for _, params := range []struct {
-+		goParams      Parameters
-+		backendParams bmldsa.Parameters
-+	}{
-+		{MLDSA44(), bmldsa.MLDSA44()},
-+		{MLDSA65(), bmldsa.MLDSA65()},
-+		{MLDSA87(), bmldsa.MLDSA87()},
-+	} {
-+		t.Run(params.goParams.String(), func(t *testing.T) {
-+			if !bmldsa.Supports(params.backendParams) {
-+				t.Skip("crypto backend does not support this parameter set")
-+			}
-+			for _, imported := range []bool{false, true} {
-+				name := "generated"
-+				if imported {
-+					name = "imported"
-+				}
-+				t.Run(name, func(t *testing.T) {
-+					for _, deterministic := range []bool{false, true} {
-+						name := "Sign"
-+						if deterministic {
-+							name = "SignDeterministic"
-+						}
-+						t.Run(name, func(t *testing.T) {
-+							sk, err := GenerateKey(params.goParams)
-+							if err != nil {
-+								t.Fatal(err)
-+							}
-+							if imported {
-+								sk, err = NewPrivateKey(params.goParams, sk.Bytes())
-+								if err != nil {
-+									t.Fatal(err)
-+								}
-+							}
-+							pk := sk.PublicKey()
-+							parsed, err := NewPublicKey(params.goParams, pk.Bytes())
-+							if err != nil {
-+								t.Fatal(err)
-+							}
-+							msg := []byte("backend key validation")
-+							opts := &Options{Context: "test"}
-+							var sig []byte
-+							if deterministic {
-+								sig, err = sk.SignDeterministic(msg, opts)
-+							} else {
-+								sig, err = sk.Sign(nil, msg, opts)
-+							}
-+							if err != nil {
-+								t.Fatal(err)
-+							}
-+							if err := Verify(pk, msg, sig, opts); err != nil {
-+								t.Fatalf("Verify with derived public key: %v", err)
-+							}
-+							if err := Verify(parsed, msg, sig, opts); err != nil {
-+								t.Fatalf("Verify with imported public key: %v", err)
-+							}
-+						})
-+					}
-+				})
-+			}
-+		})
-+	}
-+}
-+
 +// TestEqualDistinguishesParameters checks that two keys derived from the same
 +// seed but with different parameter sets are not reported as equal. The private
 +// key seed is the same length for all parameter sets, so a seed-only comparison
@@ -3721,7 +3653,7 @@ index 0a2fc4edf1118312271780d36466feccba80ec6c..264365478ce663502e43ef10ef22a00e
  func TestAllocations(t *testing.T) {
  	// We allocate
  	//
-@@ -178,13 +284,34 @@ func TestAllocations(t *testing.T) {
+@@ -178,13 +216,34 @@ func TestAllocations(t *testing.T) {
  		expected += 3
  	}
  	cryptotest.SkipTestAllocations(t)
@@ -3758,7 +3690,7 @@ index 0a2fc4edf1118312271780d36466feccba80ec6c..264365478ce663502e43ef10ef22a00e
  		if err != nil {
  			t.Fatalf("NewPrivateKey: %v", err)
  		}
-@@ -192,7 +319,7 @@ func TestAllocations(t *testing.T) {
+@@ -192,7 +251,7 @@ func TestAllocations(t *testing.T) {
  			t.Fatalf("keys not equal")
  		}
  		pkBytes := k.PublicKey().Bytes()
@@ -3767,7 +3699,7 @@ index 0a2fc4edf1118312271780d36466feccba80ec6c..264365478ce663502e43ef10ef22a00e
  		if err != nil {
  			t.Fatalf("NewPublicKey: %v", err)
  		}
-@@ -657,22 +784,22 @@ func TestUninitialized(t *testing.T) {
+@@ -657,22 +716,22 @@ func TestUninitialized(t *testing.T) {
  			}{
  				{"nil opts", func() error {
  					var sk PrivateKey
