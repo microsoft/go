@@ -81,7 +81,7 @@ Subject: [PATCH] Add crypto backends
  src/crypto/md5/md5.go                         |  12 +
  src/crypto/md5/md5_test.go                    |  18 +-
  src/crypto/mldsa/mldsa_fips140v1.26.go        | 183 ++++++++++-
- src/crypto/mldsa/mldsa_test.go                |  75 ++++-
+ src/crypto/mldsa/mldsa_test.go                |  67 +++-
  src/crypto/mlkem/mlkem.go                     | 121 ++++++-
  src/crypto/mlkem/mlkem_test.go                |   8 +
  src/crypto/pbkdf2/pbkdf2.go                   |   9 +
@@ -139,7 +139,7 @@ Subject: [PATCH] Add crypto backends
  src/os/exec/exec_test.go                      |   9 +
  src/runtime/runtime_boring.go                 |   5 +
  src/syscall/syscall_windows.go                |   3 +
- 135 files changed, 2603 insertions(+), 387 deletions(-)
+ 135 files changed, 2599 insertions(+), 383 deletions(-)
  create mode 100644 src/cmd/go/systemcrypto_test.go
  create mode 100644 src/crypto/dsa/boring.go
  create mode 100644 src/crypto/dsa/notboring.go
@@ -3589,7 +3589,7 @@ index d3ee1f0daec0960c4a758367698e611380e0b96c..712aee93fcc176c61cb69073f5f973e8
  	return mldsa.Verify(&pk.p, message, signature, opts.Context)
  }
 diff --git a/src/crypto/mldsa/mldsa_test.go b/src/crypto/mldsa/mldsa_test.go
-index 0a2fc4edf1118312271780d36466feccba80ec6c..97a82f1a459e87e7aef4ecb30fac3074cc77d5c6 100644
+index 0a2fc4edf1118312271780d36466feccba80ec6c..9c27ff51b27a4fd02ef27f79466724dcd28d8d3a 100644
 --- a/src/crypto/mldsa/mldsa_test.go
 +++ b/src/crypto/mldsa/mldsa_test.go
 @@ -18,6 +18,9 @@ import (
@@ -3699,33 +3699,6 @@ index 0a2fc4edf1118312271780d36466feccba80ec6c..97a82f1a459e87e7aef4ecb30fac3074
  		if err != nil {
  			t.Fatalf("NewPublicKey: %v", err)
  		}
-@@ -657,22 +716,22 @@ func TestUninitialized(t *testing.T) {
- 			}{
- 				{"nil opts", func() error {
- 					var sk PrivateKey
--					_, err := sk.Sign(nil, msg, nil)
-+					_, err := f.sign(&sk, msg, nil)
- 					return err
- 				}},
- 				{"empty opts", func() error {
- 					var sk PrivateKey
--					_, err := sk.Sign(nil, msg, &Options{})
-+					_, err := f.sign(&sk, msg, &Options{})
- 					return err
- 				}},
- 				{"typed nil opts", func() error {
- 					var sk PrivateKey
--					_, err := sk.Sign(nil, msg, (*Options)(nil))
-+					_, err := f.sign(&sk, msg, (*Options)(nil))
- 					return err
- 				}},
- 				{"mu opts", func() error {
- 					var sk PrivateKey
--					_, err := sk.Sign(nil, msg, muOptions{})
-+					_, err := f.sign(&sk, msg, muOptions{})
- 					return err
- 				}},
- 			}
 diff --git a/src/crypto/mlkem/mlkem.go b/src/crypto/mlkem/mlkem.go
 index f0fd6a4993a8e63aec2e21aacabb7cfa7d579a2d..7b5b3ba7bbac09b87794ac6693039d0009eb5f61 100644
 --- a/src/crypto/mlkem/mlkem.go
