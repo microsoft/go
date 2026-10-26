@@ -10,7 +10,7 @@ Subject: [PATCH] Add crypto backends
  src/cmd/compile/testdata/script/README        |   2 +
  src/cmd/dist/build.go                         |  65 +++++++++++
  src/cmd/dist/buildtool.go                     |   1 +
- src/cmd/dist/test.go                          |  46 ++++++--
+ src/cmd/dist/test.go                          |  42 +++++--
  src/cmd/go/alldocs.go                         |   3 +
  src/cmd/go/go_boring_test.go                  |   2 +-
  src/cmd/go/go_test.go                         |  11 ++
@@ -117,14 +117,14 @@ Subject: [PATCH] Add crypto backends
  .../systemcrypto/systemcrypto_test.go         |  60 ++++++++++
  src/net/lookup_test.go                        |   3 +
  src/syscall/syscall_windows.go                |   3 +
- 113 files changed, 1197 insertions(+), 244 deletions(-)
+ 113 files changed, 1194 insertions(+), 243 deletions(-)
  create mode 100644 src/crypto/systemcrypto_nocgo_freebsd.go
  create mode 100644 src/crypto/systemcrypto_nocgo_linux.go
  create mode 100644 src/internal/systemcrypto/systemcrypto.go
  create mode 100644 src/internal/systemcrypto/systemcrypto_test.go
 
 diff --git a/.gitignore b/.gitignore
-index 344b31f7ac1c1d..b4583113d5aa15 100644
+index 344b31f7ac1c1d3d8409da4774b9ea13e0142fb5..b4583113d5aa15ac1be461d1cecd2135f2bf600b 100644
 --- a/.gitignore
 +++ b/.gitignore
 @@ -47,6 +47,8 @@ _testmain.go
@@ -137,7 +137,7 @@ index 344b31f7ac1c1d..b4583113d5aa15 100644
  # For files created by specific development environment (e.g. editor),
  # use alternative ways to exclude files from git.
 diff --git a/src/cmd/compile/internal/logopt/logopt_test.go b/src/cmd/compile/internal/logopt/logopt_test.go
-index 1edabf9fb7ff04..5e9fc3507485bc 100644
+index 1edabf9fb7ff0430844da72b3f1e51c6b0814603..5e9fc3507485bcc9b061bcdfa9cb9ab8860f342f 100644
 --- a/src/cmd/compile/internal/logopt/logopt_test.go
 +++ b/src/cmd/compile/internal/logopt/logopt_test.go
 @@ -5,6 +5,7 @@
@@ -160,7 +160,7 @@ index 1edabf9fb7ff04..5e9fc3507485bc 100644
  		}
  
 diff --git a/src/cmd/compile/script_test.go b/src/cmd/compile/script_test.go
-index 0e32e0769ee2e2..552dfe13dd6a05 100644
+index 0e32e0769ee2e2ca8b38ff978bb7547caebf7954..552dfe13dd6a05ace594f6e30605b7e8a7cf4188 100644
 --- a/src/cmd/compile/script_test.go
 +++ b/src/cmd/compile/script_test.go
 @@ -7,6 +7,7 @@ package main
@@ -186,7 +186,7 @@ index 0e32e0769ee2e2..552dfe13dd6a05 100644
  	if doReplacement {
  		if testCompiler == "" {
 diff --git a/src/cmd/compile/testdata/script/README b/src/cmd/compile/testdata/script/README
-index 9ec997a138f0f2..09c4e7955ec162 100644
+index 9ec997a138f0f27be42882b819a1531f63600394..09c4e7955ec162ab5092619880b50dbc1b43bba6 100644
 --- a/src/cmd/compile/testdata/script/README
 +++ b/src/cmd/compile/testdata/script/README
 @@ -281,6 +281,8 @@ The available conditions are:
@@ -199,7 +199,7 @@ index 9ec997a138f0f2..09c4e7955ec162 100644
  	testing.Verbose()
  
 diff --git a/src/cmd/dist/build.go b/src/cmd/dist/build.go
-index ae97882d574eb7..8b7742f0ae42e0 100644
+index ae97882d574eb791ff0bd405e0f2613e3bbbde1a..8b7742f0ae42e0d878dd4382f71b853b89077dad 100644
 --- a/src/cmd/dist/build.go
 +++ b/src/cmd/dist/build.go
 @@ -894,6 +894,68 @@ func toolenv() []string {
@@ -283,7 +283,7 @@ index ae97882d574eb7..8b7742f0ae42e0 100644
  	staleSpan.done()
  	if debug {
 diff --git a/src/cmd/dist/buildtool.go b/src/cmd/dist/buildtool.go
-index 1d9d3fc288663c..12a1e07950ef04 100644
+index 1d9d3fc288663c3389d92f0c133aa4afb71d86b2..12a1e07950ef0473c537b4ea79efb0ea5daaecd9 100644
 --- a/src/cmd/dist/buildtool.go
 +++ b/src/cmd/dist/buildtool.go
 @@ -162,6 +162,7 @@ var bootstrapDirs = []string{
@@ -295,10 +295,10 @@ index 1d9d3fc288663c..12a1e07950ef04 100644
  	"internal/types/errors",
  	"internal/unsafeheader",
 diff --git a/src/cmd/dist/test.go b/src/cmd/dist/test.go
-index 81fdf5983debee..503d4e71837059 100644
+index 2998a52420ba3189a7cf1e4f887678eb921e4a67..831ca013deaec086c6ce74697f23a5889b9b1473 100644
 --- a/src/cmd/dist/test.go
 +++ b/src/cmd/dist/test.go
-@@ -158,10 +158,12 @@ func (t *tester) run() {
+@@ -160,10 +160,12 @@ func (t *tester) run() {
  		}
  	}
  
@@ -312,7 +312,7 @@ index 81fdf5983debee..503d4e71837059 100644
  	}
  
  	if !t.listMode {
-@@ -178,9 +180,9 @@ func (t *tester) run() {
+@@ -180,9 +182,9 @@ func (t *tester) run() {
  			// and virtualization we usually start with a clean GOCACHE, so we would
  			// end up rebuilding large parts of the standard library that aren't
  			// otherwise relevant to the actual set of packages under test.
@@ -325,7 +325,7 @@ index 81fdf5983debee..503d4e71837059 100644
  		}
  	}
  
-@@ -719,7 +721,7 @@ func (t *tester) registerTests() {
+@@ -706,7 +708,7 @@ func (t *tester) registerTests() {
  	})
  
  	// Check that all crypto packages compile (and test correctly, in longmode) with fips.
@@ -334,7 +334,7 @@ index 81fdf5983debee..503d4e71837059 100644
  		// Test standard crypto packages with fips140=on.
  		t.registerTest("GOFIPS140=latest go test crypto/...", &goTest{
  			variant: "gofips140",
-@@ -783,7 +785,9 @@ func (t *tester) registerTests() {
+@@ -770,7 +772,9 @@ func (t *tester) registerTests() {
  	}
  
  	// Test ios/amd64 for the iOS simulator.
@@ -345,18 +345,7 @@ index 81fdf5983debee..503d4e71837059 100644
  		t.registerTest("GOOS=ios on darwin/amd64",
  			&goTest{
  				variant:  "amd64ios",
-@@ -1020,7 +1024,9 @@ func (t *tester) registerTests() {
- 		t.registerRaceTests()
- 	}
- 
--	if goos != "android" && !t.iOS() {
-+	// cmd/internal/testdir uses -buildmode=exe on darwin,
-+	// which is not supported by systemcrypto.
-+	if goos != "android" && !t.iOS() && !systemCryptoEnabled() {
- 		// Only start multiple test dir shards on builders,
- 		// where they get distributed to multiple machines.
- 		// See issues 20141 and 31834.
-@@ -1376,12 +1382,11 @@ func (t *tester) registerCgoTests(heading string) {
+@@ -1348,12 +1352,11 @@ func (t *tester) registerCgoTests(heading string) {
  			// a C linker warning on Linux.
  			// in function `bio_ip_and_port_to_socket_and_addr':
  			// warning: Using 'getaddrinfo' in statically linked applications requires at runtime the shared libraries from the glibc version used for linking
@@ -370,7 +359,7 @@ index 81fdf5983debee..503d4e71837059 100644
  			// Static linking tests
  			if goos != "android" && p != "netbsd/arm" && !t.msan && !t.asan {
  				// TODO(#56629): Why does this fail on netbsd-arm?
-@@ -1909,3 +1914,26 @@ func goexperiments(exps ...string) string {
+@@ -1888,3 +1891,26 @@ func goexperiments(exps ...string) string {
  	return existing + strings.Join(exps, ",")
  
  }
@@ -398,7 +387,7 @@ index 81fdf5983debee..503d4e71837059 100644
 +	return enabled
 +}
 diff --git a/src/cmd/go/alldocs.go b/src/cmd/go/alldocs.go
-index 5343762633aafa..2ff19983542a25 100644
+index 5343762633aafa30d6d2eebb45b4a24a51950b15..2ff19983542a25525cdd6709fc98276532b2965f 100644
 --- a/src/cmd/go/alldocs.go
 +++ b/src/cmd/go/alldocs.go
 @@ -2633,6 +2633,9 @@
@@ -412,7 +401,7 @@ index 5343762633aafa..2ff19983542a25 100644
  // Additional information available from 'go env' but not read from the environment:
  //
 diff --git a/src/cmd/go/go_boring_test.go b/src/cmd/go/go_boring_test.go
-index c7acc7dd0b9849..8f94ea4b7dd4b6 100644
+index c7acc7dd0b98490043d8fd15ff4d690c580ebfb6..8f94ea4b7dd4b62e866d28a7895cb6f7a3659b1e 100644
 --- a/src/cmd/go/go_boring_test.go
 +++ b/src/cmd/go/go_boring_test.go
 @@ -2,7 +2,7 @@
@@ -425,7 +414,7 @@ index c7acc7dd0b9849..8f94ea4b7dd4b6 100644
  package main_test
  
 diff --git a/src/cmd/go/go_test.go b/src/cmd/go/go_test.go
-index a38198345b6c14..b178010181a8ab 100644
+index a38198345b6c1402d0953aab630255af55a69b76..b178010181a8ab0f510fe11b7018ebb487fa5ef8 100644
 --- a/src/cmd/go/go_test.go
 +++ b/src/cmd/go/go_test.go
 @@ -15,6 +15,7 @@ import (
@@ -461,7 +450,7 @@ index a38198345b6c14..b178010181a8ab 100644
  	tg.parallel()
  	defer tg.cleanup()
 diff --git a/src/cmd/go/internal/cfg/cfg.go b/src/cmd/go/internal/cfg/cfg.go
-index 5c34612f5d2a95..43d9fea576d302 100644
+index 5c34612f5d2a952c8d413406384c9e68959314db..43d9fea576d302feaae6a0545b95f65490f1b2f2 100644
 --- a/src/cmd/go/internal/cfg/cfg.go
 +++ b/src/cmd/go/internal/cfg/cfg.go
 @@ -14,11 +14,13 @@ import (
@@ -526,7 +515,7 @@ index 5c34612f5d2a95..43d9fea576d302 100644
  }
  
 diff --git a/src/cmd/go/internal/envcmd/env.go b/src/cmd/go/internal/envcmd/env.go
-index e648110e0136a8..c8e949c5e933ec 100644
+index e648110e0136a8496ac8b2cb5ee46f0e9d85e027..c8e949c5e933ec6cabc4856ba80b66b0912285bf 100644
 --- a/src/cmd/go/internal/envcmd/env.go
 +++ b/src/cmd/go/internal/envcmd/env.go
 @@ -124,6 +124,7 @@ func MkEnv() []cfg.EnvVar {
@@ -547,7 +536,7 @@ index e648110e0136a8..c8e949c5e933ec 100644
  				env[i].Changed = true
  			}
 diff --git a/src/cmd/go/internal/help/helpdoc.go b/src/cmd/go/internal/help/helpdoc.go
-index b305457a23d104..5154aa0be0007c 100644
+index b305457a23d1045a4e00a99b91f7e03fa65330a4..5154aa0be0007ce0c842e666f8923cd47c1a5d22 100644
 --- a/src/cmd/go/internal/help/helpdoc.go
 +++ b/src/cmd/go/internal/help/helpdoc.go
 @@ -755,6 +755,9 @@ Special-purpose environment variables:
@@ -561,7 +550,7 @@ index b305457a23d104..5154aa0be0007c 100644
  Additional information available from 'go env' but not read from the environment:
  
 diff --git a/src/cmd/go/internal/load/pkg.go b/src/cmd/go/internal/load/pkg.go
-index 56ad32276bb059..b3fab4bd0f358f 100644
+index 56ad32276bb0599818d95daa8b573374636491e1..b3fab4bd0f358fa6f2f5f780483f7d6122340714 100644
 --- a/src/cmd/go/internal/load/pkg.go
 +++ b/src/cmd/go/internal/load/pkg.go
 @@ -16,6 +16,7 @@ import (
@@ -664,7 +653,7 @@ index 56ad32276bb059..b3fab4bd0f358f 100644
  	appendSetting("-compiler", cfg.BuildContext.Compiler)
  	if cfg.BuildMod == "vendor" {
 diff --git a/src/cmd/go/internal/tool/tool.go b/src/cmd/go/internal/tool/tool.go
-index 018c808e54de27..5c166f90cb19bb 100644
+index 018c808e54de270c39943f01867dd5a04e704caa..5c166f90cb19bb9608b2833aebed23fc3b75eca7 100644
 --- a/src/cmd/go/internal/tool/tool.go
 +++ b/src/cmd/go/internal/tool/tool.go
 @@ -371,6 +371,10 @@ func buildAndRunBuiltinTool(ld *modload.Loader, ctx context.Context, toolName, t
@@ -692,7 +681,7 @@ index 018c808e54de27..5c166f90cb19bb 100644
  
  	buildAndRunTool(ld, ctx, tool, args, runFunc)
 diff --git a/src/cmd/go/script_test.go b/src/cmd/go/script_test.go
-index ca1492f78a4b4c..0f1087de98bc3b 100644
+index ca1492f78a4b4ca3a644a57ae6ed24533c83dacc..0f1087de98bc3b60b6c7b7c6ea38ef7855bac0c0 100644
 --- a/src/cmd/go/script_test.go
 +++ b/src/cmd/go/script_test.go
 @@ -293,6 +293,9 @@ var extraEnvKeys = []string{
@@ -706,7 +695,7 @@ index ca1492f78a4b4c..0f1087de98bc3b 100644
  
  // updateSum runs 'go mod tidy', 'go list -mod=mod -m all', or
 diff --git a/src/cmd/go/testdata/script/README b/src/cmd/go/testdata/script/README
-index cd0484243fdeed..62e821defaf12c 100644
+index cd0484243fdeed1f0f20bd34dbf05d442becc360..62e821defaf12c007315ac438a23a8860c673b88 100644
 --- a/src/cmd/go/testdata/script/README
 +++ b/src/cmd/go/testdata/script/README
 @@ -421,6 +421,8 @@ The available conditions are:
@@ -719,7 +708,7 @@ index cd0484243fdeed..62e821defaf12c 100644
  	test binary was built with -trimpath
  [verbose]
 diff --git a/src/cmd/go/testdata/script/darwin_no_cgo.txt b/src/cmd/go/testdata/script/darwin_no_cgo.txt
-index fa445925b7c374..248be5160833c1 100644
+index fa445925b7c3740d9d694f55053c68cf679f58dc..248be5160833c1edc79a20382299f16ab1b9bab7 100644
 --- a/src/cmd/go/testdata/script/darwin_no_cgo.txt
 +++ b/src/cmd/go/testdata/script/darwin_no_cgo.txt
 @@ -4,6 +4,7 @@
@@ -731,7 +720,7 @@ index fa445925b7c374..248be5160833c1 100644
  ! stdout runtime/cgo
  
 diff --git a/src/cmd/go/testdata/script/env_changed.txt b/src/cmd/go/testdata/script/env_changed.txt
-index da9560062704e6..a12836ff65fd03 100644
+index da9560062704e60923d1d72898d1e3a52099343f..a12836ff65fd0317d123662661c2ac158251b9ee 100644
 --- a/src/cmd/go/testdata/script/env_changed.txt
 +++ b/src/cmd/go/testdata/script/env_changed.txt
 @@ -13,6 +13,7 @@ env CGO_CPPFLAGS=nodefault
@@ -759,7 +748,7 @@ index da9560062704e6..a12836ff65fd03 100644
  [GOOS:windows] env GOOS=linux
  [!GOOS:windows] env GOOS=windows
 diff --git a/src/cmd/go/testdata/script/env_cross_build.txt b/src/cmd/go/testdata/script/env_cross_build.txt
-index 91d1cb936d3652..cca75b4be873d0 100644
+index 91d1cb936d36527926105cbba2ce4193a83841e7..cca75b4be873d05ec5d19efb08530894ef935940 100644
 --- a/src/cmd/go/testdata/script/env_cross_build.txt
 +++ b/src/cmd/go/testdata/script/env_cross_build.txt
 @@ -1,6 +1,8 @@
@@ -772,7 +761,7 @@ index 91d1cb936d3652..cca75b4be873d0 100644
  # explicitly configure these, and #46815 doesn't repro if they are.
  env GOOS=
 diff --git a/src/cmd/go/testdata/script/gopath_std_vendor.txt b/src/cmd/go/testdata/script/gopath_std_vendor.txt
-index 4aaf46b5d0f0dc..c231e299d9970f 100644
+index 4aaf46b5d0f0dc55335ea648469dd716488241fa..c231e299d9970f0bb043fae8a60372d300eddb00 100644
 --- a/src/cmd/go/testdata/script/gopath_std_vendor.txt
 +++ b/src/cmd/go/testdata/script/gopath_std_vendor.txt
 @@ -21,11 +21,11 @@ go build .
@@ -790,7 +779,7 @@ index 4aaf46b5d0f0dc..c231e299d9970f 100644
  -- issue16333/issue16333.go --
  package vendoring17
 diff --git a/src/cmd/go/testdata/script/test_android_issue62123.txt b/src/cmd/go/testdata/script/test_android_issue62123.txt
-index 2f46a6b44bffe1..b036dde70ed36e 100644
+index 2f46a6b44bffe18097aee0a2e606eb274fa13048..b036dde70ed36e2b95ea8c91cac575118721ea1d 100644
 --- a/src/cmd/go/testdata/script/test_android_issue62123.txt
 +++ b/src/cmd/go/testdata/script/test_android_issue62123.txt
 @@ -1,3 +1,5 @@
@@ -800,7 +789,7 @@ index 2f46a6b44bffe1..b036dde70ed36e 100644
  
  ! go build -o $devnull cmd/buildid
 diff --git a/src/cmd/go/testdata/script/test_buildvcs.txt b/src/cmd/go/testdata/script/test_buildvcs.txt
-index a85b3f0d3da3ea..506753a0ea2834 100644
+index a85b3f0d3da3eac3a94388a623de0f42a5b6c3a6..506753a0ea28347d5821da756b31930384d9d9bf 100644
 --- a/src/cmd/go/testdata/script/test_buildvcs.txt
 +++ b/src/cmd/go/testdata/script/test_buildvcs.txt
 @@ -21,6 +21,7 @@ stdout 'unexpected VCS setting: vcs\.modified=true'
@@ -812,7 +801,7 @@ index a85b3f0d3da3ea..506753a0ea2834 100644
  env path=''
  
 diff --git a/src/cmd/go/testdata/script/test_goroot_PATH.txt b/src/cmd/go/testdata/script/test_goroot_PATH.txt
-index aaf99c7d0b74a4..b3eb0bee7c924d 100644
+index aaf99c7d0b74a4e7d1d54971e49249d16ff4f848..b3eb0bee7c924dc418db09a6152d84313c665711 100644
 --- a/src/cmd/go/testdata/script/test_goroot_PATH.txt
 +++ b/src/cmd/go/testdata/script/test_goroot_PATH.txt
 @@ -4,6 +4,7 @@
@@ -824,7 +813,7 @@ index aaf99c7d0b74a4..b3eb0bee7c924d 100644
  [GOOS:plan9] env path=
  go test .
 diff --git a/src/cmd/internal/fuzztest/testdata/script/README b/src/cmd/internal/fuzztest/testdata/script/README
-index 9ec997a138f0f2..09c4e7955ec162 100644
+index 9ec997a138f0f27be42882b819a1531f63600394..09c4e7955ec162ab5092619880b50dbc1b43bba6 100644
 --- a/src/cmd/internal/fuzztest/testdata/script/README
 +++ b/src/cmd/internal/fuzztest/testdata/script/README
 @@ -281,6 +281,8 @@ The available conditions are:
@@ -837,7 +826,7 @@ index 9ec997a138f0f2..09c4e7955ec162 100644
  	testing.Verbose()
  
 diff --git a/src/cmd/internal/moddeps/moddeps_test.go b/src/cmd/internal/moddeps/moddeps_test.go
-index 0467b0ebbf000c..cc64435d5f7b01 100644
+index 0467b0ebbf000cbd31f189653d574abe267d31d7..cc64435d5f7b010cf84ecf85a16fb0756e04eda8 100644
 --- a/src/cmd/internal/moddeps/moddeps_test.go
 +++ b/src/cmd/internal/moddeps/moddeps_test.go
 @@ -378,6 +378,9 @@ func TestDependencyVersionsConsistent(t *testing.T) {
@@ -851,7 +840,7 @@ index 0467b0ebbf000c..cc64435d5f7b01 100644
  			// This line is of the form "# module version [=> replacement [version]]".
  			var r requirement
 diff --git a/src/cmd/internal/script/scripttest/conditions.go b/src/cmd/internal/script/scripttest/conditions.go
-index 6702e9279b106b..09b92a3ed98df1 100644
+index 6702e9279b106b5fb99d6b2e7361799aff806aef..09b92a3ed98df1dbf64a4c019e76e144d1629241 100644
 --- a/src/cmd/internal/script/scripttest/conditions.go
 +++ b/src/cmd/internal/script/scripttest/conditions.go
 @@ -9,6 +9,7 @@ import (
@@ -889,18 +878,18 @@ index 6702e9279b106b..09b92a3ed98df1 100644
  	if err != nil {
  		return false, err
 diff --git a/src/cmd/internal/testdir/testdir_test.go b/src/cmd/internal/testdir/testdir_test.go
-index b0796dfd2b3d89..30606ea53f931f 100644
+index 5147e2efc86b6f994b7a3e7dc3cf58f6f7d68aaf..14f5104923e4e5891a4355ecfd9f0a62191b3833 100644
 --- a/src/cmd/internal/testdir/testdir_test.go
 +++ b/src/cmd/internal/testdir/testdir_test.go
-@@ -14,6 +14,7 @@ import (
+@@ -22,6 +22,7 @@ import (
+ 	"fmt"
  	"go/build"
  	"go/build/constraint"
- 	"hash/fnv"
 +	"internal/systemcrypto"
  	"internal/testenv"
  	"io"
  	"io/fs"
-@@ -122,6 +123,11 @@ func Test(t *testing.T) {
+@@ -127,6 +128,11 @@ func Test(t *testing.T) {
  	goDebug = env.GODEBUG
  	tmpDir = t.TempDir()
  
@@ -913,7 +902,7 @@ index b0796dfd2b3d89..30606ea53f931f 100644
  		gorootTestDir: filepath.Join(testenv.GOROOT(t), "test"),
  		runoutputGate: make(chan bool, *runoutputLimit),
 diff --git a/src/cmd/link/internal/ld/config.go b/src/cmd/link/internal/ld/config.go
-index acbebf28598a9c..6ef32735ddfd57 100644
+index acbebf28598a9c3db2bc871fbc9903c7ede062cc..6ef32735ddfd5738fed157f9c9bcb03a8c247a77 100644
 --- a/src/cmd/link/internal/ld/config.go
 +++ b/src/cmd/link/internal/ld/config.go
 @@ -34,6 +34,13 @@ func (mode *BuildMode) Set(s string) error {
@@ -931,7 +920,7 @@ index acbebf28598a9c..6ef32735ddfd57 100644
  			*mode = BuildModePIE
  		default:
 diff --git a/src/cmd/link/internal/ld/lib.go b/src/cmd/link/internal/ld/lib.go
-index 3f9b2a3366d86c..4af948ece8575e 100644
+index 3f9b2a3366d86c74c3c1a1e5ebbd990aa23e080d..4af948ece8575e9a4a39045da5b154225c63662a 100644
 --- a/src/cmd/link/internal/ld/lib.go
 +++ b/src/cmd/link/internal/ld/lib.go
 @@ -1193,6 +1193,12 @@ var hostobj []Hostobj
@@ -948,10 +937,10 @@ index 3f9b2a3366d86c..4af948ece8575e 100644
  	"crypto/internal/boring/syso",
  	"crypto/x509",
 diff --git a/src/cmd/link/link_test.go b/src/cmd/link/link_test.go
-index 400090355ee696..a6fdb48dc73294 100644
+index 60dbc2fd32149a8775582403c7b6c486f01f8e7c..0465499335e66365a1fd62bc1d8b103e6d32498f 100644
 --- a/src/cmd/link/link_test.go
 +++ b/src/cmd/link/link_test.go
-@@ -15,6 +15,7 @@ import (
+@@ -16,6 +16,7 @@ import (
  	"internal/abi"
  	"internal/buildcfg"
  	"internal/platform"
@@ -959,7 +948,7 @@ index 400090355ee696..a6fdb48dc73294 100644
  	"internal/testenv"
  	"internal/xcoff"
  	"os"
-@@ -374,6 +375,9 @@ func TestBuildForTvOS(t *testing.T) {
+@@ -375,6 +376,9 @@ func TestBuildForTvOS(t *testing.T) {
  	if runtime.GOOS != "darwin" {
  		t.Skip("skipping on non-darwin platform")
  	}
@@ -969,7 +958,7 @@ index 400090355ee696..a6fdb48dc73294 100644
  	if testing.Short() && testenv.Builder() == "" {
  		t.Skip("skipping in -short mode with $GO_BUILDER_NAME empty")
  	}
-@@ -604,6 +608,10 @@ func TestIssue34788Android386TLSSequence(t *testing.T) {
+@@ -605,6 +609,10 @@ func TestIssue34788Android386TLSSequence(t *testing.T) {
  		t.Skip("skipping on non-{linux,darwin}/amd64 platform")
  	}
  
@@ -981,7 +970,7 @@ index 400090355ee696..a6fdb48dc73294 100644
  
  	tmpdir := t.TempDir()
 diff --git a/src/cmd/link/testdata/script/README b/src/cmd/link/testdata/script/README
-index 9ec997a138f0f2..09c4e7955ec162 100644
+index 9ec997a138f0f27be42882b819a1531f63600394..09c4e7955ec162ab5092619880b50dbc1b43bba6 100644
 --- a/src/cmd/link/testdata/script/README
 +++ b/src/cmd/link/testdata/script/README
 @@ -281,6 +281,8 @@ The available conditions are:
@@ -994,7 +983,7 @@ index 9ec997a138f0f2..09c4e7955ec162 100644
  	testing.Verbose()
  
 diff --git a/src/cmd/nm/testdata/script/README b/src/cmd/nm/testdata/script/README
-index 9ec997a138f0f2..09c4e7955ec162 100644
+index 9ec997a138f0f27be42882b819a1531f63600394..09c4e7955ec162ab5092619880b50dbc1b43bba6 100644
 --- a/src/cmd/nm/testdata/script/README
 +++ b/src/cmd/nm/testdata/script/README
 @@ -281,6 +281,8 @@ The available conditions are:
@@ -1007,7 +996,7 @@ index 9ec997a138f0f2..09c4e7955ec162 100644
  	testing.Verbose()
  
 diff --git a/src/crypto/aes/aes.go b/src/crypto/aes/aes.go
-index 22ea8819ed239a..f308b72daa15a9 100644
+index 22ea8819ed239affd8d0e1d1bc8d186d2be46fa4..f308b72daa15a9fffbf8b1c7c81ed1cfa87ebfdc 100644
 --- a/src/crypto/aes/aes.go
 +++ b/src/crypto/aes/aes.go
 @@ -16,8 +16,9 @@ package aes
@@ -1022,7 +1011,7 @@ index 22ea8819ed239a..f308b72daa15a9 100644
  
  // The AES block size in bytes.
 diff --git a/src/crypto/aes/aes_test.go b/src/crypto/aes/aes_test.go
-index cfe75f4057a96b..c7938ea24ee543 100644
+index cfe75f4057a96bf49f7748d556b99c6bdad116c6..c7938ea24ee54341af5ea6fdb5c57fe7beab5d67 100644
 --- a/src/crypto/aes/aes_test.go
 +++ b/src/crypto/aes/aes_test.go
 @@ -5,9 +5,9 @@
@@ -1037,7 +1026,7 @@ index cfe75f4057a96b..c7938ea24ee543 100644
  )
  
 diff --git a/src/crypto/cipher/cbc.go b/src/crypto/cipher/cbc.go
-index 87bafee08ade4f..f5faf803bd03c6 100644
+index 87bafee08ade4f7eb55ee5eaab21366ef6c8df5e..f5faf803bd03c616659de9eca6331642e0d60dc4 100644
 --- a/src/crypto/cipher/cbc.go
 +++ b/src/crypto/cipher/cbc.go
 @@ -17,6 +17,8 @@ import (
@@ -1070,7 +1059,7 @@ index 87bafee08ade4f..f5faf803bd03c6 100644
  		panic("crypto/cipher: use of CBC with non-AES ciphers is not allowed in FIPS 140-only mode")
  	}
 diff --git a/src/crypto/cipher/ctr.go b/src/crypto/cipher/ctr.go
-index 8e63ed7e668a4c..a3b6f1d69a55c1 100644
+index 8e63ed7e668a4cbf19482ae21c774a18e58dfa84..a3b6f1d69a55c1fb5889b475edf7126b46aa7cd4 100644
 --- a/src/crypto/cipher/ctr.go
 +++ b/src/crypto/cipher/ctr.go
 @@ -18,6 +18,8 @@ import (
@@ -1093,7 +1082,7 @@ index 8e63ed7e668a4c..a3b6f1d69a55c1 100644
  		panic("crypto/cipher: use of CTR with non-AES ciphers is not allowed in FIPS 140-only mode")
  	}
 diff --git a/src/crypto/cipher/ctr_aes_test.go b/src/crypto/cipher/ctr_aes_test.go
-index b6620d182fefc7..10c754c134076b 100644
+index b6620d182fefc71c977fca719dd1f695f3d7ea12..10c754c134076bf65a99789dee453118f5f0326a 100644
 --- a/src/crypto/cipher/ctr_aes_test.go
 +++ b/src/crypto/cipher/ctr_aes_test.go
 @@ -14,12 +14,12 @@ import (
@@ -1111,7 +1100,7 @@ index b6620d182fefc7..10c754c134076b 100644
  	"sort"
  	"strings"
 diff --git a/src/crypto/cipher/gcm.go b/src/crypto/cipher/gcm.go
-index f2cf6248dc8c9b..445dc9325ac2fd 100644
+index f2cf6248dc8c9b279e27565ce121fac9c8b07c4b..445dc9325ac2fda2a257f60df84730911918c909 100644
 --- a/src/crypto/cipher/gcm.go
 +++ b/src/crypto/cipher/gcm.go
 @@ -12,6 +12,8 @@ import (
@@ -1211,7 +1200,7 @@ index f2cf6248dc8c9b..445dc9325ac2fd 100644
  	if cipher.BlockSize() != gcmBlockSize {
  		return nil, errors.New("cipher: NewGCM requires 128-bit block cipher")
 diff --git a/src/crypto/des/cipher.go b/src/crypto/des/cipher.go
-index 81ba766b2527d2..d21ad608496457 100644
+index 81ba766b2527d21c645517b9e541901acfe6bade..d21ad6084964570bf8633d6d985fde40299486be 100644
 --- a/src/crypto/des/cipher.go
 +++ b/src/crypto/des/cipher.go
 @@ -11,6 +11,9 @@ import (
@@ -1245,7 +1234,7 @@ index 81ba766b2527d2..d21ad608496457 100644
  	c := new(tripleDESCipher)
  	c.cipher1.generateSubkeys(key[:8])
 diff --git a/src/crypto/dsa/dsa.go b/src/crypto/dsa/dsa.go
-index 6724f861b7f2f0..0d2503657e099a 100644
+index 6724f861b7f2f027a2a0481e6627cf3f269cb434..0d2503657e099ab078443e8112786b9932dd5153 100644
 --- a/src/crypto/dsa/dsa.go
 +++ b/src/crypto/dsa/dsa.go
 @@ -20,8 +20,14 @@ import (
@@ -1327,7 +1316,7 @@ index 6724f861b7f2f0..0d2503657e099a 100644
  	if w == nil {
  		return false
 diff --git a/src/crypto/dsa/dsa_test.go b/src/crypto/dsa/dsa_test.go
-index ad85eac0a7f0b1..a4cc9c067e3f2c 100644
+index ad85eac0a7f0b1182bc5c0077c091523464e34fa..a4cc9c067e3f2ca5f487543e486d495bb154d14e 100644
 --- a/src/crypto/dsa/dsa_test.go
 +++ b/src/crypto/dsa/dsa_test.go
 @@ -5,8 +5,11 @@
@@ -1355,7 +1344,7 @@ index ad85eac0a7f0b1..a4cc9c067e3f2c 100644
  		PublicKey: PublicKey{
  			Parameters: Parameters{
 diff --git a/src/crypto/ecdh/ecdh.go b/src/crypto/ecdh/ecdh.go
-index 3f85a2833697a9..28559f84eb3cf5 100644
+index 3f85a2833697a9fb0b5b9d2de21a5240cd3e8452..28559f84eb3cf5e9757ae1bac7c78d7486cd96f0 100644
 --- a/src/crypto/ecdh/ecdh.go
 +++ b/src/crypto/ecdh/ecdh.go
 @@ -9,10 +9,11 @@ package ecdh
@@ -1372,7 +1361,7 @@ index 3f85a2833697a9..28559f84eb3cf5 100644
  
  type Curve interface {
 diff --git a/src/crypto/ecdh/nist.go b/src/crypto/ecdh/nist.go
-index 13865ea7012989..8b5d3ba1b97495 100644
+index 13865ea70129895ce10a56f303ac465be0944de9..8b5d3ba1b974956c5669823e0b500db20f9dfe40 100644
 --- a/src/crypto/ecdh/nist.go
 +++ b/src/crypto/ecdh/nist.go
 @@ -7,11 +7,12 @@ package ecdh
@@ -1390,7 +1379,7 @@ index 13865ea7012989..8b5d3ba1b97495 100644
  
  type nistCurve struct {
 diff --git a/src/crypto/ecdh/x25519.go b/src/crypto/ecdh/x25519.go
-index 80ed77f6fd7ddc..74b64670f983d6 100644
+index 80ed77f6fd7ddc428eabb573c75b389137cfe87c..74b64670f983d61fa9714fd922649b38e8399519 100644
 --- a/src/crypto/ecdh/x25519.go
 +++ b/src/crypto/ecdh/x25519.go
 @@ -5,13 +5,14 @@
@@ -1481,7 +1470,7 @@ index 80ed77f6fd7ddc..74b64670f983d6 100644
  
  func x25519ScalarBaseMult(dst, scalar []byte) {
 diff --git a/src/crypto/ecdsa/ecdsa.go b/src/crypto/ecdsa/ecdsa.go
-index 3bd4a5e7b4adaa..b0513d91daf33d 100644
+index 3bd4a5e7b4adaa59cc1fc42a6237ac845c96af94..b0513d91daf33d39e964de02a8c10415b57fc34b 100644
 --- a/src/crypto/ecdsa/ecdsa.go
 +++ b/src/crypto/ecdsa/ecdsa.go
 @@ -22,7 +22,6 @@ import (
@@ -1547,7 +1536,7 @@ index 3bd4a5e7b4adaa..b0513d91daf33d 100644
  
  var privateKeyCache fips140cache.Cache[PrivateKey, ecdsa.PrivateKey]
 diff --git a/src/crypto/ed25519/ed25519.go b/src/crypto/ed25519/ed25519.go
-index ed599ad2908dfb..f831109d187d8e 100644
+index ed599ad2908dfbc256d0aedaa23d40272c4ceac1..f831109d187d8eda14ddac701f658191fd2f332f 100644
 --- a/src/crypto/ed25519/ed25519.go
 +++ b/src/crypto/ed25519/ed25519.go
 @@ -17,7 +17,6 @@ package ed25519
@@ -1605,7 +1594,7 @@ index ed599ad2908dfb..f831109d187d8e 100644
  	if err != nil {
  		panic("ed25519: bad private key: " + err.Error())
 diff --git a/src/crypto/ed25519/ed25519_test.go b/src/crypto/ed25519/ed25519_test.go
-index c8a23e3246a949..0489b241c1936a 100644
+index c8a23e3246a949bfd2faf55c9808b8f7d7c11fe5..0489b241c1936adc9417f0747a797c298fad1466 100644
 --- a/src/crypto/ed25519/ed25519_test.go
 +++ b/src/crypto/ed25519/ed25519_test.go
 @@ -13,10 +13,15 @@ import (
@@ -1659,7 +1648,7 @@ index c8a23e3246a949..0489b241c1936a 100644
  }
  
 diff --git a/src/crypto/fips140/fips140.go b/src/crypto/fips140/fips140.go
-index d3f63d3bf18fcb..bc6d8b62ae2103 100644
+index d3f63d3bf18fcbe8f8bb4e6441aba250c0682e2c..bc6d8b62ae2103620a2089c866da29a1286e8c22 100644
 --- a/src/crypto/fips140/fips140.go
 +++ b/src/crypto/fips140/fips140.go
 @@ -13,6 +13,7 @@ package fips140
@@ -1680,7 +1669,7 @@ index d3f63d3bf18fcb..bc6d8b62ae2103 100644
  
  // Version returns the FIPS 140-3 Go Cryptographic Module version (such as
 diff --git a/src/crypto/hkdf/hkdf.go b/src/crypto/hkdf/hkdf.go
-index 88439922a5032e..6de1ec18be98ad 100644
+index 88439922a5032e3ca25ee4dc352732b4a243c66a..6de1ec18be98adeb80631773295953e5df188bc3 100644
 --- a/src/crypto/hkdf/hkdf.go
 +++ b/src/crypto/hkdf/hkdf.go
 @@ -11,11 +11,12 @@
@@ -1725,7 +1714,7 @@ index 88439922a5032e..6de1ec18be98ad 100644
  
  func checkFIPS140Only[Hash hash.Hash](h func() Hash, key []byte) error {
 diff --git a/src/crypto/hkdf/hkdf_test.go b/src/crypto/hkdf/hkdf_test.go
-index 57d90f88e93e75..da5a26c770800b 100644
+index 57d90f88e93e758d15444f41ae78c578fbffacb8..da5a26c770800b4805254827713be8f1598c9a4c 100644
 --- a/src/crypto/hkdf/hkdf_test.go
 +++ b/src/crypto/hkdf/hkdf_test.go
 @@ -6,12 +6,12 @@ package hkdf
@@ -1743,7 +1732,7 @@ index 57d90f88e93e75..da5a26c770800b 100644
  	"testing"
  )
 diff --git a/src/crypto/hmac/hmac.go b/src/crypto/hmac/hmac.go
-index e7976e25193dfe..3cfaac9b600bfa 100644
+index e7976e25193dfe3d57718966984fa62de9293153..3cfaac9b600bfa2bcab43a61145fa61daa578819 100644
 --- a/src/crypto/hmac/hmac.go
 +++ b/src/crypto/hmac/hmac.go
 @@ -23,11 +23,12 @@ package hmac
@@ -1761,7 +1750,7 @@ index e7976e25193dfe..3cfaac9b600bfa 100644
  
  // New returns a new HMAC hash using the given [hash.Hash] type and key.
 diff --git a/src/crypto/hmac/hmac_test.go b/src/crypto/hmac/hmac_test.go
-index b324d1f02cda7d..f0b829d0ccabd6 100644
+index b324d1f02cda7ddafa5fd1dfa05903fa7bfbeb22..f0b829d0ccabd6c8f4609befc06148df2501cbeb 100644
 --- a/src/crypto/hmac/hmac_test.go
 +++ b/src/crypto/hmac/hmac_test.go
 @@ -5,7 +5,6 @@
@@ -1781,7 +1770,7 @@ index b324d1f02cda7d..f0b829d0ccabd6 100644
  	"testing"
  )
 diff --git a/src/crypto/hpke/aead.go b/src/crypto/hpke/aead.go
-index fb55c97ddf20c9..7e3cf1d7f80ac0 100644
+index fb55c97ddf20c9b5f81057974c8559a49515ce0c..7e3cf1d7f80ac035444a63ef801d6eb081889066 100644
 --- a/src/crypto/hpke/aead.go
 +++ b/src/crypto/hpke/aead.go
 @@ -9,7 +9,7 @@ import (
@@ -1794,7 +1783,7 @@ index fb55c97ddf20c9..7e3cf1d7f80ac0 100644
  
  // The AEAD is one of the three components of an HPKE ciphersuite, implementing
 diff --git a/src/crypto/internal/cryptotest/fips140.go b/src/crypto/internal/cryptotest/fips140.go
-index a4c9fc977bc136..116106bd0a4cfb 100644
+index a4c9fc977bc136f0d311b681925fe48931ce1163..116106bd0a4cfb080e35a8269a7cd7e6781302f2 100644
 --- a/src/crypto/internal/cryptotest/fips140.go
 +++ b/src/crypto/internal/cryptotest/fips140.go
 @@ -6,6 +6,8 @@ package cryptotest
@@ -1823,7 +1812,7 @@ index a4c9fc977bc136..116106bd0a4cfb 100644
  
  // MustMinimumFIPS140ModuleVersion skips the test if compiled against a lower
 diff --git a/src/crypto/internal/cryptotest/implementations.go b/src/crypto/internal/cryptotest/implementations.go
-index da532ab41c4916..7676d65b7b90fc 100644
+index da532ab41c4916223e5275608693d47dcee8ad3b..7676d65b7b90fc8c865fc9a6f0494ed81c9f4979 100644
 --- a/src/crypto/internal/cryptotest/implementations.go
 +++ b/src/crypto/internal/cryptotest/implementations.go
 @@ -5,8 +5,8 @@
@@ -1837,7 +1826,7 @@ index da532ab41c4916..7676d65b7b90fc 100644
  	"internal/goos"
  	"internal/testenv"
 diff --git a/src/crypto/internal/fips140hash/hash.go b/src/crypto/internal/fips140hash/hash.go
-index 6d67ee8b3429a1..67e7a76a2602b2 100644
+index 6d67ee8b3429a14c0481f5c80a08bae7ae8b2a78..67e7a76a2602b2b5440d96eb2d307d7479aa4cd9 100644
 --- a/src/crypto/internal/fips140hash/hash.go
 +++ b/src/crypto/internal/fips140hash/hash.go
 @@ -5,14 +5,17 @@
@@ -1877,7 +1866,7 @@ index 6d67ee8b3429a1..67e7a76a2602b2 100644
  		return sha3Unwrap(sha3)
  	}
 diff --git a/src/crypto/internal/fips140only/fips140only.go b/src/crypto/internal/fips140only/fips140only.go
-index a8d840b17022cc..2a17f7da2d4aaa 100644
+index a8d840b17022cc9c8a6d41c8ae6643fd24e9a51e..2a17f7da2d4aaa4dcc4f7c2c2eb30a60b057a07a 100644
 --- a/src/crypto/internal/fips140only/fips140only.go
 +++ b/src/crypto/internal/fips140only/fips140only.go
 @@ -18,11 +18,18 @@ func Enforced() bool {
@@ -1902,7 +1891,7 @@ index a8d840b17022cc..2a17f7da2d4aaa 100644
 +	return false
  }
 diff --git a/src/crypto/internal/fips140only/fips140only_test.go b/src/crypto/internal/fips140only/fips140only_test.go
-index a940fb2a3a0010..cb0cef671b4070 100644
+index a940fb2a3a001041c4c773472539896150ada95f..cb0cef671b4070c38e32aa7cc60c65ecd1cc6ba8 100644
 --- a/src/crypto/internal/fips140only/fips140only_test.go
 +++ b/src/crypto/internal/fips140only/fips140only_test.go
 @@ -38,9 +38,12 @@ import (
@@ -1956,7 +1945,7 @@ index a940fb2a3a0010..cb0cef671b4070 100644
  	}
  }
 diff --git a/src/crypto/internal/fips140test/acvp_test.go b/src/crypto/internal/fips140test/acvp_test.go
-index 333dee95e3327c..9ce843895fc60e 100644
+index 333dee95e3327c80b8aa1e33e592fa40d458d1f8..9ce843895fc60e1db6705a330875c53156239620 100644
 --- a/src/crypto/internal/fips140test/acvp_test.go
 +++ b/src/crypto/internal/fips140test/acvp_test.go
 @@ -50,6 +50,8 @@ import (
@@ -1980,7 +1969,7 @@ index 333dee95e3327c..9ce843895fc60e 100644
  		bsslModule    = "boringssl.googlesource.com/boringssl.git"
  		bsslVersion   = "v0.0.0-20260804180546-69dd9a8a2afc"
 diff --git a/src/crypto/internal/fips140test/cast_test.go b/src/crypto/internal/fips140test/cast_test.go
-index 99eab7e5de91e4..e5b36643ae9702 100644
+index 99eab7e5de91e43838470d62fc766510d999f2d8..e5b36643ae9702c6307b9c7d8fc9f516bfb4d937 100644
 --- a/src/crypto/internal/fips140test/cast_test.go
 +++ b/src/crypto/internal/fips140test/cast_test.go
 @@ -162,6 +162,7 @@ func TestConditionals(t *testing.T) {
@@ -2000,7 +1989,7 @@ index 99eab7e5de91e4..e5b36643ae9702 100644
  	cryptotest.MustSupportFIPS140(t)
  
 diff --git a/src/crypto/internal/fips140test/fips_test.go b/src/crypto/internal/fips140test/fips_test.go
-index 02f9f735ab7e01..6d82571a2f9cd3 100644
+index 02f9f735ab7e012bc315180aad9e5b42e436c569..6d82571a2f9cd3d5a60cfe6f27eb7efd2c3fce10 100644
 --- a/src/crypto/internal/fips140test/fips_test.go
 +++ b/src/crypto/internal/fips140test/fips_test.go
 @@ -15,7 +15,6 @@ package fipstest
@@ -2021,7 +2010,7 @@ index 02f9f735ab7e01..6d82571a2f9cd3 100644
  
  func moduleStatus(t *testing.T) {
 diff --git a/src/crypto/internal/rand/rand.go b/src/crypto/internal/rand/rand.go
-index d12cc7586c45cc..3c8c64774b9b2c 100644
+index d12cc7586c45cc6b3737c06e66d36f6f7167f30f..3c8c64774b9b2c95ddba8c77f12d75a16a68e8e6 100644
 --- a/src/crypto/internal/rand/rand.go
 +++ b/src/crypto/internal/rand/rand.go
 @@ -6,11 +6,12 @@ package rand
@@ -2039,7 +2028,7 @@ index d12cc7586c45cc..3c8c64774b9b2c 100644
  
  // defaultReader aliases [drbg.DefaultReader], so that [reader]
 diff --git a/src/crypto/md5/md5.go b/src/crypto/md5/md5.go
-index f1287887ff5e25..a6db88d7200e22 100644
+index f1287887ff5e250bd9980f146d436e1384e181a4..a6db88d7200e228660e541d095b4cabd40955915 100644
 --- a/src/crypto/md5/md5.go
 +++ b/src/crypto/md5/md5.go
 @@ -16,6 +16,9 @@ import (
@@ -2076,7 +2065,7 @@ index f1287887ff5e25..a6db88d7200e22 100644
  	d.Reset()
  	d.Write(data)
 diff --git a/src/crypto/md5/md5_test.go b/src/crypto/md5/md5_test.go
-index 674764b2121ebd..37aea88fb7fcf0 100644
+index 674764b2121ebdf15e810728746a2d723742287f..37aea88fb7fcf095aa652461c508cd08e7ba5f64 100644
 --- a/src/crypto/md5/md5_test.go
 +++ b/src/crypto/md5/md5_test.go
 @@ -9,7 +9,9 @@ import (
@@ -2138,7 +2127,7 @@ index 674764b2121ebd..37aea88fb7fcf0 100644
  
  func maybeCloner(h hash.Hash) any {
 diff --git a/src/crypto/mldsa/mldsa_fips140v1.26.go b/src/crypto/mldsa/mldsa_fips140v1.26.go
-index d3ee1f0daec096..d9b7be7084f597 100644
+index d3ee1f0daec0960c4a758367698e611380e0b96c..d9b7be7084f5970e7810ceada9a3aefb816ed322 100644
 --- a/src/crypto/mldsa/mldsa_fips140v1.26.go
 +++ b/src/crypto/mldsa/mldsa_fips140v1.26.go
 @@ -8,9 +8,10 @@ package mldsa
@@ -2180,7 +2169,7 @@ index d3ee1f0daec096..d9b7be7084f597 100644
  
  // NewPrivateKey decodes an ML-DSA private key from the given seed.
 diff --git a/src/crypto/mldsa/mldsa_test.go b/src/crypto/mldsa/mldsa_test.go
-index 0a2fc4edf11183..87407c3b097151 100644
+index 0a2fc4edf1118312271780d36466feccba80ec6c..87407c3b097151fb4e3de95284387996f29681de 100644
 --- a/src/crypto/mldsa/mldsa_test.go
 +++ b/src/crypto/mldsa/mldsa_test.go
 @@ -18,6 +18,9 @@ import (
@@ -2280,7 +2269,7 @@ index 0a2fc4edf11183..87407c3b097151 100644
  			t.Fatalf("NewPublicKey: %v", err)
  		}
 diff --git a/src/crypto/mlkem/mlkem.go b/src/crypto/mlkem/mlkem.go
-index f0fd6a4993a8e6..0ced3d16a2df98 100644
+index f0fd6a4993a8e63aec2e21aacabb7cfa7d579a2d..0ced3d16a2df98ca67047b664911b20c859d0319 100644
 --- a/src/crypto/mlkem/mlkem.go
 +++ b/src/crypto/mlkem/mlkem.go
 @@ -13,7 +13,8 @@ package mlkem
@@ -2294,7 +2283,7 @@ index f0fd6a4993a8e6..0ced3d16a2df98 100644
  
  const (
 diff --git a/src/crypto/pbkdf2/pbkdf2.go b/src/crypto/pbkdf2/pbkdf2.go
-index 0bc14be888d9d6..fc363e7053da9b 100644
+index 0bc14be888d9d6335f8230087473c938b3593817..fc363e7053da9b92f5469c04da0770615d5a1482 100644
 --- a/src/crypto/pbkdf2/pbkdf2.go
 +++ b/src/crypto/pbkdf2/pbkdf2.go
 @@ -11,11 +11,12 @@
@@ -2312,7 +2301,7 @@ index 0bc14be888d9d6..fc363e7053da9b 100644
  
  // Key derives a key from the password, salt and iteration count, returning a
 diff --git a/src/crypto/pbkdf2/pbkdf2_test.go b/src/crypto/pbkdf2/pbkdf2_test.go
-index eb0ed14e243c6b..c0cdca547261c0 100644
+index eb0ed14e243c6ba22e4de47cadc139f0c0ced177..c0cdca547261c0f8daa700b3fb90541fbc5dcf3d 100644
 --- a/src/crypto/pbkdf2/pbkdf2_test.go
 +++ b/src/crypto/pbkdf2/pbkdf2_test.go
 @@ -6,12 +6,13 @@ package pbkdf2_test
@@ -2341,7 +2330,7 @@ index eb0ed14e243c6b..c0cdca547261c0 100644
  	// 32-bit platforms), since the max value for keyLength is 1<<31-1 and
  	// 1<<31-1 * hLen will always be less than 1<<32-1 * hLen.
 diff --git a/src/crypto/purego_test.go b/src/crypto/purego_test.go
-index ebc9110cecee82..c15de6f7ebfd0d 100644
+index ebc9110cecee82bcaea66d2a95987f309a36e633..c15de6f7ebfd0d0e4def8101ce2c3f887807a8b9 100644
 --- a/src/crypto/purego_test.go
 +++ b/src/crypto/purego_test.go
 @@ -41,7 +41,7 @@ func TestPureGoTag(t *testing.T) {
@@ -2354,7 +2343,7 @@ index ebc9110cecee82..c15de6f7ebfd0d 100644
  		}
  
 diff --git a/src/crypto/rand/rand.go b/src/crypto/rand/rand.go
-index 018fe013cef600..729c0d4348a0d6 100644
+index 018fe013cef6005780026fb9cb6bc4fbde3d3cc5..729c0d4348a0d64a8a28ec5a2c6e1b7d5e015b92 100644
 --- a/src/crypto/rand/rand.go
 +++ b/src/crypto/rand/rand.go
 @@ -8,11 +8,12 @@ package rand
@@ -2372,7 +2361,7 @@ index 018fe013cef600..729c0d4348a0d6 100644
  	// crypto/internal/rand.SetTestingReader works.
  	_ "crypto/internal/rand"
 diff --git a/src/crypto/rand/rand_test.go b/src/crypto/rand/rand_test.go
-index 596f6d434065fd..e67ec4618acf87 100644
+index 596f6d434065fdc7eeabbccd8f2e17ee8603a5a6..e67ec4618acf8759c12d23d0f9397a9689d6b352 100644
 --- a/src/crypto/rand/rand_test.go
 +++ b/src/crypto/rand/rand_test.go
 @@ -10,6 +10,7 @@ import (
@@ -2404,7 +2393,7 @@ index 596f6d434065fd..e67ec4618acf87 100644
  }
  
 diff --git a/src/crypto/rc4/rc4.go b/src/crypto/rc4/rc4.go
-index c4d2b0d382e7fc..b2b61721e9d340 100644
+index c4d2b0d382e7fc6f095cf986c51917a67096a160..b2b61721e9d340309261163acb36cdd428603dbe 100644
 --- a/src/crypto/rc4/rc4.go
 +++ b/src/crypto/rc4/rc4.go
 @@ -14,12 +14,17 @@ import (
@@ -2462,7 +2451,7 @@ index c4d2b0d382e7fc..b2b61721e9d340 100644
  		return
  	}
 diff --git a/src/crypto/rsa/fips.go b/src/crypto/rsa/fips.go
-index e756512fecd6d5..e95f373343ce26 100644
+index e756512fecd6d5c82a8d583b4cbe19b4e7e0a202..e95f373343ce26ea9c78e3ff289138f528938200 100644
 --- a/src/crypto/rsa/fips.go
 +++ b/src/crypto/rsa/fips.go
 @@ -7,13 +7,14 @@ package rsa
@@ -2482,7 +2471,7 @@ index e756512fecd6d5..e95f373343ce26 100644
  
  const (
 diff --git a/src/crypto/rsa/pkcs1v15.go b/src/crypto/rsa/pkcs1v15.go
-index bfe7346fc67c54..fd23566a0cd430 100644
+index bfe7346fc67c546006ee0579e688e44c50fd8c15..fd23566a0cd4302eaee09a1c49b50f5d00d3197c 100644
 --- a/src/crypto/rsa/pkcs1v15.go
 +++ b/src/crypto/rsa/pkcs1v15.go
 @@ -6,12 +6,13 @@ package rsa
@@ -2501,7 +2490,7 @@ index bfe7346fc67c54..fd23566a0cd430 100644
  
  // This file implements encryption and decryption using PKCS #1 v1.5 padding.
 diff --git a/src/crypto/rsa/rsa.go b/src/crypto/rsa/rsa.go
-index 93e08ed6cd8f71..ecdedee5f3e3db 100644
+index 93e08ed6cd8f7183b77c5e06c42cce57e89b5020..ecdedee5f3e3dbece754da466310bdecf2a25661 100644
 --- a/src/crypto/rsa/rsa.go
 +++ b/src/crypto/rsa/rsa.go
 @@ -45,7 +45,6 @@ import (
@@ -2585,7 +2574,7 @@ index 93e08ed6cd8f71..ecdedee5f3e3db 100644
 +		priv.Precomputed.Dp, priv.Precomputed.Dq, priv.Precomputed.Qinv, priv.Precomputed.fips)
  }
 diff --git a/src/crypto/rsa/rsa_test.go b/src/crypto/rsa/rsa_test.go
-index cdcd6db86469a8..598269b2b4e0e8 100644
+index cdcd6db86469a85868a1c44b8b3fee5ad8fee57b..598269b2b4e0e8483622b61d4a46b7e2835cb6ff 100644
 --- a/src/crypto/rsa/rsa_test.go
 +++ b/src/crypto/rsa/rsa_test.go
 @@ -27,9 +27,12 @@ import (
@@ -2626,7 +2615,7 @@ index cdcd6db86469a8..598269b2b4e0e8 100644
  }
  
 diff --git a/src/crypto/sha1/sha1.go b/src/crypto/sha1/sha1.go
-index df53d39a72d5b7..03e917e462cc46 100644
+index df53d39a72d5b765d67ce64fe463d5f4b564ebb2..03e917e462cc469ec2528f3127aacd3701734867 100644
 --- a/src/crypto/sha1/sha1.go
 +++ b/src/crypto/sha1/sha1.go
 @@ -10,11 +10,13 @@ package sha1
@@ -2678,7 +2667,7 @@ index df53d39a72d5b7..03e917e462cc46 100644
  	d.Reset()
  	d.Write(data)
 diff --git a/src/crypto/sha1/sha1_test.go b/src/crypto/sha1/sha1_test.go
-index 745dce5c9ff158..e75dabb589cb96 100644
+index 745dce5c9ff1588a0aa2e5b2311a7b2d108cd850..e75dabb589cb968c0fa1f4002d46e8f577cd036a 100644
 --- a/src/crypto/sha1/sha1_test.go
 +++ b/src/crypto/sha1/sha1_test.go
 @@ -11,6 +11,7 @@ import (
@@ -2733,7 +2722,7 @@ index 745dce5c9ff158..e75dabb589cb96 100644
  
  func maybeCloner(h hash.Hash) any {
 diff --git a/src/crypto/sha256/sha256.go b/src/crypto/sha256/sha256.go
-index 069938a22dbc5a..42c8d262752bf4 100644
+index 069938a22dbc5a12270e281c81bd151ab00f9b5f..42c8d262752bf4a436df3098cf5dd7894360f462 100644
 --- a/src/crypto/sha256/sha256.go
 +++ b/src/crypto/sha256/sha256.go
 @@ -9,8 +9,9 @@ package sha256
@@ -2772,7 +2761,7 @@ index 069938a22dbc5a..42c8d262752bf4 100644
 +	return sha256.Sum224(data)
  }
 diff --git a/src/crypto/sha256/sha256_test.go b/src/crypto/sha256/sha256_test.go
-index a18a536ba2896f..7cd0da8cad4727 100644
+index a18a536ba2896f8d58d715f0d81473bbd969c1e4..7cd0da8cad4727af4fa9238d2da7974c7be53768 100644
 --- a/src/crypto/sha256/sha256_test.go
 +++ b/src/crypto/sha256/sha256_test.go
 @@ -10,10 +10,15 @@ import (
@@ -2886,7 +2875,7 @@ index a18a536ba2896f..7cd0da8cad4727 100644
  	}
  }
 diff --git a/src/crypto/sha3/sha3.go b/src/crypto/sha3/sha3.go
-index f7c5549ddd113c..529ecd6ae9588a 100644
+index f7c5549ddd113c53b316e3a325201661c618ec90..529ecd6ae9588acbe8863842cb1f267eb33bfed9 100644
 --- a/src/crypto/sha3/sha3.go
 +++ b/src/crypto/sha3/sha3.go
 @@ -8,9 +8,10 @@ package sha3
@@ -2969,7 +2958,7 @@ index f7c5549ddd113c..529ecd6ae9588a 100644
  }
  
 diff --git a/src/crypto/sha3/sha3_test.go b/src/crypto/sha3/sha3_test.go
-index 3973e0afd1b935..356e207a8f7824 100644
+index 3973e0afd1b935e0ab2f5b631f44a43cb7cd68b9..356e207a8f78249a31bcfa69f9c921b5d53d2ae5 100644
 --- a/src/crypto/sha3/sha3_test.go
 +++ b/src/crypto/sha3/sha3_test.go
 @@ -9,11 +9,15 @@ import (
@@ -3059,7 +3048,7 @@ index 3973e0afd1b935..356e207a8f7824 100644
  	}
  	h.Write(bytes.Repeat([]byte{0}, 200))
 diff --git a/src/crypto/sha512/sha512.go b/src/crypto/sha512/sha512.go
-index 1435eac1f5b5dc..0d0fbabb2eb42e 100644
+index 1435eac1f5b5dc0646b6208d0694ec3d68d4ac35..0d0fbabb2eb42ecd12cf841056b24d90dc70a4a0 100644
 --- a/src/crypto/sha512/sha512.go
 +++ b/src/crypto/sha512/sha512.go
 @@ -13,8 +13,9 @@ package sha512
@@ -3118,7 +3107,7 @@ index 1435eac1f5b5dc..0d0fbabb2eb42e 100644
 +	return sha512.Sum512_256(data)
  }
 diff --git a/src/crypto/sha512/sha512_test.go b/src/crypto/sha512/sha512_test.go
-index 214b8686db9ffe..a399c8aec3221c 100644
+index 214b8686db9ffe31b1c3ba050069f8da511a114e..a399c8aec3221cdfeb71505cf3a0b89abc55603d 100644
 --- a/src/crypto/sha512/sha512_test.go
 +++ b/src/crypto/sha512/sha512_test.go
 @@ -11,6 +11,7 @@ import (
@@ -3231,7 +3220,7 @@ index 214b8686db9ffe..a399c8aec3221c 100644
  }
 diff --git a/src/crypto/systemcrypto_nocgo_freebsd.go b/src/crypto/systemcrypto_nocgo_freebsd.go
 new file mode 100644
-index 00000000000000..8f96d3a08cc0ee
+index 0000000000000000000000000000000000000000..8f96d3a08cc0eec97972f15f17f9cd784d90de3d
 --- /dev/null
 +++ b/src/crypto/systemcrypto_nocgo_freebsd.go
 @@ -0,0 +1,17 @@
@@ -3254,7 +3243,7 @@ index 00000000000000..8f96d3a08cc0ee
 +}
 diff --git a/src/crypto/systemcrypto_nocgo_linux.go b/src/crypto/systemcrypto_nocgo_linux.go
 new file mode 100644
-index 00000000000000..b3a50c0aae95af
+index 0000000000000000000000000000000000000000..b3a50c0aae95af2011d0ddd5f147f7d7044141b4
 --- /dev/null
 +++ b/src/crypto/systemcrypto_nocgo_linux.go
 @@ -0,0 +1,18 @@
@@ -3277,7 +3266,7 @@ index 00000000000000..b3a50c0aae95af
 +	`
 +}
 diff --git a/src/crypto/tls/bogo_shim_test.go b/src/crypto/tls/bogo_shim_test.go
-index 8825409912a99e..d7638ee9df3833 100644
+index 8825409912a99eeeed58f0ad73f822779be031a8..d7638ee9df3833e0f7d772076d87f36ab67b8cb6 100644
 --- a/src/crypto/tls/bogo_shim_test.go
 +++ b/src/crypto/tls/bogo_shim_test.go
 @@ -16,6 +16,7 @@ import (
@@ -3299,7 +3288,7 @@ index 8825409912a99e..d7638ee9df3833 100644
  		name    string
  		godebug string
 diff --git a/src/crypto/tls/certificates_generator_test.go b/src/crypto/tls/certificates_generator_test.go
-index a590d5c2fd67cc..a0e88db5904062 100644
+index a590d5c2fd67cc21071b33e0e8d015b04c4622e4..a0e88db59040624a99d9910d8f7fd673a3ca1f8e 100644
 --- a/src/crypto/tls/certificates_generator_test.go
 +++ b/src/crypto/tls/certificates_generator_test.go
 @@ -21,6 +21,7 @@ import (
@@ -3321,7 +3310,7 @@ index a590d5c2fd67cc..a0e88db5904062 100644
  	// The RSA key generation algorithm changed after Go 1.26.0.
  	icryptotest.MustMinimumFIPS140ModuleVersion(t, "v1.28.0")
 diff --git a/src/crypto/tls/cipher_suites.go b/src/crypto/tls/cipher_suites.go
-index 1952be64fa952c..2b582182e565f7 100644
+index 1952be64fa952c89bff2e6de98a8ab9a6fab65ba..2b582182e565f7267f2c9dba3749d02f214771f3 100644
 --- a/src/crypto/tls/cipher_suites.go
 +++ b/src/crypto/tls/cipher_suites.go
 @@ -11,8 +11,6 @@ import (
@@ -3362,7 +3351,7 @@ index 1952be64fa952c..2b582182e565f7 100644
  	if err != nil {
  		panic(err)
 diff --git a/src/crypto/tls/fipsonly/fipsonly.go b/src/crypto/tls/fipsonly/fipsonly.go
-index e702f44e986746..e506a0d8841237 100644
+index e702f44e986746b1bd2d72b419c45d933037345c..e506a0d8841237f7a22996edcdb1d07208599f3d 100644
 --- a/src/crypto/tls/fipsonly/fipsonly.go
 +++ b/src/crypto/tls/fipsonly/fipsonly.go
 @@ -2,7 +2,7 @@
@@ -3375,7 +3364,7 @@ index e702f44e986746..e506a0d8841237 100644
  // Package fipsonly restricts all TLS configuration to FIPS-approved settings.
  //
 diff --git a/src/crypto/tls/fipsonly/fipsonly_test.go b/src/crypto/tls/fipsonly/fipsonly_test.go
-index 027bc22c33c921..eba08da985f832 100644
+index 027bc22c33c921fa6da6335f1d23013912315a85..eba08da985f8328536f0ceaf4bec2b0de383bc95 100644
 --- a/src/crypto/tls/fipsonly/fipsonly_test.go
 +++ b/src/crypto/tls/fipsonly/fipsonly_test.go
 @@ -2,7 +2,7 @@
@@ -3388,7 +3377,7 @@ index 027bc22c33c921..eba08da985f832 100644
  package fipsonly
  
 diff --git a/src/crypto/tls/handshake_client.go b/src/crypto/tls/handshake_client.go
-index 8bdef57bb42463..ae1239f632380e 100644
+index 8bdef57bb42463aac39611008761776bb4ee8c6d..ae1239f632380e77496a7f819a464c52ccc59e4a 100644
 --- a/src/crypto/tls/handshake_client.go
 +++ b/src/crypto/tls/handshake_client.go
 @@ -11,7 +11,6 @@ import (
@@ -3431,7 +3420,7 @@ index 8bdef57bb42463..ae1239f632380e 100644
  
  	// If we did not load a session (hs.session == nil), but we did set a
 diff --git a/src/crypto/tls/handshake_client_tls13.go b/src/crypto/tls/handshake_client_tls13.go
-index f55150697d96f6..b4a89941749d99 100644
+index f55150697d96f6f6e766c03527ed09ad910cc4af..b4a89941749d993b5c2238bdebcf8a7a870a4e46 100644
 --- a/src/crypto/tls/handshake_client_tls13.go
 +++ b/src/crypto/tls/handshake_client_tls13.go
 @@ -10,13 +10,14 @@ import (
@@ -3451,7 +3440,7 @@ index f55150697d96f6..b4a89941749d99 100644
  
  type clientHandshakeStateTLS13 struct {
 diff --git a/src/crypto/tls/handshake_server.go b/src/crypto/tls/handshake_server.go
-index 3991f212c1f8a1..0fb3cb69bc6581 100644
+index 3991f212c1f8a169343aa1801dafe826c81bf9ac..0fb3cb69bc658144397a740fcc197e923b6d8c5c 100644
 --- a/src/crypto/tls/handshake_server.go
 +++ b/src/crypto/tls/handshake_server.go
 @@ -64,7 +64,20 @@ func (c *Conn) serverHandshake(ctx context.Context) error {
@@ -3477,7 +3466,7 @@ index 3991f212c1f8a1..0fb3cb69bc6581 100644
  
  	if err := hs.processClientHello(); err != nil {
 diff --git a/src/crypto/tls/handshake_server_tls13.go b/src/crypto/tls/handshake_server_tls13.go
-index b5a7ea6ae4f1e5..5649f3f6845a28 100644
+index b5a7ea6ae4f1e5a9a766df152b94854d37bd5e7d..5649f3f6845a282c6f50b2802e4b1b798ee5c97d 100644
 --- a/src/crypto/tls/handshake_server_tls13.go
 +++ b/src/crypto/tls/handshake_server_tls13.go
 @@ -11,7 +11,6 @@ import (
@@ -3508,7 +3497,7 @@ index b5a7ea6ae4f1e5..5649f3f6845a28 100644
  	if err != nil {
  		return nil
 diff --git a/src/crypto/tls/handshake_test.go b/src/crypto/tls/handshake_test.go
-index bb98b11126dd65..c50ebe43f74f46 100644
+index bb98b11126dd65c76d631865423b24dd11766d84..c50ebe43f74f464a36c41d8f4e2b1b34a7052a10 100644
 --- a/src/crypto/tls/handshake_test.go
 +++ b/src/crypto/tls/handshake_test.go
 @@ -8,7 +8,6 @@ import (
@@ -3529,7 +3518,7 @@ index bb98b11126dd65..c50ebe43f74f46 100644
  
  // TLS reference tests run a connection against a reference implementation
 diff --git a/src/crypto/tls/key_schedule.go b/src/crypto/tls/key_schedule.go
-index 652a6489b899d6..f25da189bf72c9 100644
+index 652a6489b899d645334bda4aaac6ab10dc33cd9d..f25da189bf72c991c8de249dab63574c4ff15d6c 100644
 --- a/src/crypto/tls/key_schedule.go
 +++ b/src/crypto/tls/key_schedule.go
 @@ -9,11 +9,12 @@ import (
@@ -3547,7 +3536,7 @@ index 652a6489b899d6..f25da189bf72c9 100644
  
  // This file contains the functions necessary to compute the TLS 1.3 key
 diff --git a/src/crypto/tls/prf.go b/src/crypto/tls/prf.go
-index bc59300f41c762..698bc79a80aead 100644
+index bc59300f41c762c466e3bd043fd5ee498e3f81dc..698bc79a80aeadbc266f250887a9ef073b7365ab 100644
 --- a/src/crypto/tls/prf.go
 +++ b/src/crypto/tls/prf.go
 @@ -8,6 +8,7 @@ import (
@@ -3598,10 +3587,10 @@ index bc59300f41c762..698bc79a80aead 100644
  }
  
 diff --git a/src/crypto/x509/verify_test.go b/src/crypto/x509/verify_test.go
-index 198692f5aaa6e5..5c1a31f1c09f3b 100644
+index 2b176c1a5e233733561467c7702c567117336545..f801e63090d2a834ded8d400ca39c167401e911c 100644
 --- a/src/crypto/x509/verify_test.go
 +++ b/src/crypto/x509/verify_test.go
-@@ -3127,7 +3127,7 @@ func dsaSelfSignedCNX(t *testing.T) []byte {
+@@ -3124,7 +3124,7 @@ func dsaSelfSignedCNX(t *testing.T) []byte {
  	t.Helper()
  	var params dsa.Parameters
  	if err := dsa.GenerateParameters(&params, rand.Reader, dsa.L1024N160); err != nil {
@@ -3611,7 +3600,7 @@ index 198692f5aaa6e5..5c1a31f1c09f3b 100644
  
  	var dsaPriv dsa.PrivateKey
 diff --git a/src/go/build/deps_test.go b/src/go/build/deps_test.go
-index 926a533c9c1fb8..9b8ae5131f3735 100644
+index 926a533c9c1fb891760f51e2b8c7b48031d618c4..9b8ae5131f3735113af2d3f9c9e2342a23df08d8 100644
 --- a/src/go/build/deps_test.go
 +++ b/src/go/build/deps_test.go
 @@ -377,8 +377,10 @@ var depsRules = `
@@ -3793,7 +3782,7 @@ index 926a533c9c1fb8..9b8ae5131f3735 100644
  	< crypto/x509/pkix
  	< crypto/x509
 diff --git a/src/hash/example_test.go b/src/hash/example_test.go
-index f07b9aaa2c4898..b380537215634d 100644
+index f07b9aaa2c4898b5765ba66da0faf6cf48fa4e42..b380537215634df9ff686850a9c58b224eeb10be 100644
 --- a/src/hash/example_test.go
 +++ b/src/hash/example_test.go
 @@ -2,6 +2,8 @@
@@ -3806,7 +3795,7 @@ index f07b9aaa2c4898..b380537215634d 100644
  
  import (
 diff --git a/src/hash/marshal_test.go b/src/hash/marshal_test.go
-index 3091f7a67acede..fa3f0fd82cfd30 100644
+index 3091f7a67acedeaf72fd3851cf295c1e7bd88e8f..fa3f0fd82cfd30069756b0a41e3f909763a8bde6 100644
 --- a/src/hash/marshal_test.go
 +++ b/src/hash/marshal_test.go
 @@ -16,6 +16,7 @@ import (
@@ -3828,7 +3817,7 @@ index 3091f7a67acede..fa3f0fd82cfd30 100644
  			}
  			if !bytes.Equal(enc, tt.golden) {
 diff --git a/src/internal/buildcfg/cfg.go b/src/internal/buildcfg/cfg.go
-index 3ebd93058886fa..227b9f0144f2a2 100644
+index 3ebd93058886fa1830b87c2841d6aecbe402a50e..227b9f0144f2a280bfa6e7294f70e18d4833e0c4 100644
 --- a/src/internal/buildcfg/cfg.go
 +++ b/src/internal/buildcfg/cfg.go
 @@ -45,6 +45,8 @@ var (
@@ -3841,7 +3830,7 @@ index 3ebd93058886fa..227b9f0144f2a2 100644
  var Error error
  
 diff --git a/src/internal/buildcfg/cfg_test.go b/src/internal/buildcfg/cfg_test.go
-index 34313cad82b2bb..a47171a592c9c8 100644
+index 34313cad82b2bb973c12123ec442a9544c33aacd..a47171a592c9c8420d703f270a8507c973c76cf5 100644
 --- a/src/internal/buildcfg/cfg_test.go
 +++ b/src/internal/buildcfg/cfg_test.go
 @@ -6,6 +6,8 @@ package buildcfg
@@ -3908,7 +3897,7 @@ index 34313cad82b2bb..a47171a592c9c8 100644
  	"v1.0.0",
  	"v1.0.1",
 diff --git a/src/internal/buildcfg/exp.go b/src/internal/buildcfg/exp.go
-index 0ede05787de83f..ce3a0ee6a841c4 100644
+index 0ede05787de83f7e775bbef532a8d9296bd09c2f..ce3a0ee6a841c429e724503baae935b3edd16737 100644
 --- a/src/internal/buildcfg/exp.go
 +++ b/src/internal/buildcfg/exp.go
 @@ -10,12 +10,14 @@ import (
@@ -3961,7 +3950,7 @@ index 0ede05787de83f..ce3a0ee6a841c4 100644
  }
  
 diff --git a/src/internal/cfg/cfg.go b/src/internal/cfg/cfg.go
-index 9329769721b7de..1724afb71b851e 100644
+index 9329769721b7debfa20f3a2f04b6361939c7ea62..1724afb71b851e1f267b48896cc12dfe28d7530f 100644
 --- a/src/internal/cfg/cfg.go
 +++ b/src/internal/cfg/cfg.go
 @@ -70,5 +70,6 @@ const KnownEnv = `
@@ -3972,7 +3961,7 @@ index 9329769721b7de..1724afb71b851e 100644
  	PKG_CONFIG
  `
 diff --git a/src/internal/platform/supported.go b/src/internal/platform/supported.go
-index 86dc5ae15b56bb..e54c1ac580cce1 100644
+index 86dc5ae15b56bbe9ebd3fc213bff7e444f7712f2..e54c1ac580cce130bd08043d6f90bfacd94721a7 100644
 --- a/src/internal/platform/supported.go
 +++ b/src/internal/platform/supported.go
 @@ -295,3 +295,13 @@ func FirstClass(goos, goarch string) bool {
@@ -3991,7 +3980,7 @@ index 86dc5ae15b56bb..e54c1ac580cce1 100644
 +}
 diff --git a/src/internal/systemcrypto/systemcrypto.go b/src/internal/systemcrypto/systemcrypto.go
 new file mode 100644
-index 00000000000000..71c1923a270646
+index 0000000000000000000000000000000000000000..71c1923a270646b39346ed2824335506d9cde818
 --- /dev/null
 +++ b/src/internal/systemcrypto/systemcrypto.go
 @@ -0,0 +1,20 @@
@@ -4017,7 +4006,7 @@ index 00000000000000..71c1923a270646
 +}
 diff --git a/src/internal/systemcrypto/systemcrypto_test.go b/src/internal/systemcrypto/systemcrypto_test.go
 new file mode 100644
-index 00000000000000..5cf11348f881dc
+index 0000000000000000000000000000000000000000..5cf11348f881dc6988d58be62959df49d947c674
 --- /dev/null
 +++ b/src/internal/systemcrypto/systemcrypto_test.go
 @@ -0,0 +1,60 @@
@@ -4082,10 +4071,10 @@ index 00000000000000..5cf11348f881dc
 +	}
 +}
 diff --git a/src/net/lookup_test.go b/src/net/lookup_test.go
-index 33fa721f11da53..03b12609eb563a 100644
+index efe93d77d1a424b5319c60315e5d4e597e5bc81c..439e9116941ee2fcde8170d90e57163915df5551 100644
 --- a/src/net/lookup_test.go
 +++ b/src/net/lookup_test.go
-@@ -1501,6 +1501,9 @@ func TestLookupPortIPNetworkString(t *testing.T) {
+@@ -1539,6 +1539,9 @@ func TestLookupPortIPNetworkString(t *testing.T) {
  }
  
  func TestLookupNoSuchHost(t *testing.T) {
@@ -4096,7 +4085,7 @@ index 33fa721f11da53..03b12609eb563a 100644
  
  	const testNXDOMAIN = "invalid.invalid."
 diff --git a/src/syscall/syscall_windows.go b/src/syscall/syscall_windows.go
-index b6911ef952b039..27e2191ddae6a7 100644
+index 3a82d7c1b983eefc15d8c75d39d09c4a1374b18c..f646504c244431bba951d2a1dce77865561fdaac 100644
 --- a/src/syscall/syscall_windows.go
 +++ b/src/syscall/syscall_windows.go
 @@ -14,10 +14,13 @@ import (
