@@ -26,5 +26,9 @@ go test -count=1 -go=/path/to/microsoft-go/bin/go
 The public `go/build` API tests use the toolchain that compiled the test binary.
 Run the module with the built Microsoft build of Go executable to test the API and CLI behavior of that toolchain.
 
+FIPS CI jobs pass `-args -require-fips` to assert that `crypto/fips140.Enabled()` is true in the test process.
+This flag checks the inherited FIPS configuration without enabling FIPS mode itself.
+Like the `go/build` API tests, this check uses the toolchain that compiled the test binary, not the `-go` override.
+
 The module has no external dependencies.
 It tests system-crypto build tags, cross-compilation, build information, FIPS-mode command behavior, and build-time TLS defaults with runtime overrides.
