@@ -10,9 +10,10 @@ Backport the build-time tlsmlkem default while preserving explicit module, works
  src/cmd/go/internal/envcmd/env.go   |   3 +-
  src/cmd/go/internal/help/helpdoc.go |   5 +
  src/cmd/go/internal/load/godebug.go |   8 +
- src/cmd/go/tlsmlkem_test.go         | 278 ++++++++++++++++++++++++++++
+ src/cmd/go/systemcrypto_test.go     |   3 +-
+ src/cmd/go/tlsmlkem_test.go         | 288 ++++++++++++++++++++++++++++
  src/internal/cfg/cfg.go             |   1 +
- 7 files changed, 307 insertions(+), 1 deletion(-)
+ 8 files changed, 319 insertions(+), 2 deletions(-)
  create mode 100644 src/cmd/go/tlsmlkem_test.go
 
 diff --git a/doc/godebug.md b/doc/godebug.md
@@ -113,12 +114,27 @@ index 9f8182b82aad03bc75cacefbef5be79336ca32a0..2c3f1a2b8a1d7bc650a11048305c0e9f
  	// Add directives from main module go.mod.
  	for _, g := range ld.MainModules.Godebugs(ld) {
  		if m == nil {
+diff --git a/src/cmd/go/systemcrypto_test.go b/src/cmd/go/systemcrypto_test.go
+index 9e69523be76c731641aeed87f79df6d2ae3084ea..63f0ffa1f8235485b9aa98b0ce2ce1dc3492aa46 100644
+--- a/src/cmd/go/systemcrypto_test.go
++++ b/src/cmd/go/systemcrypto_test.go
+@@ -45,8 +45,9 @@ func execGoTool(t *testing.T, allowFail bool, env []string, args ...string) (str
+ func execGoToolInDir(t *testing.T, dir string, allowFail bool, env []string, args ...string) (string, bool) {
+ 	t.Helper()
+ 	cmd := testenv.Command(t, testenv.GoToolPath(t), args...)
+-	cmd = testenv.CleanCmdEnv(cmd)
++	// Set Dir before copying the environment so PWD preserves symlinked paths.
+ 	cmd.Dir = dir
++	cmd = testenv.CleanCmdEnv(cmd)
+ 	cmd.Env = append(cmd.Env, env...)
+ 	out, err := cmd.CombinedOutput()
+ 	sout := strings.TrimSpace(string(out))
 diff --git a/src/cmd/go/tlsmlkem_test.go b/src/cmd/go/tlsmlkem_test.go
 new file mode 100644
-index 0000000000000000000000000000000000000000..3ac40a0f5e936253b7adacb591d3f5d262da3c47
+index 0000000000000000000000000000000000000000..9f9e3cef499cadbbec14997721321a788f3a47bc
 --- /dev/null
 +++ b/src/cmd/go/tlsmlkem_test.go
-@@ -0,0 +1,278 @@
+@@ -0,0 +1,288 @@
 +// Copyright 2026 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -304,6 +320,7 @@ index 0000000000000000000000000000000000000000..3ac40a0f5e936253b7adacb591d3f5d2
 +		directive string
 +		fips      string
 +		want      string
++		symlink   bool
 +	}{
 +		{name: "old-version", version: "1.23", want: "0"},
 +		{name: "old-version-env-one", version: "1.23", value: "1", want: "0"},
@@ -311,6 +328,7 @@ index 0000000000000000000000000000000000000000..3ac40a0f5e936253b7adacb591d3f5d2
 +		{name: "module-zero", value: "1", mod: "0", want: "0"},
 +		{name: "workspace", value: "0", mod: "0", work: "1", want: "1"},
 +		{name: "workspace-zero", value: "1", mod: "1", work: "0", want: "0"},
++		{name: "workspace-symlink", value: "0", mod: "0", work: "1", want: "1", symlink: true},
 +		{name: "directive", value: "0", mod: "0", work: "0", directive: "1", want: "1"},
 +		{name: "directive-zero", value: "1", mod: "1", work: "1", directive: "0", want: "0"},
 +		{name: "fips", value: "0", fips: "latest", want: "0"},
@@ -321,6 +339,14 @@ index 0000000000000000000000000000000000000000..3ac40a0f5e936253b7adacb591d3f5d2
 +				source = "//go:debug tlsmlkem=" + tt.directive + "\n" + source
 +			}
 +			dir := filepath.Dir(writeFile(t, source))
++			if tt.symlink {
++				testenv.MustHaveSymlink(t)
++				link := filepath.Join(t.TempDir(), "link")
++				if err := os.Symlink(dir, link); err != nil {
++					t.Fatal(err)
++				}
++				dir = link
++			}
 +			version := tt.version
 +			if version == "" {
 +				version = "1.26.0"
