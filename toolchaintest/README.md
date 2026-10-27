@@ -27,4 +27,4 @@ The public `go/build` API tests use the toolchain that compiled the test binary.
 Run the module with the built Microsoft build of Go executable to test the API and CLI behavior of that toolchain.
 
 The module has no external dependencies.
-It tests system-crypto build tags, cross-compilation, build information, and FIPS-mode command behavior.
+It tests system-crypto build tags, cross-compilation, build information, FIPS-mode command behavior, and build-time TLS defaults with runtime overrides.
