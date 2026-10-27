@@ -183,7 +183,11 @@ func main() {
 			buildutil.SetEnv("GO_BUILDER_NAME", goos+"-"+goarch)
 		}
 
-		runOrPanic("go/bin/go", "-C", "toolchaintest", "test", "-count=1")
+		toolchainTestCmdline := []string{"go/bin/go", "-C", "toolchaintest", "test", "-count=1"}
+		if *fipsMode {
+			toolchainTestCmdline = append(toolchainTestCmdline, "-args", "-require-fips")
+		}
+		runOrPanic(toolchainTestCmdline...)
 
 		cmdline := []string{
 			// Use the dist test command directly, because 'src/run.bash' isn't compatible with
