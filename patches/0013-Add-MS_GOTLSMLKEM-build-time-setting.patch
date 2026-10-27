@@ -1,0 +1,125 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: bot-for-go[bot] <199222863+bot-for-go[bot]@users.noreply.github.com>
+Date: Tue, 27 Oct 2026 07:03:22 +0100
+Subject: [PATCH] Add MS_GOTLSMLKEM build-time setting
+
+Default tlsmlkem to 0 when MS_GOTLSMLKEM=0 is set while building a program. Preserve explicit module, workspace, source, and runtime GODEBUG overrides. Expose the setting through go env and document its build-time scope.
+---
+ doc/godebug.md                      | 8 ++++++++
+ src/cmd/go/alldocs.go               | 5 +++++
+ src/cmd/go/internal/envcmd/env.go   | 3 ++-
+ src/cmd/go/internal/help/helpdoc.go | 5 +++++
+ src/cmd/go/internal/load/godebug.go | 8 ++++++++
+ src/internal/cfg/cfg.go             | 1 +
+ 6 files changed, 29 insertions(+), 1 deletion(-)
+
+diff --git a/doc/godebug.md b/doc/godebug.md
+index ff0c1244e5d0e0a9302de4823f951ca522e23a0a..0e5263c13db172f4868676054e8ed8eb22f2d278 100644
+--- a/doc/godebug.md
++++ b/doc/godebug.md
+@@ -92,6 +92,14 @@ Because this method of setting GODEBUG defaults was introduced only in Go 1.21,
+ programs listing versions of Go earlier than Go 1.20 are configured to match Go 1.20,
+ not the older version.
+ 
++When using the Microsoft build of Go, setting the environment variable
++`MS_GOTLSMLKEM=0` when building a program changes its `tlsmlkem` default to `0`.
++This disables the default use of ML-KEM hybrid TLS groups, including
++X25519MLKEM768. Other values leave the default unchanged. Explicit `godebug`
++and `//go:debug` directives take precedence, and setting `GODEBUG=tlsmlkem=1`
++at runtime re-enables these groups, subject to the other TLS settings.
++Setting `MS_GOTLSMLKEM` only at runtime has no effect.
++
+ To override these defaults, starting in Go 1.23, the work module's `go.mod`
+ or the workspace's `go.work` can list one or more `godebug` lines:
+ 
+diff --git a/src/cmd/go/alldocs.go b/src/cmd/go/alldocs.go
+index bbc1b876e365638b35ea1cb670f55f2b0e9030c5..b7c8f8fcaeb7164859916f22d79b4ae2042533ed 100644
+--- a/src/cmd/go/alldocs.go
++++ b/src/cmd/go/alldocs.go
+@@ -2633,6 +2633,11 @@
+ //		mentioned will be considered insecure by 'go get'.
+ //		Because the variable is defined by Git, the default value cannot
+ //		be set using 'go env -w'.
++//	MS_GOTLSMLKEM
++//		Set to 0 when building a program to default to GODEBUG=tlsmlkem=0,
++//		disabling default use of ML-KEM hybrid TLS groups, including X25519MLKEM768.
++//		Other values leave the default unchanged. Explicit godebug directives
++//		and the program's runtime GODEBUG environment override this default.
+ //	MS_GOTOOLCHAIN_TELEMETRY_ENABLED
+ //		Whether to send telemetry for the Microsoft build of Go.
+ //		Set to 0 to disable telemetry for the Microsoft build of Go.
+diff --git a/src/cmd/go/internal/envcmd/env.go b/src/cmd/go/internal/envcmd/env.go
+index f3bfdea94ba76752697027c623024d8554940d44..6bf37331d9d2bdac0105b8cfea7685391a74ab04 100644
+--- a/src/cmd/go/internal/envcmd/env.go
++++ b/src/cmd/go/internal/envcmd/env.go
+@@ -124,6 +124,7 @@ func MkEnv() []cfg.EnvVar {
+ 		{Name: "GOTOOLDIR", Value: build.ToolDir},
+ 		{Name: "GOVCS", Value: cfg.GOVCS},
+ 		{Name: "GOVERSION", Value: runtime.Version()},
++		{Name: "MS_GOTLSMLKEM", Value: cfg.Getenv("MS_GOTLSMLKEM")},
+ 		{Name: "MS_GOTOOLCHAIN_TELEMETRY_ENABLED"},
+ 		{Name: "MS_GO_NOSYSTEMCRYPTO", Value: os.Getenv("MS_GO_NOSYSTEMCRYPTO")},
+ 	}
+@@ -134,7 +135,7 @@ func MkEnv() []cfg.EnvVar {
+ 			if env[i].Value != "on" && env[i].Value != "" {
+ 				env[i].Changed = true
+ 			}
+-		case "GOEXPERIMENT", "GOFLAGS", "GOINSECURE", "GOPACKAGESDRIVER", "GOPRIVATE", "GOTMPDIR", "GOVCS", "MS_GO_NOSYSTEMCRYPTO":
++		case "GOEXPERIMENT", "GOFLAGS", "GOINSECURE", "GOPACKAGESDRIVER", "GOPRIVATE", "GOTMPDIR", "GOVCS", "MS_GOTLSMLKEM", "MS_GO_NOSYSTEMCRYPTO":
+ 			if env[i].Value != "" {
+ 				env[i].Changed = true
+ 			}
+diff --git a/src/cmd/go/internal/help/helpdoc.go b/src/cmd/go/internal/help/helpdoc.go
+index c7942b57d8fd0fbda013a86dc48fd555dd6040c8..dd4f5ecf04bf1e518ae6f55f2263a9ae739b9313 100644
+--- a/src/cmd/go/internal/help/helpdoc.go
++++ b/src/cmd/go/internal/help/helpdoc.go
+@@ -755,6 +755,11 @@ Special-purpose environment variables:
+ 		mentioned will be considered insecure by 'go get'.
+ 		Because the variable is defined by Git, the default value cannot
+ 		be set using 'go env -w'.
++	MS_GOTLSMLKEM
++		Set to 0 when building a program to default to GODEBUG=tlsmlkem=0,
++		disabling default use of ML-KEM hybrid TLS groups, including X25519MLKEM768.
++		Other values leave the default unchanged. Explicit godebug directives
++		and the program's runtime GODEBUG environment override this default.
+ 	MS_GOTOOLCHAIN_TELEMETRY_ENABLED
+ 		Whether to send telemetry for the Microsoft build of Go.
+ 		Set to 0 to disable telemetry for the Microsoft build of Go.
+diff --git a/src/cmd/go/internal/load/godebug.go b/src/cmd/go/internal/load/godebug.go
+index 9f8182b82aad03bc75cacefbef5be79336ca32a0..2c3f1a2b8a1d7bc650a11048305c0e9f0f07006d 100644
+--- a/src/cmd/go/internal/load/godebug.go
++++ b/src/cmd/go/internal/load/godebug.go
+@@ -14,6 +14,7 @@ import (
+ 	"strconv"
+ 	"strings"
+ 
++	"cmd/go/internal/cfg"
+ 	"cmd/go/internal/fips140"
+ 	"cmd/go/internal/gover"
+ 	"cmd/go/internal/modload"
+@@ -78,6 +79,13 @@ func defaultGODEBUG(ld *modload.Loader, p *Package, directives, testDirectives,
+ 		m = map[string]string{"fips140": "on"}
+ 	}
+ 
++	if cfg.Getenv("MS_GOTLSMLKEM") == "0" {
++		if m == nil {
++			m = make(map[string]string)
++		}
++		m["tlsmlkem"] = "0"
++	}
++
+ 	// Add directives from main module go.mod.
+ 	for _, g := range ld.MainModules.Godebugs(ld) {
+ 		if m == nil {
+diff --git a/src/internal/cfg/cfg.go b/src/internal/cfg/cfg.go
+index 04e609df9229cc71ba501adf477b3f30d366aa74..b531e2309611beed38d10ef380095d04ecf0324e 100644
+--- a/src/internal/cfg/cfg.go
++++ b/src/internal/cfg/cfg.go
+@@ -70,6 +70,7 @@ const KnownEnv = `
+ 	GOWASM
+ 	GOWORK
+ 	GO_EXTLINK_ENABLED
++	MS_GOTLSMLKEM
+ 	MS_GOTOOLCHAIN_TELEMETRY_ENABLED
+ 	MS_GO_NOSYSTEMCRYPTO
+ 	PKG_CONFIG
