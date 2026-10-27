@@ -47,41 +47,34 @@ This can't be done from a dev machine.
 It occurs in the `microsoft-go` pipeline, on a Windows machine.
 See [`/eng/pipeline/README.md`](/eng/pipeline/README.md).
 
-The invocation of `sign` can be found in [`/eng/pipeline/stages/sign-stage.yml`](/eng/pipeline/stages/sign-stage.yml).
+The invocation of `sign` can be found in [`/eng/pipeline/stages/sign-stages.yml`](/eng/pipeline/stages/sign-stages.yml).
 
 ### Parallel release signing
 
-Three independent signing stages run on the existing Windows signing pool:
+Three independent signing stages run on the Windows signing pool:
 
 * Linux and source archives: create detached archive signatures and checksums.
 * Windows archives: sign executables, repack, then create detached archive signatures and checksums.
 * macOS archives: harden binaries, notarize, repack, then create detached archive signatures and checksums.
 
-Each signing stage depends only on its platform's build stages, so it can start as soon as those
-stages finish without waiting for other platforms. When signing an existing run, the signing stages
-have no build dependencies and can all start immediately, subject to agent availability.
+Each signing stage depends only on its platform's build stages, so it can start as soon as those stages finish without waiting for other platforms.
+When signing an existing run, the signing stages have no build dependencies and can all start immediately, subject to agent availability.
 
-Each job downloads only its platform's builder artifacts. The source archive is produced by
-the Linux amd64 builder, so it travels with the Linux artifacts. Signing remains batched within
-each pass; the split removes cross-platform waits, not the dependencies within each archive.
-Separate workspaces isolate the MSBuild intermediate files, signing payloads, and diagnostics.
+Each job downloads only its platform's builder artifacts.
+The source archive is produced by the Linux amd64 builder, so it travels with the Linux artifacts.
+Signing is batched within each pass, and each archive's signing operations run in dependency order.
 
 Each flow publishes `Binaries Signed <os>` and `Signing diagnosis files <os> <attempt>`.
-Publishing depends directly on `Sign_linux`, `Sign_windows`, and `Sign_darwin` succeeding.
-There is no consolidation stage or combined artifact to republish and rescan.
-The shared download template downloads all three platform artifacts into the consumer's local
-`Binaries Signed` directory, preserving the layout used by publishing and CodeQL.
-When consuming an existing run, it detects whether that run has all three platform artifacts or
-the legacy combined `Binaries Signed` artifact, so older releases remain usable.
+Publishing depends directly on all signing stages succeeding.
+The platform list in [`/eng/pipeline/variables/pipeline.yml`](/eng/pipeline/variables/pipeline.yml) defines the signing stages, publishing dependencies, and signed artifact downloads.
+The shared download template downloads all three platform artifacts into the consumer's local `Binaries Signed` directory for publishing and CodeQL.
+Existing runs must provide all three platform artifacts; runs with only a combined `Binaries Signed` artifact are not supported.
 
-All signing jobs retain the existing MicroBuild production/test configuration and platform
-certificate choices. Required output scanning and SBOM generation remain enabled for each platform.
-Release-job downloads validate each artifact's SBOM before removing its manifest and downloading
-the next artifact into the same directory.
+All signing jobs use the MicroBuild production/test configuration and platform-specific certificates.
+Required output scanning and SBOM generation are enabled for each platform.
+Release-job downloads validate each artifact's SBOM, then remove its manifests because all platforms use the same `_manifest` paths in the shared download directory.
+The manifests are not part of the binaries uploaded to release storage.
 
-To measure the change without rebuilding Go, queue the official pipeline from the branch
-containing this change with `signExistingRunID` set to a completed build with all platform
-artifacts. Use an approved pipeline and signing agents for real signing; local validation must
-use dry-run or test signing. Compare overall release completion and the interval from the first
-platform signing stage through completion of all three signing stages, including agent queueing
-and scanning, rather than only the duration of the signing commands.
+To measure signing performance without rebuilding Go, queue the official pipeline with `signExistingRunID` set to a completed build with all platform builder artifacts.
+Use an approved pipeline and signing agents for real signing; local validation must use dry-run or test signing.
+Measure overall release completion and the interval from the first platform signing stage becoming eligible to run through completion of all three signing stages, including agent queueing and scanning, rather than only the duration of the signing commands.
