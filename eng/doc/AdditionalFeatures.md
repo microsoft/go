@@ -48,6 +48,20 @@ The possible values of `ms_tlsx25519` are:
 - `0` disables the X25519 and X25519MLKEM768 TLS groups.
 - `1` (default) enables these groups.
 
+Setting the environment variable `MS_GOTLSMLKEM=0` when building a program changes
+its `tlsmlkem` GODEBUG default to `0`. This disables the default use of the
+X25519MLKEM768, SecP256r1MLKEM768, and SecP384r1MLKEM1024 TLS groups without
+changing the default use of the classical groups, including X25519.
+Other values leave the default unchanged.
+Explicit `godebug` directives in `go.mod` or `go.work` and `//go:debug` directives
+take precedence over this build-time default. Setting `GODEBUG=tlsmlkem=1` at
+runtime re-enables these groups, subject to the other TLS settings.
+Setting `MS_GOTLSMLKEM` only at runtime has no effect.
+This setting applies independently of `ms_tlsprofile` and does not override
+explicit `tls.Config.CurvePreferences`.
+It can also be persisted with `go env -w MS_GOTLSMLKEM=0` and cleared with
+`go env -u MS_GOTLSMLKEM`.
+
 Microsoft build of Go `v1.27.2-2` introduces `ms_tlsmldsacert`, which controls ML-DSA advertisement in the `signature_algorithms_cert` extension.
 The possible values are:
 

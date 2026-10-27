@@ -46,6 +46,13 @@ The `GOFIPS` and `GOLANG_FIPS` environment variable checks now match their inten
 
 ## TLS
 
+Setting `MS_GOTLSMLKEM=0` when building a program changes its `tlsmlkem`
+GODEBUG default to `0`, disabling the default use of ML-KEM hybrid TLS groups,
+including X25519MLKEM768. Setting `GODEBUG=tlsmlkem=1` at runtime re-enables
+these groups, subject to the other TLS settings. See the
+[TLS settings documentation](../eng/doc/AdditionalFeatures.md#tls-setting-alignment-with-microsoft-internal-policies)
+for details.
+
 Starting with `v1.27.2-2`, the `ms_tlsmldsacert` GODEBUG setting controls ML-DSA advertisement in the `signature_algorithms_cert` extension.
 It defaults to `ms_tlsmldsacert=1`, preserving the upstream behavior.
 Setting `GODEBUG=ms_tlsmldsacert=0` omits ML-DSA-44, ML-DSA-65, and ML-DSA-87 from this extension in ClientHello and CertificateRequest messages to avoid connection resets from TLS-inspecting middleboxes.
