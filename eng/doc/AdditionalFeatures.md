@@ -48,19 +48,28 @@ The possible values of `ms_tlsx25519` are:
 - `0` disables the X25519 and X25519MLKEM768 TLS groups.
 - `1` (default) enables these groups.
 
-Setting the environment variable `MS_GOTLSMLKEM=0` when building a program changes
-its `tlsmlkem` GODEBUG default to `0`. This disables the default use of the
-X25519MLKEM768, SecP256r1MLKEM768, and SecP384r1MLKEM1024 TLS groups without
-changing the default use of the classical groups, including X25519.
-Other values leave the default unchanged.
-Explicit `godebug` directives in `go.mod` or `go.work` and `//go:debug` directives
-take precedence over this build-time default. Setting `GODEBUG=tlsmlkem=1` at
-runtime re-enables these groups, subject to the other TLS settings.
-Setting `MS_GOTLSMLKEM` only at runtime has no effect.
-This setting applies independently of `ms_tlsprofile` and does not override
-explicit `tls.Config.CurvePreferences`.
-It can also be persisted with `go env -w MS_GOTLSMLKEM=0` and cleared with
-`go env -u MS_GOTLSMLKEM`.
+Microsoft build of Go 1.28 introduces the `MS_GOTLSMLKEM` environment variable, which controls the default use of ML-KEM TLS key exchange in built programs.
+The build-time values are:
+
+- `0`: sets the program's `tlsmlkem` GODEBUG default to `0`.
+- Unset or any other value: leaves the default unchanged.
+
+With `tlsmlkem=0`, programs disable the X25519MLKEM768, SecP256r1MLKEM768, and SecP384r1MLKEM1024 TLS groups by default.
+The default use of classical groups, including X25519, is unchanged.
+This setting applies independently of `ms_tlsprofile` and does not override explicit `tls.Config.CurvePreferences`.
+
+`MS_GOTLSMLKEM` takes effect when the program is built, not when it runs.
+The following command persists the setting for subsequent builds:
+
+```sh
+go env -w MS_GOTLSMLKEM=0
+```
+
+`go env -u MS_GOTLSMLKEM` removes the persisted setting.
+Neither command changes programs that have already been built.
+
+Explicit `godebug` directives in `go.mod` or `go.work` and `//go:debug` directives take precedence over this build-time default.
+At runtime, `GODEBUG=tlsmlkem=1` overrides the built-in default and re-enables the ML-KEM groups, subject to the other TLS settings.
 
 Microsoft build of Go `v1.27.2-2` introduces `ms_tlsmldsacert`, which controls ML-DSA advertisement in the `signature_algorithms_cert` extension.
 The possible values are:
