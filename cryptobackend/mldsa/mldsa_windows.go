@@ -12,11 +12,11 @@ type Parameters = cng.MLDSAParameters
 type backendPrivateKey = cng.PrivateKeyMLDSA
 type backendPublicKey = cng.PublicKeyMLDSA
 
-func MLDSA44() Parameters             { return cng.MLDSA44() }
-func MLDSA65() Parameters             { return cng.MLDSA65() }
-func MLDSA87() Parameters             { return cng.MLDSA87() }
-func Supports(params Parameters) bool { return cng.SupportsMLDSA() }
-func supportsExternalMu() bool        { return true }
+func MLDSA44() Parameters                       { return cng.MLDSA44() }
+func MLDSA65() Parameters                       { return cng.MLDSA65() }
+func MLDSA87() Parameters                       { return cng.MLDSA87() }
+func Supports(params Parameters) bool           { return cng.SupportsMLDSA() }
+func supportsExternalMu(params Parameters) bool { return true }
 func generateKey(params Parameters) (*backendPrivateKey, error) {
 	return cng.GenerateKeyMLDSA(params)
 }

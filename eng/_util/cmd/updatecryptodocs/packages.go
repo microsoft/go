@@ -52,6 +52,7 @@ var cryptoPackages = []CryptoPackage{
 	{ImportPath: "crypto/rsa", InUserGuide: true},
 	{ImportPath: "crypto/subtle", InUserGuide: true},
 	{ImportPath: "crypto/tls", InUserGuide: true},
+	{ImportPath: "crypto/x509", InUserGuide: true},
 
 	// Packages referenced only by CrossPlatformCryptography.md.
 	{ImportPath: "crypto/hpke"},
