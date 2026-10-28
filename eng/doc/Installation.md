@@ -17,6 +17,13 @@ If you try to use the Microsoft build of Go and encounter problems, check the [M
 
 [microsoft/go-images](https://github.com/microsoft/go-images) maintains and documents container images that are available on Microsoft Artifact Registry.
 
+Architecture-specific images use an architecture suffix in the tag, rather than a separate repository as upstream does.
+For example, the Go 1.16.6 naming was `golang:1.16.6-buster-amd64`, not `amd64/golang:1.16.6-buster` (registry prefixes omitted).
+This is an intentional difference:
+
+* Microsoft Container Registry (MCR) convention keeps architecture-specific images and multi-architecture tags in a single repository (`golang`); `amd64/golang` would be a separate repository.
+* ImageBuilder's `manifest.json` schema follows this convention: a shared multi-architecture tag can only be defined within a single repository.
+
 ## Azure Linux
 
 The Azure Linux 3 `golang` package is the Microsoft build of Go.
