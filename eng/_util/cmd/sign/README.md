@@ -67,6 +67,7 @@ Signing is batched within each pass, and each archive's signing operations run i
 Each flow publishes `Binaries Signed <os>` and `Signing diagnosis files <os> <attempt>`.
 Publishing depends directly on all signing stages succeeding.
 The platform list in [`/eng/pipeline/variables/pipeline.yml`](/eng/pipeline/variables/pipeline.yml) defines the signing stages, publishing dependencies, and signed artifact downloads.
+It is passed explicitly through `ctx` to templates, including publishing and CodeQL downloads, because stage templates do not inherit custom root variables at compile time.
 The shared download template downloads all three platform artifacts into the consumer's local `Binaries Signed` directory for publishing and CodeQL.
 Existing runs must provide all three platform artifacts; runs with only a combined `Binaries Signed` artifact are not supported.
 
