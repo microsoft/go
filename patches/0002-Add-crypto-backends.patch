@@ -109,7 +109,7 @@ Subject: [PATCH] Add crypto backends
  src/hash/example_test.go                      |   2 +
  src/hash/marshal_test.go                      |   4 +
  src/internal/buildcfg/cfg.go                  |   2 +
- src/internal/buildcfg/cfg_test.go             |  49 +++++++++
+ src/internal/buildcfg/cfg_test.go             |  48 ++++++++
  src/internal/buildcfg/exp.go                  |  22 ++++
  src/internal/cfg/cfg.go                       |   1 +
  src/internal/platform/supported.go            |  10 ++
@@ -117,7 +117,7 @@ Subject: [PATCH] Add crypto backends
  .../systemcrypto/systemcrypto_test.go         |  60 ++++++++++
  src/net/lookup_test.go                        |   3 +
  src/syscall/syscall_windows.go                |   3 +
- 113 files changed, 1194 insertions(+), 243 deletions(-)
+ 113 files changed, 1193 insertions(+), 243 deletions(-)
  create mode 100644 src/crypto/systemcrypto_nocgo_freebsd.go
  create mode 100644 src/crypto/systemcrypto_nocgo_linux.go
  create mode 100644 src/internal/systemcrypto/systemcrypto.go
@@ -283,7 +283,7 @@ index ae97882d574eb791ff0bd405e0f2613e3bbbde1a..8b7742f0ae42e0d878dd4382f71b853b
  	staleSpan.done()
  	if debug {
 diff --git a/src/cmd/dist/buildtool.go b/src/cmd/dist/buildtool.go
-index 1d9d3fc288663c3389d92f0c133aa4afb71d86b2..12a1e07950ef0473c537b4ea79efb0ea5daaecd9 100644
+index 522140f02cb5b4b7d850da43b63701c2c6298420..72193f056298941739753ba5e3d8d98a5576547c 100644
 --- a/src/cmd/dist/buildtool.go
 +++ b/src/cmd/dist/buildtool.go
 @@ -162,6 +162,7 @@ var bootstrapDirs = []string{
@@ -295,7 +295,7 @@ index 1d9d3fc288663c3389d92f0c133aa4afb71d86b2..12a1e07950ef0473c537b4ea79efb0ea
  	"internal/types/errors",
  	"internal/unsafeheader",
 diff --git a/src/cmd/dist/test.go b/src/cmd/dist/test.go
-index 2998a52420ba3189a7cf1e4f887678eb921e4a67..831ca013deaec086c6ce74697f23a5889b9b1473 100644
+index 534f48a10d863179cb1db26337ecc244719ebb1a..dbe5f8cb7c2e676e0cc63f9888c7072927b6791c 100644
 --- a/src/cmd/dist/test.go
 +++ b/src/cmd/dist/test.go
 @@ -160,10 +160,12 @@ func (t *tester) run() {
@@ -345,7 +345,7 @@ index 2998a52420ba3189a7cf1e4f887678eb921e4a67..831ca013deaec086c6ce74697f23a588
  		t.registerTest("GOOS=ios on darwin/amd64",
  			&goTest{
  				variant:  "amd64ios",
-@@ -1348,12 +1352,11 @@ func (t *tester) registerCgoTests(heading string) {
+@@ -1334,12 +1338,11 @@ func (t *tester) registerCgoTests(heading string) {
  			// a C linker warning on Linux.
  			// in function `bio_ip_and_port_to_socket_and_addr':
  			// warning: Using 'getaddrinfo' in statically linked applications requires at runtime the shared libraries from the glibc version used for linking
@@ -359,7 +359,7 @@ index 2998a52420ba3189a7cf1e4f887678eb921e4a67..831ca013deaec086c6ce74697f23a588
  			// Static linking tests
  			if goos != "android" && p != "netbsd/arm" && !t.msan && !t.asan {
  				// TODO(#56629): Why does this fail on netbsd-arm?
-@@ -1888,3 +1891,26 @@ func goexperiments(exps ...string) string {
+@@ -1844,3 +1847,26 @@ func goexperiments(exps ...string) string {
  	return existing + strings.Join(exps, ",")
  
  }
@@ -681,10 +681,10 @@ index 018c808e54de270c39943f01867dd5a04e704caa..5c166f90cb19bb9608b2833aebed23fc
  
  	buildAndRunTool(ld, ctx, tool, args, runFunc)
 diff --git a/src/cmd/go/script_test.go b/src/cmd/go/script_test.go
-index ca1492f78a4b4ca3a644a57ae6ed24533c83dacc..0f1087de98bc3b60b6c7b7c6ea38ef7855bac0c0 100644
+index 4a94e6cf3d21f58343237833bdd453e1bcac8df1..bfdf9b0b81ddd830aacbd759c127f12eeaed303a 100644
 --- a/src/cmd/go/script_test.go
 +++ b/src/cmd/go/script_test.go
-@@ -293,6 +293,9 @@ var extraEnvKeys = []string{
+@@ -296,6 +296,9 @@ var extraEnvKeys = []string{
  	"GO_TESTING_GOTOOLS", // for gccgo testing
  	"GCCGO",              // for gccgo testing
  	"GCCGOTOOLDIR",       // for gccgo testing
@@ -1891,7 +1891,7 @@ index a8d840b17022cc9c8a6d41c8ae6643fd24e9a51e..2a17f7da2d4aaa4dcc4f7c2c2eb30a60
 +	return false
  }
 diff --git a/src/crypto/internal/fips140only/fips140only_test.go b/src/crypto/internal/fips140only/fips140only_test.go
-index a940fb2a3a001041c4c773472539896150ada95f..cb0cef671b4070c38e32aa7cc60c65ecd1cc6ba8 100644
+index 43e9520f89967450ab1af68241eacf0c39957115..7cb71d766cd24aebc255b51b82a05ff60f614e82 100644
 --- a/src/crypto/internal/fips140only/fips140only_test.go
 +++ b/src/crypto/internal/fips140only/fips140only_test.go
 @@ -38,9 +38,12 @@ import (
@@ -1935,7 +1935,7 @@ index a940fb2a3a001041c4c773472539896150ada95f..cb0cef671b4070c38e32aa7cc60c65ec
  	expectPanic(t, func() { sha1.Sum([]byte("foo")) })
  
  	withApprovedHash(func(h crypto.Hash) { h.New().Sum(nil) })
-@@ -308,7 +323,7 @@ bXVL8iKLrG91IYQByUHZIn3WVAd2bfi4MfKagRt0ggd4
+@@ -332,7 +347,7 @@ bXVL8iKLrG91IYQByUHZIn3WVAd2bfi4MfKagRt0ggd4
  
  	// fips140=only mode should prevent any operation that would make the FIPS
  	// 140-3 module set its service indicator to false.
@@ -2451,7 +2451,7 @@ index c4d2b0d382e7fc6f095cf986c51917a67096a160..b2b61721e9d340309261163acb36cdd4
  		return
  	}
 diff --git a/src/crypto/rsa/fips.go b/src/crypto/rsa/fips.go
-index e756512fecd6d5c82a8d583b4cbe19b4e7e0a202..e95f373343ce26ea9c78e3ff289138f528938200 100644
+index f6549c098c92384308a69d674a537ba7275bf3a1..86a162eb860d6bcf2f4f3ffe724e80b494be70f0 100644
 --- a/src/crypto/rsa/fips.go
 +++ b/src/crypto/rsa/fips.go
 @@ -7,13 +7,14 @@ package rsa
@@ -3600,10 +3600,10 @@ index 2b176c1a5e233733561467c7702c567117336545..f801e63090d2a834ded8d400ca39c167
  
  	var dsaPriv dsa.PrivateKey
 diff --git a/src/go/build/deps_test.go b/src/go/build/deps_test.go
-index 926a533c9c1fb891760f51e2b8c7b48031d618c4..9b8ae5131f3735113af2d3f9c9e2342a23df08d8 100644
+index b2d58cc0ab49ca7923de2cc26c0292e68520c388..01d82ea4c34507d570d0ccb723d1138b8d6540e6 100644
 --- a/src/go/build/deps_test.go
 +++ b/src/go/build/deps_test.go
-@@ -377,8 +377,10 @@ var depsRules = `
+@@ -378,8 +378,10 @@ var depsRules = `
  	math/big, go/token
  	< go/constant;
  
@@ -3615,7 +3615,7 @@ index 926a533c9c1fb891760f51e2b8c7b48031d618c4..9b8ae5131f3735113af2d3f9c9e2342a
  
  	# The vast majority of standard library packages should not be resorting to regexp.
  	# go/types is a good chokepoint. It shouldn't use regexp, nor should anything
-@@ -543,7 +545,7 @@ var depsRules = `
+@@ -544,7 +546,7 @@ var depsRules = `
  	< crypto/internal/fips140/edwards25519
  	< crypto/internal/fips140/ed25519
  	< crypto/internal/fips140/rsa
@@ -3624,7 +3624,7 @@ index 926a533c9c1fb891760f51e2b8c7b48031d618c4..9b8ae5131f3735113af2d3f9c9e2342a
  
  	crypto !< FIPS;
  
-@@ -563,10 +565,27 @@ var depsRules = `
+@@ -564,10 +566,27 @@ var depsRules = `
  	< github.com/microsoft/go-crypto-winnative/internal/sysdll
  	< github.com/microsoft/go-crypto-winnative/internal/bcrypt;
  
@@ -3654,7 +3654,7 @@ index 926a533c9c1fb891760f51e2b8c7b48031d618c4..9b8ae5131f3735113af2d3f9c9e2342a
  	< crypto/cipher;
  
  	crypto, crypto/subtle, hash, crypto/cipher,
-@@ -583,6 +602,39 @@ var depsRules = `
+@@ -584,6 +603,39 @@ var depsRules = `
  	github.com/microsoft/go-crypto-winnative/internal/bcrypt
  	< github.com/microsoft/go-crypto-winnative/cng;
  
@@ -3694,7 +3694,7 @@ index 926a533c9c1fb891760f51e2b8c7b48031d618c4..9b8ae5131f3735113af2d3f9c9e2342a
  	FIPS, internal/godebug, embed,
  	crypto/internal/boring/sig,
  	crypto/internal/boring/syso,
-@@ -590,7 +642,9 @@ var depsRules = `
+@@ -591,7 +643,9 @@ var depsRules = `
  	crypto/internal/fips140only,
  	crypto,
  	crypto/subtle,
@@ -3705,7 +3705,7 @@ index 926a533c9c1fb891760f51e2b8c7b48031d618c4..9b8ae5131f3735113af2d3f9c9e2342a
  	< crypto/sha3
  	< crypto/internal/fips140hash
  	< crypto/internal/boring
-@@ -605,15 +659,15 @@ var depsRules = `
+@@ -606,15 +660,15 @@ var depsRules = `
  	  crypto/sha512,
  	  crypto/hmac,
  	  crypto/hkdf,
@@ -3725,7 +3725,7 @@ index 926a533c9c1fb891760f51e2b8c7b48031d618c4..9b8ae5131f3735113af2d3f9c9e2342a
  	CGO, fmt, net !< CRYPTO;
  
  	# CRYPTO-MATH is crypto that exposes math/big APIs - no cgo, net; fmt now ok.
-@@ -622,15 +676,33 @@ var depsRules = `
+@@ -623,15 +677,33 @@ var depsRules = `
  	math/big, github.com/microsoft/go-crypto-darwin/xcrypto < github.com/microsoft/go-crypto-darwin/bbig;
  	math/big, github.com/microsoft/go-crypto-winnative/cng < github.com/microsoft/go-crypto-winnative/cng/bbig;
  
@@ -3762,7 +3762,7 @@ index 926a533c9c1fb891760f51e2b8c7b48031d618c4..9b8ae5131f3735113af2d3f9c9e2342a
  	< crypto/ecdsa
  	< CRYPTO-MATH;
  
-@@ -658,13 +730,15 @@ var depsRules = `
+@@ -659,13 +731,15 @@ var depsRules = `
  	< golang.org/x/crypto/internal/subtle
  	< golang.org/x/crypto/chacha20
  	< golang.org/x/crypto/internal/poly1305
@@ -3830,19 +3830,18 @@ index 3ebd93058886fa1830b87c2841d6aecbe402a50e..227b9f0144f2a280bfa6e7294f70e18d
  var Error error
  
 diff --git a/src/internal/buildcfg/cfg_test.go b/src/internal/buildcfg/cfg_test.go
-index 34313cad82b2bb973c12123ec442a9544c33aacd..a47171a592c9c8420d703f270a8507c973c76cf5 100644
+index 0452a6361e151f44d0419b177fe2112908343f5c..570d000124bad1685ed9a7fc1a99d019d345b329 100644
 --- a/src/internal/buildcfg/cfg_test.go
 +++ b/src/internal/buildcfg/cfg_test.go
-@@ -6,6 +6,8 @@ package buildcfg
- 
- import (
+@@ -8,6 +8,7 @@ import (
  	"os"
+ 	"path/filepath"
+ 	"runtime"
 +	"slices"
-+	"strings"
+ 	"strings"
  	"testing"
  )
- 
-@@ -137,6 +139,53 @@ func TestGogoarchTags(t *testing.T) {
+@@ -140,6 +141,53 @@ func TestGogoarchTags(t *testing.T) {
  	GOARM64 = old_goarm64
  }
  
