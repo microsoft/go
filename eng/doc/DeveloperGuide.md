@@ -1,3 +1,9 @@
+<!--
+DO NOT EDIT THIS COPY.
+Local edits will be overwritten.
+Source: https://github.com/microsoft/go/blob/microsoft/main/eng/doc/DeveloperGuide.md
+-->
+
 # Developer Guide
 
 This document is a guide for developers who want to contribute to the Microsoft build of Go repository.

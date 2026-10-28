@@ -1,3 +1,9 @@
+<!--
+DO NOT EDIT THIS COPY.
+Local edits will be overwritten.
+Source: https://github.com/microsoft/go/blob/microsoft/main/SECURITY.md
+-->
+
 <!-- BEGIN MICROSOFT SECURITY.MD V0.0.5 BLOCK -->
 
 ## Security

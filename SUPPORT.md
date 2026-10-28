@@ -1,3 +1,9 @@
+<!--
+DO NOT EDIT THIS COPY.
+Local edits will be overwritten.
+Source: https://github.com/microsoft/go/blob/microsoft/main/SUPPORT.md
+-->
+
 # Support
 
 For help and questions about the Go programming language and tools, visit the official website: <https://go.dev/>.

@@ -1,3 +1,9 @@
+<!--
+DO NOT EDIT THIS COPY.
+Local edits will be overwritten.
+Source: https://github.com/microsoft/go/blob/microsoft/main/eng/doc/README.md
+-->
+
 # `/eng/doc` - Documentation for the Microsoft build of Go
 
 This directory, `/eng/doc`, contains detailed documents describing the Microsoft build of Go.
