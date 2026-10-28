@@ -32,3 +32,8 @@ The subdirectories hold AzDO pipeline YAML templates, based on type of template.
 
 Quick link: [`stages/go-builder-matrix-stages.yml`](stages/go-builder-matrix-stages.yml)
 defines the set of builders that should run based on the scenario.
+
+The innerloop matrix tests Azure Linux 3.0 and 4.0 on amd64 with Go crypto,
+system crypto (with and without cgo), and FIPS mode for both system crypto configurations.
+Container images are defined in [`data/containers.yml`](data/containers.yml);
+update that source and regenerate the pipelines when adding an image.
