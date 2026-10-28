@@ -6,17 +6,17 @@ Subject: [PATCH] Align TLS settings with Microsoft policies
 ---
  doc/godebug.md                                |   9 +
  src/crypto/tls/common.go                      |   9 +-
- src/crypto/tls/defaults.go                    |  34 +-
- src/crypto/tls/defaults_microsoft.go          | 157 ++++++
+ src/crypto/tls/defaults.go                    |  40 +-
+ src/crypto/tls/defaults_microsoft.go          | 182 +++++
  src/crypto/tls/handshake_client.go            |  21 +-
  src/crypto/tls/handshake_client_test.go       |  17 +-
  src/crypto/tls/handshake_server_tls13.go      |  22 +-
  src/crypto/tls/handshake_test.go              |   3 +
- src/crypto/tls/microsoft_test.go              | 528 ++++++++++++++++++
+ src/crypto/tls/microsoft_test.go              | 635 ++++++++++++++++++
  src/crypto/tls/schannel_windows.go            |   7 +
  src/internal/godebugs/table.go                |   2 +
  src/net/http/internal/http2/transport_test.go |   2 +
- 12 files changed, 788 insertions(+), 23 deletions(-)
+ 12 files changed, 925 insertions(+), 24 deletions(-)
  create mode 100644 src/crypto/tls/defaults_microsoft.go
  create mode 100644 src/crypto/tls/microsoft_test.go
 
@@ -61,7 +61,7 @@ index 5f08beae07f129e8d83a0fa7aa089efefb156a27..7bf9d21264afd289fbe1cee072d05370
  	}
  	return cipherSuites
 diff --git a/src/crypto/tls/defaults.go b/src/crypto/tls/defaults.go
-index c89036047ad5a385d3a84d07aba359fb1d618d78..cb71e22a4380e8566ec897f739d873a0b4c884be 100644
+index c89036047ad5a385d3a84d07aba359fb1d618d78..4fdb4cfbd25d2b9cb01dea8d4585010a461ce67e 100644
 --- a/src/crypto/tls/defaults.go
 +++ b/src/crypto/tls/defaults.go
 @@ -18,14 +18,17 @@ var tlsmlkem = godebug.New("tlsmlkem")
@@ -94,7 +94,23 @@ index c89036047ad5a385d3a84d07aba359fb1d618d78..cb71e22a4380e8566ec897f739d873a0
  	return []CurveID{
  		X25519MLKEM768, SecP256r1MLKEM768, SecP384r1MLKEM1024, MLKEM1024,
  		X25519, CurveP256, CurveP384, CurveP521,
-@@ -67,17 +73,31 @@ func defaultSupportedSignatureAlgorithms() []SignatureScheme {
+@@ -47,7 +53,7 @@ func curvePreferenceOrder() []CurveID {
+ // CertificateRequest. The two fields are merged to match with TLS 1.3.
+ // Note that in TLS 1.2, the ECDSA algorithms are not constrained to P-256, etc.
+ func defaultSupportedSignatureAlgorithms() []SignatureScheme {
+-	return []SignatureScheme{
++	sigAlgs := []SignatureScheme{
+ 		MLDSA44,
+ 		MLDSA65,
+ 		MLDSA87,
+@@ -64,20 +70,38 @@ func defaultSupportedSignatureAlgorithms() []SignatureScheme {
+ 		PKCS1WithSHA1,
+ 		ECDSAWithSHA1,
+ 	}
++	if ms_tlsprofile.Value() != "off" {
++		preferSupported(sigAlgs, supportedSignatures)
++	}
++	return sigAlgs
  }
  
  func supportedCipherSuites(aesGCMPreferred bool) []uint16 {
@@ -133,10 +149,10 @@ index c89036047ad5a385d3a84d07aba359fb1d618d78..cb71e22a4380e8566ec897f739d873a0
  
 diff --git a/src/crypto/tls/defaults_microsoft.go b/src/crypto/tls/defaults_microsoft.go
 new file mode 100644
-index 0000000000000000000000000000000000000000..b0238641e0e3be88d6a661ad5c5be17ba889cb28
+index 0000000000000000000000000000000000000000..bedf8bbdd35b1ef792b4133db6e2314a6ab88f28
 --- /dev/null
 +++ b/src/crypto/tls/defaults_microsoft.go
-@@ -0,0 +1,157 @@
+@@ -0,0 +1,182 @@
 +// Copyright 2025 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -149,6 +165,8 @@ index 0000000000000000000000000000000000000000..b0238641e0e3be88d6a661ad5c5be17b
 +
 +	boring "github.com/microsoft/go/cryptobackend"
 +	becdh "github.com/microsoft/go/cryptobackend/ecdh"
++	bed25519 "github.com/microsoft/go/cryptobackend/ed25519"
++	bmldsa "github.com/microsoft/go/cryptobackend/mldsa"
 +	bmlkem "github.com/microsoft/go/cryptobackend/mlkem"
 +)
 +
@@ -164,6 +182,24 @@ index 0000000000000000000000000000000000000000..b0238641e0e3be88d6a661ad5c5be17b
 +	SecP256r1MLKEM768:  !boring.Enabled || bmlkem.Supports768(),
 +	SecP384r1MLKEM1024: !boring.Enabled || bmlkem.Supports1024(),
 +	MLKEM1024:          !boring.Enabled || bmlkem.Supports1024(),
++}
++
++var supportedSignatures = map[SignatureScheme]bool{
++	MLDSA44:                !boring.Enabled || bmldsa.Supports(bmldsa.MLDSA44()),
++	MLDSA65:                !boring.Enabled || bmldsa.Supports(bmldsa.MLDSA65()),
++	MLDSA87:                !boring.Enabled || bmldsa.Supports(bmldsa.MLDSA87()),
++	PSSWithSHA256:          true,
++	ECDSAWithP256AndSHA256: true,
++	Ed25519:                !boring.Enabled || bed25519.Supports(),
++	PSSWithSHA384:          true,
++	PSSWithSHA512:          true,
++	PKCS1WithSHA256:        true,
++	PKCS1WithSHA384:        true,
++	PKCS1WithSHA512:        true,
++	ECDSAWithP384AndSHA384: true,
++	ECDSAWithP521AndSHA512: true,
++	PKCS1WithSHA1:          true,
++	ECDSAWithSHA1:          true,
 +}
 +
 +func init() {
@@ -182,9 +218,15 @@ index 0000000000000000000000000000000000000000..b0238641e0e3be88d6a661ad5c5be17b
 +		X25519MLKEM768, SecP384r1MLKEM1024, SecP256r1MLKEM768, MLKEM1024,
 +		CurveP384, CurveP256, CurveP521, X25519,
 +	}
-+	// Move unsupported groups to the end while preserving order for supported groups.
-+	slices.SortStableFunc(groups, func(a, b CurveID) int {
-+		supportedA, supportedB := supportedGroups[a], supportedGroups[b]
++	preferSupported(groups, supportedGroups)
++	return groups
++}
++
++// preferSupported moves algorithms without backend support to the end,
++// preserving the relative order within both groups.
++func preferSupported[T comparable](algorithms []T, supported map[T]bool) {
++	slices.SortStableFunc(algorithms, func(a, b T) int {
++		supportedA, supportedB := supported[a], supported[b]
 +		if supportedA && !supportedB {
 +			return -1
 +		}
@@ -193,7 +235,6 @@ index 0000000000000000000000000000000000000000..b0238641e0e3be88d6a661ad5c5be17b
 +		}
 +		return 0
 +	})
-+	return groups
 +}
 +
 +// msDefaultCipherSuitesTLS13 is like [defaultCipherSuitesTLS13] with
@@ -403,10 +444,10 @@ index c50ebe43f74f464a36c41d8f4e2b1b34a7052a10..3399c3efc919f6ee71a2b0b26495b1c2
  		if err != nil {
 diff --git a/src/crypto/tls/microsoft_test.go b/src/crypto/tls/microsoft_test.go
 new file mode 100644
-index 0000000000000000000000000000000000000000..d3e2ad5fd0077a97b8fa49cba001faf8adad1d43
+index 0000000000000000000000000000000000000000..2319ce811f42f8357962007635ce9e615da14c3d
 --- /dev/null
 +++ b/src/crypto/tls/microsoft_test.go
-@@ -0,0 +1,528 @@
+@@ -0,0 +1,635 @@
 +// Copyright 2025 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -426,6 +467,8 @@ index 0000000000000000000000000000000000000000..d3e2ad5fd0077a97b8fa49cba001faf8
 +
 +	boring "github.com/microsoft/go/cryptobackend"
 +	becdh "github.com/microsoft/go/cryptobackend/ecdh"
++	bed25519 "github.com/microsoft/go/cryptobackend/ed25519"
++	bmldsa "github.com/microsoft/go/cryptobackend/mldsa"
 +	bmlkem "github.com/microsoft/go/cryptobackend/mlkem"
 +)
 +
@@ -490,6 +533,111 @@ index 0000000000000000000000000000000000000000..d3e2ad5fd0077a97b8fa49cba001faf8
 +					if runtime.GOOS != "linux" {
 +						t.Skipf("must be supported")
 +					}
++				}
++			}
++		})
++	}
++}
++
++func TestMicrosoftSignatureSupport(t *testing.T) {
++	testenv.SetGODEBUG(t, "ms_tlsprofile=off")
++	sigAlgs := defaultSupportedSignatureAlgorithms()
++	if len(supportedSignatures) != len(sigAlgs) {
++		t.Errorf("support map has %d entries, want %d", len(supportedSignatures), len(sigAlgs))
++	}
++	for _, sigAlg := range sigAlgs {
++		t.Run(sigAlg.String(), func(t *testing.T) {
++			got, ok := supportedSignatures[sigAlg]
++			if !ok {
++				t.Fatal("missing signature scheme in support map")
++			}
++			want := true
++			if boring.Enabled {
++				switch sigAlg {
++				case MLDSA44:
++					want = bmldsa.Supports(bmldsa.MLDSA44())
++				case MLDSA65:
++					want = bmldsa.Supports(bmldsa.MLDSA65())
++				case MLDSA87:
++					want = bmldsa.Supports(bmldsa.MLDSA87())
++				case Ed25519:
++					want = bed25519.Supports()
++				}
++			}
++			if got != want {
++				t.Errorf("backend support = %v, want %v", got, want)
++			}
++		})
++	}
++}
++
++func TestMicrosoftSignatureAlgorithmPreferences(t *testing.T) {
++	allSupported := make(map[SignatureScheme]bool)
++	for sigAlg := range supportedSignatures {
++		allSupported[sigAlg] = true
++	}
++	tests := []struct {
++		name      string
++		supported map[SignatureScheme]bool
++	}{
++		{"Backend", supportedSignatures},
++		{"All", allSupported},
++		{"None", map[SignatureScheme]bool{}},
++		{"Partial", map[SignatureScheme]bool{
++			MLDSA65:                true,
++			PSSWithSHA256:          true,
++			Ed25519:                true,
++			ECDSAWithP384AndSHA384: true,
++		}},
++	}
++	for _, test := range tests {
++		t.Run(test.name, func(t *testing.T) {
++			original := supportedSignatures
++			supportedSignatures = test.supported
++			t.Cleanup(func() { supportedSignatures = original })
++
++			for _, versions := range []struct {
++				name     string
++				min, max uint16
++			}{
++				{"TLS12", VersionTLS12, VersionTLS12},
++				{"TLS13", VersionTLS13, VersionTLS13},
++				{"TLS12And13", VersionTLS12, VersionTLS13},
++			} {
++				for _, algorithms := range []struct {
++					name string
++					get  func(uint16, uint16) []SignatureScheme
++				}{
++					{"Defaults", func(_, _ uint16) []SignatureScheme {
++						return defaultSupportedSignatureAlgorithms()
++					}},
++					{"signature_algorithms", supportedSignatureAlgorithms},
++					{"signature_algorithms_cert", supportedSignatureAlgorithmsCert},
++				} {
++					t.Run(versions.name+"/"+algorithms.name, func(t *testing.T) {
++						testenv.SetGODEBUG(t, "ms_tlsprofile=off")
++						upstream := algorithms.get(versions.min, versions.max)
++						for _, profile := range []string{"off", "default", ""} {
++							t.Run("ms_tlsprofile="+profile, func(t *testing.T) {
++								testenv.SetGODEBUG(t, "ms_tlsprofile="+profile)
++								want := upstream
++								if profile != "off" {
++									want = nil
++									for _, supported := range []bool{true, false} {
++										for _, sigAlg := range upstream {
++											if test.supported[sigAlg] == supported {
++												want = append(want, sigAlg)
++											}
++										}
++									}
++								}
++								got := algorithms.get(versions.min, versions.max)
++								if !slices.Equal(got, want) {
++									t.Errorf("signature algorithms = %v, want %v", got, want)
++								}
++							})
++						}
++					})
 +				}
 +			}
 +		})
