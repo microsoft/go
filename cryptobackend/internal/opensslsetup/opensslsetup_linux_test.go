@@ -23,15 +23,19 @@ func assertLibrary(t *testing.T, expected string) {
 }
 
 func TestLibraryWithEnvOverride(t *testing.T) {
-	t.Setenv("GO_OPENSSL_VERSION_OVERRIDE", "1.1")
-	mockCheckVersion(t, func(s string) (bool, bool) { return false, false })
-	assertLibrary(t, "libcrypto.so.1.1")
+	for _, v := range []string{"1.1", "3", "4"} {
+		t.Run(v, func(t *testing.T) {
+			t.Setenv("GO_OPENSSL_VERSION_OVERRIDE", v)
+			mockCheckVersion(t, func(s string) (bool, bool) { return true, false })
+			assertLibrary(t, "libcrypto.so."+v)
+		})
+	}
 }
 
 func TestLibraryWithKnownVersion(t *testing.T) {
 	t.Setenv("GO_OPENSSL_VERSION_OVERRIDE", "")
 
-	const maxLib = "libcrypto.so.4"
+	const preferredLib = "libcrypto.so.3"
 
 	t.Run("AllExistsNoneFIPS", func(t *testing.T) {
 		mockCheckVersion(t, func(s string) (bool, bool) {
@@ -39,7 +43,7 @@ func TestLibraryWithKnownVersion(t *testing.T) {
 		})
 		for _, v := range knownVersions {
 			t.Run(v, func(t *testing.T) {
-				assertLibrary(t, maxLib)
+				assertLibrary(t, preferredLib)
 			})
 		}
 	})
@@ -60,12 +64,12 @@ func TestLibraryWithKnownVersion(t *testing.T) {
 	})
 
 	t.Run("AllExistsOnlyOneFIPS", func(t *testing.T) {
-		fipsLib := "libcrypto.so.1.1"
-		mockCheckVersion(t, func(s string) (bool, bool) {
-			return true, s == fipsLib
-		})
 		for _, v := range knownVersions {
 			t.Run(v, func(t *testing.T) {
+				fipsLib := "libcrypto.so." + v
+				mockCheckVersion(t, func(s string) (bool, bool) {
+					return true, s == fipsLib
+				})
 				assertLibrary(t, fipsLib)
 			})
 		}
@@ -77,7 +81,7 @@ func TestLibraryWithKnownVersion(t *testing.T) {
 		})
 		for _, v := range knownVersions {
 			t.Run(v, func(t *testing.T) {
-				assertLibrary(t, maxLib)
+				assertLibrary(t, preferredLib)
 			})
 		}
 	})
