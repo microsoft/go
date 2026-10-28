@@ -10,12 +10,12 @@ type Parameters struct{}
 type backendPrivateKey struct{}
 type backendPublicKey struct{}
 
-func MLDSA44() Parameters                { panic("cryptobackend: not available") }
-func MLDSA65() Parameters                { panic("cryptobackend: not available") }
-func MLDSA87() Parameters                { panic("cryptobackend: not available") }
-func (params Parameters) String() string { panic("cryptobackend: not available") }
-func Supports(params Parameters) bool    { panic("cryptobackend: not available") }
-func supportsExternalMu() bool           { panic("cryptobackend: not available") }
+func MLDSA44() Parameters                       { panic("cryptobackend: not available") }
+func MLDSA65() Parameters                       { panic("cryptobackend: not available") }
+func MLDSA87() Parameters                       { panic("cryptobackend: not available") }
+func (params Parameters) String() string        { panic("cryptobackend: not available") }
+func Supports(params Parameters) bool           { panic("cryptobackend: not available") }
+func supportsExternalMu(params Parameters) bool { panic("cryptobackend: not available") }
 func generateKey(params Parameters) (*backendPrivateKey, error) {
 	panic("cryptobackend: not available")
 }
