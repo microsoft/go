@@ -465,7 +465,6 @@ This list of major changes is intended for quick reference and for access to his
 ### Go 1.28 (Feb 2027)
 
 - The OpenSSL backend supports OpenSSL 4.
-  - The preference when discovering the OpenSSL version to use is the first match of: `3` -> `4` -> `1.1` -> `11` -> `111`.
 
 ### Go 1.27 (Aug 2026)
 
