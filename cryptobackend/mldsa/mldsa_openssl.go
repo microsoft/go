@@ -12,11 +12,13 @@ type Parameters = openssl.MLDSAParameters
 type PrivateKey = openssl.PrivateKeyMLDSA
 type PublicKey = openssl.PublicKeyMLDSA
 
-func MLDSA44() Parameters                                { return openssl.MLDSA44() }
-func MLDSA65() Parameters                                { return openssl.MLDSA65() }
-func MLDSA87() Parameters                                { return openssl.MLDSA87() }
-func Supports(params Parameters) bool                    { return openssl.SupportsMLDSA(params) }
-func SupportsExternalMu() bool                           { return true }
+func MLDSA44() Parameters             { return openssl.MLDSA44() }
+func MLDSA65() Parameters             { return openssl.MLDSA65() }
+func MLDSA87() Parameters             { return openssl.MLDSA87() }
+func Supports(params Parameters) bool { return openssl.SupportsMLDSA(params) }
+func SupportsExternalMu(params Parameters) bool {
+	return openssl.SupportsMLDSAExternalMu(params)
+}
 func GenerateKey(params Parameters) (*PrivateKey, error) { return openssl.GenerateKeyMLDSA(params) }
 func NewPrivateKey(params Parameters, seed []byte) (*PrivateKey, error) {
 	return openssl.NewPrivateKeyMLDSA(params, seed)

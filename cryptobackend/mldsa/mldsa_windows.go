@@ -16,7 +16,7 @@ func MLDSA44() Parameters                                { return cng.MLDSA44() 
 func MLDSA65() Parameters                                { return cng.MLDSA65() }
 func MLDSA87() Parameters                                { return cng.MLDSA87() }
 func Supports(params Parameters) bool                    { return cng.SupportsMLDSA() }
-func SupportsExternalMu() bool                           { return true }
+func SupportsExternalMu(params Parameters) bool          { return true }
 func GenerateKey(params Parameters) (*PrivateKey, error) { return cng.GenerateKeyMLDSA(params) }
 func NewPrivateKey(params Parameters, seed []byte) (*PrivateKey, error) {
 	return cng.NewPrivateKeyMLDSA(params, seed)

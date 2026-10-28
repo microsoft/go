@@ -15,7 +15,7 @@ func MLDSA65() Parameters                                { panic("cryptobackend:
 func MLDSA87() Parameters                                { panic("cryptobackend: not available") }
 func (params Parameters) String() string                 { panic("cryptobackend: not available") }
 func Supports(params Parameters) bool                    { panic("cryptobackend: not available") }
-func SupportsExternalMu() bool                           { panic("cryptobackend: not available") }
+func SupportsExternalMu(params Parameters) bool          { panic("cryptobackend: not available") }
 func GenerateKey(params Parameters) (*PrivateKey, error) { panic("cryptobackend: not available") }
 func NewPrivateKey(params Parameters, seed []byte) (*PrivateKey, error) {
 	panic("cryptobackend: not available")
