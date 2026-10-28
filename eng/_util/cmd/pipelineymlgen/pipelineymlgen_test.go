@@ -20,7 +20,6 @@ func TestGoInfraPipelineGenReproducible(t *testing.T) {
 	if err != nil {
 		t.Fatalf("pipelineymlgen reproduciblility check failed: %v\nOutput:\n%s\nRun 'pwsh eng/run.ps1 pipelineymlgen' if differences are expected.", err, out)
 	}
-
 }
 
 func TestSigningPlatformContext(t *testing.T) {
