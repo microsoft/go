@@ -14,6 +14,24 @@ The Microsoft build of Go collects [opt-out (enabled by default) toolset telemet
 See the [Telemetry documentation](/eng/doc/Telemetry.md) for details on what is collected and how to opt out.
 See also the [Data Collection policy for the Microsoft build of Go](/README.md#data-collection).
 
+## Position-independent executables on Linux
+
+Starting with Go 1.28, the default build mode on Linux is `pie` on architectures that support internally linked position-independent executables: amd64, arm64, loong64, ppc64, ppc64le, and s390x.
+The PIE default aligns with Microsoft's security policies and enables address space layout randomization (ASLR) for executables.
+Windows and macOS (`darwin`) binaries already used PIE by default.
+Other Linux architectures and builds using `-race` retain the upstream default of `exe`.
+
+The default applies to `go build`, `go install`, `go run`, and `go test`, including cross-compilation.
+It is independent of system crypto and does not require cgo or a C compiler.
+Explicit build modes are unchanged; use `-buildmode=exe` to opt out.
+
+Programs without direct or indirect dependencies on Go's `crypto` packages now also require a dynamic loader at runtime.
+To keep such programs fully static, for example to run in a container without a dynamic loader, use:
+
+```sh
+CGO_ENABLED=0 go build -buildmode=exe
+```
+
 ## System-provided cryptography backend
 
 We have implemented changes to the Go standard library to call a platform-specific system-provided cryptography library rather than running the pure Go implementation.

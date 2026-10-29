@@ -42,6 +42,7 @@ The Microsoft build of Go includes [patches](/patches/) that:
 - **Disable [GOTOOLCHAIN](https://go.dev/doc/toolchain) by default** to avoid mixups with the official Go distribution.
 - **Remove use of undocumented Windows APIs** for compatibility, security, and compliance.
 - **Embed Microsoft-specific version information** into built Go binaries for [easier identification](./MicrosoftToolsetIdentification.md).
+- **Default to [position-independent executables on Linux](./AdditionalFeatures.md#position-independent-executables-on-linux)** to align with Microsoft's security policies. Starting with Go 1.28, this applies to architectures that support internal PIE linking. These executables require a dynamic loader; use `-buildmode=exe` when a non-PIE executable is needed.
 
 For a detailed description of every feature, see the [Additional Features](./AdditionalFeatures.md) document.
 

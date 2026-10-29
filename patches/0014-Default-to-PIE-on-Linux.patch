@@ -1,0 +1,36 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: bot-for-go[bot] <199222863+bot-for-go[bot]@users.noreply.github.com>
+Date: Thu, 29 Oct 2026 06:51:02 +0100
+Subject: [PATCH] Default to PIE on Linux
+
+Use PIE by default on Linux architectures that support internal PIE linking,
+without requiring cgo or an external linker. Preserve the existing exe
+default for other Linux targets and race-enabled builds, and keep explicit
+-buildmode=exe as an opt-out.
+
+Fixes microsoft/go#2236.
+---
+ src/internal/platform/supported.go | 5 ++++-
+ 1 file changed, 4 insertions(+), 1 deletion(-)
+
+diff --git a/src/internal/platform/supported.go b/src/internal/platform/supported.go
+index e54c1ac580cce130bd08043d6f90bfacd94721a7..19b3870814c385f34d3b4df5bf6f8ce8cdae668d 100644
+--- a/src/internal/platform/supported.go
++++ b/src/internal/platform/supported.go
+@@ -242,12 +242,15 @@ func InternalLinkPIESupported(goos, goarch string) bool {
+ }
+ 
+ // DefaultPIE reports whether goos/goarch produces a PIE binary when using the
+-// "default" buildmode. On Windows this is affected by -race,
++// "default" buildmode. On some platforms this is affected by -race,
+ // so force the caller to pass that in to centralize that choice.
+ func DefaultPIE(goos, goarch string, isRace bool) bool {
+ 	switch goos {
+ 	case "android", "ios":
+ 		return true
++	case "linux":
++		// Preserve race support and builds without an external linker.
++		return !isRace && InternalLinkPIESupported(goos, goarch)
+ 	case "windows":
+ 		if isRace {
+ 			// PIE is not supported with -race on windows;
