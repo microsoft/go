@@ -85,12 +85,12 @@ func TestProgram(t *testing.T) { main() }
 	}
 	cgoEnabled, _ := execGoTool(t, false, env, "env", "CGO_ENABLED")
 	for _, tt := range []struct {
-		name, cgo, want string
-		race            bool
+		name, cgo, want, flag string
 	}{
-		{"nocgo", "0", "pie", false},
-		{"cgo", "1", "pie", false},
-		{"race", "1", "exe", true},
+		{"nocgo", "0", "pie", ""},
+		{"cgo", "1", "pie", ""},
+		{"race", "1", "exe", "-race"},
+		{"asan", "1", "exe", "-asan"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			if tt.cgo == "1" && cgoEnabled != "1" {
@@ -103,8 +103,8 @@ func TestProgram(t *testing.T) { main() }
 					if command == "test" {
 						args = append(args, "-c")
 					}
-					if tt.race {
-						args = append(args, "-race")
+					if tt.flag != "" {
+						args = append(args, tt.flag)
 					}
 					execGoToolInDir(t, dir, false, append(env, "CGO_ENABLED="+tt.cgo), append(args, ".")...)
 					checkLinuxBuildMode(t, binary, tt.want)

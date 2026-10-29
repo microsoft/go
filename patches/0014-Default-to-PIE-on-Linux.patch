@@ -10,15 +10,84 @@ default for other Linux targets and race-enabled builds, and keep explicit
 
 Fixes microsoft/go#2236.
 ---
+ src/cmd/go/internal/load/pkg.go          | 4 ++--
+ src/cmd/go/internal/work/init.go         | 4 ++--
+ src/cmd/go/scriptconds_test.go           | 8 +++-----
  src/cmd/internal/testdir/testdir_test.go | 3 ++-
  src/cmd/link/elf_test.go                 | 2 +-
+ src/cmd/link/internal/ld/dwarf_test.go   | 2 +-
  src/cmd/link/internal/ld/elf_test.go     | 6 ++++--
  src/cmd/link/internal/ld/errors.go       | 6 +++++-
- src/internal/platform/supported.go       | 5 ++++-
+ src/cmd/nm/nm_test.go                    | 2 +-
+ src/internal/platform/supported.go       | 9 ++++++---
  src/internal/testenv/testenv.go          | 3 ++-
  test/linkmain_run.go                     | 2 +-
- 7 files changed, 19 insertions(+), 8 deletions(-)
+ 12 files changed, 30 insertions(+), 21 deletions(-)
 
+diff --git a/src/cmd/go/internal/load/pkg.go b/src/cmd/go/internal/load/pkg.go
+index 1b48c4b8fa557b84a2119957e61d6bae0303cc5a..64242e2ede15796797d0d8116b28d2756eb9760d 100644
+--- a/src/cmd/go/internal/load/pkg.go
++++ b/src/cmd/go/internal/load/pkg.go
+@@ -2482,7 +2482,7 @@ func (p *Package) setBuildInfo(ctx context.Context, f *modfetch.Fetcher, autoVCS
+ 	if buildmode == "default" {
+ 		if p.Name == "main" {
+ 			buildmode = "exe"
+-			if platform.DefaultPIE(cfg.Goos, cfg.Goarch, cfg.BuildRace) {
++			if platform.DefaultPIE(cfg.Goos, cfg.Goarch, cfg.BuildRace, cfg.BuildASan) {
+ 				buildmode = "pie"
+ 			}
+ 		} else {
+@@ -2788,7 +2788,7 @@ func externalLinkingReason(s *modload.Loader, p *Package) (what string) {
+ 	isPIE := false
+ 	if cfg.BuildBuildmode == "pie" {
+ 		isPIE = true
+-	} else if cfg.BuildBuildmode == "default" && platform.DefaultPIE(cfg.BuildContext.GOOS, cfg.BuildContext.GOARCH, cfg.BuildRace) {
++	} else if cfg.BuildBuildmode == "default" && platform.DefaultPIE(cfg.BuildContext.GOOS, cfg.BuildContext.GOARCH, cfg.BuildRace, cfg.BuildASan) {
+ 		isPIE = true
+ 	}
+ 	// If we are building a PIE, and we are on a system
+diff --git a/src/cmd/go/internal/work/init.go b/src/cmd/go/internal/work/init.go
+index 9226dd3fd631f03e484cb3b329f14721b11bcf42..75f056591509eddc59f94b93aab29049170885f3 100644
+--- a/src/cmd/go/internal/work/init.go
++++ b/src/cmd/go/internal/work/init.go
+@@ -260,7 +260,7 @@ func buildModeInit() {
+ 		ldBuildmode = "c-shared"
+ 	case "default":
+ 		ldBuildmode = "exe"
+-		if platform.DefaultPIE(cfg.Goos, cfg.Goarch, cfg.BuildRace) {
++		if platform.DefaultPIE(cfg.Goos, cfg.Goarch, cfg.BuildRace, cfg.BuildASan) {
+ 			ldBuildmode = "pie"
+ 			if cfg.Goos != "windows" && !gccgo {
+ 				codegenArg = "-shared"
+@@ -276,7 +276,7 @@ func buildModeInit() {
+ 			pkgsFilter = oneMainPkg
+ 		}
+ 	case "pie":
+-		if cfg.BuildRace && !platform.DefaultPIE(cfg.Goos, cfg.Goarch, cfg.BuildRace) {
++		if cfg.BuildRace && !platform.DefaultPIE(cfg.Goos, cfg.Goarch, cfg.BuildRace, cfg.BuildASan) {
+ 			base.Fatalf("-buildmode=pie not supported when -race is enabled on %s/%s", cfg.Goos, cfg.Goarch)
+ 		}
+ 		if gccgo {
+diff --git a/src/cmd/go/scriptconds_test.go b/src/cmd/go/scriptconds_test.go
+index 277352ddaf921f93572e09ba02839a6665693c10..ccbcbf3cfde2ed33193f2993eb274d61a090677f 100644
+--- a/src/cmd/go/scriptconds_test.go
++++ b/src/cmd/go/scriptconds_test.go
+@@ -153,12 +153,10 @@ func defaultCgo() bool {
+ }
+ 
+ // defaultPIE reports whether -buildmode=default resolves to -buildmode=pie for
+-// the script's GOOS/GOARCH. It assumes -race is not in effect, which is the only
+-// case where the resolved default buildmode depends on the race flag (PIE is not
+-// the default with -race on windows). Scripts that build with -race must not rely
+-// on this condition.
++// the script's GOOS/GOARCH. It assumes neither -race nor -asan is in effect.
++// Scripts that build with these flags must not rely on this condition.
+ func defaultPIE(s *script.State) (bool, error) {
+ 	GOOS, _ := s.LookupEnv("GOOS")
+ 	GOARCH, _ := s.LookupEnv("GOARCH")
+-	return platform.DefaultPIE(GOOS, GOARCH, false), nil
++	return platform.DefaultPIE(GOOS, GOARCH, false, false), nil
+ }
 diff --git a/src/cmd/internal/testdir/testdir_test.go b/src/cmd/internal/testdir/testdir_test.go
 index 14f5104923e4e5891a4355ecfd9f0a62191b3833..02e2e104c91ce5e87f1de0feaac8892a4ed597e5 100644
 --- a/src/cmd/internal/testdir/testdir_test.go
@@ -46,8 +115,21 @@ index 9b06d71cda2887d6bc1cf59d8ccd390c99e87f35..425d3bdeda0c03f6317a997c51329387
  	if out, err := cmd.CombinedOutput(); err != nil {
  		t.Fatalf("build failed: %v, output:\n%s", err, out)
  	}
+diff --git a/src/cmd/link/internal/ld/dwarf_test.go b/src/cmd/link/internal/ld/dwarf_test.go
+index 2ae3d0d73610a9a466ce37985931187d38bcec6b..eeae10d00634387d7529de74db942f392e93ed9b 100644
+--- a/src/cmd/link/internal/ld/dwarf_test.go
++++ b/src/cmd/link/internal/ld/dwarf_test.go
+@@ -945,7 +945,7 @@ func f(x *X) { // Make sure that there is dwarf recorded for *X.
+ 		t.Fatalf("*main.X DIE had no runtime type attr. DIE: %v", dies[0])
+ 	}
+ 
+-	if platform.DefaultPIE(runtime.GOOS, runtime.GOARCH, false) {
++	if platform.DefaultPIE(runtime.GOOS, runtime.GOARCH, false, false) {
+ 		return // everything is PIE, addresses are relocated
+ 	}
+ 	if rtAttr.(uint64)+types.Addr != addr {
 diff --git a/src/cmd/link/internal/ld/elf_test.go b/src/cmd/link/internal/ld/elf_test.go
-index 92916187c5f63fa2a20b63e3996564f07bc030b5..be9b42c7bd324f37b69e0346f9086c2f70e8e6b4 100644
+index 92916187c5f63fa2a20b63e3996564f07bc030b5..724c386d948d9427416021d84228cc0437d35a4a 100644
 --- a/src/cmd/link/internal/ld/elf_test.go
 +++ b/src/cmd/link/internal/ld/elf_test.go
 @@ -9,6 +9,7 @@ package ld
@@ -72,7 +154,7 @@ index 92916187c5f63fa2a20b63e3996564f07bc030b5..be9b42c7bd324f37b69e0346f9086c2f
  		wantDf1Pie           bool
  	}{
 -		{name: "default", prog: prog},
-+		{name: "default", prog: prog, wantDf1Pie: platform.DefaultPIE(runtime.GOOS, runtime.GOARCH, false)},
++		{name: "default", prog: prog, wantDf1Pie: platform.DefaultPIE(runtime.GOOS, runtime.GOARCH, false, false)},
  		{
  			name:                 "pie-linkmode-internal",
  			args:                 []string{"-buildmode=pie", "-ldflags", "-linkmode=internal"},
@@ -80,7 +162,7 @@ index 92916187c5f63fa2a20b63e3996564f07bc030b5..be9b42c7bd324f37b69e0346f9086c2f
  			mustInternalLink: true,
  			wantDfBindNow:    true,
  			wantDf1Now:       true,
-+			wantDf1Pie:       platform.DefaultPIE(runtime.GOOS, runtime.GOARCH, false),
++			wantDf1Pie:       platform.DefaultPIE(runtime.GOOS, runtime.GOARCH, false, false),
  		},
  		{
  			name:                 "bindnow-pie-linkmode-internal",
@@ -104,8 +186,21 @@ index b553d682d94c6f0e84dea987b0fa79648554474f..0213ff5e0bae4bec39d88887cacfc6d0
  
  		// Try to find symbol under another ABI.
  		var reqABI, haveABI obj.ABI
+diff --git a/src/cmd/nm/nm_test.go b/src/cmd/nm/nm_test.go
+index ce1bd7cd5747d7a28c85ff84046d3a25a94b2a82..eb950707280aae8655427f33b1c7da5d751e7adc 100644
+--- a/src/cmd/nm/nm_test.go
++++ b/src/cmd/nm/nm_test.go
+@@ -138,7 +138,7 @@ func testGoExec(t *testing.T, iscgo, isexternallinker bool) {
+ 				return true
+ 			}
+ 		}
+-		if platform.DefaultPIE(runtime.GOOS, runtime.GOARCH, false) {
++		if platform.DefaultPIE(runtime.GOOS, runtime.GOARCH, false, false) {
+ 			// Code is always relocated if the default buildmode is PIE.
+ 			return true
+ 		}
 diff --git a/src/internal/platform/supported.go b/src/internal/platform/supported.go
-index e54c1ac580cce130bd08043d6f90bfacd94721a7..19b3870814c385f34d3b4df5bf6f8ce8cdae668d 100644
+index e54c1ac580cce130bd08043d6f90bfacd94721a7..e52b6ef88e976273ac526a4ecbaa288c7d4d89ce 100644
 --- a/src/internal/platform/supported.go
 +++ b/src/internal/platform/supported.go
 @@ -242,12 +242,15 @@ func InternalLinkPIESupported(goos, goarch string) bool {
@@ -113,15 +208,17 @@ index e54c1ac580cce130bd08043d6f90bfacd94721a7..19b3870814c385f34d3b4df5bf6f8ce8
  
  // DefaultPIE reports whether goos/goarch produces a PIE binary when using the
 -// "default" buildmode. On Windows this is affected by -race,
-+// "default" buildmode. On some platforms this is affected by -race,
- // so force the caller to pass that in to centralize that choice.
- func DefaultPIE(goos, goarch string, isRace bool) bool {
+-// so force the caller to pass that in to centralize that choice.
+-func DefaultPIE(goos, goarch string, isRace bool) bool {
++// "default" buildmode. On some platforms this is affected by -race and -asan,
++// so force the caller to pass those in to centralize that choice.
++func DefaultPIE(goos, goarch string, isRace, isASan bool) bool {
  	switch goos {
  	case "android", "ios":
  		return true
 +	case "linux":
-+		// Preserve race support and builds without an external linker.
-+		return !isRace && InternalLinkPIESupported(goos, goarch)
++		// Preserve -race/-asan compatibility and builds without an external linker.
++		return !isRace && !isASan && InternalLinkPIESupported(goos, goarch)
  	case "windows":
  		if isRace {
  			// PIE is not supported with -race on windows;

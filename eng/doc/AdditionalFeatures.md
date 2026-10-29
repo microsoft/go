@@ -19,7 +19,8 @@ See also the [Data Collection policy for the Microsoft build of Go](/README.md#d
 Starting with Go 1.28, the default build mode on Linux is `pie` on architectures that support internally linked position-independent executables: amd64, arm64, loong64, ppc64, ppc64le, and s390x.
 The PIE default aligns with Microsoft's security policies and enables address space layout randomization (ASLR) for executables.
 Windows and macOS (`darwin`) binaries already used PIE by default.
-Other Linux architectures and builds using `-race` retain the upstream default of `exe`.
+Other Linux architectures and builds using `-race` or `-asan` retain the upstream default of `exe`.
+Keeping `-asan` builds non-PIE preserves compatibility with system AddressSanitizer runtimes.
 
 The default applies to `go build`, `go install`, `go run`, and `go test`, including cross-compilation.
 It is independent of system crypto and does not require cgo or a C compiler.
