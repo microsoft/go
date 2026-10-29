@@ -1,0 +1,319 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: bot-for-go[bot] <199222863+bot-for-go[bot]@users.noreply.github.com>
+Date: Thu, 29 Oct 2026 06:51:02 +0100
+Subject: [PATCH] Default to PIE on Linux
+
+Use PIE by default on Linux architectures that support internal PIE linking,
+without requiring cgo or an external linker. Preserve the existing exe
+default for other Linux targets and race-enabled builds, and keep explicit
+-buildmode=exe as an opt-out.
+
+Fixes microsoft/go#2236.
+---
+ .../cgo/internal/testsanitizers/asan_test.go  | 49 +++++++++++++++++++
+ src/cmd/go/internal/load/pkg.go               |  4 +-
+ src/cmd/go/internal/work/init.go              |  4 +-
+ src/cmd/go/scriptconds_test.go                |  8 ++-
+ src/cmd/internal/testdir/testdir_test.go      |  3 +-
+ src/cmd/link/elf_test.go                      |  2 +-
+ src/cmd/link/internal/ld/dwarf_test.go        |  2 +-
+ src/cmd/link/internal/ld/elf_test.go          |  6 ++-
+ src/cmd/link/internal/ld/errors.go            |  6 ++-
+ src/cmd/nm/nm_test.go                         |  2 +-
+ src/internal/platform/supported.go            |  9 ++--
+ src/internal/testenv/testenv.go               |  3 +-
+ test/linkmain_run.go                          |  2 +-
+ 13 files changed, 79 insertions(+), 21 deletions(-)
+
+diff --git a/src/cmd/cgo/internal/testsanitizers/asan_test.go b/src/cmd/cgo/internal/testsanitizers/asan_test.go
+index a2d420402018e7329e8193b002861da6acf58ceb..7363700612ab7e71799f274b8ab6a1bcf07e2806 100644
+--- a/src/cmd/cgo/internal/testsanitizers/asan_test.go
++++ b/src/cmd/cgo/internal/testsanitizers/asan_test.go
+@@ -9,6 +9,8 @@ package sanitizers_test
+ import (
+ 	"bytes"
+ 	"crypto/fips140"
++	"debug/buildinfo"
++	"debug/elf"
+ 	"fmt"
+ 	"internal/platform"
+ 	"internal/testenv"
+@@ -84,6 +86,53 @@ func TestASAN(t *testing.T) {
+ 	}
+ }
+ 
++func TestASANBuildMode(t *testing.T) {
++	config := mustHaveASAN(t)
++
++	t.Parallel()
++
++	for _, command := range []string{"build", "test"} {
++		t.Run(command, func(t *testing.T) {
++			dir := newTempDir(t)
++			defer dir.RemoveAll(t)
++
++			outPath := dir.Join("main.exe")
++			args := []string{"-o", outPath}
++			src := "asan_global5.go"
++			if command == "test" {
++				args = append(args, "-c")
++				src = "asan_fuzz_test.go"
++			}
++			cmd := config.goCmd(command, append(args, srcPath(src))...)
++			replaceEnv(cmd, "GOFLAGS", "")
++			mustRun(t, cmd)
++
++			f, err := elf.Open(outPath)
++			if err != nil {
++				t.Fatal(err)
++			}
++			defer f.Close()
++			if f.Type != elf.ET_EXEC {
++				t.Errorf("ELF type = %v, want %v", f.Type, elf.ET_EXEC)
++			}
++			info, err := buildinfo.ReadFile(outPath)
++			if err != nil {
++				t.Fatal(err)
++			}
++			var mode string
++			for _, setting := range info.Settings {
++				if setting.Key == "-buildmode" {
++					mode = setting.Value
++				}
++			}
++			if mode != "exe" {
++				t.Errorf("build info -buildmode = %q, want exe", mode)
++			}
++			mustRun(t, hangProneCmd(outPath))
++		})
++	}
++}
++
+ func TestASANLinkerX(t *testing.T) {
+ 	// Test ASAN with linker's -X flag (see issue 56175).
+ 	config := mustHaveASAN(t)
+diff --git a/src/cmd/go/internal/load/pkg.go b/src/cmd/go/internal/load/pkg.go
+index 1b48c4b8fa557b84a2119957e61d6bae0303cc5a..64242e2ede15796797d0d8116b28d2756eb9760d 100644
+--- a/src/cmd/go/internal/load/pkg.go
++++ b/src/cmd/go/internal/load/pkg.go
+@@ -2482,7 +2482,7 @@ func (p *Package) setBuildInfo(ctx context.Context, f *modfetch.Fetcher, autoVCS
+ 	if buildmode == "default" {
+ 		if p.Name == "main" {
+ 			buildmode = "exe"
+-			if platform.DefaultPIE(cfg.Goos, cfg.Goarch, cfg.BuildRace) {
++			if platform.DefaultPIE(cfg.Goos, cfg.Goarch, cfg.BuildRace, cfg.BuildASan) {
+ 				buildmode = "pie"
+ 			}
+ 		} else {
+@@ -2788,7 +2788,7 @@ func externalLinkingReason(s *modload.Loader, p *Package) (what string) {
+ 	isPIE := false
+ 	if cfg.BuildBuildmode == "pie" {
+ 		isPIE = true
+-	} else if cfg.BuildBuildmode == "default" && platform.DefaultPIE(cfg.BuildContext.GOOS, cfg.BuildContext.GOARCH, cfg.BuildRace) {
++	} else if cfg.BuildBuildmode == "default" && platform.DefaultPIE(cfg.BuildContext.GOOS, cfg.BuildContext.GOARCH, cfg.BuildRace, cfg.BuildASan) {
+ 		isPIE = true
+ 	}
+ 	// If we are building a PIE, and we are on a system
+diff --git a/src/cmd/go/internal/work/init.go b/src/cmd/go/internal/work/init.go
+index 9226dd3fd631f03e484cb3b329f14721b11bcf42..75f056591509eddc59f94b93aab29049170885f3 100644
+--- a/src/cmd/go/internal/work/init.go
++++ b/src/cmd/go/internal/work/init.go
+@@ -260,7 +260,7 @@ func buildModeInit() {
+ 		ldBuildmode = "c-shared"
+ 	case "default":
+ 		ldBuildmode = "exe"
+-		if platform.DefaultPIE(cfg.Goos, cfg.Goarch, cfg.BuildRace) {
++		if platform.DefaultPIE(cfg.Goos, cfg.Goarch, cfg.BuildRace, cfg.BuildASan) {
+ 			ldBuildmode = "pie"
+ 			if cfg.Goos != "windows" && !gccgo {
+ 				codegenArg = "-shared"
+@@ -276,7 +276,7 @@ func buildModeInit() {
+ 			pkgsFilter = oneMainPkg
+ 		}
+ 	case "pie":
+-		if cfg.BuildRace && !platform.DefaultPIE(cfg.Goos, cfg.Goarch, cfg.BuildRace) {
++		if cfg.BuildRace && !platform.DefaultPIE(cfg.Goos, cfg.Goarch, cfg.BuildRace, cfg.BuildASan) {
+ 			base.Fatalf("-buildmode=pie not supported when -race is enabled on %s/%s", cfg.Goos, cfg.Goarch)
+ 		}
+ 		if gccgo {
+diff --git a/src/cmd/go/scriptconds_test.go b/src/cmd/go/scriptconds_test.go
+index 277352ddaf921f93572e09ba02839a6665693c10..ccbcbf3cfde2ed33193f2993eb274d61a090677f 100644
+--- a/src/cmd/go/scriptconds_test.go
++++ b/src/cmd/go/scriptconds_test.go
+@@ -153,12 +153,10 @@ func defaultCgo() bool {
+ }
+ 
+ // defaultPIE reports whether -buildmode=default resolves to -buildmode=pie for
+-// the script's GOOS/GOARCH. It assumes -race is not in effect, which is the only
+-// case where the resolved default buildmode depends on the race flag (PIE is not
+-// the default with -race on windows). Scripts that build with -race must not rely
+-// on this condition.
++// the script's GOOS/GOARCH. It assumes neither -race nor -asan is in effect.
++// Scripts that build with these flags must not rely on this condition.
+ func defaultPIE(s *script.State) (bool, error) {
+ 	GOOS, _ := s.LookupEnv("GOOS")
+ 	GOARCH, _ := s.LookupEnv("GOARCH")
+-	return platform.DefaultPIE(GOOS, GOARCH, false), nil
++	return platform.DefaultPIE(GOOS, GOARCH, false, false), nil
+ }
+diff --git a/src/cmd/internal/testdir/testdir_test.go b/src/cmd/internal/testdir/testdir_test.go
+index 14f5104923e4e5891a4355ecfd9f0a62191b3833..02e2e104c91ce5e87f1de0feaac8892a4ed597e5 100644
+--- a/src/cmd/internal/testdir/testdir_test.go
++++ b/src/cmd/internal/testdir/testdir_test.go
+@@ -218,7 +218,8 @@ func compileInDir(runcmd runCmd, dir string, flags []string, importcfg string, p
+ }
+ 
+ var stdlibImportcfg = sync.OnceValue(func() string {
+-	cmd := exec.Command(goTool, "list", "-export", "-f", "{{if .Export}}packagefile {{.ImportPath}}={{.Export}}{{end}}", "std")
++	// Match the code generation of direct compiler and linker invocations.
++	cmd := exec.Command(goTool, "list", "-export", "-buildmode=exe", "-f", "{{if .Export}}packagefile {{.ImportPath}}={{.Export}}{{end}}", "std")
+ 	cmd.Env = append(os.Environ(), "GOENV=off", "GOFLAGS=", "TESTGO_EXPORT_ARCHIVE=1")
+ 	output, err := cmd.Output()
+ 	if err, ok := err.(*exec.ExitError); ok && len(err.Stderr) != 0 {
+diff --git a/src/cmd/link/elf_test.go b/src/cmd/link/elf_test.go
+index 9b06d71cda2887d6bc1cf59d8ccd390c99e87f35..425d3bdeda0c03f6317a997c513293878a8b6603 100644
+--- a/src/cmd/link/elf_test.go
++++ b/src/cmd/link/elf_test.go
+@@ -609,7 +609,7 @@ func testFlagD(t *testing.T, dataAddr string, roundQuantum string, expectedAddr
+ 		ldflags += " -R=" + roundQuantum
+ 	}
+ 
+-	cmd := goCmd(t, "build", "-ldflags="+ldflags, "-o", exe, src)
++	cmd := goCmd(t, "build", "-buildmode=exe", "-ldflags="+ldflags, "-o", exe, src)
+ 	if out, err := cmd.CombinedOutput(); err != nil {
+ 		t.Fatalf("build failed: %v, output:\n%s", err, out)
+ 	}
+diff --git a/src/cmd/link/internal/ld/dwarf_test.go b/src/cmd/link/internal/ld/dwarf_test.go
+index 2ae3d0d73610a9a466ce37985931187d38bcec6b..eeae10d00634387d7529de74db942f392e93ed9b 100644
+--- a/src/cmd/link/internal/ld/dwarf_test.go
++++ b/src/cmd/link/internal/ld/dwarf_test.go
+@@ -945,7 +945,7 @@ func f(x *X) { // Make sure that there is dwarf recorded for *X.
+ 		t.Fatalf("*main.X DIE had no runtime type attr. DIE: %v", dies[0])
+ 	}
+ 
+-	if platform.DefaultPIE(runtime.GOOS, runtime.GOARCH, false) {
++	if platform.DefaultPIE(runtime.GOOS, runtime.GOARCH, false, false) {
+ 		return // everything is PIE, addresses are relocated
+ 	}
+ 	if rtAttr.(uint64)+types.Addr != addr {
+diff --git a/src/cmd/link/internal/ld/elf_test.go b/src/cmd/link/internal/ld/elf_test.go
+index 92916187c5f63fa2a20b63e3996564f07bc030b5..724c386d948d9427416021d84228cc0437d35a4a 100644
+--- a/src/cmd/link/internal/ld/elf_test.go
++++ b/src/cmd/link/internal/ld/elf_test.go
+@@ -9,6 +9,7 @@ package ld
+ import (
+ 	"debug/elf"
+ 	"fmt"
++	"internal/platform"
+ 	"internal/testenv"
+ 	"os"
+ 	"os/exec"
+@@ -186,7 +187,7 @@ func TestElfBindNow(t *testing.T) {
+ 
+ 	const (
+ 		prog = `package main; func main() {}`
+-		// with default buildmode code compiles in a statically linked binary, hence CGO
++		// Use cgo to get a dynamic section even in non-PIE builds.
+ 		progC = `package main; import "C"; func main() {}`
+ 	)
+ 
+@@ -216,7 +217,7 @@ func TestElfBindNow(t *testing.T) {
+ 		wantDf1Now           bool
+ 		wantDf1Pie           bool
+ 	}{
+-		{name: "default", prog: prog},
++		{name: "default", prog: prog, wantDf1Pie: platform.DefaultPIE(runtime.GOOS, runtime.GOARCH, false, false)},
+ 		{
+ 			name:                 "pie-linkmode-internal",
+ 			args:                 []string{"-buildmode=pie", "-ldflags", "-linkmode=internal"},
+@@ -235,6 +236,7 @@ func TestElfBindNow(t *testing.T) {
+ 			mustInternalLink: true,
+ 			wantDfBindNow:    true,
+ 			wantDf1Now:       true,
++			wantDf1Pie:       platform.DefaultPIE(runtime.GOOS, runtime.GOARCH, false, false),
+ 		},
+ 		{
+ 			name:                 "bindnow-pie-linkmode-internal",
+diff --git a/src/cmd/link/internal/ld/errors.go b/src/cmd/link/internal/ld/errors.go
+index b553d682d94c6f0e84dea987b0fa79648554474f..0213ff5e0bae4bec39d88887cacfc6d0b259c823 100644
+--- a/src/cmd/link/internal/ld/errors.go
++++ b/src/cmd/link/internal/ld/errors.go
+@@ -34,10 +34,14 @@ func (reporter *ErrorReporter) errorUnresolved(ldr *loader.Loader, s, rs loader.
+ 	if reporter.unresSyms == nil {
+ 		reporter.unresSyms = make(map[unresolvedSymKey]bool)
+ 	}
++	name := ldr.SymName(rs)
+ 	k := unresolvedSymKey{from: s, to: rs}
++	// Report a missing main once, even when PIE adds dynamic relocations.
++	if name == "main.main" {
++		k.from = 0
++	}
+ 	if !reporter.unresSyms[k] {
+ 		reporter.unresSyms[k] = true
+-		name := ldr.SymName(rs)
+ 
+ 		// Try to find symbol under another ABI.
+ 		var reqABI, haveABI obj.ABI
+diff --git a/src/cmd/nm/nm_test.go b/src/cmd/nm/nm_test.go
+index ce1bd7cd5747d7a28c85ff84046d3a25a94b2a82..eb950707280aae8655427f33b1c7da5d751e7adc 100644
+--- a/src/cmd/nm/nm_test.go
++++ b/src/cmd/nm/nm_test.go
+@@ -138,7 +138,7 @@ func testGoExec(t *testing.T, iscgo, isexternallinker bool) {
+ 				return true
+ 			}
+ 		}
+-		if platform.DefaultPIE(runtime.GOOS, runtime.GOARCH, false) {
++		if platform.DefaultPIE(runtime.GOOS, runtime.GOARCH, false, false) {
+ 			// Code is always relocated if the default buildmode is PIE.
+ 			return true
+ 		}
+diff --git a/src/internal/platform/supported.go b/src/internal/platform/supported.go
+index e54c1ac580cce130bd08043d6f90bfacd94721a7..e52b6ef88e976273ac526a4ecbaa288c7d4d89ce 100644
+--- a/src/internal/platform/supported.go
++++ b/src/internal/platform/supported.go
+@@ -242,12 +242,15 @@ func InternalLinkPIESupported(goos, goarch string) bool {
+ }
+ 
+ // DefaultPIE reports whether goos/goarch produces a PIE binary when using the
+-// "default" buildmode. On Windows this is affected by -race,
+-// so force the caller to pass that in to centralize that choice.
+-func DefaultPIE(goos, goarch string, isRace bool) bool {
++// "default" buildmode. On some platforms this is affected by -race and -asan,
++// so force the caller to pass those in to centralize that choice.
++func DefaultPIE(goos, goarch string, isRace, isASan bool) bool {
+ 	switch goos {
+ 	case "android", "ios":
+ 		return true
++	case "linux":
++		// Preserve -race/-asan compatibility and builds without an external linker.
++		return !isRace && !isASan && InternalLinkPIESupported(goos, goarch)
+ 	case "windows":
+ 		if isRace {
+ 			// PIE is not supported with -race on windows;
+diff --git a/src/internal/testenv/testenv.go b/src/internal/testenv/testenv.go
+index eb52e1954bc1b2ed9d53c307d15b039ba5de138a..5dfedad874d7548cde6df6e8599eb68cbb0687b3 100644
+--- a/src/internal/testenv/testenv.go
++++ b/src/internal/testenv/testenv.go
+@@ -497,7 +497,8 @@ func WriteImportcfg(t testing.TB, dstPath string, packageFiles map[string]string
+ 
+ 	if len(pkgs) > 0 {
+ 		// Use 'go list' to resolve any missing packages and rewrite the import map.
+-		cmd := Command(t, GoToolPath(t), "list", "-export", "-deps", "-f", `{{if ne .ImportPath "command-line-arguments"}}{{if .Export}}{{.ImportPath}}={{.Export}}{{end}}{{end}}`)
++		// Match the code generation of direct compiler and linker invocations.
++		cmd := Command(t, GoToolPath(t), "list", "-export", "-buildmode=exe", "-deps", "-f", `{{if ne .ImportPath "command-line-arguments"}}{{if .Export}}{{.ImportPath}}={{.Export}}{{end}}{{end}}`)
+ 		cmd.Args = append(cmd.Args, pkgs...)
+ 		cmd.Env = append(cmd.Environ(), "TESTGO_EXPORT_ARCHIVE=1")
+ 		cmd.Stderr = new(strings.Builder)
+diff --git a/test/linkmain_run.go b/test/linkmain_run.go
+index 55aa65267303daeca1f5df739a142a72f66b03b3..50730efe84a46606c4c5817104b5f2920196208f 100644
+--- a/test/linkmain_run.go
++++ b/test/linkmain_run.go
+@@ -62,7 +62,7 @@ func main() {
+ 		return filepath.Join(tmpDir, name)
+ 	}
+ 
+-    importcfg, err := exec.Command("go", "list", "-export", "-f", "{{if .Export}}packagefile {{.ImportPath}}={{.Export}}{{end}}", "std").Output()
++    importcfg, err := exec.Command("go", "list", "-export", "-buildmode=exe", "-f", "{{if .Export}}packagefile {{.ImportPath}}={{.Export}}{{end}}", "std").Output()
+     if err != nil {
+         fmt.Println(err)
+         os.Exit(1)
