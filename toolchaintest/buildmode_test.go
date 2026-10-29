@@ -90,7 +90,6 @@ func TestProgram(t *testing.T) { main() }
 		{"nocgo", "0", "pie", ""},
 		{"cgo", "1", "pie", ""},
 		{"race", "1", "exe", "-race"},
-		{"asan", "1", "exe", "-asan"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			if tt.cgo == "1" && cgoEnabled != "1" {

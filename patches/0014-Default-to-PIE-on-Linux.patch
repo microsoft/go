@@ -10,20 +10,88 @@ default for other Linux targets and race-enabled builds, and keep explicit
 
 Fixes microsoft/go#2236.
 ---
- src/cmd/go/internal/load/pkg.go          | 4 ++--
- src/cmd/go/internal/work/init.go         | 4 ++--
- src/cmd/go/scriptconds_test.go           | 8 +++-----
- src/cmd/internal/testdir/testdir_test.go | 3 ++-
- src/cmd/link/elf_test.go                 | 2 +-
- src/cmd/link/internal/ld/dwarf_test.go   | 2 +-
- src/cmd/link/internal/ld/elf_test.go     | 6 ++++--
- src/cmd/link/internal/ld/errors.go       | 6 +++++-
- src/cmd/nm/nm_test.go                    | 2 +-
- src/internal/platform/supported.go       | 9 ++++++---
- src/internal/testenv/testenv.go          | 3 ++-
- test/linkmain_run.go                     | 2 +-
- 12 files changed, 30 insertions(+), 21 deletions(-)
+ .../cgo/internal/testsanitizers/asan_test.go  | 49 +++++++++++++++++++
+ src/cmd/go/internal/load/pkg.go               |  4 +-
+ src/cmd/go/internal/work/init.go              |  4 +-
+ src/cmd/go/scriptconds_test.go                |  8 ++-
+ src/cmd/internal/testdir/testdir_test.go      |  3 +-
+ src/cmd/link/elf_test.go                      |  2 +-
+ src/cmd/link/internal/ld/dwarf_test.go        |  2 +-
+ src/cmd/link/internal/ld/elf_test.go          |  6 ++-
+ src/cmd/link/internal/ld/errors.go            |  6 ++-
+ src/cmd/nm/nm_test.go                         |  2 +-
+ src/internal/platform/supported.go            |  9 ++--
+ src/internal/testenv/testenv.go               |  3 +-
+ test/linkmain_run.go                          |  2 +-
+ 13 files changed, 79 insertions(+), 21 deletions(-)
 
+diff --git a/src/cmd/cgo/internal/testsanitizers/asan_test.go b/src/cmd/cgo/internal/testsanitizers/asan_test.go
+index a2d420402018e7329e8193b002861da6acf58ceb..7363700612ab7e71799f274b8ab6a1bcf07e2806 100644
+--- a/src/cmd/cgo/internal/testsanitizers/asan_test.go
++++ b/src/cmd/cgo/internal/testsanitizers/asan_test.go
+@@ -9,6 +9,8 @@ package sanitizers_test
+ import (
+ 	"bytes"
+ 	"crypto/fips140"
++	"debug/buildinfo"
++	"debug/elf"
+ 	"fmt"
+ 	"internal/platform"
+ 	"internal/testenv"
+@@ -84,6 +86,53 @@ func TestASAN(t *testing.T) {
+ 	}
+ }
+ 
++func TestASANBuildMode(t *testing.T) {
++	config := mustHaveASAN(t)
++
++	t.Parallel()
++
++	for _, command := range []string{"build", "test"} {
++		t.Run(command, func(t *testing.T) {
++			dir := newTempDir(t)
++			defer dir.RemoveAll(t)
++
++			outPath := dir.Join("main.exe")
++			args := []string{"-o", outPath}
++			src := "asan_global5.go"
++			if command == "test" {
++				args = append(args, "-c")
++				src = "asan_fuzz_test.go"
++			}
++			cmd := config.goCmd(command, append(args, srcPath(src))...)
++			replaceEnv(cmd, "GOFLAGS", "")
++			mustRun(t, cmd)
++
++			f, err := elf.Open(outPath)
++			if err != nil {
++				t.Fatal(err)
++			}
++			defer f.Close()
++			if f.Type != elf.ET_EXEC {
++				t.Errorf("ELF type = %v, want %v", f.Type, elf.ET_EXEC)
++			}
++			info, err := buildinfo.ReadFile(outPath)
++			if err != nil {
++				t.Fatal(err)
++			}
++			var mode string
++			for _, setting := range info.Settings {
++				if setting.Key == "-buildmode" {
++					mode = setting.Value
++				}
++			}
++			if mode != "exe" {
++				t.Errorf("build info -buildmode = %q, want exe", mode)
++			}
++			mustRun(t, hangProneCmd(outPath))
++		})
++	}
++}
++
+ func TestASANLinkerX(t *testing.T) {
+ 	// Test ASAN with linker's -X flag (see issue 56175).
+ 	config := mustHaveASAN(t)
 diff --git a/src/cmd/go/internal/load/pkg.go b/src/cmd/go/internal/load/pkg.go
 index 1b48c4b8fa557b84a2119957e61d6bae0303cc5a..64242e2ede15796797d0d8116b28d2756eb9760d 100644
 --- a/src/cmd/go/internal/load/pkg.go
