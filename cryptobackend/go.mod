@@ -6,7 +6,7 @@ require (
 	github.com/microsoft/go-crypto-darwin v0.0.3-0.20261026090017-171c4346c8c7
 	github.com/microsoft/go-crypto-openssl v0.5.1-0.20261028130524-c9be04267896
 	github.com/microsoft/go-crypto-winnative v0.0.0-20261026140708-37ac3f543832
-	golang.org/x/crypto v0.57.1-0.20260921070245-7a4a4d6beae2
+	golang.org/x/crypto v0.58.0
 )
 
-require golang.org/x/sys v0.48.0 // indirect
+require golang.org/x/sys v0.49.0 // indirect
