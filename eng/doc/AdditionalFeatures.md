@@ -49,6 +49,8 @@ To restore the upstream linker default for ordinary executables, use:
 go build -ldflags=-bindnow=false
 ```
 
+For external linking, the C toolchain may still enable immediate binding by default.
+
 ## System-provided cryptography backend
 
 We have implemented changes to the Go standard library to call a platform-specific system-provided cryptography library rather than running the pure Go implementation.

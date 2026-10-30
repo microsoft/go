@@ -8,10 +8,10 @@ Enable immediate symbol binding for ELF executables and shared libraries using t
 Fixes microsoft/go#851.
 ---
  src/cmd/link/doc.go                  |   2 +-
- src/cmd/link/internal/ld/elf_test.go | 125 +++++++++++++++++----------
+ src/cmd/link/internal/ld/elf_test.go | 151 ++++++++++++++++++---------
  src/cmd/link/internal/ld/lib.go      |   2 +-
  src/cmd/link/internal/ld/main.go     |   2 +-
- 4 files changed, 83 insertions(+), 48 deletions(-)
+ 4 files changed, 107 insertions(+), 50 deletions(-)
 
 diff --git a/src/cmd/link/doc.go b/src/cmd/link/doc.go
 index b7857cfc177785179de83d241635524402dbce62..eba4299623b295f074c906b6549d2558329fa794 100644
@@ -27,10 +27,18 @@ index b7857cfc177785179de83d241635524402dbce62..eba4299623b295f074c906b6549d2558
  		Record id as Go toolchain build id.
  	-buildmode mode
 diff --git a/src/cmd/link/internal/ld/elf_test.go b/src/cmd/link/internal/ld/elf_test.go
-index 724c386d948d9427416021d84228cc0437d35a4a..775009fc313b8da8ffe9908091f50ad1f741f97f 100644
+index 724c386d948d9427416021d84228cc0437d35a4a..1f6ffbc078ce8370e1829ff9017afa5d9b29bb89 100644
 --- a/src/cmd/link/internal/ld/elf_test.go
 +++ b/src/cmd/link/internal/ld/elf_test.go
-@@ -205,28 +205,46 @@ func TestElfBindNow(t *testing.T) {
+@@ -7,6 +7,7 @@
+ package ld
+ 
+ import (
++	"cmd/internal/quoted"
+ 	"debug/elf"
+ 	"fmt"
+ 	"internal/platform"
+@@ -205,32 +206,53 @@ func TestElfBindNow(t *testing.T) {
  	//   in the external linking case.
  
  	tests := []struct {
@@ -47,6 +55,7 @@ index 724c386d948d9427416021d84228cc0437d35a4a..775009fc313b8da8ffe9908091f50ad1
 -		wantDf1Pie           bool
 +		name                string
 +		args                []string
++		ldflags             []string
 +		prog                string
 +		wantSecsRO          []string
 +		wantSecsROIfPresent []string
@@ -76,7 +85,8 @@ index 724c386d948d9427416021d84228cc0437d35a4a..775009fc313b8da8ffe9908091f50ad1
 +		},
 +		{
 +			name:             "exe-linkmode-internal",
-+			args:             []string{"-buildmode=exe", "-ldflags", "-linkmode=internal"},
++			args:             []string{"-buildmode=exe"},
++			ldflags:          []string{"-linkmode=internal"},
 +			prog:             progC,
 +			mustHaveCGO:      true,
 +			mustInternalLink: true,
@@ -85,7 +95,8 @@ index 724c386d948d9427416021d84228cc0437d35a4a..775009fc313b8da8ffe9908091f50ad1
 +		},
 +		{
 +			name:                "pie-linkmode-internal",
-+			args:                []string{"-buildmode=pie", "-ldflags", "-linkmode=internal"},
++			args:                []string{"-buildmode=pie"},
++			ldflags:             []string{"-linkmode=internal"},
 +			prog:                prog,
 +			mustHaveBuildMode:   "pie",
 +			mustInternalLink:    true,
@@ -97,7 +108,12 @@ index 724c386d948d9427416021d84228cc0437d35a4a..775009fc313b8da8ffe9908091f50ad1
  		},
  		{
  			name:             "bindnow-linkmode-internal",
-@@ -239,27 +257,44 @@ func TestElfBindNow(t *testing.T) {
+-			args:             []string{"-ldflags", "-bindnow -linkmode=internal"},
++			ldflags:          []string{"-bindnow", "-linkmode=internal"},
+ 			prog:             progC,
+ 			mustHaveCGO:      true,
+ 			mustInternalLink: true,
+@@ -239,27 +261,47 @@ func TestElfBindNow(t *testing.T) {
  			wantDf1Pie:       platform.DefaultPIE(runtime.GOOS, runtime.GOARCH, false, false),
  		},
  		{
@@ -112,7 +128,8 @@ index 724c386d948d9427416021d84228cc0437d35a4a..775009fc313b8da8ffe9908091f50ad1
 -			wantSecsRO:           []string{".dynamic"},
 -			wantSecsROIfPresent:  []string{".got", ".got.plt"},
 +			name:                "bindnow-disabled-pie-linkmode-internal",
-+			args:                []string{"-buildmode=pie", "-ldflags", "-bindnow=false -linkmode=internal"},
++			args:                []string{"-buildmode=pie"},
++			ldflags:             []string{"-bindnow=false", "-linkmode=internal"},
 +			prog:                prog,
 +			mustHaveBuildMode:   "pie",
 +			mustInternalLink:    true,
@@ -122,7 +139,8 @@ index 724c386d948d9427416021d84228cc0437d35a4a..775009fc313b8da8ffe9908091f50ad1
 +		},
 +		{
 +			name:              "pie-linkmode-external",
-+			args:              []string{"-buildmode=pie", "-ldflags", "-linkmode=external"},
++			args:              []string{"-buildmode=pie"},
++			ldflags:           []string{"-linkmode=external"},
 +			prog:              prog,
 +			mustHaveBuildMode: "pie",
 +			mustHaveCGO:       true,
@@ -133,7 +151,8 @@ index 724c386d948d9427416021d84228cc0437d35a4a..775009fc313b8da8ffe9908091f50ad1
 +		},
 +		{
 +			name:              "bindnow-disabled-pie-linkmode-external",
-+			args:              []string{"-buildmode=pie", "-ldflags", "-bindnow=false -linkmode=external"},
++			args:              []string{"-buildmode=pie"},
++			ldflags:           []string{"-bindnow=false", "-linkmode=external"},
 +			prog:              progC,
 +			mustHaveBuildMode: "pie",
 +			mustHaveCGO:       true,
@@ -161,7 +180,7 @@ index 724c386d948d9427416021d84228cc0437d35a4a..775009fc313b8da8ffe9908091f50ad1
  		},
  	}
  
-@@ -286,10 +321,10 @@ func TestElfBindNow(t *testing.T) {
+@@ -286,10 +328,10 @@ func TestElfBindNow(t *testing.T) {
  			if test.mustHaveCGO {
  				testenv.MustHaveCGO(t)
  			}
@@ -175,7 +194,31 @@ index 724c386d948d9427416021d84228cc0437d35a4a..775009fc313b8da8ffe9908091f50ad1
  				testenv.MustInternalLinkPIE(t)
  			}
  
-@@ -337,9 +372,9 @@ func TestElfBindNow(t *testing.T) {
+@@ -303,7 +345,22 @@ func TestElfBindNow(t *testing.T) {
+ 				t.Fatal(err)
+ 			}
+ 
+-			cmdArgs := append([]string{"build", "-o", binFile}, append(test.args, src)...)
++			ldflags := test.ldflags
++			if !test.mustInternalLink {
++				// Override the C toolchain's default before Go's linker flags,
++				// without passing linker-only options to C compilation.
++				ccCmd := testenv.Command(t, testenv.GoToolPath(t), "env", "CC")
++				out, err := ccCmd.CombinedOutput()
++				if err != nil {
++					t.Fatalf("go env CC failed: %v:\n%s", err, out)
++				}
++				ldflags = append(ldflags, "-extld", strings.TrimSpace(string(out))+" -Wl,-z,lazy")
++			}
++			ldflagsArg, err := quoted.Join(ldflags)
++			if err != nil {
++				t.Fatal(err)
++			}
++			cmdArgs := append([]string{"build", "-o", binFile, "-ldflags", ldflagsArg}, append(test.args, src)...)
+ 			cmd := testenv.Command(t, testenv.GoToolPath(t), cmdArgs...)
+ 
+ 			if out, err := cmd.CombinedOutput(); err != nil {
+@@ -337,9 +394,9 @@ func TestElfBindNow(t *testing.T) {
  
  			bindNowFlagsMatch := gotDfBindNow == test.wantDfBindNow && gotDf1Now == test.wantDf1Now
  
