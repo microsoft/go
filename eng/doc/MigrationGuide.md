@@ -42,7 +42,7 @@ The Microsoft build of Go includes [patches](/patches/) that:
 - **Disable [GOTOOLCHAIN](https://go.dev/doc/toolchain) by default** to avoid mixups with the official Go distribution.
 - **Remove use of undocumented Windows APIs** for compatibility, security, and compliance.
 - **Embed Microsoft-specific version information** into built Go binaries for [easier identification](./MicrosoftToolsetIdentification.md).
-- **Default to [position-independent executables on Linux on applicable GOARCHes](./AdditionalFeatures.md#position-independent-executables-on-linux)** starting with Go 1.28.
+- **Default to [position-independent executables on Linux with applicable build configurations](./AdditionalFeatures.md#position-independent-executables-on-linux)** starting with Go 1.28.
 - **Enable [immediate binding for ELF binaries](./AdditionalFeatures.md#immediate-binding-for-elf-binaries) by default** starting with Go 1.28.
 
 For a detailed description of every feature, see the [Additional Features](./AdditionalFeatures.md) document.
