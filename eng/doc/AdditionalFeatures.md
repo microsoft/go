@@ -17,31 +17,49 @@ See also the [Data Collection policy for the Microsoft build of Go](/README.md#d
 ## Position-independent executables on Linux
 
 Starting with Go 1.28, the default build mode on Linux is `pie` on architectures that support internally linked position-independent executables: amd64, arm64, loong64, ppc64, ppc64le, and s390x.
+Other architectures continue to use the upstream default `exe`.
 The PIE default aligns with Microsoft's security policies and enables address space layout randomization (ASLR) for executables.
-Windows and macOS (`darwin`) binaries already used PIE by default.
-Other Linux architectures and builds using `-race` or `-asan` retain the upstream default of `exe`.
-Keeping `-asan` builds non-PIE preserves compatibility with system AddressSanitizer runtimes.
+
+> [!NOTE]
+> Windows and macOS (`darwin`) binaries already used PIE by default, prior to Go 1.28.
+
+Builds on Linux using `-race` or `-asan` continue to use `exe` by default, not `pie`.
+We do this because Go does not support PIE with the race detector on Linux, and using `pie` with `-asan` may break compatibility with system AddressSanitizer runtimes.
 
 The default applies to `go build`, `go install`, `go run`, and `go test`, including cross-compilation.
 It is independent of system crypto and does not require cgo or a C compiler.
 Explicit build modes are unchanged; use `-buildmode=exe` to opt out.
 
-Programs without direct or indirect dependencies on Go's `crypto` packages now also require a dynamic loader at runtime.
-To keep such programs fully static, for example to run in a container without a dynamic loader, use:
+On builds affected by the new PIE default, even programs without crypto dependencies require a dynamic loader at runtime.
+For programs without direct or indirect dependencies on Go's `crypto` packages, use the following command to produce a fully static executable:
 
 ```sh
 CGO_ENABLED=0 go build -buildmode=exe
 ```
+
+Programs using systemcrypto still require shared libraries and a dynamic loader, even with `CGO_ENABLED=0`.
+See [No-cgo OpenSSL backend runtime dependencies](./NocgoOpenSSL.md#runtime-dependencies).
 
 ## Immediate binding for ELF binaries
 
 Starting with Go 1.28, the linker enables immediate symbol binding (`BIND_NOW`) by default for dynamically linked ELF executables and shared libraries to align with Microsoft's security policies.
 This applies to internal and external linking, with or without cgo or system crypto.
 
+Go produces ELF binaries on Linux and several other Unix-like operating systems.
+Windows and macOS use different executable formats and are unaffected.
+
+Statically linked ELF binaries are unaffected by this change: they don't require dynamic symbol binding.
+
 The dynamic linker resolves function symbols when a binary is loaded rather than when each function is first called.
-Together with RELRO, this allows relocation tables to be made read-only after loading.
 Missing symbols are reported at load time rather than when the affected function is first called.
-Static binaries remain static, and Windows and macOS binaries are unaffected.
+
+> [!NOTE]
+> [RELRO](https://www.redhat.com/en/blog/hardening-elf-binaries-using-relocation-read-only-relro) protects some relocation-related data from modification after loading.
+> The linker marks a memory range for RELRO protection, and the dynamic linker makes that range read-only after applying relocations.
+> Go enables RELRO for ELF PIE binaries and shared libraries, including executables built with the Microsoft build of Go [Linux PIE default](#position-independent-executables-on-linux).
+>
+> Immediate binding extends this protection to the global offset table entries used for function calls.
+> Without immediate binding, these entries must remain writable so the dynamic linker can update them when each function is first called.
 
 To restore the upstream linker default for ordinary executables, use:
 
