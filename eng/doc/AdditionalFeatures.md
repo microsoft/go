@@ -30,12 +30,15 @@ The default applies to `go build`, `go install`, `go run`, and `go test`, includ
 It is independent of system crypto and does not require cgo or a C compiler.
 Explicit build modes are unchanged; use `-buildmode=exe` to opt out.
 
-On builds affected by the new PIE default, even pure-Go programs require a dynamic loader at runtime.
-To produce a fully static executable instead, for example to run in a container without a dynamic loader, use:
+On builds affected by the new PIE default, even programs without crypto dependencies require a dynamic loader at runtime.
+For programs without direct or indirect dependencies on Go's `crypto` packages, use the following command to produce a fully static executable:
 
 ```sh
 CGO_ENABLED=0 go build -buildmode=exe
 ```
+
+Programs using systemcrypto still require shared libraries and a dynamic loader, even with `CGO_ENABLED=0`.
+See [No-cgo OpenSSL backend runtime dependencies](./NocgoOpenSSL.md#runtime-dependencies).
 
 ## Immediate binding for ELF binaries
 
