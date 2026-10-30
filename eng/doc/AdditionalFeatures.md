@@ -33,6 +33,22 @@ To keep such programs fully static, for example to run in a container without a 
 CGO_ENABLED=0 go build -buildmode=exe
 ```
 
+## Immediate binding for ELF binaries
+
+Starting with Go 1.28, the linker enables immediate symbol binding (`BIND_NOW`) by default for dynamically linked ELF executables and shared libraries to align with Microsoft's security policies.
+This applies to internal and external linking, with or without cgo or system crypto.
+
+The dynamic linker resolves function symbols when a binary is loaded rather than when each function is first called.
+Together with RELRO, this allows relocation tables to be made read-only after loading.
+Missing symbols are reported at load time rather than when the affected function is first called.
+Static binaries remain static, and Windows and macOS binaries are unaffected.
+
+To restore the upstream linker default for ordinary executables, use:
+
+```sh
+go build -ldflags=-bindnow=false
+```
+
 ## System-provided cryptography backend
 
 We have implemented changes to the Go standard library to call a platform-specific system-provided cryptography library rather than running the pure Go implementation.

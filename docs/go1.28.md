@@ -15,6 +15,12 @@ dependencies on Go's `crypto` packages now also require a dynamic loader at
 runtime. See the [PIE documentation](../eng/doc/AdditionalFeatures.md#position-independent-executables-on-linux)
 for details and guidance on fully static builds.
 
+Dynamically linked ELF binaries now enable immediate symbol binding (`BIND_NOW`)
+by default to align with Microsoft's security policies. This applies to internal
+and external linking. Use `-ldflags=-bindnow=false` to opt out. See the
+[immediate binding documentation](../eng/doc/AdditionalFeatures.md#immediate-binding-for-elf-binaries)
+for details.
+
 ## Cryptography
 
 The `crypto/boring` package is no longer enabled by system crypto.
