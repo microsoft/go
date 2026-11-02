@@ -67,6 +67,9 @@ Signing is batched within each pass, and each archive's signing operations run i
 Publishing and CodeQL download all three `Binaries Signed <os>` artifacts into a shared local `Binaries Signed` directory.
 When using an existing run, it must provide all three platform artifacts; runs with only a combined `Binaries Signed` artifact are not supported.
 
+The public binaries publishing stage republishes that directory as the combined `Binaries Signed` pipeline artifact.
+This preserves the artifact consumed by go-infra release orchestration for GitHub Release attachments without adding a separate consolidation stage or delaying the independent signing stages.
+
 Release-job downloads validate each artifact's SBOM, then remove its manifests because all platforms use the same `_manifest` paths in the shared download directory.
 This also prevents the manifests from being uploaded to release storage alongside the signed binaries.
 
