@@ -64,18 +64,11 @@ Each job downloads only its platform's builder artifacts.
 The source archive is produced by the Linux amd64 builder, so it travels with the Linux artifacts.
 Signing is batched within each pass, and each archive's signing operations run in dependency order.
 
-Each flow publishes `Binaries Signed <os>` and `Signing diagnosis files <os> <attempt>`.
-Publishing depends directly on all signing stages succeeding.
-The platform list in [`/eng/pipeline/variables/pipeline.yml`](/eng/pipeline/variables/pipeline.yml) defines the signing stages, publishing dependencies, and signed artifact downloads.
-It is passed explicitly through `ctx` to templates, including publishing and CodeQL downloads, because stage templates do not inherit custom root variables at compile time.
-The shared download template downloads all three platform artifacts into the consumer's local `Binaries Signed` directory for publishing and CodeQL.
-Existing runs must provide all three platform artifacts; runs with only a combined `Binaries Signed` artifact are not supported.
+Publishing and CodeQL download all three `Binaries Signed <os>` artifacts into a shared local `Binaries Signed` directory.
+When using an existing run, it must provide all three platform artifacts; runs with only a combined `Binaries Signed` artifact are not supported.
 
-All signing jobs use the MicroBuild production/test configuration and platform-specific certificates.
-Required output scanning and SBOM generation are enabled for each platform.
 Release-job downloads validate each artifact's SBOM, then remove its manifests because all platforms use the same `_manifest` paths in the shared download directory.
-The manifests are not part of the binaries uploaded to release storage.
+This also prevents the manifests from being uploaded to release storage alongside the signed binaries.
 
-To measure signing performance without rebuilding Go, queue the official pipeline with `signExistingRunID` set to a completed build with all platform builder artifacts.
-Use an approved pipeline and signing agents for real signing; local validation must use dry-run or test signing.
+To test signing functionality or measure signing performance without rebuilding Go, queue the `microsoft-go` pipeline linked in the [pipeline list](/eng/pipeline/README.md) with `signExistingRunID` set to a completed build with all platform builder artifacts.
 Measure overall release completion and the interval from the first platform signing stage becoming eligible to run through completion of all three signing stages, including agent queueing and scanning, rather than only the duration of the signing commands.
