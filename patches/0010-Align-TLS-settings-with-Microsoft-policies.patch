@@ -7,7 +7,7 @@ Subject: [PATCH] Align TLS settings with Microsoft policies
  doc/godebug.md                                |   9 +
  src/crypto/tls/common.go                      |   9 +-
  src/crypto/tls/defaults.go                    |  40 +-
- src/crypto/tls/defaults_microsoft.go          | 182 +++++
+ src/crypto/tls/defaults_microsoft.go          | 164 +++++
  src/crypto/tls/handshake_client.go            |  21 +-
  src/crypto/tls/handshake_client_test.go       |  17 +-
  src/crypto/tls/handshake_server_tls13.go      |  22 +-
@@ -16,7 +16,7 @@ Subject: [PATCH] Align TLS settings with Microsoft policies
  src/crypto/tls/schannel_windows.go            |   7 +
  src/internal/godebugs/table.go                |   2 +
  src/net/http/internal/http2/transport_test.go |   2 +
- 12 files changed, 925 insertions(+), 24 deletions(-)
+ 12 files changed, 907 insertions(+), 24 deletions(-)
  create mode 100644 src/crypto/tls/defaults_microsoft.go
  create mode 100644 src/crypto/tls/microsoft_test.go
 
@@ -149,10 +149,10 @@ index c89036047ad5a385d3a84d07aba359fb1d618d78..4fdb4cfbd25d2b9cb01dea8d4585010a
  
 diff --git a/src/crypto/tls/defaults_microsoft.go b/src/crypto/tls/defaults_microsoft.go
 new file mode 100644
-index 0000000000000000000000000000000000000000..bedf8bbdd35b1ef792b4133db6e2314a6ab88f28
+index 0000000000000000000000000000000000000000..47cda5674f541536b204c4208990a12900152728
 --- /dev/null
 +++ b/src/crypto/tls/defaults_microsoft.go
-@@ -0,0 +1,182 @@
+@@ -0,0 +1,164 @@
 +// Copyright 2025 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -161,6 +161,7 @@ index 0000000000000000000000000000000000000000..bedf8bbdd35b1ef792b4133db6e2314a
 +
 +import (
 +	"internal/godebug"
++	"maps"
 +	"slices"
 +
 +	boring "github.com/microsoft/go/cryptobackend"
@@ -308,33 +309,14 @@ index 0000000000000000000000000000000000000000..bedf8bbdd35b1ef792b4133db6e2314a
 +// the following changes:
 +//
 +//   - CBC_SHA is disabled because they lack Lucky13 mitigations when using the crypto backends
-+var msDisabledCipherSuites = map[uint16]bool{
-+	// CBC_SHA
-+	TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA: true,
-+	TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA:   true,
-+	TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA: true,
-+	TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA:   true,
-+
-+	// CBC_SHA256
-+	TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA256: true,
-+	TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA256:   true,
-+	TLS_RSA_WITH_AES_128_CBC_SHA256:         true,
-+
-+	// RC4
-+	TLS_ECDHE_ECDSA_WITH_RC4_128_SHA: true,
-+	TLS_ECDHE_RSA_WITH_RC4_128_SHA:   true,
-+	TLS_RSA_WITH_RC4_128_SHA:         true,
-+
-+	// RSA key exchange
-+	TLS_RSA_WITH_3DES_EDE_CBC_SHA:   true,
-+	TLS_RSA_WITH_AES_128_CBC_SHA:    true,
-+	TLS_RSA_WITH_AES_256_CBC_SHA:    true,
-+	TLS_RSA_WITH_AES_128_GCM_SHA256: true,
-+	TLS_RSA_WITH_AES_256_GCM_SHA384: true,
-+
-+	// 3DES
-+	TLS_ECDHE_RSA_WITH_3DES_EDE_CBC_SHA: true,
-+}
++var msDisabledCipherSuites = func() map[uint16]bool {
++	disabled := maps.Clone(disabledCipherSuites)
++	disabled[TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA] = true
++	disabled[TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA] = true
++	disabled[TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA] = true
++	disabled[TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA] = true
++	return disabled
++}()
 diff --git a/src/crypto/tls/handshake_client.go b/src/crypto/tls/handshake_client.go
 index ae1239f632380e77496a7f819a464c52ccc59e4a..1fb12f7e379bdc53c5b57821a5235a4ba0aecb75 100644
 --- a/src/crypto/tls/handshake_client.go
@@ -1084,12 +1066,12 @@ index 0000000000000000000000000000000000000000..2319ce811f42f8357962007635ce9e61
 +	t.Setenv("GODEBUG", strings.ReplaceAll(os.Getenv("GODEBUG"), "ms_tlsprofile=off", "")+",ms_tlsprofile=default")
 +}
 diff --git a/src/crypto/tls/schannel_windows.go b/src/crypto/tls/schannel_windows.go
-index cccfb8866f88ab0ac13e7679e433ba4369d9fbab..b2896e95e74686b3c07ae46e3b95d2877b694593 100644
+index 38e746d8e8fa092c1d8dc3982c02224ba4ad64b0..cb950b2792f39c2d33816146142d7aba35dd2220 100644
 --- a/src/crypto/tls/schannel_windows.go
 +++ b/src/crypto/tls/schannel_windows.go
 @@ -40,6 +40,13 @@ func setSchannelCipherSuites(suites, versions []uint16) {
- 	defaultCipherSuitesTLS13 = filterCipherSuites(suites, defaultCipherSuitesTLS13)
- 	allowedCipherSuitesTLS13FIPS = filterCipherSuites(suites, allowedCipherSuitesTLS13FIPS)
+ 	defaultCipherSuitesTLS13 = filterSchannel(suites, defaultCipherSuitesTLS13)
+ 	allowedCipherSuitesTLS13FIPS = filterSchannel(suites, allowedCipherSuitesTLS13FIPS)
  
 +	// Update MS-specific variables too.
 +	msDefaultCipherSuitesTLS13 = defaultCipherSuitesTLS13
