@@ -11,6 +11,7 @@ import (
 	"io"
 	"log"
 	"os"
+	"os/exec"
 	"path/filepath"
 
 	"github.com/microsoft/go-infra/executil"
@@ -139,6 +140,16 @@ func initRef(rootDir, submodulePath string) error {
 	submoduleDir := filepath.Join(rootDir, submodulePath)
 	if err := executil.Run(executil.Dir(rootDir, "git", "init", "--", submoduleDir)); err != nil {
 		return err
+	}
+	// A later refresh may need to fetch the pinned revision from this remote.
+	if err := executil.RunQuiet(executil.Dir(submoduleDir, "git", "config", "--get", "remote.origin.url")); err != nil {
+		var exitErr *exec.ExitError
+		if !errors.As(err, &exitErr) || exitErr.ExitCode() != 1 {
+			return err
+		}
+		if err := executil.Run(executil.Dir(submoduleDir, "git", "remote", "add", "origin", source)); err != nil {
+			return err
+		}
 	}
 	args := []string{}
 	if *fetchBearerToken != "" {
