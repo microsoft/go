@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/microsoft/go-infra/executil"
 	"github.com/microsoft/go-infra/patch"
 	"github.com/microsoft/go-infra/submodule"
 	"github.com/microsoft/go/_util/buildutil"
@@ -28,6 +29,7 @@ var (
 	skipPatch        = flag.Bool("skip-patch", false, "Skip applying patches.")
 	take             = flag.Int("take", -1, "Only apply the first N patches. -1 means apply all.")
 	origin           = flag.String("origin", "", "Use this origin instead of the default defined in '.gitmodules' to fetch the repository.")
+	ref              = flag.String("ref", "", "Fetch this commit or ref instead of the pinned revision, and stage the selected submodule commit in the outer repository.")
 	shallow          = flag.Bool("shallow", false, "Clone the submodule with depth 1.")
 	fetchBearerToken = flag.String("fetch-bearer-token", "", "Use this bearer token to fetch the submodule repository.")
 )
@@ -58,14 +60,18 @@ func main() {
 }
 
 func refresh(rootDir string) error {
-	if err := buildutil.Retry(3, func() error {
-		return submodule.Init(rootDir, *origin, *fetchBearerToken, *shallow)
-	}); err != nil {
+	config, err := patch.FindAncestorConfig(rootDir)
+	if err != nil {
 		return err
 	}
 
-	config, err := patch.FindAncestorConfig(rootDir)
-	if err != nil {
+	if *ref != "" {
+		if err := initRef(config.RootDir, config.SubmoduleDir); err != nil {
+			return err
+		}
+	} else if err := buildutil.Retry(3, func() error {
+		return submodule.Init(rootDir, *origin, *fetchBearerToken, *shallow)
+	}); err != nil {
 		return err
 	}
 
@@ -115,6 +121,56 @@ func refresh(rootDir string) error {
 		return err
 	}
 	return nil
+}
+
+func initRef(rootDir, submodulePath string) error {
+	// Register the submodule without fetching the pinned revision.
+	if err := executil.Run(executil.Dir(rootDir, "git", "submodule", "init", "--", submodulePath)); err != nil {
+		return err
+	}
+	source := *origin
+	if source == "" {
+		var err error
+		source, err = executil.SpaceTrimmedCombinedOutput(executil.Dir(rootDir, "git", "config", "--get", "submodule.go.url"))
+		if err != nil {
+			return err
+		}
+	}
+	submoduleDir := filepath.Join(rootDir, submodulePath)
+	if err := executil.Run(executil.Dir(rootDir, "git", "init", "--", submoduleDir)); err != nil {
+		return err
+	}
+	args := []string{}
+	if *fetchBearerToken != "" {
+		// Pass the token through the environment so command logging doesn't expose it.
+		args = append(args, "--config-env=http.extraheader=GO_SUBMODULE_AUTHORIZATION")
+	}
+	args = append(args, "fetch", "--no-tags")
+	if *shallow {
+		args = append(args, "--depth=1")
+	}
+	args = append(args, "--", source, *ref)
+	if err := buildutil.Retry(3, func() error {
+		cmd := executil.Dir(submoduleDir, "git", args...)
+		if *fetchBearerToken != "" {
+			cmd.Env = append(os.Environ(), "GO_SUBMODULE_AUTHORIZATION=AUTHORIZATION: bearer "+*fetchBearerToken)
+		}
+		return executil.Run(cmd)
+	}); err != nil {
+		return err
+	}
+	commit, err := executil.SpaceTrimmedCombinedOutput(executil.Dir(submoduleDir, "git", "rev-parse", "--verify", "FETCH_HEAD^{commit}"))
+	if err != nil {
+		return err
+	}
+	if err := executil.Run(executil.Dir(submoduleDir, "git", "checkout", "--detach", "--force", commit)); err != nil {
+		return err
+	}
+	// Reset and later refresh calls use the outer index, not the submodule's HEAD.
+	if err := executil.Run(executil.Dir(rootDir, "git", "update-index", "--cacheinfo", "160000", commit, submodulePath)); err != nil {
+		return err
+	}
+	return executil.Run(executil.Dir(rootDir, "git", "submodule", "absorbgitdirs", "--", submodulePath))
 }
 
 func copyFile(src, dst string) error {

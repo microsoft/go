@@ -81,6 +81,14 @@ installing `git-go-patch`:
 * `pwsh eng/run.ps1 submodule-refresh` updates the submodule and applies the
   patches.
   * Pass `-commits` to apply each patch as a separate commit.
+  * Pass `-ref <commit-or-ref>` to fetch and use a different upstream revision.
+    Add `-origin <repository-url>` to fetch it from another repository, or
+    `-shallow` to limit the fetch to depth 1.
+    This stages the selected `go` submodule commit in the outer repository so
+    subsequent refreshes keep using it. To return to the committed revision,
+    run `git restore --staged -- go` from the repository root, then refresh again.
+    Refreshing discards changes in the submodule; don't commit the staged override
+    unless you intend to update the repository's pinned revision.
 * `pwsh eng/run.ps1 build -refresh` refreshes the submodule and applies patches
   and then goes on to build the Microsoft build of Go.
 
