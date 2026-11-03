@@ -36,8 +36,8 @@ func TestMicrosoftVersion(t *testing.T) {
 func TestMicrosoftBuildInfoVersion(t *testing.T) {
 	t.Parallel()
 	v, msVersion, ok := msReadBuildInfo(t, goToolPath(t))
-	if strings.HasSuffix(v, "-microsoft") {
-		t.Errorf("buildinfo GoVersion = %q, want no -microsoft suffix", v)
+	if strings.Contains(v, "-microsoft") {
+		t.Errorf("buildinfo GoVersion = %q, want no -microsoft marker", v)
 	}
 	if !ok {
 		t.Errorf("buildinfo doesn't contain microsoft_toolset_version")

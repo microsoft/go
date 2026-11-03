@@ -31,8 +31,12 @@ This flag checks the inherited FIPS configuration without enabling FIPS mode its
 Like the `go/build` API tests, this check uses the toolchain that compiled the test binary, not the `-go` override.
 
 The module has no external dependencies.
-It tests system-crypto build tags, cross-compilation, build information, Microsoft version reporting, Linux PIE defaults, FIPS-mode command behavior, and build-time TLS defaults with runtime overrides.
-It also checks the generated Windows syscall list on every host and tests Windows API tracing on Windows.
+It covers:
 
-Keep Microsoft-specific tests that only need public APIs or the Go executable in this module rather than in the upstream patch set.
-Tests that need unexported standard-library or toolchain internals remain alongside that code in the patches.
+- System-crypto build tags and cross-compilation.
+- Build information and Microsoft version reporting.
+- Linux PIE defaults.
+- FIPS-mode command behavior.
+- Build-time TLS defaults with runtime overrides.
+- Generated Windows syscall list checks on every host.
+- Windows API tracing on Windows.
