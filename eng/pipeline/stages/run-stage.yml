@@ -163,6 +163,14 @@ stages:
             parameters:
               ctx: ${{ parameters.ctx }}
 
+          - ${{ if and(parameters.retryOnFreshAgent, ne(coalesce(parameters.ctx['GoSubmoduleRef'], 'nil'), 'nil')) }}:
+            - pwsh: |
+                $revision = git -C go rev-parse --verify HEAD
+                if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+                Write-Host "##vso[task.setvariable variable=revision;isOutput=true]$revision"
+              name: submodule
+              displayName: Record submodule revision for test retry
+
           - ${{ if eq(parameters.builder.config, 'longtest') }}:
             # Set Git authorship info for 'cmd/go TestScript/build_buildvcs_auto'.
             - template: ../steps/set-bot-git-author-task.yml
@@ -338,6 +346,9 @@ stages:
             - group: go-cmdscan-rules
             - name: retryToolchainArtifact
               value: $[ dependencies.${{ parameters.builder.id }}.outputs['retry.toolchainArtifact'] ]
+            - ${{ if ne(coalesce(parameters.ctx['GoSubmoduleRef'], 'nil'), 'nil') }}:
+              - name: retrySubmoduleRef
+                value: $[ dependencies.${{ parameters.builder.id }}.outputs['submodule.revision'] ]
           steps:
             - pwsh: |
                 . eng/utilities.ps1
@@ -347,6 +358,8 @@ stages:
             - template: ../steps/init-submodule-task.yml
               parameters:
                 ctx: ${{ parameters.ctx }}
+                ${{ if ne(coalesce(parameters.ctx['GoSubmoduleRef'], 'nil'), 'nil') }}:
+                  resolvedRef: $(retrySubmoduleRef)
 
             - pwsh: eng/run.ps1 submodule-refresh
               displayName: Apply patches

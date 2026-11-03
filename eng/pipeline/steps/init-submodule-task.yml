@@ -6,6 +6,10 @@ parameters:
   - name: ctx
     type: object
     default: {}
+  # On a fresh-agent retry, use the SHA resolved by the original build job.
+  - name: resolvedRef
+    type: string
+    default: ''
 
 # Shallow checkout sources.
 steps:
@@ -33,10 +37,13 @@ steps:
 
   - ${{ else }}:
     - pwsh: |
+        if ([string]::IsNullOrWhiteSpace($env:GO_SUBMODULE_REF)) {
+          throw "The Go submodule override revision is missing."
+        }
         eng/run.ps1 submodule-refresh -shallow -skip-patch `
           -origin $env:GO_SUBMODULE_REPOSITORY -ref $env:GO_SUBMODULE_REF
       env:
-        GO_SUBMODULE_REF: ${{ parameters.ctx['GoSubmoduleRef'] }}
+        GO_SUBMODULE_REF: ${{ coalesce(parameters.resolvedRef, parameters.ctx['GoSubmoduleRef']) }}
         # Never pass the internal mirror's bearer token to an override source.
         ${{ if eq(variables['System.TeamProject'], 'public') }}:
           GO_SUBMODULE_REPOSITORY: ${{ coalesce(parameters.ctx['GoSubmoduleRepository'], 'https://go.googlesource.com/go') }}
