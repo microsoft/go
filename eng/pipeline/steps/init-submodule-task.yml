@@ -9,29 +9,35 @@ parameters:
 
 # Shallow checkout sources.
 steps:
-  - pwsh: |
-      function fetch_submodule() {
-        eng/run.ps1 submodule-refresh -shallow -skip-patch @args
-      }
-
-      if ("$env:FETCH_BEARER_TOKEN") {
-        fetch_submodule `
-          -origin 'https://dnceng@dev.azure.com/dnceng/internal/_git/microsoft-go-mirror' `
-          -fetch-bearer-token $env:FETCH_BEARER_TOKEN
-      } else {
-        fetch_submodule
-      }
-    # If non-public, use access token to fetch from repo. If public, don't use the access token,
-    # because anonymous auth is fine.
-    ${{ if ne(variables['System.TeamProject'], 'public') }}:
-      env:
-        FETCH_BEARER_TOKEN: $(System.AccessToken)
-      displayName: Set up submodule from internal mirror
-    ${{ else }}:
-      displayName: Set up submodule
-
-  - ${{ if ne(coalesce(parameters.ctx['GoSubmoduleRef'], 'nil'), 'nil') }}:
+  - ${{ if eq(coalesce(parameters.ctx['GoSubmoduleRef'], 'nil'), 'nil') }}:
     - pwsh: |
+        function fetch_submodule() {
+          eng/run.ps1 submodule-refresh -shallow -skip-patch @args
+        }
+
+        if ("$env:FETCH_BEARER_TOKEN") {
+          fetch_submodule `
+            -origin 'https://dnceng@dev.azure.com/dnceng/internal/_git/microsoft-go-mirror' `
+            -fetch-bearer-token $env:FETCH_BEARER_TOKEN
+        } else {
+          fetch_submodule
+        }
+      # If non-public, use access token to fetch from repo. If public, don't use the access token,
+      # because anonymous auth is fine.
+      ${{ if ne(variables['System.TeamProject'], 'public') }}:
+        env:
+          FETCH_BEARER_TOKEN: $(System.AccessToken)
+        displayName: Set up submodule from internal mirror
+      ${{ else }}:
+        displayName: Set up submodule
+
+  - ${{ else }}:
+    - pwsh: |
+        # Initialize without downloading the pinned revision.
+        git submodule init -- go
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+        git init go
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
         git -C go fetch --no-tags --depth=1 -- $env:GO_SUBMODULE_REPOSITORY $env:GO_SUBMODULE_REF
         if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
         git -C go checkout --detach FETCH_HEAD
@@ -39,6 +45,8 @@ steps:
 
         # Keep subsequent submodule-refresh calls on the selected commit when applying patches.
         git add -- go
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+        git submodule absorbgitdirs -- go
         if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       env:
         GO_SUBMODULE_REF: ${{ parameters.ctx['GoSubmoduleRef'] }}
