@@ -88,8 +88,6 @@ func main() {
 		buildutil.SetEnv("CGO_ENABLED", "0")
 	case "noopt":
 		buildutil.SetEnv("GO_GCFLAGS", "-N -l")
-	case "regabi":
-		buildutil.AppendExperimentEnv("regabi")
 	case "ssacheck":
 		buildutil.SetEnv("GO_GCFLAGS", "-d=ssa/check/on")
 	case "staticlockranking":
