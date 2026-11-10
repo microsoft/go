@@ -65,20 +65,6 @@ and provides extra functionality. It automatically downloads a version of Go and
 uses that to build, and also builds the race runtime once the standard build is
 complete, to match the content of the official binary releases of Go.
 
-### Checking compiler and linker races
-
-The outerloop `linux-amd64-racecompile` builder installs race-instrumented
-compiler and linker binaries, then forces a rebuild of the standard library and
-tools with eight concurrent compiler workers. It also compiles both test suites
-without running the test binaries.
-
-To run it locally on a Linux amd64 host with a C compiler installed:
-
-```pwsh
-$env:MS_GO_NOSYSTEMCRYPTO = '1'
-pwsh eng/run.ps1 run-builder -build -test -builder linux-amd64-racecompile
-```
-
 ## Patch files
 
 The Microsoft build of Go repository uses patch files to store changes to the `go`
