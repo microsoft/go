@@ -181,6 +181,12 @@ func main() {
 			buildutil.SetEnv("GO_BUILDER_NAME", goos+"-"+goarch)
 		}
 
+		if config == "racecompile" {
+			buildutil.SetEnv("GOBIN", "")
+			runOrPanic("go/bin/go", "install", "-race", "cmd/compile", "cmd/link")
+			runOrPanic("go/bin/go", "build", "-a", "-gcflags=all=-c=8", "std", "cmd")
+		}
+
 		compileOnly := config == "ssacheck" || config == "racecompile" || config == "misccompile"
 		toolchainTestCmdline := []string{"go/bin/go", "-C", "toolchaintest", "test", "-count=1"}
 		if compileOnly {
@@ -204,7 +210,7 @@ func main() {
 			cmdline = append(cmdline, "-compile-only")
 		}
 
-		if goos == "linux" {
+		if goos == "linux" && !compileOnly {
 			cmdline = append(
 				[]string{
 					// Run under root user so we have zero UID. As of writing, all upstream builders using a
