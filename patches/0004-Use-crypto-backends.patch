@@ -127,14 +127,14 @@ index f0e3575637c62a955f118943cc752f44be8c5d7f..9eab3b4e66e60b59ef1aff813255ea6f
  package main
  
 diff --git a/src/cmd/dist/test.go b/src/cmd/dist/test.go
-index 3ac500b85e698826e46e3331374034d4f702df42..027780a74a7fd35917123802777ad1aab91d4c5e 100644
+index 0d671151dd29b58ce010f90243117e9863c6e7ca..d8f67f661ad7110fd1ae918c6beeb29ff788c154 100644
 --- a/src/cmd/dist/test.go
 +++ b/src/cmd/dist/test.go
 @@ -720,7 +720,7 @@ func (t *tester) registerTests() {
  	})
  
  	// Check that all crypto packages compile (and test correctly, in longmode) with fips.
--	if t.fipsSupported() {
+-	if t.fips140Supported() {
 +	if false { // Disable these tests, they don't work if CNG/OpenSSL FIPS mode is not enabled. We already have dedicated builders for this.
  		// Test standard crypto packages with fips140=on.
  		t.registerTest("GOFIPS140=latest go test crypto/...", &goTest{
@@ -245,7 +245,7 @@ index 802fb35aee4e65b0a8539cd6d6baed0eb267fa8d..4416731b69ec26d922f67ac94469e6f6
  			*mode = BuildModePIE
  		default:
 diff --git a/src/cmd/link/internal/ld/lib.go b/src/cmd/link/internal/ld/lib.go
-index 314478ee4d0f12383cb4abb4db4c2718113f439b..935e317054f744c8449bd3157ab50bb920c8a9e6 100644
+index 76a753e1af1cdd6ed541c86a2a533b57164ab6ce..8cfb9be26bbbe2ffb733a2717aa3a5814c95f889 100644
 --- a/src/cmd/link/internal/ld/lib.go
 +++ b/src/cmd/link/internal/ld/lib.go
 @@ -1176,6 +1176,12 @@ var hostobj []Hostobj
@@ -1673,18 +1673,19 @@ index 70055af70b42ecdb23a7733e5bebaf9b5b5aca66..21528faa0d614574c3ed1c291a6a21c9
  	if race.Enabled || msan.Enabled || asan.Enabled {
  		t.Skip("skipping allocations test with sanitizers")
 diff --git a/src/crypto/internal/cryptotest/fips140.go b/src/crypto/internal/cryptotest/fips140.go
-index c24622ce5ac3c2d3d260835d6c26a294e4d2e7f6..bdc5a63e20492290d2a4cab0a572e3efb256fba5 100644
+index 894fa641a63807884b2e420a024047a7177e1212..21fb56a8b2e50a10e690133c1c28a9b02152a906 100644
 --- a/src/crypto/internal/cryptotest/fips140.go
 +++ b/src/crypto/internal/cryptotest/fips140.go
-@@ -5,13 +5,21 @@
+@@ -5,6 +5,8 @@
  package cryptotest
  
  import (
 +	boring "crypto/internal/backend"
 +	bfips140 "crypto/internal/backend/fips140"
  	"crypto/internal/fips140"
- 	"testing"
- )
+ 	"strconv"
+ 	"strings"
+@@ -13,9 +15,15 @@ import (
  
  func MustSupportFIPS140(t *testing.T) {
  	t.Helper()
@@ -1698,6 +1699,8 @@ index c24622ce5ac3c2d3d260835d6c26a294e4d2e7f6..bdc5a63e20492290d2a4cab0a572e3ef
 +		t.Skipf("skipping: FIPS is not enabled")
 +	}
  }
+ 
+ // MustMinimumFIPS140ModuleVersion skips the test if compiled against a lower
 diff --git a/src/crypto/internal/cryptotest/hash.go b/src/crypto/internal/cryptotest/hash.go
 index 37fd96a2d9d0b9ef879f7a9eab22eeb2b25f90d0..6d4b190831d57d692e17b91e476b7b5d24fd5dac 100644
 --- a/src/crypto/internal/cryptotest/hash.go
@@ -1753,7 +1756,7 @@ index 6d67ee8b3429a14c0481f5c80a08bae7ae8b2a78..8f8d5937ea913cf1b4bc83c9f37d96c3
  // Unwrap returns h, or a crypto/internal/fips140 inner implementation of h.
  //
 diff --git a/src/crypto/internal/fips140only/fips140only_test.go b/src/crypto/internal/fips140only/fips140only_test.go
-index 96df536d56f345dabc026f5eb4f9772bd2c0d874..5ed6026962a17c9d9b6d2c99567bc50f53ddfc3a 100644
+index fd91e5d8c804f19cddbc58ab246f8c96db1da53d..6fb1eb014bdadd062b800279703befbfa32d9434 100644
 --- a/src/crypto/internal/fips140only/fips140only_test.go
 +++ b/src/crypto/internal/fips140only/fips140only_test.go
 @@ -17,6 +17,7 @@ import (
@@ -1821,7 +1824,7 @@ index 817dcb9a35a79349d47cffd14ee66994d9afb330..8efc547d0d52fcfbaea425696c09b0f0
  	cryptotest.MustSupportFIPS140(t)
  
 diff --git a/src/crypto/internal/fips140test/fips_test.go b/src/crypto/internal/fips140test/fips_test.go
-index 7f2824ca9ac0527507bc4c152fccb6f01e763629..f0d3b2a8459871388f16b8543720a9a1963d949b 100644
+index 297a42b4dcecf8856a7ea7d67d2388eec225a9ba..d9d065a9e25421503a6edc660b0aeace7381616b 100644
 --- a/src/crypto/internal/fips140test/fips_test.go
 +++ b/src/crypto/internal/fips140test/fips_test.go
 @@ -15,7 +15,7 @@ package fipstest
@@ -1830,9 +1833,9 @@ index 7f2824ca9ac0527507bc4c152fccb6f01e763629..f0d3b2a8459871388f16b8543720a9a1
  	"bytes"
 -	"crypto/internal/boring"
 +	boring "crypto/internal/backend"
+ 	"crypto/internal/cryptotest"
  	"crypto/internal/fips140"
  	"crypto/internal/fips140/aes"
- 	"crypto/internal/fips140/aes/gcm"
 diff --git a/src/crypto/internal/rand/rand.go b/src/crypto/internal/rand/rand.go
 index 29648b9f386ed76d5b4df12c5ca85dde2a7ca19a..b3113a3ee2e1fa9b5a63806e7765610c4579a7a3 100644
 --- a/src/crypto/internal/rand/rand.go
@@ -2551,7 +2554,7 @@ index 0000000000000000000000000000000000000000..1b9c63523ee90e985030956439992755
 +	return builder.Bytes()
 +}
 diff --git a/src/crypto/rsa/fips.go b/src/crypto/rsa/fips.go
-index fb2395886b053bfaa0ff9eda3f9eea36b0781500..4162a1d0c1c36dae04d4dd9f0b10882499ad8452 100644
+index ac2794677bd0097f9bc9374a8e9b3e30bbc6080f..aa2c5d6319ae14dbfb7eda9afb4b079a5f80a211 100644
 --- a/src/crypto/rsa/fips.go
 +++ b/src/crypto/rsa/fips.go
 @@ -6,7 +6,7 @@ package rsa
@@ -2613,7 +2616,7 @@ index fb2395886b053bfaa0ff9eda3f9eea36b0781500..4162a1d0c1c36dae04d4dd9f0b108824
  		k := pub.Size()
  		if len(msg) > k-2*hash.Size()-2 {
  			return nil, ErrMessageTooLong
-@@ -269,7 +270,7 @@ func decryptOAEP(hash, mgfHash hash.Hash, priv *PrivateKey, ciphertext []byte, l
+@@ -272,7 +273,7 @@ func decryptOAEP(hash, mgfHash hash.Hash, priv *PrivateKey, ciphertext []byte, l
  		return nil, err
  	}
  
@@ -2622,7 +2625,7 @@ index fb2395886b053bfaa0ff9eda3f9eea36b0781500..4162a1d0c1c36dae04d4dd9f0b108824
  		k := priv.Size()
  		if len(ciphertext) > k ||
  			k < hash.Size()*2+2 {
-@@ -331,7 +332,7 @@ func SignPKCS1v15(random io.Reader, priv *PrivateKey, hash crypto.Hash, hashed [
+@@ -334,7 +335,7 @@ func SignPKCS1v15(random io.Reader, priv *PrivateKey, hash crypto.Hash, hashed [
  		return nil, err
  	}
  
@@ -2631,7 +2634,7 @@ index fb2395886b053bfaa0ff9eda3f9eea36b0781500..4162a1d0c1c36dae04d4dd9f0b108824
  		bkey, err := boringPrivateKey(priv)
  		if err != nil {
  			return nil, err
-@@ -374,7 +375,7 @@ func VerifyPKCS1v15(pub *PublicKey, hash crypto.Hash, hashed []byte, sig []byte)
+@@ -377,7 +378,7 @@ func VerifyPKCS1v15(pub *PublicKey, hash crypto.Hash, hashed []byte, sig []byte)
  		return err
  	}
  
