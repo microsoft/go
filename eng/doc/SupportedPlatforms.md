@@ -1,3 +1,9 @@
+<!--
+DO NOT EDIT THIS COPY.
+Local edits will be overwritten.
+Source: https://github.com/microsoft/go/blob/microsoft/main/eng/doc/SupportedPlatforms.md
+-->
+
 # Supported Platforms
 
 This document describes the platforms supported by the Microsoft build of Go.
@@ -19,6 +25,7 @@ Platforms outside this scope are supported on a best-effort basis with no guaran
 | linux/amd64 | Azure Linux 3.0, Ubuntu 22.04 |
 | linux/arm64 | Azure Linux 3.0, Ubuntu 22.04 |
 | linux/arm | Ubuntu 22.04 |
+| windows/386 | Windows 10, Windows Server 2016 (since Go 1.28) |
 | windows/amd64 | Windows 10, Windows Server 2016 |
 | windows/arm64 | Windows 11, Windows Server 2025 |
 
@@ -28,6 +35,7 @@ The following OpenSSL versions are supported on Linux platforms:
 
 - OpenSSL 1.1.1
 - OpenSSL 3.x (built-in providers, or SymCrypt provider v1.6.1+)
+- OpenSSL 4.x (built-in providers, or SymCrypt provider v1.6.1+) (since Go 1.28)
 
 ## Getting Help
 

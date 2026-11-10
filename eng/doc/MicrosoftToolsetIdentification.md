@@ -1,3 +1,9 @@
+<!--
+DO NOT EDIT THIS COPY.
+Local edits will be overwritten.
+Source: https://github.com/microsoft/go/blob/microsoft/main/eng/doc/MicrosoftToolsetIdentification.md
+-->
+
 # Microsoft Toolset Identification
 
 Identifying whether a Go binary or toolset is from the Microsoft build of Go or the official Go distribution can be important for diagnostics and verifying expectations.
