@@ -183,6 +183,9 @@ func main() {
 
 		if config == "racecompile" {
 			buildutil.SetEnv("GOBIN", "")
+			// Instrument the compiler and linker themselves, then exercise them by
+			// rebuilding std and cmd with eight concurrent compiler workers. -a
+			// prevents cached packages from bypassing the race-instrumented tools.
 			runOrPanic("go/bin/go", "install", "-race", "cmd/compile", "cmd/link")
 			runOrPanic("go/bin/go", "build", "-a", "-gcflags=all=-c=8", "std", "cmd")
 		}
