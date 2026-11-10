@@ -1,0 +1,424 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: bot-for-go[bot] <199222863+bot-for-go[bot]@users.noreply.github.com>
+Date: Tue, 10 Nov 2026 17:27:51 +0100
+Subject: [PATCH] runtime: only adjust sudogs for channels
+
+Backport CL 847406, patch set 4, to Go 1.26. The upstream change is
+still under review.
+
+Restrict stack-pointer adjustment to channel sudogs. Semaphore and
+sync.Cond sudogs do not point into goroutine stacks, and walking the
+semaphore waiter list for every shrinking stack causes quadratic GC
+work. Apply the corresponding single-waiter handling in goroutine
+leak detection.
+
+Preserve Microsoft Go's existing 32-bit g size in TestSizeof.
+
+Upstream CL: https://go.dev/cl/847406
+Upstream commit: f63d34a638baee4016360f9844da61ba16228e89
+Upstream issues: https://github.com/golang/go/issues/81957 and
+https://github.com/golang/go/issues/82189
+
+Copilot-Session: 7120f673-0c92-4ec0-b4b3-32f199237e04
+---
+ src/runtime/chan.go        |  4 +--
+ src/runtime/export_test.go |  2 +-
+ src/runtime/mgc.go         | 36 ++++++++++++++------
+ src/runtime/mklockrank.go  |  4 +--
+ src/runtime/proc.go        |  4 ++-
+ src/runtime/runtime2.go    | 69 ++++++++++++++++++++++++++++----------
+ src/runtime/select.go      |  2 +-
+ src/runtime/sema.go        |  4 +--
+ src/runtime/sizeof_test.go |  2 +-
+ src/runtime/stack.go       | 47 +++++++++++++++++++-------
+ 10 files changed, 123 insertions(+), 51 deletions(-)
+
+diff --git a/src/runtime/chan.go b/src/runtime/chan.go
+index 3320c248b458b6a9273b0135549d222c11d23dce..79709ad82cea914680452d8ab25774fb1502464f 100644
+--- a/src/runtime/chan.go
++++ b/src/runtime/chan.go
+@@ -256,7 +256,7 @@ func chansend(c *hchan, ep unsafe.Pointer, block bool, callerpc uintptr) bool {
+ 
+ 	// Block on the channel. Some receiver will complete our operation for us.
+ 	gp := getg()
+-	mysg := acquireSudog()
++	mysg := acquireSudog(sudogTypeChan)
+ 	mysg.releasetime = 0
+ 	if t0 != 0 {
+ 		mysg.releasetime = -1
+@@ -635,7 +635,7 @@ func chanrecv(c *hchan, ep unsafe.Pointer, block bool) (selected, received bool)
+ 
+ 	// no sender available: block on this channel.
+ 	gp := getg()
+-	mysg := acquireSudog()
++	mysg := acquireSudog(sudogTypeChan)
+ 	mysg.releasetime = 0
+ 	if t0 != 0 {
+ 		mysg.releasetime = -1
+diff --git a/src/runtime/export_test.go b/src/runtime/export_test.go
+index e985734b20641c2933db5fe3d640dba98a9cced6..acfc1b582490cf0a592349a601bd2e0355db72d1 100644
+--- a/src/runtime/export_test.go
++++ b/src/runtime/export_test.go
+@@ -1292,7 +1292,7 @@ type SemTable struct {
+ 
+ // Enqueue simulates enqueuing a waiter for a semaphore (or lock) at addr.
+ func (t *SemTable) Enqueue(addr *uint32) {
+-	s := acquireSudog()
++	s := acquireSudog(sudogTypeSema)
+ 	s.releasetime = 0
+ 	s.acquiretime = 0
+ 	s.ticket = 0
+diff --git a/src/runtime/mgc.go b/src/runtime/mgc.go
+index a3bed4b3eb62f990c4d5581d484a944a8b0b5263..073b952fbcb0e86a61dc67b55044868492392db0 100644
+--- a/src/runtime/mgc.go
++++ b/src/runtime/mgc.go
+@@ -1262,13 +1262,19 @@ func setSyncObjectsUntraceable() {
+ 		// blocked at concurrency operations that could leak.
+ 		switch {
+ 		case gp.waitreason.isSyncWait():
+-			// Synchronization primitives are reachable from the *sudog via
+-			// via the elem field.
+-			for sg := gp.waiting; sg != nil; sg = sg.waitlink {
++			// Goroutines can only be blocked on a single semaphore
++			// or sync.Cond, which is reachable via the elem field.
++			//
++			// N.B., Do not iterate through waitlink. For
++			// semaphores, waitlink is a list of goroutines blocked
++			// on the same semaphore. forEachGRace is already going
++			// to visit every goroutine.
++			if sg := gp.waiting; sg != nil {
+ 				sg.elem.setUntraceable()
+ 			}
+ 		case gp.waitreason.isChanWait():
+-			// Channels and select statements are reachable from the *sudog via the c field.
++			// Channels and select statements are reachable from
++			// the *sudog via the c field.
+ 			for sg := gp.waiting; sg != nil; sg = sg.waitlink {
+ 				sg.c.setUntraceable()
+ 			}
+@@ -1282,9 +1288,16 @@ func gcRestoreSyncObjects() {
+ 	assertWorldStopped()
+ 
+ 	forEachGRace(func(gp *g) {
+-		for sg := gp.waiting; sg != nil; sg = sg.waitlink {
+-			sg.elem.setTraceable()
+-			sg.c.setTraceable()
++		// See setSyncObjectsUntraceable.
++		switch {
++		case gp.waitreason.isSyncWait():
++			if sg := gp.waiting; sg != nil {
++				sg.elem.setTraceable()
++			}
++		case gp.waitreason.isChanWait():
++			for sg := gp.waiting; sg != nil; sg = sg.waitlink {
++				sg.c.setTraceable()
++			}
+ 		}
+ 	})
+ }
+@@ -1323,14 +1336,15 @@ func findGoroutineLeaks() bool {
+ 		// NOTE(vsaioc): these primitives should also be reachable
+ 		// from the goroutine's stack, but let's play it safe.
+ 		switch {
++		case gp.waitreason.isSyncWait():
++			// Don't walk waitlink. See setSyncObjectsUntraceable.
++			if sg := gp.waiting; sg != nil {
++				shade(sg.elem.uintptr())
++			}
+ 		case gp.waitreason.isChanWait():
+ 			for sg := gp.waiting; sg != nil; sg = sg.waitlink {
+ 				shade(sg.c.uintptr())
+ 			}
+-		case gp.waitreason.isSyncWait():
+-			for sg := gp.waiting; sg != nil; sg = sg.waitlink {
+-				shade(sg.elem.uintptr())
+-			}
+ 		}
+ 	}
+ 	// Put the remaining roots as ready for marking and drain them.
+diff --git a/src/runtime/mklockrank.go b/src/runtime/mklockrank.go
+index 07b40396a51c7abcdd070146f3d9f62d65dd6cd7..48a3bebf60e751cc409d6b0bc7c4c0d05060344e 100644
+--- a/src/runtime/mklockrank.go
++++ b/src/runtime/mklockrank.go
+@@ -175,7 +175,7 @@ gcBitsArenas,
+ gscan < stackpool;
+ gscan < stackLarge;
+ # Generally, hchan must be acquired before gscan. But in one case,
+-# where we suspend a G and then shrink its stack, syncadjustsudogs
++# where we suspend a G and then shrink its stack, syncAdjustSudogChan
+ # can acquire hchan locks while holding gscan. To allow this case,
+ # we use hchanLeaf instead of hchan.
+ gscan < hchanLeaf;
+@@ -260,7 +260,7 @@ var cyclicRanks = map[string]bool{
+ 	// select.
+ 	"hchan": true,
+ 	// Multiple hchanLeafs are acquired in hchan.sortkey() order in
+-	// syncadjustsudogs().
++	// syncAdjustSudogChan().
+ 	"hchanLeaf": true,
+ 	// The point of the deadlock lock is to deadlock.
+ 	"deadlock": true,
+diff --git a/src/runtime/proc.go b/src/runtime/proc.go
+index 005c875cbf180198a4aa9123288b6daca27acbdd..822785be567ab77c81139773c966b4d3d5ce8a17 100644
+--- a/src/runtime/proc.go
++++ b/src/runtime/proc.go
+@@ -485,7 +485,7 @@ func goready(gp *g, traceskip int) {
+ }
+ 
+ //go:nosplit
+-func acquireSudog() *sudog {
++func acquireSudog(typ sudogType) *sudog {
+ 	// Delicate dance: the semaphore implementation calls
+ 	// acquireSudog, acquireSudog calls new(sudog),
+ 	// new calls malloc, malloc can call the garbage collector,
+@@ -518,6 +518,7 @@ func acquireSudog() *sudog {
+ 	if s.elem.get() != nil {
+ 		throw("acquireSudog: found s.elem != nil in cache")
+ 	}
++	s.typ = typ
+ 	releasem(mp)
+ 	return s
+ }
+@@ -542,6 +543,7 @@ func releaseSudog(s *sudog) {
+ 	if s.c.get() != nil {
+ 		throw("runtime: sudog with non-nil c")
+ 	}
++	s.typ = sudogTypeNone
+ 	gp := getg()
+ 	if gp.param != nil {
+ 		throw("runtime: releaseSudog with non-nil gp.param")
+diff --git a/src/runtime/runtime2.go b/src/runtime/runtime2.go
+index be33932b24d16010920a8f9abb97e87c121ec49f..50bca61e11bd81b0eb2279a538545a98dd9fbac1 100644
+--- a/src/runtime/runtime2.go
++++ b/src/runtime/runtime2.go
+@@ -393,6 +393,23 @@ func (p *maybeTraceableChan) get() *hchan {
+ 	return (*hchan)(p.maybeTraceablePtr.get())
+ }
+ 
++// sudogType describes which type of synchronization primitive a sudog is used
++// with.
++type sudogType uint8
++
++const (
++	sudogTypeNone sudogType = iota
++
++	// Channel operations, including select.
++	sudogTypeChan
++
++	// semaphores (semacquire, which transitively includes sync.Mutex/RWMutex).
++	sudogTypeSema
++
++	// sync.Cond, via runtime.notifyList.
++	sudogTypeCond
++)
++
+ // sudog (pseudo-g) represents a g in a wait list, such as for sending/receiving
+ // on a channel.
+ //
+@@ -404,6 +421,9 @@ func (p *maybeTraceableChan) get() *hchan {
+ // sudogs are allocated from a special pool. Use acquireSudog and
+ // releaseSudog to allocate and free them.
+ type sudog struct {
++	// Which type of sudog is this. Immutable after allocation.
++	typ sudogType
++
+ 	// The following fields are protected by the hchan.lock of the
+ 	// channel this sudog is blocking on. shrinkstack depends on
+ 	// this for sudogs involved in channel ops.
+@@ -549,23 +569,38 @@ type g struct {
+ 	ditWanted       bool // set if g wants to be executed with DIT enabled
+ 	syncSafePoint   bool // set if g is stopped at a synchronous safe point.
+ 	runningCleanups atomic.Bool
+-	sig             uint32
+-	secret          int32 // current nesting of runtime/secret.Do calls.
+-	writebuf        []byte
+-	sigcode0        uintptr
+-	sigcode1        uintptr
+-	sigpc           uintptr
+-	parentGoid      uint64          // goid of goroutine that created this goroutine
+-	gopc            uintptr         // pc of go statement that created this goroutine
+-	ancestors       *[]ancestorInfo // ancestor information goroutine(s) that created this goroutine (only used if debug.tracebackancestors)
+-	startpc         uintptr         // pc of goroutine function
+-	racectx         uintptr
+-	waiting         *sudog         // sudog structures this g is waiting on (that have a valid elem ptr); in lock order
+-	cgoCtxt         []uintptr      // cgo traceback context
+-	labels          unsafe.Pointer // profiler labels
+-	timer           *timer         // cached timer for time.Sleep
+-	sleepWhen       int64          // when to sleep until
+-	selectDone      atomic.Uint32  // are we participating in a select and did someone win the race?
++
++	// waiting references the synchronization primitives that g is
++	// currently or soon waiting on.
++	//
++	// For sudogChan: waiting.elem refers to the src/dst location for the
++	// channel operation. sudog.waitlink forms a linked list of channels
++	// the G is waiting on (that have a valid elem pointer), in lock order.
++	//
++	// For sudogSema: waiting.elem refers to the semaphore the G is waiting on.
++	//
++	// For sudogCond: waiting.elem refers to the notifyList the G is waiting on.
++	//
++	// Note that waiting need not be set atomically with parking. Thus the
++	// G may be preempted with waiting set.
++	waiting *sudog
++
++	sig        uint32
++	secret     int32 // current nesting of runtime/secret.Do calls.
++	writebuf   []byte
++	sigcode0   uintptr
++	sigcode1   uintptr
++	sigpc      uintptr
++	parentGoid uint64          // goid of goroutine that created this goroutine
++	gopc       uintptr         // pc of go statement that created this goroutine
++	ancestors  *[]ancestorInfo // ancestor information goroutine(s) that created this goroutine (only used if debug.tracebackancestors)
++	startpc    uintptr         // pc of goroutine function
++	racectx    uintptr
++	cgoCtxt    []uintptr      // cgo traceback context
++	labels     unsafe.Pointer // profiler labels
++	timer      *timer         // cached timer for time.Sleep
++	sleepWhen  int64          // when to sleep until
++	selectDone atomic.Uint32  // are we participating in a select and did someone win the race?
+ 
+ 	// goroutineProfiled indicates the status of this goroutine's stack for the
+ 	// current in-progress goroutine profile
+diff --git a/src/runtime/select.go b/src/runtime/select.go
+index 553f6960eb1286a5f24981cfee64e1e4bfa3b6e1..ebaa75804cc2a941fd2ce97cac95233095c3d0f8 100644
+--- a/src/runtime/select.go
++++ b/src/runtime/select.go
+@@ -315,7 +315,7 @@ func selectgo(cas0 *scase, order0 *uint16, pc0 *uintptr, nsends, nrecvs int, blo
+ 		casi = int(casei)
+ 		cas = &scases[casi]
+ 		c = cas.c
+-		sg := acquireSudog()
++		sg := acquireSudog(sudogTypeChan)
+ 		sg.g = gp
+ 		sg.isSelect = true
+ 		// No stack splits between assigning elem and enqueuing
+diff --git a/src/runtime/sema.go b/src/runtime/sema.go
+index 0fe0f2a2c2073962957ab6ab4adaff8cf1042c89..5224561604b22b8b4e659d58d0e048268b962a8f 100644
+--- a/src/runtime/sema.go
++++ b/src/runtime/sema.go
+@@ -160,7 +160,7 @@ func semacquire1(addr *uint32, lifo bool, profile semaProfileFlags, skipframes i
+ 	//	enqueue itself as a waiter
+ 	//	sleep
+ 	//	(waiter descriptor is dequeued by signaler)
+-	s := acquireSudog()
++	s := acquireSudog(sudogTypeSema)
+ 	root := semtable.rootFor(addr)
+ 	t0 := int64(0)
+ 	s.releasetime = 0
+@@ -595,7 +595,7 @@ func notifyListWait(l *notifyList, t uint32) {
+ 	}
+ 
+ 	// Enqueue itself.
+-	s := acquireSudog()
++	s := acquireSudog(sudogTypeCond)
+ 	s.g = getg()
+ 	// Storing this pointer so that we can trace the condvar address
+ 	// from the blocked goroutine when checking for goroutine leaks.
+diff --git a/src/runtime/sizeof_test.go b/src/runtime/sizeof_test.go
+index 219bcb92598c3a0a0e0ee80ca7b547552ee56fa9..a975d5f5d6e2872090586974f6c5d7de23403eff 100644
+--- a/src/runtime/sizeof_test.go
++++ b/src/runtime/sizeof_test.go
+@@ -22,7 +22,7 @@ func TestSizeof(t *testing.T) {
+ 		_64bit uintptr // size on 64bit platforms
+ 	}{
+ 		{runtime.G{}, 288 + xreg, 448 + xreg}, // g, but exported for testing
+-		{runtime.Sudog{}, 64, 104},            // sudog, but exported for testing
++		{runtime.Sudog{}, 68, 112},            // sudog, but exported for testing
+ 	}
+ 
+ 	if xreg > runtime.PtrSize {
+diff --git a/src/runtime/stack.go b/src/runtime/stack.go
+index 838090067a1769882948cb8ad0ec79630c81d69e..0b2cece0bdc2306520bafa08907669ee913cf580 100644
+--- a/src/runtime/stack.go
++++ b/src/runtime/stack.go
+@@ -846,12 +846,28 @@ func adjustpanics(gp *g, adjinfo *adjustinfo) {
+ 	adjustpointer(adjinfo, unsafe.Pointer(&gp._panic))
+ }
+ 
+-func adjustsudogs(gp *g, adjinfo *adjustinfo) {
+-	// the data elements pointed to by a SudoG structure
+-	// might be in the stack.
+-	for s := gp.waiting; s != nil; s = s.waitlink {
+-		adjustpointer(adjinfo, unsafe.Pointer(&s.elem.vu))
+-		adjustpointer(adjinfo, unsafe.Pointer(&s.elem.vp))
++func adjustSudogChan(gp *g, adjinfo *adjustinfo) {
++	sg := gp.waiting
++	if sg == nil {
++		return
++	}
++
++	// When waiting on channels, the sudog element points to the channel
++	// operation src/dst slot, which might be on the stack.
++	//
++	// When waiting on a semaphore, the sudog element points to the
++	// semaphore word, which is never on the stack.
++	//
++	// When waiting on a Cond, the sudog element points to the
++	// notifyList object, which is never on the stack.
++	if sg.typ != sudogTypeChan {
++		return
++	}
++
++	// Update all waiting channels.
++	for ; sg != nil; sg = sg.waitlink {
++		adjustpointer(adjinfo, unsafe.Pointer(&sg.elem.vu))
++		adjustpointer(adjinfo, unsafe.Pointer(&sg.elem.vp))
+ 	}
+ }
+ 
+@@ -872,17 +888,22 @@ func findsghi(gp *g, stk stack) uintptr {
+ 	return sghi
+ }
+ 
+-// syncadjustsudogs adjusts gp's sudogs and copies the part of gp's
++// syncAdjustSudogChan adjusts gp's sudogs and copies the part of gp's
+ // stack they refer to while synchronizing with concurrent channel
+ // operations. It returns the number of bytes of stack copied.
+-func syncadjustsudogs(gp *g, used uintptr, adjinfo *adjustinfo) uintptr {
+-	if gp.waiting == nil {
++func syncAdjustSudogChan(gp *g, used uintptr, adjinfo *adjustinfo) uintptr {
++	sg := gp.waiting
++	if sg == nil {
++		return 0
++	}
++	// See adjustSudogChan.
++	if sg.typ != sudogTypeChan {
+ 		return 0
+ 	}
+ 
+ 	// Lock channels to prevent concurrent send/receive.
+ 	var lastc *hchan
+-	for sg := gp.waiting; sg != nil; sg = sg.waitlink {
++	for ; sg != nil; sg = sg.waitlink {
+ 		if sg.c.get() != lastc {
+ 			// There is a ranking cycle here between gscan bit and
+ 			// hchan locks. Normally, we only allow acquiring hchan
+@@ -899,7 +920,7 @@ func syncadjustsudogs(gp *g, used uintptr, adjinfo *adjustinfo) uintptr {
+ 	}
+ 
+ 	// Adjust sudogs.
+-	adjustsudogs(gp, adjinfo)
++	adjustSudogChan(gp, adjinfo)
+ 
+ 	// Copy the part of the stack the sudogs point in to
+ 	// while holding the lock to prevent races on
+@@ -965,7 +986,7 @@ func copystack(gp *g, newsize uintptr) {
+ 			// since we could self-deadlock.
+ 			throw("racy sudog adjustment due to parking on channel")
+ 		}
+-		adjustsudogs(gp, &adjinfo)
++		adjustSudogChan(gp, &adjinfo)
+ 	} else {
+ 		// sudogs may be pointing in to the stack and gp has
+ 		// released channel locks, so other goroutines could
+@@ -978,7 +999,7 @@ func copystack(gp *g, newsize uintptr) {
+ 
+ 		// Synchronize with channel ops and copy the part of
+ 		// the stack they may interact with.
+-		ncopy -= syncadjustsudogs(gp, used, &adjinfo)
++		ncopy -= syncAdjustSudogChan(gp, used, &adjinfo)
+ 	}
+ 
+ 	// Copy the stack (or the rest of it) to the new location
