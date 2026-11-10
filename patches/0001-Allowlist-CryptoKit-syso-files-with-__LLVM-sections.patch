@@ -1,0 +1,103 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: bot-for-go[bot] <199222863+bot-for-go[bot]@users.noreply.github.com>
+Date: Tue, 10 Nov 2026 10:09:55 -0800
+Subject: [PATCH] Allowlist CryptoKit syso files with __LLVM sections
+
+---
+ src/cmd/go/internal/work/security.go      | 23 +++++++++++++++++++
+ src/cmd/go/internal/work/security_test.go | 27 +++++++++++++++++++++++
+ 2 files changed, 50 insertions(+)
+
+diff --git a/src/cmd/go/internal/work/security.go b/src/cmd/go/internal/work/security.go
+index cddefa40bd88b9b48d65226bac6d6d25b72eed05..7fb3231fd6b770f3bddde15521ac46ae84f48f79 100644
+--- a/src/cmd/go/internal/work/security.go
++++ b/src/cmd/go/internal/work/security.go
+@@ -31,6 +31,7 @@ package work
+ 
+ import (
+ 	"bytes"
++	"crypto/sha256"
+ 	"debug/elf"
+ 	"debug/macho"
+ 	"debug/pe"
+@@ -697,6 +698,9 @@ func scanLinkerSearchDir(source, rawDir string, checkLibs bool) error {
+ // is a valid binary object/archive (or macOS .tbd stub) rather than a GNU ld
+ // linker script, and does not contain embedded linker flags (unallowlisted
+ // .drectve directives, LC_LINKER_OPTION, or LTO IR sections).
++//
++// Known CryptoKit .syso files are allowed by content hash. They contain __LLVM
++// sections, but are required for systemcrypto.
+ func checkLinkerInputFile(source, path string) error {
+ 	f, err := os.Open(path)
+ 	if err != nil {
+@@ -712,6 +716,25 @@ func checkLinkerInputFile(source, path string) error {
+ 		return err
+ 	}
+ 
++	if source == ".syso" {
++		var wantHash string
++		switch filepath.Base(path) {
++		case "CryptoKit_amd64.syso":
++			wantHash = "9ce6d4fa52377831adf3c6d27d5a73b619257c4c8d87a0f0cad1fd4693d56ef9"
++		case "CryptoKit_arm64.syso":
++			wantHash = "a897fe39f9486c2aaf5bffd372edbc0c47a03608c12f074364780ac4a7020bd8"
++		}
++		if wantHash != "" {
++			h := sha256.New()
++			if _, err := io.Copy(h, io.NewSectionReader(f, 0, fi.Size())); err != nil {
++				return err
++			}
++			if fmt.Sprintf("%x", h.Sum(nil)) == wantHash {
++				return nil
++			}
++		}
++	}
++
+ 	if strings.HasSuffix(strings.ToLower(path), ".tbd") && source != ".syso" {
+ 		var hdr [256]byte
+ 		n, _ := f.Read(hdr[:])
+diff --git a/src/cmd/go/internal/work/security_test.go b/src/cmd/go/internal/work/security_test.go
+index f549cb1f34474ff40b321c8eb4b27884afb74875..a63a5967cb7afc7e617001fd569751ca80989f46 100644
+--- a/src/cmd/go/internal/work/security_test.go
++++ b/src/cmd/go/internal/work/security_test.go
+@@ -9,6 +9,7 @@ import (
+ 	"fmt"
+ 	"os"
+ 	"path/filepath"
++	"runtime"
+ 	"strings"
+ 	"testing"
+ 
+@@ -801,6 +802,32 @@ func TestCheckCompilerFlagsForInternalLink(t *testing.T) {
+ 	}
+ }
+ 
++func TestCheckLinkerInputFileCryptoKit(t *testing.T) {
++	for _, name := range []string{"CryptoKit_amd64.syso", "CryptoKit_arm64.syso"} {
++		t.Run(name, func(t *testing.T) {
++			path := filepath.Join(runtime.GOROOT(), "src/vendor/github.com/microsoft/go-crypto-darwin/internal/cryptokit", name)
++			if err := checkLinkerInputFile(".syso", path); err != nil {
++				t.Fatalf("allowlisted .syso rejected: %v", err)
++			}
++			if err := checkLinkerInputFile("LDFLAGS", path); err == nil {
++				t.Error("expected error for CryptoKit object used as LDFLAGS")
++			}
++
++			data, err := os.ReadFile(path)
++			if err != nil {
++				t.Fatal(err)
++			}
++			modified := filepath.Join(t.TempDir(), name)
++			if err := os.WriteFile(modified, append(data, 0), 0o644); err != nil {
++				t.Fatal(err)
++			}
++			if err := checkLinkerInputFile(".syso", modified); err == nil {
++				t.Error("expected error for modified CryptoKit .syso")
++			}
++		})
++	}
++}
++
+ func makeTestCOFFSection(secName string, dataBytes []byte) []byte {
+ 	hdrAndSec := 20 + 40
+ 	buf := make([]byte, hdrAndSec+len(dataBytes))
