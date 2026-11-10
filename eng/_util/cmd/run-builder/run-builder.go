@@ -181,7 +181,14 @@ func main() {
 			buildutil.SetEnv("GO_BUILDER_NAME", goos+"-"+goarch)
 		}
 
+		compileOnly := config == "ssacheck" || config == "racecompile" || config == "misccompile"
 		toolchainTestCmdline := []string{"go/bin/go", "-C", "toolchaintest", "test", "-count=1"}
+		if compileOnly {
+			toolchainTestCmdline = append(toolchainTestCmdline, "-c", "-o", os.DevNull)
+			if gcflags := os.Getenv("GO_GCFLAGS"); gcflags != "" {
+				toolchainTestCmdline = append(toolchainTestCmdline, "-gcflags=all="+gcflags)
+			}
+		}
 		if *fipsMode {
 			toolchainTestCmdline = append(toolchainTestCmdline, "-args", "-require-fips")
 		}
@@ -192,6 +199,9 @@ func main() {
 			// longtest. 'src/run.bash' sets 'GOPATH=/nonexist-gopath', which breaks modconv tests
 			// that download modules.
 			"go/bin/go", "tool", "dist", "test",
+		}
+		if compileOnly {
+			cmdline = append(cmdline, "-compile-only")
 		}
 
 		if goos == "linux" {
