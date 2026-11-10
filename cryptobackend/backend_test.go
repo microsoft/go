@@ -186,7 +186,15 @@ func verifyXCryptoDependency(root string) error {
 }
 
 func sourceXCryptoVersion(root string) (string, error) {
-	patchPath := filepath.Clean(filepath.Join(root, "..", "patches", "0001-Vendor-external-dependencies.patch"))
+	pattern := filepath.Join(root, "..", "patches", "*-Vendor-external-dependencies.patch")
+	patchPaths, err := filepath.Glob(pattern)
+	if err != nil {
+		return "", fmt.Errorf("finding vendor patch %s: %w", pattern, err)
+	}
+	if len(patchPaths) != 1 {
+		return "", fmt.Errorf("expected one vendor patch matching %s, found %d", pattern, len(patchPaths))
+	}
+	patchPath := patchPaths[0]
 	data, err := os.ReadFile(patchPath)
 	if err != nil {
 		return "", fmt.Errorf("reading %s: %w", patchPath, err)
