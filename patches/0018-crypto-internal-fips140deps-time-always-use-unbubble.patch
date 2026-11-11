@@ -1,0 +1,98 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: bot-for-go[bot] <199222863+bot-for-go[bot]@users.noreply.github.com>
+Date: Wed, 20 May 2026 09:17:18 -0700
+Subject: [PATCH] crypto/internal/fips140deps/time: always use unbubbled
+ monotonic clock
+
+Backport CL 780540 to Go 1.26.
+
+Use the system monotonic clock directly, rather than time.Since(start).
+Avoids using the fake clock in synctest bubbles.
+
+Inside a synctest bubble the fake clock makes every entropy sample
+identical, so the SP 800-90B repetition count health test fails and
+crypto/internal/fips140/drbg panics with "failed to obtain initial
+entropy". This made net/http tests that use synctest (such as
+TestClientConnReserveAndConsume) flaky when running with
+GODEBUG=fips140=on.
+
+Upstream CL: https://go.dev/cl/780540
+Upstream commit: a81b20a431ce41417f7758929a2962d95a6a9453
+Upstream issue: https://github.com/golang/go/issues/78557
+---
+ src/crypto/internal/fips140deps/time/time.go | 11 +++++++----
+ src/crypto/rand/rand_test.go                 |  9 +++++++++
+ src/runtime/time.go                          |  6 ++++++
+ 3 files changed, 22 insertions(+), 4 deletions(-)
+
+diff --git a/src/crypto/internal/fips140deps/time/time.go b/src/crypto/internal/fips140deps/time/time.go
+index eea37b772e4351ecdaf94c9c08ce31c35ce473a4..8e7aac61677418a65b1fced668241221fc420f4f 100644
+--- a/src/crypto/internal/fips140deps/time/time.go
++++ b/src/crypto/internal/fips140deps/time/time.go
+@@ -6,9 +6,9 @@
+ 
+ package time
+ 
+-import "time"
+-
+-var start = time.Now()
++import (
++	_ "unsafe"
++)
+ 
+ // HighPrecisionNow returns a high-resolution timestamp suitable for measuring
+ // small time differences. It uses the time package's monotonic clock.
+@@ -17,5 +17,8 @@ var start = time.Now()
+ // assumed to be sufficiently precise to measure time differences on the order
+ // of tens to hundreds of nanoseconds.
+ func HighPrecisionNow() int64 {
+-	return int64(time.Since(start))
++	return monoTime()
+ }
++
++//go:linkname monoTime
++func monoTime() int64
+diff --git a/src/crypto/rand/rand_test.go b/src/crypto/rand/rand_test.go
+index cd4b55de7c48cb508c6ddded93856231b461e4b8..58946b11793f775f9fba7678bddab0cf58394a1c 100644
+--- a/src/crypto/rand/rand_test.go
++++ b/src/crypto/rand/rand_test.go
+@@ -15,6 +15,7 @@ import (
+ 	"os"
+ 	"sync"
+ 	"testing"
++	"testing/synctest"
+ )
+ 
+ // These tests are mostly duplicates of the tests in crypto/internal/sysrand,
+@@ -197,6 +198,14 @@ func TestReadError(t *testing.T) {
+ 	}
+ }
+ 
++func TestSynctest(t *testing.T) {
++	// https://go.dev/issue/78557
++	synctest.Test(t, func(t *testing.T) {
++		Read(make([]byte, 32))
++		Read(make([]byte, 32))
++	})
++}
++
+ func BenchmarkRead(b *testing.B) {
+ 	b.Run("4", func(b *testing.B) {
+ 		benchmarkRead(b, 4)
+diff --git a/src/runtime/time.go b/src/runtime/time.go
+index 81a4c6b79f1e66b96a479d366f33fb1a465d094a..b26177e0bd4bed3eddfb031edd08f3eb2866ee9f 100644
+--- a/src/runtime/time.go
++++ b/src/runtime/time.go
+@@ -29,6 +29,12 @@ func time_runtimeNow() (sec int64, nsec int32, mono int64) {
+ 	return time_now()
+ }
+ 
++//go:linkname crypto_internal_fips140deps_time_monoTime crypto/internal/fips140deps/time.monoTime
++func crypto_internal_fips140deps_time_monoTime() (mono int64) {
++	_, _, mono = time_now()
++	return mono
++}
++
+ //go:linkname time_runtimeNano time.runtimeNano
+ func time_runtimeNano() int64 {
+ 	gp := getg()
