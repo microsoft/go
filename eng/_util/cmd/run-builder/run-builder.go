@@ -181,18 +181,28 @@ func main() {
 			buildutil.SetEnv("GO_BUILDER_NAME", goos+"-"+goarch)
 		}
 
+		if config == "racecompile" {
+			buildutil.SetEnv("GOBIN", "")
+			// Match upstream: instrument the compiler and linker themselves,
+			// then exercise them through dist's compile-only test pass below.
+			runOrPanic("go/bin/go", "install", "-race", "cmd/compile", "cmd/link")
+		}
+
 		compileOnly := config == "ssacheck" || config == "racecompile" || config == "misccompile"
-		toolchainTestCmdline := []string{"go/bin/go", "-C", "toolchaintest", "test", "-count=1"}
-		if compileOnly {
-			toolchainTestCmdline = append(toolchainTestCmdline, "-c", "-o", os.DevNull)
-			if gcflags := os.Getenv("GO_GCFLAGS"); gcflags != "" {
-				toolchainTestCmdline = append(toolchainTestCmdline, "-gcflags=all="+gcflags)
+		// The Microsoft-specific suite is not part of upstream's racecompile workload.
+		if config != "racecompile" {
+			toolchainTestCmdline := []string{"go/bin/go", "-C", "toolchaintest", "test", "-count=1"}
+			if compileOnly {
+				toolchainTestCmdline = append(toolchainTestCmdline, "-c", "-o", os.DevNull)
+				if gcflags := os.Getenv("GO_GCFLAGS"); gcflags != "" {
+					toolchainTestCmdline = append(toolchainTestCmdline, "-gcflags=all="+gcflags)
+				}
 			}
+			if *fipsMode {
+				toolchainTestCmdline = append(toolchainTestCmdline, "-args", "-require-fips")
+			}
+			runOrPanic(toolchainTestCmdline...)
 		}
-		if *fipsMode {
-			toolchainTestCmdline = append(toolchainTestCmdline, "-args", "-require-fips")
-		}
-		runOrPanic(toolchainTestCmdline...)
 
 		cmdline := []string{
 			// Use the dist test command directly, because 'src/run.bash' isn't compatible with
