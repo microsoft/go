@@ -1,3 +1,9 @@
+<!--
+DO NOT EDIT THIS COPY.
+Local edits will be overwritten.
+Source: https://github.com/microsoft/go/blob/microsoft/main/eng/doc/AdditionalFeatures.md
+-->
+
 # Additional Features Provided by the Microsoft build of Go
 
 This document provides a comprehensive overview of all features currently implemented in the Microsoft build of Go that are not part of the official Go distribution.
@@ -13,6 +19,61 @@ The Microsoft build of Go collects [opt-out (enabled by default) toolset telemet
 
 See the [Telemetry documentation](/eng/doc/Telemetry.md) for details on what is collected and how to opt out.
 See also the [Data Collection policy for the Microsoft build of Go](/README.md#data-collection).
+
+## Position-independent executables on Linux
+
+Starting with Go 1.28, the default build mode on Linux is `pie` on architectures that support internally linked position-independent executables: amd64, arm64, loong64, ppc64, ppc64le, and s390x.
+Other architectures continue to use the upstream default `exe`.
+The PIE default aligns with Microsoft's security policies and enables address space layout randomization (ASLR) for executables.
+
+> [!NOTE]
+> Windows and macOS (`darwin`) binaries already used PIE by default, prior to Go 1.28.
+
+Builds on Linux using `-race` or `-asan` continue to use `exe` by default, not `pie`.
+We do this because Go does not support PIE with the race detector on Linux, and using `pie` with `-asan` may break compatibility with system AddressSanitizer runtimes.
+
+The default applies to `go build`, `go install`, `go run`, and `go test`, including cross-compilation.
+It is independent of system crypto and does not require cgo or a C compiler.
+Explicit build modes are unchanged; use `-buildmode=exe` to opt out.
+
+On builds affected by the new PIE default, even programs without crypto dependencies require a dynamic loader at runtime.
+For programs without direct or indirect dependencies on Go's `crypto` packages, use the following command to produce a fully static executable:
+
+```sh
+CGO_ENABLED=0 go build -buildmode=exe
+```
+
+Programs using systemcrypto still require shared libraries and a dynamic loader, even with `CGO_ENABLED=0`.
+See [No-cgo OpenSSL backend runtime dependencies](./NocgoOpenSSL.md#runtime-dependencies).
+
+## Immediate binding for ELF binaries
+
+Starting with Go 1.28, the linker enables immediate symbol binding (`BIND_NOW`) by default for dynamically linked ELF executables and shared libraries to align with Microsoft's security policies.
+This applies to internal and external linking, with or without cgo or system crypto.
+
+Go produces ELF binaries on Linux and several other Unix-like operating systems.
+Windows and macOS use different executable formats and are unaffected.
+
+Statically linked ELF binaries are unaffected by this change: they don't require dynamic symbol binding.
+
+The dynamic linker resolves function symbols when a binary is loaded rather than when each function is first called.
+Missing symbols are reported at load time rather than when the affected function is first called.
+
+> [!NOTE]
+> [RELRO](https://www.redhat.com/en/blog/hardening-elf-binaries-using-relocation-read-only-relro) protects some relocation-related data from modification after loading.
+> The linker marks a memory range for RELRO protection, and the dynamic linker makes that range read-only after applying relocations.
+> Go enables RELRO for ELF PIE binaries and shared libraries, including executables built with the Microsoft build of Go [Linux PIE default](#position-independent-executables-on-linux).
+>
+> Immediate binding extends this protection to the global offset table entries used for function calls.
+> Without immediate binding, these entries must remain writable so the dynamic linker can update them when each function is first called.
+
+To restore the upstream linker default for ordinary executables, use:
+
+```sh
+go build -ldflags=-bindnow=false
+```
+
+For external linking, the C toolchain may still enable immediate binding by default.
 
 ## System-provided cryptography backend
 
@@ -48,19 +109,28 @@ The possible values of `ms_tlsx25519` are:
 - `0` disables the X25519 and X25519MLKEM768 TLS groups.
 - `1` (default) enables these groups.
 
-Setting the environment variable `MS_GOTLSMLKEM=0` when building a program changes
-its `tlsmlkem` GODEBUG default to `0`. This disables the default use of the
-X25519MLKEM768, SecP256r1MLKEM768, and SecP384r1MLKEM1024 TLS groups without
-changing the default use of the classical groups, including X25519.
-Other values leave the default unchanged.
-Explicit `godebug` directives in `go.mod` or `go.work` and `//go:debug` directives
-take precedence over this build-time default. Setting `GODEBUG=tlsmlkem=1` at
-runtime re-enables these groups, subject to the other TLS settings.
-Setting `MS_GOTLSMLKEM` only at runtime has no effect.
-This setting applies independently of `ms_tlsprofile` and does not override
-explicit `tls.Config.CurvePreferences`.
-It can also be persisted with `go env -w MS_GOTLSMLKEM=0` and cleared with
-`go env -u MS_GOTLSMLKEM`.
+Microsoft build of Go 1.28 introduces the `MS_GOTLSMLKEM` environment variable, which controls the default use of ML-KEM TLS key exchange in built programs.
+The build-time values are:
+
+- `0`: sets the program's `tlsmlkem` GODEBUG default to `0`.
+- Unset or any other value: leaves the default unchanged.
+
+With `tlsmlkem=0`, programs disable the X25519MLKEM768, SecP256r1MLKEM768, and SecP384r1MLKEM1024 TLS groups by default.
+The default use of classical groups, including X25519, is unchanged.
+This setting applies independently of `ms_tlsprofile` and does not override explicit `tls.Config.CurvePreferences`.
+
+`MS_GOTLSMLKEM` takes effect when the program is built, not when it runs.
+The following command persists the setting for subsequent builds:
+
+```sh
+go env -w MS_GOTLSMLKEM=0
+```
+
+`go env -u MS_GOTLSMLKEM` removes the persisted setting.
+Neither command changes programs that have already been built.
+
+Explicit `godebug` directives in `go.mod` or `go.work` and `//go:debug` directives take precedence over this build-time default.
+At runtime, `GODEBUG=tlsmlkem=1` overrides the built-in default and re-enables the ML-KEM groups, subject to the other TLS settings.
 
 Microsoft build of Go `v1.27.2-2` introduces `ms_tlsmldsacert`, which controls ML-DSA advertisement in the `signature_algorithms_cert` extension.
 The possible values are:

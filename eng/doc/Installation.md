@@ -1,3 +1,9 @@
+<!--
+DO NOT EDIT THIS COPY.
+Local edits will be overwritten.
+Source: https://github.com/microsoft/go/blob/microsoft/main/eng/doc/Installation.md
+-->
+
 # Installation
 
 These are the installation methods available for the Microsoft build of Go.
