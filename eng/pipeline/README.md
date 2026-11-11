@@ -32,3 +32,7 @@ The subdirectories hold AzDO pipeline YAML templates, based on type of template.
 
 Quick link: [`stages/go-builder-matrix-stages.yml`](stages/go-builder-matrix-stages.yml)
 defines the set of builders that should run based on the scenario.
+
+Darwin amd64 runs the default, nosystemcrypto, and nocgo test configurations in PR and rolling innerloop.
+To reduce repeated full-suite work on slow Intel hosts, Darwin devscript and FIPS test coverage is provided by arm64 only.
+Those two amd64 configurations are not scheduled in innerloop, outerloop, or rolling pipelines.
