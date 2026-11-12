@@ -214,15 +214,11 @@ func main() {
 			cmdline = append(cmdline, "-compile-only")
 		}
 
-		if goos == "linux" && !compileOnly {
+		if goos == "linux" && config == "longtest" {
 			cmdline = append(
 				[]string{
-					// Run under root user so we have zero UID. As of writing, all upstream builders using a
-					// non-WSL Linux host run tests as root. We encounter at least one issue if we run as
-					// non-root on Linux in our reimplementation: if the test infra detects non-zero UID, Go
-					// makes the tree read-only while initializing tests, breaking 'longtest' tests that
-					// need to open go.mod files with write permissions.
-					// https://github.com/microsoft/go/issues/53 tracks running as non-root where possible.
+					// Non-root Linux builders make GOROOT read-only, breaking longtests that need to
+					// write copied go.mod files. https://github.com/microsoft/go/issues/53
 					"sudo",
 					// Keep testing configuration we've set up. Sudo normally reloads env.
 					"--preserve-env",
