@@ -282,10 +282,10 @@ Use a 'go' that was recently built by the current branch to ensure stable result
  .../go/cryptobackend/bbig/big_openssl.go      |   12 +
  .../go/cryptobackend/bbig/big_windows.go      |   12 +
  .../microsoft/go/cryptobackend/bbig/init.go   |    7 +
- .../chacha20poly1305/chacha20poly1305.go      |   28 +
- .../chacha20poly1305_darwin.go                |   24 +
- .../chacha20poly1305_openssl.go               |   24 +
- .../chacha20poly1305_windows.go               |   24 +
+ .../chacha20poly1305/chacha20poly1305.go      |   36 +
+ .../chacha20poly1305_darwin.go                |   19 +
+ .../chacha20poly1305_openssl.go               |   19 +
+ .../chacha20poly1305_windows.go               |   19 +
  .../chacha20poly1305/nobackend.go             |   13 +
  .../go/cryptobackend/cipher/cipher.go         |   75 +
  .../microsoft/go/cryptobackend/common.go      |   19 +
@@ -459,7 +459,7 @@ Use a 'go' that was recently built by the current branch to ensure stable result
  .../go/cryptobackend/tls13/tls13_openssl.go   |   18 +
  .../go/cryptobackend/tls13/tls13_windows.go   |   14 +
  src/vendor/modules.txt                        |   54 +
- 451 files changed, 44392 insertions(+), 2 deletions(-)
+ 451 files changed, 44385 insertions(+), 2 deletions(-)
  create mode 100644 src/cmd/internal/telemetry/counter/deps_ignore.go
  create mode 100644 src/cmd/vendor/github.com/microsoft/go-infra/telemetry/LICENSE
  create mode 100644 src/cmd/vendor/github.com/microsoft/go-infra/telemetry/README.md
@@ -41708,10 +41708,10 @@ index 0000000000000000000000000000000000000000..35fb416a0b6981b3f4925ad9d2117140
 +import _ "github.com/microsoft/go/cryptobackend"
 diff --git a/src/vendor/github.com/microsoft/go/cryptobackend/chacha20poly1305/chacha20poly1305.go b/src/vendor/github.com/microsoft/go/cryptobackend/chacha20poly1305/chacha20poly1305.go
 new file mode 100644
-index 0000000000000000000000000000000000000000..8f3e1a2b5f3528c4a82acd21d88d2ce8fd04ce5b
+index 0000000000000000000000000000000000000000..80d9ea7f18347e57ee9a1d1a2503963c8c0388d5
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go/cryptobackend/chacha20poly1305/chacha20poly1305.go
-@@ -0,0 +1,28 @@
+@@ -0,0 +1,36 @@
 +// Copyright 2026 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -41720,6 +41720,8 @@ index 0000000000000000000000000000000000000000..8f3e1a2b5f3528c4a82acd21d88d2ce8
 +
 +import (
 +	"crypto/cipher"
++	"crypto/fips140"
++	"errors"
 +
 +	"github.com/microsoft/go/cryptobackend"
 +	fallback "golang.org/x/crypto/chacha20poly1305"
@@ -41734,7 +41736,13 @@ index 0000000000000000000000000000000000000000..8f3e1a2b5f3528c4a82acd21d88d2ce8
 +)
 +
 +// New returns a ChaCha20-Poly1305 AEAD that uses the given 256-bit key.
++//
++// ChaCha20-Poly1305 is not FIPS 140 approved, so New fails in FIPS 140-only
++// mode regardless of whether the native backend or the Go fallback is used.
 +func New(key []byte) (cipher.AEAD, error) {
++	if fips140.Enforced() {
++		return nil, errors.New("chacha20poly1305: use of ChaCha20Poly1305 is not allowed in FIPS 140-only mode")
++	}
 +	if backend.Enabled && Supports() {
 +		return newBackend(key)
 +	}
@@ -41742,10 +41750,10 @@ index 0000000000000000000000000000000000000000..8f3e1a2b5f3528c4a82acd21d88d2ce8
 +}
 diff --git a/src/vendor/github.com/microsoft/go/cryptobackend/chacha20poly1305/chacha20poly1305_darwin.go b/src/vendor/github.com/microsoft/go/cryptobackend/chacha20poly1305/chacha20poly1305_darwin.go
 new file mode 100644
-index 0000000000000000000000000000000000000000..b0365f75e3826dcab437659e7c27b6d82c16f9bd
+index 0000000000000000000000000000000000000000..28c8f8fa1c424a08b8c9c832c1fef2a2221d6242
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go/cryptobackend/chacha20poly1305/chacha20poly1305_darwin.go
-@@ -0,0 +1,24 @@
+@@ -0,0 +1,19 @@
 +// Copyright 2026 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -41756,8 +41764,6 @@ index 0000000000000000000000000000000000000000..b0365f75e3826dcab437659e7c27b6d8
 +
 +import (
 +	"crypto/cipher"
-+	"crypto/fips140"
-+	"errors"
 +
 +	"github.com/microsoft/go-crypto-darwin/xcrypto"
 +)
@@ -41765,17 +41771,14 @@ index 0000000000000000000000000000000000000000..b0365f75e3826dcab437659e7c27b6d8
 +func Supports() bool { return true }
 +
 +func newBackend(key []byte) (cipher.AEAD, error) {
-+	if fips140.Enforced() {
-+		return nil, errors.New("chacha20poly1305: use of ChaCha20Poly1305 is not allowed in FIPS 140-only mode")
-+	}
 +	return xcrypto.NewChaCha20Poly1305(key)
 +}
 diff --git a/src/vendor/github.com/microsoft/go/cryptobackend/chacha20poly1305/chacha20poly1305_openssl.go b/src/vendor/github.com/microsoft/go/cryptobackend/chacha20poly1305/chacha20poly1305_openssl.go
 new file mode 100644
-index 0000000000000000000000000000000000000000..26d2de8fbf25e72906f026b45719ebddd994ad07
+index 0000000000000000000000000000000000000000..e0c41e68744b5d9afaf68b69a1b18eee933c264f
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go/cryptobackend/chacha20poly1305/chacha20poly1305_openssl.go
-@@ -0,0 +1,24 @@
+@@ -0,0 +1,19 @@
 +// Copyright 2026 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -41786,8 +41789,6 @@ index 0000000000000000000000000000000000000000..26d2de8fbf25e72906f026b45719ebdd
 +
 +import (
 +	"crypto/cipher"
-+	"crypto/fips140"
-+	"errors"
 +
 +	"github.com/microsoft/go-crypto-openssl/openssl"
 +)
@@ -41795,17 +41796,14 @@ index 0000000000000000000000000000000000000000..26d2de8fbf25e72906f026b45719ebdd
 +func Supports() bool { return openssl.SupportsChaCha20Poly1305() }
 +
 +func newBackend(key []byte) (cipher.AEAD, error) {
-+	if fips140.Enforced() {
-+		return nil, errors.New("chacha20poly1305: use of ChaCha20Poly1305 is not allowed in FIPS 140-only mode")
-+	}
 +	return openssl.NewChaCha20Poly1305(key)
 +}
 diff --git a/src/vendor/github.com/microsoft/go/cryptobackend/chacha20poly1305/chacha20poly1305_windows.go b/src/vendor/github.com/microsoft/go/cryptobackend/chacha20poly1305/chacha20poly1305_windows.go
 new file mode 100644
-index 0000000000000000000000000000000000000000..3ee122ff72642b2014a9e8d407a74cc0dfbe6671
+index 0000000000000000000000000000000000000000..d548bbe526439742cdef4da07081d0eeb952b5ff
 --- /dev/null
 +++ b/src/vendor/github.com/microsoft/go/cryptobackend/chacha20poly1305/chacha20poly1305_windows.go
-@@ -0,0 +1,24 @@
+@@ -0,0 +1,19 @@
 +// Copyright 2026 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -41816,8 +41814,6 @@ index 0000000000000000000000000000000000000000..3ee122ff72642b2014a9e8d407a74cc0
 +
 +import (
 +	"crypto/cipher"
-+	"crypto/fips140"
-+	"errors"
 +
 +	"github.com/microsoft/go-crypto-winnative/cng"
 +)
@@ -41825,9 +41821,6 @@ index 0000000000000000000000000000000000000000..3ee122ff72642b2014a9e8d407a74cc0
 +func Supports() bool { return cng.SupportsChaCha20Poly1305() }
 +
 +func newBackend(key []byte) (cipher.AEAD, error) {
-+	if fips140.Enforced() {
-+		return nil, errors.New("chacha20poly1305: use of ChaCha20Poly1305 is not allowed in FIPS 140-only mode")
-+	}
 +	return cng.NewChaCha20Poly1305(key)
 +}
 diff --git a/src/vendor/github.com/microsoft/go/cryptobackend/chacha20poly1305/nobackend.go b/src/vendor/github.com/microsoft/go/cryptobackend/chacha20poly1305/nobackend.go

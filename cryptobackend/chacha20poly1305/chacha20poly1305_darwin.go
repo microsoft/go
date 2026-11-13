@@ -8,8 +8,6 @@ package chacha20poly1305
 
 import (
 	"crypto/cipher"
-	"crypto/fips140"
-	"errors"
 
 	"github.com/microsoft/go-crypto-darwin/xcrypto"
 )
@@ -17,8 +15,5 @@ import (
 func Supports() bool { return true }
 
 func newBackend(key []byte) (cipher.AEAD, error) {
-	if fips140.Enforced() {
-		return nil, errors.New("chacha20poly1305: use of ChaCha20Poly1305 is not allowed in FIPS 140-only mode")
-	}
 	return xcrypto.NewChaCha20Poly1305(key)
 }
