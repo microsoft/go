@@ -5,42 +5,32 @@
 package main
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
-
-	"github.com/microsoft/go/_util/supportdata"
 )
 
-func TestWindowsArchiveSignatures(t *testing.T) {
-	table, branches := data()
-	for i, version := range supported {
-		for platform := range version.Platforms {
-			if !strings.HasPrefix(platform, "windows-") {
-				continue
-			}
-			t.Run(version.Number+"/"+platform, func(t *testing.T) {
-				name := "go" + version.Number + "." + platform + ".zip"
-				url := baseURL + name
-				var artifact *supportdata.LatestLink
-				for _, file := range branches[i].Files {
-					if file.Filename == name && file.Kind == supportdata.Archive {
-						artifact = file
-						break
-					}
-				}
-				if artifact == nil {
-					t.Fatalf("Windows archive %q missing from branch metadata", name)
-				}
-				if artifact.URL != url || artifact.ChecksumURL != url+".sha256" {
-					t.Errorf("archive or checksum URL changed: URL = %q, ChecksumURL = %q", artifact.URL, artifact.ChecksumURL)
-				}
-				if want := url + ".sig"; artifact.SignatureURL != want {
-					t.Errorf("SignatureURL = %q, want %q", artifact.SignatureURL, want)
-				}
-				if link := "[" + signatureMsg + "](" + url + ".sig)"; !strings.Contains(table, link) {
-					t.Errorf("download table missing signature link %q", link)
-				}
-			})
-		}
+func TestUpdateLinkTableReproducible(t *testing.T) {
+	checkedInPath := filepath.Join("..", "..", "..", "..", docPath)
+	checkedIn, err := os.ReadFile(checkedInPath)
+	if err != nil {
+		t.Fatalf("Failed to read checked-in document at %q: %v", checkedInPath, err)
+	}
+
+	// Normalize Git-checked-out line endings to LF for comparison.
+	actual := strings.ReplaceAll(string(checkedIn), "\r\n", "\n")
+	_, after, ok := strings.Cut(actual, beginMark)
+	if !ok {
+		t.Fatalf("Start marker %q not found in %q", beginMark, checkedInPath)
+	}
+	table, _, ok := strings.Cut(after, endMark)
+	if !ok {
+		t.Fatalf("End marker %q not found after start marker in %q", endMark, checkedInPath)
+	}
+
+	generated, _ := data()
+	if table != "\n\n"+generated+"\n\n" {
+		t.Errorf("Generated document does not match checked-in document. Run this command to update:\n  pwsh eng/run.ps1 updatelinktable")
 	}
 }
