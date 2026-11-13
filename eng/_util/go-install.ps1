@@ -797,7 +797,8 @@ function Get-AkaMSRedirectTarget([string] $akaMsLink) {
 # https://github.com/PowerShell/PowerShell/issues/10875
 function Get-OrNull($Target, $Property) {
     if ($Target -and $Target.PSObject.Properties[$Property]) {
-        return $Target.PSObject.Properties[$Property].Value
+        # Preserve arrays so callers can distinguish them from scalar property values.
+        return ,$Target.PSObject.Properties[$Property].Value
     }
     return $null
 }
@@ -887,6 +888,11 @@ if ($DryRun) {
     return
 }
 
+$ExpectedSHA256 = Get-OrNull $Arch 'sha256'
+if ($ExpectedSHA256 -isnot [string] -or $ExpectedSHA256 -notmatch '\A[0-9a-fA-F]{64}\z') {
+    throw "The asset manifest does not contain a valid SHA-256 digest for '$DownloadLink'."
+}
+
 Measure-Action "Installation directory preparation" { Prepare-Install-Directory }
 
 Say-Verbose "Zip path: $ArchivePath"
@@ -896,6 +902,15 @@ Say-Verbose "Downloading link $DownloadLink"
 try {
     Measure-Action "Package download" { DownloadFile -Source $DownloadLink -OutPath $ArchivePath }
     Say-Verbose "Download succeeded."
+
+    # This checks integrity, not authenticity: the manifest and archive are both remote.
+    # An attacker able to replace both can supply a matching digest. Authenticity requires
+    # verifying the signature at pgpSignatureUrl against a locally pinned Microsoft public key.
+    $ActualSHA256 = (Get-FileHash -LiteralPath $ArchivePath -Algorithm SHA256).Hash
+    if ($ActualSHA256 -ne $ExpectedSHA256) {
+        throw "SHA-256 mismatch for '$ArchivePath'. Expected: $ExpectedSHA256. Actual: $ActualSHA256."
+    }
+    Say-Verbose "SHA-256 verification succeeded."
 }
 catch {
     $StatusCode = $null
@@ -915,7 +930,7 @@ catch {
         Remove-FileSafely -Path $ArchivePath
     }
 
-    throw "Downloading has failed with error:`nUri: $DownloadLink`nStatusCode: $StatusCode`nError: $ErrorMessage"
+    throw "Downloading or verifying the archive has failed with error:`nUri: $DownloadLink`nStatusCode: $StatusCode`nError: $ErrorMessage"
 }
 
 Say "Extracting the archive."
