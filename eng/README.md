@@ -88,7 +88,7 @@ installing `git-go-patch`:
     subsequent refreshes keep using it. To return to the committed revision,
     run `git restore --staged -- go` from the repository root, then refresh again.
     Refreshing discards changes in the submodule; don't commit the staged override
-    unless you intend to update the repository's pinned revision.
+    unless you intend to update the recorded submodule commit.
 * `pwsh eng/run.ps1 build -refresh` refreshes the submodule and applies patches
   and then goes on to build the Microsoft build of Go.
 

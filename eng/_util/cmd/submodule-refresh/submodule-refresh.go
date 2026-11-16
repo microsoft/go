@@ -30,7 +30,7 @@ var (
 	skipPatch        = flag.Bool("skip-patch", false, "Skip applying patches.")
 	take             = flag.Int("take", -1, "Only apply the first N patches. -1 means apply all.")
 	origin           = flag.String("origin", "", "Use this origin instead of the default defined in '.gitmodules' to fetch the repository.")
-	ref              = flag.String("ref", "", "Fetch this commit or ref instead of the pinned revision, and stage the selected submodule commit in the outer repository.")
+	ref              = flag.String("ref", "", "Fetch this commit or ref instead of the recorded submodule commit, and stage it in the outer repository for subsequent refreshes.")
 	shallow          = flag.Bool("shallow", false, "Clone the submodule with depth 1.")
 	fetchBearerToken = flag.String("fetch-bearer-token", "", "Use this bearer token to fetch the submodule repository.")
 )
@@ -125,7 +125,7 @@ func refresh(rootDir string) error {
 }
 
 func initRef(rootDir, submodulePath string) error {
-	// Register the submodule without fetching the pinned revision.
+	// Register the submodule without fetching the recorded submodule commit.
 	if err := executil.Run(executil.Dir(rootDir, "git", "submodule", "init", "--", submodulePath)); err != nil {
 		return err
 	}
@@ -141,7 +141,7 @@ func initRef(rootDir, submodulePath string) error {
 	if err := executil.Run(executil.Dir(rootDir, "git", "init", "--", submoduleDir)); err != nil {
 		return err
 	}
-	// A later refresh may need to fetch the pinned revision from this remote.
+	// A later refresh may need to fetch the recorded submodule commit from this remote.
 	if err := executil.RunQuiet(executil.Dir(submoduleDir, "git", "config", "--get", "remote.origin.url")); err != nil {
 		var exitErr *exec.ExitError
 		if !errors.As(err, &exitErr) || exitErr.ExitCode() != 1 {
@@ -153,8 +153,7 @@ func initRef(rootDir, submodulePath string) error {
 	}
 	args := []string{}
 	if *fetchBearerToken != "" {
-		// Pass the token through the environment so command logging doesn't expose it.
-		args = append(args, "--config-env=http.extraheader=GO_SUBMODULE_AUTHORIZATION")
+		args = append(args, "-c", "http.extraheader=AUTHORIZATION: bearer "+*fetchBearerToken)
 	}
 	args = append(args, "fetch", "--no-tags")
 	if *shallow {
@@ -162,11 +161,7 @@ func initRef(rootDir, submodulePath string) error {
 	}
 	args = append(args, "--", source, *ref)
 	if err := buildutil.Retry(3, func() error {
-		cmd := executil.Dir(submoduleDir, "git", args...)
-		if *fetchBearerToken != "" {
-			cmd.Env = append(os.Environ(), "GO_SUBMODULE_AUTHORIZATION=AUTHORIZATION: bearer "+*fetchBearerToken)
-		}
-		return executil.Run(cmd)
+		return executil.Run(executil.Dir(submoduleDir, "git", args...))
 	}); err != nil {
 		return err
 	}
@@ -177,7 +172,9 @@ func initRef(rootDir, submodulePath string) error {
 	if err := executil.Run(executil.Dir(submoduleDir, "git", "checkout", "--detach", "--force", commit)); err != nil {
 		return err
 	}
-	// Reset and later refresh calls use the outer index, not the submodule's HEAD.
+	// Reset and later refreshes run "git submodule update", which checks out the
+	// commit recorded in the outer index. Stage the override so they don't
+	// restore the original commit before applying patches.
 	if err := executil.Run(executil.Dir(rootDir, "git", "update-index", "--cacheinfo", "160000", commit, submodulePath)); err != nil {
 		return err
 	}
