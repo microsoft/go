@@ -121,6 +121,7 @@ go test -short ./...
 
 Manually run a [PR or rolling pipeline](../pipeline/README.md) using **Run pipeline** in Azure DevOps.
 Select the outer repository branch (or ref under **Branch/tag**) to test, then set `submoduleRef` to an upstream commit SHA or Gerrit ref, such as `refs/changes/34/123434/2`.
+It's fine to select someone else's branch and submodule ref.
 Leave it as `nil` to use the recorded submodule commit.
 The override applies to both innerloop and outerloop pipelines.
 
@@ -128,11 +129,8 @@ Overrides are fetched anonymously from `https://go.googlesource.com/go`.
 Public PR pipelines also accept `submoduleRepository`, for example an HTTPS GitHub fork URL, to test a commit that has not been uploaded to Gerrit.
 This parameter is only used when `submoduleRef` is set; internal rolling pipelines always fetch overrides from the public Go repository, without the internal mirror credentials.
 
-The pipeline stages the selected `go` submodule commit in the outer repository's index.
-`git submodule update` uses that index entry, so staging preserves the override when later `submodule-refresh` calls reset the submodule and apply the Microsoft patches.
-Patches are still applied, and patch conflicts fail the build as usual.
-Fresh-agent test retries use the same resolved commit as the original build, even if the ref has advanced.
-No branch or commit needs to be created or pushed for this override.
+Patches are applied onto the requested commit, and patch conflicts fail the build as usual.
+Fresh-agent test retries use the same resolved commit as the first attempt, even if the ref has advanced e.g. on Gerrit.
 
 To use an override locally, see the [`submodule-refresh` options](../README.md#patch-files).
 

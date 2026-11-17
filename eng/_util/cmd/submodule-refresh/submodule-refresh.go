@@ -30,7 +30,7 @@ var (
 	skipPatch        = flag.Bool("skip-patch", false, "Skip applying patches.")
 	take             = flag.Int("take", -1, "Only apply the first N patches. -1 means apply all.")
 	origin           = flag.String("origin", "", "Use this origin instead of the default defined in '.gitmodules' to fetch the repository.")
-	ref              = flag.String("ref", "", "Fetch this commit or ref instead of the recorded submodule commit, and stage it in the outer repository for subsequent refreshes.")
+	ref              = flag.String("ref", "", "Fetch this commit or ref instead of the recorded submodule commit, and stage it in the outer repository so subsequent refreshes use it rather than restoring the original commit, desirable in some CI scenarios.")
 	shallow          = flag.Bool("shallow", false, "Clone the submodule with depth 1.")
 	fetchBearerToken = flag.String("fetch-bearer-token", "", "Use this bearer token to fetch the submodule repository.")
 )
