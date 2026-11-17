@@ -59,6 +59,8 @@ func runTestGit(root string) int {
 }
 
 func TestRefreshRetriesOnlyInit(t *testing.T) {
+	const applyCommandPrefix = "apply --index --whitespace=nowarn"
+
 	oldShallow, oldSkipPatch := *shallow, *skipPatch
 	t.Cleanup(func() {
 		*shallow, *skipPatch = oldShallow, oldSkipPatch
@@ -66,22 +68,24 @@ func TestRefreshRetriesOnlyInit(t *testing.T) {
 	*shallow = true
 
 	for _, tt := range []struct {
-		name        string
-		failures    int
-		failCommand string
-		skipPatch   bool
-		wantInit    int
-		wantReset   int
-		wantApply   int
-		wantErr     bool
+		name         string
+		failures     int
+		failCommand  string
+		skipPatch    bool
+		emptyPatches bool
+		wantInit     int
+		wantReset    int
+		wantApply    int
+		wantErr      bool
 	}{
 		{name: "success", wantInit: 1, wantReset: 1, wantApply: 1},
 		{name: "transient failure", failures: 1, wantInit: 2, wantReset: 1, wantApply: 1},
 		{name: "last attempt succeeds", failures: 2, wantInit: 3, wantReset: 1, wantApply: 1},
 		{name: "attempts exhausted", failures: 3, wantInit: 3, wantErr: true},
 		{name: "reset failure", failCommand: "submodule update --init -f", wantInit: 1, wantReset: 1, wantErr: true},
-		{name: "patch failure", failCommand: "apply --index --whitespace=nowarn", wantInit: 1, wantReset: 1, wantApply: 1, wantErr: true},
+		{name: "patch failure", failCommand: applyCommandPrefix, wantInit: 1, wantReset: 1, wantApply: 1, wantErr: true},
 		{name: "skip patches after retry", failures: 1, skipPatch: true, wantInit: 2, wantReset: 1},
+		{name: "empty patch series", emptyPatches: true, wantInit: 1, wantReset: 1},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			root := t.TempDir()
@@ -105,10 +109,26 @@ func TestRefreshRetriesOnlyInit(t *testing.T) {
 			if err := os.WriteFile(filepath.Join(root, ".git-go-patch"), []byte(`{"SubmoduleDir":"go","PatchesDir":"patches"}`), 0o600); err != nil {
 				t.Fatal(err)
 			}
+			patchDir := filepath.Join(root, "patches")
+			if err := os.Mkdir(patchDir, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			patchPath := filepath.Join(patchDir, "0001-example.patch")
+			if !tt.emptyPatches {
+				patch := "diff --git a/example b/example\nnew file mode 100644\n--- /dev/null\n+++ b/example\n@@ -0,0 +1 @@\n+example\n"
+				if err := os.WriteFile(patchPath, []byte(patch), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			applyCommand := applyCommandPrefix + " " + patchPath
+			failCommand := tt.failCommand
+			if failCommand == applyCommandPrefix {
+				failCommand = applyCommand
+			}
 			t.Setenv("PATH", filepath.Dir(git))
 			t.Setenv("GO_SUBMODULE_REFRESH_TEST_ROOT", root)
 			t.Setenv("GO_SUBMODULE_REFRESH_TEST_FAILURES", strconv.Itoa(tt.failures))
-			t.Setenv("GO_SUBMODULE_REFRESH_TEST_FAIL_COMMAND", tt.failCommand)
+			t.Setenv("GO_SUBMODULE_REFRESH_TEST_FAIL_COMMAND", failCommand)
 			*skipPatch = tt.skipPatch
 
 			if err := refresh(root); (err != nil) != tt.wantErr {
@@ -121,7 +141,8 @@ func TestRefreshRetriesOnlyInit(t *testing.T) {
 			for command, want := range map[string]int{
 				"submodule update --init --depth 1\n": tt.wantInit,
 				"submodule update --init -f\n":        tt.wantReset,
-				"apply --index --whitespace=nowarn\n": tt.wantApply,
+				applyCommandPrefix:                    tt.wantApply,
+				applyCommand + "\n":                   tt.wantApply,
 			} {
 				if got := strings.Count(string(commands), command); got != want {
 					t.Errorf("command %q ran %d times, want %d", command, got, want)
