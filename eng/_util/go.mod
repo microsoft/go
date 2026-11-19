@@ -8,7 +8,7 @@ go 1.26.0
 
 require (
 	github.com/golang-jwt/jwt/v5 v5.3.1
-	github.com/microsoft/go-infra v0.0.22
+	github.com/microsoft/go-infra v0.0.23-0.20261119143027-cdf796a7dd02
 	github.com/microsoft/go-infra/goinstallscript v1.3.0
 	golang.org/x/net v0.62.0
 )
@@ -35,4 +35,7 @@ require (
 	golang.org/x/text v0.44.0 // indirect
 )
 
-tool github.com/microsoft/go-infra/cmd/pipelineymlgen
+tool (
+	github.com/microsoft/go-infra/cmd/pipelineymlgen
+	github.com/microsoft/go-infra/cmd/upstreamreview
+)

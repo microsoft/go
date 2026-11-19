@@ -1,0 +1,41 @@
+# Copyright (c) Microsoft Corporation.
+# Use of this source code is governed by a BSD-style
+# license that can be found in the LICENSE file.
+
+name: Upstream crypto review
+on:
+  pull_request:
+    branches: ['microsoft/**']
+    types: [opened, reopened, synchronize, edited, labeled, unlabeled]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: upstream-crypto-review-${{ github.ref }}-${{ github.sha }}
+  cancel-in-progress: true
+
+jobs:
+  upstream-crypto-review:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 2 # Include both parents of the test merge.
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: eng/_util/go.mod
+          cache: false
+      - name: Check upstream crypto changes
+        working-directory: eng/_util
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          go tool upstreamreview
+          -repo "$GITHUB_REPOSITORY" -pr ${{ github.event.number }} -merge "$GITHUB_SHA"
+          -upstream golang/go -submodule go -label upstream-crypto-reviewed
+          -src src -import crypto/internal/fips140 -exclude src/crypto/internal/fips140
+          >> "$GITHUB_STEP_SUMMARY"

@@ -195,6 +195,20 @@ See the [`cryptobackend` README](../../cryptobackend/README.md) for more detail.
 
 Once you have made changes that work as you expect, move on to the next step.
 
+### Reviewing upstream crypto changes
+
+The [`upstream-crypto-review` job](../../.github/workflows/upstream-crypto-review.yml) checks out GitHub's proposed merge with both parents and compares the Go submodule revisions in the base and the merge. After the scan, it reads the PR's current labels and verifies that the merge parents still match the live PR base and head. No acknowledgment is needed unless a changed Go file under `src` directly imports `crypto/internal/fips140` or a subpackage on either side of the change. The FIPS implementation directory itself is excluded. Tests, build-tagged files, removed imports, and edits using existing imports all count.
+
+For a match, open the job summary for links to the affected files and an [`importdiff`](https://github.com/microsoft/go-infra/tree/main/cmd/importdiff) command to reproduce the comparison. Review the affected operations, update backend patches if needed, and add **`upstream-crypto-reviewed`** to the PR. Anyone who can label the PR in the target repository can acknowledge it this way.
+
+The label applies to the whole PR. New commits are scanned and reported, but do not require a new acknowledgment. Remove the label to require review again. Adding or removing the label reruns the check; ordinary PR approval and code-owner requirements are unchanged.
+
+#### Requiring the check
+
+1. Pin a reviewed `go-infra` version containing the [`upstreamreview` tool](https://github.com/microsoft/go-infra/tree/main/cmd/upstreamreview) in [`eng/_util/go.mod`](../_util/go.mod). The workflow defines which upstream repository, submodule, imports, and exclusions it checks.
+2. Create the `upstream-crypto-reviewed` label in the target repository. Land the workflow and tool pin on each target branch selected by the workflow's `pull_request.branches` filter and retain code-owner protection for both. Before requiring it, verify that a clean PR passes and an importer change fails until labeled, stays green after another push, and fails again when the label is removed.
+3. Require the job name `upstream-crypto-review` as a **required status check** from **GitHub Actions**, alongside the existing approval and code-owner rules. To require a fresh comparison after the target branch advances, enable **Require branches to be up to date before merging**; a base-branch push alone does not trigger this workflow.
+
 ### Generating new patch files
 
 After making changes in the `go` directory, you must commit your changes following the standard Git process.
