@@ -201,6 +201,8 @@ The [`upstream-crypto-review` job](../../.github/workflows/upstream-crypto-revie
 
 For a match, open the job summary for links to the affected files and an [`importdiff`](https://github.com/microsoft/go-infra/tree/main/cmd/importdiff) command to reproduce the comparison. Review the affected operations, update backend patches if needed, and add **`upstream-crypto-reviewed`** to the PR. Anyone who can label the PR in the target repository can acknowledge it this way.
 
+When GitHub permits comments, a separate job links to the run summary from one bot comment and updates that link on later scans. A clean PR gets no new comment. The checker stays read-only; a read-only token on a fork or Dependabot PR prevents commenting, not reporting or enforcing the check.
+
 The label applies to the whole PR. New commits are scanned and reported, but do not require a new acknowledgment. Remove the label to require review again. Adding or removing the label reruns the check; ordinary PR approval and code-owner requirements are unchanged.
 
 #### Requiring the check
