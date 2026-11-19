@@ -201,13 +201,13 @@ The [`upstream-crypto-review` job](../../.github/workflows/upstream-crypto-revie
 
 For a match, open the job summary for links to the affected files and an [`upstreamreview importdiff`](https://github.com/microsoft/go-infra/tree/main/cmd/upstreamreview#importdiff) command to reproduce the comparison. Review the affected operations, update backend patches if needed, and add **`upstream-crypto-reviewed`** to the PR. Anyone who can label the PR in the target repository can acknowledge it this way.
 
-When GitHub permits comments, a separate job runs `upstreamreview comment` to link to the run summary from one bot comment and updates that link on later scans. A clean PR gets no new comment. The `ghreview` check stays read-only; a read-only token on a fork or Dependabot PR prevents commenting, not reporting or enforcing the check.
+For PRs from branches in this repository, `upstreamreview comment` leaves one bot comment explaining what matched and linking to the job summary. Later scans update that comment, including when no matches remain. Clean PRs get no new comment. Fork PRs still get the read-only check and summary; they skip the write-enabled job. A read-only token, such as Dependabot's, also skips the write.
 
 The label applies to the whole PR. New commits are scanned and reported, but do not require a new acknowledgment. Remove the label to require review again. Adding or removing the label reruns the check; ordinary PR approval and code-owner requirements are unchanged.
 
 #### Requiring the check
 
-1. Pin the same reviewed version of the [`upstreamreview` tool](https://github.com/microsoft/go-infra/tree/main/cmd/upstreamreview) in [`eng/_util/go.mod`](../_util/go.mod) and in the comment job, which runs without a PR checkout. The workflow defines which upstream repository, submodule, imports, and exclusions it checks.
+1. Pin a reviewed version of [`upstreamreview`](https://github.com/microsoft/go-infra/tree/main/cmd/upstreamreview) in [`eng/_util/go.mod`](../_util/go.mod). Both jobs use that pin from the PR checkout. The workflow defines which upstream repository, submodule, imports, and exclusions it checks.
 2. Create the `upstream-crypto-reviewed` label in the target repository. Land the workflow and tool pin on each target branch selected by the workflow's `pull_request.branches` filter and retain code-owner protection for both. Before requiring it, verify that a clean PR passes and an importer change fails until labeled, stays green after another push, and fails again when the label is removed.
 3. Require the job name `upstream-crypto-review` as a **required status check** from **GitHub Actions**, alongside the existing approval and code-owner rules. To require a fresh comparison after the target branch advances, enable **Require branches to be up to date before merging**; a base-branch push alone does not trigger this workflow.
 

@@ -45,18 +45,27 @@ jobs:
 
   comment:
     needs: upstream-crypto-review
-    if: ${{ !cancelled() && needs.upstream-crypto-review.outputs.matched != '' }}
+    # Fork PRs get the review summary without running their tool with write access.
+    if: >-
+      ${{ !cancelled() && needs.upstream-crypto-review.outputs.matched != '' &&
+          github.event.pull_request.head.repo.full_name == github.repository }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
+      contents: read
       pull-requests: write
     concurrency: upstream-crypto-comment-${{ github.event.number }}
     steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: eng/_util/go.mod
+          cache: false
       - name: Link to the review summary
+        working-directory: eng/_util
         env:
           GH_TOKEN: ${{ github.token }}
           MATCHED: ${{ needs.upstream-crypto-review.outputs.matched }}
-        # Pin the writer independently: no PR checkout in this job.
-        run: >-
-          go run github.com/microsoft/go-infra/cmd/upstreamreview@v0.0.23-0.20261119150852-13883c046219
-          comment -matched="$MATCHED"
+        run: go tool upstreamreview comment -matched="$MATCHED"
