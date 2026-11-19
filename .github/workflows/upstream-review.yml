@@ -69,7 +69,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: >-
-          go tool upstreamreview ghreview
+          go tool upstreamreview check-pr-imports
           -repo "$GITHUB_REPOSITORY" -pr ${{ github.event.number }} -merge "$GITHUB_SHA"
           -upstream golang/go -submodule go -label "$REVIEW_LABEL"
           -src src -import crypto/internal/fips140 -exclude src/crypto/internal/fips140
@@ -77,10 +77,8 @@ jobs:
 
   comment:
     needs: upstream-crypto-review
-    # Only run the PR's tool with write access on same-repository PRs.
-    if: >-
-      ${{ !cancelled() && needs.upstream-crypto-review.outputs.review != '' &&
-          github.event.pull_request.head.repo.full_name == github.repository }}
+    # Forks produce no review output; a missing label still produces a verdict.
+    if: ${{ !cancelled() && needs.upstream-crypto-review.outputs.review != '' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
@@ -100,4 +98,4 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           REVIEW: ${{ needs.upstream-crypto-review.outputs.review }}
-        run: go tool upstreamreview comment -review "$REVIEW" -label "$REVIEW_LABEL"
+        run: go tool upstreamreview update-pr-comment -review "$REVIEW" -label "$REVIEW_LABEL"
