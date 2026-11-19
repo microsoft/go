@@ -2,7 +2,7 @@
 # Use of this source code is governed by a BSD-style
 # license that can be found in the LICENSE file.
 
-name: Upstream crypto review
+name: Upstream review
 on:
   pull_request:
     branches: ['microsoft/**']
@@ -16,11 +16,11 @@ env:
   REVIEW_LABEL: upstream-crypto-reviewed
 
 concurrency:
-  group: upstream-crypto-review-${{ github.ref }}-${{ github.sha }}
+  group: upstream-review-${{ github.ref }}-${{ github.sha }}
   cancel-in-progress: true
 
 jobs:
-  upstream-crypto-review:
+  upstream-review:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     outputs:
@@ -30,6 +30,18 @@ jobs:
         with:
           fetch-depth: 2 # Include both parents of the test merge.
           persist-credentials: false
+      - name: Check that the fork leaves the Go submodule pin unchanged
+        if: github.event.pull_request.head.repo.full_name != github.repository
+        shell: bash
+        run: |
+          base_entry=$(git ls-tree HEAD^1 -- go)
+          merge_entry=$(git ls-tree HEAD -- go)
+          if [[ "$base_entry" != "$merge_entry" ]]; then
+            message="Fork PRs cannot change the Go submodule pin. Remove the pin change or ask a maintainer to submit it from a branch in this repository."
+            echo "::error::$message"
+            echo "$message" >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: eng/_util/go.mod
@@ -47,10 +59,10 @@ jobs:
           >> "$GITHUB_STEP_SUMMARY"
 
   comment:
-    needs: upstream-crypto-review
-    # Fork PRs get the review summary without running their tool with write access.
+    needs: upstream-review
+    # Only run the PR's tool with write access on same-repository PRs.
     if: >-
-      ${{ !cancelled() && needs.upstream-crypto-review.outputs.review != '' &&
+      ${{ !cancelled() && needs.upstream-review.outputs.review != '' &&
           github.event.pull_request.head.repo.full_name == github.repository }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -70,5 +82,5 @@ jobs:
         working-directory: eng/_util
         env:
           GH_TOKEN: ${{ github.token }}
-          REVIEW: ${{ needs.upstream-crypto-review.outputs.review }}
+          REVIEW: ${{ needs.upstream-review.outputs.review }}
         run: go tool upstreamreview comment -review "$REVIEW" -label "$REVIEW_LABEL"

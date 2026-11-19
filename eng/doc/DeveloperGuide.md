@@ -197,13 +197,15 @@ Once you have made changes that work as you expect, move on to the next step.
 
 ### Reviewing upstream crypto changes
 
-The [`upstream-crypto-review` job](../../.github/workflows/upstream-crypto-review.yml) checks out GitHub's proposed merge with both parents and compares the Go submodule revisions in the base and the merge. After the scan, it reads the PR's current labels and verifies that the merge parents still match the live PR base and head. If the head moved, look at the checks for the new head. If only the base moved, update the PR branch to start a fresh check; re-running the old job uses the original commit.
+The [`upstream-review` job](../../.github/workflows/upstream-review.yml) compares the Go submodule pin in the target branch with the pin in GitHub's proposed merge. Fork PRs can contribute patches, but must leave the pin unchanged. If a fork PR changes it, the job fails before the crypto scan, regardless of labels. Ask a maintainer to submit an intentional pin update from a branch in this repository.
+
+After the crypto scan, the job reads the PR's current labels and verifies that the merge parents still match the live PR base and head. If the head moved, look at the checks for the new head. If only the base moved, update the PR branch to start a fresh check; re-running the old job uses the original commit.
 
 No acknowledgment is needed unless a changed Go file under `src` directly imports `crypto/internal/fips140` or a subpackage on either side of the change. The FIPS implementation directory itself is excluded. Tests, build-tagged files, removed imports, and edits using existing imports all count.
 
 For a match, open the job summary for links to the affected files and an [`upstreamreview importdiff`](https://github.com/microsoft/go-infra/tree/main/cmd/upstreamreview#importdiff) command to reproduce the comparison. Review the affected operations, update backend patches if needed, and add **`upstream-crypto-reviewed`** to the PR. Anyone who can label the PR in the target repository can acknowledge it this way.
 
-For PRs from branches in this repository, one bot comment shows the verdict of the linked scan: **review needed**, **acknowledged**, or **no matching changes**. The footer links to the PR head and base commits that were scanned. If a later scan fails before reaching a verdict, the comment still describes the earlier scan. Use **Labels** (shortcut: `L`) on the PR to add or remove the acknowledgment. The comment updates in place; clean PRs get no new comment. Fork PRs still get the read-only check and summary, and a read-only token cannot post a comment.
+For PRs from branches in this repository, one bot comment shows the verdict of the linked scan: **review needed**, **acknowledged**, or **no matching changes**. The footer links to the PR head and base commits that were scanned. If a later scan fails before reaching a verdict, the comment still describes the earlier scan. Use **Labels** (shortcut: `L`) on the PR to add or remove the acknowledgment. The comment updates in place; clean PRs get no new comment. Fork PRs get the check result in the job summary instead of a bot comment.
 
 The label applies to the whole PR. New commits are scanned and reported, but do not require a new acknowledgment. Remove the label to require review again. Adding or removing the label reruns the check; ordinary PR approval and code-owner requirements are unchanged.
 
