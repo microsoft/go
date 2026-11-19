@@ -8,7 +8,7 @@ go 1.26.0
 
 require (
 	github.com/golang-jwt/jwt/v5 v5.3.1
-	github.com/microsoft/go-infra v0.0.23-0.20261119165712-52077b496add
+	github.com/microsoft/go-infra v0.0.23-0.20261119204107-9b96d1225333
 	github.com/microsoft/go-infra/goinstallscript v1.3.0
 	golang.org/x/net v0.62.0
 )
