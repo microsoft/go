@@ -102,13 +102,26 @@ func TestRefreshRetriesOnlyInit(t *testing.T) {
 			if err := os.Mkdir(filepath.Join(root, "go"), 0o700); err != nil {
 				t.Fatal(err)
 			}
+			patchDir := filepath.Join(root, "patches")
+			if err := os.Mkdir(patchDir, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			patchFile := filepath.Join(patchDir, "0001-test.patch")
+			if err := os.WriteFile(patchFile, []byte("test patch\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
 			if err := os.WriteFile(filepath.Join(root, ".git-go-patch"), []byte(`{"SubmoduleDir":"go","PatchesDir":"patches"}`), 0o600); err != nil {
 				t.Fatal(err)
+			}
+			applyCommand := "apply --index --whitespace=nowarn " + patchFile
+			failCommand := tt.failCommand
+			if failCommand == "apply --index --whitespace=nowarn" {
+				failCommand = applyCommand
 			}
 			t.Setenv("PATH", filepath.Dir(git))
 			t.Setenv("GO_SUBMODULE_REFRESH_TEST_ROOT", root)
 			t.Setenv("GO_SUBMODULE_REFRESH_TEST_FAILURES", strconv.Itoa(tt.failures))
-			t.Setenv("GO_SUBMODULE_REFRESH_TEST_FAIL_COMMAND", tt.failCommand)
+			t.Setenv("GO_SUBMODULE_REFRESH_TEST_FAIL_COMMAND", failCommand)
 			*skipPatch = tt.skipPatch
 
 			if err := refresh(root); (err != nil) != tt.wantErr {
@@ -121,7 +134,7 @@ func TestRefreshRetriesOnlyInit(t *testing.T) {
 			for command, want := range map[string]int{
 				"submodule update --init --depth 1\n": tt.wantInit,
 				"submodule update --init -f\n":        tt.wantReset,
-				"apply --index --whitespace=nowarn\n": tt.wantApply,
+				applyCommand + "\n":                   tt.wantApply,
 			} {
 				if got := strings.Count(string(commands), command); got != want {
 					t.Errorf("command %q ran %d times, want %d", command, got, want)
