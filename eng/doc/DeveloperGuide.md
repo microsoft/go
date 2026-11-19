@@ -197,9 +197,9 @@ Once you have made changes that work as you expect, move on to the next step.
 
 ### Reviewing upstream crypto changes
 
-The [`upstream-crypto-review` job](../../.github/workflows/upstream-review.yml) compares the Go submodule pin in the target branch with the pin in GitHub's proposed merge. Fork PRs can contribute patches, but must leave the pin unchanged. If a fork PR changes it, the job fails before the crypto scan, regardless of labels. Ask a maintainer to submit an intentional pin update from a branch in this repository.
+On fork PRs, the [Upstream review workflow](../../.github/workflows/upstream-review.yml) runs `fork-submodule-pin` to check that GitHub's proposed merge leaves the target branch's Go submodule pin unchanged. Fork PRs can contribute patches, but a maintainer must submit intentional pin updates from a branch in this repository. The fork check does not run the crypto scan or use the review label.
 
-After the crypto scan, the job reads the PR's current labels and verifies that the merge parents still match the live PR base and head. If the head moved, look at the checks for the new head. If only the base moved, update the PR branch to start a fresh check; re-running the old job uses the original commit.
+On PRs from branches in this repository, `upstream-crypto-review` scans the changes between the upstream Go revisions pinned by the base and the proposed merge. After the scan, it reads the PR's current labels and verifies that the merge parents still match the live PR base and head. If the head moved, look at the checks for the new head. If only the base moved, update the PR branch to start a fresh check; re-running the old job uses the original commit.
 
 No acknowledgment is needed unless a changed Go file under `src` directly imports `crypto/internal/fips140` or a subpackage on either side of the change. The FIPS implementation directory itself is excluded. Tests, build-tagged files, removed imports, and edits using existing imports all count.
 

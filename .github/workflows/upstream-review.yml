@@ -20,7 +20,36 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  fork-submodule-pin:
+    if: github.event.pull_request.head.repo.full_name != github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 2 # Compare the test merge with its first parent.
+          persist-credentials: false
+      - name: Check that the fork leaves the Go submodule pin unchanged
+        shell: bash
+        run: |
+          base_entry=$(git ls-tree HEAD^1 -- go)
+          merge_entry=$(git ls-tree HEAD -- go)
+          if [[ "$base_entry" != "160000 commit "* ]]; then
+            message="The target branch does not have a valid Go submodule pin."
+          elif [[ "$base_entry" != "$merge_entry" ]]; then
+            message="Fork PRs cannot change the Go submodule pin. Remove the pin change or ask a maintainer to submit it from a branch in this repository."
+          else
+            echo "The Go submodule pin is unchanged." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          echo "::error::$message"
+          echo "$message" >> "$GITHUB_STEP_SUMMARY"
+          exit 1
+
   upstream-crypto-review:
+    if: github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     timeout-minutes: 15
     outputs:
@@ -30,18 +59,6 @@ jobs:
         with:
           fetch-depth: 2 # Include both parents of the test merge.
           persist-credentials: false
-      - name: Check that the fork leaves the Go submodule pin unchanged
-        if: github.event.pull_request.head.repo.full_name != github.repository
-        shell: bash
-        run: |
-          base_entry=$(git ls-tree HEAD^1 -- go)
-          merge_entry=$(git ls-tree HEAD -- go)
-          if [[ "$base_entry" != "$merge_entry" ]]; then
-            message="Fork PRs cannot change the Go submodule pin. Remove the pin change or ask a maintainer to submit it from a branch in this repository."
-            echo "::error::$message"
-            echo "$message" >> "$GITHUB_STEP_SUMMARY"
-            exit 1
-          fi
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: eng/_util/go.mod
