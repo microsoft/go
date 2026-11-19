@@ -74,14 +74,17 @@ stages:
             ${{ if eq(parameters.builder.hostArch, 'amd64') }}:
               ${{ if eq(parameters.builder.distro, 'ubuntu') }}:
                 container: ubuntu2204
-              ${{ elseif eq(parameters.builder.distro, 'azurelinux3') }}:
-                container: azurelinux3
+              ${{ elseif eq(parameters.builder.distro, 'mariner2') }}:
+                container: mariner2
               ${{ elseif eq(parameters.builder.distro, 'azurelinux4') }}:
                 container: azurelinux4
               ${{ else }}:
-                container: mariner2
+                container: azurelinux3
             ${{ elseif eq(parameters.builder.hostArch, 'arm64') }}:
-              container: mariner2arm64
+              ${{ if eq(parameters.builder.distro, 'mariner2') }}:
+                container: mariner2arm64
+              ${{ else }}:
+                container: azurelinux3arm64
 
         variables:
           - group: go-cmdscan-rules
@@ -160,6 +163,16 @@ stages:
             displayName: Init stage 0 Go toolset
 
           - template: ../steps/init-submodule-task.yml
+            parameters:
+              ctx: ${{ parameters.ctx }}
+
+          - ${{ if and(parameters.retryOnFreshAgent, ne(coalesce(parameters.ctx['GoSubmoduleRef'], 'nil'), 'nil')) }}:
+            - pwsh: |
+                $revision = git -C go rev-parse --verify HEAD
+                if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+                Write-Host "##vso[task.setvariable variable=revision;isOutput=true]$revision"
+              name: submodule
+              displayName: Record submodule revision for test retry
 
           - ${{ if eq(parameters.builder.config, 'longtest') }}:
             # Set Git authorship info for 'cmd/go TestScript/build_buildvcs_auto'.
@@ -336,6 +349,9 @@ stages:
             - group: go-cmdscan-rules
             - name: retryToolchainArtifact
               value: $[ dependencies.${{ parameters.builder.id }}.outputs['retry.toolchainArtifact'] ]
+            - ${{ if ne(coalesce(parameters.ctx['GoSubmoduleRef'], 'nil'), 'nil') }}:
+              - name: retrySubmoduleRef
+                value: $[ dependencies.${{ parameters.builder.id }}.outputs['submodule.revision'] ]
           steps:
             - pwsh: |
                 . eng/utilities.ps1
@@ -343,6 +359,10 @@ stages:
               displayName: Init stage 0 Go toolset
 
             - template: ../steps/init-submodule-task.yml
+              parameters:
+                ctx: ${{ parameters.ctx }}
+                ${{ if ne(coalesce(parameters.ctx['GoSubmoduleRef'], 'nil'), 'nil') }}:
+                  resolvedRef: $(retrySubmoduleRef)
 
             - pwsh: eng/run.ps1 submodule-refresh
               displayName: Apply patches

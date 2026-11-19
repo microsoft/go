@@ -88,8 +88,6 @@ func main() {
 		buildutil.SetEnv("CGO_ENABLED", "0")
 	case "noopt":
 		buildutil.SetEnv("GO_GCFLAGS", "-N -l")
-	case "regabi":
-		buildutil.AppendExperimentEnv("regabi")
 	case "ssacheck":
 		buildutil.SetEnv("GO_GCFLAGS", "-d=ssa/check/on")
 	case "staticlockranking":
@@ -183,11 +181,28 @@ func main() {
 			buildutil.SetEnv("GO_BUILDER_NAME", goos+"-"+goarch)
 		}
 
-		toolchainTestCmdline := []string{"go/bin/go", "-C", "toolchaintest", "test", "-count=1"}
-		if *fipsMode {
-			toolchainTestCmdline = append(toolchainTestCmdline, "-args", "-require-fips")
+		if config == "racecompile" {
+			buildutil.SetEnv("GOBIN", "")
+			// Match upstream: instrument the compiler and linker themselves,
+			// then exercise them through dist's compile-only test pass below.
+			runOrPanic("go/bin/go", "install", "-race", "cmd/compile", "cmd/link")
 		}
-		runOrPanic(toolchainTestCmdline...)
+
+		compileOnly := config == "ssacheck" || config == "racecompile" || config == "misccompile"
+		// The Microsoft-specific suite is not part of upstream's racecompile workload.
+		if config != "racecompile" {
+			toolchainTestCmdline := []string{"go/bin/go", "-C", "toolchaintest", "test", "-count=1"}
+			if compileOnly {
+				toolchainTestCmdline = append(toolchainTestCmdline, "-c", "-o", os.DevNull)
+				if gcflags := os.Getenv("GO_GCFLAGS"); gcflags != "" {
+					toolchainTestCmdline = append(toolchainTestCmdline, "-gcflags=all="+gcflags)
+				}
+			}
+			if *fipsMode {
+				toolchainTestCmdline = append(toolchainTestCmdline, "-args", "-require-fips")
+			}
+			runOrPanic(toolchainTestCmdline...)
+		}
 
 		cmdline := []string{
 			// Use the dist test command directly, because 'src/run.bash' isn't compatible with
@@ -195,16 +210,15 @@ func main() {
 			// that download modules.
 			"go/bin/go", "tool", "dist", "test",
 		}
+		if compileOnly {
+			cmdline = append(cmdline, "-compile-only")
+		}
 
-		if goos == "linux" {
+		if goos == "linux" && config == "longtest" {
 			cmdline = append(
 				[]string{
-					// Run under root user so we have zero UID. As of writing, all upstream builders using a
-					// non-WSL Linux host run tests as root. We encounter at least one issue if we run as
-					// non-root on Linux in our reimplementation: if the test infra detects non-zero UID, Go
-					// makes the tree read-only while initializing tests, breaking 'longtest' tests that
-					// need to open go.mod files with write permissions.
-					// https://github.com/microsoft/go/issues/53 tracks running as non-root where possible.
+					// Non-root Linux builders make GOROOT read-only, breaking longtests that need to
+					// write copied go.mod files. https://github.com/microsoft/go/issues/53
 					"sudo",
 					// Keep testing configuration we've set up. Sudo normally reloads env.
 					"--preserve-env",

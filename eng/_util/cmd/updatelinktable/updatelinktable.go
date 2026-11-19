@@ -78,10 +78,11 @@ var linuxLikeFiles = []goFileType{
 
 var windowsFiles = []goFileType{
 	{
-		Kind:     supportdata.Archive,
-		Name:     "Binaries (zip)",
-		Ext:      ".zip",
-		Checksum: true,
+		Kind:      supportdata.Archive,
+		Name:      "Binaries (zip)",
+		Ext:       ".zip",
+		Checksum:  true,
+		Signature: true,
 	},
 }
 

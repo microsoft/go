@@ -78,6 +78,7 @@ Subject: [PATCH] Add crypto backends
  src/crypto/purego_test.go                     |   2 +-
  src/crypto/rand/rand.go                       |   3 +-
  src/crypto/rand/rand_test.go                  |   9 +-
+ src/crypto/rand/text_test.go                  |   9 +-
  src/crypto/rc4/rc4.go                         |  20 +++
  src/crypto/rsa/fips.go                        |   3 +-
  src/crypto/rsa/pkcs1v15.go                    |   3 +-
@@ -118,17 +119,17 @@ Subject: [PATCH] Add crypto backends
  .../systemcrypto/systemcrypto_test.go         |  60 +++++++++
  src/net/lookup_test.go                        |   3 +
  src/syscall/syscall_windows.go                |   3 +
- 114 files changed, 1219 insertions(+), 245 deletions(-)
+ 115 files changed, 1226 insertions(+), 247 deletions(-)
  create mode 100644 src/crypto/systemcrypto_nocgo_freebsd.go
  create mode 100644 src/crypto/systemcrypto_nocgo_linux.go
  create mode 100644 src/internal/systemcrypto/systemcrypto.go
  create mode 100644 src/internal/systemcrypto/systemcrypto_test.go
 
 diff --git a/.gitignore b/.gitignore
-index 344b31f7ac1c1d3d8409da4774b9ea13e0142fb5..b4583113d5aa15ac1be461d1cecd2135f2bf600b 100644
+index 6d8e986cbeb085c3255ea995fa1a782040567338..cb94ddbb7753112759d2e468ae95dc0946c43903 100644
 --- a/.gitignore
 +++ b/.gitignore
-@@ -47,6 +47,8 @@ _testmain.go
+@@ -48,6 +48,8 @@ _testmain.go
  /test/run.out
  /test/times.out
  
@@ -328,7 +329,7 @@ index d5733d29d46c0ae897b3604d34ca927ee0475850..64a508f9fd374da34f011a6f33196093
  	"internal/types/errors",
  	"internal/unsafeheader",
 diff --git a/src/cmd/dist/test.go b/src/cmd/dist/test.go
-index 1d3868f993bfde8625146cd8f6b36e9d165f3f6e..bfdcd2bd9979766bd4f4d5fc05592926a71162ff 100644
+index e6759f977aa69397f2326583e794f2e743f905d7..6272e257f0e22f45f0ccbdf34d25d6cc7bb0daad 100644
 --- a/src/cmd/dist/test.go
 +++ b/src/cmd/dist/test.go
 @@ -163,11 +163,13 @@ func (t *tester) run() {
@@ -383,7 +384,7 @@ index 1d3868f993bfde8625146cd8f6b36e9d165f3f6e..bfdcd2bd9979766bd4f4d5fc05592926
  		t.registerTest("GOOS=ios on darwin/amd64",
  			&goTest{
  				variant:  "amd64ios",
-@@ -1357,12 +1361,11 @@ func (t *tester) registerCgoTests(heading string) {
+@@ -1358,12 +1362,11 @@ func (t *tester) registerCgoTests(heading string) {
  			// a C linker warning on Linux.
  			// in function `bio_ip_and_port_to_socket_and_addr':
  			// warning: Using 'getaddrinfo' in statically linked applications requires at runtime the shared libraries from the glibc version used for linking
@@ -397,7 +398,7 @@ index 1d3868f993bfde8625146cd8f6b36e9d165f3f6e..bfdcd2bd9979766bd4f4d5fc05592926
  			// Static linking tests
  			if goos != "android" && p != "netbsd/arm" && !t.msan && !t.asan {
  				// TODO(#56629): Why does this fail on netbsd-arm?
-@@ -1874,3 +1877,26 @@ func goexperiments(exps ...string) string {
+@@ -1875,3 +1878,26 @@ func goexperiments(exps ...string) string {
  	return existing + strings.Join(exps, ",")
  
  }
@@ -588,7 +589,7 @@ index b305457a23d1045a4e00a99b91f7e03fa65330a4..5154aa0be0007ce0c842e666f8923cd4
  Additional information available from 'go env' but not read from the environment:
  
 diff --git a/src/cmd/go/internal/load/pkg.go b/src/cmd/go/internal/load/pkg.go
-index 56ad32276bb0599818d95daa8b573374636491e1..b3fab4bd0f358fa6f2f5f780483f7d6122340714 100644
+index 7470e4a6cf4bc51a738465b27dbd69db443539cf..5f868bfa98d1798c856153e18bbcbd0f1fbaf16c 100644
 --- a/src/cmd/go/internal/load/pkg.go
 +++ b/src/cmd/go/internal/load/pkg.go
 @@ -16,6 +16,7 @@ import (
@@ -599,7 +600,7 @@ index 56ad32276bb0599818d95daa8b573374636491e1..b3fab4bd0f358fa6f2f5f780483f7d61
  	"io/fs"
  	"os"
  	pathpkg "path"
-@@ -919,7 +920,7 @@ func loadPackageData(ld *modload.Loader, ctx context.Context, path, parentPath,
+@@ -914,7 +915,7 @@ func loadPackageData(ld *modload.Loader, ctx context.Context, path, parentPath,
  		}
  		if r.dir != "" {
  			var buildMode build.ImportMode
@@ -608,7 +609,7 @@ index 56ad32276bb0599818d95daa8b573374636491e1..b3fab4bd0f358fa6f2f5f780483f7d61
  			if !cfg.ModulesEnabled {
  				buildMode = build.ImportComment
  			} else {
-@@ -949,7 +950,7 @@ func loadPackageData(ld *modload.Loader, ctx context.Context, path, parentPath,
+@@ -944,7 +945,7 @@ func loadPackageData(ld *modload.Loader, ctx context.Context, path, parentPath,
  			}
  			if modroot != "" {
  				if rp, err := modindex.GetPackage(modroot, r.dir); err == nil {
@@ -617,7 +618,7 @@ index 56ad32276bb0599818d95daa8b573374636491e1..b3fab4bd0f358fa6f2f5f780483f7d61
  					goto Happy
  				} else if !errors.Is(err, modindex.ErrNotIndexed) {
  					base.Fatal(err)
-@@ -997,7 +998,8 @@ func loadPackageData(ld *modload.Loader, ctx context.Context, path, parentPath,
+@@ -992,7 +993,8 @@ func loadPackageData(ld *modload.Loader, ctx context.Context, path, parentPath,
  				// Not vendoring, or we already found the vendored path.
  				buildMode |= build.IgnoreVendor
  			}
@@ -627,7 +628,7 @@ index 56ad32276bb0599818d95daa8b573374636491e1..b3fab4bd0f358fa6f2f5f780483f7d61
  		}
  		data.p.ImportPath = r.path
  
-@@ -1022,6 +1024,42 @@ func loadPackageData(ld *modload.Loader, ctx context.Context, path, parentPath,
+@@ -1017,6 +1019,42 @@ func loadPackageData(ld *modload.Loader, ctx context.Context, path, parentPath,
  	return p, loaded, err
  }
  
@@ -670,7 +671,7 @@ index 56ad32276bb0599818d95daa8b573374636491e1..b3fab4bd0f358fa6f2f5f780483f7d61
  // importSpec describes an import declaration in source code. It is used as a
  // cache key for resolvedImportCache.
  type importSpec struct {
-@@ -1543,6 +1581,9 @@ func disallowInternal(ld *modload.Loader, ctx context.Context, srcDir string, im
+@@ -1538,6 +1576,9 @@ func disallowInternal(ld *modload.Loader, ctx context.Context, srcDir string, im
  		}
  		goto Error
  	}
@@ -680,7 +681,7 @@ index 56ad32276bb0599818d95daa8b573374636491e1..b3fab4bd0f358fa6f2f5f780483f7d61
  
  	if p.Module == nil {
  		parent := p.Dir[:i+len(p.Dir)-len(p.ImportPath)]
-@@ -2447,6 +2488,9 @@ func (p *Package) setBuildInfo(ctx context.Context, f *modfetch.Fetcher, autoVCS
+@@ -2417,6 +2458,9 @@ func (p *Package) setBuildInfo(ctx context.Context, f *modfetch.Fetcher, autoVCS
  			buildmode = "archive"
  		}
  	}
@@ -916,7 +917,7 @@ index 6702e9279b106b5fb99d6b2e7361799aff806aef..09b92a3ed98df1dbf64a4c019e76e144
  	if err != nil {
  		return false, err
 diff --git a/src/cmd/internal/testdir/testdir_test.go b/src/cmd/internal/testdir/testdir_test.go
-index 5147e2efc86b6f994b7a3e7dc3cf58f6f7d68aaf..14f5104923e4e5891a4355ecfd9f0a62191b3833 100644
+index c8f355b09430e4746ddb4dc46aec2935a1e40799..dc80e1e13936374098bbf3248e47479871613734 100644
 --- a/src/cmd/internal/testdir/testdir_test.go
 +++ b/src/cmd/internal/testdir/testdir_test.go
 @@ -22,6 +22,7 @@ import (
@@ -958,7 +959,7 @@ index acbebf28598a9c3db2bc871fbc9903c7ede062cc..6ef32735ddfd5738fed157f9c9bcb03a
  			*mode = BuildModePIE
  		default:
 diff --git a/src/cmd/link/internal/ld/lib.go b/src/cmd/link/internal/ld/lib.go
-index 3f9b2a3366d86c74c3c1a1e5ebbd990aa23e080d..4af948ece8575e9a4a39045da5b154225c63662a 100644
+index c316f41a7563c2db62b4dc8cedf6dc436ed3107c..028015d0718bdfcd7928e3a9459a6138e9074252 100644
 --- a/src/cmd/link/internal/ld/lib.go
 +++ b/src/cmd/link/internal/ld/lib.go
 @@ -1193,6 +1193,12 @@ var hostobj []Hostobj
@@ -2430,6 +2431,36 @@ index 596f6d434065fdc7eeabbccd8f2e17ee8603a5a6..e67ec4618acf8759c12d23d0f9397a96
  	}
  }
  
+diff --git a/src/crypto/rand/text_test.go b/src/crypto/rand/text_test.go
+index e6e9bde9cc3277cfcb7e72c71e1c20f93961525f..8499da3bdbe7302d53434626016d132f096127ae 100644
+--- a/src/crypto/rand/text_test.go
++++ b/src/crypto/rand/text_test.go
+@@ -8,6 +8,7 @@ import (
+ 	"crypto/internal/cryptotest"
+ 	"crypto/rand"
+ 	"fmt"
++	boring "github.com/microsoft/go/cryptobackend"
+ 	"testing"
+ )
+ 
+@@ -73,11 +74,15 @@ func indexSetTable(t *testing.T, indexSet [26]map[rune]int) {
+ 
+ func TestAllocations(t *testing.T) {
+ 	cryptotest.SkipTestAllocations(t)
++	expectedAllocations := 0
++	if boring.Enabled {
++		expectedAllocations = 1
++	}
+ 	n := int(testing.AllocsPerRun(10, func() {
+ 		rand.Text()
+ 	}))
+-	if n > 0 {
+-		t.Errorf("allocs = %d, want 0", n)
++	if n > expectedAllocations {
++		t.Errorf("allocs = %d, want %d", n, expectedAllocations)
+ 	}
+ }
+ 
 diff --git a/src/crypto/rc4/rc4.go b/src/crypto/rc4/rc4.go
 index c4d2b0d382e7fc6f095cf986c51917a67096a160..b2b61721e9d340309261163acb36cdd428603dbe 100644
 --- a/src/crypto/rc4/rc4.go
@@ -3625,10 +3656,10 @@ index bc59300f41c762c466e3bd043fd5ee498e3f81dc..698bc79a80aeadbc266f250887a9ef07
  }
  
 diff --git a/src/crypto/x509/verify_test.go b/src/crypto/x509/verify_test.go
-index 2b176c1a5e233733561467c7702c567117336545..f801e63090d2a834ded8d400ca39c167401e911c 100644
+index 066be71475bb8bc08ad99c46404ae068ecdf95a7..8a17e3801a53eca885797513b03f0e543d3add17 100644
 --- a/src/crypto/x509/verify_test.go
 +++ b/src/crypto/x509/verify_test.go
-@@ -3124,7 +3124,7 @@ func dsaSelfSignedCNX(t *testing.T) []byte {
+@@ -3157,7 +3157,7 @@ func dsaSelfSignedCNX(t *testing.T) []byte {
  	t.Helper()
  	var params dsa.Parameters
  	if err := dsa.GenerateParameters(&params, rand.Reader, dsa.L1024N160); err != nil {
@@ -3638,7 +3669,7 @@ index 2b176c1a5e233733561467c7702c567117336545..f801e63090d2a834ded8d400ca39c167
  
  	var dsaPriv dsa.PrivateKey
 diff --git a/src/go/build/deps_test.go b/src/go/build/deps_test.go
-index dfe2f9adb9ebd4367595a68169e5b7d76b9fd4b9..01d82ea4c34507d570d0ccb723d1138b8d6540e6 100644
+index fb7c2dd3f221206c6729539db1fd25a773d8c02d..4f01be34923b179096c3741a40c11568f82ade9f 100644
 --- a/src/go/build/deps_test.go
 +++ b/src/go/build/deps_test.go
 @@ -378,8 +378,10 @@ var depsRules = `
@@ -4004,10 +4035,10 @@ index 9329769721b7debfa20f3a2f04b6361939c7ea62..1724afb71b851e1f267b48896cc12dfe
  	PKG_CONFIG
  `
 diff --git a/src/internal/platform/supported.go b/src/internal/platform/supported.go
-index 86dc5ae15b56bbe9ebd3fc213bff7e444f7712f2..e54c1ac580cce130bd08043d6f90bfacd94721a7 100644
+index 2357d477087345d12aff5b2821afb78741213dd2..b90e6f324f415b35ffe1f466affefa943d65f29e 100644
 --- a/src/internal/platform/supported.go
 +++ b/src/internal/platform/supported.go
-@@ -295,3 +295,13 @@ func FirstClass(goos, goarch string) bool {
+@@ -296,3 +296,13 @@ func FirstClass(goos, goarch string) bool {
  func Broken(goos, goarch string) bool {
  	return distInfo[OSArch{goos, goarch}].Broken
  }

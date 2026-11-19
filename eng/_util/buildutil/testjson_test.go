@@ -44,6 +44,20 @@ func TestRunTestCmdConvertsRawOutputAfterCommand(t *testing.T) {
 	}
 }
 
+func TestRunTestCmdConvertsEmptyOutput(t *testing.T) {
+	t.Setenv("GO_WANT_TESTJSON_HELPER_PROCESS", "empty-json")
+
+	flags := &TestJSONFlags{
+		JUnitOutFile: filepath.Join(t.TempDir(), "test-results.xml"),
+	}
+	if err := flags.RunTestCmd([]string{os.Args[0], "-test.run=TestRunTestCmdHelperProcess", "--"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(flags.JUnitOutFile); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestRunTestCmdPreservesRawOutputWhenJUnitConversionFails(t *testing.T) {
 	t.Setenv("GO_WANT_TESTJSON_HELPER_PROCESS", "bad-json")
 
@@ -74,6 +88,7 @@ func TestRunTestCmdPreservesRawOutputWhenJUnitConversionFails(t *testing.T) {
 
 func TestRunTestCmdHelperProcess(t *testing.T) {
 	switch os.Getenv("GO_WANT_TESTJSON_HELPER_PROCESS") {
+	case "empty-json":
 	case "good-json":
 		fmt.Print(`{"Time":"2026-05-19T07:24:14Z","Action":"start","Package":"net/http"}
 {"Time":"2026-05-19T07:24:14Z","Action":"run","Package":"net/http","Test":"TestDescribeConflict"}

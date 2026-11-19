@@ -2,25 +2,51 @@
 # Use of this source code is governed by a BSD-style
 # license that can be found in the LICENSE file.
 
-# Shallow checkout sources on Windows
-steps:
-  - pwsh: |
-      function fetch_submodule() {
-        eng/run.ps1 submodule-refresh -shallow -skip-patch @args
-      }
+parameters:
+  - name: ctx
+    type: object
+    default: {}
+  # On a fresh-agent retry, use the SHA resolved by the original build job.
+  - name: resolvedRef
+    type: string
+    default: ''
 
-      if ("$env:FETCH_BEARER_TOKEN") {
-        fetch_submodule `
-          -origin 'https://dnceng@dev.azure.com/dnceng/internal/_git/microsoft-go-mirror' `
-          -fetch-bearer-token $env:FETCH_BEARER_TOKEN
-      } else {
-        fetch_submodule
-      }
-    # If non-public, use access token to fetch from repo. If public, don't use the access token,
-    # because anonymous auth is fine.
-    ${{ if ne(variables['System.TeamProject'], 'public') }}:
+# Shallow checkout sources.
+steps:
+  - ${{ if eq(coalesce(parameters.ctx['GoSubmoduleRef'], 'nil'), 'nil') }}:
+    - pwsh: |
+        function fetch_submodule() {
+          eng/run.ps1 submodule-refresh -shallow -skip-patch @args
+        }
+
+        if ("$env:FETCH_BEARER_TOKEN") {
+          fetch_submodule `
+            -origin 'https://dnceng@dev.azure.com/dnceng/internal/_git/microsoft-go-mirror' `
+            -fetch-bearer-token $env:FETCH_BEARER_TOKEN
+        } else {
+          fetch_submodule
+        }
+      # If non-public, use access token to fetch from repo. If public, don't use the access token,
+      # because anonymous auth is fine.
+      ${{ if ne(variables['System.TeamProject'], 'public') }}:
+        env:
+          FETCH_BEARER_TOKEN: $(System.AccessToken)
+        displayName: Set up submodule from internal mirror
+      ${{ else }}:
+        displayName: Set up submodule
+
+  - ${{ else }}:
+    - pwsh: |
+        if ([string]::IsNullOrWhiteSpace($env:GO_SUBMODULE_REF)) {
+          throw "The Go submodule override revision is missing."
+        }
+        eng/run.ps1 submodule-refresh -shallow -skip-patch `
+          -origin $env:GO_SUBMODULE_REPOSITORY -ref $env:GO_SUBMODULE_REF
       env:
-        FETCH_BEARER_TOKEN: $(System.AccessToken)
-      displayName: Set up submodule from internal mirror
-    ${{ else }}:
-      displayName: Set up submodule
+        GO_SUBMODULE_REF: ${{ coalesce(parameters.resolvedRef, parameters.ctx['GoSubmoduleRef']) }}
+        # Never pass the internal mirror's bearer token to an override source.
+        ${{ if eq(variables['System.TeamProject'], 'public') }}:
+          GO_SUBMODULE_REPOSITORY: ${{ coalesce(parameters.ctx['GoSubmoduleRepository'], 'https://go.googlesource.com/go') }}
+        ${{ else }}:
+          GO_SUBMODULE_REPOSITORY: https://go.googlesource.com/go
+      displayName: Override Go submodule revision
