@@ -10,13 +10,12 @@ on:
 
 permissions:
   contents: read
-  pull-requests: read
 
 env:
   REVIEW_LABEL: upstream-crypto-reviewed
 
 concurrency:
-  group: upstream-review-${{ github.ref }}-${{ github.sha }}
+  group: upstream-review-${{ github.event.number }}
   cancel-in-progress: true
 
 jobs:
@@ -24,8 +23,6 @@ jobs:
     if: github.event.pull_request.head.repo.full_name != github.repository
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    permissions:
-      contents: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -52,8 +49,12 @@ jobs:
     if: github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    outputs:
-      review: ${{ steps.review.outputs.review }}
+    permissions:
+      contents: read
+      pull-requests: write
+    defaults:
+      run:
+        working-directory: eng/_util
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -65,7 +66,6 @@ jobs:
           cache: false
       - name: Check upstream crypto changes
         id: review
-        working-directory: eng/_util
         env:
           GH_TOKEN: ${{ github.token }}
         run: >-
@@ -75,27 +75,11 @@ jobs:
           -src src -import crypto/internal/fips140 -exclude src/crypto/internal/fips140
           >> "$GITHUB_STEP_SUMMARY"
 
-  comment:
-    needs: upstream-crypto-review
-    # Forks produce no review output; a missing label still produces a verdict.
-    if: ${{ !cancelled() && needs.upstream-crypto-review.outputs.review != '' }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    permissions:
-      contents: read
-      pull-requests: write
-    concurrency: upstream-crypto-comment-${{ github.event.number }}
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
-        with:
-          go-version-file: eng/_util/go.mod
-          cache: false
-      - name: Link to the review summary
-        working-directory: eng/_util
+      - name: Update the PR review comment
+        # A missing acknowledgment fails the check but still produces a verified review.
+        if: ${{ !cancelled() && steps.review.outputs.review != '' && steps.review.outputs.update-comment == 'true' }}
+        continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
-          REVIEW: ${{ needs.upstream-crypto-review.outputs.review }}
+          REVIEW: ${{ steps.review.outputs.review }}
         run: go tool upstreamreview update-pr-comment -review "$REVIEW" -label "$REVIEW_LABEL"

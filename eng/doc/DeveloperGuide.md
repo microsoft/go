@@ -207,7 +207,7 @@ For a match, open the job summary for links to the affected files and an [`upstr
 
 For PRs from branches in this repository, one bot comment shows the verdict of the linked scan: **review needed**, **acknowledged**, or **no matching changes**. The footer links to the PR head and base commits that were scanned. If a later scan fails before reaching a verdict, the comment still describes the earlier scan. Use **Labels** (shortcut: `L`) on the PR to add or remove the acknowledgment. The comment updates in place; clean PRs get no new comment. Fork PRs get the check result in the job summary instead of a bot comment.
 
-The label applies to the whole PR. New commits are scanned and reported, but do not require a new acknowledgment. Remove the label to require review again. Adding or removing the label reruns the check; ordinary PR approval and code-owner requirements are unchanged.
+The label acknowledges the **two upstream Go pins**, not the PR head. A docs or patch commit keeps the acknowledgment if both pins stay the same. Changing either pin (including by retargeting the PR) invalidates it: the check removes the old label and requires a fresh review if the new diff has matches. A clean diff passes without a label. If the check cannot remove a stale label, remove it yourself before reapplying it. You can also remove the label to request another review. Ordinary PR approval and code-owner requirements are unchanged.
 
 ### Generating new patch files
 
