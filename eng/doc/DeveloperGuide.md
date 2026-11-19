@@ -197,7 +197,7 @@ Once you have made changes that work as you expect, move on to the next step.
 
 ### Reviewing upstream crypto changes
 
-The [`upstream-review` job](../../.github/workflows/upstream-review.yml) compares the Go submodule pin in the target branch with the pin in GitHub's proposed merge. Fork PRs can contribute patches, but must leave the pin unchanged. If a fork PR changes it, the job fails before the crypto scan, regardless of labels. Ask a maintainer to submit an intentional pin update from a branch in this repository.
+The [`upstream-crypto-review` job](../../.github/workflows/upstream-review.yml) compares the Go submodule pin in the target branch with the pin in GitHub's proposed merge. Fork PRs can contribute patches, but must leave the pin unchanged. If a fork PR changes it, the job fails before the crypto scan, regardless of labels. Ask a maintainer to submit an intentional pin update from a branch in this repository.
 
 After the crypto scan, the job reads the PR's current labels and verifies that the merge parents still match the live PR base and head. If the head moved, look at the checks for the new head. If only the base moved, update the PR branch to start a fresh check; re-running the old job uses the original commit.
 
