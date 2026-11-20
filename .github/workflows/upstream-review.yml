@@ -68,3 +68,24 @@ jobs:
           -upstream golang/go -submodule go -label upstream-crypto-reviewed
           -src src -import crypto/internal/fips140 -exclude src/crypto/internal/fips140
           >> "$GITHUB_STEP_SUMMARY"
+
+  upstream-review:
+    needs: [fork-submodule-pin, upstream-crypto-review]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions: {}
+    steps:
+      - name: Require the applicable upstream check to pass
+        env:
+          FROM_FORK: ${{ github.event.pull_request.head.repo.full_name != github.repository }}
+          FORK_PIN: ${{ needs.fork-submodule-pin.result }}
+          CRYPTO_REVIEW: ${{ needs.upstream-crypto-review.result }}
+        shell: bash
+        run: |
+          echo "fork-submodule-pin: $FORK_PIN; upstream-crypto-review: $CRYPTO_REVIEW"
+          if [[ "$FROM_FORK" == true ]]; then
+            [[ "$FORK_PIN" == success && "$CRYPTO_REVIEW" == skipped ]]
+          else
+            [[ "$FORK_PIN" == skipped && "$CRYPTO_REVIEW" == success ]]
+          fi
