@@ -197,21 +197,13 @@ Once you have made changes that work as you expect, move on to the next step.
 
 ### Reviewing upstream crypto changes
 
-The [Upstream review workflow](../../.github/workflows/upstream-review.yml) reports one final check, `upstream-review`. It passes only when the job for the PR's source passes and the other job is skipped.
+Fork PRs can change patches, but not the `go` submodule pin. To update the pin, submit the PR from a branch in this repository.
 
-On fork PRs, `fork-submodule-pin` checks that GitHub's proposed merge leaves the target branch's Go submodule pin unchanged. Fork PRs can contribute patches, but a maintainer must submit intentional pin updates from a branch in this repository. The fork check does not run the crypto scan or use the review label.
+For a pin update, [`upstream-review`](../../.github/workflows/upstream-review.yml) flags changed Go files under `src` that directly import `crypto/internal/fips140` or one of its subpackages in either upstream revision.
+The FIPS implementation tree itself is excluded. Edits count even when the imports don't change. If no files match, no label is needed.
 
-On PRs from branches in this repository, `upstream-crypto-review` scans the changes between the upstream Go revisions pinned by the base and the proposed merge. After the scan, it reads the PR's current labels and verifies that the merge parents still match the live PR base and head. If the head moved, look at the checks for the new head. If only the base moved, update the PR branch to start a fresh check; re-running the old job uses the original commit.
-
-No acknowledgment is needed unless a changed Go file under `src` directly imports `crypto/internal/fips140` or a subpackage on either side of the change. The FIPS implementation directory itself is excluded. Tests, build-tagged files, removed imports, and edits using existing imports all count.
-
-For a match, open the job summary for links to the affected files and an [`upstreamreview importdiff`](https://github.com/microsoft/go-infra/tree/main/cmd/upstreamreview#importdiff) command to reproduce the comparison. Review the affected operations, update backend patches if needed, and add **`upstream-crypto-reviewed`** to the PR. Anyone who can label the PR in the target repository can acknowledge it this way.
-
-For PRs from branches in this repository, one bot comment shows the verdict of the linked scan: **review needed**, **acknowledged**, or **no matching changes**. The footer links to the PR head and base commits that were scanned. If a later scan fails before reaching a verdict, the comment still describes the earlier scan. Use **Labels** (shortcut: `L`) on the PR to add or remove the acknowledgment. The comment updates in place; clean PRs get no new comment. Fork PRs get the check result in the job summary instead of a bot comment.
-
-The label acknowledges the **two upstream Go pins**, not the PR head. A docs or patch commit keeps the acknowledgment if both pins stay the same. Changing either pin (including by retargeting the PR) invalidates it: the check removes the old label and requires a fresh review if the new diff has matches. A clean diff passes without a label. If the check cannot remove a stale label, remove it yourself before reapplying it. You can also remove the label to request another review. Ordinary PR approval and code-owner requirements are unchanged.
-
-If a comment or label update fails, the crypto job summary warns you without changing the scan verdict. If a PR edit cancels the label run before it saves your acknowledgment, let the new run finish, then reapply the label if it still asks for review.
+If review is requested, follow **See the affected files** in the PR comment. Review the diffs, update the backend patches if needed, then add `upstream-crypto-reviewed`.
+The label acknowledges the **pair of upstream pins**: unrelated pushes keep the acknowledgment, but changing either pin requires a fresh review if files match.
 
 ### Generating new patch files
 
