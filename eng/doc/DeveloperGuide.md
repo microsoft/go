@@ -195,6 +195,16 @@ See the [`cryptobackend` README](../../cryptobackend/README.md) for more detail.
 
 Once you have made changes that work as you expect, move on to the next step.
 
+### Reviewing upstream crypto changes
+
+Fork PRs can change patches, but not the `go` submodule pin. To update the pin, submit the PR from a branch in this repository.
+
+For a pin update, [`upstream-review`](../../.github/workflows/upstream-review.yml) flags changed Go files under `src` that directly import `crypto/internal/fips140` or one of its subpackages in either upstream revision.
+The FIPS implementation tree itself is excluded. Edits count even when the imports don't change. If no files match, no label is needed.
+
+If review is requested, follow **See the affected files** in the PR comment. Review the diffs, update the backend patches if needed, then add `upstream-crypto-reviewed`.
+The label acknowledges the **pair of upstream pins**: unrelated pushes keep the acknowledgment, but changing either pin requires a fresh review if files match.
+
 ### Generating new patch files
 
 After making changes in the `go` directory, you must commit your changes following the standard Git process.
