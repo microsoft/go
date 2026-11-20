@@ -16,7 +16,9 @@ func MLDSA44() Parameters             { return openssl.MLDSA44() }
 func MLDSA65() Parameters             { return openssl.MLDSA65() }
 func MLDSA87() Parameters             { return openssl.MLDSA87() }
 func Supports(params Parameters) bool { return openssl.SupportsMLDSA(params) }
-func supportsExternalMu() bool        { return true }
+func supportsExternalMu(params Parameters) bool {
+	return openssl.SupportsMLDSAExternalMu(params)
+}
 func generateKey(params Parameters) (*backendPrivateKey, error) {
 	return openssl.GenerateKeyMLDSA(params)
 }

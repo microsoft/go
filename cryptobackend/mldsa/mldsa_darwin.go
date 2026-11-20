@@ -12,11 +12,11 @@ type Parameters = xcrypto.MLDSAParameters
 type backendPrivateKey = xcrypto.PrivateKeyMLDSA
 type backendPublicKey = xcrypto.PublicKeyMLDSA
 
-func MLDSA44() Parameters             { return Parameters{} }
-func MLDSA65() Parameters             { return xcrypto.MLDSA65() }
-func MLDSA87() Parameters             { return xcrypto.MLDSA87() }
-func Supports(params Parameters) bool { return xcrypto.SupportsMLDSA(params) }
-func supportsExternalMu() bool        { return false }
+func MLDSA44() Parameters                       { return Parameters{} }
+func MLDSA65() Parameters                       { return xcrypto.MLDSA65() }
+func MLDSA87() Parameters                       { return xcrypto.MLDSA87() }
+func Supports(params Parameters) bool           { return xcrypto.SupportsMLDSA(params) }
+func supportsExternalMu(params Parameters) bool { return false }
 func generateKey(params Parameters) (*backendPrivateKey, error) {
 	return xcrypto.GenerateKeyMLDSA(params)
 }

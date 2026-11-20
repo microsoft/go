@@ -1,0 +1,259 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: bot-for-go[bot] <199222863+bot-for-go[bot]@users.noreply.github.com>
+Date: Fri, 30 Oct 2026 07:32:01 +0100
+Subject: [PATCH] Enable BIND_NOW by default
+
+Enable immediate symbol binding for ELF executables and shared libraries using the existing internal and external linker support. Preserve -bindnow=false as an opt-out and extend ELF flag and RELRO coverage.
+
+Fixes microsoft/go#851.
+---
+ src/cmd/link/doc.go                  |   2 +-
+ src/cmd/link/internal/ld/elf_test.go | 151 ++++++++++++++++++---------
+ src/cmd/link/internal/ld/lib.go      |   2 +-
+ src/cmd/link/internal/ld/main.go     |   2 +-
+ 4 files changed, 107 insertions(+), 50 deletions(-)
+
+diff --git a/src/cmd/link/doc.go b/src/cmd/link/doc.go
+index b7857cfc177785179de83d241635524402dbce62..eba4299623b295f074c906b6549d2558329fa794 100644
+--- a/src/cmd/link/doc.go
++++ b/src/cmd/link/doc.go
+@@ -48,7 +48,7 @@ Flags:
+ 	-aslr
+ 		Enable ASLR for buildmode=c-shared on windows (default true).
+ 	-bindnow
+-		Mark a dynamically linked ELF object for immediate function binding (default false).
++		Mark a dynamically linked ELF object for immediate function binding (default true).
+ 	-buildid id
+ 		Record id as Go toolchain build id.
+ 	-buildmode mode
+diff --git a/src/cmd/link/internal/ld/elf_test.go b/src/cmd/link/internal/ld/elf_test.go
+index 724c386d948d9427416021d84228cc0437d35a4a..1f6ffbc078ce8370e1829ff9017afa5d9b29bb89 100644
+--- a/src/cmd/link/internal/ld/elf_test.go
++++ b/src/cmd/link/internal/ld/elf_test.go
+@@ -7,6 +7,7 @@
+ package ld
+ 
+ import (
++	"cmd/internal/quoted"
+ 	"debug/elf"
+ 	"fmt"
+ 	"internal/platform"
+@@ -205,32 +206,53 @@ func TestElfBindNow(t *testing.T) {
+ 	//   in the external linking case.
+ 
+ 	tests := []struct {
+-		name                 string
+-		args                 []string
+-		prog                 string
+-		wantSecsRO           []string
+-		wantSecsROIfPresent  []string
+-		mustHaveBuildModePIE bool
+-		mustHaveCGO          bool
+-		mustInternalLink     bool
+-		wantDfBindNow        bool
+-		wantDf1Now           bool
+-		wantDf1Pie           bool
++		name                string
++		args                []string
++		ldflags             []string
++		prog                string
++		wantSecsRO          []string
++		wantSecsROIfPresent []string
++		mustHaveBuildMode   string
++		mustHaveCGO         bool
++		mustInternalLink    bool
++		wantDfBindNow       bool
++		wantDf1Now          bool
++		wantDf1Pie          bool
+ 	}{
+-		{name: "default", prog: prog, wantDf1Pie: platform.DefaultPIE(runtime.GOOS, runtime.GOARCH, false, false)},
+ 		{
+-			name:                 "pie-linkmode-internal",
+-			args:                 []string{"-buildmode=pie", "-ldflags", "-linkmode=internal"},
+-			prog:                 prog,
+-			mustHaveBuildModePIE: true,
+-			mustInternalLink:     true,
+-			wantDf1Pie:           true,
+-			wantSecsRO:           []string{".dynamic"},
+-			wantSecsROIfPresent:  []string{".got"},
++			name:          "default",
++			prog:          progC,
++			mustHaveCGO:   true,
++			wantDfBindNow: true,
++			wantDf1Now:    true,
++			wantDf1Pie:    platform.DefaultPIE(runtime.GOOS, runtime.GOARCH, false, false),
++		},
++		{
++			name:             "exe-linkmode-internal",
++			args:             []string{"-buildmode=exe"},
++			ldflags:          []string{"-linkmode=internal"},
++			prog:             progC,
++			mustHaveCGO:      true,
++			mustInternalLink: true,
++			wantDfBindNow:    true,
++			wantDf1Now:       true,
++		},
++		{
++			name:                "pie-linkmode-internal",
++			args:                []string{"-buildmode=pie"},
++			ldflags:             []string{"-linkmode=internal"},
++			prog:                prog,
++			mustHaveBuildMode:   "pie",
++			mustInternalLink:    true,
++			wantDfBindNow:       true,
++			wantDf1Now:          true,
++			wantDf1Pie:          true,
++			wantSecsRO:          []string{".dynamic"},
++			wantSecsROIfPresent: []string{".got", ".got.plt"},
+ 		},
+ 		{
+ 			name:             "bindnow-linkmode-internal",
+-			args:             []string{"-ldflags", "-bindnow -linkmode=internal"},
++			ldflags:          []string{"-bindnow", "-linkmode=internal"},
+ 			prog:             progC,
+ 			mustHaveCGO:      true,
+ 			mustInternalLink: true,
+@@ -239,27 +261,47 @@ func TestElfBindNow(t *testing.T) {
+ 			wantDf1Pie:       platform.DefaultPIE(runtime.GOOS, runtime.GOARCH, false, false),
+ 		},
+ 		{
+-			name:                 "bindnow-pie-linkmode-internal",
+-			args:                 []string{"-buildmode=pie", "-ldflags", "-bindnow -linkmode=internal"},
+-			prog:                 prog,
+-			mustHaveBuildModePIE: true,
+-			mustInternalLink:     true,
+-			wantDfBindNow:        true,
+-			wantDf1Now:           true,
+-			wantDf1Pie:           true,
+-			wantSecsRO:           []string{".dynamic"},
+-			wantSecsROIfPresent:  []string{".got", ".got.plt"},
++			name:                "bindnow-disabled-pie-linkmode-internal",
++			args:                []string{"-buildmode=pie"},
++			ldflags:             []string{"-bindnow=false", "-linkmode=internal"},
++			prog:                prog,
++			mustHaveBuildMode:   "pie",
++			mustInternalLink:    true,
++			wantDf1Pie:          true,
++			wantSecsRO:          []string{".dynamic"},
++			wantSecsROIfPresent: []string{".got"},
++		},
++		{
++			name:              "pie-linkmode-external",
++			args:              []string{"-buildmode=pie"},
++			ldflags:           []string{"-linkmode=external"},
++			prog:              prog,
++			mustHaveBuildMode: "pie",
++			mustHaveCGO:       true,
++			wantDfBindNow:     true,
++			wantDf1Now:        true,
++			wantDf1Pie:        true,
++			wantSecsRO:        []string{".dynamic"},
++		},
++		{
++			name:              "bindnow-disabled-pie-linkmode-external",
++			args:              []string{"-buildmode=pie"},
++			ldflags:           []string{"-bindnow=false", "-linkmode=external"},
++			prog:              progC,
++			mustHaveBuildMode: "pie",
++			mustHaveCGO:       true,
++			wantDf1Pie:        true,
++			wantSecsRO:        []string{".dynamic"},
+ 		},
+ 		{
+-			name:                 "bindnow-pie-linkmode-external",
+-			args:                 []string{"-buildmode=pie", "-ldflags", "-bindnow -linkmode=external"},
+-			prog:                 prog,
+-			mustHaveBuildModePIE: true,
+-			mustHaveCGO:          true,
+-			wantDfBindNow:        true,
+-			wantDf1Now:           true,
+-			wantDf1Pie:           true,
+-			wantSecsRO:           []string{".dynamic"},
++			name:              "c-shared",
++			args:              []string{"-buildmode=c-shared"},
++			prog:              progC,
++			mustHaveBuildMode: "c-shared",
++			mustHaveCGO:       true,
++			wantDfBindNow:     true,
++			wantDf1Now:        true,
++			wantSecsRO:        []string{".dynamic"},
+ 		},
+ 	}
+ 
+@@ -286,10 +328,10 @@ func TestElfBindNow(t *testing.T) {
+ 			if test.mustHaveCGO {
+ 				testenv.MustHaveCGO(t)
+ 			}
+-			if test.mustHaveBuildModePIE {
+-				testenv.MustHaveBuildMode(t, "pie")
++			if test.mustHaveBuildMode != "" {
++				testenv.MustHaveBuildMode(t, test.mustHaveBuildMode)
+ 			}
+-			if test.mustHaveBuildModePIE && test.mustInternalLink {
++			if test.mustHaveBuildMode == "pie" && test.mustInternalLink {
+ 				testenv.MustInternalLinkPIE(t)
+ 			}
+ 
+@@ -303,7 +345,22 @@ func TestElfBindNow(t *testing.T) {
+ 				t.Fatal(err)
+ 			}
+ 
+-			cmdArgs := append([]string{"build", "-o", binFile}, append(test.args, src)...)
++			ldflags := test.ldflags
++			if !test.mustInternalLink {
++				// Override the C toolchain's default before Go's linker flags,
++				// without passing linker-only options to C compilation.
++				ccCmd := testenv.Command(t, testenv.GoToolPath(t), "env", "CC")
++				out, err := ccCmd.CombinedOutput()
++				if err != nil {
++					t.Fatalf("go env CC failed: %v:\n%s", err, out)
++				}
++				ldflags = append(ldflags, "-extld", strings.TrimSpace(string(out))+" -Wl,-z,lazy")
++			}
++			ldflagsArg, err := quoted.Join(ldflags)
++			if err != nil {
++				t.Fatal(err)
++			}
++			cmdArgs := append([]string{"build", "-o", binFile, "-ldflags", ldflagsArg}, append(test.args, src)...)
+ 			cmd := testenv.Command(t, testenv.GoToolPath(t), cmdArgs...)
+ 
+ 			if out, err := cmd.CombinedOutput(); err != nil {
+@@ -337,9 +394,9 @@ func TestElfBindNow(t *testing.T) {
+ 
+ 			bindNowFlagsMatch := gotDfBindNow == test.wantDfBindNow && gotDf1Now == test.wantDf1Now
+ 
+-			// some external linkers may set one of the two flags but not both.
+-			if !test.mustInternalLink {
+-				bindNowFlagsMatch = gotDfBindNow == test.wantDfBindNow || gotDf1Now == test.wantDf1Now
++			// Some external linkers set only one of the flags when enabled.
++			if !test.mustInternalLink && test.wantDfBindNow && test.wantDf1Now {
++				bindNowFlagsMatch = gotDfBindNow || gotDf1Now
+ 			}
+ 
+ 			if !bindNowFlagsMatch {
+diff --git a/src/cmd/link/internal/ld/lib.go b/src/cmd/link/internal/ld/lib.go
+index 4af948ece8575e9a4a39045da5b154225c63662a..ab770b6449d60da3b8921d00a7c88a359ee33b5f 100644
+--- a/src/cmd/link/internal/ld/lib.go
++++ b/src/cmd/link/internal/ld/lib.go
+@@ -1730,7 +1730,7 @@ func (ctxt *Link) hostlink() {
+ 	var altLinker string
+ 	if ctxt.IsELF && (ctxt.DynlinkingGo() || *flagBindNow) {
+ 		// For ELF targets, when producing dynamically linked Go code
+-		// or when immediate binding is explicitly requested,
++		// or when immediate binding is enabled,
+ 		// we force all symbol resolution to be done at program startup
+ 		// because lazy PLT resolution can use large amounts of stack at
+ 		// times we cannot allow it to do so.
+diff --git a/src/cmd/link/internal/ld/main.go b/src/cmd/link/internal/ld/main.go
+index 2388bc0656f4115b05c2be45a13d90a2e90e56b9..0b0d82e4de52ee91214942a54e7c896fac90a0af 100644
+--- a/src/cmd/link/internal/ld/main.go
++++ b/src/cmd/link/internal/ld/main.go
+@@ -67,7 +67,7 @@ func init() {
+ // Flags used by the linker. The exported flags are used by the architecture-specific packages.
+ var (
+ 	flagBuildid = flag.String("buildid", "", "record `id` as Go toolchain build id")
+-	flagBindNow = flag.Bool("bindnow", false, "mark a dynamically linked ELF object for immediate function binding")
++	flagBindNow = flag.Bool("bindnow", true, "mark a dynamically linked ELF object for immediate function binding")
+ 
+ 	flagOutfile    = flag.String("o", "", "write output to `file`")
+ 	flagPluginPath = flag.String("pluginpath", "", "full path name for plugin")

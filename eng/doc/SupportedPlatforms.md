@@ -29,6 +29,7 @@ The following OpenSSL versions are supported on Linux platforms:
 
 - OpenSSL 1.1.1
 - OpenSSL 3.x (built-in providers, or SymCrypt provider v1.6.1+)
+- OpenSSL 4.x (built-in providers, or SymCrypt provider v1.6.1+) (since Go 1.28)
 
 ## Getting Help
 

@@ -6,6 +6,8 @@ package chacha20poly1305
 
 import (
 	"crypto/cipher"
+	"crypto/fips140"
+	"errors"
 
 	"github.com/microsoft/go/cryptobackend"
 	fallback "golang.org/x/crypto/chacha20poly1305"
@@ -20,7 +22,13 @@ const (
 )
 
 // New returns a ChaCha20-Poly1305 AEAD that uses the given 256-bit key.
+//
+// ChaCha20-Poly1305 is not FIPS 140 approved, so New fails in FIPS 140-only
+// mode regardless of whether the native backend or the Go fallback is used.
 func New(key []byte) (cipher.AEAD, error) {
+	if fips140.Enforced() {
+		return nil, errors.New("chacha20poly1305: use of ChaCha20Poly1305 is not allowed in FIPS 140-only mode")
+	}
 	if backend.Enabled && Supports() {
 		return newBackend(key)
 	}

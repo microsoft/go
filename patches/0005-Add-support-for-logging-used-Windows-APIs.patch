@@ -7,20 +7,18 @@ Subject: [PATCH] Add support for logging used Windows APIs
  src/runtime/os_windows.go                    |   1 +
  src/runtime/syscalltrace_generate_windows.go |  50 +++++++
  src/runtime/syscalltrace_windows.go          | 136 +++++++++++++++++++
- src/runtime/syscalltrace_windows_test.go     |  81 +++++++++++
  src/runtime/zsyscalltrace_windows.go         |  59 ++++++++
  src/syscall/dll_windows.go                   |   4 +
- 6 files changed, 331 insertions(+)
+ 5 files changed, 250 insertions(+)
  create mode 100644 src/runtime/syscalltrace_generate_windows.go
  create mode 100644 src/runtime/syscalltrace_windows.go
- create mode 100644 src/runtime/syscalltrace_windows_test.go
  create mode 100644 src/runtime/zsyscalltrace_windows.go
 
 diff --git a/src/runtime/os_windows.go b/src/runtime/os_windows.go
-index 264be526bdc7471a3c01b8e5af0ea49748a2ab2c..2f8d1dd96b4c87f906ccb4c4b1a892a558ec53d1 100644
+index 59ca989f1ddb8ca95f60c1580e5e3e35ac223e8c..e9eb7bd64840be49af383dba41d38f0357dabcc8 100644
 --- a/src/runtime/os_windows.go
 +++ b/src/runtime/os_windows.go
-@@ -194,6 +194,7 @@ func windowsFindfunc(lib uintptr, name []byte) stdFunction {
+@@ -199,6 +199,7 @@ func windowsFindfunc(lib uintptr, name []byte) stdFunction {
  	if name[len(name)-1] != 0 {
  		throw("usage")
  	}
@@ -224,93 +222,6 @@ index 0000000000000000000000000000000000000000..a3a0bf6d15721d6b9aa6c481daaf1c6f
 +	// and ensure that is always in sync by running a dedicated test.
 +	for i := range staticSyscalls {
 +		syscallTrace(k32, unsafe.StringData(staticSyscalls[i]))
-+	}
-+}
-diff --git a/src/runtime/syscalltrace_windows_test.go b/src/runtime/syscalltrace_windows_test.go
-new file mode 100644
-index 0000000000000000000000000000000000000000..626c5e98f7eae4c74866141ea0b8949d9da8fb7b
---- /dev/null
-+++ b/src/runtime/syscalltrace_windows_test.go
-@@ -0,0 +1,81 @@
-+// Copyright 2024 The Go Authors. All rights reserved.
-+// Use of this source code is governed by a BSD-style
-+// license that can be found in the LICENSE file.
-+
-+package runtime_test
-+
-+import (
-+	"internal/testenv"
-+	"os"
-+	"path/filepath"
-+	"strings"
-+	"testing"
-+)
-+
-+func TestSyscalltrace_StaticUpToDate(t *testing.T) {
-+	testenv.MustHaveGoBuild(t)
-+
-+	// This test checks that the staticSyscalls array in runtime/zsyscalltrace_windows.go
-+	// is up-to-date with the list of syscalls in the runtime. It does this by
-+	// running syscalltrace_generate_windows.go to generate the list of syscalls
-+	// and comparing it to the list in runtime/zsyscalltrace_windows.go.
-+
-+	tmp := t.TempDir()
-+	zout := filepath.Join(tmp, "tmp.go")
-+	cmd := testenv.Command(t, testenv.GoToolPath(t), "run", "syscalltrace_generate_windows.go", "-output", zout, "os_windows", "syscalltrace_windows")
-+	out, err := cmd.CombinedOutput()
-+	if err != nil {
-+		t.Fatalf("generating syscalls: %v\n%s", err, out)
-+	}
-+	want, err := os.ReadFile(zout)
-+	if err != nil {
-+		t.Fatal(err)
-+	}
-+	got, err := os.ReadFile(filepath.Join(testenv.GOROOT(t), "src", "runtime", "zsyscalltrace_windows.go"))
-+	if err != nil {
-+		t.Fatal(err)
-+	}
-+	if string(got) != string(want) {
-+		t.Errorf("syscalltrace_windows.go is out of date. Run go generate in runtime/syscalltrace_windows.go to update it.")
-+	}
-+}
-+
-+func TestSyscalltrace(t *testing.T) {
-+	testenv.MustHaveGoBuild(t)
-+
-+	tmp := t.TempDir()
-+	source := filepath.Join(tmp, "tmp.go")
-+	bin := filepath.Join(tmp, "tmp.exe")
-+	trace := filepath.Join(tmp, "trace.csv")
-+	err := os.WriteFile(source, []byte(`
-+		package main
-+		import "syscall"
-+		func main() {
-+			syscall.CloseHandle(0)
-+		}
-+	`), 0644)
-+	if err != nil {
-+		t.Fatal(err)
-+	}
-+	cmd := testenv.Command(t, testenv.GoToolPath(t), "build", "-o", bin, source)
-+	out, err := cmd.CombinedOutput()
-+	if err != nil {
-+		t.Fatalf("building test program: %v\n%s", err, out)
-+	}
-+	cmd = testenv.Command(t, bin)
-+	cmd.Env = []string{"MS_GO_SYSCALL_TRACE=" + trace}
-+	out, err = cmd.CombinedOutput()
-+	if err != nil {
-+		t.Fatalf("running test program: %v\n%s", err, out)
-+	}
-+	if _, err := os.Stat(trace); err != nil {
-+		t.Fatalf("trace file not written: %v", err)
-+	}
-+	csv, err := os.ReadFile(trace)
-+	if err != nil {
-+		t.Fatalf("reading trace file: %v", err)
-+	}
-+	if !strings.Contains(string(csv), "KERNEL32.DLL,CloseHandle\n") {
-+		t.Errorf("trace file does not contain expected syscall")
 +	}
 +}
 diff --git a/src/runtime/zsyscalltrace_windows.go b/src/runtime/zsyscalltrace_windows.go

@@ -1520,6 +1520,92 @@ var userGuideContent = []ugPackage{
 			"  - `tls.PKCS1WithSHA512`\n" +
 			"  - `tls.ECDSAWithP521AndSHA512`",
 	},
+	{
+		Import: "crypto/x509",
+		Doc: "Package x509 parses and creates X.509 certificates, certificate signing requests (CSRs), certificate revocation lists (CRLs), and encoded public and private keys.\n" +
+			"\n" +
+			"Package x509 does not have a separate crypto backend. Its cryptographic operations use other crypto packages, so their backend support and FIPS requirements also apply here. Backend support alone does not imply that an algorithm or its parameters are FIPS-approved; see [Cross-Platform Cryptography](../CrossPlatformCryptography.md) for platform support.\n" +
+			"\n" +
+			"Parsing and marshaling certificates, CSRs, CRLs, and keys use the standard Go implementation. Parsing an object does not verify its signature or establish trust, and successfully parsing or marshaling a key does not mean that it is suitable for FIPS-approved operations. Certificate pools and name checks, such as `Certificate.VerifyHostname`, do not themselves perform cryptographic signature verification.\n" +
+			"\n" +
+			"The signing APIs below accept a `crypto.Signer`. With standard-library RSA, ECDSA, or Ed25519 private keys, signing uses the corresponding crypto package. A custom `crypto.Signer` can use a different implementation, such as an HSM; the application is responsible for ensuring that implementation meets its FIPS requirements. Use `crypto/rand.Reader` for APIs that accept a random source.",
+		Entries: []ugEntry{
+			{
+				Kind: "func",
+				Name: "CreateCertificate",
+				Doc: "CreateCertificate creates and signs a certificate using `priv`, which must implement `crypto.Signer`. The template's `SignatureAlgorithm` selects the signature algorithm; if it is zero, x509 chooses a default based on the signing key.\n" +
+					"\n" +
+					"The signature algorithm, hash, and signing key must meet the requirements of [crypto/rsa](#cryptorsa), [crypto/ecdsa](#cryptoecdsa), or [crypto/ed25519](#cryptoed25519), as applicable. RSA-PSS signatures use a salt length equal to the hash length. The subject public key (`pub`) is encoded in the certificate; it is not used to sign it.",
+			},
+			{
+				Kind: "func",
+				Name: "CreateCertificateRequest",
+				Doc:  "CreateCertificateRequest creates and signs a CSR using `priv`, which must implement `crypto.Signer`. The template's `SignatureAlgorithm` and the signing key select the signature scheme in the same way as [CreateCertificate](#func-createcertificate), with the same underlying crypto package requirements.",
+			},
+			{
+				Kind: "func",
+				Name: "CreateRevocationList",
+				Doc:  "CreateRevocationList creates and signs a CRL using the issuer's private key, `priv`. The template's `SignatureAlgorithm` and the signing key select the signature scheme in the same way as [CreateCertificate](#func-createcertificate), with the same underlying crypto package requirements.",
+			},
+			{
+				Kind: "func",
+				Name: "Certificate.CreateCRL",
+				Doc:  "Certificate.CreateCRL is deprecated; use [CreateRevocationList](#func-createrevocationlist) instead. It signs a CRL using the supplied `crypto.Signer`, choosing a default signature algorithm based on the signing key. The same underlying crypto package requirements apply.",
+			},
+			{
+				Kind: "func",
+				Name: "Certificate.CheckSignature",
+				Doc: "Certificate.CheckSignature checks a signature using the certificate's public key. It does not validate the certificate or establish trust.\n" +
+					"\n" +
+					"RSA signatures use [rsa.VerifyPKCS1v15](#func-verifypkcs1v15) or [rsa.VerifyPSS](#func-verifypss), ECDSA signatures use [ecdsa.VerifyASN1](https://pkg.go.dev/crypto/ecdsa#VerifyASN1), and Ed25519 signatures use [ed25519.Verify](https://pkg.go.dev/crypto/ed25519#Verify). Hashing and signature verification inherit the backend support and FIPS restrictions of those packages.\n" +
+					"\n" +
+					"MD5 signatures are rejected. This low-level API permits SHA-1 signatures, but that does not make SHA-1 an approved choice for every FIPS use or override restrictions imposed by the crypto backend.",
+			},
+			{
+				Kind: "func",
+				Name: "Certificate.CheckSignatureFrom",
+				Doc:  "Certificate.CheckSignatureFrom checks the certificate's signature using the parent's public key and checks the parent's certificate-signing constraints. It uses the same underlying signature verification primitives as [Certificate.CheckSignature](#func-certificatechecksignature), but rejects SHA-1 certificate signatures. It does not build a chain to a trusted root or perform all the checks of [Certificate.Verify](#func-certificateverify).",
+			},
+			{
+				Kind: "func",
+				Name: "CertificateRequest.CheckSignature",
+				Doc:  "CertificateRequest.CheckSignature checks a CSR's signature using its public key. It uses the same underlying signature verification primitives as [Certificate.CheckSignature](#func-certificatechecksignature), including its SHA-1 behavior. A valid CSR signature does not establish trust in the requested identity.",
+			},
+			{
+				Kind: "func",
+				Name: "RevocationList.CheckSignatureFrom",
+				Doc:  "RevocationList.CheckSignatureFrom checks a CRL's signature and the parent's CRL-signing constraints. It uses the same underlying signature verification primitives as [Certificate.CheckSignature](#func-certificatechecksignature), including its SHA-1 behavior. It does not establish trust in the issuer or check whether the CRL is current.",
+			},
+			{
+				Kind: "func",
+				Name: "Certificate.CheckCRLSignature",
+				Doc:  "Certificate.CheckCRLSignature is deprecated; use [RevocationList.CheckSignatureFrom](#func-revocationlistchecksignaturefrom) instead. It checks a CRL's signature using the certificate's public key, with the same underlying crypto package requirements as [Certificate.CheckSignature](#func-certificatechecksignature).",
+			},
+			{
+				Kind: "func",
+				Name: "Certificate.Verify",
+				Doc: "Certificate.Verify builds and verifies certificate chains, checking signatures and certificate constraints such as validity periods and key usage. The Go verifier uses the signature verification primitives described above and rejects SHA-1 certificate signatures. It does not perform revocation checking.\n" +
+					"\n" +
+					"When using system roots on Windows and macOS, Verify can use the platform certificate verifier instead of the Go verifier. That verifier's trust and algorithm policies apply; it is not the same as delegating individual crypto primitives to CNG or OpenSSL. With a root pool created by `x509.NewCertPool`, the Go verifier is used. Enabling a crypto backend does not replace Go's chain verification with OpenSSL's X.509 verifier.\n" +
+					"\n" +
+					"The [crypto/tls](#cryptotls) FIPS restrictions apply when certificates are used by TLS. Do not assume that a direct call to Certificate.Verify applies all of TLS's additional FIPS restrictions.",
+			},
+			{
+				Kind: "func",
+				Name: "EncryptPEMBlock",
+				Doc: "EncryptPEMBlock is deprecated and must not be used for new applications. It implements legacy RFC 1423 PEM encryption, which is unauthenticated and vulnerable to padding oracle attacks.\n" +
+					"\n" +
+					"It derives an encryption key from the password using MD5, then encrypts using DES, Triple DES, or AES in CBC mode according to `alg`. The IV is generated from the supplied random source. These operations use [crypto/md5](#cryptomd5), [crypto/des](#cryptodes), [crypto/aes](#cryptoaes), and [crypto/cipher](#cryptocipher), inheriting their backend restrictions. Selecting AES does not make the MD5-based password derivation FIPS-approved. Do not use this format for FIPS-approved protection of private keys.",
+			},
+			{
+				Kind: "func",
+				Name: "DecryptPEMBlock",
+				Doc: "DecryptPEMBlock is deprecated. It decrypts legacy encrypted PEM blocks using the same MD5-based password derivation and CBC ciphers as [EncryptPEMBlock](#func-encryptpemblock), with the same FIPS limitations. It may fail when the crypto backend disallows the required algorithms.\n" +
+					"\n" +
+					"The format provides no authentication: a wrong password is not always detected, and successful decryption does not establish the integrity of the plaintext. `IsEncryptedPEMBlock` only detects this legacy format; it does not decrypt or authenticate the block.",
+			},
+		},
+	},
 }
 
 // userGuideLinkGroups holds the Markdown link-reference definitions rendered at

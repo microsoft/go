@@ -181,7 +181,7 @@ func Sign(priv *PrivateKey, message []byte, context string) ([]byte, error) {
 }
 
 func SignExternalMu(priv *PrivateKey, mu []byte) ([]byte, error) {
-	if priv.backend != nil && supportsExternalMu() && rand.IsDefaultReader(cryptorand.Reader) {
+	if priv.backend != nil && supportsExternalMu(priv.backend.key.Parameters()) && rand.IsDefaultReader(cryptorand.Reader) {
 		return priv.backend.key.SignExternalMu(mu)
 	}
 	key, err := priv.goKey()

@@ -35,6 +35,11 @@ When a patch adds or modifies a Go file that targets a specific OS or architectu
 - Preferred: `foo_linux.go` with `//go:build goexperiment.systemcrypto`
 - Avoid: `foo.go` with `//go:build goexperiment.systemcrypto && linux`
 
+### Microsoft-specific test placement
+
+- Keep Microsoft-specific tests that only need public APIs or the Go executable in the CI-wired [`toolchaintest`](../../toolchaintest) module rather than in the upstream patch set.
+- Tests that need unexported standard-library or toolchain internals remain alongside that code in the patches.
+
 ### No extraneous blank lines
 
 Patches should not introduce unnecessary blank lines between functions, at the end of files, or between import groups. Whitespace should be consistent with the surrounding code in the Go source tree.

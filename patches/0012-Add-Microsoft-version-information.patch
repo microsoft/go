@@ -14,19 +14,17 @@ to the Microsoft build of Go version, affecting (e.g.) "go version <program>".
 Includes opt-in GODEBUG=ms_version=1 to change runtime.Version() to return the
 Microsoft build of Go version string.
 ---
- doc/godebug.md                                |   9 ++
- src/cmd/dist/build.go                         |  16 ++
- src/cmd/dist/buildruntime.go                  |   1 +
- src/cmd/go/go_ms_test.go                      | 151 ++++++++++++++++++
- src/cmd/go/internal/load/pkg.go               |   2 +
- .../testdata/script/gotoolchain_local_ms.txt  |  46 ++++++
- src/cmd/link/internal/ld/main.go              |  35 +++-
- src/internal/buildcfg/cfg.go                  |  36 ++++-
- src/internal/godebugs/table.go                |   1 +
- src/runtime/extern.go                         |  25 ++-
- src/runtime/runtime1.go                       |   4 +
- 11 files changed, 318 insertions(+), 8 deletions(-)
- create mode 100644 src/cmd/go/go_ms_test.go
+ doc/godebug.md                                |  9 ++++
+ src/cmd/dist/build.go                         | 16 +++++++
+ src/cmd/dist/buildruntime.go                  |  1 +
+ src/cmd/go/internal/load/pkg.go               |  2 +
+ .../testdata/script/gotoolchain_local_ms.txt  | 46 +++++++++++++++++++
+ src/cmd/link/internal/ld/main.go              | 35 +++++++++++---
+ src/internal/buildcfg/cfg.go                  | 36 ++++++++++++++-
+ src/internal/godebugs/table.go                |  1 +
+ src/runtime/extern.go                         | 25 +++++++++-
+ src/runtime/runtime1.go                       |  4 ++
+ 10 files changed, 167 insertions(+), 8 deletions(-)
  create mode 100644 src/cmd/go/testdata/script/gotoolchain_local_ms.txt
 
 diff --git a/doc/godebug.md b/doc/godebug.md
@@ -50,7 +48,7 @@ index 1641530aba7afdf6b837ec872089f966dfb4b005..ff0c1244e5d0e0a9302de4823f951ca5
  
  Go 1.25 added a new `decoratemappings` setting that controls whether the Go
 diff --git a/src/cmd/dist/build.go b/src/cmd/dist/build.go
-index 8b7742f0ae42e0d878dd4382f71b853b89077dad..c24ae323863c1d80d89c3d42f37952a14bff0151 100644
+index 5ab5310456e69f328e83f8fb70e49bf724089e35..a105f8d7ec04f15424d2805bc9c7764b23b49844 100644
 --- a/src/cmd/dist/build.go
 +++ b/src/cmd/dist/build.go
 @@ -454,6 +454,22 @@ func findgoversion() string {
@@ -88,163 +86,6 @@ index 87e88671763996604cfe5cbca1399ce1a323dc31..dccdca982300d779b17a1ce9e46d757c
  	fmt.Fprintf(&buf, "const defaultGOOS = runtime.GOOS\n")
  	fmt.Fprintf(&buf, "const defaultGOARCH = runtime.GOARCH\n")
  	fmt.Fprintf(&buf, "const DefaultGOFIPS140 = `%s`\n", gofips140)
-diff --git a/src/cmd/go/go_ms_test.go b/src/cmd/go/go_ms_test.go
-new file mode 100644
-index 0000000000000000000000000000000000000000..635c40dec22dd8655ee6afbd3754e92718f58ef1
---- /dev/null
-+++ b/src/cmd/go/go_ms_test.go
-@@ -0,0 +1,151 @@
-+// Copyright 2015 The Go Authors. All rights reserved.
-+// Use of this source code is governed by a BSD-style
-+// license that can be found in the LICENSE file.
-+
-+package main_test
-+
-+import (
-+	"debug/buildinfo"
-+	"os/exec"
-+	"strings"
-+	"testing"
-+)
-+
-+func TestMicrosoftVersion(t *testing.T) {
-+	tt := []struct {
-+		name       string
-+		ms_version string
-+		wantMarker bool
-+	}{
-+		{"default", "", false},
-+		{"0", "0", false},
-+		{"1", "1", true},
-+	}
-+	for _, test := range tt {
-+		t.Run("ms_version="+test.name, func(t *testing.T) {
-+			tg := testgo(t)
-+			defer tg.cleanup()
-+			tg.parallel()
-+			tg.setenv("GODEBUG", "ms_version="+test.ms_version)
-+			// Check "go version" output.
-+			tg.run("version")
-+			cmdVersion := strings.TrimSpace(tg.stdout.String())
-+			if strings.Contains(cmdVersion, "-microsoft") != test.wantMarker {
-+				t.Errorf("version = %q, want '-microsoft' marker = %v", cmdVersion, test.wantMarker)
-+			}
-+		})
-+	}
-+}
-+
-+func TestMicrosoftBuildInfoVersion(t *testing.T) {
-+	tg := testgo(t)
-+	defer tg.cleanup()
-+	tg.parallel()
-+	v, msVersion, ok := msReadBuildInfo(t, tg.goTool())
-+	if strings.HasSuffix(v, "-microsoft") {
-+		t.Errorf("buildinfo GoVersion = %q, want no -microsoft suffix", v)
-+	}
-+	if !ok {
-+		t.Errorf("buildinfo doesn't contain microsoft_toolset_version")
-+	}
-+	if !strings.Contains(msVersion, "-microsoft") {
-+		t.Errorf("buildinfo microsoft_toolset_version = %q, want it to contain '-microsoft'", msVersion)
-+	}
-+}
-+
-+func TestMicrosoftEmbedUpstreamVersionLDFlag(t *testing.T) {
-+	tooSlow(t, "compiles and links binaries")
-+
-+	tt := []struct {
-+		name       string
-+		ldflag     string
-+		wantMarker bool
-+	}{
-+		{"default", "", false},
-+		{"upstream", "-ms_upstreamversion=1", false},
-+		{"ms", "-ms_upstreamversion=0", true},
-+	}
-+	for _, test := range tt {
-+		t.Run(test.name, func(t *testing.T) {
-+			tg := testgo(t)
-+			defer tg.cleanup()
-+
-+			tg.parallel()
-+			tg.makeTempdir()
-+			tg.tempFile("main.go", `
-+				package main
-+				func main() {}`)
-+
-+			out := tg.path("main" + exeSuffix)
-+			tg.run("build", "-ldflags="+test.ldflag, "-o", out, tg.path("main.go"))
-+			tg.wantExecutable(out, "go build did not create main executable")
-+			v, msVersion, ok := msReadBuildInfo(t, out)
-+			if strings.Contains(v, "-microsoft") != test.wantMarker {
-+				t.Errorf("buildinfo GoVersion = %q, want '-microsoft' marker = %v", v, test.wantMarker)
-+			}
-+			if !ok {
-+				t.Errorf("buildinfo doesn't contain microsoft_toolset_version")
-+			} else if !strings.Contains(msVersion, "-microsoft") {
-+				t.Errorf("buildinfo microsoft_toolset_version = %q, want it to contain '-microsoft'", msVersion)
-+			}
-+		})
-+	}
-+}
-+
-+func TestMicrosoftRuntimeVersion(t *testing.T) {
-+	tooSlow(t, "compiles and links binaries")
-+
-+	tt := []struct {
-+		name       string
-+		ms_version string
-+		wantMarker bool
-+	}{
-+		{"default", "", false},
-+		{"0", "0", false},
-+		{"1", "1", true},
-+	}
-+	for _, test := range tt {
-+		t.Run("ms_version="+test.name, func(t *testing.T) {
-+			tg := testgo(t)
-+			defer tg.cleanup()
-+
-+			tg.parallel()
-+			tg.makeTempdir()
-+			tg.tempFile("main.go", `
-+				package main
-+				import "fmt"
-+				import "runtime"
-+				func main() { fmt.Println(runtime.Version())}`)
-+
-+			out := tg.path("main" + exeSuffix)
-+			tg.run("build", "-o", out, tg.path("main.go"))
-+			tg.wantExecutable(out, "go build did not create main executable")
-+
-+			cmd := exec.Command(out)
-+			cmd.Env = []string{"GODEBUG=ms_version=" + test.ms_version}
-+			output, err := cmd.Output()
-+			if err != nil {
-+				t.Fatalf("running built program: %v", err)
-+			}
-+			runtimeVersion := strings.TrimSpace(string(output))
-+			if strings.Contains(runtimeVersion, "-microsoft") != test.wantMarker {
-+				t.Errorf("runtime.Version() = %q, want '-microsoft' marker = %v", runtimeVersion, test.wantMarker)
-+			}
-+		})
-+	}
-+}
-+
-+func msReadBuildInfo(t *testing.T, exe string) (mainVersion string, msVersion string, ok bool) {
-+	t.Helper()
-+
-+	bi, err := buildinfo.ReadFile(exe)
-+	if err != nil {
-+		t.Fatalf("buildinfo.ReadFile(%q): %v", exe, err)
-+	}
-+	for _, s := range bi.Settings {
-+		if s.Key == "microsoft_toolset_version" {
-+			return bi.GoVersion, s.Value, true
-+		}
-+	}
-+	return bi.GoVersion, "", false
-+}
 diff --git a/src/cmd/go/internal/load/pkg.go b/src/cmd/go/internal/load/pkg.go
 index b3fab4bd0f358fa6f2f5f780483f7d6122340714..1b48c4b8fa557b84a2119957e61d6bae0303cc5a 100644
 --- a/src/cmd/go/internal/load/pkg.go

@@ -11,7 +11,7 @@ import (
 )
 
 // vendorPatchGlob matches the vendor patch filename.
-const vendorPatchGlob = "0001-*.patch"
+const vendorPatchGlob = "*-Vendor-external-dependencies.patch"
 
 // vendorOnlyPaths lists paths that must appear in the vendor patch and must
 // *only* appear in the vendor patch. Each entry is either an exact path or a
