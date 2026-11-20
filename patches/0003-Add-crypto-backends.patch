@@ -33,7 +33,6 @@ Subject: [PATCH] Add crypto backends
  src/cmd/internal/moddeps/moddeps_test.go      |   3 +
  .../internal/script/scripttest/conditions.go  |  10 +-
  src/cmd/internal/testdir/testdir_test.go      |   6 +
- src/cmd/link/internal/ld/config.go            |   7 ++
  src/cmd/link/internal/ld/lib.go               |   6 +
  src/cmd/link/link_test.go                     |   8 ++
  src/cmd/link/testdata/script/README           |   2 +
@@ -119,7 +118,7 @@ Subject: [PATCH] Add crypto backends
  .../systemcrypto/systemcrypto_test.go         |  60 +++++++++
  src/net/lookup_test.go                        |   3 +
  src/syscall/syscall_windows.go                |   3 +
- 115 files changed, 1226 insertions(+), 247 deletions(-)
+ 114 files changed, 1219 insertions(+), 247 deletions(-)
  create mode 100644 src/crypto/systemcrypto_nocgo_freebsd.go
  create mode 100644 src/crypto/systemcrypto_nocgo_linux.go
  create mode 100644 src/internal/systemcrypto/systemcrypto.go
@@ -329,7 +328,7 @@ index d5733d29d46c0ae897b3604d34ca927ee0475850..64a508f9fd374da34f011a6f33196093
  	"internal/types/errors",
  	"internal/unsafeheader",
 diff --git a/src/cmd/dist/test.go b/src/cmd/dist/test.go
-index e6759f977aa69397f2326583e794f2e743f905d7..6272e257f0e22f45f0ccbdf34d25d6cc7bb0daad 100644
+index 2545a82bc9b8f4338350d34f414e33234a859ef4..e3f327098d79cb3a609e0e7ae2d33de0c9568346 100644
 --- a/src/cmd/dist/test.go
 +++ b/src/cmd/dist/test.go
 @@ -163,11 +163,13 @@ func (t *tester) run() {
@@ -453,7 +452,7 @@ index c7acc7dd0b98490043d8fd15ff4d690c580ebfb6..8f94ea4b7dd4b62e866d28a7895cb6f7
  package main_test
  
 diff --git a/src/cmd/go/go_test.go b/src/cmd/go/go_test.go
-index a38198345b6c1402d0953aab630255af55a69b76..b178010181a8ab0f510fe11b7018ebb487fa5ef8 100644
+index 2d0608bbc51f37787266281e603734dc68576bb0..6922f1d5af97f1d0dbac8da6b99f7795f93fe8a8 100644
 --- a/src/cmd/go/go_test.go
 +++ b/src/cmd/go/go_test.go
 @@ -15,6 +15,7 @@ import (
@@ -478,7 +477,7 @@ index a38198345b6c1402d0953aab630255af55a69b76..b178010181a8ab0f510fe11b7018ebb4
  
  		if testGOROOT := os.Getenv("TESTGO_GOROOT"); testGOROOT != "" {
  			// Disallow installs to the GOROOT from which testgo was built.
-@@ -1731,6 +1739,9 @@ func TestGenerateUsesBuildContext(t *testing.T) {
+@@ -1733,6 +1741,9 @@ func TestGenerateUsesBuildContext(t *testing.T) {
  }
  
  func TestGoEnv(t *testing.T) {
@@ -940,26 +939,8 @@ index c8f355b09430e4746ddb4dc46aec2935a1e40799..dc80e1e13936374098bbf3248e474798
  	common := testCommon{
  		gorootTestDir: filepath.Join(testenv.GOROOT(t), "test"),
  		runoutputGate: make(chan bool, *runoutputLimit),
-diff --git a/src/cmd/link/internal/ld/config.go b/src/cmd/link/internal/ld/config.go
-index acbebf28598a9c3db2bc871fbc9903c7ede062cc..6ef32735ddfd5738fed157f9c9bcb03a8c247a77 100644
---- a/src/cmd/link/internal/ld/config.go
-+++ b/src/cmd/link/internal/ld/config.go
-@@ -34,6 +34,13 @@ func (mode *BuildMode) Set(s string) error {
- 		return fmt.Errorf("invalid buildmode: %q", s)
- 	case "exe":
- 		switch buildcfg.GOOS + "/" + buildcfg.GOARCH {
-+		case "darwin/amd64":
-+			// We can't link against the static object file when using no_pie
-+			if platform.SystemCryptoSupported(buildcfg.GOOS, buildcfg.GOARCH) && !buildcfg.SystemCryptoDisabled {
-+				*mode = BuildModePIE
-+			} else {
-+				*mode = BuildModeExe
-+			}
- 		case "darwin/arm64", "windows/arm64": // On these platforms, everything is PIE
- 			*mode = BuildModePIE
- 		default:
 diff --git a/src/cmd/link/internal/ld/lib.go b/src/cmd/link/internal/ld/lib.go
-index c316f41a7563c2db62b4dc8cedf6dc436ed3107c..028015d0718bdfcd7928e3a9459a6138e9074252 100644
+index 83948a06c63ffb3d3f04e0b7c3575158fbe5ab43..8f5715a9bdf50b8c4a8af7bd35a7be1a009b7ce0 100644
 --- a/src/cmd/link/internal/ld/lib.go
 +++ b/src/cmd/link/internal/ld/lib.go
 @@ -1193,6 +1193,12 @@ var hostobj []Hostobj
@@ -3971,7 +3952,7 @@ index 0452a6361e151f44d0419b177fe2112908343f5c..570d000124bad1685ed9a7fc1a99d019
  	"v1.0.0",
  	"v1.0.1",
 diff --git a/src/internal/buildcfg/exp.go b/src/internal/buildcfg/exp.go
-index 0ede05787de83f7e775bbef532a8d9296bd09c2f..ce3a0ee6a841c429e724503baae935b3edd16737 100644
+index 845d8173f5236056fe90d8a6ff78b51a4262ee94..b8db152707883fdcdfa67643ba1cbb56eab2baa9 100644
 --- a/src/internal/buildcfg/exp.go
 +++ b/src/internal/buildcfg/exp.go
 @@ -10,12 +10,14 @@ import (
@@ -3989,7 +3970,7 @@ index 0ede05787de83f7e775bbef532a8d9296bd09c2f..ce3a0ee6a841c429e724503baae935b3
  	baseline goexperiment.Flags
  }
  
-@@ -131,6 +133,23 @@ func ParseGOEXPERIMENT(goos, goarch, goexp string) (*ExperimentFlags, error) {
+@@ -140,6 +142,23 @@ func ParseGOEXPERIMENT(goos, goarch, goexp string) (*ExperimentFlags, error) {
  			if strings.HasPrefix(f, "no") {
  				f, val = f[2:], false
  			}
@@ -4013,9 +3994,9 @@ index 0ede05787de83f7e775bbef532a8d9296bd09c2f..ce3a0ee6a841c429e724503baae935b3
  			set, ok := names[f]
  			if !ok {
  				return nil, fmt.Errorf("unknown GOEXPERIMENT %s", f)
-@@ -152,6 +171,9 @@ func ParseGOEXPERIMENT(goos, goarch, goexp string) (*ExperimentFlags, error) {
- 	if flags.RegabiArgs && !flags.RegabiWrappers {
- 		return nil, fmt.Errorf("GOEXPERIMENT regabiargs requires regabiwrappers")
+@@ -169,6 +188,9 @@ func ParseGOEXPERIMENT(goos, goarch, goexp string) (*ExperimentFlags, error) {
+ 		}
+ 		flags.SIMDStable = true
  	}
 +	if flags.BoringCrypto {
 +		return nil, fmt.Errorf("GOEXPERIMENT boringcrypto is not supported in the Microsoft build of Go")
