@@ -16,14 +16,6 @@ type Stream interface {
 	XORKeyStream(dst, src []byte)
 }
 
-// AEAD matches [crypto/cipher.AEAD].
-type AEAD interface {
-	NonceSize() int
-	Overhead() int
-	Seal(dst, nonce, plaintext, additionalData []byte) []byte
-	Open(dst, nonce, ciphertext, additionalData []byte) ([]byte, error)
-}
-
 // NewFIPSCBCEncrypter returns the provider's FIPS-approved CBC encrypter.
 func NewFIPSCBCEncrypter[T BlockMode](block any, iv []byte) (BlockMode, bool) {
 	cipher, ok := block.(interface {
@@ -55,21 +47,4 @@ func NewFIPSCTR[T Stream](block any, iv []byte) (Stream, bool) {
 		return nil, false
 	}
 	return cipher.NewFIPSCTR(iv), true
-}
-
-type gcmAble[T AEAD] interface {
-	NewGCM(nonceSize, tagSize int) (T, error)
-}
-
-// NewGCM returns the provider's GCM.
-func NewGCM[T AEAD](block any, nonceSize, tagSize int) (AEAD, bool, error) {
-	cipher, ok := block.(gcmAble[T])
-	if !ok {
-		return nil, false, nil
-	}
-	gcm, err := cipher.NewGCM(nonceSize, tagSize)
-	if err != nil {
-		return nil, true, err
-	}
-	return gcm, true, nil
 }
