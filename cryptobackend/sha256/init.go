@@ -2,6 +2,10 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
+//go:build msgostd || cmd_go_bootstrap
+
 package sha256
 
-import _ "github.com/microsoft/go/cryptobackend"
+import "crypto/internal/fips140hash"
+
+func init() { fips140hash.RegisterUnwrap((*Hash).unwrap) }

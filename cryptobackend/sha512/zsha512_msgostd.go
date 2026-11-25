@@ -8,10 +8,7 @@
 
 package sha512
 
-import (
-	fallback "crypto/internal/fips140/sha512"
-	"hash"
-)
+import fallback "crypto/internal/fips140/sha512"
 
 type fipsHash = fallback.Digest
 
@@ -30,6 +27,3 @@ func New384() *Hash { return newHash(hashSHA384) }
 func New512_224() *Hash { return newHash(hashSHA512_224) }
 
 func New512_256() *Hash { return newHash(hashSHA512_256) }
-
-// Unwrap returns the selected hash implementation.
-func Unwrap(h *Hash) hash.Hash { return h.unwrap() }

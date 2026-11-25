@@ -8,10 +8,7 @@
 
 package sha256
 
-import (
-	fallback "crypto/internal/fips140/sha256"
-	"hash"
-)
+import fallback "crypto/internal/fips140/sha256"
 
 type fipsHash = fallback.Digest
 
@@ -22,6 +19,3 @@ func initFallback224() *fipsHash { return fallback.New224() }
 func New() *Hash { return newHash(hashSHA256) }
 
 func New224() *Hash { return newHash(hashSHA224) }
-
-// Unwrap returns the selected hash implementation.
-func Unwrap(h *Hash) hash.Hash { return h.unwrap() }

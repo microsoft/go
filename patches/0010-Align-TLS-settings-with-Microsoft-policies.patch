@@ -12,19 +12,19 @@ Subject: [PATCH] Align TLS settings with Microsoft policies
  src/crypto/tls/handshake_client_test.go       |  17 +-
  src/crypto/tls/handshake_server_tls13.go      |  22 +-
  src/crypto/tls/handshake_test.go              |   3 +
- src/crypto/tls/microsoft_test.go              | 635 ++++++++++++++++++
+ src/crypto/tls/microsoft_test.go              | 640 ++++++++++++++++++
  src/crypto/tls/schannel_windows.go            |   7 +
  src/internal/godebugs/table.go                |   2 +
  src/net/http/internal/http2/transport_test.go |   2 +
- 12 files changed, 907 insertions(+), 24 deletions(-)
+ 12 files changed, 912 insertions(+), 24 deletions(-)
  create mode 100644 src/crypto/tls/defaults_microsoft.go
  create mode 100644 src/crypto/tls/microsoft_test.go
 
 diff --git a/doc/godebug.md b/doc/godebug.md
-index 79f3c10ffbbfe1d77fd511bb7cc40320267e6621..1641530aba7afdf6b837ec872089f966dfb4b005 100644
+index 76a4eee5e70d56d7225c75fa7b9859870ac123de..b35cbbc4ee2a04a45f0031d6e00c2ac301f06686 100644
 --- a/doc/godebug.md
 +++ b/doc/godebug.md
-@@ -263,6 +263,15 @@ APIs ignore the random `io.Reader` parameter. For Go 1.26, it defaults
+@@ -274,6 +274,15 @@ APIs ignore the random `io.Reader` parameter. For Go 1.26, it defaults
  to `cryptocustomrand=0`, ignoring the random parameters. Using `cryptocustomrand=1`
  reverts to the pre-Go 1.26 behavior.
  
@@ -41,7 +41,7 @@ index 79f3c10ffbbfe1d77fd511bb7cc40320267e6621..1641530aba7afdf6b837ec872089f966
  
  Go 1.25 added a new `decoratemappings` setting that controls whether the Go
 diff --git a/src/crypto/tls/common.go b/src/crypto/tls/common.go
-index 5f08beae07f129e8d83a0fa7aa089efefb156a27..7bf9d21264afd289fbe1cee072d05370bdaf72b4 100644
+index d9f3ead058fdeb5fc3701d2a614d000ddfb54492..3b187123487bf1b443cea6e4ec60f308eb84794c 100644
 --- a/src/crypto/tls/common.go
 +++ b/src/crypto/tls/common.go
 @@ -1204,7 +1204,14 @@ func (c *Config) cipherSuites(aesGCMPreferred bool) []uint16 {
@@ -61,15 +61,18 @@ index 5f08beae07f129e8d83a0fa7aa089efefb156a27..7bf9d21264afd289fbe1cee072d05370
  	}
  	return cipherSuites
 diff --git a/src/crypto/tls/defaults.go b/src/crypto/tls/defaults.go
-index c89036047ad5a385d3a84d07aba359fb1d618d78..4fdb4cfbd25d2b9cb01dea8d4585010a461ce67e 100644
+index 98cb6e11708bbfa261bbee60c71ab7ceaf2ead03..fe7a3061812b08b7854638f18b48379cfda9f952 100644
 --- a/src/crypto/tls/defaults.go
 +++ b/src/crypto/tls/defaults.go
-@@ -18,14 +18,17 @@ var tlsmlkem = godebug.New("tlsmlkem")
+@@ -18,6 +18,7 @@ var tlsmlkem = godebug.New("tlsmlkem")
  
  // tlssecpmlkem=0 restores the pre-Go 1.26 default key exchanges.
  var tlssecpmlkem = godebug.New("tlssecpmlkem")
 +var ms_tlsx25519 = godebug.New("ms_tlsx25519")
  
+ // tlsechgrease=0 disables sending a GREASE'd encrypted_client_hello extension
+ // on outer ClientHellos when no ECHConfigList is configured, restoring the
+@@ -27,10 +28,12 @@ var tlsechgrease = godebug.New("tlsechgrease")
  // defaultCurveEnabled returns whether the key exchange c is enabled by default.
  func defaultCurveEnabled(c CurveID) bool {
  	switch c {
@@ -84,7 +87,7 @@ index c89036047ad5a385d3a84d07aba359fb1d618d78..4fdb4cfbd25d2b9cb01dea8d4585010a
  	case SecP256r1MLKEM768, SecP384r1MLKEM1024:
  		return tlsmlkem.Value() != "0" && tlssecpmlkem.Value() != "0"
  	default:
-@@ -36,6 +39,9 @@ func defaultCurveEnabled(c CurveID) bool {
+@@ -41,6 +44,9 @@ func defaultCurveEnabled(c CurveID) bool {
  // curvePreferenceOrder is the fixed preference order of key exchanges. It must
  // include every supported key exchange.
  func curvePreferenceOrder() []CurveID {
@@ -94,7 +97,7 @@ index c89036047ad5a385d3a84d07aba359fb1d618d78..4fdb4cfbd25d2b9cb01dea8d4585010a
  	return []CurveID{
  		X25519MLKEM768, SecP256r1MLKEM768, SecP384r1MLKEM1024, MLKEM1024,
  		X25519, CurveP256, CurveP384, CurveP521,
-@@ -47,7 +53,7 @@ func curvePreferenceOrder() []CurveID {
+@@ -52,7 +58,7 @@ func curvePreferenceOrder() []CurveID {
  // CertificateRequest. The two fields are merged to match with TLS 1.3.
  // Note that in TLS 1.2, the ECDSA algorithms are not constrained to P-256, etc.
  func defaultSupportedSignatureAlgorithms() []SignatureScheme {
@@ -103,7 +106,7 @@ index c89036047ad5a385d3a84d07aba359fb1d618d78..4fdb4cfbd25d2b9cb01dea8d4585010a
  		MLDSA44,
  		MLDSA65,
  		MLDSA87,
-@@ -64,20 +70,38 @@ func defaultSupportedSignatureAlgorithms() []SignatureScheme {
+@@ -69,20 +75,38 @@ func defaultSupportedSignatureAlgorithms() []SignatureScheme {
  		PKCS1WithSHA1,
  		ECDSAWithSHA1,
  	}
@@ -318,7 +321,7 @@ index 0000000000000000000000000000000000000000..47cda5674f541536b204c4208990a129
 +	return disabled
 +}()
 diff --git a/src/crypto/tls/handshake_client.go b/src/crypto/tls/handshake_client.go
-index ae1239f632380e77496a7f819a464c52ccc59e4a..1fb12f7e379bdc53c5b57821a5235a4ba0aecb75 100644
+index 73ccf2b88e0ce851e55a8a4ddcea56ba537665a6..a2c4c8aa64d350a27a8ecd0138fd670583e9fef9 100644
 --- a/src/crypto/tls/handshake_client.go
 +++ b/src/crypto/tls/handshake_client.go
 @@ -132,12 +132,21 @@ func (c *Conn) makeClientHello() (*clientHelloMsg, *keySharePrivateKeys, *echCli
@@ -378,10 +381,10 @@ index 671d19bf8f8379218017d033943ea4a38a024a78..f1ef6541e3247b08f650677f47fb7a58
  			if len(chi.CipherSuites) != len(expectedCiphersuites) {
  				t.Errorf("only TLS 1.3 suites should be advertised, got=%x", chi.CipherSuites)
 diff --git a/src/crypto/tls/handshake_server_tls13.go b/src/crypto/tls/handshake_server_tls13.go
-index 5649f3f6845a282c6f50b2802e4b1b798ee5c97d..ed7f80c12c2c15aeb2545069f76e537c1e1bd38d 100644
+index 225a867fc01047c02f0dbaa18ef51208fce6c397..7238388d49d253dd04866ef3c3689ad59f3689ab 100644
 --- a/src/crypto/tls/handshake_server_tls13.go
 +++ b/src/crypto/tls/handshake_server_tls13.go
-@@ -177,12 +177,22 @@ func (hs *serverHandshakeStateTLS13) processClientHello() error {
+@@ -178,12 +178,22 @@ func (hs *serverHandshakeStateTLS13) processClientHello() error {
  	hs.hello.sessionId = hs.clientHello.sessionId
  	hs.hello.compressionMethod = compressionNone
  
@@ -426,10 +429,10 @@ index c50ebe43f74f464a36c41d8f4e2b1b34a7052a10..3399c3efc919f6ee71a2b0b26495b1c2
  		if err != nil {
 diff --git a/src/crypto/tls/microsoft_test.go b/src/crypto/tls/microsoft_test.go
 new file mode 100644
-index 0000000000000000000000000000000000000000..2319ce811f42f8357962007635ce9e615da14c3d
+index 0000000000000000000000000000000000000000..725b2d86ab338f8cf484de2348595881c9aab669
 --- /dev/null
 +++ b/src/crypto/tls/microsoft_test.go
-@@ -0,0 +1,635 @@
+@@ -0,0 +1,640 @@
 +// Copyright 2025 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -594,7 +597,12 @@ index 0000000000000000000000000000000000000000..2319ce811f42f8357962007635ce9e61
 +						return defaultSupportedSignatureAlgorithms()
 +					}},
 +					{"signature_algorithms", supportedSignatureAlgorithms},
-+					{"signature_algorithms_cert", supportedSignatureAlgorithmsCert},
++					{"certificate", func(min, max uint16) []SignatureScheme {
++						return enabledSignatureAlgorithms(min, max, sigAlgCertificate)
++					}},
++					{"signature_algorithms_cert", func(min, max uint16) []SignatureScheme {
++						return enabledSignatureAlgorithms(min, max, sigAlgLegacyCertificate)
++					}},
 +				} {
 +					t.Run(versions.name+"/"+algorithms.name, func(t *testing.T) {
 +						testenv.SetGODEBUG(t, "ms_tlsprofile=off")
@@ -1084,7 +1092,7 @@ index 38e746d8e8fa092c1d8dc3982c02224ba4ad64b0..cb950b2792f39c2d33816146142d7aba
  	cipherSuitesPreferenceOrderNoAES = cipherSuitesPreferenceOrder
  	defaultCipherSuitesTLS13NoAES = defaultCipherSuitesTLS13
 diff --git a/src/internal/godebugs/table.go b/src/internal/godebugs/table.go
-index 89ec78555a5312f9e4495369a8001725f9a64162..05d9cf6eea4b28c21ddbd710d7bd749ab0b92598 100644
+index 1854773f75a395b25215edf34979ae0909784272..502dd68e9937442910114111666c949e5abf6b8b 100644
 --- a/src/internal/godebugs/table.go
 +++ b/src/internal/godebugs/table.go
 @@ -50,6 +50,8 @@ var All = []Info{
@@ -1097,7 +1105,7 @@ index 89ec78555a5312f9e4495369a8001725f9a64162..05d9cf6eea4b28c21ddbd710d7bd749a
  	{Name: "multipartmaxheaders", Package: "mime/multipart"},
  	{Name: "multipartmaxparts", Package: "mime/multipart"},
 diff --git a/src/net/http/internal/http2/transport_test.go b/src/net/http/internal/http2/transport_test.go
-index 8121f3dc595dc679f722e2b1838ff7cff10307f5..9cbcc2352bc8a0da6fc23ddeb70de2629c6f41a8 100644
+index 96fb4789b24544fb5c95a368d5493328291f5fd8..92b149b8e538a094a92f57bc95d596f8e6d4f60b 100644
 --- a/src/net/http/internal/http2/transport_test.go
 +++ b/src/net/http/internal/http2/transport_test.go
 @@ -15,6 +15,7 @@ import (
@@ -1108,7 +1116,7 @@ index 8121f3dc595dc679f722e2b1838ff7cff10307f5..9cbcc2352bc8a0da6fc23ddeb70de262
  	"io"
  	"log"
  	"maps"
-@@ -3044,6 +3045,7 @@ func TestTransportPingWriteBlocks(t *testing.T) {
+@@ -3080,6 +3081,7 @@ func TestTransportPingWriteBlocks(t *testing.T) {
  	// The blocked mutex acquisition prevents the synctest bubble from quiescing.
  	//
  	// This also means we can't use newTestClientConn, which assumes synctest.

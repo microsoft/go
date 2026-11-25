@@ -8,10 +8,7 @@
 
 package sha3
 
-import (
-	fallback "crypto/internal/fips140/sha3"
-	"hash"
-)
+import fallback "crypto/internal/fips140/sha3"
 
 type fipsHash = fallback.Digest
 
@@ -30,6 +27,3 @@ func New224() *Hash { return newHash(hashSHA224) }
 func New384() *Hash { return newHash(hashSHA384) }
 
 func New512() *Hash { return newHash(hashSHA512) }
-
-// Unwrap returns the selected hash implementation.
-func Unwrap(h *Hash) hash.Hash { return h.unwrap() }

@@ -186,10 +186,7 @@ var msgostdTemplate = template.Must(template.New("msgostd").Parse(`// Copyright 
 
 package {{.Package}}
 
-import (
-	fallback {{printf "%q" .FallbackImport}}
-	"hash"
-)
+import fallback {{printf "%q" .FallbackImport}}
 
 type fipsHash = fallback.{{.FallbackType}}
 {{range .Algorithms}}
@@ -198,8 +195,6 @@ func initFallback{{.Suffix}}() *fipsHash { return fallback.{{.Constructor}}() }
 {{range .Algorithms}}
 func {{.Constructor}}() *{{$.Type}} { return new{{$.Type}}({{.Constant}}) }
 {{end}}
-// Unwrap returns the selected hash implementation.
-func Unwrap(h *{{.Type}}) hash.Hash { return h.unwrap() }
 `))
 
 var nomsgostdTemplate = template.Must(template.New("nomsgostd").Parse(`// Copyright 2026 The Go Authors. All rights reserved.
