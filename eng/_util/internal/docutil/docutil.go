@@ -21,8 +21,8 @@ import (
 //
 // The cache mechanism is described in https://pkg.go.dev/cmd/go#hdr-Test_packages:
 //
-//   Tests that open files within the package's module or that consult [env]
-//   only match future runs in which the files and [env] are unchanged.
+//	Tests that open files within the package's module or that consult [env]
+//	only match future runs in which the files and [env] are unchanged.
 func ReadGenerated(linkPath, expectedDocPath string) ([]byte, error) {
 	info, err := os.Lstat(linkPath)
 	if err != nil {
