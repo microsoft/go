@@ -5,15 +5,16 @@
 package main
 
 import (
-	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/microsoft/go/_util/internal/docutil"
 )
 
 func TestUpdateLinkTableReproducible(t *testing.T) {
 	checkedInPath := filepath.Join("..", "..", "..", "..", docPath)
-	checkedIn, err := os.ReadFile(checkedInPath)
+	checkedIn, err := docutil.ReadGenerated("testdata/generated-doc-link.md", checkedInPath)
 	if err != nil {
 		t.Fatalf("Failed to read checked-in document at %q: %v", checkedInPath, err)
 	}
