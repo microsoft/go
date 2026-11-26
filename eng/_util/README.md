@@ -16,3 +16,8 @@ The minimal dependencies are themselves tested by
 `TestMinimalCommandDependencies` in `testutil`. It uses `go list` to ensure that
 all commands that use more than the minimal set of dependencies include the
 conditional panic upon init.
+
+### Generated Markdown checks
+
+The reproducibility tests for generated Markdown files in this repository read documents outside the `eng/_util` module through relative symlinks inside the module in `testdata` dirs so Go's test cache tracks edits to the documents outside the module.
+See [`ReadGenerated` in `docutil.go`](./internal/docutil/docutil.go) for more information.

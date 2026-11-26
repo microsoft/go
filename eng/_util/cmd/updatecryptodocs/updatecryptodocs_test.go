@@ -5,7 +5,6 @@
 package main
 
 import (
-	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -15,7 +14,7 @@ import (
 
 func TestUpdateCryptoDocsReproducible(t *testing.T) {
 	checkedInPath := filepath.Join("..", "..", "..", "..", *docPath)
-	checkedIn, err := os.ReadFile(checkedInPath)
+	checkedIn, err := docutil.ReadGenerated("testdata/generated-doc-link.md", checkedInPath)
 	if err != nil {
 		t.Fatalf("Failed to read checked-in document at %q: %v", checkedInPath, err)
 	}
@@ -36,7 +35,7 @@ func TestUpdateCryptoDocsReproducible(t *testing.T) {
 
 func TestUpdateUserGuideReproducible(t *testing.T) {
 	checkedInPath := filepath.Join("..", "..", "..", "..", *userGuidePath)
-	checkedIn, err := os.ReadFile(checkedInPath)
+	checkedIn, err := docutil.ReadGenerated("testdata/generated-user-guide-link.md", checkedInPath)
 	if err != nil {
 		t.Fatalf("Failed to read checked-in document at %q: %v", checkedInPath, err)
 	}
