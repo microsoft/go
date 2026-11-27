@@ -4,7 +4,7 @@ go 1.26
 
 require (
 	github.com/microsoft/go-crypto-darwin v0.0.3-0.20261026090017-171c4346c8c7
-	github.com/microsoft/go-crypto-openssl v0.5.1-0.20261127094520-78548450188b
+	github.com/microsoft/go-crypto-openssl v0.5.1-0.20261127115819-5fc849b06ccb
 	github.com/microsoft/go-crypto-winnative v0.0.0-20261026100005-aa3b480dc528
 	golang.org/x/crypto v0.52.1-0.20260526024921-9beb694f9766
 )
